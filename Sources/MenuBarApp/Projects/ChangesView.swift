@@ -159,12 +159,12 @@ struct ChangesView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .contextMenu {
-            Button("Reveal in Finder") { reveal(file) }
-            Button("Copy Path") {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(fileURL(file).path, forType: .string)
-            }
+        .appContextMenu {
+            [.item("Reveal in Finder") { reveal(file) },
+             .item("Copy Path") {
+                 NSPasteboard.general.clearContents()
+                 NSPasteboard.general.setString(fileURL(file).path, forType: .string)
+             }]
         }
     }
 

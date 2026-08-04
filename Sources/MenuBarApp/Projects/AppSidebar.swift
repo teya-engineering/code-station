@@ -5,6 +5,8 @@ import SwiftUI
 // pinned button that opens the MCP config manager.
 struct AppSidebar: View {
     let onConfigureServers: () -> Void
+    let onOpenDocker: () -> Void
+    let onOpenSettings: () -> Void
 
     @Environment(ProjectStore.self) private var store
     @Environment(SessionRunner.self) private var runner
@@ -14,7 +16,6 @@ struct AppSidebar: View {
     // clicks on the disclosure arrow is remembered here and wins over that default.
     @State private var expansion: [UUID: Bool] = [:]
     @State private var renamingID: UUID?
-    @State private var hoveringMCP = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -90,16 +91,16 @@ struct AppSidebar: View {
             store.selectedProjectID = project.id
             expansion[project.id] = !expanded
         }
-        .contextMenu {
-            Button("Rename…") { renamingID = project.id }
-            Button("New session") { requestNewSession(in: project) }
-            Divider()
-            Button("Reveal in Finder") {
-                NSWorkspace.shared.activateFileViewerSelecting([project.url])
-            }
-            Button("Open in Terminal") { openInTerminal(project) }
-            Divider()
-            Button("Remove project", role: .destructive) { confirmRemoveProject(project) }
+        .appContextMenu {
+            [.item("Rename…") { renamingID = project.id },
+             .item("New session") { requestNewSession(in: project) },
+             .separator,
+             .item("Reveal in Finder") {
+                 NSWorkspace.shared.activateFileViewerSelecting([project.url])
+             },
+             .item("Open in Terminal") { openInTerminal(project) },
+             .separator,
+             .item("Remove project", kind: .destructive) { confirmRemoveProject(project) }]
         }
 
         if expanded {
@@ -108,16 +109,17 @@ struct AppSidebar: View {
                            selected: isSelected(session),
                            busy: runner.state(session.id).isBusy,
                            activity: activityLine(session, project: project),
-                           additions: additions(session, project: project))
+                           additions: additions(session, project: project),
+                           onDelete: { confirmRemoveSession(session) })
                     .contentShape(Rectangle())
                     .onTapGesture {
                         store.selectedProjectID = project.id
                         store.selection = .session(session.id)
                     }
-                    .contextMenu {
-                        Button("Delete session", role: .destructive) {
+                    .appContextMenu {
+                        [.item("Delete session", kind: .destructive) {
                             confirmRemoveSession(session)
-                        }
+                        }]
                     }
             }
             NewSessionRow { requestNewSession(in: project) }
@@ -266,10 +268,21 @@ struct AppSidebar: View {
 
             Divider().overlay(Theme.hairline)
 
-            mcpRow
-                .padding(.horizontal, 12)
-                .padding(.top, 10)
-                .padding(.bottom, runner.available ? 12 : 6)
+            VStack(spacing: 2) {
+                BottomRow(icon: "server.rack",
+                          title: "MCP Servers",
+                          trailing: "slider.horizontal.3",
+                          action: onConfigureServers)
+                BottomRow(icon: "shippingbox",
+                          title: "Docker",
+                          action: onOpenDocker)
+                BottomRow(icon: "gearshape",
+                          title: "Settings",
+                          action: onOpenSettings)
+            }
+            .padding(.horizontal, 12)
+            .padding(.top, 10)
+            .padding(.bottom, runner.available ? 12 : 6)
 
             if !runner.available {
                 Text("Claude Code was not found on PATH.")
@@ -279,29 +292,6 @@ struct AppSidebar: View {
                     .padding(.bottom, 12)
             }
         }
-    }
-
-    private var mcpRow: some View {
-        Button(action: onConfigureServers) {
-            HStack(spacing: 10) {
-                Image(systemName: "server.rack")
-                    .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
-                Text("MCP Servers")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.primary)
-                Spacer()
-                Image(systemName: "slider.horizontal.3")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.tertiary)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .background(RoundedRectangle(cornerRadius: 9).fill(hoveringMCP ? Color.black.opacity(0.05) : .clear))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { hoveringMCP = $0 }
     }
 
     // MARK: - Actions
@@ -331,6 +321,43 @@ struct AppSidebar: View {
 }
 
 // MARK: - Rows
+
+// The pinned rows under the project list: the places you go to set something up rather
+// than to work.
+private struct BottomRow: View {
+    let icon: String
+    let title: String
+    var trailing: String?
+    let action: () -> Void
+
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: icon)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 16)
+                Text(title)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.primary)
+                Spacer()
+                if let trailing {
+                    Image(systemName: trailing)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(RoundedRectangle(cornerRadius: 9).fill(hovering ? Color.black.opacity(0.05) : .clear))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+    }
+}
 
 private struct ProjectHeaderRow: View {
     let project: Project
@@ -420,6 +447,9 @@ private struct SessionRow: View {
     let busy: Bool
     let activity: String?
     let additions: Int
+    let onDelete: () -> Void
+
+    @State private var hovering = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
@@ -438,7 +468,17 @@ private struct SessionRow: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer(minLength: 6)
-                if !busy, additions > 0 {
+                // The counter steps aside on hover: the row is narrow, and the delete
+                // button is what the pointer is there for.
+                if hovering {
+                    Button(action: onDelete) {
+                        Image(systemName: "trash")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Delete session")
+                } else if !busy, additions > 0 {
                     Text("+\(additions)")
                         .font(.mono(11, .medium))
                         .foregroundStyle(Theme.addition)
@@ -461,8 +501,10 @@ private struct SessionRow: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
-        .background(RoundedRectangle(cornerRadius: 8).fill(selected ? Color.black.opacity(0.06) : .clear))
+        .background(RoundedRectangle(cornerRadius: 8)
+            .fill(selected ? Color.black.opacity(0.06) : hovering ? Color.black.opacity(0.03) : .clear))
         .padding(.leading, 18)
+        .onHover { hovering = $0 }
     }
 }
 

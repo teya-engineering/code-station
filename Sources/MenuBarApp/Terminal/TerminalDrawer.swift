@@ -123,13 +123,18 @@ struct TerminalDrawer: View {
         }
         .buttonStyle(.plain)
         .onTapGesture(count: 2) { startRename(terminal) }
-        .contextMenu {
-            Button("Rename…") { startRename(terminal) }
-            Button("Clear") { terminal.clear() }
+        .appContextMenu {
+            var entries: [MenuEntry] = [
+                .item("Rename…") { startRename(terminal) },
+                .item("Clear") { terminal.clear() }
+            ]
             if open.count > 1 {
-                Divider()
-                Button("Close", role: .destructive) { terminals.close(terminal, in: sessionID) }
+                entries.append(.separator)
+                entries.append(.item("Close", kind: .destructive) {
+                    terminals.close(terminal, in: sessionID)
+                })
             }
+            return entries
         }
     }
 

@@ -6,18 +6,26 @@ import SwiftUI
 struct RootView: View {
     @Environment(ProjectStore.self) private var store
     @State private var configuringServers = false
+    @State private var showingDocker = false
+    @State private var showingSettings = false
 
     var body: some View {
         HStack(spacing: 0) {
-            AppSidebar(onConfigureServers: { configuringServers = true })
+            AppSidebar(onConfigureServers: { configuringServers = true },
+                       onOpenDocker: { showingDocker = true },
+                       onOpenSettings: { showingSettings = true })
             Divider().overlay(Theme.hairline)
             detail
         }
         .background(Theme.background)
-        // Dialogs are drawn here rather than where they are asked for, so a question
-        // from the sidebar is still centred over the whole window.
+        // Dialogs and menus are drawn here rather than where they are asked for, so a
+        // question from the sidebar is still centred over the whole window and a menu
+        // can spill past the panel it was opened from.
+        .overlay { ContextMenuHost() }
         .overlay { DialogHost() }
         .sheet(isPresented: $configuringServers) { ConfigManagerView() }
+        .sheet(isPresented: $showingDocker) { DockerView() }
+        .sheet(isPresented: $showingSettings) { SettingsView() }
     }
 
     @ViewBuilder private var detail: some View {
