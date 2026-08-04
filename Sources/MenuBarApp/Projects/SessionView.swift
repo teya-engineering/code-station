@@ -1,17 +1,25 @@
 import SwiftUI
 
-// The detail pane for one Claude Code conversation: the transcript on the left tab,
-// the working tree diff on the right one.
+// The detail pane for one Claude Code conversation: the transcript or the working tree
+// diff, with a real shell docked underneath. The terminal shares the screen rather
+// than replacing it, so a build and what the agent did are one glance apart.
 struct SessionView: View {
     @Environment(ProjectStore.self) private var store
     @Environment(SessionRunner.self) private var runner
+    @Environment(TerminalStore.self) private var terminals
     let sessionID: UUID
 
     private enum Tab: Hashable { case chat, changes }
 
     @State private var tab: Tab = .chat
     @State private var draft = ""
+    @State private var terminalFocused = false
     @FocusState private var composerFocused: Bool
+
+    // Working tree totals for the header; refreshed as tools finish so the numbers
+    // track the run rather than only its end.
+    @State private var stats: GitSnapshot?
+    @State private var statsTask: Task<Void, Never>?
 
     private let bottomAnchor = "transcript-bottom"
 
@@ -21,20 +29,35 @@ struct SessionView: View {
             VStack(spacing: 0) {
                 header(session: session, project: project)
                 Divider().overlay(Theme.hairline)
-                warningStrip(for: project)
+                warningStrip(session: session, project: project)
 
                 switch tab {
                 case .chat:
                     transcript(session)
                     Divider().overlay(Theme.hairline)
-                    composer(project: project)
+                    composer(session: session, project: project)
                 case .changes:
-                    ChangesView(project: project)
+                    ChangesView(root: session.worktreePath ?? project.path)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+
+                if terminals.isOpen(sessionID) {
+                    TerminalDrawer(sessionID: sessionID,
+                                   directory: session.worktreePath ?? project.path,
+                                   focusTerminal: $terminalFocused)
                 }
             }
             .background(Theme.background)
             .onAppear { composerFocused = true }
+            .background(terminalShortcut(directory: session.worktreePath ?? project.path))
+            .onChange(of: terminalFocused) { _, focused in
+                if focused { composerFocused = false }
+            }
+            .task(id: sessionID) { refreshStats(session.worktreePath ?? project.path) }
+            .onChange(of: completedToolCount) { refreshStats(session.worktreePath ?? project.path) }
+            .onChange(of: runner.state(sessionID)) { _, state in
+                if !state.isBusy { refreshStats(session.worktreePath ?? project.path) }
+            }
         } else {
             VStack(spacing: 14) {
                 Image(systemName: "bubble.left.and.bubble.right")
@@ -48,7 +71,7 @@ struct SessionView: View {
     // MARK: - Header
 
     private func header(session: ChatSession, project: Project) -> some View {
-        HStack(alignment: .top, spacing: 16) {
+        HStack(alignment: .center, spacing: 16) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(session.title)
                     .font(.serif(22, .semibold))
@@ -57,43 +80,131 @@ struct SessionView: View {
                 HStack(spacing: 8) {
                     Text(project.name)
                         .font(.system(size: 12, weight: .medium))
-                    Text(project.collapsedPath)
+                    Text((session.worktreePath ?? project.path).abbreviatedPath)
                         .font(.mono(11))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
+                    if let branch = session.worktreeBranch {
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.triangle.branch")
+                                .font(.system(size: 10))
+                            Text(branch).font(.mono(11))
+                        }
+                        .foregroundStyle(Theme.accent)
+                    }
                 }
             }
 
             Spacer(minLength: 12)
 
-            if runner.state(sessionID).isBusy {
-                Button {
-                    runner.stop(sessionID)
-                } label: {
-                    Label("Stop", systemImage: "stop.fill")
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .tint(ChatColor.error)
+            diffStats
+            TabToggle(tab: $tab)
+            TerminalToggle(isOpen: terminals.isOpen(sessionID)) {
+                toggleTerminal(directory: session.worktreePath ?? project.path)
             }
-
-            Picker("", selection: $tab) {
-                Text("Chat").tag(Tab.chat)
-                Text("Changes").tag(Tab.changes)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(width: 170)
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 14)
         .background(Theme.card)
     }
 
-    @ViewBuilder private func warningStrip(for project: Project) -> some View {
+    // "+38 -6 in 3 files": what the working tree looks like right now. Clicking it
+    // opens the full diff.
+    @ViewBuilder private var diffStats: some View {
+        if let stats, stats.state == .ready, !stats.files.isEmpty {
+            Button { tab = .changes } label: {
+                HStack(spacing: 6) {
+                    Text("+\(stats.totalAdded)").foregroundStyle(Theme.addition)
+                    Text("-\(stats.totalRemoved)").foregroundStyle(Theme.deletion)
+                    Text("in \(stats.files.count) file\(stats.files.count == 1 ? "" : "s")")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
+                .font(.mono(12, .semibold))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Open Changes")
+        }
+    }
+
+    // Completed tool calls in the turn that is streaming right now. Each one may have
+    // touched the working tree, so each is a moment to refresh the header stats.
+    private var completedToolCount: Int {
+        guard let last = store.session(sessionID)?.messages.last, last.role == .assistant else { return 0 }
+        return last.tools.filter { !$0.isRunning }.count
+    }
+
+    private func refreshStats(_ root: String) {
+        statsTask?.cancel()
+        statsTask = Task {
+            let snapshot = await GitInspector.snapshot(at: root)
+            if !Task.isCancelled { stats = snapshot }
+        }
+    }
+
+    // Control-backtick reaches the terminal from the keyboard: it opens the drawer if
+    // it is shut, and otherwise moves focus between the composer and the shell. A
+    // hidden button is how a shortcut gets a home when there is no menu item for it.
+    private func terminalShortcut(directory: String) -> some View {
+        Button("") {
+            if !terminals.isOpen(sessionID) {
+                terminals.setOpen(true, for: sessionID, directory: directory)
+                terminalFocused = true
+            } else {
+                terminalFocused.toggle()
+                if !terminalFocused { composerFocused = true }
+            }
+        }
+        .keyboardShortcut("`", modifiers: .control)
+        .opacity(0)
+    }
+
+    // The button both opens and shuts it; opening puts the cursor straight in the shell
+    // so it can be used without reaching for the mouse again.
+    private func toggleTerminal(directory: String) {
+        let opening = !terminals.isOpen(sessionID)
+        terminals.setOpen(opening, for: sessionID, directory: directory)
+        terminalFocused = opening
+        if !opening { composerFocused = true }
+    }
+
+    private struct TabToggle: View {
+        @Binding var tab: Tab
+
+        var body: some View {
+            HStack(spacing: 2) {
+                segment("Chat", .chat)
+                segment("Changes", .changes)
+            }
+            .padding(3)
+            .background(RoundedRectangle(cornerRadius: 10).fill(Color.black.opacity(0.05)))
+        }
+
+        private func segment(_ label: String, _ value: Tab) -> some View {
+            let active = tab == value
+            return Button { tab = value } label: {
+                Text(label)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(active ? Color.primary : Color.secondary)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 5)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(active ? Color.white : .clear)
+                            .shadow(color: .black.opacity(active ? 0.08 : 0), radius: 1, y: 0.5))
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    @ViewBuilder private func warningStrip(session: ChatSession, project: Project) -> some View {
         if store.isMissing(project) {
             strip("Folder not found at \(project.collapsedPath). Move it back or remove the project.")
+        } else if let worktree = session.worktreePath, !FileManager.default.fileExists(atPath: worktree) {
+            strip("Worktree not found at \(worktree.abbreviatedPath). It was removed outside the app; delete this session or recreate it.")
         } else if !runner.available {
             strip("Claude Code CLI not found on PATH. Sessions cannot run until it is installed.")
         }
@@ -115,6 +226,7 @@ struct SessionView: View {
 
     private func transcript(_ session: ChatSession) -> some View {
         let state = runner.state(sessionID)
+        let projectPath = store.workingDirectory(for: session) ?? ""
 
         return ScrollViewReader { proxy in
             ScrollView {
@@ -127,7 +239,9 @@ struct SessionView: View {
                     }
 
                     ForEach(session.messages) { message in
-                        MessageView(message: message)
+                        MessageView(message: message,
+                                    projectPath: projectPath,
+                                    openChanges: { tab = .changes })
                     }
 
                     if showsThinking(session, state: state) {
@@ -189,15 +303,16 @@ struct SessionView: View {
 
     // MARK: - Composer
 
-    private func composer(project: Project) -> some View {
-        let blocked = store.isMissing(project) || !runner.available
+    private func composer(session: ChatSession, project: Project) -> some View {
+        let workingDirectory = session.worktreePath ?? project.path
+        let blocked = !FileManager.default.fileExists(atPath: workingDirectory) || !runner.available
         let busy = runner.state(sessionID).isBusy
         let canSend = !busy && !blocked && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
 
         return HStack(alignment: .bottom, spacing: 10) {
             // A vertical-axis TextField gives us return-to-send and shift-return for a
             // newline for free; TextEditor would need an NSView to intercept the key.
-            TextField(busy ? "Claude Code is working…" : "Ask Claude Code to change something", text: $draft, axis: .vertical)
+            TextField(busy ? "Claude Code is working…" : "Ask for a change, ^` for the terminal", text: $draft, axis: .vertical)
                 .textFieldStyle(.plain)
                 .font(.system(size: 13))
                 .lineLimit(1...10)
@@ -209,16 +324,31 @@ struct SessionView: View {
                 .background(RoundedRectangle(cornerRadius: 10).fill(Theme.field))
                 .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
 
-            Button(action: send) {
-                Image(systemName: "arrow.up")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 32, height: 32)
-                    .background(Circle().fill(Color.black.opacity(canSend ? 0.88 : 0.22)))
+            // While a turn runs, the send button becomes the stop button.
+            if busy {
+                Button {
+                    runner.stop(sessionID)
+                } label: {
+                    Image(systemName: "stop.fill")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 32, height: 32)
+                        .background(Circle().fill(Theme.deletion))
+                }
+                .buttonStyle(.plain)
+                .help("Stop this turn")
+            } else {
+                Button(action: send) {
+                    Image(systemName: "arrow.up")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 32, height: 32)
+                        .background(Circle().fill(Color.black.opacity(canSend ? 0.88 : 0.22)))
+                }
+                .buttonStyle(.plain)
+                .disabled(!canSend)
+                .help("Send (shift-return for a new line)")
             }
-            .buttonStyle(.plain)
-            .disabled(!canSend)
-            .help("Send (shift-return for a new line)")
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 14)

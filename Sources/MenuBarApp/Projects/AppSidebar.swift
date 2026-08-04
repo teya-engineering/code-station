@@ -2,16 +2,19 @@ import AppKit
 import SwiftUI
 
 // The left navigation for the whole window: every project with its sessions, plus a
-// pinned entry for the original MCP config manager.
+// pinned button that opens the MCP config manager.
 struct AppSidebar: View {
+    let onConfigureServers: () -> Void
+
     @Environment(ProjectStore.self) private var store
     @Environment(SessionRunner.self) private var runner
+    @Environment(DialogPresenter.self) private var dialogs
 
     // A project is expanded by default while it is the selected one; anything the user
     // clicks on the disclosure arrow is remembered here and wins over that default.
     @State private var expansion: [UUID: Bool] = [:]
     @State private var renamingID: UUID?
-    @State private var pendingRemoval: Project?
+    @State private var hoveringMCP = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -22,17 +25,6 @@ struct AppSidebar: View {
         }
         .frame(width: 292)
         .background(Theme.sidebar)
-        .confirmationDialog(
-            "Remove \(pendingRemoval?.name ?? "project")?",
-            isPresented: Binding(get: { pendingRemoval != nil },
-                                 set: { if !$0 { pendingRemoval = nil } }),
-            presenting: pendingRemoval
-        ) { project in
-            Button("Remove project", role: .destructive) { store.removeProject(project.id) }
-            Button("Cancel", role: .cancel) {}
-        } message: { project in
-            Text("This drops its \(store.sessions(for: project.id).count) session(s) from the app. The folder itself stays on disk.")
-        }
     }
 
     // MARK: - Heading
@@ -86,7 +78,7 @@ struct AppSidebar: View {
             hasBusySession: sessions.contains { runner.state($0.id).isBusy },
             isRenaming: renamingID == project.id,
             onToggle: { expansion[project.id] = !expanded },
-            onNewSession: { store.newSession(in: project.id) },
+            onNewSession: { requestNewSession(in: project) },
             onRename: { name in
                 store.renameProject(project.id, to: name)
                 renamingID = nil
@@ -100,21 +92,23 @@ struct AppSidebar: View {
         }
         .contextMenu {
             Button("Rename…") { renamingID = project.id }
-            Button("New session") { store.newSession(in: project.id) }
+            Button("New session") { requestNewSession(in: project) }
             Divider()
             Button("Reveal in Finder") {
                 NSWorkspace.shared.activateFileViewerSelecting([project.url])
             }
             Button("Open in Terminal") { openInTerminal(project) }
             Divider()
-            Button("Remove project", role: .destructive) { pendingRemoval = project }
+            Button("Remove project", role: .destructive) { confirmRemoveProject(project) }
         }
 
         if expanded {
             ForEach(sessions) { session in
                 SessionRow(session: session,
                            selected: isSelected(session),
-                           busy: runner.state(session.id).isBusy)
+                           busy: runner.state(session.id).isBusy,
+                           activity: activityLine(session, project: project),
+                           additions: additions(session, project: project))
                     .contentShape(Rectangle())
                     .onTapGesture {
                         store.selectedProjectID = project.id
@@ -122,16 +116,132 @@ struct AppSidebar: View {
                     }
                     .contextMenu {
                         Button("Delete session", role: .destructive) {
-                            store.removeSession(session.id)
+                            confirmRemoveSession(session)
                         }
                     }
             }
-            NewSessionRow { store.newSession(in: project.id) }
+            NewSessionRow { requestNewSession(in: project) }
         }
     }
 
     private func isExpanded(_ project: Project) -> Bool {
         expansion[project.id] ?? (project.id == store.selectedProject?.id)
+    }
+
+    // MARK: - Creating and removing sessions
+
+    // A git repository gets the folder-or-worktree choice; a plain folder has no
+    // worktrees to offer, so the session is just created.
+    private func requestNewSession(in project: Project) {
+        guard FileManager.default.fileExists(atPath: project.path + "/.git") else {
+            store.newSession(in: project.id)
+            return
+        }
+        dialogs.show(Dialog(
+            title: "New session in \(project.name)",
+            message: "A worktree is an isolated checkout on its own branch, so several sessions of this project can run at once. Working in the folder itself edits your working tree directly, one session at a time.",
+            actions: [
+                .init(label: "Use a git worktree", kind: .primary) {
+                    createWorktreeSession(in: project)
+                },
+                .init(label: "Work in the project folder") {
+                    store.newSession(in: project.id)
+                },
+                .init(label: "Cancel", kind: .cancel)
+            ]))
+    }
+
+    private func confirmRemoveSession(_ session: ChatSession) {
+        guard let worktree = session.worktreePath else {
+            store.removeSession(session.id)
+            return
+        }
+        dialogs.show(Dialog(
+            title: "Delete \"\(session.title)\"?",
+            message: "Uncommitted changes in its worktree at \(worktree.abbreviatedPath) are lost. The branch is kept if it has unmerged commits.",
+            actions: [
+                .init(label: "Delete session and worktree", kind: .destructive) {
+                    removeSession(session)
+                },
+                .init(label: "Cancel", kind: .cancel)
+            ]))
+    }
+
+    private func confirmRemoveProject(_ project: Project) {
+        let count = store.sessions(for: project.id).count
+        dialogs.show(Dialog(
+            title: "Remove \(project.name)?",
+            message: "This drops its \(count) session\(count == 1 ? "" : "s") from the app and removes any worktrees they used. The folder itself stays on disk.",
+            actions: [
+                .init(label: "Remove project", kind: .destructive) { removeProject(project) },
+                .init(label: "Cancel", kind: .cancel)
+            ]))
+    }
+
+    // The session id is chosen up front so the worktree folder and branch can carry
+    // it before the session exists.
+    private func createWorktreeSession(in project: Project) {
+        let sessionID = UUID()
+        Task {
+            do {
+                let created = try await GitWorktree.add(projectPath: project.path,
+                                                        projectName: project.name,
+                                                        sessionID: sessionID)
+                store.newSession(in: project.id, id: sessionID,
+                                 worktreePath: created.path, worktreeBranch: created.branch)
+            } catch {
+                dialogs.show(Dialog(
+                    title: "Could not create a worktree",
+                    message: error.localizedDescription,
+                    actions: [.init(label: "OK", kind: .cancel)]))
+            }
+        }
+    }
+
+    private func removeSession(_ session: ChatSession) {
+        let project = store.project(session.projectID)
+        store.removeSession(session.id)
+        guard let worktree = session.worktreePath, let project else { return }
+        Task {
+            await GitWorktree.remove(worktreePath: worktree,
+                                     projectPath: project.path,
+                                     branch: session.worktreeBranch)
+        }
+    }
+
+    private func removeProject(_ project: Project) {
+        let worktreeSessions = store.sessions(for: project.id).filter { $0.worktreePath != nil }
+        store.removeProject(project.id)
+        guard !worktreeSessions.isEmpty else { return }
+        Task {
+            for session in worktreeSessions {
+                await GitWorktree.remove(worktreePath: session.worktreePath ?? "",
+                                         projectPath: project.path,
+                                         branch: session.worktreeBranch)
+            }
+        }
+    }
+
+    // "Bash · swift build": the tool call that is in flight right now, if any.
+    private func activityLine(_ session: ChatSession, project: Project) -> String? {
+        guard let message = session.messages.last, message.role == .assistant,
+              let tool = message.tools.last(where: { $0.isRunning }) else { return nil }
+        let root = session.worktreePath ?? project.path
+        let presentation = ToolPresentationCache.presentation(for: tool, projectPath: root)
+        guard !presentation.argument.isEmpty else { return presentation.verb }
+        return "\(presentation.verb) · \(presentation.argument)"
+    }
+
+    // Lines this session's edits have added, summed over the whole conversation. A
+    // rough measure, but enough to tell a session that wrote code from one that only
+    // answered a question.
+    private func additions(_ session: ChatSession, project: Project) -> Int {
+        let root = session.worktreePath ?? project.path
+        return session.messages.flatMap(\.tools).reduce(0) { total, tool in
+            guard !tool.isError, !tool.isRunning else { return total }
+            let presentation = ToolPresentationCache.presentation(for: tool, projectPath: root)
+            return total + (presentation.added ?? 0)
+        }
     }
 
     private func isSelected(_ session: ChatSession) -> Bool {
@@ -157,8 +267,6 @@ struct AppSidebar: View {
             Divider().overlay(Theme.hairline)
 
             mcpRow
-                .contentShape(Rectangle())
-                .onTapGesture { store.selection = .mcpServers }
                 .padding(.horizontal, 12)
                 .padding(.top, 10)
                 .padding(.bottom, runner.available ? 12 : 6)
@@ -174,21 +282,26 @@ struct AppSidebar: View {
     }
 
     private var mcpRow: some View {
-        let selected = { if case .mcpServers = store.selection { true } else { false } }()
-        return HStack(spacing: 10) {
-            Image(systemName: "server.rack")
-                .font(.system(size: 13))
-                .foregroundStyle(selected ? Color.primary : Color.secondary)
-            Text("MCP Servers")
-                .font(.system(size: 13, weight: .semibold))
-            Spacer()
-            Image(systemName: "chevron.right")
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(.tertiary)
+        Button(action: onConfigureServers) {
+            HStack(spacing: 10) {
+                Image(systemName: "server.rack")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                Text("MCP Servers")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.primary)
+                Spacer()
+                Image(systemName: "slider.horizontal.3")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(RoundedRectangle(cornerRadius: 9).fill(hoveringMCP ? Color.black.opacity(0.05) : .clear))
+            .contentShape(Rectangle())
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(RoundedRectangle(cornerRadius: 9).fill(selected ? Color.black.opacity(0.06) : .clear))
+        .buttonStyle(.plain)
+        .onHover { hoveringMCP = $0 }
     }
 
     // MARK: - Actions
@@ -305,26 +418,75 @@ private struct SessionRow: View {
     let session: ChatSession
     let selected: Bool
     let busy: Bool
+    let activity: String?
+    let additions: Int
 
     var body: some View {
-        HStack(spacing: 9) {
-            Circle()
-                .fill(busy ? Theme.dotOn : Theme.dotOff)
-                .frame(width: 7, height: 7)
-            Text(session.title)
-                .font(.system(size: 12, weight: selected ? .semibold : .regular))
-                .lineLimit(1)
-                .truncationMode(.tail)
-            Spacer(minLength: 6)
-            Text(session.createdAt, format: .relative(presentation: .numeric, unitsStyle: .narrow))
-                .font(.system(size: 10))
-                .foregroundStyle(.tertiary)
-                .lineLimit(1)
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 9) {
+                Circle()
+                    .fill(busy ? Theme.dotOn : Theme.dotOff)
+                    .frame(width: 7, height: 7)
+                if session.worktreePath != nil {
+                    Image(systemName: "arrow.triangle.branch")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .help("Runs in its own git worktree")
+                }
+                Text(session.title)
+                    .font(.system(size: 12, weight: selected ? .semibold : .regular))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 6)
+                if !busy, additions > 0 {
+                    Text("+\(additions)")
+                        .font(.mono(11, .medium))
+                        .foregroundStyle(Theme.addition)
+                }
+            }
+
+            if busy {
+                VStack(alignment: .leading, spacing: 4) {
+                    ActivityBar()
+                    if let activity {
+                        Text(activity)
+                            .font(.mono(11))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                }
+                .padding(.leading, 16)
+            }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
         .background(RoundedRectangle(cornerRadius: 8).fill(selected ? Color.black.opacity(0.06) : .clear))
         .padding(.leading, 18)
+    }
+}
+
+// A slow back-and-forth slide: there is no way to know how far along a turn is, so
+// the bar only says "still working".
+private struct ActivityBar: View {
+    @State private var sliding = false
+
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .leading) {
+                Capsule().fill(Theme.dotOff.opacity(0.35))
+                Capsule()
+                    .fill(Theme.dotOn)
+                    .frame(width: geometry.size.width * 0.4)
+                    .offset(x: sliding ? geometry.size.width * 0.6 : 0)
+            }
+        }
+        .frame(height: 3)
+        .onAppear {
+            withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) {
+                sliding = true
+            }
+        }
     }
 }
 

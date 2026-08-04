@@ -1,11 +1,12 @@
 import AppKit
 import SwiftUI
 
-// The uncommitted changes in a project's folder. Sessions run Claude Code straight in
-// the user's real repo, so this screen is how they see what the agent did to it. It is
-// strictly read-only: nothing here can stage, revert or discard anything.
+// The uncommitted changes in a session's folder: the project directory itself, or the
+// session's worktree. Sessions edit the real files there, so this screen is how you
+// see what the agent did before you keep it. It is strictly read-only: nothing here
+// can stage, revert or discard anything.
 struct ChangesView: View {
-    let project: Project
+    let root: String
 
     @State private var snapshot: GitSnapshot?
     @State private var loading = false
@@ -14,9 +15,6 @@ struct ChangesView: View {
     @State private var blocks: [DiffBlock] = []
     @State private var diffWidth: CGFloat = 0
     @State private var loadingDiff = false
-
-    private static let red = Color(red: 0.75, green: 0.28, blue: 0.24)
-    private static let green = Color(red: 0.24, green: 0.47, blue: 0.29)
 
     private var files: [GitChange] { snapshot?.files ?? [] }
     private var selected: GitChange? { files.first { $0.id == selectedID } }
@@ -28,7 +26,7 @@ struct ChangesView: View {
             content
         }
         .background(Theme.background)
-        .task(id: project.id) { await reload() }
+        .task(id: root) { await reload() }
     }
 
     // MARK: - Header
@@ -52,13 +50,13 @@ struct ChangesView: View {
 
                 if !files.isEmpty {
                     HStack(spacing: 8) {
-                        Text("+\(snapshot.totalAdded)").foregroundStyle(Self.green)
-                        Text("-\(snapshot.totalRemoved)").foregroundStyle(Self.red)
+                        Text("+\(snapshot.totalAdded)").foregroundStyle(Theme.addition)
+                        Text("-\(snapshot.totalRemoved)").foregroundStyle(Theme.deletion)
                     }
                     .font(.mono(13, .medium))
                 }
             } else {
-                Text(project.name).font(.system(size: 13, weight: .medium))
+                Text((root as NSString).lastPathComponent).font(.system(size: 13, weight: .medium))
             }
 
             Spacer()
@@ -98,7 +96,7 @@ struct ChangesView: View {
                     detail: "This folder is not tracked by git, so there is nothing to compare against.")
         case .missingFolder:
             message(icon: "questionmark.folder", title: "Folder not found",
-                    detail: project.collapsedPath)
+                    detail: root.abbreviatedPath)
         case .gitMissing:
             message(icon: "exclamationmark.triangle", title: "git not found",
                     detail: "Install the command line developer tools or add git to your PATH.")
@@ -176,9 +174,9 @@ struct ChangesView: View {
         } else {
             HStack(spacing: 6) {
                 Text(file.added.map { "+\($0)" } ?? "")
-                    .foregroundStyle(Self.green)
+                    .foregroundStyle(Theme.addition)
                 Text(file.removed.map { "-\($0)" } ?? "")
-                    .foregroundStyle(Self.red)
+                    .foregroundStyle(Theme.deletion)
             }
             .font(.mono(11, .medium))
         }
@@ -261,8 +259,8 @@ struct ChangesView: View {
 
     private func color(_ kind: DiffLine.Kind) -> Color {
         switch kind {
-        case .addition: Self.green
-        case .deletion: Self.red
+        case .addition: Theme.addition
+        case .deletion: Theme.deletion
         case .hunk, .meta, .section: .secondary
         case .context: .primary
         }
@@ -271,7 +269,7 @@ struct ChangesView: View {
     private func background(_ kind: DiffLine.Kind) -> Color {
         switch kind {
         case .addition: Theme.dotOn.opacity(0.14)
-        case .deletion: Self.red.opacity(0.10)
+        case .deletion: Theme.deletion.opacity(0.10)
         case .hunk, .section: Theme.field
         case .meta, .context: .clear
         }
@@ -300,7 +298,7 @@ struct ChangesView: View {
 
     private func reload() async {
         loading = true
-        let fresh = await GitInspector.snapshot(for: project)
+        let fresh = await GitInspector.snapshot(at: root)
         guard !Task.isCancelled else { return }
         snapshot = fresh
         loading = false
@@ -325,7 +323,7 @@ struct ChangesView: View {
         selectedID = file.id
         diff = nil
         blocks = []
-        let root = snapshot?.root ?? project.path
+        let root = snapshot?.root ?? root
         Task { await loadDiff(file, root: root) }
     }
 
@@ -340,7 +338,7 @@ struct ChangesView: View {
     }
 
     private func fileURL(_ file: GitChange) -> URL {
-        URL(fileURLWithPath: snapshot?.root ?? project.path).appendingPathComponent(file.path)
+        URL(fileURLWithPath: snapshot?.root ?? root).appendingPathComponent(file.path)
     }
 
     private func reveal(_ file: GitChange) {
@@ -396,7 +394,7 @@ private struct StatusChip: View {
         switch kind {
         case .modified: Theme.secret
         case .added, .untracked: Theme.dotOn
-        case .deleted, .conflicted: Color(red: 0.75, green: 0.28, blue: 0.24)
+        case .deleted, .conflicted: Theme.deletion
         case .renamed: Theme.accent
         }
     }

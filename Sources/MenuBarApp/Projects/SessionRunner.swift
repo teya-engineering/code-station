@@ -33,11 +33,12 @@ final class SessionRunner {
         guard !text.isEmpty, !state(sessionID).isBusy else { return }
         guard let session = store.session(sessionID) else { return }
 
-        // Sessions share their project's folder, so a second agent working there would
-        // edit the same files underneath the first one. Refuse instead of racing.
-        if let other = busySession(in: session.projectID, excluding: sessionID, store: store) {
+        // Two agents in one folder would edit the same files underneath each other, so
+        // sessions that share a directory cannot run at once. Worktree sessions each
+        // have their own directory, so they run in parallel freely.
+        if let other = busySession(sharingDirectoryWith: session, store: store) {
             states[sessionID] = .failed(
-                "\"\(other.title)\" is already running in this folder. Claude Code works in the project directory itself, so only one session can run at a time. Stop that one first.")
+                "\"\(other.title)\" is already running in this folder. Sessions that share a directory cannot run at the same time - stop that one first, or use a worktree session to run in parallel.")
             return
         }
 
@@ -45,12 +46,13 @@ final class SessionRunner {
         launch(text, sessionID: sessionID, store: store, canRetryWithoutResume: true)
     }
 
-    private func busySession(in projectID: UUID, excluding sessionID: UUID,
+    private func busySession(sharingDirectoryWith session: ChatSession,
                              store: ProjectStore) -> ChatSession? {
-        turns.keys
-            .filter { $0 != sessionID }
+        guard let directory = store.workingDirectory(for: session) else { return nil }
+        return turns.keys
+            .filter { $0 != session.id }
             .compactMap { store.session($0) }
-            .first { $0.projectID == projectID }
+            .first { store.workingDirectory(for: $0) == directory }
     }
 
     // Leaves whatever has streamed in so far in place.
@@ -83,8 +85,11 @@ final class SessionRunner {
                 "Could not find \"claude\" on PATH. Install the Claude Code CLI (npm install -g @anthropic-ai/claude-code) and reopen the app.")
             return
         }
-        guard !store.isMissing(project) else {
-            states[sessionID] = .failed("\(project.path) no longer exists.")
+        let workingDirectory = session.worktreePath ?? project.path
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: workingDirectory, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
+            states[sessionID] = .failed("\(workingDirectory) no longer exists.")
             return
         }
 
@@ -94,7 +99,7 @@ final class SessionRunner {
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: claudePath)
-        process.currentDirectoryURL = project.url
+        process.currentDirectoryURL = URL(fileURLWithPath: workingDirectory)
 
         var arguments = ["-p", "--output-format", "stream-json", "--verbose",
                          "--permission-mode", permissionMode]

@@ -1,21 +1,27 @@
 # Claude Conductor
 
 A small macOS app for running Claude Code against your projects, plus the MCP server
-manager it grew out of. It is a stripped-down take on Conductor: same idea of a project
-list and a chat per session, but only Claude Code, and no worktrees.
+manager it grew out of. It is a stripped-down take on Conductor: a project list and a
+chat per session, but only Claude Code.
 
 It lives in the Dock. Closing the window leaves it running; click the Dock icon to bring
 it back.
 
 ## How it works
 
-A project is just a folder on your Mac. Claude Code runs **in that folder itself**, so
-its edits land straight in your working tree. Nothing is copied and no branch is created.
+A project is just a folder on your Mac. A session runs Claude Code either **in that
+folder itself** - edits land straight in your working tree - or in a **git worktree**:
+an isolated checkout on its own branch, kept under
+`~/.config/claude-conductor/worktrees`.
 
-That is the main trade-off. Two agents in one folder would overwrite each other, so
-parallel work comes from adding several projects rather than running several sessions in
-one. To make the lack of an isolated worktree safe, every session has a **Changes** tab
-showing the uncommitted diff, so you can see what the agent did before you keep it.
+Starting a new session in a git repository asks which of the two you want. Sessions
+that share a folder cannot run at the same time, because two agents would edit the same
+files underneath each other; worktree sessions each have their own folder, so they run
+in parallel freely. In a folder that is not a git repository the session just runs in
+place, since there is nothing to make a worktree from.
+
+Either way, every session has a **Changes** tab showing the uncommitted diff of its
+folder, so you can see what the agent did before you keep it.
 
 ## What it does
 
@@ -23,11 +29,32 @@ showing the uncommitted diff, so you can see what the agent did before you keep 
 
 - **+ Add project** picks a folder. A folder can only be added once.
 - Each project holds a list of sessions. A session is one conversation with Claude Code.
-- The chat streams replies as they arrive, and shows each tool call with its input and
-  result, so you can watch what the agent is doing rather than only the final answer.
+- New sessions in a git repository choose between the project folder and a worktree.
+  A worktree session shows its branch in the header, and its Changes tab diffs the
+  worktree, not the project folder.
+- Deleting a worktree session removes its worktree. Uncommitted changes there are lost;
+  the branch is deleted only when git considers that safe, so committed work survives
+  as a branch in the main repository.
+- The chat streams replies as they arrive. Tool calls collapse into one activity spine:
+  one line per call, with what it touched and a short note (`413 lines`, `+4 -1`,
+  `running`). Clicking a row expands it in place - an edit shows the diff it made, and
+  anything else shows its input and output.
+- The header shows the working tree totals (`+38 -6 in 3 files`) live while the agent
+  works; clicking them opens **Changes**.
 - **Changes** shows the branch, the changed files with per-file `+`/`-` counts, and the
   diff for any file you select. It is strictly read-only: nothing here stages, commits,
   or discards anything.
+- **`>_ Terminal`** in the header opens a real shell in the session's folder, so you
+  can build, test, and commit without leaving the app or losing sight of the
+  conversation. It opens under the composer and takes nothing from the chat while it is
+  shut. `^\`` opens it and moves between the composer and the shell, dragging the tab
+  strip resizes it, and **Close** puts it away with every shell left running. Each tab
+  is its own shell; `+` opens another, double-click a tab to rename it, and a green dot
+  means a command is running in that tab right now.
+- A running session shows its current tool in the sidebar; an idle one shows how many
+  lines its edits added.
+- `CONDUCTOR_STORE=/path/to/projects.json` points the app at a different store file,
+  which is handy for trying the UI against staged data.
 - Sessions are resumed through Claude Code's own `--resume`, so context survives quitting
   the app. If Claude Code has forgotten a conversation, the next message starts a fresh
   one and says so instead of failing.
@@ -36,6 +63,11 @@ showing the uncommitted diff, so you can see what the agent did before you keep 
 Claude Code is run as `claude -p --output-format stream-json`, so the CLI owns
 permissions, model choice, and MCP wiring. Whatever `claude` does in a terminal in that
 folder is what happens here.
+
+The drawer's terminal is a scrollback view, not a full screen one. It understands what
+ordinary command output uses - colours, progress lines that redraw, line erases - which
+covers shells, builds, git and package managers. Full screen programs that paint the
+whole window (`vim`, `htop`) are not emulated, so keep those in a real terminal.
 
 ### MCP Servers
 
@@ -66,6 +98,15 @@ Code" button is what actually makes a server usable, by registering it with Clau
     (`command`/`args`/`env`) and remote servers (`url`/`type`/`headers`).
 
 Every edit is saved to the config file straight away.
+
+## Tests
+
+```bash
+swift test
+```
+
+Covers the terminal: the ANSI parser, and a real shell on a real pty answering what is
+typed at it.
 
 ## Requirements
 

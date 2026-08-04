@@ -12,8 +12,17 @@ enum Theme {
     static let dotOff = Color(red: 0.66, green: 0.66, blue: 0.63)
     static let secret = Color(red: 0.72, green: 0.52, blue: 0.20)
 
+    // Diff colours, shared by the changes screen, the chat's edit cards, and the
+    // +N / -N counters everywhere.
+    static let addition = Color(red: 0.24, green: 0.47, blue: 0.29)
+    static let deletion = Color(red: 0.75, green: 0.28, blue: 0.24)
+
     static let border = Color.black.opacity(0.08)
     static let hairline = Color.black.opacity(0.06)
+
+    // Drawn by AppKit around the focused terminal, so it is an NSColor rather than a
+    // SwiftUI one.
+    static let focusRing = NSColor(red: 0.20, green: 0.34, blue: 0.24, alpha: 0.22)
 }
 
 extension Font {

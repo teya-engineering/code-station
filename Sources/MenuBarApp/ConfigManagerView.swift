@@ -1,9 +1,12 @@
 import SwiftUI
 
+// Configuring MCP servers is a setup job, not somewhere to sit and work, so it is a
+// sheet over the window rather than a pane in it.
 struct ConfigManagerView: View {
     @Environment(ConfigStore.self) private var store
     @Environment(ProcessManager.self) private var processes
     @Environment(ClaudeCodeManager.self) private var claude
+    @Environment(\.dismiss) private var dismiss
     @State private var showingAddGrafana = false
     @State private var showingAddJSON = false
     @State private var showingAddChoice = false
@@ -30,6 +33,7 @@ struct ConfigManagerView: View {
                 detail
             }
         }
+        .frame(width: 940, height: 640)
         .background(Theme.background)
         .sheet(isPresented: $showingAddGrafana) { AddServerView() }
         .sheet(isPresented: $showingAddJSON) { AddJSONServerView() }
@@ -57,7 +61,7 @@ struct ConfigManagerView: View {
                 }
             } label: {
                 HStack(spacing: 6) {
-                    Text("MCP Config Manager")
+                    Text("MCP Servers")
                         .font(.system(size: 16, weight: .semibold))
                     Image(systemName: "chevron.down")
                         .font(.system(size: 11, weight: .semibold))
@@ -68,6 +72,16 @@ struct ConfigManagerView: View {
             .fixedSize()
 
             Spacer()
+
+            Button("Done") { dismiss() }
+                .buttonStyle(.plain)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 18)
+                .padding(.vertical, 7)
+                .background(RoundedRectangle(cornerRadius: 9).fill(Color.black.opacity(0.88)))
+                // Escape leaves the sheet, the way any other dialog behaves.
+                .keyboardShortcut(.cancelAction)
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 14)
@@ -79,14 +93,14 @@ struct ConfigManagerView: View {
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("Servers").font(.serif(24, .semibold))
+                Text("Servers").font(.serif(22, .semibold))
                 Text("\(processes.runningCount(among: store.servers.map(\.id))) of \(store.servers.count) running")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
             }
             .padding(.horizontal, 20)
-            .padding(.top, 24)
-            .padding(.bottom, 16)
+            .padding(.top, 18)
+            .padding(.bottom, 14)
 
             ScrollView {
                 VStack(spacing: 4) {

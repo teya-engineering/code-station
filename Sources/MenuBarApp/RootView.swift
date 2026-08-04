@@ -1,24 +1,27 @@
 import SwiftUI
 
-// The whole window: one sidebar listing projects and their sessions, plus an MCP
-// Servers entry that hands the detail pane over to the original config manager.
+// The whole window: one sidebar listing projects and their sessions. The detail pane
+// belongs to the session being worked on; MCP servers are configured in a sheet on
+// top of it, since that is a setup job rather than a place to sit.
 struct RootView: View {
     @Environment(ProjectStore.self) private var store
+    @State private var configuringServers = false
 
     var body: some View {
         HStack(spacing: 0) {
-            AppSidebar()
+            AppSidebar(onConfigureServers: { configuringServers = true })
             Divider().overlay(Theme.hairline)
             detail
         }
         .background(Theme.background)
+        // Dialogs are drawn here rather than where they are asked for, so a question
+        // from the sidebar is still centred over the whole window.
+        .overlay { DialogHost() }
+        .sheet(isPresented: $configuringServers) { ConfigManagerView() }
     }
 
     @ViewBuilder private var detail: some View {
         switch store.selection {
-        case .mcpServers:
-            ConfigManagerView()
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .session(let id):
             SessionView(sessionID: id)
                 .id(id)

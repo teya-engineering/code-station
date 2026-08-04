@@ -102,9 +102,9 @@ enum GitInspector {
 
     // MARK: - Snapshot
 
-    static func snapshot(for project: Project) async -> GitSnapshot {
+    static func snapshot(at path: String) async -> GitSnapshot {
         guard let tool = await tool() else { return .state(.gitMissing) }
-        let url = project.url
+        let url = URL(fileURLWithPath: path)
         return await offMain { snapshot(tool: tool, url: url) }
     }
 

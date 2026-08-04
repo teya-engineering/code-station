@@ -25,8 +25,10 @@ final class ProjectStore {
     }
 
     init() {
-        storeURL = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".config/claude-conductor/projects.json")
+        storeURL = ProcessInfo.processInfo.environment["CONDUCTOR_STORE"]
+            .map { URL(fileURLWithPath: $0) }
+            ?? FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(".config/claude-conductor/projects.json")
         load()
     }
 
@@ -87,13 +89,22 @@ final class ProjectStore {
     // MARK: - Sessions
 
     @discardableResult
-    func newSession(in projectID: UUID) -> ChatSession {
-        let session = ChatSession(projectID: projectID)
+    func newSession(in projectID: UUID, id: UUID = UUID(),
+                    worktreePath: String? = nil, worktreeBranch: String? = nil) -> ChatSession {
+        var session = ChatSession(id: id, projectID: projectID)
+        session.worktreePath = worktreePath
+        session.worktreeBranch = worktreeBranch
         sessions.append(session)
         selectedProjectID = projectID
         selection = .session(session.id)
         save()
         return session
+    }
+
+    // The folder a session's Claude Code runs in: its own worktree when it has one,
+    // otherwise the project folder itself.
+    func workingDirectory(for session: ChatSession) -> String? {
+        session.worktreePath ?? project(session.projectID)?.path
     }
 
     func removeSession(_ id: UUID) {

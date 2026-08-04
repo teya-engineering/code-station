@@ -24,7 +24,7 @@ struct ServerDetailView: View {
                     Divider().overlay(Theme.hairline)
                     footer
                 }
-                .padding(40)
+                .padding(32)
                 .frame(maxWidth: 820, alignment: .leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -42,7 +42,7 @@ struct ServerDetailView: View {
         let state = processes.state(serverID)
         return VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top) {
-                Text(server.name).font(.serif(38, .semibold))
+                Text(server.name).font(.serif(30, .semibold))
                 Spacer()
                 // Remote servers are reached over a URL, so there is no local process to run.
                 if !server.isRemote {

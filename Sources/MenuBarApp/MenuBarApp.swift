@@ -27,6 +27,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let claude = ClaudeCodeManager()
     private let projects = ProjectStore()
     private let runner = SessionRunner()
+    private let terminals = TerminalStore()
+    private let dialogs = DialogPresenter()
     private var window: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -49,7 +51,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     .environment(processes)
                     .environment(claude)
                     .environment(projects)
-                    .environment(runner))
+                    .environment(runner)
+                    .environment(terminals)
+                    .environment(dialogs))
             // Let the window own its size instead of shrinking to the view's ideal size.
             hosting.sizingOptions = []
             let win = NSWindow(
@@ -74,6 +78,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         processes.stopAll()
         runner.stopAll()
+        terminals.stopEverything()
         projects.save()
     }
 }

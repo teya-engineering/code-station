@@ -11,10 +11,7 @@ struct Project: Identifiable, Codable, Equatable {
     var url: URL { URL(fileURLWithPath: path) }
 
     // Shown in the sidebar under the project name.
-    var collapsedPath: String {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        return path.replacingOccurrences(of: home, with: "~")
-    }
+    var collapsedPath: String { path.abbreviatedPath }
 
     init(id: UUID = UUID(), name: String, path: String) {
         self.id = id
@@ -25,6 +22,14 @@ struct Project: Identifiable, Codable, Equatable {
     // Folder name is a good enough default title.
     init(url: URL) {
         self.init(name: url.lastPathComponent, path: url.path)
+    }
+}
+
+extension String {
+    // "/Users/me/x" reads better as "~/x" anywhere a path is shown.
+    var abbreviatedPath: String {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        return replacingOccurrences(of: home, with: "~")
     }
 }
 
@@ -64,6 +69,10 @@ struct ChatSession: Identifiable, Codable, Equatable {
     var claudeSessionID: String?
     var messages: [ChatMessage] = []
     var createdAt: Date = Date()
+    // Set when the session runs in its own git worktree instead of the project
+    // folder. The worktree and branch belong to this session and go with it.
+    var worktreePath: String?
+    var worktreeBranch: String?
 
     // The first thing the user asked makes a better title than "New session".
     mutating func retitleIfNeeded(from prompt: String) {
@@ -87,5 +96,4 @@ enum SessionState: Equatable {
 // What the left sidebar can have selected.
 enum SidebarSelection: Hashable {
     case session(UUID)
-    case mcpServers
 }
