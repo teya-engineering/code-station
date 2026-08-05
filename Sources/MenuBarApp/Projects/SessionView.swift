@@ -12,8 +12,6 @@ struct SessionView: View {
     private enum Tab: Hashable { case chat, changes, settings }
 
     @State private var tab: Tab = .chat
-    @State private var draft = ""
-    @State private var attachments: [Attachment] = []
     @State private var dropTargeted = false
     @State private var terminalFocused = false
     @State private var composerFocused = false
@@ -58,7 +56,10 @@ struct SessionView: View {
             .onChange(of: terminalFocused) { _, focused in
                 if focused { composerFocused = false }
             }
-            .task(id: sessionID) { refreshStats(session.worktreePath ?? project.path) }
+            .task(id: sessionID) {
+                refreshStats(session.worktreePath ?? project.path)
+                store.findPullRequest(in: sessionID)
+            }
             .onChange(of: completedToolCount) { refreshStats(session.worktreePath ?? project.path) }
             .onChange(of: runner.state(sessionID)) { _, state in
                 if !state.isBusy { refreshStats(session.worktreePath ?? project.path) }
@@ -253,12 +254,8 @@ struct SessionView: View {
                     pendingQuestion
 
                     if showsThinking(session, state: state) {
-                        HStack(spacing: 8) {
-                            ProgressView().controlSize(.small)
-                            Text("Thinking…")
-                                .font(.system(size: 12))
-                                .foregroundStyle(.secondary)
-                        }
+                        WorkingRow(runningTool: runningTool(session, root: projectPath),
+                                   since: runner.lastActivity(sessionID) ?? Date())
                     }
 
                     // A failed run belongs in the flow of the conversation, not in a dialog.
@@ -283,7 +280,17 @@ struct SessionView: View {
                 .frame(maxWidth: 820, alignment: .leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .onAppear { proxy.scrollTo(bottomAnchor, anchor: .bottom) }
+            // Opening a long transcript starts at the end. This has to be the scroll
+            // view's own anchor rather than a scrollTo on appear: the lazy stack has
+            // built no rows yet at that point, so it has no height to scroll through
+            // and the pane lands on blank space until something forces a redraw.
+            .defaultScrollAnchor(.bottom)
+            // Rows keep coming into being for a beat after the first layout, which moves
+            // the end of the transcript. One nudge once that settles lands on it.
+            .task(id: sessionID) {
+                await Task.yield()
+                proxy.scrollTo(bottomAnchor, anchor: .bottom)
+            }
             .onChange(of: session.messages.count) { scrollToBottom(proxy, animated: true) }
             .onChange(of: session.messages.last?.text ?? "") { scrollToBottom(proxy, animated: false) }
             .onChange(of: session.messages.last?.tools.count ?? 0) { scrollToBottom(proxy, animated: false) }
@@ -301,6 +308,16 @@ struct SessionView: View {
             }
             .id(request.id)
         }
+    }
+
+    // "Bash · swift build" for the call in flight, so the wait has a subject. Nothing while
+    // the model is only writing, which is what a plain "Thinking…" means.
+    private func runningTool(_ session: ChatSession, root: String) -> String? {
+        guard let last = session.messages.last, last.role == .assistant,
+              let tool = last.tools.last(where: { $0.isRunning }) else { return nil }
+        let presentation = ToolPresentationCache.presentation(for: tool, projectPath: root)
+        guard !presentation.argument.isEmpty else { return presentation.verb }
+        return "\(presentation.verb) · \(presentation.argument)"
     }
 
     // While a turn is starting there is no assistant message yet, and while tools run
@@ -325,21 +342,30 @@ struct SessionView: View {
 
     // MARK: - Composer
 
+    // The half-written prompt is the runner's, not this view's: switching sessions builds
+    // the pane again from nothing, and anything held here would go with it.
+    private var attachments: [Attachment] { runner.draft(sessionID).attachments }
+
+    private var draft: Binding<String> {
+        Binding(get: { runner.draft(sessionID).text },
+                set: { text in runner.editDraft(sessionID) { $0.text = text } })
+    }
+
     private func composer(session: ChatSession, project: Project) -> some View {
         let workingDirectory = session.worktreePath ?? project.path
         let blocked = !FileManager.default.fileExists(atPath: workingDirectory) || !runner.available
         let busy = runner.state(sessionID).isBusy
-        let canSend = !blocked
-            && (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty)
+        let canSend = !blocked && !runner.draft(sessionID).isEmpty
 
         return VStack(alignment: .leading, spacing: 8) {
+            contextReadout(session)
             queueStrip(busy: busy, blocked: blocked)
             attachmentStrip
 
             HStack(alignment: .bottom, spacing: 10) {
                 // Typing during a turn is allowed: what is written goes to the back of the
                 // queue instead of waiting for the agent to be free.
-                ComposerField(text: $draft,
+                ComposerField(text: draft,
                               isFocused: $composerFocused,
                               placeholder: busy ? "Queue what comes next…" : "Ask for a change",
                               isEnabled: !blocked,
@@ -392,6 +418,95 @@ struct SessionView: View {
             attach(Attachments.fromDrop(urls))
             return true
         } isTargeted: { dropTargeted = $0 }
+    }
+
+    // What the next turn will run against, on the line the eye is already on when hitting
+    // send: the branch it edits, the model doing the editing, and how full the window is.
+    // Each part goes missing on its own - the branch before git has answered or outside a
+    // repo, the rest before the first turn has reported anything.
+    @ViewBuilder private func contextReadout(_ session: ChatSession) -> some View {
+        let repository = stats?.state == .ready ? stats : nil
+        let usage = session.usage
+        if repository != nil || usage?.contextFraction != nil || session.pullRequest != nil {
+            HStack(spacing: 10) {
+                if let repository { branchTag(repository) }
+                if let model = usage?.model {
+                    Text(ModelChoice.shortName(of: model))
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .help("What the last turn ran on.")
+                }
+                Spacer(minLength: 8)
+                if let pullRequest = session.pullRequest { pullRequestTag(pullRequest) }
+                if let usage, let fraction = usage.contextFraction {
+                    contextMeter(usage, fraction: fraction)
+                }
+            }
+        }
+    }
+
+    // Where the work went. It appears the moment the agent opens one, and it is the only
+    // thing on this line that leads out of the app, so it opens in the browser.
+    private func pullRequestTag(_ pullRequest: PullRequest) -> some View {
+        Button {
+            guard let url = URL(string: pullRequest.url) else { return }
+            NSWorkspace.shared.open(url)
+        } label: {
+            Text("PR #\(pullRequest.number)")
+                .font(.system(size: 11, weight: .semibold))
+                .monospacedDigit()
+                .foregroundStyle(Theme.accent)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(pullRequest.url)
+    }
+
+    // The branch the working tree is on, which for a session without a worktree is the
+    // branch the agent is committing to. Uncommitted work is named alongside it: on a
+    // shared branch that is the difference between a safe turn and a mess.
+    private func branchTag(_ repository: GitSnapshot) -> some View {
+        Button { tab = .changes } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "arrow.triangle.branch")
+                    .font(.system(size: 10, weight: .semibold))
+                Text(repository.branch)
+                    .font(.mono(11, .medium))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                if !repository.files.isEmpty {
+                    Text("\(repository.files.count) changed")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(repository.files.isEmpty
+              ? "The working tree is clean. Opens Changes."
+              : "Uncommitted work on this branch. Opens Changes.")
+    }
+
+    private func contextMeter(_ usage: SessionUsage, fraction: Double) -> some View {
+        let tight = fraction > 0.85
+        return HStack(spacing: 10) {
+            Text("Context")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+            Meter(fraction: fraction, colour: tight ? Theme.deletion : Theme.accent, height: 5)
+                .frame(width: 120)
+            Text("\(Int((fraction * 100).rounded()))%")
+                .font(.system(size: 11, weight: .semibold))
+                .monospacedDigit()
+                .foregroundStyle(tight ? Theme.deletion : Color.primary)
+            Text("\(formattedTokens(usage.contextTokens)) / \(formattedTokens(usage.contextWindow))")
+                .font(.mono(11))
+                .foregroundStyle(.secondary)
+        }
+        .contentShape(Rectangle())
+        .help("Context in use after the last turn. Open Settings for the full breakdown.")
+        .onTapGesture { tab = .settings }
     }
 
     // Prompts typed ahead, above the composer where what happens next belongs. A queue that
@@ -451,7 +566,7 @@ struct SessionView: View {
                 HStack(spacing: 6) {
                     ForEach(attachments) { attachment in
                         AttachmentChip(url: attachment.url) {
-                            attachments.removeAll { $0.id == attachment.id }
+                            runner.editDraft(sessionID) { $0.attachments.removeAll { $0.id == attachment.id } }
                         }
                     }
                 }
@@ -462,17 +577,81 @@ struct SessionView: View {
 
     // The same file twice in one prompt says nothing new.
     private func attach(_ found: [Attachment]) {
-        for item in found where !attachments.contains(where: { $0.url == item.url }) {
-            attachments.append(item)
+        runner.editDraft(sessionID) { draft in
+            for item in found where !draft.attachments.contains(where: { $0.url == item.url }) {
+                draft.attachments.append(item)
+            }
         }
         composerFocused = true
     }
 
     private func send() {
-        let prompt = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !prompt.isEmpty || !attachments.isEmpty else { return }
-        runner.send(prompt, attachments: attachments, sessionID: sessionID, store: store)
-        draft = ""
-        attachments = []
+        let draft = runner.draft(sessionID)
+        let prompt = draft.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !prompt.isEmpty || !draft.attachments.isEmpty else { return }
+        runner.send(prompt, attachments: draft.attachments, sessionID: sessionID, store: store)
+        runner.clearDraft(sessionID)
+    }
+}
+
+// What the agent is doing, and how long since it last said anything. A working turn
+// reports something every few seconds, so the silence is the number worth watching: it is
+// the only thing that separates a long build from a turn that will never come back.
+private struct WorkingRow: View {
+    let runningTool: String?
+    let since: Date
+
+    // Below this a gap is just the model thinking, and a clock ticking on every turn would
+    // be noise. Past the second one it is long enough to be worth doubting.
+    private static let showQuietAfter: TimeInterval = 20
+    private static let concerningAfter: TimeInterval = 120
+
+    // Held as state, not rebuilt with the view: the order is shuffled once, and a fresh
+    // shuffle on every redraw would change the word mid-breath.
+    @State private var words = WorkingWords()
+    // When the row appeared, which is what the words are paced against. `since` moves
+    // every time the agent says anything, and pacing off that would restart the cycle on
+    // each event and leave the same word up all turn.
+    @State private var started = Date()
+
+    var body: some View {
+        // The row has to keep counting when nothing arrives to redraw it, which is exactly
+        // the case it exists for.
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            let quiet = context.date.timeIntervalSince(since)
+            let word = words.word(after: context.date.timeIntervalSince(started))
+            HStack(spacing: 8) {
+                WorkingGlyph()
+                Text("\(word)…")
+                    .font(.mono(12, .medium))
+                    .foregroundStyle(.primary)
+                    .id(word)
+                    .transition(.opacity)
+                if let runningTool {
+                    Text(runningTool)
+                        .font(.mono(12))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                if quiet >= Self.showQuietAfter {
+                    Text("silent for \(elapsed(quiet))")
+                        .font(.system(size: 11))
+                        .foregroundStyle(quiet >= Self.concerningAfter
+                                         ? ChatColor.warningText : .secondary)
+                }
+                Spacer(minLength: 0)
+            }
+            .animation(.easeInOut(duration: 0.25), value: word)
+            .help(quiet >= Self.concerningAfter
+                  ? "Claude Code has sent nothing for a while. The log in Settings says what it last did."
+                  : "")
+        }
+    }
+
+    private func elapsed(_ seconds: TimeInterval) -> String {
+        let whole = Int(seconds)
+        guard whole >= 60 else { return "\(whole)s" }
+        return "\(whole / 60)m \(whole % 60)s"
     }
 }

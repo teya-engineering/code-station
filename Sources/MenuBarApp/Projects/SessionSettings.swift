@@ -37,6 +37,25 @@ enum ModelChoice {
         guard let id, !id.isEmpty else { return "Whatever Claude Code is set to use" }
         return title(of: id)
     }
+
+    // What the CLI reports a turn ran on, cut down to the part worth reading in a strip:
+    // "claude-haiku-4-5-20251001" is mostly prefix and a release date, and the family and
+    // its number are all that separate one model from another at a glance.
+    static func shortName(of canonical: String) -> String {
+        var name = canonical
+        // A window variant is spelled "claude-opus-5[1m]", and the window is already a
+        // number of its own on the same row.
+        if let bracket = name.firstIndex(of: "[") { name = String(name[..<bracket]) }
+
+        var parts = name.split(separator: "-").map(String.init)
+        if parts.first == "claude" { parts.removeFirst() }
+        if let last = parts.last, last.count == 8, Int(last) != nil { parts.removeLast() }
+        guard let family = parts.first, !family.isEmpty else { return canonical }
+
+        let version = parts.dropFirst().joined(separator: ".")
+        let title = family.prefix(1).uppercased() + family.dropFirst()
+        return version.isEmpty ? title : "\(title) \(version)"
+    }
 }
 
 // How long the model spends thinking before it answers. More effort costs more tokens
@@ -68,10 +87,6 @@ struct TurnUsage: Equatable, Sendable {
     // What the model is told to use for this model, when it says.
     var contextWindow = 0
     var model: String?
-
-    // Everything the model read this turn, which is roughly where the next turn starts
-    // from. Cached tokens count: they are still in the window, they were just cheaper.
-    var contextTokens: Int { inputTokens + cacheReadTokens + cacheWriteTokens }
 }
 
 // Everything the session has spent so far. Persisted with the conversation, so the
@@ -83,8 +98,9 @@ struct SessionUsage: Codable, Equatable {
     var cacheReadTokens = 0
     var cacheWriteTokens = 0
     var turns = 0
-    // The last turn's context rather than a running total: it is what the next turn
-    // starts from, so it is the number that says how much room is left.
+    // The size of the last prompt rather than a running total: it is what the next turn
+    // starts from, so it is the number that says how much room is left. Cached tokens
+    // count towards it - they are still in the window, they were just cheaper.
     var contextTokens = 0
     var contextWindow = 0
     var model: String?
@@ -96,9 +112,13 @@ struct SessionUsage: Codable, Equatable {
         cacheReadTokens += turn.cacheReadTokens
         cacheWriteTokens += turn.cacheWriteTokens
         turns += 1
-        contextTokens = turn.contextTokens
         if turn.contextWindow > 0 { contextWindow = turn.contextWindow }
         if let model = turn.model { self.model = model }
+    }
+
+    mutating func noteContext(_ tokens: Int) {
+        guard tokens > 0 else { return }
+        contextTokens = tokens
     }
 
     var contextFraction: Double? {

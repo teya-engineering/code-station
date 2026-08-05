@@ -236,22 +236,6 @@ struct SessionSettingsView: View {
         }
     }
 
-    private struct Meter: View {
-        let fraction: Double
-        let colour: Color
-
-        var body: some View {
-            GeometryReader { geometry in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(Theme.field)
-                    Capsule().fill(colour)
-                        .frame(width: max(2, geometry.size.width * min(1, max(0, fraction))))
-                }
-            }
-            .frame(height: 6)
-        }
-    }
-
     private struct Figure: View {
         let label: String
         let value: String

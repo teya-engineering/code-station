@@ -92,7 +92,9 @@ private struct SpineRow: View {
             }
             .font(.mono(11, .medium))
         } else if presentation.notesResultLineCount, let result = tool.result {
-            Text("\(lineCount(result)) lines")
+            // A command that printed nothing is worth saying out loud: without it the row
+            // is indistinguishable from one whose output is simply collapsed.
+            Text(result.isEmpty ? "no output" : "\(lineCount(result)) lines")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
         }

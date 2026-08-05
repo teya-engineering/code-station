@@ -151,6 +151,30 @@ final class ProjectStore {
         scheduleSave()
     }
 
+    func recordContext(_ tokens: Int, for sessionID: UUID) {
+        guard let i = index(sessionID) else { return }
+        var usage = sessions[i].usage ?? SessionUsage()
+        usage.noteContext(tokens)
+        sessions[i].usage = usage
+        scheduleSave()
+    }
+
+    func notePullRequest(_ pullRequest: PullRequest, for sessionID: UUID) {
+        guard let i = index(sessionID), sessions[i].pullRequest != pullRequest else { return }
+        sessions[i].pullRequest = pullRequest
+        save()
+    }
+
+    // Sessions that opened a pull request before the app watched for them, and sessions
+    // resumed from a transcript the app did not see arrive. Run when a session is opened,
+    // so the strip is right whatever the conversation has been through.
+    func findPullRequest(in sessionID: UUID) {
+        guard let i = index(sessionID), sessions[i].pullRequest == nil,
+              let found = PullRequestScanner.find(in: sessions[i]) else { return }
+        sessions[i].pullRequest = found
+        save()
+    }
+
     func removeSession(_ id: UUID) {
         sessions.removeAll { $0.id == id }
         finished.remove(id)

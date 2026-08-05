@@ -29,6 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let runner = SessionRunner()
     private let terminals = TerminalStore()
     private let loginItem = LoginItem()
+    private let appSettings = AppSettings()
     private let docker = DockerService()
     private let postman = PostmanStore()
     private let postmanRunner = PostmanRunner()
@@ -41,6 +42,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // to one that has just exited raises SIGPIPE, which would take the app down with
         // it; ignored, the write fails as an error the runner can report instead.
         signal(SIGPIPE, SIG_IGN)
+        // A turn that was mid-flight when the app died leaves no other trace, so the log
+        // needs somewhere to show that the run it belonged to ended here.
+        SessionLog.note("app launched")
         Attachments.pruneOldPastes()
         showManager()
     }
@@ -69,6 +73,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     .environment(runner)
                     .environment(terminals)
                     .environment(loginItem)
+                    .environment(appSettings)
                     .environment(docker)
                     .environment(postman)
                     .environment(postmanRunner)

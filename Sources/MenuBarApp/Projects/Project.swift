@@ -45,8 +45,27 @@ struct ToolUse: Identifiable, Codable, Equatable {
     var input: String
     var result: String?
     var isError: Bool = false
+    // How much of the turn's text had been written when this call started. It is the
+    // only record of where the call belongs, since text and calls are kept apart.
+    // Optional so conversations written before the app tracked it still decode; those
+    // read as "before anything was said", which is how they have always been drawn.
+    var textOffset: Int?
 
     var isRunning: Bool { result == nil }
+}
+
+// A run of the turn laid out in the order it happened: some text Claude wrote, or the
+// calls it made at that point. Calls that started at the same point ran as one round,
+// so they stay together and are drawn as a single spine.
+enum MessageBlock: Identifiable {
+    case prose(id: Int, text: String)
+    case tools(id: Int, [ToolUse])
+
+    var id: Int {
+        switch self {
+        case .prose(let id, _), .tools(let id, _): return id
+        }
+    }
 }
 
 struct ChatMessage: Identifiable, Codable, Equatable {
@@ -63,6 +82,47 @@ struct ChatMessage: Identifiable, Codable, Equatable {
         text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && tools.isEmpty
             && (attachments?.isEmpty ?? true)
+    }
+
+    // The turn put back together in the order it came in. The stream gives text and
+    // calls as separate events and the app stores them apart, so this is what stops a
+    // call the model made after speaking from being drawn above what it said.
+    var blocks: [MessageBlock] {
+        var blocks: [MessageBlock] = []
+        // Where in the text the last block ended. Calls arrive in order, so this only
+        // ever moves forwards.
+        var cursor = 0
+        var round: [ToolUse] = []
+
+        func closeRound() {
+            guard let first = round.first else { return }
+            let end = min(max(first.textOffset ?? 0, cursor), text.count)
+            if end > cursor {
+                blocks.append(.prose(id: blocks.count, text: slice(cursor, end)))
+                cursor = end
+            }
+            blocks.append(.tools(id: blocks.count, round))
+            round = []
+        }
+
+        for tool in tools {
+            if let previous = round.first, (previous.textOffset ?? 0) != (tool.textOffset ?? 0) {
+                closeRound()
+            }
+            round.append(tool)
+        }
+        closeRound()
+
+        if cursor < text.count {
+            blocks.append(.prose(id: blocks.count, text: slice(cursor, text.count)))
+        }
+        return blocks
+    }
+
+    private func slice(_ from: Int, _ to: Int) -> String {
+        let start = text.index(text.startIndex, offsetBy: from)
+        let end = text.index(text.startIndex, offsetBy: to)
+        return String(text[start..<end])
     }
 }
 
@@ -84,6 +144,8 @@ struct ChatSession: Identifiable, Codable, Equatable {
     // read as "nothing chosen yet" and "nothing spent yet".
     var settings: SessionSettings?
     var usage: SessionUsage?
+    // Set when the agent opens a pull request from this session.
+    var pullRequest: PullRequest?
 
     // When something last happened here, used for the sidebar's relative times.
     var lastActivity: Date { messages.last?.date ?? createdAt }

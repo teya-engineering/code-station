@@ -28,6 +28,10 @@ final class SessionRunner {
     // What has been typed but not run yet, oldest first. Everything goes through here, so
     // a prompt typed mid-turn keeps its place behind the ones before it.
     private var queues: [UUID: [QueuedPrompt]] = [:]
+    // What is half-written in the composer and not sent yet. The detail pane is built
+    // again from nothing every time another session is picked, so this cannot live there
+    // without the words going with it.
+    private var drafts: [UUID: Draft] = [:]
 
     @ObservationIgnored private let claudePath: String?
 
@@ -42,6 +46,11 @@ final class SessionRunner {
 
     func state(_ sessionID: UUID) -> SessionState { states[sessionID] ?? .idle }
 
+    // When this session last heard anything at all from the CLI. A turn that is working
+    // says something every few seconds, so a long gap here is the one visible difference
+    // between a slow turn and one that has stopped moving.
+    func lastActivity(_ sessionID: UUID) -> Date? { turns[sessionID]?.lastActivity }
+
     // What this session is waiting on the person for, if anything.
     func question(_ sessionID: UUID) -> PermissionRequest? { asked[sessionID]?.first }
 
@@ -53,6 +62,8 @@ final class SessionRunner {
         guard let turn = turns[sessionID],
               asked[sessionID]?.contains(where: { $0.id == request.id }) == true else { return }
         asked[sessionID]?.removeAll { $0.id == request.id }
+        SessionLog.note("answered \(request.toolName) \(request.id) with \(answer.logLabel)",
+                        session: sessionID)
 
         guard let line = request.responseLine(answer), turn.write(line) else {
             states[sessionID] = .failed("Could not send the answer to Claude Code. The turn has been stopped.")
@@ -72,6 +83,26 @@ final class SessionRunner {
         let text: String
         let attachments: [Attachment]
     }
+
+    // An unsent composer: what has been typed, and what has been dropped or pasted onto it.
+    struct Draft: Equatable {
+        var text: String = ""
+        var attachments: [Attachment] = []
+
+        var isEmpty: Bool {
+            text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attachments.isEmpty
+        }
+    }
+
+    func draft(_ sessionID: UUID) -> Draft { drafts[sessionID] ?? Draft() }
+
+    func editDraft(_ sessionID: UUID, _ change: (inout Draft) -> Void) {
+        var draft = drafts[sessionID] ?? Draft()
+        change(&draft)
+        drafts[sessionID] = draft.isEmpty ? nil : draft
+    }
+
+    func clearDraft(_ sessionID: UUID) { drafts[sessionID] = nil }
 
     func queued(_ sessionID: UUID) -> [QueuedPrompt] { queues[sessionID] ?? [] }
 
@@ -175,6 +206,7 @@ final class SessionRunner {
     // Leaves whatever has streamed in so far in place.
     func stop(_ sessionID: UUID) {
         guard let turn = turns[sessionID] else { return }
+        SessionLog.note("stopped by hand", session: sessionID)
         turns[sessionID] = nil
         asked[sessionID] = nil
         states[sessionID] = .idle
@@ -255,15 +287,24 @@ final class SessionRunner {
             let data = handle.availableData
             guard !data.isEmpty else {
                 handle.readabilityHandler = nil
-                let tail = buffer.flush().flatMap { StreamEvent.parse($0, projectPath: workingDirectory) }
+                SessionLog.note("stdout closed", session: sessionID)
+                let tail = buffer.flush()
+                    .flatMap { line -> [StreamEvent] in
+                        SessionLog.note("< \(line)", session: sessionID)
+                        return StreamEvent.parse(line, projectPath: workingDirectory)
+                    }
                 Task { @MainActor in
                     runner.apply(tail, sessionID: sessionID, token: token, store: store)
                     runner.pipeClosed(sessionID, token: token, stdout: true, store: store)
                 }
                 return
             }
-            let events = buffer.lines(from: data).flatMap { StreamEvent.parse($0, projectPath: workingDirectory) }
-            guard !events.isEmpty else { return }
+            let events = buffer.lines(from: data).flatMap { line -> [StreamEvent] in
+                SessionLog.note("< \(line)", session: sessionID)
+                return StreamEvent.parse(line, projectPath: workingDirectory)
+            }
+            // Even a line that means nothing to the app proves the CLI is alive, so the
+            // clock moves on the read rather than on the events it turned into.
             Task { @MainActor in
                 runner.apply(events, sessionID: sessionID, token: token, store: store)
             }
@@ -273,17 +314,21 @@ final class SessionRunner {
             let data = handle.availableData
             guard !data.isEmpty else {
                 handle.readabilityHandler = nil
+                SessionLog.note("stderr closed", session: sessionID)
                 Task { @MainActor in
                     runner.pipeClosed(sessionID, token: token, stdout: false, store: store)
                 }
                 return
             }
             let chunk = String(decoding: data, as: UTF8.self)
+            SessionLog.note("! \(chunk.trimmingCharacters(in: .whitespacesAndNewlines))",
+                            session: sessionID)
             Task { @MainActor in runner.appendStderr(sessionID, token: token, chunk) }
         }
 
         process.terminationHandler = { finished in
             let status = finished.terminationStatus
+            SessionLog.note("exited with status \(status)", session: sessionID)
             Task { @MainActor in
                 runner.processExited(sessionID, token: token, status: status, store: store)
             }
@@ -292,6 +337,8 @@ final class SessionRunner {
         do {
             turns[sessionID] = turn
             states[sessionID] = .starting
+            SessionLog.note("starting claude \(process.arguments?.joined(separator: " ") ?? "") in \(workingDirectory)",
+                            session: sessionID)
             try process.run()
             guard let line = Self.userMessageLine(prompt), turn.write(line) else {
                 throw Failure("the prompt could not be handed over")
@@ -301,6 +348,7 @@ final class SessionRunner {
             process.terminationHandler = nil
             cleanUp(turn)
             store.removeMessage(reply.id, from: sessionID)
+            SessionLog.note("could not start: \(error.localizedDescription)", session: sessionID)
             states[sessionID] = .failed("Could not start Claude Code: \(error.localizedDescription)")
         }
     }
@@ -323,6 +371,20 @@ final class SessionRunner {
         return line
     }
 
+    // The answer to a control request the app has no way to serve. An error response is
+    // the honest one: the CLI treats it as "the host cannot do this" and carries on, which
+    // is the whole point of sending anything at all.
+    nonisolated static func refusalLine(requestID: String, subtype: String) -> Data? {
+        let envelope: [String: Any] = [
+            "type": "control_response",
+            "response": ["subtype": "error", "request_id": requestID,
+                         "error": "This app does not handle \"\(subtype)\" requests."],
+        ]
+        guard var line = try? JSONSerialization.data(withJSONObject: envelope) else { return nil }
+        line.append(0x0A)
+        return line
+    }
+
     // MARK: - Applying the stream
     //
     // Every callback is matched against the live turn's token. A handler already in
@@ -336,6 +398,7 @@ final class SessionRunner {
 
     private func apply(_ events: [StreamEvent], sessionID: UUID, token: UUID, store: ProjectStore) {
         guard let turn = turn(sessionID, token) else { return }
+        turn.lastActivity = Date()
         for event in events {
             switch event {
             case .initialized(let claudeSessionID):
@@ -354,13 +417,27 @@ final class SessionRunner {
 
             case .toolUse(let tool):
                 states[sessionID] = .streaming
-                store.updateMessage(turn.messageID, in: sessionID) { $0.tools.append(tool) }
+                store.updateMessage(turn.messageID, in: sessionID) { message in
+                    // Stamped here rather than in the parser: only the message being
+                    // built knows how much has been said so far, and that is what puts
+                    // the call back in place when the turn is drawn.
+                    var placed = tool
+                    placed.textOffset = message.text.count
+                    message.tools.append(placed)
+                }
 
             case .toolResult(let id, let output, let isError):
+                var command = ""
                 store.updateMessage(turn.messageID, in: sessionID) { message in
                     guard let i = message.tools.firstIndex(where: { $0.id == id }) else { return }
                     message.tools[i].result = output
                     message.tools[i].isError = isError
+                    command = message.tools[i].input
+                }
+                // The only moment a pull request announces itself is in the output of the
+                // command that opened it.
+                if let opened = PullRequestScanner.opened(command: command, output: output) {
+                    store.notePullRequest(opened, for: sessionID)
                 }
 
             case .permissionRequest(let request):
@@ -370,11 +447,23 @@ final class SessionRunner {
             case .permissionWithdrawn(let id):
                 asked[sessionID]?.removeAll { $0.id == id }
 
+            case .unanswerable(let requestID, let subtype):
+                // Refusing is what keeps the turn moving. The CLI holds it on this request
+                // id until a response comes back, so silence here is a turn that thinks
+                // forever, which is the one failure the app cannot show or recover from.
+                SessionLog.note("refusing control request \(subtype) \(requestID)", session: sessionID)
+                if let line = Self.refusalLine(requestID: requestID, subtype: subtype) {
+                    _ = turn.write(line)
+                }
+
             case .rateLimit(let limit):
                 rateLimits[limit.kind] = limit
 
             case .usage(let turn):
                 store.recordUsage(turn, for: sessionID)
+
+            case .context(let tokens):
+                store.recordContext(tokens, for: sessionID)
 
             case .finished(let isError, let message):
                 // Nothing more is coming, and the CLI keeps its input stream open waiting
@@ -426,6 +515,7 @@ final class SessionRunner {
         // Warnings on stderr are common and harmless, so only a reported error or a bad
         // exit code counts as a failed turn.
         guard turn.failure != nil || status != 0 else {
+            SessionLog.note("turn finished", session: sessionID)
             states[sessionID] = .idle
             // Only a turn that ended on its own pulls the next one in. After a failure or a
             // stop the queue waits to be sent by hand, so the reason it stopped stays on
@@ -442,6 +532,7 @@ final class SessionRunner {
         if !stderr.isEmpty { parts.append(stderr) }
         if parts.isEmpty { parts.append("Claude Code exited with code \(status).") }
         let message = parts.joined(separator: "\n\n")
+        SessionLog.note("turn failed: \(message)", session: sessionID)
 
         // Claude Code no longer holds the conversation we asked it to resume, usually
         // because its own history was pruned. The prompt is still good, so run it once
@@ -483,6 +574,9 @@ final class SessionRunner {
         var stdoutOpen = true
         var stderrOpen = true
         var exitStatus: Int32?
+        // Moved on every read off the CLI's stdout, so it measures silence rather than
+        // progress: a turn deep in a long build still counts as alive.
+        var lastActivity = Date()
 
         // One line down the pipe the CLI is reading. False when it could not be sent: the
         // process is gone, or its end of the pipe is shut.

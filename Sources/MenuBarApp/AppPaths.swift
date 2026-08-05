@@ -35,6 +35,15 @@ enum AppPaths {
             .appendingPathComponent(".config/claude-conductor/\(name)")
     }
 
+    // Logs go where macOS keeps logs rather than in Application Support, so Console and
+    // the usual "collect the logs" habits find them without being told where to look.
+    static var logs: URL {
+        let url = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Logs/\(bundleID)")
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
     // Worktrees are git checkouts holding work that is not committed yet, so they cannot
     // live in Caches where the system is free to reclaim them. They are kept out of
     // backups instead, since a checkout is reproducible from the repository it came from.
@@ -79,6 +88,21 @@ enum Preferences {
             set(newValue.model, "defaultModel")
             set(newValue.effort, "defaultEffort")
             store.set(newValue.permissionMode ?? "acceptEdits", forKey: "permissionMode")
+        }
+    }
+
+    // How long a session has to sit untouched before the app offers to clear it. Stored
+    // rather than defaulted to zero: an unset key reads as 0 from UserDefaults, which
+    // would call every session old.
+    static var oldSessionDays: Int {
+        get {
+            let stored = store.integer(forKey: "oldSessionDays")
+            return OldSessions.dayRange.contains(stored) ? stored : 7
+        }
+        set {
+            store.set(min(max(newValue, OldSessions.dayRange.lowerBound),
+                          OldSessions.dayRange.upperBound),
+                      forKey: "oldSessionDays")
         }
     }
 

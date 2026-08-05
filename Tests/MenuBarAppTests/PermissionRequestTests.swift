@@ -98,11 +98,47 @@ struct PermissionRequestTests {
         #expect(request.detail == "Run the app with logging")
     }
 
-    @Test func ignoresControlTrafficItCannotAnswer() {
-        let keepAlive = """
-        {"type":"control_request","request_id":"k1","request":{"subtype":"keep_alive"}}
+    // The CLI parks the turn on every control request until that exact request id is
+    // answered. One it can ask for and the app cannot serve - a dialog, a hook, an MCP
+    // relay - therefore has to come back refused; staying quiet is a turn that thinks
+    // forever with nothing on screen to explain it.
+    @Test func refusesControlTrafficItCannotAnswer() throws {
+        let dialog = """
+        {"type":"control_request","request_id":"k1","request":{"subtype":"request_user_dialog",\
+        "dialog":{"title":"Sign in"}}}
         """
-        #expect(StreamEvent.parse(keepAlive).isEmpty)
+        guard case .unanswerable(let id, let subtype)? = StreamEvent.parse(dialog).first else {
+            Issue.record("expected a refusal, got \(StreamEvent.parse(dialog))")
+            return
+        }
+        #expect(id == "k1")
+        #expect(subtype == "request_user_dialog")
+
+        let outer = try decoded(SessionRunner.refusalLine(requestID: id, subtype: subtype))
+        let response = try #require(outer["response"] as? [String: Any])
+        #expect(outer["type"] as? String == "control_response")
+        #expect(response["subtype"] as? String == "error")
+        #expect(response["request_id"] as? String == "k1")
+    }
+
+    // A permission request whose shape the app cannot read is still a request the CLI is
+    // holding the turn on, so it goes back the same way rather than being dropped.
+    @Test func refusesAPermissionRequestItCannotRead() {
+        let malformed = """
+        {"type":"control_request","request_id":"k2","request":{"subtype":"can_use_tool",\
+        "input":{"command":"ls"}}}
+        """
+        guard case .unanswerable(let id, let subtype)? = StreamEvent.parse(malformed).first else {
+            Issue.record("expected a refusal, got \(StreamEvent.parse(malformed))")
+            return
+        }
+        #expect(id == "k2")
+        #expect(subtype == "can_use_tool")
+    }
+
+    // Without a request id there is nobody to answer, so there is nothing to do.
+    @Test func ignoresAControlRequestWithNoIdentity() {
+        #expect(StreamEvent.parse(#"{"type":"control_request","request":{"subtype":"x"}}"#).isEmpty)
     }
 
     // The agent gives up on its own question when a turn is interrupted, and the card has

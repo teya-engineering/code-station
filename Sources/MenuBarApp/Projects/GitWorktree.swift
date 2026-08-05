@@ -14,32 +14,46 @@ enum GitWorktree {
         var errorDescription: String? { message }
     }
 
-    // Kept out of backups: a worktree can be recreated from the repository it came from,
-    // and copying every checkout into Time Machine is not worth the room it takes.
+    private static let folder = "worktrees"
+
+    // Reading where the checkouts go does not create the folder, so the new session sheet
+    // can show the path it would use without leaving anything behind if it is cancelled.
     static var baseDirectory: URL {
-        AppPaths.directory("worktrees", backedUp: false)
+        AppPaths.support.appendingPathComponent(folder)
     }
 
+    // What adding a worktree for this session would produce. The sheet that offers the
+    // choice shows this, so it has to be the same answer `add` acts on rather than a
+    // description of it.
+    //
     // The session id makes the folder and branch unique; the project name keeps them
     // recognisable when browsing the worktrees directory by hand.
+    static func plan(projectName: String, sessionID: UUID) -> Created {
+        let suffix = String(sessionID.uuidString.prefix(8)).lowercased()
+        let name = String(projectName.map { $0.isLetter || $0.isNumber ? $0 : "-" })
+        return Created(path: baseDirectory.appendingPathComponent("\(name)-\(suffix)").path,
+                       branch: "conductor/\(suffix)")
+    }
+
     static func add(projectPath: String, projectName: String, sessionID: UUID) async throws -> Created {
         guard let tool = await tool() else {
             throw Failure(message: "Could not find git on PATH.")
         }
-        let suffix = String(sessionID.uuidString.prefix(8)).lowercased()
-        let name = String(projectName.map { $0.isLetter || $0.isNumber ? $0 : "-" })
-        let branch = "conductor/\(suffix)"
-        let path = baseDirectory.appendingPathComponent("\(name)-\(suffix)").path
+        let planned = plan(projectName: projectName, sessionID: sessionID)
+        let path = planned.path
+        let branch = planned.branch
 
         let outcome: Result<Created, Failure> = await offMain {
-            try? FileManager.default.createDirectory(at: baseDirectory, withIntermediateDirectories: true)
+            // Kept out of backups: a worktree can be recreated from the repository it came
+            // from, and copying every checkout into Time Machine is not worth the room.
+            _ = AppPaths.directory(folder, backedUp: false)
             let result = run(tool, ["-C", projectPath, "worktree", "add", path, "-b", branch])
             guard result.status == 0 else {
                 return .failure(Failure(message: result.stderr.isEmpty
                     ? "git worktree add exited with code \(result.status)."
                     : result.stderr))
             }
-            return .success(Created(path: path, branch: branch))
+            return .success(planned)
         }
         return try outcome.get()
     }
@@ -129,5 +143,30 @@ enum GitWorktree {
                 continuation.resume(returning: work())
             }
         }
+    }
+}
+
+// The branch a folder has checked out, read straight from .git/HEAD instead of by running
+// git: sidebar rows redraw often and none of them are worth a process. The answer is held
+// for a moment so a burst of redraws costs a single read.
+@MainActor
+enum GitHead {
+    private static var cache: [String: (branch: String?, readAt: Date)] = [:]
+    private static let ttl: TimeInterval = 5
+
+    static func branch(at path: String) -> String? {
+        if let hit = cache[path], Date().timeIntervalSince(hit.readAt) < ttl { return hit.branch }
+        let branch = read(path)
+        cache[path] = (branch, Date())
+        return branch
+    }
+
+    // A detached head holds a sha rather than a ref, which is nothing a row can use.
+    private static func read(_ path: String) -> String? {
+        guard let head = try? String(contentsOfFile: path + "/.git/HEAD", encoding: .utf8) else { return nil }
+        let reference = "ref: refs/heads/"
+        let line = head.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard line.hasPrefix(reference) else { return nil }
+        return String(line.dropFirst(reference.count))
     }
 }

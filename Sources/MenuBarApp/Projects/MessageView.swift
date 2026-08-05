@@ -54,29 +54,37 @@ struct MessageView: View {
         }
     }
 
+    // The turn reads down the page in the order it happened, so a call the model made
+    // after saying something sits under those words rather than above them.
     private var assistantBody: some View {
         VStack(alignment: .leading, spacing: 12) {
-            // Tools run before Claude writes about what it did, so they read first.
-            if !message.tools.isEmpty {
-                ActivitySpine(tools: message.tools,
-                              projectPath: projectPath,
-                              openChanges: openChanges)
-            }
-
-            ForEach(MessageSegment.split(message.text)) { segment in
-                if segment.isCode {
-                    CodeBlock(segment: segment)
-                } else {
-                    Text(inline(segment.text))
-                        .font(.system(size: 13))
-                        .textSelection(.enabled)
-                        .multilineTextAlignment(.leading)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+            ForEach(message.blocks) { block in
+                switch block {
+                case .tools(_, let tools):
+                    ActivitySpine(tools: tools,
+                                  projectPath: projectPath,
+                                  openChanges: openChanges)
+                case .prose(_, let text):
+                    prose(text)
                 }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder private func prose(_ text: String) -> some View {
+        ForEach(MessageSegment.split(text)) { segment in
+            if segment.isCode {
+                CodeBlock(segment: segment)
+            } else {
+                Text(inline(segment.text))
+                    .font(.system(size: 13))
+                    .textSelection(.enabled)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
     }
 
     // Inline markdown only: `code`, bold and italics render, newlines stay as they

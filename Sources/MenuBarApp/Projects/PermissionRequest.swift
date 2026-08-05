@@ -45,6 +45,16 @@ enum PermissionAnswer: Equatable, Sendable {
     case deny
     // Question text to what the person picked or typed.
     case answers([String: String])
+
+    // For the log, which records that a question was answered but not what was said.
+    var logLabel: String {
+        switch self {
+        case .allowOnce: "allow"
+        case .allowAlways: "allow always"
+        case .deny: "deny"
+        case .answers(let given): "\(given.count) answer\(given.count == 1 ? "" : "s")"
+        }
+    }
 }
 
 extension PermissionRequest {

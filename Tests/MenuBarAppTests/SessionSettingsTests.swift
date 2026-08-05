@@ -76,6 +76,25 @@ struct SessionSettingsTests {
         return arguments[i + 1]
     }
 
+    // MARK: - Naming the model that ran
+
+    @Test func shortensTheModelNameTheCLIReports() {
+        #expect(ModelChoice.shortName(of: "claude-opus-5") == "Opus 5")
+        #expect(ModelChoice.shortName(of: "claude-sonnet-5") == "Sonnet 5")
+        #expect(ModelChoice.shortName(of: "claude-haiku-4-5") == "Haiku 4.5")
+        // A dated build and a window variant are both noise on a strip this small.
+        #expect(ModelChoice.shortName(of: "claude-haiku-4-5-20251001") == "Haiku 4.5")
+        #expect(ModelChoice.shortName(of: "claude-opus-5[1m]") == "Opus 5")
+    }
+
+    // Model names change without the app being told, so anything unrecognised has to come
+    // out readable rather than empty.
+    @Test func leavesAnUnfamiliarModelNameAlone() {
+        #expect(ModelChoice.shortName(of: "opus") == "Opus")
+        #expect(ModelChoice.shortName(of: "some-future-thing") == "Some future.thing")
+        #expect(ModelChoice.shortName(of: "") == "")
+    }
+
     // MARK: - Reading usage off the stream
 
     private let result = """
@@ -101,8 +120,6 @@ struct SessionSettingsTests {
         #expect(usage.cacheWriteTokens == 13628)
         #expect(usage.contextWindow == 1_000_000)
         #expect(usage.model == "claude-opus-5")
-        // Cached tokens are still in the window, so they count towards the context.
-        #expect(usage.contextTokens == 29040)
         // The turn still ends: usage never replaces the result.
         #expect(events.count == 2)
         if case .finished(let isError, _)? = events.last {
@@ -182,15 +199,17 @@ struct SessionSettingsTests {
         usage.add(TurnUsage(costUSD: 0.1, inputTokens: 10, outputTokens: 5,
                             cacheReadTokens: 100, cacheWriteTokens: 20,
                             contextWindow: 200_000, model: "claude-sonnet-5"))
+        usage.noteContext(130)
         usage.add(TurnUsage(costUSD: 0.2, inputTokens: 4, outputTokens: 7,
                             cacheReadTokens: 400, cacheWriteTokens: 0,
                             contextWindow: 200_000, model: "claude-sonnet-5"))
+        usage.noteContext(404)
 
         #expect(usage.turns == 2)
         #expect(abs(usage.costUSD - 0.3) < 0.0001)
         #expect(usage.outputTokens == 12)
         #expect(usage.cacheReadTokens == 500)
-        // Context is the last turn's, not the sum: it is what the next turn starts from.
+        // Context is the last prompt, not the sum: it is what the next turn starts from.
         #expect(usage.contextTokens == 404)
         #expect(usage.contextFraction == 404.0 / 200_000.0)
         #expect(usage.model == "claude-sonnet-5")
@@ -201,6 +220,39 @@ struct SessionSettingsTests {
         var usage = SessionUsage()
         usage.add(TurnUsage(costUSD: 0.1, inputTokens: 10, outputTokens: 5))
         #expect(usage.contextFraction == nil)
+    }
+
+    // MARK: - Reading the context off a message
+
+    // Every round of tool calls re-reads the whole conversation, so the running totals a
+    // long turn reports are several times the window. The last prompt is the real size.
+    @Test func readsTheContextOffTheLastPrompt() {
+        let line = """
+        {"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Hi!"}],\
+        "usage":{"input_tokens":2,"cache_creation_input_tokens":1576,"cache_read_input_tokens":43621,\
+        "output_tokens":333}},"session_id":"c716258a"}
+        """
+        let events = StreamEvent.parse(line)
+        #expect(events.count == 2)
+        guard case .context(let tokens)? = events.last else {
+            Issue.record("expected a context event, got \(events)")
+            return
+        }
+        #expect(tokens == 45199)
+    }
+
+    // A subagent fills a window of its own, and the meter is about the main conversation.
+    @Test func ignoresWhatASubagentReads() {
+        let line = """
+        {"type":"assistant","parent_tool_use_id":"toolu_01","message":{"role":"assistant",\
+        "content":[{"type":"text","text":"Looking."}],"usage":{"input_tokens":4,\
+        "cache_read_input_tokens":90000,"output_tokens":12}}}
+        """
+        let events = StreamEvent.parse(line)
+        #expect(events.count == 1)
+        if case .context = events[0] {
+            Issue.record("a subagent must not move the context meter")
+        }
     }
 
     @Test func shortensLongTokenCounts() {

@@ -25,7 +25,9 @@ struct ToolPresentation {
     var added: Int?
     var removed: Int?
     var diff: [Line] = []
-    // Read has no counts of its own; its note is how many lines came back.
+    // Whether the collapsed row should say how much came back. True for the calls whose
+    // output is the point of making them: a finished row with no note at all reads as a
+    // call that did nothing, when it may only be one nobody has expanded.
     var notesResultLineCount = false
 
     init(tool: ToolUse, projectPath: String) {
@@ -53,12 +55,16 @@ struct ToolPresentation {
             removed = change.removed
         case "Bash":
             argument = Self.singleLine(input["command"] as? String ?? "")
+            notesResultLineCount = true
         case "Grep", "Glob":
             argument = input["pattern"] as? String ?? argument
+            notesResultLineCount = true
         case "WebFetch":
             argument = input["url"] as? String ?? ""
+            notesResultLineCount = true
         case "WebSearch":
             argument = input["query"] as? String ?? ""
+            notesResultLineCount = true
         case "Task":
             argument = input["description"] as? String
                 ?? Self.singleLine(input["prompt"] as? String ?? "")

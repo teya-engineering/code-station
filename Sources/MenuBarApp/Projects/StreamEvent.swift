@@ -11,10 +11,16 @@ enum StreamEvent: Sendable {
     // The agent asking something back. The turn is parked until it is answered.
     case permissionRequest(PermissionRequest)
     case permissionWithdrawn(id: String)
+    // Something the CLI asked for that this app cannot do. It still has to be answered:
+    // the turn does not move again until every request it is waiting on has a reply.
+    case unanswerable(requestID: String, subtype: String)
     // Where the account's usage windows stand, sent whenever they move.
     case rateLimit(RateLimit)
     // What the finished turn cost, reported alongside its result.
     case usage(TurnUsage)
+    // How big the prompt was on the last request the main loop made, which is how much of
+    // the window is in use right now.
+    case context(tokens: Int)
     case finished(isError: Bool, message: String?)
 }
 
@@ -34,13 +40,18 @@ extension StreamEvent {
 
         switch object["type"] as? String {
         case "control_request":
-            // Permission is the only thing we answer; other control requests (keep-alive,
-            // MCP relays) are the CLI talking to a host we are not pretending to be.
+            // Permission is the only one of these the app knows how to answer. The rest -
+            // a dialog, a hook callback, an MCP relay - belong to a host this app is not
+            // pretending to be, but every one of them still gets a reply: the CLI blocks
+            // on the request id until something comes back, so dropping one is what leaves
+            // a turn thinking forever with nothing on screen to say why.
             guard let id = object["request_id"] as? String,
-                  let request = object["request"] as? [String: Any],
-                  request["subtype"] as? String == "can_use_tool",
+                  let request = object["request"] as? [String: Any] else { return [] }
+            let subtype = request["subtype"] as? String ?? "unknown"
+            guard subtype == "can_use_tool",
                   let parsed = PermissionRequest.parse(id: id, request: request,
-                                                       projectPath: projectPath) else { return [] }
+                                                       projectPath: projectPath)
+            else { return [.unanswerable(requestID: id, subtype: subtype)] }
             return [.permissionRequest(parsed)]
 
         // The agent gave up on a question of its own accord, usually because the turn was
@@ -55,7 +66,9 @@ extension StreamEvent {
             return [.initialized(claudeSessionID: id)]
 
         case "assistant":
-            return contentBlocks(of: object).compactMap(assistantEvent)
+            var events = contentBlocks(of: object).compactMap(assistantEvent)
+            if let tokens = promptSize(of: object) { events.append(.context(tokens: tokens)) }
+            return events
 
         case "user":
             return contentBlocks(of: object).compactMap(toolResultEvent)
@@ -87,6 +100,23 @@ extension StreamEvent {
     }
 
     // MARK: - Private
+
+    // How many tokens the model was sent on this request: everything it read, cached or
+    // not. A turn makes one request per round of tool calls and each one re-reads the
+    // whole conversation, so only the newest of these says how full the window is - the
+    // totals on the result event add them all up and run far past the window.
+    //
+    // A subagent has a window of its own, and its messages are tagged with the tool call
+    // that started it. Those are left out: the meter is about the main conversation.
+    private static func promptSize(of object: [String: Any]) -> Int? {
+        guard object["parent_tool_use_id"] == nil || object["parent_tool_use_id"] is NSNull,
+              let message = object["message"] as? [String: Any],
+              let counts = message["usage"] as? [String: Any] else { return nil }
+        let tokens = (counts["input_tokens"] as? Int ?? 0)
+            + (counts["cache_read_input_tokens"] as? Int ?? 0)
+            + (counts["cache_creation_input_tokens"] as? Int ?? 0)
+        return tokens > 0 ? tokens : nil
+    }
 
     // The cost and token counts on a result event. `modelUsage` is keyed by the exact
     // model that ran and is the only place the context window is named, so it is read
