@@ -57,8 +57,8 @@ private struct SpineRow: View {
         }
         .padding(.leading, 24)
         .frame(maxWidth: .infinity, alignment: .leading)
-        // The spine is a background so its flexible segment is sized by the row it
-        // belongs to; as a sibling it would have nothing to stretch against.
+        // The spine is a background so it takes the height of the row it belongs to; as
+        // a sibling it would have nothing to stretch against.
         .background(alignment: .topLeading) { spine }
     }
 
@@ -100,21 +100,32 @@ private struct SpineRow: View {
         }
     }
 
+    // The three parts are layered at fixed offsets rather than stacked. A shape with no
+    // height of its own takes exactly the height the row offers, so the tail reaches the
+    // bottom without ever asking the row how tall it is - and the row is what sizes the
+    // spine in the first place, so asking back would make the two sizes depend on each
+    // other.
     private var spine: some View {
-        VStack(spacing: 0) {
-            Rectangle()
-                .fill(isFirst ? Color.clear : Theme.border)
-                .frame(width: 1.5, height: 9)
-            Circle()
-                .fill(dotColor)
-                .frame(width: 7, height: 7)
+        ZStack(alignment: .top) {
             Rectangle()
                 .fill(isLast ? Color.clear : Theme.border)
                 .frame(width: 1.5)
-                .frame(maxHeight: .infinity)
+                .padding(.top, dotTop + dotSize)
+            Rectangle()
+                .fill(isFirst ? Color.clear : Theme.border)
+                .frame(width: 1.5, height: dotTop)
+            Circle()
+                .fill(dotColor)
+                .frame(width: dotSize, height: dotSize)
+                .padding(.top, dotTop)
         }
         .frame(width: 12)
     }
+
+    // Where the dot sits in the row, measured from the top. It lines up with the middle
+    // of the row's first line of text.
+    private let dotTop: CGFloat = 9
+    private let dotSize: CGFloat = 7
 
     private var dotColor: Color {
         if tool.isRunning { return Theme.dotOn }
