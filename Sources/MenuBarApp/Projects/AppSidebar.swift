@@ -632,23 +632,24 @@ private struct SessionCard: View {
                         .help("Runs in its own git worktree")
                 }
                 Spacer(minLength: 6)
-                // The timestamp hides in place rather than being taken out, so the header
-                // is one width whether or not the pointer is on the card.
-                ZStack(alignment: .trailing) {
-                    Text(RelativeTime.short(session.lastActivity))
-                        .font(.mono(10))
-                        .foregroundStyle(.tertiary)
-                        .opacity(hovering ? 0 : 1)
-                    if hovering {
-                        Button(action: onDelete) {
-                            Image(systemName: "trash")
-                                .font(.system(size: 11))
-                                .foregroundStyle(.secondary)
+                // The timestamp hides in place rather than being taken out, and the button
+                // that replaces it is an overlay, so the card is one size whether or not
+                // the pointer is on it.
+                Text(RelativeTime.short(session.lastActivity))
+                    .font(.mono(10))
+                    .foregroundStyle(.tertiary)
+                    .opacity(hovering ? 0 : 1)
+                    .overlay(alignment: .trailing) {
+                        if hovering {
+                            Button(action: onDelete) {
+                                Image(systemName: "trash")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Delete session")
                         }
-                        .buttonStyle(.plain)
-                        .help("Delete session")
                     }
-                }
             }
 
             Text(session.title)
