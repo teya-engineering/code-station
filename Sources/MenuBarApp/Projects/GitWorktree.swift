@@ -14,9 +14,10 @@ enum GitWorktree {
         var errorDescription: String? { message }
     }
 
+    // Kept out of backups: a worktree can be recreated from the repository it came from,
+    // and copying every checkout into Time Machine is not worth the room it takes.
     static var baseDirectory: URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".config/claude-conductor/worktrees")
+        AppPaths.directory("worktrees", backedUp: false)
     }
 
     // The session id makes the folder and branch unique; the project name keeps them

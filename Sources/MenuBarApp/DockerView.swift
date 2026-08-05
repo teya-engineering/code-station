@@ -11,6 +11,7 @@ struct DockerView: View {
             header
             Divider().overlay(Theme.hairline)
             list
+            SheetFooter { dismiss() }
         }
         .frame(width: 560, height: 520)
         .background(Theme.background)
@@ -43,15 +44,6 @@ struct DockerView: View {
             .help("Refresh")
 
             Spacer()
-
-            Button("Done") { dismiss() }
-                .buttonStyle(.plain)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 18)
-                .padding(.vertical, 7)
-                .background(RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.88)))
-                .keyboardShortcut(.defaultAction)
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 14)

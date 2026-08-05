@@ -6,8 +6,9 @@ struct ServerDetailView: View {
     @Environment(ClaudeCodeManager.self) private var claude
     let serverID: Server.ID
 
+    @Environment(DialogPresenter.self) private var dialogs
+
     @State private var showingRawJSON = false
-    @State private var confirmingDelete = false
     @State private var copiedCommand = false
 
     private var server: Server? { store.servers.first { $0.id == serverID } }
@@ -29,12 +30,6 @@ struct ServerDetailView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .sheet(isPresented: $showingRawJSON) { RawJSONView() }
-            .alert("Delete \(server.name)?", isPresented: $confirmingDelete) {
-                Button("Delete", role: .destructive) { store.remove(serverID) }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("This removes the server from the config file.")
-            }
         }
     }
 
@@ -260,11 +255,21 @@ struct ServerDetailView: View {
         }
     }
 
+    private func confirmDelete(_ server: Server) {
+        dialogs.show(Dialog(
+            title: "Delete \(server.name)?",
+            message: "This removes the server from the config file.",
+            actions: [
+                .init(label: "Delete server", kind: .destructive) { store.remove(serverID) },
+                .init(label: "Cancel", kind: .cancel)
+            ]))
+    }
+
     private var footer: some View {
         HStack(spacing: 20) {
             Button("View raw JSON") { showingRawJSON = true }
                 .buttonStyle(.plain).foregroundStyle(Theme.accent)
-            Button("Delete server") { confirmingDelete = true }
+            Button("Delete server") { if let server { confirmDelete(server) } }
                 .buttonStyle(.plain).foregroundStyle(.red.opacity(0.85))
             Spacer()
             if let modified = store.lastModified {

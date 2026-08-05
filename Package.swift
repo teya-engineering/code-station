@@ -9,7 +9,8 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "MenuBarApp",
-            path: "Sources/MenuBarApp"
+            path: "Sources/MenuBarApp",
+            resources: [.process("Resources")]
         ),
         .testTarget(
             name: "MenuBarAppTests",

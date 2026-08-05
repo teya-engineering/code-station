@@ -8,24 +8,25 @@ struct RootView: View {
     @State private var configuringServers = false
     @State private var showingDocker = false
     @State private var showingSettings = false
+    @State private var showingPostman = false
 
     var body: some View {
         HStack(spacing: 0) {
             AppSidebar(onConfigureServers: { configuringServers = true },
                        onOpenDocker: { showingDocker = true },
-                       onOpenSettings: { showingSettings = true })
+                       onOpenSettings: { showingSettings = true },
+                       onOpenPostman: { showingPostman = true })
             Divider().overlay(Theme.hairline)
             detail
         }
         .background(Theme.background)
-        // Dialogs and menus are drawn here rather than where they are asked for, so a
-        // question from the sidebar is still centred over the whole window and a menu
-        // can spill past the panel it was opened from.
-        .overlay { ContextMenuHost() }
-        .overlay { DialogHost() }
-        .sheet(isPresented: $configuringServers) { ConfigManagerView() }
-        .sheet(isPresented: $showingDocker) { DockerView() }
-        .sheet(isPresented: $showingSettings) { SettingsView() }
+        .appOverlays()
+        // A sheet is a window of its own, so the layer under it cannot draw over it; each
+        // sheet gets one of its own to ask its own questions in.
+        .sheet(isPresented: $configuringServers) { ConfigManagerView().appOverlays() }
+        .sheet(isPresented: $showingDocker) { DockerView().appOverlays() }
+        .sheet(isPresented: $showingSettings) { SettingsView().appOverlays() }
+        .sheet(isPresented: $showingPostman) { PostmanView().appOverlays() }
     }
 
     @ViewBuilder private var detail: some View {

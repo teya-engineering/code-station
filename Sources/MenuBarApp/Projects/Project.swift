@@ -55,8 +55,15 @@ struct ChatMessage: Identifiable, Codable, Equatable {
     var text: String = ""
     var tools: [ToolUse] = []
     var date: Date = Date()
+    // Paths of the files sent with a user turn. Optional so conversations written before
+    // the app could take attachments still decode.
+    var attachments: [String]?
 
-    var isEmpty: Bool { text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && tools.isEmpty }
+    var isEmpty: Bool {
+        text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && tools.isEmpty
+            && (attachments?.isEmpty ?? true)
+    }
 }
 
 // A conversation with Claude Code in a project's directory. `claudeSessionID` is the
@@ -73,6 +80,13 @@ struct ChatSession: Identifiable, Codable, Equatable {
     // folder. The worktree and branch belong to this session and go with it.
     var worktreePath: String?
     var worktreeBranch: String?
+    // Optional so conversations written before the app had either still decode. Both
+    // read as "nothing chosen yet" and "nothing spent yet".
+    var settings: SessionSettings?
+    var usage: SessionUsage?
+
+    // When something last happened here, used for the sidebar's relative times.
+    var lastActivity: Date { messages.last?.date ?? createdAt }
 
     // The first thing the user asked makes a better title than "New session".
     mutating func retitleIfNeeded(from prompt: String) {

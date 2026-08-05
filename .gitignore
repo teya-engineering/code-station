@@ -1,5 +1,38 @@
+# Swift Package Manager
 .build/
 .swiftpm/
+Package.resolved
+
+# Build output
 build/
-*.xcodeproj
 DerivedData/
+
+# Xcode
+*.xcodeproj
+*.xcworkspace
+xcuserdata/
+*.xcuserstate
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM
+*.dSYM.zip
+
+# JetBrains IDEs
+.idea/
+
+# VS Code
+.vscode/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+Icon?
+
+# Worktrees the app creates at runtime
+.conductor/
+
+# Local Claude Code settings
+.claude/settings.local.json

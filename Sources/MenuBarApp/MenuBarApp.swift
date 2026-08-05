@@ -28,19 +28,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let projects = ProjectStore()
     private let runner = SessionRunner()
     private let terminals = TerminalStore()
-    private let dialogs = DialogPresenter()
-    private let menus = MenuPresenter()
     private let loginItem = LoginItem()
     private let docker = DockerService()
+    private let postman = PostmanStore()
+    private let postmanRunner = PostmanRunner()
+    private let postmanAuth = PostmanAuthStore()
     private var window: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
+        // Sessions hold a pipe open to a CLI they do not control the lifetime of. Writing
+        // to one that has just exited raises SIGPIPE, which would take the app down with
+        // it; ignored, the write fails as an error the runner can report instead.
+        signal(SIGPIPE, SIG_IGN)
+        Attachments.pruneOldPastes()
         showManager()
     }
 
-    // Closing the window leaves the app running in the Dock, so clicking the Dock icon
-    // has to be able to bring it back. Without this there is no way back in.
+    // The window is the app, so closing it quits rather than leaving a process with no
+    // way back into it except the Dock.
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        true
+    }
+
+    // Reopening only happens when the app is already running, which now means the window
+    // was hidden rather than closed, but the Dock icon still has to bring it back.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
         showManager()
         return true
@@ -56,10 +68,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     .environment(projects)
                     .environment(runner)
                     .environment(terminals)
-                    .environment(dialogs)
-                    .environment(menus)
                     .environment(loginItem)
-                    .environment(docker))
+                    .environment(docker)
+                    .environment(postman)
+                    .environment(postmanRunner)
+                    .environment(postmanAuth))
             // Let the window own its size instead of shrinking to the view's ideal size.
             hosting.sizingOptions = []
             let win = NSWindow(
@@ -68,7 +81,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 backing: .buffered, defer: false)
             win.contentViewController = hosting
             win.setContentSize(NSSize(width: 1180, height: 820))
-            win.title = "Claude Conductor"
+            win.title = "Teya Conductor"
             win.titleVisibility = .hidden
             win.titlebarAppearsTransparent = true
             win.backgroundColor = .white
@@ -86,5 +99,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         runner.stopAll()
         terminals.stopEverything()
         projects.save()
+        postman.save()
     }
 }

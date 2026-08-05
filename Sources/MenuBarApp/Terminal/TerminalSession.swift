@@ -59,7 +59,7 @@ final class TerminalSession: Identifiable {
 
         var environment = ProcessInfo.processInfo.environment
         environment["TERM"] = "xterm-256color"
-        environment["TERM_PROGRAM"] = "ClaudeConductor"
+        environment["TERM_PROGRAM"] = "TeyaConductor"
         environment["PATH"] = ProcessManager.searchPath
         environment["LANG"] = environment["LANG"] ?? "en_US.UTF-8"
         // A pager that takes over the screen has nothing to draw into here.

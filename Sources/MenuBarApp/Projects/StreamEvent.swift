@@ -8,6 +8,13 @@ enum StreamEvent: Sendable {
     case text(String)
     case toolUse(ToolUse)
     case toolResult(id: String, output: String, isError: Bool)
+    // The agent asking something back. The turn is parked until it is answered.
+    case permissionRequest(PermissionRequest)
+    case permissionWithdrawn(id: String)
+    // Where the account's usage windows stand, sent whenever they move.
+    case rateLimit(RateLimit)
+    // What the finished turn cost, reported alongside its result.
+    case usage(TurnUsage)
     case finished(isError: Bool, message: String?)
 }
 
@@ -20,12 +27,28 @@ extension StreamEvent {
     // events. This is decoded by hand rather than with Codable: the payload is deeply
     // nested, most fields are optional, shapes differ between CLI versions, and a single
     // unexpected field must never take down the stream.
-    static func parse(_ line: String) -> [StreamEvent] {
+    static func parse(_ line: String, projectPath: String = "") -> [StreamEvent] {
         guard let data = line.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         else { return [] }
 
         switch object["type"] as? String {
+        case "control_request":
+            // Permission is the only thing we answer; other control requests (keep-alive,
+            // MCP relays) are the CLI talking to a host we are not pretending to be.
+            guard let id = object["request_id"] as? String,
+                  let request = object["request"] as? [String: Any],
+                  request["subtype"] as? String == "can_use_tool",
+                  let parsed = PermissionRequest.parse(id: id, request: request,
+                                                       projectPath: projectPath) else { return [] }
+            return [.permissionRequest(parsed)]
+
+        // The agent gave up on a question of its own accord, usually because the turn was
+        // interrupted. The card has to go, or it would answer a request nobody is holding.
+        case "control_cancel_request":
+            guard let id = object["request_id"] as? String else { return [] }
+            return [.permissionWithdrawn(id: id)]
+
         case "system":
             guard object["subtype"] as? String == "init",
                   let id = object["session_id"] as? String, !id.isEmpty else { return [] }
@@ -37,6 +60,14 @@ extension StreamEvent {
         case "user":
             return contentBlocks(of: object).compactMap(toolResultEvent)
 
+        case "rate_limit_event":
+            guard let info = object["rate_limit_info"] as? [String: Any],
+                  let kind = info["rateLimitType"] as? String,
+                  let status = info["status"] as? String else { return [] }
+            let resetsAt = (info["resetsAt"] as? Double).map(Date.init(timeIntervalSince1970:))
+            return [.rateLimit(RateLimit(kind: kind, status: status, resetsAt: resetsAt,
+                                         utilization: info["utilization"] as? Double))]
+
         case "result":
             // A failing turn still reports subtype "success" (a bad model, for example),
             // so is_error is the only trustworthy signal. The text of the problem is in
@@ -45,7 +76,10 @@ extension StreamEvent {
             let errors = (object["errors"] as? [Any])?.compactMap { $0 as? String } ?? []
             let message = object["result"] as? String
                 ?? (errors.isEmpty ? nil : errors.joined(separator: "\n"))
-            return [.finished(isError: isError, message: message)]
+            var events: [StreamEvent] = []
+            if let usage = turnUsage(of: object) { events.append(.usage(usage)) }
+            events.append(.finished(isError: isError, message: message))
+            return events
 
         default:
             return []
@@ -53,6 +87,34 @@ extension StreamEvent {
     }
 
     // MARK: - Private
+
+    // The cost and token counts on a result event. `modelUsage` is keyed by the exact
+    // model that ran and is the only place the context window is named, so it is read
+    // for that even though the totals are easier to get from `usage`.
+    private static func turnUsage(of object: [String: Any]) -> TurnUsage? {
+        let counts = object["usage"] as? [String: Any]
+        let perModel = object["modelUsage"] as? [String: Any]
+        guard counts != nil || perModel != nil else { return nil }
+
+        var usage = TurnUsage()
+        usage.costUSD = object["total_cost_usd"] as? Double ?? 0
+        usage.inputTokens = counts?["input_tokens"] as? Int ?? 0
+        usage.outputTokens = counts?["output_tokens"] as? Int ?? 0
+        usage.cacheReadTokens = counts?["cache_read_input_tokens"] as? Int ?? 0
+        usage.cacheWriteTokens = counts?["cache_creation_input_tokens"] as? Int ?? 0
+
+        // A turn can touch more than one model when subagents run, so the one with the
+        // most output is taken as the turn's model: it is the one that did the work.
+        let models = (perModel ?? [:]).compactMap { name, value -> (String, [String: Any])? in
+            guard let detail = value as? [String: Any] else { return nil }
+            return (name, detail)
+        }
+        if let main = models.max(by: { ($0.1["outputTokens"] as? Int ?? 0) < ($1.1["outputTokens"] as? Int ?? 0) }) {
+            usage.model = main.1["canonicalModel"] as? String ?? main.0
+            usage.contextWindow = main.1["contextWindow"] as? Int ?? 0
+        }
+        return usage
+    }
 
     private static func contentBlocks(of object: [String: Any]) -> [[String: Any]] {
         guard let message = object["message"] as? [String: Any] else { return [] }

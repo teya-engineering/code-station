@@ -2,12 +2,12 @@ import Foundation
 
 // The two axes that identify a Grafana instance.
 enum Scope: String, CaseIterable, Identifiable, Codable {
-    case platform, cde, edge
+    case platform, cde, edge, shared
     var id: String { rawValue }
 }
 
 enum DeployEnv: String, CaseIterable, Identifiable, Codable {
-    case dev, prd
+    case dev, prd, shared
     var id: String { rawValue }
 }
 
@@ -22,7 +22,10 @@ enum Grafana {
     }
 
     static func url(_ scope: Scope, _ env: DeployEnv) -> String {
-        "https://grafana.\(scope.rawValue)-\(env.rawValue).example.com"
+        // The shared account holds one Grafana with no dev/prd split, so its host
+        // segment is just "shared" rather than the usual "<scope>-<env>" pair.
+        let account = scope == .shared && env == .shared ? "shared" : "\(scope.rawValue)-\(env.rawValue)"
+        return "https://grafana.\(account).example.com"
     }
 
     // Pull the scope/env back out of a "grafana-<scope>-<env>" name.

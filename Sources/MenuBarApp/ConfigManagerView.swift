@@ -9,7 +9,7 @@ struct ConfigManagerView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var showingAddGrafana = false
     @State private var showingAddJSON = false
-    @State private var showingAddChoice = false
+    @State private var grafanaExpanded = true
 
     var body: some View {
         VStack(spacing: 0) {
@@ -32,6 +32,7 @@ struct ConfigManagerView: View {
                 Divider().overlay(Theme.hairline)
                 detail
             }
+            SheetFooter { dismiss() }
         }
         .frame(width: 940, height: 640)
         .background(Theme.background)
@@ -54,34 +55,21 @@ struct ConfigManagerView: View {
             .buttonStyle(.plain)
             .help("Reload from disk")
 
-            Menu {
-                Button("Reload from disk") { store.load() }
-                Button("Reveal config in Finder") {
-                    NSWorkspace.shared.activateFileViewerSelecting([store.configURL])
-                }
-            } label: {
-                HStack(spacing: 6) {
-                    Text("MCP Servers")
-                        .font(.system(size: 16, weight: .semibold))
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                }
+            HStack(spacing: 6) {
+                Text("MCP Servers")
+                    .font(.system(size: 16, weight: .semibold))
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
             }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
+            .appMenu {
+                [.item("Reload from disk") { store.load() },
+                 .item("Reveal config in Finder") {
+                     NSWorkspace.shared.activateFileViewerSelecting([store.configURL])
+                 }]
+            }
 
             Spacer()
-
-            Button("Done") { dismiss() }
-                .buttonStyle(.plain)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 18)
-                .padding(.vertical, 7)
-                .background(RoundedRectangle(cornerRadius: 9).fill(Color.black.opacity(0.88)))
-                // Escape leaves the sheet, the way any other dialog behaves.
-                .keyboardShortcut(.cancelAction)
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 14)
@@ -104,13 +92,19 @@ struct ConfigManagerView: View {
 
             ScrollView {
                 VStack(spacing: 4) {
-                    ForEach(store.servers) { server in
-                        ServerRow(server: server,
-                                  selected: server.id == store.selectedID,
-                                  running: processes.state(server.id).isActive)
-                            .contentShape(Rectangle())
-                            .onTapGesture { store.selectedID = server.id }
+                    // Grafana needs one process per instance, so the rows cannot merge.
+                    // Grouping them at least keeps it to a single control.
+                    if !grafanaServers.isEmpty {
+                        GrafanaGroupHeader(
+                            running: processes.runningCount(among: grafanaServers.map(\.id)),
+                            total: grafanaServers.count,
+                            expanded: $grafanaExpanded,
+                            toggleAll: toggleAllGrafana)
+                        if grafanaExpanded {
+                            ForEach(grafanaServers) { row(for: $0) }
+                        }
                     }
+                    ForEach(otherServers) { row(for: $0) }
                 }
                 .padding(.horizontal, 12)
             }
@@ -135,28 +129,35 @@ struct ConfigManagerView: View {
                     .disabled(claude.bulkBusy)
                 }
 
-                Button {
-                    showingAddChoice = true
-                } label: {
-                    Text("+ Add server")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background(RoundedRectangle(cornerRadius: 10).fill(Color.black.opacity(0.88)))
-                }
-                .buttonStyle(.plain)
-                .popover(isPresented: $showingAddChoice, arrowEdge: .top) {
-                    VStack(spacing: 2) {
-                        AddChoiceButton(title: "Add Grafana MCP server") {
-                            showingAddChoice = false; showingAddGrafana = true
-                        }
-                        AddChoiceButton(title: "Add MCP server") {
-                            showingAddChoice = false; showingAddJSON = true
-                        }
+                Text("+ Add server")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(RoundedRectangle(cornerRadius: 10).fill(Color.black.opacity(0.88)))
+                    .appMenu {
+                        [.item("Add Grafana MCP server") { showingAddGrafana = true },
+                         .item("Add MCP server") { showingAddJSON = true }]
                     }
-                    .padding(6)
-                    .frame(width: 240)
+
+                HStack(spacing: 6) {
+                    Text("Config file")
+                    Image(systemName: "chevron.down").font(.system(size: 10, weight: .semibold))
+                }
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.primary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 9)
+                .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.hairline))
+                .appMenu {
+                    [.item("Reload from disk") {
+                        store.load()
+                        claude.refresh()
+                     },
+                     .item("Reveal config in Finder") {
+                        NSWorkspace.shared.activateFileViewerSelecting([store.configURL])
+                     }]
                 }
 
                 Text(collapsedPath)
@@ -170,6 +171,26 @@ struct ConfigManagerView: View {
         }
         .frame(width: 292)
         .background(Theme.sidebar)
+    }
+
+    private var grafanaServers: [Server] { store.servers.filter(\.isGrafana) }
+    private var otherServers: [Server] { store.servers.filter { !$0.isGrafana } }
+
+    private func row(for server: Server) -> some View {
+        ServerRow(server: server,
+                  selected: server.id == store.selectedID,
+                  running: processes.state(server.id).isActive)
+            .contentShape(Rectangle())
+            .onTapGesture { store.selectedID = server.id }
+    }
+
+    private func toggleAllGrafana() {
+        let ids = grafanaServers.map(\.id)
+        if processes.runningCount(among: ids) == ids.count {
+            processes.stopAll(ids)
+        } else {
+            processes.startAll(grafanaServers)
+        }
     }
 
     private var collapsedPath: String {
@@ -191,23 +212,51 @@ struct ConfigManagerView: View {
     }
 }
 
-private struct AddChoiceButton: View {
-    let title: String
-    let action: () -> Void
-    @State private var hovering = false
+private struct GrafanaGroupHeader: View {
+    let running: Int
+    let total: Int
+    @Binding var expanded: Bool
+    let toggleAll: () -> Void
+
+    private var allRunning: Bool { running == total }
 
     var body: some View {
-        Button(action: action) {
-            Text(title)
-                .font(.system(size: 14))
-                .foregroundStyle(.primary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-                .background(RoundedRectangle(cornerRadius: 6).fill(hovering ? Color.black.opacity(0.06) : .clear))
+        HStack(spacing: 8) {
+            Button {
+                expanded.toggle()
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(.secondary)
+                        .rotationEffect(.degrees(expanded ? 90 : 0))
+                    Text("GRAFANA")
+                        .font(.system(size: 11, weight: .semibold))
+                        .kerning(0.6)
+                        .foregroundStyle(.secondary)
+                    Text("\(running)/\(total)")
+                        .font(.mono(11))
+                        .foregroundStyle(.secondary)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            Spacer()
+
+            Button(action: toggleAll) {
+                Text(allRunning ? "Stop all" : "Start all")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(allRunning ? Color.secondary : Theme.accent)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Capsule().fill(Color.black.opacity(0.05)))
+            }
+            .buttonStyle(.plain)
         }
-        .buttonStyle(.plain)
-        .onHover { hovering = $0 }
+        .padding(.horizontal, 12)
+        .padding(.top, 6)
+        .padding(.bottom, 2)
     }
 }
 

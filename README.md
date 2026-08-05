@@ -1,18 +1,18 @@
-# Claude Conductor
+# Teya Conductor
 
 A small macOS app for running Claude Code against your projects, plus the MCP server
 manager it grew out of. It is a stripped-down take on Conductor: a project list and a
 chat per session, but only Claude Code.
 
-It lives in the Dock. Closing the window leaves it running; click the Dock icon to bring
-it back.
+It lives in the Dock. Closing the window quits the app, so anything still running stops
+with it.
 
 ## How it works
 
 A project is just a folder on your Mac. A session runs Claude Code either **in that
 folder itself** - edits land straight in your working tree - or in a **git worktree**:
 an isolated checkout on its own branch, kept under
-`~/.config/claude-conductor/worktrees`.
+`~/Library/Application Support/com.teya.conductor/worktrees`.
 
 Starting a new session in a git repository asks which of the two you want. Sessions
 that share a folder cannot run at the same time, because two agents would edit the same
@@ -41,6 +41,18 @@ folder, so you can see what the agent did before you keep it.
   anything else shows its input and output.
 - The header shows the working tree totals (`+38 -6 in 3 files`) live while the agent
   works; clicking them opens **Changes**.
+- The composer takes files as well as text: paste a screenshot or a copied file with
+  `⌘V`, or drop files onto it. They ride along with the next message as paths, and
+  anything outside the session's folder is opened up to the agent with `--add-dir`.
+  Pasted images are written to
+  `~/Library/Application Support/com.teya.conductor/attachments` and cleared out after
+  a week.
+- The agent can ask back. A tool that needs permission and a question the agent wants
+  answered both land as a card at the foot of the chat, and the turn waits there until
+  you answer it. Permission cards offer **Allow**, **Deny**, and whatever the CLI thinks
+  "don't ask again" should mean here; question cards show the options, take several
+  answers at once when the question allows it, and always let you type something else.
+  Settings chooses how much gets asked about.
 - **Changes** shows the branch, the changed files with per-file `+`/`-` counts, and the
   diff for any file you select. It is strictly read-only: nothing here stages, commits,
   or discards anything.
@@ -58,11 +70,18 @@ folder, so you can see what the agent did before you keep it.
 - Sessions are resumed through Claude Code's own `--resume`, so context survives quitting
   the app. If Claude Code has forgotten a conversation, the next message starts a fresh
   one and says so instead of failing.
-- Projects and sessions are stored in `~/.config/claude-conductor/projects.json`.
+- Projects and sessions are stored in `~/Library/Application Support/com.teya.conductor/projects.json`.
+  What was open last time is a preference, so it lives in UserDefaults rather than that
+  file. The Postman panel keeps its requests in the same folder, and its OAuth client
+  secret and token in the Keychain. Anything an older version left in
+  `~/.config/claude-conductor` is moved across on first launch.
 
-Claude Code is run as `claude -p --output-format stream-json`, so the CLI owns
-permissions, model choice, and MCP wiring. Whatever `claude` does in a terminal in that
-folder is what happens here.
+Claude Code is run as `claude -p` with JSON streaming both ways
+(`--output-format stream-json --input-format stream-json --permission-prompt-tool stdio`),
+so the CLI owns permissions, model choice, and MCP wiring. Whatever `claude` does in a
+terminal in that folder is what happens here. Streaming input is what lets it ask
+anything back: prompts arrive as control requests on its stdout and the answer goes down
+its stdin, and a session that cannot answer gets its tool calls denied instead.
 
 The drawer's terminal is a scrollback view, not a full screen one. It understands what
 ordinary command output uses - colours, progress lines that redraw, line erases - which
@@ -131,14 +150,15 @@ swift run
 ## Build a double-clickable app
 
 ```bash
-./build-app.sh          # produces "build/Claude Conductor.app"
+./build-app.sh          # produces "build/Teya Conductor.app"
 ```
 
 `swift run` has no Dock icon or app menu, because those come from the bundle. Use the
 bundle for anything beyond a quick check.
 
-The icon is drawn by `make-icon.swift` into `Resources/AppIcon.icns`. Run
-`swift make-icon.swift` after changing the art.
+The app mark lives at `Sources/MenuBarApp/Resources/AppIcon.png`, and is shown both in
+the sidebar and, through `make-icon.swift`, as the Dock icon. Replace that file and run
+`swift make-icon.swift` to rebuild `Resources/AppIcon.icns`.
 
 ## Notes
 

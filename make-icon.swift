@@ -1,51 +1,24 @@
-// Draws Resources/AppIcon.icns. Run with `swift make-icon.swift` after changing the art.
-// The icon is generated rather than checked in as opaque binary art so the palette can
-// stay in step with Theme.swift.
+// Draws Resources/AppIcon.icns from the app mark. Run with `swift make-icon.swift`
+// after changing the art. The mark itself lives with the package resources so the
+// window and the Dock icon are never drawn from two different files.
 import AppKit
 
-let accent = NSColor(srgbRed: 0.20, green: 0.34, blue: 0.24, alpha: 1)
-let cream = NSColor(srgbRed: 0.965, green: 0.961, blue: 0.945, alpha: 1)
+let artPath = "Sources/MenuBarApp/Resources/AppIcon.png"
+guard let art = NSImage(contentsOfFile: artPath) else {
+    print("Cannot read \(artPath)")
+    exit(1)
+}
 
+// The art already carries its own margin, so it is drawn edge to edge rather than
+// inset again, which would leave the Dock icon looking small next to system ones.
 func drawIcon(size: CGFloat) -> NSImage {
     let image = NSImage(size: NSSize(width: size, height: size))
     image.lockFocus()
     NSGraphicsContext.current?.imageInterpolation = .high
-
-    // macOS art sits inside the canvas rather than filling it, so the Dock's own
-    // shadow and spacing look right next to system icons.
-    let inset = size * 0.06
-    let rect = NSRect(x: inset, y: inset, width: size - inset * 2, height: size - inset * 2)
-    let radius = rect.width * 0.225
-    let squircle = NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius)
-    accent.setFill()
-    squircle.fill()
-
-    // A split panel: the sidebar and detail layout the app is built around.
-    let panel = rect.insetBy(dx: rect.width * 0.20, dy: rect.height * 0.24)
-    let panelRadius = panel.width * 0.10
-    let stroke = max(size * 0.028, 1)
-    let outline = NSBezierPath(roundedRect: panel, xRadius: panelRadius, yRadius: panelRadius)
-    outline.lineWidth = stroke
-    cream.setStroke()
-    outline.stroke()
-
-    // The divider sits a third in, matching the real sidebar's proportion.
-    let x = panel.minX + panel.width * 0.36
-    let divider = NSBezierPath()
-    divider.move(to: NSPoint(x: x, y: panel.minY))
-    divider.line(to: NSPoint(x: x, y: panel.maxY))
-    divider.lineWidth = stroke
-    divider.stroke()
-
-    // Fill the sidebar side so the glyph reads as a layout, not an empty box.
-    let sidebar = NSRect(x: panel.minX, y: panel.minY, width: x - panel.minX, height: panel.height)
-    let clip = NSBezierPath(roundedRect: panel, xRadius: panelRadius, yRadius: panelRadius)
-    NSGraphicsContext.saveGraphicsState()
-    clip.addClip()
-    cream.withAlphaComponent(0.30).setFill()
-    sidebar.fill()
-    NSGraphicsContext.restoreGraphicsState()
-
+    art.draw(in: NSRect(x: 0, y: 0, width: size, height: size),
+             from: .zero,
+             operation: .sourceOver,
+             fraction: 1)
     image.unlockFocus()
     return image
 }

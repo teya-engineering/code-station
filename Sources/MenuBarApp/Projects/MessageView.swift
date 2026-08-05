@@ -33,15 +33,24 @@ struct MessageView: View {
     private var userBubble: some View {
         HStack(spacing: 0) {
             Spacer(minLength: 80)
-            Text(message.text)
-                .font(.system(size: 13))
-                .textSelection(.enabled)
-                .multilineTextAlignment(.leading)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
-                .background(RoundedRectangle(cornerRadius: 12).fill(Theme.accent.opacity(0.10)))
-                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.accent.opacity(0.22)))
+            VStack(alignment: .leading, spacing: 8) {
+                if let paths = message.attachments, !paths.isEmpty {
+                    ForEach(paths, id: \.self) { path in
+                        AttachmentChip(url: URL(fileURLWithPath: path))
+                    }
+                }
+                if !message.text.isEmpty {
+                    Text(message.text)
+                        .font(.system(size: 13))
+                        .textSelection(.enabled)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(RoundedRectangle(cornerRadius: 12).fill(Theme.accent.opacity(0.10)))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.accent.opacity(0.22)))
         }
     }
 

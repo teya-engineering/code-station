@@ -11,6 +11,9 @@ enum Theme {
     static let dotOn = Color(red: 0.42, green: 0.60, blue: 0.43)
     static let dotOff = Color(red: 0.66, green: 0.66, blue: 0.63)
     static let secret = Color(red: 0.72, green: 0.52, blue: 0.20)
+    // Something has stopped and is waiting to be looked at, as opposed to the green of
+    // something running on its own.
+    static let attention = Color(red: 0.82, green: 0.58, blue: 0.16)
 
     // Diff colours, shared by the changes screen, the chat's edit cards, and the
     // +N / -N counters everywhere.
@@ -19,6 +22,24 @@ enum Theme {
 
     static let border = Color.black.opacity(0.08)
     static let hairline = Color.black.opacity(0.06)
+
+    // Tints for the sidebar's project monograms. Picked from the name so a project
+    // keeps the same colour between launches, which is what makes the tile readable
+    // as an identity rather than decoration.
+    private static let monograms = [
+        Color(red: 0.28, green: 0.38, blue: 0.30),
+        Color(red: 0.70, green: 0.50, blue: 0.18),
+        Color(red: 0.35, green: 0.42, blue: 0.55),
+        Color(red: 0.60, green: 0.35, blue: 0.32),
+        Color(red: 0.40, green: 0.40, blue: 0.38)
+    ]
+
+    // Swift's own hashValue is salted per process, so the sum of the scalars is used
+    // instead to keep the choice stable.
+    static func monogram(for name: String) -> Color {
+        let seed = name.unicodeScalars.reduce(0) { $0 &+ Int($1.value) }
+        return monograms[seed % monograms.count]
+    }
 
     // Drawn by AppKit around the focused terminal, so it is an NSColor rather than a
     // SwiftUI one.
@@ -49,13 +70,26 @@ struct Chip: View {
     }
 }
 
-// Section label like COMMAND / ENVIRONMENT VARIABLES.
+// Section label like COMMAND / ENVIRONMENT VARIABLES. The dot marks where a section
+// starts, which is the only thing separating one from the next in a plain scroll.
 struct SectionLabel: View {
     let text: String
     var body: some View {
-        Text(text)
-            .font(.system(size: 12, weight: .semibold))
-            .kerning(0.6)
-            .foregroundStyle(.secondary)
+        HStack(spacing: 7) {
+            SectionDot(size: 5)
+            Text(text)
+                .font(.system(size: 12, weight: .semibold))
+                .kerning(0.6)
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
+struct SectionDot: View {
+    var size: CGFloat = 5
+    var body: some View {
+        Circle()
+            .fill(Theme.dotOn)
+            .frame(width: size, height: size)
     }
 }

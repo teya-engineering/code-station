@@ -97,6 +97,14 @@ final class ProcessManager {
         for id in Array(processes.keys) { stop(id) }
     }
 
+    func startAll(_ servers: [Server]) {
+        for server in servers where !state(server.id).isActive { start(server) }
+    }
+
+    func stopAll(_ ids: [Server.ID]) {
+        for id in ids where state(id).isActive { stop(id) }
+    }
+
     func clearLog(_ id: Server.ID) { logs[id] = "" }
 
     func runningCount(among ids: [Server.ID]) -> Int {

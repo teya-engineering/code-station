@@ -58,6 +58,12 @@ extension View {
     func appContextMenu(_ entries: @escaping () -> [MenuEntry]) -> some View {
         modifier(AppContextMenu(entries: entries))
     }
+
+    // Some controls are a menu button rather than a row with a menu behind it, so the
+    // same menu opens from a plain click and hangs under the button.
+    func appMenu(_ entries: @escaping () -> [MenuEntry]) -> some View {
+        modifier(AppMenuButton(entries: entries))
+    }
 }
 
 private struct AppContextMenu: ViewModifier {
@@ -69,6 +75,55 @@ private struct AppContextMenu: ViewModifier {
             presenter.show(entries(), at: point)
         })
     }
+}
+
+private struct AppMenuButton: ViewModifier {
+    @Environment(MenuPresenter.self) private var presenter
+    let entries: () -> [MenuEntry]
+
+    @State private var anchor = MenuAnchor()
+
+    func body(content: Content) -> some View {
+        content
+            .background(MenuAnchorView(anchor: anchor))
+            .contentShape(Rectangle())
+            .onTapGesture {
+                guard let point = anchor.menuOrigin() else { return }
+                presenter.show(entries(), at: point)
+            }
+    }
+}
+
+// A menu hangs under the button that opened it, so the point it opens at is the button's
+// bottom left. It is measured the same way a right-click is, so both kinds of menu land
+// in the same coordinate space.
+@MainActor
+private final class MenuAnchor {
+    weak var view: NSView?
+
+    func menuOrigin() -> CGPoint? {
+        guard let view, let content = view.window?.contentView else { return nil }
+        let frame = view.convert(view.bounds, to: content)
+        let bottom = content.isFlipped ? frame.maxY : content.bounds.height - frame.minY
+        return CGPoint(x: frame.minX, y: bottom + 4)
+    }
+}
+
+private struct MenuAnchorView: NSViewRepresentable {
+    let anchor: MenuAnchor
+
+    func makeNSView(context: Context) -> NSView {
+        let view = AnchorView()
+        anchor.view = view
+        return view
+    }
+
+    func updateNSView(_ view: NSView, context: Context) { anchor.view = view }
+}
+
+// Only there to be measured, so it takes no clicks of its own.
+private final class AnchorView: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
 // MARK: - Host

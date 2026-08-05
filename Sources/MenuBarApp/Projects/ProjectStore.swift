@@ -9,17 +9,26 @@ import SwiftUI
 final class ProjectStore {
     private(set) var projects: [Project] = []
     private(set) var sessions: [ChatSession] = []
-    var selection: SidebarSelection?
+    var selection: SidebarSelection? {
+        // Opening a session is reading it, wherever the click came from.
+        didSet {
+            if case .session(let id) = selection { finished.remove(id) }
+        }
+    }
     var selectedProjectID: UUID?
+
+    // Sessions that ended a turn while the user was looking somewhere else. This is about
+    // sitting in front of the app rather than about the conversation, so it is not saved:
+    // a relaunch is not something to catch up on.
+    private(set) var finished: Set<UUID> = []
 
     let storeURL: URL
 
     private struct Persisted: Codable {
         var projects: [Project]
         var sessions: [ChatSession]
-        // Which session was open last, so reopening the app lands where you left off.
-        // The MCP pane is deliberately not restored: it is a settings screen, not a
-        // place to come back to.
+        // Written by an earlier version, which kept what was open in this file. It is a
+        // preference now, so these are only read, to carry that choice over once.
         var selectedSessionID: UUID?
         var selectedProjectID: UUID?
     }
@@ -27,8 +36,7 @@ final class ProjectStore {
     init() {
         storeURL = ProcessInfo.processInfo.environment["CONDUCTOR_STORE"]
             .map { URL(fileURLWithPath: $0) }
-            ?? FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent(".config/claude-conductor/projects.json")
+            ?? AppPaths.supportFile("projects.json", movedFrom: AppPaths.legacy("projects.json"))
         load()
     }
 
@@ -49,6 +57,24 @@ final class ProjectStore {
     var selectedProject: Project? {
         guard let session = selectedSession else { return selectedProjectID.flatMap(project) }
         return project(session.projectID)
+    }
+
+    // MARK: - Turns worth knowing about
+
+    // A turn that ended. The session on screen needs no marker, since its result is
+    // already being read.
+    func noteTurnEnded(for sessionID: UUID) {
+        if case .session(let open) = selection, open == sessionID { return }
+        guard sessions.contains(where: { $0.id == sessionID }) else { return }
+        finished.insert(sessionID)
+    }
+
+    func hasFinished(_ sessionID: UUID) -> Bool { finished.contains(sessionID) }
+
+    // A collapsed project hides its sessions, so the count is what says how much is
+    // waiting behind it.
+    func finishedCount(in projectID: UUID) -> Int {
+        sessions.filter { $0.projectID == projectID && finished.contains($0.id) }.count
     }
 
     // MARK: - Projects
@@ -72,6 +98,7 @@ final class ProjectStore {
 
     func removeProject(_ id: UUID) {
         projects.removeAll { $0.id == id }
+        for session in sessions where session.projectID == id { finished.remove(session.id) }
         sessions.removeAll { $0.projectID == id }
         if selectedProjectID == id { selectedProjectID = projects.first?.id }
         if let session = selectedSession, session.projectID == id { selection = nil }
@@ -107,8 +134,26 @@ final class ProjectStore {
         session.worktreePath ?? project(session.projectID)?.path
     }
 
+    // What the next turn in this session runs with. A turn already in flight keeps the
+    // settings it started with, since its process is long past reading them.
+    func setSettings(_ settings: SessionSettings, for sessionID: UUID) {
+        guard let i = index(sessionID) else { return }
+        guard sessions[i].settings != settings else { return }
+        sessions[i].settings = settings
+        save()
+    }
+
+    func recordUsage(_ turn: TurnUsage, for sessionID: UUID) {
+        guard let i = index(sessionID) else { return }
+        var usage = sessions[i].usage ?? SessionUsage()
+        usage.add(turn)
+        sessions[i].usage = usage
+        scheduleSave()
+    }
+
     func removeSession(_ id: UUID) {
         sessions.removeAll { $0.id == id }
+        finished.remove(id)
         if case .session(id) = selection { selection = nil }
         save()
     }
@@ -182,9 +227,10 @@ final class ProjectStore {
         encoder.dateEncodingStrategy = .iso8601
         var openSessionID: UUID?
         if case .session(let id) = selection { openSessionID = id }
-        let snapshot = Persisted(projects: projects, sessions: sessions,
-                                 selectedSessionID: openSessionID,
-                                 selectedProjectID: selectedProjectID)
+        Preferences.selectedSessionID = openSessionID
+        Preferences.selectedProjectID = selectedProjectID
+
+        let snapshot = Persisted(projects: projects, sessions: sessions)
         guard let data = try? encoder.encode(snapshot) else { return }
         try? FileManager.default.createDirectory(
             at: storeURL.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -198,8 +244,9 @@ final class ProjectStore {
         guard let saved = try? decoder.decode(Persisted.self, from: data) else { return }
         projects = saved.projects
         sessions = saved.sessions
-        selectedProjectID = saved.selectedProjectID ?? projects.first?.id
-        if let id = saved.selectedSessionID, sessions.contains(where: { $0.id == id }) {
+        selectedProjectID = Preferences.selectedProjectID ?? saved.selectedProjectID ?? projects.first?.id
+        if let id = Preferences.selectedSessionID ?? saved.selectedSessionID,
+           sessions.contains(where: { $0.id == id }) {
             selection = .session(id)
         }
     }

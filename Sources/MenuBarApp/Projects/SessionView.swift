@@ -9,12 +9,14 @@ struct SessionView: View {
     @Environment(TerminalStore.self) private var terminals
     let sessionID: UUID
 
-    private enum Tab: Hashable { case chat, changes }
+    private enum Tab: Hashable { case chat, changes, settings }
 
     @State private var tab: Tab = .chat
     @State private var draft = ""
+    @State private var attachments: [Attachment] = []
+    @State private var dropTargeted = false
     @State private var terminalFocused = false
-    @FocusState private var composerFocused: Bool
+    @State private var composerFocused = false
 
     // Working tree totals for the header; refreshed as tools finish so the numbers
     // track the run rather than only its end.
@@ -38,6 +40,9 @@ struct SessionView: View {
                     composer(session: session, project: project)
                 case .changes:
                     ChangesView(root: session.worktreePath ?? project.path)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                case .settings:
+                    SessionSettingsView(sessionID: sessionID)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
 
@@ -177,6 +182,7 @@ struct SessionView: View {
             HStack(spacing: 2) {
                 segment("Chat", .chat)
                 segment("Changes", .changes)
+                segment("Settings", .settings)
             }
             .padding(3)
             .background(RoundedRectangle(cornerRadius: 10).fill(Color.black.opacity(0.05)))
@@ -244,6 +250,8 @@ struct SessionView: View {
                                     openChanges: { tab = .changes })
                     }
 
+                    pendingQuestion
+
                     if showsThinking(session, state: state) {
                         HStack(spacing: 8) {
                             ProgressView().controlSize(.small)
@@ -280,6 +288,18 @@ struct SessionView: View {
             .onChange(of: session.messages.last?.text ?? "") { scrollToBottom(proxy, animated: false) }
             .onChange(of: session.messages.last?.tools.count ?? 0) { scrollToBottom(proxy, animated: false) }
             .onChange(of: state) { scrollToBottom(proxy, animated: true) }
+            .onChange(of: runner.question(sessionID)?.id) { scrollToBottom(proxy, animated: true) }
+        }
+    }
+
+    // Whatever the agent is waiting on sits under the transcript, where the next thing to
+    // happen belongs. The turn is parked until it is answered.
+    @ViewBuilder private var pendingQuestion: some View {
+        if let request = runner.question(sessionID) {
+            PermissionCard(request: request) { answer in
+                runner.answer(request, with: answer, sessionID: sessionID, store: store)
+            }
+            .id(request.id)
         }
     }
 
@@ -287,6 +307,8 @@ struct SessionView: View {
     // there is one with no text in it. Both should look like Claude is working.
     private func showsThinking(_ session: ChatSession, state: SessionState) -> Bool {
         guard state.isBusy else { return false }
+        // A parked turn is waiting on the person, not working.
+        guard runner.question(sessionID) == nil else { return false }
         guard let last = session.messages.last, last.role == .assistant else { return true }
         return last.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
@@ -307,58 +329,150 @@ struct SessionView: View {
         let workingDirectory = session.worktreePath ?? project.path
         let blocked = !FileManager.default.fileExists(atPath: workingDirectory) || !runner.available
         let busy = runner.state(sessionID).isBusy
-        let canSend = !busy && !blocked && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let canSend = !blocked
+            && (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty)
 
-        return HStack(alignment: .bottom, spacing: 10) {
-            // A vertical-axis TextField gives us return-to-send and shift-return for a
-            // newline for free; TextEditor would need an NSView to intercept the key.
-            TextField(busy ? "Claude Code is working…" : "Ask for a change, ^` for the terminal", text: $draft, axis: .vertical)
-                .textFieldStyle(.plain)
-                .font(.system(size: 13))
-                .lineLimit(1...10)
-                .focused($composerFocused)
-                .disabled(busy || blocked)
-                .onSubmit(send)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .background(RoundedRectangle(cornerRadius: 10).fill(Theme.field))
-                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
+        return VStack(alignment: .leading, spacing: 8) {
+            queueStrip(busy: busy, blocked: blocked)
+            attachmentStrip
 
-            // While a turn runs, the send button becomes the stop button.
-            if busy {
-                Button {
-                    runner.stop(sessionID)
-                } label: {
-                    Image(systemName: "stop.fill")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(.white)
-                        .frame(width: 32, height: 32)
-                        .background(Circle().fill(Theme.deletion))
+            HStack(alignment: .bottom, spacing: 10) {
+                // Typing during a turn is allowed: what is written goes to the back of the
+                // queue instead of waiting for the agent to be free.
+                ComposerField(text: $draft,
+                              isFocused: $composerFocused,
+                              placeholder: busy ? "Queue what comes next…" : "Ask for a change",
+                              isEnabled: !blocked,
+                              onSubmit: send)
+
+                if canSend {
+                    Button(action: send) {
+                        Image(systemName: busy ? "arrow.up.to.line" : "arrow.up")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 32, height: 32)
+                            .background(Circle().fill(busy ? Theme.accent : Color.black.opacity(0.88)))
+                    }
+                    .buttonStyle(.plain)
+                    .help(busy ? "Queue this for when the turn ends" : "Send (shift-return for a new line)")
                 }
-                .buttonStyle(.plain)
-                .help("Stop this turn")
-            } else {
-                Button(action: send) {
+
+                if busy {
+                    Button {
+                        runner.stop(sessionID)
+                    } label: {
+                        Image(systemName: "stop.fill")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 32, height: 32)
+                            .background(Circle().fill(Theme.deletion))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Stop this turn")
+                } else if !canSend {
+                    // The button keeps its place so the field does not change width as
+                    // soon as there is something to send.
                     Image(systemName: "arrow.up")
                         .font(.system(size: 13, weight: .bold))
                         .foregroundStyle(.white)
                         .frame(width: 32, height: 32)
-                        .background(Circle().fill(Color.black.opacity(canSend ? 0.88 : 0.22)))
+                        .background(Circle().fill(Color.black.opacity(0.22)))
                 }
-                .buttonStyle(.plain)
-                .disabled(!canSend)
-                .help("Send (shift-return for a new line)")
             }
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 14)
         .background(Theme.card)
+        .overlay(RoundedRectangle(cornerRadius: 10)
+            .stroke(Theme.accent, lineWidth: dropTargeted ? 2 : 0)
+            .padding(6))
+        .pasteAttachments(enabled: composerFocused && !blocked) { attach($0) }
+        .dropDestination(for: URL.self) { urls, _ in
+            guard !blocked else { return false }
+            attach(Attachments.fromDrop(urls))
+            return true
+        } isTargeted: { dropTargeted = $0 }
+    }
+
+    // Prompts typed ahead, above the composer where what happens next belongs. A queue that
+    // is not moving on its own - the last turn failed, or was stopped - gets a button,
+    // since nothing else would ever start it.
+    @ViewBuilder private func queueStrip(busy: Bool, blocked: Bool) -> some View {
+        let waiting = runner.queued(sessionID)
+        if !waiting.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    Image(systemName: "list.bullet.indent")
+                        .font(.system(size: 10, weight: .semibold))
+                    Text(busy ? "QUEUED · RUNS WHEN THIS TURN ENDS" : "QUEUED")
+                        .font(.system(size: 10, weight: .semibold))
+                        .kerning(0.6)
+                    Spacer(minLength: 0)
+                    if !busy && !blocked {
+                        Button("Send now") { runner.runQueue(sessionID, store: store) }
+                            .buttonStyle(.plain)
+                            .font(.system(size: 11, weight: .semibold))
+                    }
+                }
+                .foregroundStyle(Theme.accent)
+
+                ForEach(waiting) { item in
+                    HStack(alignment: .top, spacing: 8) {
+                        Text(item.text)
+                            .font(.system(size: 12))
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 0)
+                        Button {
+                            runner.unqueue(item.id, sessionID: sessionID)
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Remove from the queue")
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Theme.field))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
+                }
+            }
+        }
+    }
+
+    // What is waiting to go out with the next prompt. Long file names are common, so the
+    // strip scrolls rather than squeezing the chips.
+    @ViewBuilder private var attachmentStrip: some View {
+        if !attachments.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(attachments) { attachment in
+                        AttachmentChip(url: attachment.url) {
+                            attachments.removeAll { $0.id == attachment.id }
+                        }
+                    }
+                }
+                .padding(.vertical, 1)
+            }
+        }
+    }
+
+    // The same file twice in one prompt says nothing new.
+    private func attach(_ found: [Attachment]) {
+        for item in found where !attachments.contains(where: { $0.url == item.url }) {
+            attachments.append(item)
+        }
+        composerFocused = true
     }
 
     private func send() {
         let prompt = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !prompt.isEmpty, !runner.state(sessionID).isBusy else { return }
-        runner.send(prompt, sessionID: sessionID, store: store)
+        guard !prompt.isEmpty || !attachments.isEmpty else { return }
+        runner.send(prompt, attachments: attachments, sessionID: sessionID, store: store)
         draft = ""
+        attachments = []
     }
 }

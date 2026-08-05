@@ -8,12 +8,26 @@ import Observation
 @MainActor
 @Observable
 final class SessionRunner {
-    var permissionMode = "acceptEdits"
-    // nil leaves the choice to Claude Code's own default.
-    var model: String?
+    // What every session runs with unless it has picked something of its own. This is what
+    // the Settings sheet edits, and a change here reaches every session that has not
+    // overridden it, from its next turn on.
+    var defaults = Preferences.sessionDefaults {
+        didSet { Preferences.sessionDefaults = defaults }
+    }
+
+    // The account's usage windows, keyed by kind, as of the last turn that ran. They
+    // belong to the account rather than to a session, so every session reads the same
+    // ones and whichever ran last is what they say.
+    private(set) var rateLimits: [String: RateLimit] = [:]
 
     private var states: [UUID: SessionState] = [:]
     private var turns: [UUID: Turn] = [:]
+    // Everything the agent is waiting on, oldest first. Parallel tool calls can park more
+    // than one at a time, and each is answered on its own.
+    private var asked: [UUID: [PermissionRequest]] = [:]
+    // What has been typed but not run yet, oldest first. Everything goes through here, so
+    // a prompt typed mid-turn keeps its place behind the ones before it.
+    private var queues: [UUID: [QueuedPrompt]] = [:]
 
     @ObservationIgnored private let claudePath: String?
 
@@ -28,10 +42,57 @@ final class SessionRunner {
 
     func state(_ sessionID: UUID) -> SessionState { states[sessionID] ?? .idle }
 
-    func send(_ prompt: String, sessionID: UUID, store: ProjectStore) {
+    // What this session is waiting on the person for, if anything.
+    func question(_ sessionID: UUID) -> PermissionRequest? { asked[sessionID]?.first }
+
+    // Sends the answer back down the pipe the turn is parked on. An answered question is
+    // also written into the transcript: the answers travel inside the tool's own input,
+    // where nothing in the conversation would ever show them.
+    func answer(_ request: PermissionRequest, with answer: PermissionAnswer,
+                sessionID: UUID, store: ProjectStore) {
+        guard let turn = turns[sessionID],
+              asked[sessionID]?.contains(where: { $0.id == request.id }) == true else { return }
+        asked[sessionID]?.removeAll { $0.id == request.id }
+
+        guard let line = request.responseLine(answer), turn.write(line) else {
+            states[sessionID] = .failed("Could not send the answer to Claude Code. The turn has been stopped.")
+            stop(sessionID)
+            return
+        }
+
+        if case .answers(let given) = answer, !given.isEmpty {
+            store.append(ChatMessage(role: .user, text: PermissionRequest.transcript(of: given)),
+                         to: sessionID)
+        }
+    }
+
+    // A prompt waiting for its turn to start.
+    struct QueuedPrompt: Identifiable, Equatable, Sendable {
+        let id = UUID()
+        let text: String
+        let attachments: [Attachment]
+    }
+
+    func queued(_ sessionID: UUID) -> [QueuedPrompt] { queues[sessionID] ?? [] }
+
+    func unqueue(_ id: UUID, sessionID: UUID) { queues[sessionID]?.removeAll { $0.id == id } }
+
+    // Nothing is ever sent straight to the CLI: a prompt joins the queue and the queue is
+    // what runs. Typing during a turn therefore costs nothing, and the ones already waiting
+    // keep their order.
+    func send(_ prompt: String, attachments: [Attachment] = [], sessionID: UUID, store: ProjectStore) {
         let text = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, !state(sessionID).isBusy else { return }
-        guard let session = store.session(sessionID) else { return }
+        guard !text.isEmpty || !attachments.isEmpty else { return }
+        queues[sessionID, default: []].append(QueuedPrompt(text: text, attachments: attachments))
+        runQueue(sessionID, store: store)
+    }
+
+    // Starts the oldest waiting prompt, if the session is free to take it. A prompt that
+    // cannot start yet stays at the head of the queue rather than being lost.
+    func runQueue(_ sessionID: UUID, store: ProjectStore) {
+        guard !state(sessionID).isBusy,
+              let next = queues[sessionID]?.first,
+              let session = store.session(sessionID) else { return }
 
         // Two agents in one folder would edit the same files underneath each other, so
         // sessions that share a directory cannot run at once. Worktree sessions each
@@ -42,8 +103,64 @@ final class SessionRunner {
             return
         }
 
-        store.append(ChatMessage(role: .user, text: text), to: sessionID)
-        launch(text, sessionID: sessionID, store: store, canRetryWithoutResume: true)
+        queues[sessionID]?.removeFirst()
+        var message = ChatMessage(role: .user, text: next.text)
+        if !next.attachments.isEmpty { message.attachments = next.attachments.map(\.url.path) }
+        store.append(message, to: sessionID)
+        launch(Self.prompt(next.text, with: next.attachments), attachments: next.attachments,
+               sessionID: sessionID, store: store, canRetryWithoutResume: true)
+    }
+
+    // Everything the CLI is run with for one turn. The session's own choices win, the app
+    // defaults fill the gaps, and anything neither has chosen is left off entirely rather
+    // than sent as a guess, so Claude Code's own configuration keeps deciding it.
+    nonisolated static func arguments(settings: SessionSettings, defaults: SessionSettings,
+                                      addDirectories: [String] = [], resume: String? = nil) -> [String] {
+        let model = settings.model ?? defaults.model
+        let effort = settings.effort ?? defaults.effort
+        // The app is what puts the questions on screen, so it always says which ones it
+        // wants rather than letting the CLI's own config decide.
+        let permissionMode = settings.permissionMode ?? defaults.permissionMode ?? "acceptEdits"
+
+        // Streaming input is what makes the CLI able to ask anything back: with
+        // "--permission-prompt-tool stdio" it puts permission prompts and the agent's own
+        // questions on stdout as control requests and waits for an answer on stdin.
+        // Without it a prompt is auto-denied and the turn carries on half-done.
+        var arguments = ["-p", "--output-format", "stream-json", "--input-format", "stream-json",
+                         "--permission-prompt-tool", "stdio", "--verbose",
+                         "--permission-mode", permissionMode]
+        if let model, !model.isEmpty { arguments += ["--model", model] }
+        if let effort, !effort.isEmpty { arguments += ["--effort", effort] }
+        if !addDirectories.isEmpty { arguments += ["--add-dir"] + addDirectories }
+        if let resume, !resume.isEmpty { arguments += ["--resume", resume] }
+        return arguments
+    }
+
+    // Claude Code takes one block of text, so a file goes over as its path and the agent
+    // reads it itself. That is also how images work: the Read tool takes a picture back.
+    nonisolated static func prompt(_ text: String, with attachments: [Attachment]) -> String {
+        guard !attachments.isEmpty else { return text }
+        let list = attachments.map { "- \($0.url.path)" }.joined(separator: "\n")
+        guard !text.isEmpty else { return "Look at these files:\n\(list)" }
+        return "\(text)\n\nAttached files:\n\(list)"
+    }
+
+    // The folders holding attachments that the agent could not otherwise reach, each one
+    // named once. Paths are resolved first so a symlinked home does not make a folder
+    // that is inside the project look like it is outside it.
+    nonisolated static func directoriesOutside(_ workingDirectory: String,
+                                               for attachments: [Attachment]) -> [String] {
+        let root = URL(fileURLWithPath: workingDirectory).resolvingSymlinksInPath().path
+        var directories: [String] = []
+        for attachment in attachments {
+            let parent = attachment.url.deletingLastPathComponent()
+                .resolvingSymlinksInPath().path
+            guard parent != root, !parent.hasPrefix(root + "/"), !directories.contains(parent) else {
+                continue
+            }
+            directories.append(parent)
+        }
+        return directories
     }
 
     private func busySession(sharingDirectoryWith session: ChatSession,
@@ -59,6 +176,7 @@ final class SessionRunner {
     func stop(_ sessionID: UUID) {
         guard let turn = turns[sessionID] else { return }
         turns[sessionID] = nil
+        asked[sessionID] = nil
         states[sessionID] = .idle
         turn.process.terminationHandler = nil
         cleanUp(turn)
@@ -71,8 +189,8 @@ final class SessionRunner {
 
     // MARK: - Running one turn
 
-    private func launch(_ prompt: String, sessionID: UUID, store: ProjectStore,
-                        canRetryWithoutResume: Bool) {
+    private func launch(_ prompt: String, attachments: [Attachment], sessionID: UUID,
+                        store: ProjectStore, canRetryWithoutResume: Bool) {
         // Read the session again rather than passing it in: a retry runs after the stored
         // claudeSessionID has been cleared, and must not try to resume anything.
         guard let session = store.session(sessionID) else { return }
@@ -101,12 +219,14 @@ final class SessionRunner {
         process.executableURL = URL(fileURLWithPath: claudePath)
         process.currentDirectoryURL = URL(fileURLWithPath: workingDirectory)
 
-        var arguments = ["-p", "--output-format", "stream-json", "--verbose",
-                         "--permission-mode", permissionMode]
-        if let model, !model.isEmpty { arguments += ["--model", model] }
         let resume = session.claudeSessionID.flatMap { $0.isEmpty ? nil : $0 }
-        if let resume { arguments += ["--resume", resume] }
-        process.arguments = arguments
+        process.arguments = Self.arguments(
+            settings: session.settings ?? SessionSettings(),
+            defaults: defaults,
+            // A pasted screenshot or a file picked from anywhere on disk sits outside the
+            // folder the agent runs in, and reading outside it needs saying so up front.
+            addDirectories: Self.directoriesOutside(workingDirectory, for: attachments),
+            resume: resume)
 
         var env = ProcessInfo.processInfo.environment
         env["PATH"] = ProcessManager.searchPath
@@ -117,24 +237,15 @@ final class SessionRunner {
         process.standardOutput = out
         process.standardError = errors
 
-        // The prompt goes in through a file rather than an argument or a pipe: as an
-        // argument a prompt starting with a dash would be read as a flag, and a pipe the
-        // CLI never drains (a rejected --resume exits straight away) risks a broken-pipe
-        // signal on the write.
-        let promptFile = FileManager.default.temporaryDirectory
-            .appendingPathComponent("claude-prompt-\(UUID().uuidString).txt")
-        do {
-            try Data(prompt.utf8).write(to: promptFile, options: .atomic)
-            process.standardInput = try FileHandle(forReadingFrom: promptFile)
-        } catch {
-            try? FileManager.default.removeItem(at: promptFile)
-            store.removeMessage(reply.id, from: sessionID)
-            states[sessionID] = .failed("Could not hand the prompt to Claude Code: \(error.localizedDescription)")
-            return
-        }
+        // The prompt goes in as a JSON line on stdin rather than as an argument, and the
+        // pipe stays open for the rest of the turn: it is the way back for the answers to
+        // whatever the agent asks. Prompts are not read as flags there either, which an
+        // argument starting with a dash would be.
+        let input = Pipe()
+        process.standardInput = input
 
-        let turn = Turn(process: process, messageID: reply.id, promptFile: promptFile,
-                        prompt: prompt, resumed: resume != nil,
+        let turn = Turn(process: process, messageID: reply.id, input: input,
+                        prompt: prompt, attachments: attachments, resumed: resume != nil,
                         canRetryWithoutResume: canRetryWithoutResume)
         let token = turn.token
         let runner = self
@@ -144,14 +255,14 @@ final class SessionRunner {
             let data = handle.availableData
             guard !data.isEmpty else {
                 handle.readabilityHandler = nil
-                let tail = buffer.flush().flatMap(StreamEvent.parse)
+                let tail = buffer.flush().flatMap { StreamEvent.parse($0, projectPath: workingDirectory) }
                 Task { @MainActor in
                     runner.apply(tail, sessionID: sessionID, token: token, store: store)
                     runner.pipeClosed(sessionID, token: token, stdout: true, store: store)
                 }
                 return
             }
-            let events = buffer.lines(from: data).flatMap(StreamEvent.parse)
+            let events = buffer.lines(from: data).flatMap { StreamEvent.parse($0, projectPath: workingDirectory) }
             guard !events.isEmpty else { return }
             Task { @MainActor in
                 runner.apply(events, sessionID: sessionID, token: token, store: store)
@@ -182,8 +293,9 @@ final class SessionRunner {
             turns[sessionID] = turn
             states[sessionID] = .starting
             try process.run()
-            // The child has its own copy of the prompt file now.
-            try? (process.standardInput as? FileHandle)?.close()
+            guard let line = Self.userMessageLine(prompt), turn.write(line) else {
+                throw Failure("the prompt could not be handed over")
+            }
         } catch {
             turns[sessionID] = nil
             process.terminationHandler = nil
@@ -191,6 +303,24 @@ final class SessionRunner {
             store.removeMessage(reply.id, from: sessionID)
             states[sessionID] = .failed("Could not start Claude Code: \(error.localizedDescription)")
         }
+    }
+
+    private struct Failure: LocalizedError {
+        let what: String
+        init(_ what: String) { self.what = what }
+        var errorDescription: String? { what }
+    }
+
+    // What the CLI expects on stdin in streaming mode: one JSON line holding a whole user
+    // message.
+    private static func userMessageLine(_ text: String) -> Data? {
+        let message: [String: Any] = [
+            "type": "user",
+            "message": ["role": "user", "content": [["type": "text", "text": text]]],
+        ]
+        guard var line = try? JSONSerialization.data(withJSONObject: message) else { return nil }
+        line.append(0x0A)
+        return line
     }
 
     // MARK: - Applying the stream
@@ -233,7 +363,23 @@ final class SessionRunner {
                     message.tools[i].isError = isError
                 }
 
+            case .permissionRequest(let request):
+                states[sessionID] = .streaming
+                asked[sessionID, default: []].append(request)
+
+            case .permissionWithdrawn(let id):
+                asked[sessionID]?.removeAll { $0.id == id }
+
+            case .rateLimit(let limit):
+                rateLimits[limit.kind] = limit
+
+            case .usage(let turn):
+                store.recordUsage(turn, for: sessionID)
+
             case .finished(let isError, let message):
+                // Nothing more is coming, and the CLI keeps its input stream open waiting
+                // for another message, so this is where the turn is let go.
+                turn.closeInput()
                 guard isError else { continue }
                 turn.failure = message ?? "Claude Code reported an error."
             }
@@ -267,6 +413,8 @@ final class SessionRunner {
         guard let turn = turns[sessionID], !turn.stdoutOpen, !turn.stderrOpen,
               let status = turn.exitStatus else { return }
         turns[sessionID] = nil
+        // The process that parked them is gone, so nothing is listening for an answer.
+        asked[sessionID] = nil
         cleanUp(turn)
 
         // A turn that produced nothing at all would otherwise leave a blank assistant
@@ -279,6 +427,13 @@ final class SessionRunner {
         // exit code counts as a failed turn.
         guard turn.failure != nil || status != 0 else {
             states[sessionID] = .idle
+            // Only a turn that ended on its own pulls the next one in. After a failure or a
+            // stop the queue waits to be sent by hand, so the reason it stopped stays on
+            // screen long enough to read.
+            runQueue(sessionID, store: store)
+            // A queued prompt starting straight away means the session has not stopped
+            // working, and there is nothing to come back to yet.
+            if !state(sessionID).isBusy { store.noteTurnEnded(for: sessionID) }
             return
         }
         var parts: [String] = []
@@ -297,17 +452,19 @@ final class SessionRunner {
                 ChatMessage(role: .system,
                             text: "The earlier conversation could not be resumed, so this reply starts a fresh one without the previous context."),
                 to: sessionID)
-            launch(turn.prompt, sessionID: sessionID, store: store, canRetryWithoutResume: false)
+            launch(turn.prompt, attachments: turn.attachments, sessionID: sessionID,
+                   store: store, canRetryWithoutResume: false)
             return
         }
 
         states[sessionID] = .failed(message)
+        store.noteTurnEnded(for: sessionID)
     }
 
     private func cleanUp(_ turn: Turn) {
         (turn.process.standardOutput as? Pipe)?.fileHandleForReading.readabilityHandler = nil
         (turn.process.standardError as? Pipe)?.fileHandleForReading.readabilityHandler = nil
-        try? FileManager.default.removeItem(at: turn.promptFile)
+        turn.closeInput()
     }
 
     // One live turn. Only ever touched on the main actor.
@@ -315,8 +472,10 @@ final class SessionRunner {
         let token = UUID()
         let process: Process
         let messageID: UUID
-        let promptFile: URL
+        let input: Pipe
+        private var inputOpen = true
         let prompt: String
+        let attachments: [Attachment]
         let resumed: Bool
         let canRetryWithoutResume: Bool
         var stderr = ""
@@ -325,12 +484,34 @@ final class SessionRunner {
         var stderrOpen = true
         var exitStatus: Int32?
 
-        init(process: Process, messageID: UUID, promptFile: URL, prompt: String,
-             resumed: Bool, canRetryWithoutResume: Bool) {
+        // One line down the pipe the CLI is reading. False when it could not be sent: the
+        // process is gone, or its end of the pipe is shut.
+        func write(_ line: Data) -> Bool {
+            guard inputOpen, process.isRunning else { return false }
+            do {
+                try input.fileHandleForWriting.write(contentsOf: line)
+                return true
+            } catch {
+                inputOpen = false
+                return false
+            }
+        }
+
+        // Closing is what tells the CLI no more messages are coming, so it is the end of
+        // the turn rather than something to do early.
+        func closeInput() {
+            guard inputOpen else { return }
+            inputOpen = false
+            try? input.fileHandleForWriting.close()
+        }
+
+        init(process: Process, messageID: UUID, input: Pipe, prompt: String,
+             attachments: [Attachment], resumed: Bool, canRetryWithoutResume: Bool) {
             self.process = process
             self.messageID = messageID
-            self.promptFile = promptFile
+            self.input = input
             self.prompt = prompt
+            self.attachments = attachments
             self.resumed = resumed
             self.canRetryWithoutResume = canRetryWithoutResume
         }

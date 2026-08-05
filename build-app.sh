@@ -3,8 +3,8 @@
 set -euo pipefail
 
 CONFIG="${1:-release}"
-APP_NAME="Claude Conductor"
-BUNDLE_ID="com.teya.claudeconductor"
+APP_NAME="Teya Conductor"
+BUNDLE_ID="com.teya.conductor"
 
 swift build -c "$CONFIG"
 BIN="$(swift build -c "$CONFIG" --show-bin-path)/MenuBarApp"
@@ -13,6 +13,10 @@ APP="build/$APP_NAME.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/MenuBarApp"
+
+# SwiftPM keeps target resources in their own bundle next to the binary; Bundle.module
+# finds it again once it sits in the app's Resources folder.
+cp -R "$(dirname "$BIN")/MenuBarApp_MenuBarApp.bundle" "$APP/Contents/Resources/"
 
 # Regenerate the icon if it is missing, so a fresh clone still gets a Dock icon.
 [ -f Resources/AppIcon.icns ] || swift make-icon.swift
