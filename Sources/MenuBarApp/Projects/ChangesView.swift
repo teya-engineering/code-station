@@ -275,20 +275,7 @@ struct ChangesView: View {
     // MARK: - Shared pieces
 
     private func message(icon: String, title: String, detail: String, mono: Bool = false) -> some View {
-        VStack(spacing: 8) {
-            Image(systemName: icon)
-                .font(.system(size: 26, weight: .light))
-                .foregroundStyle(.secondary)
-            Text(title).font(.serif(17, .semibold))
-            Text(detail)
-                .font(mono ? .mono(11) : .system(size: 13))
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .textSelection(.enabled)
-                .frame(maxWidth: 420)
-        }
-        .padding(40)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        PaneMessage(icon: icon, title: title, detail: detail, mono: mono)
     }
 
     // MARK: - Actions

@@ -9,7 +9,7 @@ struct SessionView: View {
     @Environment(TerminalStore.self) private var terminals
     let sessionID: UUID
 
-    private enum Tab: Hashable { case chat, changes, settings }
+    private enum Tab: Hashable { case chat, changes, explorer, settings }
 
     @State private var tab: Tab = .chat
     @State private var dropTargeted = false
@@ -38,6 +38,9 @@ struct SessionView: View {
                     composer(session: session, project: project)
                 case .changes:
                     ChangesView(root: workingDirectory)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                case .explorer:
+                    ExplorerView(root: workingDirectory)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 case .settings:
                     SessionSettingsView(sessionID: sessionID)
@@ -182,6 +185,7 @@ struct SessionView: View {
             HStack(spacing: 2) {
                 segment("Chat", .chat)
                 segment("Changes", .changes)
+                segment("Explorer", .explorer)
                 segment("Settings", .settings)
             }
             .padding(3)

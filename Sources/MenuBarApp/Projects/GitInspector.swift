@@ -272,7 +272,7 @@ enum GitInspector {
         guard let data = readLimited(url) else {
             return FileDiff(note: "Could not read this file.")
         }
-        if isBinary(data) {
+        if data.looksBinary {
             return FileDiff(note: "Binary file. Line by line changes are not shown.")
         }
         let text = String(decoding: data, as: UTF8.self)
@@ -443,7 +443,7 @@ enum GitInspector {
 
     private static func measureUntracked(at url: URL) -> (lines: Int?, isBinary: Bool) {
         guard let data = readLimited(url) else { return (nil, false) }
-        guard !isBinary(data) else { return (nil, true) }
+        guard !data.looksBinary else { return (nil, true) }
         guard !data.isEmpty else { return (0, false) }
         let newline = UInt8(ascii: "\n")
         var count = data.reduce(0) { $1 == newline ? $0 + 1 : $0 }
@@ -456,18 +456,6 @@ enum GitInspector {
         if let type = attributes?[.type] as? FileAttributeType, type != .typeRegular { return nil }
         if let size = attributes?[.size] as? NSNumber, size.intValue > untrackedByteLimit { return nil }
         return try? Data(contentsOf: url, options: .mappedIfSafe)
-    }
-
-    // git only looks for a NUL byte, but anything that is not valid UTF-8 would render as
-    // a wall of replacement characters, so treat that as binary too.
-    private static func isBinary(_ data: Data) -> Bool {
-        let head = data.prefix(8000)
-        if head.contains(0) { return true }
-        // A multi-byte character can straddle the cut, so allow a few bytes of slack.
-        for drop in 0...3 where head.count > drop {
-            if String(data: head.dropLast(drop), encoding: .utf8) != nil { return false }
-        }
-        return true
     }
 
     private static func sum(_ a: Int?, _ b: Int?) -> Int? {

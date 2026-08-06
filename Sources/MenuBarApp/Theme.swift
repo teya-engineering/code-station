@@ -93,6 +93,34 @@ extension Font {
     }
 }
 
+// What a pane says when it has nothing to show: no changes, no file picked, a folder that
+// is not there any more. Centred in whatever room it is given.
+struct PaneMessage: View {
+    let icon: String
+    let title: String
+    var detail: String
+    var mono = false
+
+    var body: some View {
+        VStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.system(size: 26, weight: .light))
+                .foregroundStyle(.secondary)
+            Text(title).font(.serif(17, .semibold))
+            if !detail.isEmpty {
+                Text(detail)
+                    .font(mono ? .mono(11) : .system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: 420)
+            }
+        }
+        .padding(40)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
 // A small rounded chip used for command parts and badges.
 struct Chip: View {
     let text: String
