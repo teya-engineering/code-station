@@ -30,6 +30,9 @@ struct RawJSONView: View {
                     NSPasteboard.general.setString(store.rawJSON, forType: .string)
                     copied = true
                 }
+                .buttonStyle(.plain)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Theme.accent)
             }
         }
         .frame(width: 620, height: 520)

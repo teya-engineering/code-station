@@ -18,25 +18,31 @@ struct AddServerView: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 SectionLabel(text: "SCOPE")
-                Picker("", selection: $scope) {
-                    ForEach(Scope.allCases) { Text($0.rawValue).tag($0) }
+                HStack(spacing: 4) {
+                    ForEach(Scope.allCases) { choice in
+                        ChoicePill(title: choice.rawValue, selected: scope == choice) { scope = choice }
+                    }
                 }
-                .pickerStyle(.segmented).labelsHidden()
             }
 
             VStack(alignment: .leading, spacing: 8) {
                 SectionLabel(text: "ENVIRONMENT")
-                Picker("", selection: $env) {
-                    ForEach(DeployEnv.allCases) { Text($0.rawValue).tag($0) }
+                HStack(spacing: 4) {
+                    ForEach(DeployEnv.allCases) { choice in
+                        ChoicePill(title: choice.rawValue, selected: env == choice) { env = choice }
+                    }
                 }
-                .pickerStyle(.segmented).labelsHidden()
             }
 
             VStack(alignment: .leading, spacing: 8) {
                 SectionLabel(text: "SERVICE ACCOUNT TOKEN")
                 SecureField("glsa_xxxxxxxxxxxxxxxx", text: $token)
-                    .textFieldStyle(.roundedBorder)
+                    .textFieldStyle(.plain)
                     .font(.mono(13))
+                    .padding(.horizontal, 11)
+                    .padding(.vertical, 9)
+                    .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
+                    .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
             }
 
             VStack(alignment: .leading, spacing: 6) {
@@ -55,18 +61,35 @@ struct AddServerView: View {
                     .font(.system(size: 12)).foregroundStyle(Theme.secret)
             }
 
-            HStack {
+            HStack(spacing: 10) {
                 Spacer()
-                Button("Cancel") { dismiss() }
-                    .keyboardShortcut(.cancelAction)
-                Button(exists ? "Replace" : "Add") {
+                Button { dismiss() } label: {
+                    Text("Cancel")
+                        .font(.system(size: 13, weight: .semibold))
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 7)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.card))
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
+                        .contentShape(RoundedRectangle(cornerRadius: 8))
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut(.cancelAction)
+                Button {
                     store.upsertGrafana(scope: scope, env: env, token: token)
                     dismiss()
+                } label: {
+                    Text(exists ? "Replace" : "Add")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 7)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.accent))
+                        .contentShape(RoundedRectangle(cornerRadius: 8))
                 }
+                .buttonStyle(.plain)
                 .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
-                .tint(Theme.accent)
                 .disabled(token.trimmingCharacters(in: .whitespaces).isEmpty)
+                .opacity(token.trimmingCharacters(in: .whitespaces).isEmpty ? 0.4 : 1)
             }
         }
         .padding(28)

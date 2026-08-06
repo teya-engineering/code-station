@@ -5,8 +5,14 @@ import Observation
 @MainActor
 @Observable
 final class PostmanStore {
+    static let minimumResponseHeight: CGFloat = 120
+
     private(set) var requests: [SavedRequest] = []
     var selectedID: UUID?
+
+    // One height for the whole tool, so the pane keeps its size across requests.
+    // It lives here rather than in the view, which is remade on every selection.
+    var responseHeight: CGFloat = 230
 
     let storeURL: URL
 

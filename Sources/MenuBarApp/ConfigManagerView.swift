@@ -21,6 +21,8 @@ struct ConfigManagerView: View {
                     Text(loadError).fixedSize(horizontal: false, vertical: true)
                     Spacer()
                     Button("Reload") { store.load() }
+                        .buttonStyle(.plain)
+                        .underline()
                 }
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(Color(red: 0.55, green: 0.20, blue: 0.16))
@@ -305,7 +307,16 @@ private struct EmptyDetail: View {
             Text(hasServers ? "Select a server" : "No servers configured yet")
                 .font(.serif(22))
             if !hasServers {
-                Button("Add a Grafana server", action: onAdd)
+                Button(action: onAdd) {
+                    Text("Add a Grafana server")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 8)
+                        .background(RoundedRectangle(cornerRadius: 9).fill(Color.black.opacity(0.88)))
+                        .contentShape(RoundedRectangle(cornerRadius: 9))
+                }
+                .buttonStyle(.plain)
             }
         }
     }

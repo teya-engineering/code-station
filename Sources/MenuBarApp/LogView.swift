@@ -21,7 +21,9 @@ struct LogView: View {
             content
             SheetFooter(done: { dismiss() }) {
                 Button("Reveal in Finder") { SessionLog.revealInFinder() }
-                    .controlSize(.small)
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Theme.accent)
             }
         }
         .frame(width: 760, height: 560)
@@ -39,8 +41,7 @@ struct LogView: View {
             }
             Spacer(minLength: 0)
             Toggle("Follow", isOn: $follow)
-                .toggleStyle(.switch)
-                .controlSize(.small)
+                .toggleStyle(.appSwitch)
                 .font(.system(size: 12))
                 .help("Stay at the newest line as it is written")
         }

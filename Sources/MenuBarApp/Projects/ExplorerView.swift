@@ -53,7 +53,7 @@ struct ExplorerView: View {
             Spacer()
 
             Toggle("Hidden files", isOn: $showHidden)
-                .toggleStyle(.checkbox)
+                .toggleStyle(.appCheckbox)
                 .font(.system(size: 12))
                 .onChange(of: showHidden) { Task { await reopenFolders() } }
 

@@ -50,25 +50,45 @@ struct AddJSONServerView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            HStack {
+            HStack(spacing: 10) {
                 Button("Paste") {
                     if let clip = NSPasteboard.general.string(forType: .string) { text = clip }
                 }
+                .buttonStyle(.plain)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Theme.accent)
                 Spacer()
-                Button("Cancel") { dismiss() }
-                    .keyboardShortcut(.cancelAction)
-                Button("Add") {
+                Button { dismiss() } label: {
+                    Text("Cancel")
+                        .font(.system(size: 13, weight: .semibold))
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 7)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.card))
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
+                        .contentShape(RoundedRectangle(cornerRadius: 8))
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut(.cancelAction)
+                Button {
                     do {
                         try store.importJSON(text)
                         dismiss()
                     } catch {
                         self.error = error.localizedDescription
                     }
+                } label: {
+                    Text("Add")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 7)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.accent))
+                        .contentShape(RoundedRectangle(cornerRadius: 8))
                 }
+                .buttonStyle(.plain)
                 .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
-                .tint(Theme.accent)
                 .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .opacity(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.4 : 1)
             }
         }
         .padding(28)

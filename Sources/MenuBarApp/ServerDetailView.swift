@@ -48,11 +48,16 @@ struct ServerDetailView: View {
                         } label: {
                             Label(state.isActive ? "Stop" : "Start",
                                   systemImage: state.isActive ? "stop.fill" : "play.fill")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(.white)
                                 .frame(width: 64)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 9)
+                                .background(RoundedRectangle(cornerRadius: 9)
+                                    .fill(state.isActive ? Theme.deletion : Theme.accent))
+                                .contentShape(RoundedRectangle(cornerRadius: 9))
                         }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.large)
-                        .tint(state.isActive ? Theme.deletion : Theme.accent)
+                        .buttonStyle(.plain)
                     }
                     .padding(.top, 8)
                 }
@@ -141,22 +146,35 @@ struct ServerDetailView: View {
                 Spacer()
                 if busy { ProgressView().controlSize(.small).padding(.trailing, 4) }
                 if outOfSync {
-                    Button("Update") { claude.reregister(server) }
-                        .controlSize(.large)
-                        .buttonStyle(.borderedProminent)
-                        .tint(Theme.secret)
-                        .disabled(!claude.available || busy)
+                    Button { claude.reregister(server) } label: {
+                        Text("Update")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 9)
+                            .background(RoundedRectangle(cornerRadius: 9).fill(Theme.secret))
+                            .contentShape(RoundedRectangle(cornerRadius: 9))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!claude.available || busy)
+                    .opacity(!claude.available || busy ? 0.4 : 1)
                 }
                 Button {
                     registered ? claude.remove(server.name) : claude.add(server)
                 } label: {
                     Text(registered ? "Remove from Claude Code" : "Add to Claude Code")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.white)
                         .frame(minWidth: registered ? 100 : 140)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 9)
+                        .background(RoundedRectangle(cornerRadius: 9)
+                            .fill(registered ? Theme.deletion : Theme.accent))
+                        .contentShape(RoundedRectangle(cornerRadius: 9))
                 }
-                .controlSize(.large)
-                .buttonStyle(.borderedProminent)
-                .tint(registered ? Theme.deletion : Theme.accent)
+                .buttonStyle(.plain)
                 .disabled(!claude.available || busy)
+                .opacity(!claude.available || busy ? 0.4 : 1)
             }
 
             if registered {
@@ -315,11 +333,19 @@ private struct ReadOnlyVarRow: View {
             Spacer(minLength: 16)
             if isSecret && !revealed {
                 Text(String(repeating: "•", count: 18)).font(.mono(13)).foregroundStyle(.secondary)
-                Button("Reveal") { revealed = true }.controlSize(.small)
+                Button("Reveal") { revealed = true }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Theme.accent)
             } else {
                 Text(value).font(.mono(13)).foregroundStyle(.secondary)
                     .lineLimit(1).truncationMode(.middle).textSelection(.enabled)
-                if isSecret { Button("Hide") { revealed = false }.controlSize(.small) }
+                if isSecret {
+                    Button("Hide") { revealed = false }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Theme.accent)
+                }
             }
         }
         .frame(height: 24)
@@ -388,7 +414,9 @@ private struct EnvRow: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                 Button("Reveal") { revealed = true }
-                    .controlSize(.small)
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Theme.accent)
             } else {
                 TextField("value", text: $value)
                     .textFieldStyle(.plain)
@@ -397,7 +425,9 @@ private struct EnvRow: View {
                     .multilineTextAlignment(.trailing)
                 if isSecret {
                     Button("Hide") { revealed = false }
-                        .controlSize(.small)
+                        .buttonStyle(.plain)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Theme.accent)
                 }
             }
 

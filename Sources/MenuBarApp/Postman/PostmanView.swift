@@ -449,12 +449,13 @@ private struct RequestDetail: View {
             }
             Spacer()
             if tab == .body {
-                Picker("", selection: $draft.bodyType) {
-                    ForEach(BodyType.allCases) { Text($0.label).tag($0) }
+                HStack(spacing: 4) {
+                    ForEach(BodyType.allCases) { kind in
+                        ChoicePill(title: kind.label, selected: draft.bodyType == kind) {
+                            draft.bodyType = kind
+                        }
+                    }
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .frame(width: 260)
             }
         }
         .padding(.horizontal, 20)
@@ -489,6 +490,7 @@ private struct RequestDetail: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
+            .toggleStyle(.appCheckbox)
 
             EnvironmentTokenControls(env: environment)
 
@@ -629,9 +631,8 @@ private struct HeaderRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Toggle("", isOn: $header.enabled)
-                .labelsHidden()
-                .toggleStyle(.checkbox)
+            Toggle(isOn: $header.enabled) { EmptyView() }
+                .toggleStyle(.appCheckbox)
 
             TextField("Header", text: $header.key)
                 .textFieldStyle(.plain)
@@ -663,7 +664,15 @@ private struct ResponsePane: View {
     let result: HTTPResult?
     let running: Bool
 
+    @Environment(PostmanStore.self) private var store
+
     @State private var showingHeaders = false
+    // Height while a drag is in flight; the store keeps it once the drag ends.
+    @State private var dragHeight: CGFloat?
+    // Height at the moment the drag began; the translation is measured from there.
+    @State private var dragStartHeight: CGFloat?
+
+    private var height: CGFloat { dragHeight ?? store.responseHeight }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -671,7 +680,7 @@ private struct ResponsePane: View {
             Divider().overlay(Theme.hairline)
             content
         }
-        .frame(height: 230)
+        .frame(height: height)
         .background(Theme.sidebar)
     }
 
@@ -725,6 +734,24 @@ private struct ResponsePane: View {
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 10)
+        .contentShape(Rectangle())
+        // The status bar doubles as the resize handle, which is where the hand
+        // naturally goes when the pane is the wrong size.
+        .gesture(
+            DragGesture(coordinateSpace: .global)
+                .onChanged { value in
+                    let start = dragStartHeight ?? height
+                    dragStartHeight = start
+                    dragHeight = max(PostmanStore.minimumResponseHeight, start - value.translation.height)
+                }
+                .onEnded { _ in
+                    if let dragHeight { store.responseHeight = dragHeight }
+                    dragHeight = nil
+                    dragStartHeight = nil
+                })
+        .onHover { inside in
+            if inside { NSCursor.resizeUpDown.push() } else { NSCursor.pop() }
+        }
     }
 
     private func originTint(_ origin: String) -> Color {

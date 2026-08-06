@@ -185,8 +185,11 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                     Spacer(minLength: 0)
                     Button("Review them…") { reviewingOldSessions = true }
-                        .controlSize(.small)
+                        .buttonStyle(.plain)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Theme.accent)
                         .disabled(stale == 0)
+                        .opacity(stale == 0 ? 0.4 : 1)
                 }
             }
         }
@@ -205,7 +208,7 @@ struct SettingsView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            .toggleStyle(.switch)
+            .toggleStyle(.appSwitch)
 
             if let failure = loginItem.failure {
                 Text(failure)
@@ -231,9 +234,13 @@ struct SettingsView: View {
             }
             Spacer(minLength: 0)
             Button("Open") { showingLog = true }
-                .controlSize(.small)
+                .buttonStyle(.plain)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Theme.accent)
             Button("Reveal") { SessionLog.revealInFinder() }
-                .controlSize(.small)
+                .buttonStyle(.plain)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Theme.accent)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
