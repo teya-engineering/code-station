@@ -352,18 +352,18 @@ struct AppSidebar: View {
     // it before the session exists, which is also what lets the sheet name both.
     private func createWorktreeSession(in project: Project, id sessionID: UUID, base: String?) {
         Task {
-            do {
-                let created = try await GitWorktree.add(projectPath: project.path,
-                                                        projectName: project.name,
-                                                        sessionID: sessionID,
-                                                        from: base)
+            switch await GitWorktree.add(projectPath: project.path,
+                                         projectName: project.name,
+                                         sessionID: sessionID,
+                                         from: base) {
+            case .success(let created):
                 store.newSession(in: project.id, id: sessionID,
                                  worktreePath: created.path, worktreeBranch: created.branch)
                 sessionToReveal = sessionID
-            } catch {
+            case .failure(let failure):
                 dialogs.show(Dialog(
                     title: "Could not create a worktree",
-                    message: error.localizedDescription,
+                    message: failure.message,
                     actions: [.init(label: "OK", kind: .cancel)]))
             }
         }

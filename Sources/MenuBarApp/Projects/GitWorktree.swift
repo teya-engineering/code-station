@@ -9,9 +9,8 @@ enum GitWorktree {
         let branch: String
     }
 
-    struct Failure: LocalizedError {
+    struct Failure: Error {
         let message: String
-        var errorDescription: String? { message }
     }
 
     private static let folder = "worktrees"
@@ -39,13 +38,13 @@ enum GitWorktree {
     // whatever the project folder has checked out. Naming a ref is what lets a session
     // start from the remote tip while the user's own checkout stays as it is.
     static func add(projectPath: String, projectName: String, sessionID: UUID,
-                    from base: String? = nil) async throws -> Created {
+                    from base: String? = nil) async -> Result<Created, Failure> {
         guard let tool = await tool() else {
-            throw Failure(message: "Could not find git on PATH.")
+            return .failure(Failure(message: "Could not find git on PATH."))
         }
         let planned = plan(projectName: projectName, sessionID: sessionID)
 
-        let outcome: Result<Created, Failure> = await offMain {
+        return await offMain {
             // Kept out of backups: a worktree can be recreated from the repository it came
             // from, and copying every checkout into Time Machine is not worth the room.
             _ = AppPaths.directory(folder, backedUp: false)
@@ -59,7 +58,6 @@ enum GitWorktree {
             }
             return .success(planned)
         }
-        return try outcome.get()
     }
 
     // Best effort teardown: the worktree folder goes even if git cannot remove it
