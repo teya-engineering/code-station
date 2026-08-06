@@ -89,6 +89,7 @@ struct SessionView: View {
                 HStack(spacing: 8) {
                     Text(project.name)
                         .font(.system(size: 12, weight: .medium))
+                        .lineLimit(1)
                     Text((session.worktreePath ?? project.path).abbreviatedPath)
                         .font(.mono(11))
                         .foregroundStyle(.secondary)
@@ -107,11 +108,18 @@ struct SessionView: View {
 
             Spacer(minLength: 12)
 
-            diffStats
-            TabToggle(tab: $tab)
-            TerminalToggle(isOpen: terminals.isOpen(sessionID)) {
-                toggleTerminal(directory: session.worktreePath ?? project.path)
+            // A row splits its width between the children rather than handing each one what
+            // it asks for, so the controls can be offered less than their labels need and the
+            // words wrap. Holding them at their natural width makes the title give way first.
+            HStack(spacing: 16) {
+                diffStats
+                TabToggle(tab: $tab)
+                TerminalToggle(isOpen: terminals.isOpen(sessionID)) {
+                    toggleTerminal(directory: session.worktreePath ?? project.path)
+                }
             }
+            .fixedSize(horizontal: true, vertical: false)
+            .layoutPriority(1)
         }
         .padding(.horizontal, 20)
         .headerBand()

@@ -293,6 +293,9 @@ struct ExplorerView: View {
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
+                // A scroll view centres content that does not fill it, so a short file would
+                // float in the middle of the pane. Growing to the full height pins it to the top.
+                .frame(minHeight: geometry.size.height, alignment: .topLeading)
             }
         }
     }
