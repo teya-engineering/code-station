@@ -160,6 +160,11 @@ struct ContextMenuHost: View {
                                 value: MenuMeasurement(generation: presenter.generation,
                                                        size: card.size))
                         })
+                        // Read here, on the card's own chain: the catcher and the escape
+                        // button next to it in the stack carry the key's default value,
+                        // and a read above them would take a default over the card's
+                        // measurement.
+                        .onPreferenceChange(MenuSizeKey.self) { measurement = $0 }
                         .offset(x: x(in: geometry.size), y: y(in: geometry.size))
                         // Placing the menu needs its size, which is only known once it
                         // has been laid out. Hiding it for that one pass avoids a frame
@@ -173,7 +178,6 @@ struct ContextMenuHost: View {
                         .opacity(0)
                         .keyboardShortcut(.escape, modifiers: [])
                 }
-                .onPreferenceChange(MenuSizeKey.self) { measurement = $0 }
             }
             .ignoresSafeArea()
         }
@@ -263,9 +267,13 @@ private struct MenuMeasurement: Equatable {
 
 private struct MenuSizeKey: PreferenceKey {
     static let defaultValue = MenuMeasurement()
+
+    // Views that never set the key still hand their default to the reduce, so the newest
+    // real measurement wins rather than whichever value happens to come last.
     static func reduce(value: inout MenuMeasurement,
                        nextValue: () -> MenuMeasurement) {
-        value = nextValue()
+        let next = nextValue()
+        if next.generation > value.generation { value = next }
     }
 }
 
