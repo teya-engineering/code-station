@@ -151,4 +151,11 @@ enum ToolPresentationCache {
         cache[tool.id] = fresh
         return fresh
     }
+
+    // Dropped when the conversation they were built from leaves memory. An entry for an
+    // edit holds the lines it changed, so keeping them for every call the app has ever
+    // drawn would undo the point of letting the conversation go.
+    static func forget(_ toolIDs: some Sequence<String>) {
+        for id in toolIDs { cache.removeValue(forKey: id) }
+    }
 }

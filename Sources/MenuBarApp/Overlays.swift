@@ -18,12 +18,15 @@ extension View {
 private struct AppOverlays: ViewModifier {
     @State private var dialogs = DialogPresenter()
     @State private var menus = MenuPresenter()
+    @State private var tooltips = TooltipPresenter()
 
     func body(content: Content) -> some View {
         content
             .overlay { ContextMenuHost() }
+            .overlay { TooltipHost() }
             .overlay { DialogHost() }
             .environment(dialogs)
             .environment(menus)
+            .environment(tooltips)
     }
 }

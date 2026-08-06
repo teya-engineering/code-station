@@ -27,8 +27,7 @@ struct OldSessionsTests {
     // made, so a long conversation started weeks ago is not old while it is still in use.
     @Test func countsFromTheLastTurnRatherThanTheStart() {
         var session = session(daysAgo: 30)
-        session.messages = [ChatMessage(role: .user, text: "still going",
-                                        date: now.addingTimeInterval(-3_600))]
+        session.summary.lastMessageAt = now.addingTimeInterval(-3_600)
         #expect(OldSessions.olderThan(7, in: [session], now: now).isEmpty)
     }
 

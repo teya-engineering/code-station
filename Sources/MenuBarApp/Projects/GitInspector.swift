@@ -184,6 +184,22 @@ enum GitInspector {
         return snapshot
     }
 
+    // Whether the folder holds anything git does not have yet, and nothing else about it.
+    // The sidebar asks this for every folder it draws, so it takes the cheapest status
+    // git can give: untracked directories stay collapsed, since one entry is enough to
+    // answer yes. A folder that is not a repository answers no.
+    static func isDirty(at path: String) async -> Bool {
+        guard let tool = await tool() else { return false }
+        let url = URL(fileURLWithPath: path)
+        return await offMain {
+            var isDirectory: ObjCBool = false
+            let exists = FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
+            guard exists && isDirectory.boolValue else { return false }
+            let status = run(tool, ["status", "--porcelain=v1", "-z"], in: url)
+            return status.ok && !status.text.isEmpty
+        }
+    }
+
     // MARK: - Per-file diff
 
     static func diff(for change: GitChange, root: String, limit: Int = diffLineLimit) async -> FileDiff {

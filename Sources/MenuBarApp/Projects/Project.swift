@@ -126,15 +126,53 @@ struct ChatMessage: Identifiable, Codable, Equatable {
     }
 }
 
+// Everything the sidebar says about a session whose transcript is not in memory. It is
+// derived from the conversation and written beside it in the index, which is what lets
+// a session be described without being loaded.
+struct SessionSummary: Codable, Equatable {
+    var lastMessageAt: Date?
+    // The last call that finished, in the one-line form a row shows: "Bash · swift build".
+    var lastTool: String?
+    var added = 0
+    var removed = 0
+
+    // A whole shell command can be the label, and this one is written to the index for
+    // every session. The row it ends up on is a single truncated line, so anything past
+    // what could be read there is not worth keeping.
+    private static let labelLimit = 120
+
+    // Built from the whole transcript rather than kept up to date call by call: a result
+    // lands long after the call that asked for it, and both numbers have to include it.
+    @MainActor
+    static func of(_ messages: [ChatMessage], projectPath: String) -> SessionSummary {
+        var summary = SessionSummary(lastMessageAt: messages.last?.date)
+        for tool in messages.flatMap(\.tools) {
+            guard !tool.isRunning else { continue }
+            let presentation = ToolPresentationCache.presentation(for: tool, projectPath: projectPath)
+            if !tool.isError {
+                summary.added += presentation.added ?? 0
+                summary.removed += presentation.removed ?? 0
+            }
+            let label = presentation.label
+            summary.lastTool = label.count > labelLimit
+                ? String(label.prefix(labelLimit)) + "…"
+                : label
+        }
+        return summary
+    }
+}
+
 // A conversation with Claude Code in a project's directory. `claudeSessionID` is the
 // id Claude Code itself reports in its init event; it is what `--resume` needs, so it
 // is the one piece of state that must survive a restart of this app.
+//
+// The conversation itself is kept in a file of its own rather than in this record, so
+// the app can hold every session it has ever had while only the open one costs anything.
 struct ChatSession: Identifiable, Codable, Equatable {
     var id: UUID = UUID()
     var projectID: UUID
     var title: String = "New session"
     var claudeSessionID: String?
-    var messages: [ChatMessage] = []
     var createdAt: Date = Date()
     // Set when the session runs in its own git worktree instead of the project
     // folder. The worktree and branch belong to this session and go with it.
@@ -146,9 +184,16 @@ struct ChatSession: Identifiable, Codable, Equatable {
     var usage: SessionUsage?
     // Set when the agent opens a pull request from this session.
     var pullRequest: PullRequest?
+    var summary = SessionSummary()
+
+    // Empty until the store loads it, and empty again once nothing holds this session,
+    // so nothing outside ProjectStore should reach for it: ask the store instead, which
+    // is what guarantees there is a transcript here to read.
+    var messages: [ChatMessage] = []
+    var transcriptLoaded = false
 
     // When something last happened here, used for the sidebar's relative times.
-    var lastActivity: Date { messages.last?.date ?? createdAt }
+    var lastActivity: Date { summary.lastMessageAt ?? createdAt }
 
     // The first thing the user asked makes a better title than "New session".
     mutating func retitleIfNeeded(from prompt: String) {
@@ -157,6 +202,51 @@ struct ChatSession: Identifiable, Codable, Equatable {
             .split(separator: "\n").first.map(String.init) ?? ""
         guard !line.isEmpty else { return }
         title = line.count > 48 ? String(line.prefix(48)) + "…" : line
+    }
+
+    // The transcript is read and written on its own, so it is not part of what a session
+    // encodes to. It is still decoded: a file written before the split holds every
+    // conversation inline, and that is what the store moves out on the first launch.
+    private enum CodingKeys: String, CodingKey {
+        case id, projectID, title, claudeSessionID, createdAt, worktreePath, worktreeBranch
+        case settings, usage, pullRequest, summary, messages
+    }
+
+    init(id: UUID = UUID(), projectID: UUID) {
+        self.id = id
+        self.projectID = projectID
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        projectID = try container.decode(UUID.self, forKey: .projectID)
+        title = try container.decodeIfPresent(String.self, forKey: .title) ?? "New session"
+        claudeSessionID = try container.decodeIfPresent(String.self, forKey: .claudeSessionID)
+        createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
+        worktreePath = try container.decodeIfPresent(String.self, forKey: .worktreePath)
+        worktreeBranch = try container.decodeIfPresent(String.self, forKey: .worktreeBranch)
+        settings = try container.decodeIfPresent(SessionSettings.self, forKey: .settings)
+        usage = try container.decodeIfPresent(SessionUsage.self, forKey: .usage)
+        pullRequest = try container.decodeIfPresent(PullRequest.self, forKey: .pullRequest)
+        summary = try container.decodeIfPresent(SessionSummary.self, forKey: .summary) ?? SessionSummary()
+        messages = try container.decodeIfPresent([ChatMessage].self, forKey: .messages) ?? []
+        transcriptLoaded = !messages.isEmpty
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(projectID, forKey: .projectID)
+        try container.encode(title, forKey: .title)
+        try container.encodeIfPresent(claudeSessionID, forKey: .claudeSessionID)
+        try container.encode(createdAt, forKey: .createdAt)
+        try container.encodeIfPresent(worktreePath, forKey: .worktreePath)
+        try container.encodeIfPresent(worktreeBranch, forKey: .worktreeBranch)
+        try container.encodeIfPresent(settings, forKey: .settings)
+        try container.encodeIfPresent(usage, forKey: .usage)
+        try container.encodeIfPresent(pullRequest, forKey: .pullRequest)
+        try container.encode(summary, forKey: .summary)
     }
 }
 

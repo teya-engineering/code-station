@@ -40,8 +40,9 @@ struct ComposerField: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
-            .background(RoundedRectangle(cornerRadius: 10).fill(Theme.field))
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
+            .background(RoundedRectangle(cornerRadius: 10).fill(isFocused ? Theme.card : Theme.field))
+            .overlay(RoundedRectangle(cornerRadius: 10)
+                .stroke(isFocused ? Theme.accent : Theme.border, lineWidth: isFocused ? 1.5 : 1))
     }
 }
 

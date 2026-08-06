@@ -14,6 +14,7 @@ struct AppSidebar: View {
     @Environment(SessionRunner.self) private var runner
     @Environment(DialogPresenter.self) private var dialogs
     @Environment(AppSettings.self) private var appSettings
+    @Environment(WorkingTreeWatch.self) private var workingTrees
 
     // A project is expanded by default while it is the selected one; anything the user
     // clicks on the disclosure arrow is remembered here and wins over that default.
@@ -30,6 +31,7 @@ struct AppSidebar: View {
         }
         .frame(width: 330)
         .background(Theme.sidebar)
+        .task { await watchWorkingTrees() }
         .sheet(item: $choosingSessionKind) { project in
             NewSessionView(project: project) { choice in
                 startSession(choice, in: project)
@@ -118,7 +120,9 @@ struct AppSidebar: View {
                     // Keyed on what decides whether a session block is on screen, so the
                     // reveal plays wherever the change came from: a click on the project
                     // row, or the first session arriving under an already open one.
-                    .animation(.easeOut(duration: 0.22), value: revealKey)
+                    // Easing out rather than a spring: the block must not overshoot its
+                    // own height, or it opens onto a gap under the last card.
+                    .animation(.easeOut(duration: 0.26), value: revealKey)
                     .animation(.easeOut(duration: 0.22), value: appSettings.projectSort)
                 }
             }
@@ -129,82 +133,92 @@ struct AppSidebar: View {
         appSettings.projectSort.apply(to: store.projects, sessions: store.sessions)
     }
 
-    @ViewBuilder private func projectSection(_ project: Project) -> some View {
+    private func projectSection(_ project: Project) -> some View {
         let expanded = isExpanded(project)
         let sessions = store.sessions(for: project.id)
         let running = sessions.filter { runner.state($0.id).isBusy }.count
 
-        ProjectHeaderRow(
-            project: project,
-            isExpanded: expanded,
-            isMissing: store.isMissing(project),
-            sessionCount: sessions.count,
-            runningCount: running,
-            finishedCount: store.finishedCount(in: project.id),
-            cost: sessions.reduce(0) { $0 + ($1.usage?.costUSD ?? 0) },
-            isRenaming: renamingID == project.id,
-            onNewSession: { requestNewSession(in: project) },
-            onRename: { name in
-                store.renameProject(project.id, to: name)
-                renamingID = nil
-            },
-            onCancelRename: { renamingID = nil }
-        )
-        .contentShape(Rectangle())
-        // Declared before the single tap so a double click resolves to a new session
-        // rather than two expand toggles.
-        .onTapGesture(count: 2) {
-            store.selectedProjectID = project.id
-            requestNewSession(in: project)
-        }
-        .onTapGesture {
-            store.selectedProjectID = project.id
-            expansion[project.id] = !expanded
-        }
-        .appContextMenu {
-            [.item("Rename…") { renamingID = project.id },
-             .item("New session") { requestNewSession(in: project) },
-             .separator,
-             .item("Reveal in Finder") {
-                 NSWorkspace.shared.activateFileViewerSelecting([project.url])
-             },
-             .item("Open in Terminal") { openInTerminal(project) },
-             .separator,
-             .item("Remove project", kind: .destructive) { confirmRemoveProject(project) }]
-        }
-
-        // An expanded project with nothing under it draws no block at all: an empty one
-        // still carries its padding, which reads as the row shifting on every click.
-        if expanded, !sessions.isEmpty {
-            VStack(alignment: .leading, spacing: 8) {
-                ForEach(sessions) { session in
-                    let busy = runner.state(session.id).isBusy
-                    let finished = store.hasFinished(session.id)
-                    let changes = changes(session, project: project)
-                    SessionCard(session: session,
-                                selected: isSelected(session),
-                                busy: busy,
-                                finished: finished,
-                                activity: activitySummary(session, project: project,
-                                                          busy: busy, finished: finished),
-                                added: changes.added,
-                                removed: changes.removed,
-                                branch: branch(session, project: project),
-                                onDelete: { confirmRemoveSession(session) })
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            store.selectedProjectID = project.id
-                            store.selection = .session(session.id)
-                        }
-                        .appContextMenu {
-                            [.item("Delete session", kind: .destructive) {
-                                confirmRemoveSession(session)
-                            }]
-                        }
-                }
+        // The row and its sessions are one stack so the gap between them belongs to the
+        // block that slides: an outer spacing would stay behind for a frame as the block
+        // goes, which reads as the row jumping at the end of the close.
+        return VStack(alignment: .leading, spacing: 0) {
+            ProjectHeaderRow(
+                project: project,
+                isExpanded: expanded,
+                isMissing: store.isMissing(project),
+                sessionCount: sessions.count,
+                runningCount: running,
+                finishedCount: store.finishedCount(in: project.id),
+                cost: sessions.reduce(0) { $0 + ($1.usage?.costUSD ?? 0) },
+                clearableCount: sessions.count - running,
+                isRenaming: renamingID == project.id,
+                onNewSession: { requestNewSession(in: project) },
+                onClearSessions: { confirmClearSessions(in: project) },
+                onRename: { name in
+                    store.renameProject(project.id, to: name)
+                    renamingID = nil
+                },
+                onCancelRename: { renamingID = nil }
+            )
+            .contentShape(Rectangle())
+            // The row opens on the click itself, so it carries no double click: a click
+            // that means one thing alone and another thing doubled cannot be acted on
+            // until the double click window has passed, and that wait is the whole
+            // distance between the click and the row moving. New session lives on the
+            // button the row grows under the pointer, and in the menu.
+            .onTapGesture {
+                store.selectedProjectID = project.id
+                expansion[project.id] = !expanded
             }
-            .padding(.top, 6)
-            .transition(.opacity.combined(with: .offset(y: -6)))
+            .appContextMenu {
+                [.item("Rename…") { renamingID = project.id },
+                 .item("New session") { requestNewSession(in: project) },
+                 .separator,
+                 .item("Reveal in Finder") {
+                     NSWorkspace.shared.activateFileViewerSelecting([project.url])
+                 },
+                 .item("Open in Terminal") { openInTerminal(project) },
+                 .separator,
+                 .item("Clear idle sessions", kind: .destructive) { confirmClearSessions(in: project) },
+                 .item("Remove project", kind: .destructive) { confirmRemoveProject(project) }]
+            }
+
+            // An expanded project with nothing under it draws no block at all: an empty one
+            // still carries its padding, which reads as the row shifting on every click.
+            if expanded, !sessions.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(sessions) { session in
+                        let busy = runner.state(session.id).isBusy
+                        let finished = store.hasFinished(session.id)
+                        SessionCard(session: session,
+                                    selected: isSelected(session),
+                                    busy: busy,
+                                    finished: finished,
+                                    activity: activitySummary(session, project: project,
+                                                              busy: busy, finished: finished),
+                                    added: session.summary.added,
+                                    removed: session.summary.removed,
+                                    branch: branch(session, project: project),
+                                    uncommitted: workingTrees.isDirty(folder(session, project: project)),
+                                    onDelete: { confirmRemoveSession(session) })
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                store.selectedProjectID = project.id
+                                store.selection = .session(session.id)
+                            }
+                            .appContextMenu {
+                                [.item("Delete session", kind: .destructive) {
+                                    confirmRemoveSession(session)
+                                }]
+                            }
+                    }
+                }
+                // Sessions sit inset from their project row, so the nesting is visible
+                // without a line or a marker to draw it.
+                .padding(.leading, 14)
+                .padding(.top, 6)
+                .transition(.reveal)
+            }
         }
     }
 
@@ -243,8 +257,11 @@ struct AppSidebar: View {
         let worktree = session.worktreePath
         dialogs.show(Dialog(
             title: "Delete \"\(session.title)\"?",
-            message: worktree.map {
-                "Uncommitted changes in its worktree at \($0.abbreviatedPath) are lost. The branch is kept if it has unmerged commits."
+            message: worktree.map { path in
+                let changes = workingTrees.isDirty(path)
+                    ? "Its worktree at \(path.abbreviatedPath) has uncommitted changes, and they are lost with it."
+                    : "Its worktree at \(path.abbreviatedPath) goes with it, along with anything uncommitted there."
+                return changes + " The branch is kept if it has unmerged commits."
             } ?? "Its conversation history is removed from the app.",
             actions: [
                 .init(label: worktree == nil ? "Delete session" : "Delete session and worktree",
@@ -253,6 +270,40 @@ struct AppSidebar: View {
                 },
                 .init(label: "Cancel", kind: .cancel)
             ]))
+    }
+
+    // Clearing a project keeps whatever is still running and takes the rest, worktrees
+    // included. The message counts the worktrees separately: they are the part of this
+    // that touches disk, and the part that can take uncommitted work with it.
+    private func confirmClearSessions(in project: Project) {
+        let idle = idleSessions(in: project)
+        guard !idle.isEmpty else { return }
+        let worktrees = idle.filter { $0.worktreePath != nil }.count
+        let dirty = idle.filter { $0.worktreePath.map(workingTrees.isDirty) ?? false }.count
+        let kept = store.sessions(for: project.id).count - idle.count
+        var message = "Their conversation history is removed from the app."
+        if worktrees > 0 {
+            message = "\(worktrees) of them ran in a worktree. Uncommitted changes there are lost, and branches are kept only where they have unmerged commits."
+        }
+        if dirty > 0 {
+            message += " \(dirty) of those worktree\(dirty == 1 ? " has" : "s have") uncommitted changes right now."
+        }
+        if kept > 0 {
+            message += " The \(kept) still running stay\(kept == 1 ? "s" : "")."
+        }
+        dialogs.show(Dialog(
+            title: "Clear \(idle.count) session\(idle.count == 1 ? "" : "s") from \(project.name)?",
+            message: message,
+            actions: [
+                .init(label: "Clear sessions", kind: .destructive) {
+                    for session in idle { SessionRemoval.remove(session, from: store) }
+                },
+                .init(label: "Cancel", kind: .cancel)
+            ]))
+    }
+
+    private func idleSessions(in project: Project) -> [ChatSession] {
+        store.sessions(for: project.id).filter { !runner.state($0.id).isBusy }
     }
 
     private func confirmRemoveProject(_ project: Project) {
@@ -301,31 +352,17 @@ struct AppSidebar: View {
     }
 
     // The line under a session's title. A running session shows the call in flight
-    // ("Bash · swift build"); one that is not shows where it left off, which is the only
-    // thing that says what a session is about without opening it.
+    // ("Bash · swift build"), which only its own transcript knows and which it has in
+    // memory for as long as it runs. Everything else reads from the summary, so a
+    // session says where it left off without its conversation being loaded at all.
     private func activitySummary(_ session: ChatSession, project: Project,
                                  busy: Bool, finished: Bool) -> String? {
-        let root = session.worktreePath ?? project.path
-        let tools = session.messages.flatMap(\.tools)
-        if busy, let running = tools.last(where: { $0.isRunning }) {
+        if busy, let running = session.messages.flatMap(\.tools).last(where: { $0.isRunning }) {
+            let root = folder(session, project: project)
             return ToolPresentationCache.presentation(for: running, projectPath: root).label
         }
-        guard let last = tools.last(where: { !$0.isRunning }) else { return nil }
-        return (finished ? "ended after " : "last: ")
-            + ToolPresentationCache.presentation(for: last, projectPath: root).label
-    }
-
-    // Lines this session's edits have added and removed, summed over the whole
-    // conversation. A rough measure, but enough to tell a session that wrote code from
-    // one that only answered a question.
-    private func changes(_ session: ChatSession, project: Project) -> (added: Int, removed: Int) {
-        let root = session.worktreePath ?? project.path
-        return session.messages.flatMap(\.tools).reduce(into: (added: 0, removed: 0)) { total, tool in
-            guard !tool.isError, !tool.isRunning else { return }
-            let presentation = ToolPresentationCache.presentation(for: tool, projectPath: root)
-            total.added += presentation.added ?? 0
-            total.removed += presentation.removed ?? 0
-        }
+        guard let last = session.summary.lastTool else { return nil }
+        return (finished ? "ended after " : "last: ") + last
     }
 
     // A worktree session owns its branch; anything else works on whatever the project
@@ -337,6 +374,33 @@ struct AppSidebar: View {
     private func isSelected(_ session: ChatSession) -> Bool {
         if case .session(let id) = store.selection { return id == session.id }
         return false
+    }
+
+    // MARK: - Uncommitted work
+
+    // Only the folders behind cards that are on screen are looked at, and the list is
+    // rebuilt on every pass so opening a project starts watching what it holds.
+    private func watchWorkingTrees() async {
+        while !Task.isCancelled {
+            workingTrees.refresh(watchedFolders)
+            try? await Task.sleep(for: WorkingTreeWatch.interval)
+        }
+    }
+
+    private var watchedFolders: Set<String> {
+        var folders: Set<String> = []
+        for project in store.projects where isExpanded(project) {
+            for session in store.sessions(for: project.id) {
+                folders.insert(folder(session, project: project))
+            }
+        }
+        return folders
+    }
+
+    // Where a session's files actually are: its own worktree, or the project folder it
+    // shares with every other session that has no worktree.
+    private func folder(_ session: ChatSession, project: Project) -> String {
+        session.worktreePath ?? project.path
     }
 
     // MARK: - Bottom bar
@@ -361,8 +425,8 @@ struct AppSidebar: View {
             HStack(spacing: 8) {
                 BottomRow(title: "MCP", action: onConfigureServers)
                 BottomRow(title: "Docker", action: onOpenDocker)
-                BottomRow(title: "Settings", action: onOpenSettings)
                 BottomRow(title: "Postman", action: onOpenPostman)
+                BottomRow(title: "Settings", action: onOpenSettings)
             }
             .padding(.horizontal, 16)
             .padding(.bottom, runner.available ? 16 : 6)
@@ -451,6 +515,64 @@ struct AppSidebar: View {
     }
 }
 
+// MARK: - Reveal
+
+// A block that opens and closes by its own height, so the rows under it move at the same
+// rate rather than being displaced in one step. Fading alone leaves the space taken from
+// the first frame, which reads as the list jumping and the block catching up.
+private extension AnyTransition {
+    static var reveal: AnyTransition {
+        .modifier(active: RevealModifier(progress: 0), identity: RevealModifier(progress: 1))
+    }
+}
+
+private struct RevealModifier: ViewModifier, @MainActor Animatable {
+    var progress: Double
+
+    var animatableData: Double {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    func body(content: Content) -> some View {
+        // The cards trail the edge they come out from by a few points, so the block
+        // arrives rather than simply being uncovered. The offset is drawn, not laid out,
+        // so it costs the reveal no height.
+        RevealLayout(progress: progress) { content.offset(y: (progress - 1) * 6) }
+            .clipped()
+            // Only the last stretch fades: a card cut in half by the clip is the one
+            // frame worth softening, and fading throughout would wash out the rest.
+            .opacity(min(1, progress * 2.5))
+    }
+}
+
+// Reports a fraction of what the content asks for while still laying the content out at
+// full size, pinned to the top: the block is uncovered from the top down instead of being
+// squashed, which is what makes it read as a slide rather than a stretch.
+private struct RevealLayout: Layout, Animatable {
+    var progress: Double
+
+    var animatableData: Double {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let content = subviews.first else { return .zero }
+        let size = content.sizeThatFits(proposal)
+        return CGSize(width: size.width, height: size.height * progress)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize,
+                       subviews: Subviews, cache: inout ()) {
+        guard let content = subviews.first else { return }
+        let size = content.sizeThatFits(proposal)
+        content.place(at: CGPoint(x: bounds.minX, y: bounds.minY),
+                      anchor: .topLeading,
+                      proposal: ProposedViewSize(width: bounds.width, height: size.height))
+    }
+}
+
 // MARK: - Rows
 
 // The pinned buttons under the project list: the places you go to set something up
@@ -507,7 +629,7 @@ private struct SortChip: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(hint)
+        .appTooltip(hint)
         .onHover { hovering = $0 }
     }
 }
@@ -523,8 +645,10 @@ private struct ProjectHeaderRow: View {
     let runningCount: Int
     let finishedCount: Int
     let cost: Double
+    let clearableCount: Int
     let isRenaming: Bool
     let onNewSession: () -> Void
+    let onClearSessions: () -> Void
     let onRename: (String) -> Void
     let onCancelRename: () -> Void
 
@@ -554,12 +678,7 @@ private struct ProjectHeaderRow: View {
                         .font(.system(size: 14, weight: .semibold))
                         .lineLimit(1)
                         .truncationMode(.tail)
-                    if finishedCount > 0 {
-                        FinishedDot()
-                            .help(finishedCount == 1
-                                  ? "A session here finished while you were away"
-                                  : "\(finishedCount) sessions here finished while you were away")
-                    }
+                    if finishedCount > 0 { FinishedDot() }
                 }
                 Spacer(minLength: 8)
                 // The name gives way before the numbers do: a truncated project name is
@@ -571,7 +690,7 @@ private struct ProjectHeaderRow: View {
                     .layoutPriority(1)
 
                 // The chevron says which way the row goes; under the pointer it gives way
-                // to the one thing you come to a project row to do. Both sit in a slot of
+                // to the two things you come to a project row to do. They share a slot of
                 // one width, so nothing beside them moves as the pointer arrives.
                 ZStack(alignment: .trailing) {
                     Image(systemName: "chevron.right")
@@ -580,23 +699,37 @@ private struct ProjectHeaderRow: View {
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
                         .opacity(hovering ? 0 : isExpanded ? 0 : 1)
                     if hovering {
-                        Button(action: onNewSession) {
-                            Image(systemName: "plus")
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(.secondary)
+                        HStack(spacing: 10) {
+                            // A running session is doing work nobody asked to throw away,
+                            // so the bin is only offered once there is something idle to
+                            // clear.
+                            if clearableCount > 0 {
+                                Button(action: onClearSessions) {
+                                    Image(systemName: "trash")
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(.secondary)
+                                }
+                                .buttonStyle(.plain)
+                                .appTooltip("Clear \(clearableCount) idle session\(clearableCount == 1 ? "" : "s")")
+                            }
+                            Button(action: onNewSession) {
+                                Image(systemName: "plus")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                            .appTooltip("New session")
                         }
-                        .buttonStyle(.plain)
-                        .help("New session")
                     }
                 }
-                .frame(width: 14, alignment: .trailing)
+                .frame(width: 35, alignment: .trailing)
             }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .background(RoundedRectangle(cornerRadius: 10)
             .fill(isExpanded ? Color.black.opacity(0.05) : hovering ? Color.black.opacity(0.03) : .clear))
-        .help(project.collapsedPath)
+        .appTooltip { tooltip }
         .onHover { hovering = $0 }
         .onChange(of: isRenaming, initial: true) { _, renaming in
             guard renaming else { return }
@@ -605,13 +738,30 @@ private struct ProjectHeaderRow: View {
         }
     }
 
-    // What the project has spent and how much of it there is to open. The path is the
-    // only thing that tells two projects of the same name apart, so it stays as the
-    // row's tooltip.
+    // What the project has spent and how much of it there is to open.
     private var meta: String {
         let sessions = "\(sessionCount) session\(sessionCount == 1 ? "" : "s")"
         guard cost > 0 else { return sessions }
         return "\(Money.short(cost)) · \(sessions)"
+    }
+
+    // The path is the only thing that tells two projects of the same name apart, so it
+    // leads the hint. The counts under it are the ones the row itself has no room for.
+    private var tooltip: Tooltip {
+        var rows = [Tooltip.Row(label: "Sessions", value: "\(sessionCount)")]
+        if runningCount > 0 {
+            rows.append(Tooltip.Row(label: "Running", value: "\(runningCount)"))
+        }
+        if finishedCount > 0 {
+            rows.append(Tooltip.Row(label: "Finished while away", value: "\(finishedCount)"))
+        }
+        if cost > 0 {
+            rows.append(Tooltip.Row(label: "Spent", value: Money.short(cost)))
+        }
+        return Tooltip(title: project.name,
+                       subtitle: project.collapsedPath,
+                       note: isMissing ? "This folder is no longer on disk." : nil,
+                       rows: rows)
     }
 }
 
@@ -655,6 +805,17 @@ private struct FinishedDot: View {
     }
 }
 
+// The session's folder holds work git does not have. It rides at the top of the card
+// beside the state, because it is not what the session is doing: it is what deleting the
+// session would cost.
+private struct UncommittedMark: View {
+    var body: some View {
+        Image(systemName: "pencil.circle.fill")
+            .font(.system(size: 11))
+            .foregroundStyle(Theme.attention)
+    }
+}
+
 // A session as a card rather than a row: state at the top, what it is doing in the
 // middle, what it has produced at the bottom. It is the unit of the sidebar, so it
 // carries enough to decide whether to open it without opening it.
@@ -667,6 +828,7 @@ private struct SessionCard: View {
     let added: Int
     let removed: Int
     let branch: String?
+    let uncommitted: Bool
     let onDelete: () -> Void
 
     @State private var hovering = false
@@ -683,8 +845,8 @@ private struct SessionCard: View {
                     .minimumScaleFactor(0.85)
                 if session.worktreePath != nil {
                     StatusPill(text: "WT", running: false)
-                        .help("Runs in its own git worktree")
                 }
+                if uncommitted { UncommittedMark() }
                 Spacer(minLength: 6)
                 // The timestamp hides in place rather than being taken out, and the button
                 // that replaces it is an overlay, so the card is one size whether or not
@@ -701,7 +863,7 @@ private struct SessionCard: View {
                                     .foregroundStyle(.secondary)
                             }
                             .buttonStyle(.plain)
-                            .help("Delete session")
+                            .appTooltip("Delete session")
                         }
                     }
             }
@@ -718,7 +880,6 @@ private struct SessionCard: View {
             // one number that says how much room the session has left to keep going.
             if busy {
                 Meter(fraction: session.usage?.contextFraction ?? 0, colour: Theme.dotOn, height: 4)
-                    .help("Context used")
                     .padding(.top, 1)
             }
 
@@ -757,7 +918,46 @@ private struct SessionCard: View {
         .background(RoundedRectangle(cornerRadius: 11).fill(cardFill))
         .overlay(RoundedRectangle(cornerRadius: 11).stroke(cardStroke, lineWidth: bordered ? 1.5 : 1))
         .animation(.easeOut(duration: 0.25), value: [busy, finished])
+        .appTooltip { tooltip }
         .onHover { hovering = $0 }
+    }
+
+    // The card truncates a title to one line and says nothing about where the session
+    // runs, so the hint carries both, along with the numbers the footer drops when the
+    // rail is narrow.
+    private var tooltip: Tooltip {
+        var rows = [Tooltip.Row(label: "State", value: stateWord)]
+        if let branch {
+            rows.append(Tooltip.Row(label: "Branch", value: branch))
+        }
+        if added > 0 || removed > 0 {
+            rows.append(Tooltip.Row(label: "Changes", value: "+\(added) -\(removed)"))
+        }
+        if let usage = session.usage, usage.turns > 0 {
+            rows.append(Tooltip.Row(label: "Turns", value: "\(usage.turns)"))
+            rows.append(Tooltip.Row(label: "Spent", value: Money.short(usage.costUSD)))
+        }
+        if let context = session.usage?.contextFraction, context > 0 {
+            rows.append(Tooltip.Row(label: "Context", value: "\(Int(context * 100))%"))
+        }
+        rows.append(Tooltip.Row(label: "Last active",
+                                value: session.lastActivity.formatted(date: .abbreviated,
+                                                                      time: .shortened)))
+        return Tooltip(title: session.title,
+                       subtitle: session.worktreePath?.abbreviatedPath,
+                       note: note,
+                       rows: rows)
+    }
+
+    // What is worth knowing before deleting this session outranks where it runs, and a
+    // worktree session says both at once: the folder that would go is its own.
+    private var note: String? {
+        if uncommitted {
+            return session.worktreePath == nil
+                ? "Uncommitted changes in the project folder."
+                : "Uncommitted changes in this worktree. Deleting the session loses them."
+        }
+        return session.worktreePath == nil ? nil : "Runs in its own git worktree."
     }
 
     private var hasFooter: Bool {
@@ -780,10 +980,11 @@ private struct SessionCard: View {
 
     private var bordered: Bool { busy || finished || selected }
 
-    // A card that is doing something lifts off the sidebar onto white; the rest stay
-    // flat so the running one is the only thing that catches the eye.
+    // White is what being open looks like, so only the selected card gets it - two white
+    // cards in the rail read as two open sessions. A card that is doing something says so
+    // through its border, its state light and its word, which no other card has.
     private var cardFill: Color {
-        if busy || finished || selected { return Theme.card }
+        if selected { return Theme.card }
         return hovering ? Color.black.opacity(0.05) : Color.black.opacity(0.035)
     }
 

@@ -41,8 +41,7 @@ struct ProjectSortTests {
         let talking = Project(name: "talking", path: "/t")
         let quiet = Project(name: "quiet", path: "/q")
         var going = session(in: talking, hoursAgo: 72)
-        going.messages = [ChatMessage(role: .user, text: "still here",
-                                      date: now.addingTimeInterval(-60))]
+        going.summary.lastMessageAt = now.addingTimeInterval(-60)
 
         let sorted = ProjectSort.lastUsed.apply(to: [quiet, talking],
                                                 sessions: [going, session(in: quiet, hoursAgo: 5)])

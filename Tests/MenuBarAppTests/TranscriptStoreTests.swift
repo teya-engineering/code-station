@@ -1,0 +1,248 @@
+import Foundation
+import Testing
+@testable import MenuBarApp
+
+// Where a conversation lives and when it is in memory. A session the app is not showing
+// has to cost nothing but its record, and still be able to say what it did - so what the
+// sidebar reads is checked after the conversation has gone, not just before.
+@MainActor
+struct TranscriptStoreTests {
+
+    private func makeStore() -> ProjectStore {
+        let path = FileManager.default.temporaryDirectory
+            .appendingPathComponent("conductor-tests-\(UUID().uuidString).json").path
+        setenv("CONDUCTOR_STORE", path, 1)
+        return ProjectStore()
+    }
+
+    private func project(in store: ProjectStore) -> Project {
+        store.addProject(at: FileManager.default.temporaryDirectory
+            .appendingPathComponent("project-\(UUID().uuidString)"))!
+    }
+
+    // An edit of one line into another, which is the +1 -1 the sidebar counts.
+    private func edit(id: String = UUID().uuidString, result: String? = "ok") -> ToolUse {
+        ToolUse(id: id,
+                name: "Edit",
+                input: #"{"file_path":"/tmp/x.swift","old_string":"one\ntwo","new_string":"one\nthree"}"#,
+                result: result)
+    }
+
+    private func indexJSON(_ store: ProjectStore) -> String {
+        (try? String(contentsOf: store.storeURL, encoding: .utf8)) ?? ""
+    }
+
+    private func transcriptFile(_ store: ProjectStore, _ sessionID: UUID) -> URL {
+        store.transcriptsURL.appendingPathComponent("\(sessionID.uuidString).json")
+    }
+
+    @Test func writesTheConversationBesideTheIndexRatherThanInIt() {
+        let store = makeStore()
+        let session = store.newSession(in: project(in: store).id)
+        store.append(ChatMessage(role: .assistant, text: "the body of the reply"), to: session.id)
+        store.save()
+
+        let index = indexJSON(store)
+        #expect(!index.contains("the body of the reply"))
+        #expect(!index.contains("\"messages\""))
+        let written = try? String(contentsOf: transcriptFile(store, session.id), encoding: .utf8)
+        #expect(written?.contains("the body of the reply") == true)
+    }
+
+    @Test func letsGoOfAConversationOnceNothingIsLookingAtIt() {
+        let store = makeStore()
+        let project = project(in: store)
+        let first = store.newSession(in: project.id)
+        store.append(ChatMessage(role: .user, text: "hello there"), to: first.id)
+
+        let second = store.newSession(in: project.id)
+        store.selection = .session(second.id)
+
+        #expect(!store.isTranscriptLoaded(first.id))
+        #expect(store.session(first.id)?.messages.isEmpty == true)
+        // Gone from memory, not lost: asking for it reads it back.
+        #expect(store.transcript(of: first.id).first?.text == "hello there")
+    }
+
+    // Whatever streamed in last has to reach the disk before the messages are dropped,
+    // debounce or no debounce.
+    @Test func writesWhatIsPendingBeforeDroppingIt() {
+        let store = makeStore()
+        let project = project(in: store)
+        let session = store.newSession(in: project.id)
+        store.append(ChatMessage(role: .assistant, text: "half a reply"), to: session.id)
+
+        store.selection = .session(store.newSession(in: project.id).id)
+
+        let written = try? String(contentsOf: transcriptFile(store, session.id), encoding: .utf8)
+        #expect(written?.contains("half a reply") == true)
+    }
+
+    // The sidebar draws every session, including the ones whose conversation is not in
+    // memory, so everything it reads has to outlive the transcript.
+    @Test func keepsWhatTheSidebarShowsAfterTheConversationGoes() {
+        let store = makeStore()
+        let project = project(in: store)
+        let session = store.newSession(in: project.id)
+        let sent = Date(timeIntervalSince1970: 1_800_000_000)
+        store.append(ChatMessage(role: .assistant, text: "", tools: [edit()], date: sent),
+                     to: session.id)
+
+        store.selection = .session(store.newSession(in: project.id).id)
+
+        let summary = store.session(session.id)?.summary
+        #expect(summary?.added == 1)
+        #expect(summary?.removed == 1)
+        #expect(summary?.lastTool == "Edit · /tmp/x.swift")
+        #expect(store.session(session.id)?.lastActivity == sent)
+    }
+
+    // A turn runs in a session nobody has open, and the reply has to land somewhere.
+    @Test func holdsAConversationThatIsStillBeingWrittenTo() {
+        let store = makeStore()
+        let project = project(in: store)
+        let running = store.newSession(in: project.id)
+        store.hold(running.id, for: .running)
+
+        store.selection = .session(store.newSession(in: project.id).id)
+        #expect(store.isTranscriptLoaded(running.id))
+
+        store.release(running.id, for: .running)
+        #expect(!store.isTranscriptLoaded(running.id))
+    }
+
+    // The same reason twice is one hold: a queued prompt starting while the session is
+    // already running must not leave a hold behind that nothing gives back.
+    @Test func countsAReasonOnceHoweverOftenItIsGiven() {
+        let store = makeStore()
+        let session = store.newSession(in: project(in: store).id)
+        store.hold(session.id, for: .running)
+        store.hold(session.id, for: .running)
+        store.selection = nil
+
+        store.release(session.id, for: .running)
+        #expect(!store.isTranscriptLoaded(session.id))
+    }
+
+    @Test func deletingASessionTakesItsConversationWithIt() {
+        let store = makeStore()
+        let session = store.newSession(in: project(in: store).id)
+        store.append(ChatMessage(role: .user, text: "hello there"), to: session.id)
+        store.save()
+        let file = transcriptFile(store, session.id)
+        #expect(FileManager.default.fileExists(atPath: file.path))
+
+        store.removeSession(session.id)
+        #expect(!FileManager.default.fileExists(atPath: file.path))
+    }
+
+    @Test func removingAProjectTakesTheConversationsOfEverySessionInIt() {
+        let store = makeStore()
+        let project = project(in: store)
+        let session = store.newSession(in: project.id)
+        store.append(ChatMessage(role: .user, text: "hello there"), to: session.id)
+        store.save()
+
+        store.removeProject(project.id)
+        #expect(!FileManager.default.fileExists(atPath: transcriptFile(store, session.id).path))
+    }
+
+    // MARK: - Answering mid-turn
+
+    // A turn writes everything it says into the message it opened with, so an answer
+    // appended while it runs would sit under every call the answer led to. The reply is
+    // split around it instead: what came before stays put, what comes after goes into a
+    // message of its own that is genuinely later in the conversation.
+    @Test func splitsTheReplyAroundAnAnswerGivenWhileItRuns() {
+        let store = makeStore()
+        let session = store.newSession(in: project(in: store).id)
+        store.append(ChatMessage(role: .user, text: "do the thing"), to: session.id)
+        var reply = ChatMessage(role: .assistant, text: "Looking into it")
+        reply.tools = [edit()]
+        store.append(reply, to: session.id)
+
+        let carriesOn = store.recordAnswer("Full split", in: session.id, continuing: reply.id)
+
+        let messages = store.transcript(of: session.id)
+        #expect(messages.map(\.role) == [.user, .assistant, .user, .assistant])
+        #expect(messages[1].id == reply.id)
+        #expect(messages[2].text == "Full split")
+        #expect(messages[3].id == carriesOn)
+
+        // Whatever the turn does next lands after the answer rather than above it.
+        store.updateMessage(carriesOn!, in: session.id) { $0.text = "carrying on" }
+        #expect(store.transcript(of: session.id).last?.text == "carrying on")
+    }
+
+    // The question can arrive before the turn has said anything, and an empty half of a
+    // reply above the answer is just a gap.
+    @Test func dropsAnEmptyReplyRatherThanLeavingItAboveTheAnswer() {
+        let store = makeStore()
+        let session = store.newSession(in: project(in: store).id)
+        let opened = ChatMessage(role: .assistant)
+        store.append(opened, to: session.id)
+
+        _ = store.recordAnswer("Full split", in: session.id, continuing: opened.id)
+
+        let messages = store.transcript(of: session.id)
+        #expect(messages.map(\.role) == [.user, .assistant])
+        #expect(!messages.contains { $0.id == opened.id })
+    }
+
+    // MARK: - The file an earlier version wrote
+
+    // Everything used to sit in one file. Opening one has to move each conversation into
+    // a file of its own and work out the summaries that version never wrote, or every
+    // session would read as having done nothing.
+    @Test func movesConversationsOutOfAFileThatKeptThemInline() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("conductor-legacy-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let path = directory.appendingPathComponent("projects.json")
+
+        let projectID = UUID(), sessionID = UUID()
+        let legacy = """
+        {
+          "projects": [{"id": "\(projectID.uuidString)", "name": "app", "path": "/tmp/app"}],
+          "sessions": [{
+            "id": "\(sessionID.uuidString)",
+            "projectID": "\(projectID.uuidString)",
+            "title": "an older conversation",
+            "createdAt": "2024-01-01T00:00:00Z",
+            "messages": [{
+              "id": "\(UUID().uuidString)",
+              "role": "assistant",
+              "text": "said something",
+              "date": "2024-01-02T00:00:00Z",
+              "tools": [{
+                "id": "call-1",
+                "name": "Edit",
+                "isError": false,
+                "input": "{\\"file_path\\":\\"/tmp/app/x.swift\\",\\"old_string\\":\\"one\\\\ntwo\\",\\"new_string\\":\\"one\\\\nthree\\"}",
+                "result": "ok"
+              }]
+            }]
+          }]
+        }
+        """
+        try legacy.write(to: path, atomically: true, encoding: .utf8)
+        setenv("CONDUCTOR_STORE", path.path, 1)
+
+        let store = ProjectStore()
+
+        // Read once, then out of memory like any other conversation nobody is holding.
+        #expect(!store.isTranscriptLoaded(sessionID))
+        #expect(store.transcript(of: sessionID).first?.text == "said something")
+
+        // The index it rewrites no longer carries any of it, and says what the sidebar
+        // would otherwise have had to open the conversation to find out.
+        let index = (try? String(contentsOf: path, encoding: .utf8)) ?? ""
+        #expect(!index.contains("said something"))
+        let summary = store.session(sessionID)?.summary
+        #expect(summary?.added == 1)
+        #expect(summary?.removed == 1)
+        #expect(summary?.lastTool == "Edit · x.swift")
+        #expect(store.session(sessionID)?.lastActivity
+            == ISO8601DateFormatter().date(from: "2024-01-02T00:00:00Z"))
+    }
+}

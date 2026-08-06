@@ -67,13 +67,16 @@ final class SessionRunner {
 
         guard let line = request.responseLine(answer), turn.write(line) else {
             states[sessionID] = .failed("Could not send the answer to Claude Code. The turn has been stopped.")
-            stop(sessionID)
+            stop(sessionID, store: store)
             return
         }
 
-        if case .answers(let given) = answer, !given.isEmpty {
-            store.append(ChatMessage(role: .user, text: PermissionRequest.transcript(of: given)),
-                         to: sessionID)
+        // The turn goes on writing after this, and what it writes has to read as having
+        // come after the answer rather than above it.
+        if case .answers(let given) = answer, !given.isEmpty,
+           let carriesOn = store.recordAnswer(PermissionRequest.transcript(of: given),
+                                              in: sessionID, continuing: turn.messageID) {
+            turn.messageID = carriesOn
         }
     }
 
@@ -204,8 +207,27 @@ final class SessionRunner {
     }
 
     // Leaves whatever has streamed in so far in place.
-    func stop(_ sessionID: UUID) {
-        guard let turn = turns[sessionID] else { return }
+    func stop(_ sessionID: UUID, store: ProjectStore) {
+        guard let messageID = turns[sessionID]?.messageID, stopTurn(sessionID) else { return }
+        // A turn stopped before it wrote anything leaves a blank bubble behind - and one
+        // stopped just after a question was answered leaves the half of the reply that
+        // had not begun.
+        if store.transcript(of: sessionID).first(where: { $0.id == messageID })?.isEmpty ?? false {
+            store.removeMessage(messageID, from: sessionID)
+        }
+        store.release(sessionID, for: .running)
+    }
+
+    // Only for the app going away. The transcripts are not given back because there is
+    // nothing left to give them back to; the store writes out what is still pending as
+    // part of the same shutdown.
+    func stopAll() {
+        for sessionID in Array(turns.keys) { stopTurn(sessionID) }
+    }
+
+    @discardableResult
+    private func stopTurn(_ sessionID: UUID) -> Bool {
+        guard let turn = turns[sessionID] else { return false }
         SessionLog.note("stopped by hand", session: sessionID)
         turns[sessionID] = nil
         asked[sessionID] = nil
@@ -213,10 +235,7 @@ final class SessionRunner {
         turn.process.terminationHandler = nil
         cleanUp(turn)
         if turn.process.isRunning { turn.process.terminate() }
-    }
-
-    func stopAll() {
-        for sessionID in Array(turns.keys) { stop(sessionID) }
+        return true
     }
 
     // MARK: - Running one turn
@@ -242,6 +261,10 @@ final class SessionRunner {
             states[sessionID] = .failed("\(workingDirectory) no longer exists.")
             return
         }
+
+        // A turn writes into the conversation for as long as it runs, whether or not
+        // anyone has it open, so the transcript is held until this turn is done with it.
+        store.hold(sessionID, for: .running)
 
         // The whole turn, tool calls included, lands in this one message.
         let reply = ChatMessage(role: .assistant)
@@ -346,6 +369,7 @@ final class SessionRunner {
             process.terminationHandler = nil
             cleanUp(turn)
             store.removeMessage(reply.id, from: sessionID)
+            store.release(sessionID, for: .running)
             SessionLog.note("could not start: \(error.localizedDescription)", session: sessionID)
             states[sessionID] = .failed("Could not start Claude Code: \(error.localizedDescription)")
         }
@@ -506,7 +530,7 @@ final class SessionRunner {
 
         // A turn that produced nothing at all would otherwise leave a blank assistant
         // bubble sitting under the failure.
-        if store.session(sessionID)?.messages.first(where: { $0.id == turn.messageID })?.isEmpty ?? false {
+        if store.transcript(of: sessionID).first(where: { $0.id == turn.messageID })?.isEmpty ?? false {
             store.removeMessage(turn.messageID, from: sessionID)
         }
 
@@ -515,6 +539,9 @@ final class SessionRunner {
         guard turn.failure != nil || status != 0 else {
             SessionLog.note("turn finished", session: sessionID)
             states[sessionID] = .idle
+            // Given back before the queue runs: the next turn takes the transcript for
+            // itself, and releasing after it started would take that hold away.
+            store.release(sessionID, for: .running)
             // Only a turn that ended on its own pulls the next one in. After a failure or a
             // stop the queue waits to be sent by hand, so the reason it stopped stays on
             // screen long enough to read.
@@ -547,6 +574,7 @@ final class SessionRunner {
         }
 
         states[sessionID] = .failed(message)
+        store.release(sessionID, for: .running)
         store.noteTurnEnded(for: sessionID)
     }
 
@@ -560,7 +588,9 @@ final class SessionRunner {
     private final class Turn {
         let token = UUID()
         let process: Process
-        let messageID: UUID
+        // Where the reply is being written. A question answered mid-turn closes the
+        // message the turn opened with and moves this on to the one after the answer.
+        var messageID: UUID
         let input: Pipe
         private var inputOpen = true
         let prompt: String

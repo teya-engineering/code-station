@@ -284,6 +284,17 @@ struct SessionView: View {
             // built no rows yet at that point, so it has no height to scroll through
             // and the pane lands on blank space until something forces a redraw.
             .defaultScrollAnchor(.bottom)
+            // The pane changes height under a transcript that is already there: the
+            // composer grows a line, the terminal drawer opens, the window is resized.
+            // The bottom anchor is re-applied against the height the content had before
+            // that, which leaves the scroll view parked past its own end, and a lazy
+            // stack asked to draw nothing draws nothing - the transcript goes blank.
+            // Landing on the end again gives it a real offset to build from.
+            .background(GeometryReader { geometry in
+                Color.clear.onChange(of: geometry.size.height) {
+                    Task { proxy.scrollTo(bottomAnchor, anchor: .bottom) }
+                }
+            })
             // Rows keep coming into being for a beat after the first layout, which moves
             // the end of the transcript. One nudge once that settles lands on it.
             .task(id: sessionID) {
@@ -381,7 +392,7 @@ struct SessionView: View {
 
                 if busy {
                     Button {
-                        runner.stop(sessionID)
+                        runner.stop(sessionID, store: store)
                     } label: {
                         Image(systemName: "stop.fill")
                             .font(.system(size: 12, weight: .bold))
@@ -511,18 +522,19 @@ struct SessionView: View {
     @ViewBuilder private func queueStrip(busy: Bool, blocked: Bool) -> some View {
         let waiting = runner.queued(sessionID)
         if !waiting.isEmpty {
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 6) {
-                    Image(systemName: "list.bullet.indent")
-                        .font(.system(size: 10, weight: .semibold))
-                    Text(busy ? "QUEUED · RUNS WHEN THIS TURN ENDS" : "QUEUED")
-                        .font(.system(size: 10, weight: .semibold))
-                        .kerning(0.6)
-                    Spacer(minLength: 0)
+                    // The count sits in the heading because the list can be scrolled past
+                    // or capped, and how much is waiting is the part worth knowing.
+                    Text(busy ? "QUEUED · \(waiting.count) · RUNS WHEN THIS TURN ENDS"
+                              : "QUEUED · \(waiting.count)")
+                        .font(.system(size: 11, weight: .semibold))
+                        .kerning(1.2)
+                    Spacer(minLength: 8)
                     if !busy && !blocked {
                         Button("Send now") { runner.runQueue(sessionID, store: store) }
                             .buttonStyle(.plain)
-                            .font(.system(size: 11, weight: .semibold))
+                            .font(.system(size: 12, weight: .semibold))
                     }
                 }
                 .foregroundStyle(Theme.accent)
@@ -530,7 +542,7 @@ struct SessionView: View {
                 ForEach(waiting) { item in
                     HStack(alignment: .top, spacing: 8) {
                         Text(item.text)
-                            .font(.system(size: 12))
+                            .font(.system(size: 13))
                             .lineLimit(2)
                             .fixedSize(horizontal: false, vertical: true)
                         Spacer(minLength: 0)
@@ -538,14 +550,14 @@ struct SessionView: View {
                             runner.unqueue(item.id, sessionID: sessionID)
                         } label: {
                             Image(systemName: "xmark")
-                                .font(.system(size: 9, weight: .bold))
+                                .font(.system(size: 11, weight: .medium))
                                 .foregroundStyle(.secondary)
                         }
                         .buttonStyle(.plain)
                         .help("Remove from the queue")
                     }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 7)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(RoundedRectangle(cornerRadius: 8).fill(Theme.field))
                     .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
