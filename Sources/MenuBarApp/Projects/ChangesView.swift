@@ -176,15 +176,18 @@ struct ChangesView: View {
                 .focused($commitFocused)
                 .onSubmit { commit() }
 
-            Button("Commit") { commit() }
-                .buttonStyle(.plain)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .background(RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.88)))
-                .disabled(busy || commitMessage.trimmingCharacters(in: .whitespaces).isEmpty)
-                .opacity(busy || commitMessage.trimmingCharacters(in: .whitespaces).isEmpty ? 0.4 : 1)
+            Button { commit() } label: {
+                Text("Commit")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.88)))
+                    .contentShape(RoundedRectangle(cornerRadius: 8))
+            }
+            .buttonStyle(.plain)
+            .disabled(busy || commitMessage.trimmingCharacters(in: .whitespaces).isEmpty)
+            .opacity(busy || commitMessage.trimmingCharacters(in: .whitespaces).isEmpty ? 0.4 : 1)
 
             Button("Cancel") { committing = false }
                 .buttonStyle(.plain)

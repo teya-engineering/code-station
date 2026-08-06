@@ -22,14 +22,17 @@ struct SheetFooter<Leading: View>: View {
             HStack(spacing: 10) {
                 leading
                 Spacer()
-                Button(title, action: done)
-                    .buttonStyle(.plain)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 18)
-                    .padding(.vertical, 7)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.88)))
-                    .keyboardShortcut(.cancelAction)
+                Button(action: done) {
+                    Text(title)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 7)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.88)))
+                        .contentShape(RoundedRectangle(cornerRadius: 8))
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut(.cancelAction)
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
