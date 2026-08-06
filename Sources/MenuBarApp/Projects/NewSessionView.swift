@@ -14,6 +14,12 @@ struct NewSessionView: View {
     // created with, rather than a guess at what they will look like.
     @State private var sessionID = UUID()
     @State private var useWorktree = true
+    // How the checkout relates to the default branch and its remote. It arrives in two
+    // passes: what the local refs already say, then the same read again after a fetch,
+    // so the sheet is honest immediately and accurate a moment later.
+    @State private var freshness: GitFreshness.Report?
+    // The user asked the worktree to fork from the remote tip instead of the checkout.
+    @State private var baseOnRemote = false
 
     private var planned: GitWorktree.Created {
         GitWorktree.plan(projectName: project.name, sessionID: sessionID)
@@ -22,6 +28,11 @@ struct NewSessionView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
+            if let report = freshness, report.isStale || (useWorktree && report.dirty) {
+                FreshnessNotice(report: report, forWorktree: useWorktree, baseOnRemote: $baseOnRemote)
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 12)
+            }
             VStack(spacing: 10) {
                 OptionCard(
                     title: "Use a git worktree",
@@ -47,6 +58,12 @@ struct NewSessionView: View {
         }
         .frame(width: 560)
         .background(Theme.background)
+        .task {
+            freshness = await GitFreshness.check(at: project.path, fetch: false)
+            if let fetched = await GitFreshness.check(at: project.path, fetch: true) {
+                freshness = fetched
+            }
+        }
     }
 
     private var header: some View {
@@ -97,16 +114,94 @@ struct NewSessionView: View {
     }
 
     private func create() {
-        onCreate(useWorktree ? .worktree(sessionID) : .folder)
+        let base = baseOnRemote ? freshness?.remoteRef : nil
+        onCreate(useWorktree ? .worktree(sessionID, base: base) : .folder)
         dismiss()
     }
 }
 
 // What the sheet came back with. The worktree case carries the id the session must be
-// created with, since the branch and folder shown were named after it.
+// created with, since the branch and folder shown were named after it, and the ref to
+// fork from when the user chose the remote tip over their own checkout.
 enum NewSessionChoice: Equatable {
-    case worktree(UUID)
+    case worktree(UUID, base: String?)
     case folder
+}
+
+// Says when the checkout a session would fork from is not the default branch at its
+// latest revision. For a worktree it also offers the one fix the sheet can apply itself:
+// forking from the remote tip needs no change to the user's own checkout, so it is a
+// choice here rather than something the user must go and do first. The folder option
+// only warns; pulling or switching the user's working tree is theirs to do.
+private struct FreshnessNotice: View {
+    let report: GitFreshness.Report
+    let forWorktree: Bool
+    @Binding var baseOnRemote: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.attention)
+                VStack(alignment: .leading, spacing: 3) {
+                    if let concern {
+                        Text(concern)
+                            .font(.system(size: 12.5))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    if forWorktree && report.dirty {
+                        Text("Uncommitted changes in the project folder stay behind: a worktree starts from the last commit.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+            if forWorktree, report.isStale, let remote = report.remoteRef {
+                Button {
+                    baseOnRemote.toggle()
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: baseOnRemote ? "checkmark.square.fill" : "square")
+                            .font(.system(size: 12))
+                            .foregroundStyle(baseOnRemote ? AnyShapeStyle(Theme.accent)
+                                                          : AnyShapeStyle(.secondary))
+                        Text("Start this session from \(remote), leaving your checkout as it is")
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                // Sits on the text's left edge, past the warning icon above it.
+                .padding(.leading, 19)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 11).fill(Theme.attention.opacity(0.08)))
+        .overlay(RoundedRectangle(cornerRadius: 11).stroke(Theme.attention.opacity(0.3)))
+    }
+
+    // The trouble as one or two sentences: the wrong branch, the missing commits, and
+    // when the fetch failed, how old the answer is.
+    private var concern: String? {
+        var sentences: [String] = []
+        if !report.onDefaultBranch, let expected = report.defaultBranch {
+            let place = report.currentBranch.map { "on \($0)" } ?? "on a detached HEAD"
+            sentences.append("The project folder is \(place), not \(expected).")
+        }
+        if report.behind > 0, let target = report.remoteRef ?? report.defaultBranch {
+            let subject = sentences.isEmpty ? (report.currentBranch ?? "The checkout") : "It"
+            sentences.append("\(subject) is \(report.behind) commit\(report.behind == 1 ? "" : "s") behind \(target).")
+        }
+        if report.fetchAttempted && !report.fetched {
+            sentences.append(report.lastFetch.map {
+                "Origin could not be reached, so this is as of the last fetch, \($0.formatted(.relative(presentation: .named)))."
+            } ?? "Origin could not be reached, so this may be out of date.")
+        }
+        return sentences.isEmpty ? nil : sentences.joined(separator: " ")
+    }
 }
 
 // One of the two ways to run, as a card the whole of which is the target. The line at the

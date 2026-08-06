@@ -35,7 +35,11 @@ enum GitWorktree {
                        branch: "conductor/\(suffix)")
     }
 
-    static func add(projectPath: String, projectName: String, sessionID: UUID) async throws -> Created {
+    // `base` is the ref the worktree's branch forks from; without one it forks from
+    // whatever the project folder has checked out. Naming a ref is what lets a session
+    // start from the remote tip while the user's own checkout stays as it is.
+    static func add(projectPath: String, projectName: String, sessionID: UUID,
+                    from base: String? = nil) async throws -> Created {
         guard let tool = await tool() else {
             throw Failure(message: "Could not find git on PATH.")
         }
@@ -45,7 +49,9 @@ enum GitWorktree {
             // Kept out of backups: a worktree can be recreated from the repository it came
             // from, and copying every checkout into Time Machine is not worth the room.
             _ = AppPaths.directory(folder, backedUp: false)
-            let result = run(tool, ["-C", projectPath, "worktree", "add", planned.path, "-b", planned.branch])
+            var arguments = ["-C", projectPath, "worktree", "add", planned.path, "-b", planned.branch]
+            if let base { arguments.append(base) }
+            let result = run(tool, arguments)
             guard result.status == 0 else {
                 return .failure(Failure(message: result.stderr.isEmpty
                     ? "git worktree add exited with code \(result.status)."

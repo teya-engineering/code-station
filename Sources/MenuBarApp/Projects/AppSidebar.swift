@@ -277,8 +277,10 @@ struct AppSidebar: View {
         // is the clearest sign yet that it wants to be open.
         expansion[project.id] = true
         switch choice {
-        case .worktree(let sessionID): createWorktreeSession(in: project, id: sessionID)
-        case .folder: sessionToReveal = store.newSession(in: project.id).id
+        case .worktree(let sessionID, let base):
+            createWorktreeSession(in: project, id: sessionID, base: base)
+        case .folder:
+            sessionToReveal = store.newSession(in: project.id).id
         }
     }
 
@@ -348,12 +350,13 @@ struct AppSidebar: View {
 
     // The session id is chosen up front so the worktree folder and branch can carry
     // it before the session exists, which is also what lets the sheet name both.
-    private func createWorktreeSession(in project: Project, id sessionID: UUID) {
+    private func createWorktreeSession(in project: Project, id sessionID: UUID, base: String?) {
         Task {
             do {
                 let created = try await GitWorktree.add(projectPath: project.path,
                                                         projectName: project.name,
-                                                        sessionID: sessionID)
+                                                        sessionID: sessionID,
+                                                        from: base)
                 store.newSession(in: project.id, id: sessionID,
                                  worktreePath: created.path, worktreeBranch: created.branch)
                 sessionToReveal = sessionID
