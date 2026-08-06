@@ -494,8 +494,8 @@ enum GitInspector {
 
     // MARK: - Running git
 
-    // The runner below is shared with GitActions, the write side, so both halves start
-    // git the same way: same lookup, same environment, same pipe handling.
+    // The runner below is shared with every other part of the app that starts git, so
+    // they all behave the same way: same lookup, same environment, same pipe handling.
     struct GitTool: Sendable {
         var path: String
         var searchPath: String
@@ -521,7 +521,11 @@ enum GitInspector {
         }
     }
 
-    static func run(_ tool: GitTool, _ arguments: [String], in directory: URL) -> CommandOutput {
+    // `directory` is nil for callers that steer git with `-C` instead: the folder they
+    // target may no longer exist, and a missing working directory would keep the
+    // process from launching at all.
+    static func run(_ tool: GitTool, _ arguments: [String], in directory: URL? = nil,
+                    timeout: TimeInterval? = nil) -> CommandOutput {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: tool.path)
         process.currentDirectoryURL = directory
@@ -549,6 +553,14 @@ enum GitInspector {
             return result
         }
 
+        // A command that talks to the network can hang on a connection that swallows
+        // packets rather than refusing them; killing it turns no answer into a failure.
+        let killer = timeout.map { limit in
+            let item = DispatchWorkItem { process.terminate() }
+            DispatchQueue.global().asyncAfter(deadline: .now() + limit, execute: item)
+            return item
+        }
+
         // Both pipes have to be drained at the same time: git blocks once either buffer
         // fills, so reading them one after the other can hang forever.
         let box = DataBox()
@@ -561,6 +573,7 @@ enum GitInspector {
         var data = out.fileHandleForReading.readDataToEndOfFile()
         group.wait()
         process.waitUntilExit()
+        killer?.cancel()
 
         if data.count > outputByteLimit {
             data = data.prefix(outputByteLimit)

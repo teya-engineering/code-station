@@ -124,8 +124,11 @@ final class DockerService {
                 result.errorText = error.localizedDescription
                 return result
             }
-            let outData = out.fileHandleForReading.readDataToEndOfFile()
+            // Drain both pipes at the same time. Reading one to the end while the
+            // child sits blocked writing to the other would deadlock.
+            let outTask = Task.detached { out.fileHandleForReading.readDataToEndOfFile() }
             let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+            let outData = await outTask.value
             process.waitUntilExit()
 
             result.text = String(decoding: outData, as: UTF8.self)

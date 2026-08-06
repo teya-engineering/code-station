@@ -177,11 +177,18 @@ final class ClaudeCodeManager {
         process.standardOutput = pipe
         process.standardError = pipe
 
+        // Drain the pipe while the process runs. Waiting until termination to read
+        // deadlocks on output larger than the pipe buffer: the child blocks on write
+        // and never exits.
+        let reader = Task.detached {
+            String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        }
+
         let manager = self
         process.terminationHandler = { finished in
-            let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
             let code = finished.terminationStatus
             Task { @MainActor in
+                let output = await reader.value
                 // A failing "remove" is fine (the server may not exist yet); only
                 // a failing "add" is a real error worth surfacing.
                 var nextFailure = failure
@@ -196,6 +203,8 @@ final class ClaudeCodeManager {
         do {
             try process.run()
         } catch {
+            // Nothing will ever write to the pipe, so close our end to unblock the reader.
+            pipe.fileHandleForWriting.closeFile()
             for name in names { busy.remove(name); errors[name] = error.localizedDescription }
             bulkBusy = false
         }

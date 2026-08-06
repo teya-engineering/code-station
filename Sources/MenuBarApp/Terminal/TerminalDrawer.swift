@@ -15,6 +15,8 @@ struct TerminalDrawer: View {
     @State private var draftName = ""
     // Height while a drag is in flight; the store keeps it once the drag ends.
     @State private var dragHeight: CGFloat?
+    // Height at the moment the drag began; the translation is measured from there.
+    @State private var dragStartHeight: CGFloat?
 
     private var open: [TerminalSession] { terminals.sessions(for: sessionID) }
     private var current: TerminalSession? { terminals.selection(for: sessionID) }
@@ -74,11 +76,14 @@ struct TerminalDrawer: View {
         .gesture(
             DragGesture(coordinateSpace: .global)
                 .onChanged { value in
-                    dragHeight = max(TerminalStore.minimumHeight, height - value.translation.height)
+                    let start = dragStartHeight ?? height
+                    dragStartHeight = start
+                    dragHeight = max(TerminalStore.minimumHeight, start - value.translation.height)
                 }
                 .onEnded { _ in
                     if let dragHeight { terminals.setHeight(dragHeight, for: sessionID) }
                     dragHeight = nil
+                    dragStartHeight = nil
                 })
         .onHover { inside in
             if inside { NSCursor.resizeUpDown.push() } else { NSCursor.pop() }
