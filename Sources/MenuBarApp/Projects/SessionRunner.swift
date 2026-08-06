@@ -111,6 +111,21 @@ final class SessionRunner {
 
     func unqueue(_ id: UUID, sessionID: UUID) { queues[sessionID]?.removeAll { $0.id == id } }
 
+    // Takes a waiting prompt back into the composer so it can be reworked before it runs.
+    // A half-written draft is not thrown away: it takes the recalled prompt's place in
+    // the queue, so nothing typed is ever lost.
+    func recall(_ id: UUID, sessionID: UUID) {
+        guard let index = queues[sessionID]?.firstIndex(where: { $0.id == id }),
+              let item = queues[sessionID]?[index] else { return }
+        queues[sessionID]?.remove(at: index)
+        let current = draft(sessionID)
+        if !current.isEmpty {
+            queues[sessionID]?.insert(QueuedPrompt(text: current.text.trimmingCharacters(in: .whitespacesAndNewlines),
+                                                   attachments: current.attachments), at: index)
+        }
+        drafts[sessionID] = Draft(text: item.text, attachments: item.attachments)
+    }
+
     // Nothing is ever sent straight to the CLI: a prompt joins the queue and the queue is
     // what runs. Typing during a turn therefore costs nothing, and the ones already waiting
     // keep their order.

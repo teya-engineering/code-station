@@ -436,7 +436,12 @@ struct SessionView: View {
                               isFocused: $composerFocused,
                               placeholder: busy ? "Queue what comes next…" : "Ask for a change",
                               isEnabled: !blocked,
-                              onSubmit: send)
+                              onSubmit: send,
+                              onRecallUp: {
+                                  guard let last = runner.queued(sessionID).last else { return false }
+                                  runner.recall(last.id, sessionID: sessionID)
+                                  return true
+                              })
 
                 if canSend {
                     Button(action: send) {
@@ -695,11 +700,25 @@ struct SessionView: View {
                             .fixedSize(horizontal: false, vertical: true)
                         Spacer(minLength: 0)
                         Button {
+                            runner.recall(item.id, sessionID: sessionID)
+                            composerFocused = true
+                        } label: {
+                            Image(systemName: "pencil")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(.secondary)
+                                .padding(2)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .help("Take it back into the composer to rework")
+                        Button {
                             runner.unqueue(item.id, sessionID: sessionID)
                         } label: {
                             Image(systemName: "xmark")
                                 .font(.system(size: 11, weight: .medium))
                                 .foregroundStyle(.secondary)
+                                .padding(2)
+                                .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                         .help("Remove from the queue")

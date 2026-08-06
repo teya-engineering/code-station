@@ -12,6 +12,10 @@ struct ComposerField: View {
     let placeholder: String
     let isEnabled: Bool
     let onSubmit: () -> Void
+    // Arrow-up in an empty box asks for the last prompt back, the way a shell recalls
+    // history. Returns whether there was one to recall, so the key can fall through to
+    // ordinary cursor movement when there was not.
+    var onRecallUp: (() -> Bool)? = nil
 
     // Past this the box stops growing and the text scrolls inside it, so a long prompt
     // can never push the transcript off the screen.
@@ -28,6 +32,7 @@ struct ComposerField: View {
                  isEnabled: isEnabled,
                  font: Self.font,
                  onSubmit: onSubmit,
+                 onRecallUp: onRecallUp,
                  onHeightChange: { height = $0 })
             .frame(height: min(max(height, line), line * CGFloat(maxLines)))
             .overlay(alignment: .topLeading) {
@@ -58,6 +63,7 @@ private struct TextArea: NSViewRepresentable {
     let isEnabled: Bool
     let font: NSFont
     let onSubmit: () -> Void
+    let onRecallUp: (() -> Bool)?
     let onHeightChange: (CGFloat) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -147,6 +153,11 @@ private struct TextArea: NSViewRepresentable {
             case #selector(NSResponder.insertNewlineIgnoringFieldEditor(_:)):
                 textView.insertText("\n", replacementRange: textView.selectedRange())
                 return true
+            case #selector(NSResponder.moveUp(_:)):
+                // Only an empty box recalls: with text in hand the key keeps moving the
+                // cursor, so editing a long prompt is never hijacked.
+                if textView.string.isEmpty, parent.onRecallUp?() == true { return true }
+                return false
             default:
                 return false
             }
