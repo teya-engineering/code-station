@@ -95,24 +95,12 @@ struct MessageView: View, Equatable {
                 CodeBlock(segment: segment)
                     .transition(.fadeIn)
             } else {
-                Text(inline(segment.text))
-                    .font(.system(size: 13))
-                    .textSelection(.enabled)
-                    .multilineTextAlignment(.leading)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .transition(.fadeIn)
+                ForEach(MarkdownBlock.parse(segment.text)) { block in
+                    MarkdownBlockView(block: block)
+                        .transition(.fadeIn)
+                }
             }
         }
-    }
-
-    // Inline markdown only: `code`, bold and italics render, newlines stay as they
-    // are. Fenced blocks are already split out before this runs.
-    private func inline(_ text: String) -> AttributedString {
-        (try? AttributedString(
-            markdown: text,
-            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
-            ?? AttributedString(text)
     }
 }
 
