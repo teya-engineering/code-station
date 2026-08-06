@@ -326,11 +326,10 @@ final class ProjectStore {
         return sessions[i].messages
     }
 
-    // The summary is what the sidebar reads for every session it is not showing the
-    // transcript of, so it is rebuilt here rather than anywhere a message is written.
+    // The summary the sidebar reads is rebuilt when the write lands rather than here:
+    // a streaming reply changes the transcript many times a second, and deriving the
+    // summary walks every call in the conversation.
     private func transcriptChanged(_ i: Int) {
-        let root = workingDirectory(for: sessions[i]) ?? ""
-        sessions[i].summary = SessionSummary.of(sessions[i].messages, projectPath: root)
         dirtyTranscripts.insert(sessions[i].id)
         indexDirty = true
         scheduleSave()
@@ -386,46 +385,79 @@ final class ProjectStore {
         scheduleSave()
     }
 
+    // Encoding a long conversation and putting it on disk is too much to pay between
+    // frames of a streaming reply, so writes happen here instead of on the main actor.
+    // One serial queue keeps them in order, and a caller that has to see the bytes on
+    // disk before its next line waits on it.
+    private static let writer = DispatchQueue(label: "com.teya.conductor.project-store-writes")
+
     // Coalesce the burst of writes that a streaming reply produces into one file write.
     private func scheduleSave() {
         saveTask?.cancel()
         saveTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(400))
             guard !Task.isCancelled else { return }
-            self?.save()
+            self?.save(waiting: false)
         }
     }
 
-    func save() {
+    // Returns with everything on disk. This is what dropping a transcript from memory
+    // relies on, debounce or no debounce.
+    func save() { save(waiting: true) }
+
+    private func save(waiting: Bool) {
         saveTask?.cancel()
         saveTask = nil
 
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-        encoder.dateEncodingStrategy = .iso8601
-
+        // The summary is what the sidebar reads for every session it is not showing
+        // the transcript of; deriving it walks the whole conversation, so it happens
+        // once per write rather than once per streamed event.
+        var transcripts: [(messages: [ChatMessage], url: URL)] = []
         for sessionID in dirtyTranscripts {
             // A session removed before its last write landed has nothing to write to.
-            guard let i = index(sessionID), sessions[i].transcriptLoaded,
-                  let data = try? encoder.encode(sessions[i].messages) else { continue }
-            write(data, to: transcriptURL(sessionID), inside: transcriptsURL)
+            guard let i = index(sessionID), sessions[i].transcriptLoaded else { continue }
+            let root = workingDirectory(for: sessions[i]) ?? ""
+            sessions[i].summary = SessionSummary.of(sessions[i].messages, projectPath: root)
+            transcripts.append((sessions[i].messages, transcriptURL(sessionID)))
         }
         dirtyTranscripts.removeAll()
 
-        guard indexDirty else { return }
-        indexDirty = false
-        var openSessionID: UUID?
-        if case .session(let id) = selection { openSessionID = id }
-        Preferences.selectedSessionID = openSessionID
-        Preferences.selectedProjectID = selectedProjectID
-
-        guard let data = try? encoder.encode(Persisted(projects: projects, sessions: sessions)) else {
-            return
+        var persisted: Persisted?
+        if indexDirty {
+            indexDirty = false
+            var openSessionID: UUID?
+            if case .session(let id) = selection { openSessionID = id }
+            Preferences.selectedSessionID = openSessionID
+            Preferences.selectedProjectID = selectedProjectID
+            persisted = Persisted(projects: projects, sessions: sessions)
         }
-        write(data, to: storeURL, inside: storeURL.deletingLastPathComponent())
+        guard !transcripts.isEmpty || persisted != nil else { return }
+
+        let transcriptsDirectory = transcriptsURL
+        let indexURL = storeURL
+        let pendingTranscripts = transcripts
+        let pendingIndex = persisted
+        let job: @Sendable () -> Void = {
+            // Only this app reads the transcripts back, so they skip the pretty
+            // formatting; the index stays readable for a human poking at it.
+            let transcriptEncoder = JSONEncoder()
+            transcriptEncoder.outputFormatting = .withoutEscapingSlashes
+            transcriptEncoder.dateEncodingStrategy = .iso8601
+            for transcript in pendingTranscripts {
+                guard let data = try? transcriptEncoder.encode(transcript.messages) else { continue }
+                Self.write(data, to: transcript.url, inside: transcriptsDirectory)
+            }
+            guard let persisted = pendingIndex else { return }
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+            encoder.dateEncodingStrategy = .iso8601
+            guard let data = try? encoder.encode(persisted) else { return }
+            Self.write(data, to: indexURL, inside: indexURL.deletingLastPathComponent())
+        }
+        if waiting { Self.writer.sync(execute: job) } else { Self.writer.async(execute: job) }
     }
 
-    private func write(_ data: Data, to url: URL, inside directory: URL) {
+    private nonisolated static func write(_ data: Data, to url: URL, inside directory: URL) {
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try? data.write(to: url, options: .atomic)
     }

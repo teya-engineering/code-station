@@ -1,8 +1,7 @@
 import Foundation
 
-// A project is just a folder on disk. Unlike Conductor there is no worktree and no
-// copy: every session for a project runs Claude Code directly in this directory, so
-// only one session can be live at a time.
+// A project is just a folder on disk. A session runs Claude Code either directly in
+// this directory or in a worktree of its own - see ChatSession.worktreePath.
 struct Project: Identifiable, Codable, Equatable {
     var id: UUID
     var name: String
@@ -29,7 +28,8 @@ extension String {
     // "/Users/me/x" reads better as "~/x" anywhere a path is shown.
     var abbreviatedPath: String {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
-        return replacingOccurrences(of: home, with: "~")
+        guard hasPrefix(home) else { return self }
+        return "~" + dropFirst(home.count)
     }
 }
 
@@ -90,16 +90,21 @@ struct ChatMessage: Identifiable, Codable, Equatable {
     var blocks: [MessageBlock] {
         var blocks: [MessageBlock] = []
         // Where in the text the last block ended. Calls arrive in order, so this only
-        // ever moves forwards.
+        // ever moves forwards - which is what lets the walk stay linear: the index
+        // advances from where it is instead of being measured from the start each time.
         var cursor = 0
+        var cursorIndex = text.startIndex
+        let length = text.count
         var round: [ToolUse] = []
 
         func closeRound() {
             guard let first = round.first else { return }
-            let end = min(max(first.textOffset ?? 0, cursor), text.count)
+            let end = min(max(first.textOffset ?? 0, cursor), length)
             if end > cursor {
-                blocks.append(.prose(id: blocks.count, text: slice(cursor, end)))
+                let endIndex = text.index(cursorIndex, offsetBy: end - cursor)
+                blocks.append(.prose(id: blocks.count, text: String(text[cursorIndex..<endIndex])))
                 cursor = end
+                cursorIndex = endIndex
             }
             blocks.append(.tools(id: blocks.count, round))
             round = []
@@ -113,16 +118,10 @@ struct ChatMessage: Identifiable, Codable, Equatable {
         }
         closeRound()
 
-        if cursor < text.count {
-            blocks.append(.prose(id: blocks.count, text: slice(cursor, text.count)))
+        if cursor < length {
+            blocks.append(.prose(id: blocks.count, text: String(text[cursorIndex...])))
         }
         return blocks
-    }
-
-    private func slice(_ from: Int, _ to: Int) -> String {
-        let start = text.index(text.startIndex, offsetBy: from)
-        let end = text.index(text.startIndex, offsetBy: to)
-        return String(text[start..<end])
     }
 }
 

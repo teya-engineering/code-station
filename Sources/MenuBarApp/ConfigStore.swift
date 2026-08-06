@@ -25,6 +25,9 @@ final class ConfigStore {
     // MARK: - Loading
 
     func load() {
+        // Edits still waiting to be written go out first, so typing and then reloading
+        // does not read a stale file and lose them.
+        flushPendingSave()
         // No file yet is a normal empty state; a present-but-unreadable file is not.
         guard let data = try? Data(contentsOf: configURL), !data.isEmpty else {
             servers = []
@@ -69,7 +72,29 @@ final class ConfigStore {
 
     // MARK: - Saving
 
+    private var saveTask: Task<Void, Never>?
+
+    // Typing in a key or value field is one write per keystroke, so those are coalesced
+    // into one file write the way the request store does it.
+    private func scheduleSave() {
+        saveTask?.cancel()
+        saveTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled else { return }
+            self?.save()
+        }
+    }
+
+    // Writes out an edit that is still waiting on its debounce, so readers of the file
+    // and the app's last moments see what is on screen.
+    func flushPendingSave() {
+        guard saveTask != nil else { return }
+        save()
+    }
+
     private func save() {
+        saveTask?.cancel()
+        saveTask = nil
         // Never overwrite a file we could not read in the first place.
         guard loadError == nil else { return }
         var map: [String: ConfigFile.Entry] = [:]
@@ -101,7 +126,8 @@ final class ConfigStore {
 
     // The file is always written pretty-printed with clean URLs, so show it verbatim.
     var rawJSON: String {
-        (try? String(contentsOf: configURL, encoding: .utf8)) ?? "{\n  \"mcpServers\": {}\n}"
+        flushPendingSave()
+        return (try? String(contentsOf: configURL, encoding: .utf8)) ?? "{\n  \"mcpServers\": {}\n}"
     }
 
     // MARK: - Mutations
@@ -204,7 +230,7 @@ final class ConfigStore {
                 guard let si = self.servers.firstIndex(where: { $0.id == id }),
                       let ei = self.servers[si].env.firstIndex(where: { $0.id == envID }) else { return }
                 set(&self.servers[si].env[ei], newValue)
-                self.save()
+                self.scheduleSave()
             })
     }
 }

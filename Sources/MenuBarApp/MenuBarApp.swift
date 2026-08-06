@@ -107,5 +107,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         terminals.stopEverything()
         projects.save()
         postman.save()
+        postmanAuth.save()
+        store.flushPendingSave()
     }
 }

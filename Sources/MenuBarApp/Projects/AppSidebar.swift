@@ -112,11 +112,14 @@ struct AppSidebar: View {
                     .padding(.horizontal, 20)
                     .padding(.top, 16)
             } else {
+                // Grouped once per redraw: every row below reads from this, and a
+                // streaming reply redraws the rail on every token.
+                let grouped = groupedSessions
                 ScrollViewReader { scroller in
                     ScrollView {
                         VStack(alignment: .leading, spacing: 6) {
                             ForEach(orderedProjects) { project in
-                                projectSection(project)
+                                projectSection(project, sessions: grouped[project.id] ?? [])
                                     .id(project.id)
                             }
                         }
@@ -128,7 +131,7 @@ struct AppSidebar: View {
                         // row, or the first session arriving under an already open one.
                         // Easing out rather than a spring: the block must not overshoot its
                         // own height, or it opens onto a gap under the last card.
-                        .animation(.easeOut(duration: 0.26), value: revealKey)
+                        .animation(.easeOut(duration: 0.26), value: revealKey(grouped))
                         .animation(.easeOut(duration: 0.22), value: appSettings.projectSort)
                     }
                     .task(id: sessionToReveal) { await reveal(with: scroller) }
@@ -141,9 +144,15 @@ struct AppSidebar: View {
         appSettings.projectSort.apply(to: store.projects, sessions: store.sessions)
     }
 
-    private func projectSection(_ project: Project) -> some View {
+    // Every session under its project, newest first - the order the cards are drawn in.
+    private var groupedSessions: [UUID: [ChatSession]] {
+        var groups = Dictionary(grouping: store.sessions, by: \.projectID)
+        for key in groups.keys { groups[key]?.sort { $0.createdAt > $1.createdAt } }
+        return groups
+    }
+
+    private func projectSection(_ project: Project, sessions: [ChatSession]) -> some View {
         let expanded = isExpanded(project)
-        let sessions = store.sessions(for: project.id)
         let running = sessions.filter { runner.state($0.id).isBusy }.count
 
         // The row and its sessions are one stack so the gap between them belongs to the
@@ -234,10 +243,10 @@ struct AppSidebar: View {
         expansion[project.id] ?? (project.id == store.selectedProject?.id)
     }
 
-    private var revealKey: [UUID: Int] {
+    private func revealKey(_ grouped: [UUID: [ChatSession]]) -> [UUID: Int] {
         var key: [UUID: Int] = [:]
         for project in store.projects where isExpanded(project) {
-            key[project.id] = store.sessions(for: project.id).count
+            key[project.id] = grouped[project.id]?.count ?? 0
         }
         return key
     }
@@ -390,7 +399,9 @@ struct AppSidebar: View {
     // session says where it left off without its conversation being loaded at all.
     private func activitySummary(_ session: ChatSession, project: Project,
                                  busy: Bool, finished: Bool) -> String? {
-        if busy, let running = session.messages.flatMap(\.tools).last(where: { $0.isRunning }) {
+        // A turn writes into the message it opened, so a call still in flight can only
+        // be in the last one.
+        if busy, let running = session.messages.last?.tools.last(where: { $0.isRunning }) {
             let root = folder(session, project: project)
             return ToolPresentationCache.presentation(for: running, projectPath: root).label
         }
@@ -422,8 +433,9 @@ struct AppSidebar: View {
 
     private var watchedFolders: Set<String> {
         var folders: Set<String> = []
+        let grouped = groupedSessions
         for project in store.projects where isExpanded(project) {
-            for session in store.sessions(for: project.id) {
+            for session in grouped[project.id] ?? [] {
                 folders.insert(folder(session, project: project))
             }
         }
@@ -440,7 +452,8 @@ struct AppSidebar: View {
 
     private var bottomBar: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if !oldSessions.isEmpty { oldSessionsStrip }
+            let old = oldSessions
+            if !old.isEmpty { oldSessionsStrip(old) }
 
             Button(action: addProject) {
                 Text("+ Add project")
@@ -477,16 +490,17 @@ struct AppSidebar: View {
     // Sessions pile up quietly, and the worktrees behind them take real disk. The strip
     // says how much has gone stale and hands it to a screen that explains what clearing
     // each one would cost; it never offers to do anything on its own.
-    private var oldSessionsStrip: some View {
-        HStack(spacing: 10) {
+    private func oldSessionsStrip(_ old: [ChatSession]) -> some View {
+        let worktrees = old.filter { $0.worktreePath != nil }.count
+        return HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("\(oldSessions.count) session\(oldSessions.count == 1 ? "" : "s") older than \(oldSessionDays) day\(oldSessionDays == 1 ? "" : "s")")
+                Text("\(old.count) session\(old.count == 1 ? "" : "s") older than \(oldSessionDays) day\(oldSessionDays == 1 ? "" : "s")")
                     .font(.system(size: 13, weight: .semibold))
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
-                if oldWorktrees > 0 {
-                    Text(oldWorktrees == 1 ? "one of them holds a worktree"
-                                           : "\(oldWorktrees) of them hold worktrees")
+                if worktrees > 0 {
+                    Text(worktrees == 1 ? "one of them holds a worktree"
+                                        : "\(worktrees) of them hold worktrees")
                         .font(.mono(11))
                         .foregroundStyle(.tertiary)
                         .lineLimit(1)
@@ -516,10 +530,6 @@ struct AppSidebar: View {
     private var oldSessions: [ChatSession] {
         OldSessions.olderThan(oldSessionDays, in: store.sessions)
             .filter { !runner.state($0.id).isBusy }
-    }
-
-    private var oldWorktrees: Int {
-        oldSessions.filter { $0.worktreePath != nil }.count
     }
 
     // MARK: - Actions

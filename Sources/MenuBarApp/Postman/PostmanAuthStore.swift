@@ -7,7 +7,7 @@ import Observation
 @MainActor
 @Observable
 final class PostmanAuthStore {
-    var config: OAuthConfig { didSet { if config != oldValue { save() } } }
+    var config: OAuthConfig { didSet { if config != oldValue { scheduleSave() } } }
     private(set) var token: OAuthToken?
     private(set) var busy = false
     private(set) var failure: String?
@@ -39,9 +39,11 @@ final class PostmanAuthStore {
 
         // The Keychain is the truth for both; the file only ever holds them on the way
         // over from a version that did not know better.
-        if let secret = Keychain.string(.oauthClientSecret) { config.clientSecret = secret }
-        if let stored = Keychain.string(.oauthToken),
-           let token = try? JSONDecoder.oauth.decode(OAuthToken.self, from: Data(stored.utf8)) {
+        storedSecret = Keychain.string(.oauthClientSecret)
+        if let storedSecret { config.clientSecret = storedSecret }
+        storedTokenJSON = Keychain.string(.oauthToken)
+        if let storedTokenJSON,
+           let token = try? JSONDecoder.oauth.decode(OAuthToken.self, from: Data(storedTokenJSON.utf8)) {
             self.token = token
         }
         if fromFile { save() }
@@ -310,16 +312,44 @@ final class PostmanAuthStore {
 
     // MARK: - Persistence
 
+    private var saveTask: Task<Void, Never>?
+    // What the Keychain holds right now, so a save can tell when writing it again would
+    // only store the same value.
+    private var storedSecret: String?
+    private var storedTokenJSON: String?
+
+    // Editing a settings field lands here once per keystroke, so those are coalesced
+    // into one write the way the request store does it.
+    private func scheduleSave() {
+        saveTask?.cancel()
+        saveTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled else { return }
+            self?.save()
+        }
+    }
+
     // The secret and the token go to the Keychain; the file keeps the rest, which is just
-    // the addresses and the client id.
+    // the addresses and the client id. Keychain writes are slow and synchronous, so they
+    // are skipped when the value there already matches.
     func save() {
-        Keychain.set(config.clientSecret, for: .oauthClientSecret)
+        saveTask?.cancel()
+        saveTask = nil
+
+        let secret = config.clientSecret.isEmpty ? nil : config.clientSecret
+        if secret != storedSecret {
+            Keychain.set(secret, for: .oauthClientSecret)
+            storedSecret = secret
+        }
 
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         encoder.dateEncodingStrategy = .iso8601
-        Keychain.set(token.flatMap { try? encoder.encode($0) }.map { String(decoding: $0, as: UTF8.self) },
-                     for: .oauthToken)
+        let tokenJSON = token.flatMap { try? encoder.encode($0) }.map { String(decoding: $0, as: UTF8.self) }
+        if tokenJSON != storedTokenJSON {
+            Keychain.set(tokenJSON, for: .oauthToken)
+            storedTokenJSON = tokenJSON
+        }
 
         var onDisk = config
         onDisk.clientSecret = ""
