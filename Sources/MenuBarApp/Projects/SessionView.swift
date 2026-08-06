@@ -9,7 +9,7 @@ struct SessionView: View {
     @Environment(TerminalStore.self) private var terminals
     let sessionID: UUID
 
-    private enum Tab: Hashable { case chat, changes, explorer, usage }
+    private enum Tab: Hashable { case chat, changes, explorer }
 
     @State private var tab: Tab = .chat
     @State private var dropTargeted = false
@@ -41,9 +41,6 @@ struct SessionView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 case .explorer:
                     ExplorerView(root: workingDirectory)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                case .usage:
-                    SessionUsageView(sessionID: sessionID)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
 
@@ -194,7 +191,6 @@ struct SessionView: View {
                 segment("Chat", .chat)
                 segment("Changes", .changes)
                 segment("Explorer", .explorer)
-                segment("Usage", .usage)
             }
             .padding(3)
             .background(RoundedRectangle(cornerRadius: 10).fill(Color.black.opacity(0.05)))
@@ -623,9 +619,7 @@ struct SessionView: View {
                 .font(.mono(11))
                 .foregroundStyle(.secondary)
         }
-        .contentShape(Rectangle())
-        .help("Context in use after the last turn. Open Usage for the full breakdown.")
-        .onTapGesture { tab = .usage }
+        .help("Context in use after the last turn.")
     }
 
     // Prompts typed ahead, above the composer where what happens next belongs. A queue that

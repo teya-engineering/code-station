@@ -924,7 +924,9 @@ private struct SessionCard: View {
                     }
                     Spacer(minLength: 6)
                     if let usage = session.usage, usage.turns > 0 {
-                        Text("\(usage.turns) turn\(usage.turns == 1 ? "" : "s") · \(Money.short(usage.costUSD))")
+                        // The cost stays out of the card: it reads as a bill, which on a
+                        // subscription it is not. The tooltip still carries it.
+                        Text("\(usage.turns) turn\(usage.turns == 1 ? "" : "s")")
                             .font(.mono(10))
                             .foregroundStyle(.tertiary)
                             .lineLimit(1)
