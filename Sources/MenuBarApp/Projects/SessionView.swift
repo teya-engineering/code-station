@@ -244,8 +244,12 @@ struct SessionView: View {
                 transcriptContent(session, state: state, projectPath: projectPath)
                     .padding(.horizontal, 24)
                     .padding(.vertical, 20)
-                    .frame(maxWidth: 820, alignment: .leading)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    // Capped so prose keeps a readable line length, and centered so a
+                    // wide window pads both sides instead of piling space on the right.
+                    // Wider than a chat app's usual measure: diffs and tool output make
+                    // better use of the room than paragraphs do.
+                    .frame(maxWidth: 960, alignment: .leading)
+                    .frame(maxWidth: .infinity)
                     // The soft landing for anything new: a fresh row fades in and the
                     // rows above it glide up rather than jumping. Keyed on the shape of
                     // the transcript, not its text, so it plays once per whole arrival
