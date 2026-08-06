@@ -1,16 +1,17 @@
+import AppKit
 import Foundation
 import Observation
+import SwiftTerm
 
-// One shell tab: a pty, the parsed screen, and the little bit of state the tab strip
-// shows. Terminals are owned by TerminalStore and outlive switching tabs, so a build
-// keeps running while you are reading the chat.
+// One shell tab: a pty, the SwiftTerm surface that emulates and draws it, and the
+// little bit of state the tab strip shows. Terminals are owned by TerminalStore and
+// outlive switching tabs, so a build keeps running while you are reading the chat.
 @MainActor
 @Observable
 final class TerminalSession: Identifiable {
     let id = UUID()
     let directory: String
 
-    private(set) var lines: [TerminalLine] = []
     private(set) var isRunning = false
     private(set) var failure: String?
     // True while a command holds the terminal, so a tab that is building in the
@@ -20,13 +21,14 @@ final class TerminalSession: Identifiable {
     // that job is.
     var name: String
 
-    @ObservationIgnored private var emulator = TerminalEmulator()
+    // The surface is the emulator and the screen in one, so it holds the scrollback.
+    // It lives with the session rather than the drawer, which is what lets the screen
+    // survive tab switches and the drawer being put away.
+    @ObservationIgnored let surface: TerminalSurface
     @ObservationIgnored private var pty: PTY?
     @ObservationIgnored private var incoming = Data()
     @ObservationIgnored private var flushScheduled = false
     @ObservationIgnored private var busyPoll: Task<Void, Never>?
-    @ObservationIgnored private(set) var columns = 80
-    @ObservationIgnored private(set) var rows = 24
 
     private static let shell: String = {
         // The login shell is what the user actually configured; fall back to zsh, the
@@ -38,6 +40,9 @@ final class TerminalSession: Identifiable {
     init(directory: String, name: String) {
         self.directory = directory
         self.name = name
+        surface = TerminalSurface(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
+        surface.terminalDelegate = self
+        surface.onClear = { [weak self] in self?.clear() }
     }
 
     // MARK: - Lifecycle
@@ -60,14 +65,13 @@ final class TerminalSession: Identifiable {
         environment["TERM_PROGRAM"] = "TeyaConductor"
         environment["PATH"] = ProcessManager.searchPath
         environment["LANG"] = environment["LANG"] ?? "en_US.UTF-8"
-        // A pager that takes over the screen has nothing to draw into here.
-        environment["GIT_PAGER"] = "cat"
-        environment["PAGER"] = "cat"
 
         do {
+            let screen = surface.getTerminal()
             // -i so the shell reads the user's rc files and behaves like their terminal.
             try terminal.start(shell: Self.shell, arguments: ["-i"], directory: directory,
-                               environment: environment, columns: columns, rows: rows)
+                               environment: environment,
+                               columns: screen.cols, rows: screen.rows)
             isRunning = true
             failure = nil
             watchForCommands()
@@ -106,26 +110,21 @@ final class TerminalSession: Identifiable {
         pty?.write(Data(text.utf8))
     }
 
-    func sendBytes(_ data: Data) {
-        pty?.write(data)
-    }
-
     func clear() {
-        emulator.reset()
-        lines = emulator.lines()
+        surface.getTerminal().resetToInitialState()
+        surface.setNeedsDisplay(surface.bounds)
     }
 
-    func resize(columns: Int, rows: Int) {
-        guard columns != self.columns || rows != self.rows, columns > 0, rows > 0 else { return }
-        self.columns = columns
-        self.rows = rows
-        pty?.resize(columns: columns, rows: rows)
+    // What the screen currently shows; read by tests.
+    func screenText() -> String {
+        let data = surface.getTerminal().getBufferAsData()
+        return String(decoding: data, as: UTF8.self)
     }
 
     // MARK: - Output
     //
     // A build can print faster than the screen can be redrawn, so chunks are gathered
-    // and parsed once per frame instead of once per read.
+    // and fed once per frame instead of once per read.
 
     private func receive(_ data: Data) {
         incoming.append(data)
@@ -142,8 +141,7 @@ final class TerminalSession: Identifiable {
         guard !incoming.isEmpty else { return }
         let data = incoming
         incoming = Data()
-        emulator.feed(data)
-        lines = emulator.lines()
+        surface.feed(byteArray: ArraySlice([UInt8](data)))
     }
 
     private func shellExited() {
@@ -154,6 +152,24 @@ final class TerminalSession: Identifiable {
         isBusy = false
         pty = nil
     }
+}
+
+// The surface calls back on the main thread, which is where the session lives.
+extension TerminalSession: @preconcurrency TerminalViewDelegate {
+    func send(source: TerminalView, data: ArraySlice<UInt8>) {
+        pty?.write(Data(data))
+    }
+
+    // The surface works out its own columns and rows from its frame; the shell just
+    // has to be told, or anything that draws a full line wraps in the wrong place.
+    func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {
+        pty?.resize(columns: newCols, rows: newRows)
+    }
+
+    func setTerminalTitle(source: TerminalView, title: String) {}
+    func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}
+    func scrolled(source: TerminalView, position: Double) {}
+    func rangeChanged(source: TerminalView, startY: Int, endY: Int) {}
 }
 
 // The terminals belonging to each chat session, plus how the drawer is sitting.

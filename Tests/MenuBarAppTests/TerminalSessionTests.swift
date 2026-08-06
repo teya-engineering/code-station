@@ -28,7 +28,7 @@ struct TerminalSessionTests {
         #expect(session.isRunning)
         session.send("echo hello-from-session\r")
         #expect(await waitUntil(seconds: 10) {
-            session.lines.contains { $0.text.contains("hello-from-session") }
+            session.screenText().contains("hello-from-session")
         })
     }
 
@@ -41,7 +41,7 @@ struct TerminalSessionTests {
 
         session.send("echo ready\r")
         #expect(await waitUntil(seconds: 10) {
-            session.lines.contains { $0.text.contains("ready") }
+            session.screenText().contains("ready")
         })
         #expect(await waitUntil(seconds: 3) { session.isBusy == false })
 
@@ -57,9 +57,9 @@ struct TerminalSessionTests {
 
         session.send("echo something\r")
         #expect(await waitUntil(seconds: 10) {
-            session.lines.contains { $0.text.contains("something") }
+            session.screenText().contains("something")
         })
         session.clear()
-        #expect(session.lines.allSatisfy { $0.text.isEmpty })
+        #expect(session.screenText().trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     }
 }

@@ -83,10 +83,10 @@ terminal in that folder is what happens here. Streaming input is what lets it as
 anything back: prompts arrive as control requests on its stdout and the answer goes down
 its stdin, and a session that cannot answer gets its tool calls denied instead.
 
-The drawer's terminal is a scrollback view, not a full screen one. It understands what
-ordinary command output uses - colours, progress lines that redraw, line erases - which
-covers shells, builds, git and package managers. Full screen programs that paint the
-whole window (`vim`, `htop`) are not emulated, so keep those in a real terminal.
+The drawer's terminal is a full terminal emulator, built on
+[SwiftTerm](https://github.com/migueldeicaza/SwiftTerm) and drawn in the app's own
+palette. Shells, builds, and full screen programs (`vim`, `htop`) all work the way they
+do in Terminal.app.
 
 ### MCP Servers
 
