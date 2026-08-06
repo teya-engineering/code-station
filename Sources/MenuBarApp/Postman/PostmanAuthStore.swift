@@ -121,7 +121,7 @@ final class PostmanAuthStore {
     // say so and waiting for the timeout is the only other way out.
     func authenticate(_ env: ApiEnvironment) {
         guard !busy.contains(env) else { return }
-        let config = config(for: env)
+        let config = config(for: env).cleaned()
         let gaps = config.missing
         guard gaps.isEmpty else {
             failures[env] = "Fill in \(gaps.joined(separator: ", ")) first."
@@ -165,7 +165,7 @@ final class PostmanAuthStore {
     // Refreshing goes to the token endpoint as the client that is set up now, which is not
     // the one that issued a token from other settings.
     func refresh(_ env: ApiEnvironment) async {
-        let config = config(for: env)
+        let config = config(for: env).cleaned()
         guard !busy.contains(env), let current = tokens[env], current.matches(config),
               let refreshToken = current.refreshToken else { return }
         busy.insert(env)
@@ -192,7 +192,7 @@ final class PostmanAuthStore {
     // grant allows it - a refresh token, or client credentials asked for again - so a send
     // does not fail on staleness alone.
     func authorizationHeader(for env: ApiEnvironment) async -> String? {
-        let config = config(for: env)
+        let config = config(for: env).cleaned()
         if let token = tokens[env], token.matches(config), token.isExpired,
            token.refreshToken != nil {
             await refresh(env)
@@ -299,7 +299,7 @@ final class PostmanAuthStore {
 
     func submitRedirect(_ text: String, for env: ApiEnvironment) {
         guard !busy.contains(env), let pending = pending[env] else { return }
-        let config = config(for: env)
+        let config = config(for: env).cleaned()
 
         switch RedirectAnswer.parse(text) {
         case .unreadable:

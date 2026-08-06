@@ -59,21 +59,21 @@ struct EnvironmentsView: View {
                                        text: config.state)
                     }
 
-                    HStack(alignment: .top, spacing: 14) {
-                        CaptionedField(caption: "HEADER PREFIX",
-                                       placeholder: "Bearer",
-                                       text: config.headerPrefix)
-                            .frame(width: 160)
-                        VStack(alignment: .leading, spacing: 6) {
-                            Caption(text: "CLIENT AUTHENTICATION")
-                            Picker("", selection: config.clientAuth) {
-                                ForEach(ClientAuthentication.allCases) { Text($0.label).tag($0) }
-                            }
-                            .pickerStyle(.segmented)
-                            .labelsHidden()
-                            .frame(width: 220)
-                        }
-                    }
+                    CaptionedField(caption: "HEADER PREFIX",
+                                   placeholder: "Bearer",
+                                   text: config.headerPrefix)
+                        .frame(width: 220)
+
+                    OptionMenu(caption: "CLIENT AUTHENTICATION",
+                               value: config.wrappedValue.clientAuth.label,
+                               options: ClientAuthentication.allCases.map { choice in
+                                   (choice.label, choice == config.wrappedValue.clientAuth,
+                                    { config.wrappedValue.clientAuth = choice })
+                               })
+                    Text("How the app proves which OAuth client it is on the token call. This is not about your requests; they always send the token with the prefix above.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
 
                     EnvironmentTokenControls(env: shown)
 
@@ -166,10 +166,26 @@ struct EnvironmentsView: View {
     }
 
     private var grantRow: some View {
+        OptionMenu(caption: "GRANT TYPE",
+                   value: config.wrappedValue.grant.label,
+                   options: GrantType.allCases.map { grant in
+                       (grant.label, grant == config.wrappedValue.grant,
+                        { config.wrappedValue.grant = grant })
+                   })
+    }
+}
+
+// A caption over a one-of-a-set choice, opened as the app's own menu.
+private struct OptionMenu: View {
+    let caption: String
+    let value: String
+    let options: [(label: String, checked: Bool, choose: () -> Void)]
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Caption(text: "GRANT TYPE")
+            Caption(text: caption)
             HStack(spacing: 8) {
-                Text(config.wrappedValue.grant.label)
+                Text(value)
                     .font(.system(size: 12, weight: .medium))
                 Spacer()
                 Image(systemName: "chevron.down")
@@ -182,8 +198,8 @@ struct EnvironmentsView: View {
             .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
             .contentShape(Rectangle())
             .appMenu {
-                GrantType.allCases.map { grant in
-                    .item(grant.label) { config.wrappedValue.grant = grant }
+                options.map { option in
+                    .item(option.label, checked: option.checked, action: option.choose)
                 }
             }
         }

@@ -143,6 +143,29 @@ struct OAuthConfigTests {
         #expect(loopback.missing == ["a port on the callback URL"])
     }
 
+    // A client id pasted with a trailing space is an unknown client to the provider,
+    // which answers with nothing that names the real problem.
+    @Test func shedsPastedWhitespaceBeforeAnythingIsSent() {
+        var config = OAuthConfig(authURL: " https://id.example/authorize ",
+                                 tokenURL: "https://id.example/token\n",
+                                 clientID: "54ade699-f4f8  ",
+                                 clientSecret: " shh ",
+                                 scope: " okta ")
+        let cleaned = config.cleaned()
+        #expect(cleaned.clientID == "54ade699-f4f8")
+        #expect(cleaned.authURL == "https://id.example/authorize")
+        #expect(cleaned.tokenURL == "https://id.example/token")
+        #expect(cleaned.clientSecret == "shh")
+        #expect(cleaned.scope == "okta")
+
+        // The identity trims itself, so a token fetched with the cleaned config still
+        // counts for the config as typed.
+        #expect(config.identity == cleaned.identity)
+
+        config.clientID = "   "
+        #expect(config.missing.contains("Client ID"))
+    }
+
     @Test func takesThePortOffTheCallback() {
         #expect(OAuthConfig(callbackURL: "http://127.0.0.1:8234/callback").callbackPort == 8234)
         #expect(OAuthConfig(callbackURL: "http://localhost/callback").callbackPort == nil)

@@ -27,8 +27,8 @@ enum ClientAuthentication: String, CaseIterable, Identifiable, Codable {
 
     var label: String {
         switch self {
-        case .body: "In body"
-        case .basicHeader: "Basic header"
+        case .body: "Send client credentials in body"
+        case .basicHeader: "Send as Basic Auth header"
         }
     }
 }
@@ -62,8 +62,24 @@ struct OAuthConfig: Codable, Equatable {
     // The parts of the setup a token is tied to. The rest - the callback, the header
     // prefix, where the secret goes - only shapes how the token is fetched.
     var identity: TokenIdentity {
-        TokenIdentity(grant: grant, authURL: authURL, tokenURL: tokenURL,
-                      clientID: clientID, scope: scope)
+        TokenIdentity(grant: grant, authURL: authURL.trimmed, tokenURL: tokenURL.trimmed,
+                      clientID: clientID.trimmed, scope: scope.trimmed)
+    }
+
+    // Pasted values arrive with stray whitespace, and an identity provider answers a
+    // client id with a trailing space as an unknown client. Every field is trimmed
+    // before it goes anywhere near a request.
+    func cleaned() -> OAuthConfig {
+        var config = self
+        config.authURL = authURL.trimmed
+        config.tokenURL = tokenURL.trimmed
+        config.clientID = clientID.trimmed
+        config.clientSecret = clientSecret.trimmed
+        config.scope = scope.trimmed
+        config.state = state.trimmed
+        config.callbackURL = callbackURL.trimmed
+        config.headerPrefix = headerPrefix.trimmed
+        return config
     }
 
     var callbackPort: UInt16? {
@@ -82,11 +98,11 @@ struct OAuthConfig: Codable, Equatable {
     // Everything the chosen grant cannot run without.
     var missing: [String] {
         var gaps: [String] = []
-        if tokenURL.isEmpty { gaps.append("Access token URL") }
-        if clientID.isEmpty { gaps.append("Client ID") }
+        if tokenURL.trimmed.isEmpty { gaps.append("Access token URL") }
+        if clientID.trimmed.isEmpty { gaps.append("Client ID") }
         if grant.usesBrowser {
-            if authURL.isEmpty { gaps.append("Auth URL") }
-            if callbackURL.isEmpty { gaps.append("Callback URL") }
+            if authURL.trimmed.isEmpty { gaps.append("Auth URL") }
+            if callbackURL.trimmed.isEmpty { gaps.append("Callback URL") }
             if usesLoopback, callbackPort == nil { gaps.append("a port on the callback URL") }
         }
         return gaps
@@ -198,6 +214,10 @@ struct TokenResponse: Decodable {
         guard let error else { return nil }
         return [error, errorDescription].compactMap { $0 }.joined(separator: ": ")
     }
+}
+
+extension String {
+    var trimmed: String { trimmingCharacters(in: .whitespacesAndNewlines) }
 }
 
 struct OAuthError: LocalizedError {

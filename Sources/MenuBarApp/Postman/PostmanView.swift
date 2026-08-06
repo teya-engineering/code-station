@@ -166,22 +166,39 @@ struct PostmanView: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
 
-            Button(tokenAction) {
-                guard ready else {
-                    showingEnvironments = true
-                    return
+            if auth.busy.contains(environment) || auth.awaitingPaste.contains(environment) {
+                // Nothing tells the app that the browser tab was closed, so the wait
+                // has to be something the user can call off from right here.
+                HStack(spacing: 10) {
+                    Text(auth.busy.contains(environment)
+                         ? (config.grant.usesBrowser ? "Waiting for the browser…" : "Signing in…")
+                         : "Waiting for the code")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                    Button("Cancel") { auth.cancelAuthentication(environment) }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Theme.deletion)
                 }
-                auth.authenticate(environment)
-                // A callback that is not ours needs the paste field, which lives in the
-                // Environments sheet, so the sign-in and the sheet arrive together.
-                if config.grant.usesBrowser && !config.usesLoopback {
-                    showingEnvironments = true
+            } else {
+                Button(tokenAction) {
+                    guard ready else {
+                        showingEnvironments = true
+                        return
+                    }
+                    auth.authenticate(environment)
+                    // A callback that is not ours needs the paste field, which lives in
+                    // the Environments sheet, so the sign-in and the sheet arrive together.
+                    if config.grant.usesBrowser && !config.usesLoopback {
+                        showingEnvironments = true
+                    }
                 }
+                .buttonStyle(.plain)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(environment.accent)
             }
-            .buttonStyle(.plain)
-            .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(environment.accent)
-            .disabled(auth.busy.contains(environment))
         }
         .padding(.horizontal, 11)
         .padding(.vertical, 10)
@@ -190,10 +207,7 @@ struct PostmanView: View {
     }
 
     private var tokenAction: String {
-        if auth.busy.contains(environment) { return "Signing in…" }
-        if auth.awaitingPaste.contains(environment) { return "Waiting for the code" }
-        if !auth.config(for: environment).missing.isEmpty { return "Set up credentials" }
-        return "Re-authenticate"
+        auth.config(for: environment).missing.isEmpty ? "Re-authenticate" : "Set up credentials"
     }
 
     // MARK: - Detail
