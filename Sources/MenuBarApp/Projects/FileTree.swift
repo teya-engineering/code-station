@@ -24,7 +24,7 @@ enum FilePreview: Sendable, Equatable {
     case unreadable(String)
 }
 
-// Reads folders and files for the explorer, always read-only.
+// Reads folders and files for the explorer, and writes a file back when one is edited.
 //
 // Every call hops off the main thread. A folder with a few thousand entries, or a file
 // that turns out to live on a slow disk, is enough to freeze the window otherwise.
@@ -110,6 +110,29 @@ enum FileTree {
                 return text
             }
             return .text(lines: lines, truncated: total > previewLineLimit, totalLines: total)
+        }.value
+    }
+
+    // The whole file as one string, for editing. The preview swaps tabs for spaces and
+    // cuts long lines and long files, so saving it back would mangle the file; an edit
+    // starts from the raw bytes instead.
+    static func fullText(of url: URL) async -> String? {
+        await Task.detached(priority: .userInitiated) {
+            guard let data = try? Data(contentsOf: url) else { return nil }
+            guard data.isEmpty || !data.looksBinary else { return nil }
+            return String(decoding: data, as: UTF8.self)
+        }.value
+    }
+
+    // Returns what went wrong, or nil when the write landed.
+    static func write(_ text: String, to url: URL) async -> String? {
+        await Task.detached(priority: .userInitiated) {
+            do {
+                try Data(text.utf8).write(to: url, options: .atomic)
+                return nil
+            } catch {
+                return error.localizedDescription
+            }
         }.value
     }
 }

@@ -5,9 +5,12 @@ import SwiftUI
 // covers what git has something to say about; this is the whole working tree, which is
 // what you want when the agent names a file you have never opened.
 //
-// Read-only, like Changes: nothing here creates, renames or deletes anything.
+// A text file can be edited in place. The tree itself stays read-only: nothing here
+// creates, renames or deletes anything.
 struct ExplorerView: View {
     let root: String
+
+    @Environment(DialogPresenter.self) private var dialogs
 
     // Children are kept per folder rather than as a nested tree, so a folder can be read
     // the moment it is opened and the rows on screen stay a flat list.
@@ -19,6 +22,13 @@ struct ExplorerView: View {
     @State private var loadingPreview = false
     @State private var showHidden = true
     @State private var textWidth: CGFloat = 0
+
+    // Editing keeps the text as loaded next to the draft, so "anything to save" and
+    // "anything to lose" are both one comparison.
+    @State private var editing = false
+    @State private var draft = ""
+    @State private var original = ""
+    @State private var saving = false
 
     private var rootURL: URL { URL(fileURLWithPath: root) }
 
@@ -120,7 +130,7 @@ struct ExplorerView: View {
         let isSelected = selected?.path == node.path
 
         return Button {
-            if node.isDirectory { toggle(node) } else { select(node) }
+            if node.isDirectory { toggle(node) } else { requestSelect(node) }
         } label: {
             HStack(spacing: 5) {
                 Image(systemName: "chevron.right")
@@ -198,22 +208,36 @@ struct ExplorerView: View {
                         .lineLimit(1)
                         .truncationMode(.head)
                     Spacer()
-                    if loadingPreview { ProgressView().controlSize(.small) }
-                    Button("Open") { NSWorkspace.shared.open(node.url) }
+                    if loadingPreview || saving { ProgressView().controlSize(.small) }
+                    if editing {
+                        editButtons(node)
+                    } else {
+                        if canEdit {
+                            Button("Edit") { beginEdit(node) }
+                                .buttonStyle(.plain)
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(Theme.accent)
+                        }
+                        Button("Open") { NSWorkspace.shared.open(node.url) }
+                            .buttonStyle(.plain)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(Theme.accent)
+                        Button("Reveal in Finder") {
+                            NSWorkspace.shared.activateFileViewerSelecting([node.url])
+                        }
                         .buttonStyle(.plain)
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(Theme.accent)
-                    Button("Reveal in Finder") {
-                        NSWorkspace.shared.activateFileViewerSelecting([node.url])
                     }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Theme.accent)
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 10)
 
-                previewBody(node)
+                if editing {
+                    editor
+                } else {
+                    previewBody(node)
+                }
             } else {
                 PaneMessage(icon: "sidebar.left", title: "Pick a file",
                             detail: "Its contents show up here. Folders open in place.")
@@ -267,6 +291,59 @@ struct ExplorerView: View {
         case nil:
             Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+    }
+
+    // MARK: - Editing
+
+    // Only what already previews as text can be edited. Images, binaries and files past
+    // the size limit stay look-but-do-not-touch, and an empty file counts as text.
+    private var canEdit: Bool {
+        switch preview {
+        case .text, .empty: true
+        default: false
+        }
+    }
+
+    private var dirty: Bool { draft != original }
+
+    private func editButtons(_ node: FileNode) -> some View {
+        HStack(spacing: 8) {
+            Button { cancelEdit() } label: {
+                Text("Cancel")
+                    .font(.system(size: 12, weight: .semibold))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 5)
+                    .background(Capsule().fill(Theme.card))
+                    .overlay(Capsule().stroke(Theme.border))
+                    .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+
+            Button { save(node) } label: {
+                Text("Save")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 5)
+                    .background(Capsule().fill(Theme.accent))
+                    .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut("s", modifiers: .command)
+            .disabled(!dirty || saving)
+            .opacity(dirty ? 1 : 0.4)
+        }
+    }
+
+    // The field background marks the pane as writable, the way every other input in the
+    // app sits on a field.
+    private var editor: some View {
+        TextEditor(text: $draft)
+            .font(.mono(11))
+            .scrollContentBackground(.hidden)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 4)
+            .background(Theme.field)
     }
 
     // Line numbers and text are two columns of one monospaced font, so the rows line up
@@ -333,6 +410,9 @@ struct ExplorerView: View {
         expanded = []
         selected = nil
         preview = nil
+        editing = false
+        draft = ""
+        original = ""
         await load(root)
     }
 
@@ -358,6 +438,76 @@ struct ExplorerView: View {
         } else {
             expanded.insert(node.path)
             if children[node.path] == nil { Task { await load(node.path) } }
+        }
+    }
+
+    // Moving to another file throws the draft away, so a dirty one is worth a question
+    // first. A clean draft just moves, and a click on the file already being edited
+    // leaves the editor alone.
+    private func requestSelect(_ node: FileNode) {
+        if editing && node.path == selected?.path { return }
+        guard editing, dirty else {
+            editing = false
+            select(node)
+            return
+        }
+        dialogs.show(Dialog(
+            title: "Discard changes?",
+            message: "Edits to \(selected?.name ?? "this file") have not been saved.",
+            actions: [
+                .init(label: "Discard", kind: .destructive) {
+                    editing = false
+                    select(node)
+                },
+                .init(label: "Keep editing", kind: .cancel)
+            ]))
+    }
+
+    private func beginEdit(_ node: FileNode) {
+        Task {
+            loadingPreview = true
+            let text = await FileTree.fullText(of: node.url)
+            loadingPreview = false
+            guard selected?.path == node.path else { return }
+            guard let text else {
+                dialogs.show(Dialog(
+                    title: "Could not open for editing",
+                    message: "The file could not be read as text.",
+                    actions: [.init(label: "OK", kind: .cancel)]))
+                return
+            }
+            original = text
+            draft = text
+            editing = true
+        }
+    }
+
+    private func cancelEdit() {
+        guard dirty else { editing = false; return }
+        dialogs.show(Dialog(
+            title: "Discard changes?",
+            message: "Edits to \(selected?.name ?? "this file") have not been saved.",
+            actions: [
+                .init(label: "Discard", kind: .destructive) { editing = false },
+                .init(label: "Keep editing", kind: .cancel)
+            ]))
+    }
+
+    private func save(_ node: FileNode) {
+        Task {
+            saving = true
+            let failure = await FileTree.write(draft, to: node.url)
+            saving = false
+            if let failure {
+                dialogs.show(Dialog(
+                    title: "Could not save",
+                    message: failure,
+                    actions: [.init(label: "OK", kind: .cancel)]))
+            } else {
+                editing = false
+                select(node)
+                await reopenFolders()
+            }
         }
     }
 
