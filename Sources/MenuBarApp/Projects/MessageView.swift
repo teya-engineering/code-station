@@ -9,10 +9,17 @@ enum ChatColor {
 
 // One turn of the conversation. The user gets a bubble, Claude does not: long
 // answers read better as plain page text than as a giant tinted block.
-struct MessageView: View {
+struct MessageView: View, Equatable {
     let message: ChatMessage
     let projectPath: String
     let openChanges: () -> Void
+
+    // What the message is made of, and nothing else. The callback is left out on purpose:
+    // it is a fresh closure on every redraw, so comparing it would say every message had
+    // changed and the transcript would redraw whole while a turn streams.
+    nonisolated static func == (a: MessageView, b: MessageView) -> Bool {
+        a.message == b.message && a.projectPath == b.projectPath
+    }
 
     var body: some View {
         switch message.role {

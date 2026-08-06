@@ -240,7 +240,16 @@ struct SessionView: View {
 
         return ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 18) {
+                // Not lazy, deliberately. A lazy stack decides what to build from where
+                // the scroll view is looking, and when that offset stops being a valid
+                // one - the pane resizing under a transcript sitting at the bottom, a
+                // message landing as the bottom anchor is re-applied - it builds nothing
+                // at all and the transcript goes blank until it is scrolled by hand.
+                // A turn is a handful of rows, and the tool rows inside one are built
+                // eagerly anyway, so there is nothing much to save by being lazy and a
+                // whole class of blank pane to avoid. It also keeps a tool card that was
+                // opened open once it has been scrolled past.
+                VStack(alignment: .leading, spacing: 18) {
                     if session.messages.isEmpty {
                         Text("Ask for a change. Claude Code runs in the project folder, so what it edits is your working tree.")
                             .font(.system(size: 13))
@@ -252,6 +261,11 @@ struct SessionView: View {
                         MessageView(message: message,
                                     projectPath: projectPath,
                                     openChanges: { tab = .changes })
+                            // Every message is on screen now, and a streaming turn
+                            // rewrites the last one many times a second. Without this,
+                            // each of those redraws every message in the transcript,
+                            // parsing its markdown again on the way.
+                            .equatable()
                     }
 
                     pendingQuestion
@@ -283,24 +297,20 @@ struct SessionView: View {
                 .frame(maxWidth: 820, alignment: .leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            // Opening a long transcript starts at the end. This has to be the scroll
-            // view's own anchor rather than a scrollTo on appear: the lazy stack has
-            // built no rows yet at that point, so it has no height to scroll through
-            // and the pane lands on blank space until something forces a redraw.
+            // Opening a transcript starts at the end, where the conversation is.
             .defaultScrollAnchor(.bottom)
             // The pane changes height under a transcript that is already there: the
             // composer grows a line, the terminal drawer opens, the window is resized.
-            // The bottom anchor is re-applied against the height the content had before
-            // that, which leaves the scroll view parked past its own end, and a lazy
-            // stack asked to draw nothing draws nothing - the transcript goes blank.
-            // Landing on the end again gives it a real offset to build from.
+            // The end of the content moves with it, and the scroll view is left holding
+            // the offset that used to reach it, so it has to be sent there again.
             .background(GeometryReader { geometry in
                 Color.clear.onChange(of: geometry.size.height) {
                     Task { proxy.scrollTo(bottomAnchor, anchor: .bottom) }
                 }
             })
-            // Rows keep coming into being for a beat after the first layout, which moves
-            // the end of the transcript. One nudge once that settles lands on it.
+            // Rows measure again after the first layout - an attachment, an image, text
+            // that wraps differently once it has its real width - and the end of the
+            // transcript moves with them. One nudge once that settles lands on it.
             .task(id: sessionID) {
                 await Task.yield()
                 proxy.scrollTo(bottomAnchor, anchor: .bottom)
