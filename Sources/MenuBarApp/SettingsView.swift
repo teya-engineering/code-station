@@ -39,6 +39,10 @@ final class AppSettings {
     var oldSessionDays = Preferences.oldSessionDays {
         didSet { Preferences.oldSessionDays = oldSessionDays }
     }
+
+    var projectSort = Preferences.projectSort {
+        didSet { Preferences.projectSort = projectSort }
+    }
 }
 
 // Settings is a setup job rather than somewhere to sit, so it is a sheet over the
