@@ -41,27 +41,53 @@ struct AppSidebar: View {
     // MARK: - Heading
 
     private var heading: some View {
-        HStack(spacing: 8) {
-            if let logo = AppArt.logo {
-                Image(nsImage: logo)
-                    .resizable()
-                    .interpolation(.high)
-                    .frame(width: 40, height: 40)
-                    // The art carries its own margin, so it is pulled back to sit on
-                    // the same left edge as the text below it.
-                    .padding(.leading, -6)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                if let logo = AppArt.logo {
+                    Image(nsImage: logo)
+                        .resizable()
+                        .interpolation(.high)
+                        .frame(width: 40, height: 40)
+                        // The art carries its own margin, so it is pulled back to sit on
+                        // the same left edge as the text below it.
+                        .padding(.leading, -6)
+                }
+                Text("Teya Conductor")
+                    .font(.serif(18, .semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                Spacer(minLength: 8)
+                if busyCount > 0 {
+                    StatusPill(text: "\(busyCount) RUNNING", running: true)
+                }
             }
-            Text("Teya Conductor")
-                .font(.serif(18, .semibold))
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
+            .padding(.horizontal, 20)
+            .headerBand(Theme.sidebar)
+
+            sortBar
+        }
+    }
+
+    // The order decides what the whole rail under it means, so it sits above the list in
+    // the open rather than behind a menu.
+    private var sortBar: some View {
+        HStack(spacing: 6) {
+            Text("SORT")
+                .font(.mono(9.5, .semibold))
+                .kerning(0.6)
+                .foregroundStyle(.tertiary)
             Spacer(minLength: 8)
-            if busyCount > 0 {
-                StatusPill(text: "\(busyCount) RUNNING", running: true)
+            ForEach(ProjectSort.allCases) { option in
+                SortChip(title: option.label,
+                         hint: option.hint,
+                         selected: appSettings.projectSort == option) {
+                    appSettings.projectSort = option
+                }
             }
         }
         .padding(.horizontal, 20)
-        .headerBand(Theme.sidebar)
+        .padding(.top, 12)
+        .padding(.bottom, 12)
     }
 
     private var busyCount: Int {
@@ -82,7 +108,7 @@ struct AppSidebar: View {
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 6) {
-                        ForEach(store.projects) { project in
+                        ForEach(orderedProjects) { project in
                             projectSection(project)
                         }
                     }
@@ -93,9 +119,14 @@ struct AppSidebar: View {
                     // reveal plays wherever the change came from: a click on the project
                     // row, or the first session arriving under an already open one.
                     .animation(.easeOut(duration: 0.22), value: revealKey)
+                    .animation(.easeOut(duration: 0.22), value: appSettings.projectSort)
                 }
             }
         }
+    }
+
+    private var orderedProjects: [Project] {
+        appSettings.projectSort.apply(to: store.projects, sessions: store.sessions)
     }
 
     @ViewBuilder private func projectSection(_ project: Project) -> some View {
@@ -446,6 +477,37 @@ private struct BottomRow: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+    }
+}
+
+// One of the orders the project list can be in. The chosen one is filled rather than
+// outlined, so which is on reads from the shape alone without having to read the words.
+private struct SortChip: View {
+    let title: String
+    let hint: String
+    let selected: Bool
+    let action: () -> Void
+
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Text(title.uppercased())
+                .font(.mono(9.5, .semibold))
+                .kerning(0.5)
+                .foregroundStyle(selected ? AnyShapeStyle(Color.white) : AnyShapeStyle(.secondary))
+                .padding(.horizontal, 9)
+                .padding(.vertical, 5)
+                .background(RoundedRectangle(cornerRadius: 7)
+                    .fill(selected ? Theme.accent
+                                   : hovering ? Theme.field : Color.black.opacity(0.04)))
+                .overlay(RoundedRectangle(cornerRadius: 7)
+                    .stroke(selected ? Color.clear : Theme.border))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(hint)
         .onHover { hovering = $0 }
     }
 }

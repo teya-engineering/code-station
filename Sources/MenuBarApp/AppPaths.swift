@@ -106,6 +106,13 @@ enum Preferences {
         }
     }
 
+    // How the sidebar orders projects. An unset key reads as the alphabetical order,
+    // which is the one the list has always been in.
+    static var projectSort: ProjectSort {
+        get { store.string(forKey: "projectSort").flatMap(ProjectSort.init(rawValue:)) ?? .name }
+        set { store.set(newValue.rawValue, forKey: "projectSort") }
+    }
+
     private static func text(_ key: String) -> String? {
         store.string(forKey: key).flatMap { $0.isEmpty ? nil : $0 }
     }

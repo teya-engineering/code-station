@@ -252,7 +252,7 @@ struct SessionView: View {
 
                     pendingQuestion
 
-                    if showsThinking(session, state: state) {
+                    if showsThinking(state: state) {
                         WorkingRow(runningTool: runningTool(session, root: projectPath),
                                    since: runner.lastActivity(sessionID) ?? Date())
                     }
@@ -317,14 +317,13 @@ struct SessionView: View {
         return ToolPresentationCache.presentation(for: tool, projectPath: root).label
     }
 
-    // While a turn is starting there is no assistant message yet, and while tools run
-    // there is one with no text in it. Both should look like Claude is working.
-    private func showsThinking(_ session: ChatSession, state: SessionState) -> Bool {
-        guard state.isBusy else { return false }
+    // A running turn shows the row for as long as it runs, whatever the transcript looks
+    // like. A message holds what the model said and the calls it then made, so anything
+    // keyed off its text goes dark the moment the model speaks and stays dark for the rest
+    // of the turn - which is also when the silence counter is worth the most.
+    private func showsThinking(state: SessionState) -> Bool {
         // A parked turn is waiting on the person, not working.
-        guard runner.question(sessionID) == nil else { return false }
-        guard let last = session.messages.last, last.role == .assistant else { return true }
-        return last.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        state.isBusy && runner.question(sessionID) == nil
     }
 
     private func scrollToBottom(_ proxy: ScrollViewProxy, animated: Bool) {
