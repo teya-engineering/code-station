@@ -3,13 +3,19 @@ import SwiftUI
 
 // The uncommitted changes in a session's folder: the project directory itself, or the
 // session's worktree. Sessions edit the real files there, so this screen is how you
-// see what the agent did before you keep it. It is strictly read-only: nothing here
-// can stage, revert or discard anything.
+// see what the agent did before you keep it. The diffs themselves never touch the tree;
+// the header carries the little git a review ends in: switch branch, commit, pull, push.
 struct ChangesView: View {
     let root: String
 
+    @Environment(DialogPresenter.self) private var dialogs
+
     @State private var snapshot: GitSnapshot?
     @State private var loading = false
+    @State private var working: String?
+    @State private var committing = false
+    @State private var commitMessage = ""
+    @FocusState private var commitFocused: Bool
     @State private var selectedID: GitChange.ID?
     @State private var diff: FileDiff?
     @State private var blocks: [DiffBlock] = []
@@ -18,10 +24,13 @@ struct ChangesView: View {
 
     private var files: [GitChange] { snapshot?.files ?? [] }
     private var selected: GitChange? { files.first { $0.id == selectedID } }
+    private var repoRoot: String { snapshot?.root ?? root }
+    private var busy: Bool { loading || working != nil }
 
     var body: some View {
         VStack(spacing: 0) {
             header
+            if committing { commitBar }
             content
         }
         .background(Theme.background)
@@ -33,11 +42,7 @@ struct ChangesView: View {
     private var header: some View {
         HStack(spacing: 14) {
             if let snapshot, snapshot.state == .ready {
-                HStack(spacing: 6) {
-                    Image(systemName: "arrow.triangle.branch").font(.system(size: 12))
-                    Text(snapshot.branch).font(.mono(13, .medium))
-                }
-                .foregroundStyle(.primary)
+                branchControl(snapshot)
 
                 if !snapshot.hasCommits {
                     Text("no commits yet").font(.system(size: 12)).foregroundStyle(.secondary)
@@ -54,13 +59,44 @@ struct ChangesView: View {
                     }
                     .font(.mono(13, .medium))
                 }
+
+                Spacer()
+
+                if let working {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.small)
+                        Text(working).font(.system(size: 12)).foregroundStyle(.secondary)
+                    }
+                } else if loading {
+                    ProgressView().controlSize(.small)
+                }
+
+                if !files.isEmpty {
+                    headerAction("Commit", icon: "checkmark.circle") {
+                        committing.toggle()
+                    }
+                }
+                if snapshot.upstream != nil {
+                    headerAction("Pull", icon: "arrow.down", count: snapshot.behind) {
+                        perform("Pulling…", failure: "Could not pull") {
+                            await GitActions.pull(at: repoRoot)
+                        }
+                    }
+                }
+                if snapshot.hasCommits {
+                    headerAction("Push", icon: "arrow.up", count: snapshot.ahead) {
+                        let hasUpstream = snapshot.upstream != nil
+                        perform("Pushing…", failure: "Could not push") {
+                            await GitActions.push(hasUpstream: hasUpstream, at: repoRoot)
+                        }
+                    }
+                }
             } else {
                 Text((root as NSString).lastPathComponent).font(.system(size: 13, weight: .medium))
+                Spacer()
+                if loading { ProgressView().controlSize(.small) }
             }
 
-            Spacer()
-
-            if loading { ProgressView().controlSize(.small) }
             Button {
                 Task { await reload() }
             } label: {
@@ -68,11 +104,117 @@ struct ChangesView: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(Theme.accent)
-            .disabled(loading)
+            .disabled(busy)
             .help("Refresh")
         }
         .padding(.horizontal, 20)
         .headerBand(height: Theme.subHeaderHeight)
+    }
+
+    private func branchControl(_ snapshot: GitSnapshot) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "arrow.triangle.branch").font(.system(size: 12))
+            Text(snapshot.branch).font(.mono(13, .medium)).lineLimit(1)
+            if !snapshot.branches.isEmpty {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .foregroundStyle(.primary)
+        .appMenu { branchMenu(snapshot) }
+        .help("Switch branch")
+    }
+
+    private func branchMenu(_ snapshot: GitSnapshot) -> [MenuEntry] {
+        guard !busy else { return [] }
+        return snapshot.branches.map { branch in
+            let current = snapshot.onBranch && branch == snapshot.branch
+            return .item(branch, checked: current) {
+                guard !current else { return }
+                perform("Switching to \(branch)…", failure: "Could not switch branch") {
+                    await GitActions.switchBranch(branch, at: repoRoot)
+                }
+            }
+        }
+    }
+
+    private func headerAction(_ label: String, icon: String, count: Int = 0,
+                              action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Image(systemName: icon).font(.system(size: 11, weight: .semibold))
+                Text(label).font(.system(size: 12, weight: .semibold))
+                if count > 0 {
+                    Text("\(count)")
+                        .font(.mono(10, .semibold))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(Capsule().fill(Theme.field))
+                        .overlay(Capsule().stroke(Theme.border))
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(Theme.accent)
+        .disabled(busy)
+        .opacity(busy ? 0.4 : 1)
+    }
+
+    // MARK: - Commit
+
+    private var commitBar: some View {
+        HStack(spacing: 10) {
+            TextField("Commit message", text: $commitMessage)
+                .textFieldStyle(.plain)
+                .font(.system(size: 13))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Theme.field))
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
+                .focused($commitFocused)
+                .onSubmit { commit() }
+
+            Button("Commit") { commit() }
+                .buttonStyle(.plain)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.88)))
+                .disabled(busy || commitMessage.trimmingCharacters(in: .whitespaces).isEmpty)
+                .opacity(busy || commitMessage.trimmingCharacters(in: .whitespaces).isEmpty ? 0.4 : 1)
+
+            Button("Cancel") { committing = false }
+                .buttonStyle(.plain)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 8)
+        .background(Theme.card)
+        .overlay(alignment: .bottom) { Rectangle().fill(Theme.hairline).frame(height: 1) }
+        .onAppear { commitFocused = true }
+    }
+
+    private func commit() {
+        let message = commitMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !message.isEmpty, !busy else { return }
+        Task {
+            working = "Committing…"
+            let error = await GitActions.commitAll(message: message, at: repoRoot)
+            working = nil
+            if let error {
+                fail("Could not commit", error)
+            } else {
+                // The message only clears once it is safely in a commit, so a failed
+                // attempt can be fixed and retried without retyping it.
+                commitMessage = ""
+                committing = false
+            }
+            await reload()
+        }
     }
 
     // MARK: - Content
@@ -279,6 +421,25 @@ struct ChangesView: View {
     }
 
     // MARK: - Actions
+
+    // Every git action ends in a reload, success or not: a failed pull can still have
+    // moved the tree, and the header has to show whatever is true now.
+    private func perform(_ progress: String, failure: String,
+                         _ action: @escaping () async -> String?) {
+        guard !busy else { return }
+        Task {
+            working = progress
+            let error = await action()
+            working = nil
+            if let error { fail(failure, error) }
+            await reload()
+        }
+    }
+
+    private func fail(_ title: String, _ message: String) {
+        dialogs.show(Dialog(title: title, message: message,
+                            actions: [.init(label: "OK", kind: .cancel)]))
+    }
 
     private func reload() async {
         loading = true

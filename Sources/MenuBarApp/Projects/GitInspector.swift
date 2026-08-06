@@ -59,6 +59,14 @@ struct GitSnapshot: Sendable, Equatable {
     var branch: String = ""
     // A brand new repo has a branch name but nothing to diff against yet.
     var hasCommits: Bool = true
+    // On a detached head there is no branch to be on, so nothing is marked current.
+    var onBranch: Bool = false
+    // Local branches, most recently committed first, for the branch switcher.
+    var branches: [String] = []
+    // The remote branch this one tracks, and how the two have drifted apart.
+    var upstream: String?
+    var ahead: Int = 0
+    var behind: Int = 0
     var files: [GitChange] = []
 
     var totalAdded: Int { files.compactMap(\.added).reduce(0, +) }
@@ -133,6 +141,7 @@ enum GitInspector {
                 snapshot.branch = "detached at " + sha.text.trimmingCharacters(in: .whitespacesAndNewlines)
             } else {
                 snapshot.branch = name
+                snapshot.onBranch = true
             }
         } else {
             // No commits yet, so HEAD points at a branch that does not exist.
@@ -141,6 +150,26 @@ enum GitInspector {
             snapshot.branch = symbolic.ok
                 ? symbolic.text.trimmingCharacters(in: .whitespacesAndNewlines)
                 : "HEAD"
+        }
+
+        let refs = run(tool, ["for-each-ref", "refs/heads",
+                              "--format=%(refname:short)", "--sort=-committerdate"], in: url)
+        if refs.ok {
+            snapshot.branches = refs.text.split(separator: "\n").map(String.init)
+        }
+
+        let upstream = run(tool, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"], in: url)
+        if upstream.ok {
+            snapshot.upstream = upstream.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            // left counts commits only in the upstream, right the ones only here.
+            let drift = run(tool, ["rev-list", "--left-right", "--count", "@{u}...HEAD"], in: url)
+            let counts = drift.text.split(separator: "\t").compactMap {
+                Int($0.trimmingCharacters(in: .whitespacesAndNewlines))
+            }
+            if drift.ok, counts.count == 2 {
+                snapshot.behind = counts[0]
+                snapshot.ahead = counts[1]
+            }
         }
 
         // -uall lists untracked files one by one instead of collapsing whole directories,
@@ -465,19 +494,21 @@ enum GitInspector {
 
     // MARK: - Running git
 
-    private struct GitTool: Sendable {
+    // The runner below is shared with GitActions, the write side, so both halves start
+    // git the same way: same lookup, same environment, same pipe handling.
+    struct GitTool: Sendable {
         var path: String
         var searchPath: String
     }
 
     // ProcessManager owns executable lookup, and a Finder launched app has almost no PATH,
     // so reuse it rather than assuming /usr/bin/git exists.
-    @MainActor private static func tool() -> GitTool? {
+    @MainActor static func tool() -> GitTool? {
         guard let path = ProcessManager.resolve("git") else { return nil }
         return GitTool(path: path, searchPath: ProcessManager.searchPath)
     }
 
-    private struct CommandOutput {
+    struct CommandOutput {
         var text = ""
         var errorText = ""
         var status: Int32 = -1
@@ -490,7 +521,7 @@ enum GitInspector {
         }
     }
 
-    private static func run(_ tool: GitTool, _ arguments: [String], in directory: URL) -> CommandOutput {
+    static func run(_ tool: GitTool, _ arguments: [String], in directory: URL) -> CommandOutput {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: tool.path)
         process.currentDirectoryURL = directory
@@ -552,7 +583,7 @@ enum GitInspector {
     }
 
     // git is slow enough on a big repo to be felt, so it never runs on the main thread.
-    private static func offMain<T: Sendable>(_ work: @escaping @Sendable () -> T) async -> T {
+    static func offMain<T: Sendable>(_ work: @escaping @Sendable () -> T) async -> T {
         await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 continuation.resume(returning: work())
