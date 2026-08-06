@@ -28,12 +28,6 @@ final class PostmanAuthStore {
         var production: OAuthConfig
     }
 
-    // Written by the version that had one shared setup instead of one per environment.
-    // Read so it can be carried into staging, never written back.
-    private struct LegacyPersisted: Codable {
-        var config: OAuthConfig
-    }
-
     init() {
         storeURL = ProcessInfo.processInfo.environment["CONDUCTOR_POSTMAN_AUTH"]
             .map { URL(fileURLWithPath: $0) }
@@ -41,14 +35,11 @@ final class PostmanAuthStore {
                                     movedFrom: AppPaths.legacy("postman-auth.json"))
         let data = (try? Data(contentsOf: storeURL)) ?? Data()
         let saved = try? JSONDecoder.oauth.decode(Persisted.self, from: data)
-        let legacy = (try? JSONDecoder.oauth.decode(LegacyPersisted.self, from: data))?.config
-            ?? Keychain.string(.legacyClientSecret).map { _ in OAuthConfig.teya }
 
-        // A config from before the split, or one emptied by it, is carried into both
-        // environments rather than dropped; the sides then diverge as they are edited.
+        // An environment left empty starts from the defaults rather than from nothing.
         func carried(_ config: OAuthConfig?) -> OAuthConfig {
             if let config, !(config.tokenURL.isEmpty && config.clientID.isEmpty) { return config }
-            return legacy ?? .teya
+            return .teya
         }
         var staging = carried(saved?.staging)
         var production = carried(saved?.production)
@@ -57,19 +48,15 @@ final class PostmanAuthStore {
         var tokenJSON: [ApiEnvironment: String] = [:]
 
         // The Keychain is the truth for the secrets and the tokens; the file never holds
-        // either. The single pre-split secret and token fall back into both sides, since
-        // they belonged to the one setup both start from.
+        // either.
         for env in ApiEnvironment.allCases {
-            let secret = Keychain.string(env.secretAccount)
-            if let secret {
+            if let secret = Keychain.string(env.secretAccount) {
                 secrets[env] = secret
-            }
-            if let secret = secret ?? Keychain.string(.legacyClientSecret) {
                 if env == .staging { staging.clientSecret = secret }
                 else { production.clientSecret = secret }
             }
-            if let json = Keychain.string(env.tokenAccount) ?? Keychain.string(.legacyToken) {
-                if Keychain.string(env.tokenAccount) != nil { tokenJSON[env] = json }
+            if let json = Keychain.string(env.tokenAccount) {
+                tokenJSON[env] = json
                 if let token = try? JSONDecoder.oauth.decode(OAuthToken.self, from: Data(json.utf8)) {
                     tokens[env] = token
                 }

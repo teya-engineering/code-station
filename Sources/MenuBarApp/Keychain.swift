@@ -10,10 +10,6 @@ enum Keychain {
         case stagingToken = "postman.staging.token"
         case productionClientSecret = "postman.production.client-secret"
         case productionToken = "postman.production.token"
-        // Written before the environments split, when there was one setup for everything.
-        // Still read so an old sign-in carries over; never written back.
-        case legacyClientSecret = "postman.oauth.client-secret"
-        case legacyToken = "postman.oauth.token"
     }
 
     static func string(_ account: Account) -> String? {
