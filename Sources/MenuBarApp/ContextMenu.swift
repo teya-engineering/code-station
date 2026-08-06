@@ -11,8 +11,9 @@ enum MenuEntry {
 
     static func item(_ label: String,
                      kind: MenuItem.Kind = .plain,
+                     checked: Bool = false,
                      action: @escaping () -> Void) -> MenuEntry {
-        .item(MenuItem(label: label, kind: kind, handler: action))
+        .item(MenuItem(label: label, kind: kind, checked: checked, handler: action))
     }
 }
 
@@ -21,6 +22,8 @@ struct MenuItem {
 
     let label: String
     var kind: Kind = .plain
+    // Marks the row that is currently in force, for menus that pick one of a set.
+    var checked = false
     var handler: () -> Void = {}
 }
 
@@ -172,11 +175,17 @@ struct ContextMenuHost: View {
     }
 
     private var card: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        // Rows only make room for a checkmark when the menu has one, so a plain menu is
+        // not indented for a mark that never appears.
+        let hasChecks = presenter.entries.contains {
+            if case .item(let item) = $0 { return item.checked }
+            return false
+        }
+        return VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(presenter.entries.enumerated()), id: \.offset) { _, entry in
                 switch entry {
                 case .item(let item):
-                    MenuItemRow(item: item) { presenter.run(item) }
+                    MenuItemRow(item: item, checkColumn: hasChecks) { presenter.run(item) }
                 case .separator:
                     Divider()
                         .overlay(Theme.hairline)
@@ -211,22 +220,31 @@ struct ContextMenuHost: View {
 
 private struct MenuItemRow: View {
     let item: MenuItem
+    let checkColumn: Bool
     let action: () -> Void
 
     @State private var hovering = false
 
     var body: some View {
         Button(action: action) {
-            Text(item.label)
-                .font(.system(size: 13))
-                .foregroundStyle(item.kind == .destructive ? Theme.deletion : Color.primary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(RoundedRectangle(cornerRadius: 6)
-                    .fill(hovering ? Color.black.opacity(0.05) : .clear)
-                    .padding(.horizontal, 5))
-                .contentShape(Rectangle())
+            HStack(spacing: 7) {
+                if checkColumn {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 10, weight: .semibold))
+                        .frame(width: 12)
+                        .opacity(item.checked ? 1 : 0)
+                }
+                Text(item.label)
+                    .font(.system(size: 13))
+            }
+            .foregroundStyle(item.kind == .destructive ? Theme.deletion : Color.primary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(RoundedRectangle(cornerRadius: 6)
+                .fill(hovering ? Color.black.opacity(0.05) : .clear)
+                .padding(.horizontal, 5))
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }

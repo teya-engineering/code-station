@@ -539,30 +539,28 @@ struct SessionView: View {
                              defaultTitle: String,
                              options: [(id: String, title: String)],
                              selection: Binding<String?>) -> some View {
-        Menu {
-            Picker(label, selection: selection) {
-                Text(defaultTitle).tag(String?.none)
-                Divider()
-                ForEach(options, id: \.id) { option in
-                    Text(option.title).tag(String?.some(option.id))
+        HStack(spacing: 4) {
+            Text(label)
+                .font(.system(size: 11, weight: overridden ? .semibold : .regular))
+            Image(systemName: "chevron.down")
+                .font(.system(size: 7, weight: .semibold))
+        }
+        .foregroundStyle(overridden ? Theme.accent : Color.secondary)
+        .fixedSize()
+        .appMenu {
+            var entries: [MenuEntry] = [
+                .item(defaultTitle, checked: selection.wrappedValue == nil) {
+                    selection.wrappedValue = nil
+                },
+                .separator,
+            ]
+            entries += options.map { option in
+                MenuEntry.item(option.title, checked: selection.wrappedValue == option.id) {
+                    selection.wrappedValue = option.id
                 }
             }
-            .pickerStyle(.inline)
-            .labelsHidden()
-        } label: {
-            HStack(spacing: 4) {
-                Text(label)
-                    .font(.system(size: 11, weight: overridden ? .semibold : .regular))
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 7, weight: .semibold))
-            }
-            .foregroundStyle(overridden ? Theme.accent : Color.secondary)
-            .contentShape(Rectangle())
+            return entries
         }
-        .menuStyle(.button)
-        .buttonStyle(.plain)
-        .menuIndicator(.hidden)
-        .fixedSize()
         .help(overridden ? "\(help) Overridden for this session." : help)
     }
 
