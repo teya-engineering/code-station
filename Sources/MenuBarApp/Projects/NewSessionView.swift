@@ -9,6 +9,7 @@ struct NewSessionView: View {
     let onCreate: (NewSessionChoice) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(DialogPresenter.self) private var dialogs
 
     // Picked up front so the branch and folder shown here are the ones the session is
     // created with, rather than a guess at what they will look like.
@@ -22,6 +23,10 @@ struct NewSessionView: View {
     @State private var baseOnRemote = false
     // The user asked for a fast-forward pull of the checkout before the session starts.
     @State private var pullFirst = false
+    // The pull is running. The sheet stays up until it finishes, so the whole screen
+    // goes quiet: a click anywhere while git works could only start the same work twice
+    // or abandon it half done.
+    @State private var pulling = false
 
     private var planned: GitWorktree.Created {
         GitWorktree.plan(projectName: project.name, sessionID: sessionID)
@@ -61,6 +66,8 @@ struct NewSessionView: View {
         }
         .frame(width: 560)
         .background(Theme.background)
+        .disabled(pulling)
+        .interactiveDismissDisabled(pulling)
         .task {
             freshness = await GitFreshness.check(at: project.path, fetch: false)
             if let fetched = await GitFreshness.check(at: project.path, fetch: true) {
@@ -87,11 +94,18 @@ struct NewSessionView: View {
         VStack(spacing: 0) {
             Divider().overlay(Theme.hairline)
             HStack(spacing: 10) {
-                Text(useWorktree
-                     ? "A worktree is removed when its session is deleted."
-                     : "Changes land straight in your working tree.")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
+                if pulling {
+                    ProgressView().controlSize(.small)
+                    Text("Pulling \(freshness?.currentBranch ?? "the checkout") from origin…")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text(useWorktree
+                         ? "A worktree is removed when its session is deleted."
+                         : "Changes land straight in your working tree.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
                 Spacer(minLength: 12)
                 Button { dismiss() } label: {
                     Text("Cancel")
@@ -101,6 +115,7 @@ struct NewSessionView: View {
                         .background(RoundedRectangle(cornerRadius: 8).fill(Theme.card))
                         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
                         .contentShape(RoundedRectangle(cornerRadius: 8))
+                        .opacity(pulling ? 0.5 : 1)
                 }
                 .buttonStyle(.plain)
                 .keyboardShortcut(.cancelAction)
@@ -112,6 +127,7 @@ struct NewSessionView: View {
                         .padding(.vertical, 7)
                         .background(RoundedRectangle(cornerRadius: 8).fill(Theme.accent))
                         .contentShape(RoundedRectangle(cornerRadius: 8))
+                        .opacity(pulling ? 0.5 : 1)
                 }
                 .buttonStyle(.plain)
                 .keyboardShortcut(.defaultAction)
@@ -122,23 +138,45 @@ struct NewSessionView: View {
         }
     }
 
+    // The pull the user asked for runs here, while the sheet is still up: it can take a
+    // while, and a sheet that closed on the click would leave nothing saying the work is
+    // still going, or free to be started again. On failure the session is not created -
+    // the user asked to start from the latest commits, and quietly starting from stale
+    // ones instead would betray that - so the sheet stays for another try or a cancel.
     private func create() {
         // Checked while the option was on screen, and still safe to apply now.
-        let pull = pullFirst && (freshness?.canFastForward ?? false)
+        guard pullFirst && (freshness?.canFastForward ?? false) else {
+            finish()
+            return
+        }
+        pulling = true
+        Task {
+            if let error = await GitActions.fastForwardPull(at: project.path) {
+                pulling = false
+                dialogs.show(Dialog(
+                    title: "Could not update \(project.name)",
+                    message: error,
+                    actions: [.init(label: "OK", kind: .cancel)]))
+                return
+            }
+            finish()
+        }
+    }
+
+    private func finish() {
         let base = baseOnRemote ? freshness?.remoteRef : nil
-        onCreate(useWorktree ? .worktree(sessionID, base: base, pullFirst: pull)
-                             : .folder(pullFirst: pull))
+        onCreate(useWorktree ? .worktree(sessionID, base: base) : .folder)
         dismiss()
     }
 }
 
 // What the sheet came back with. The worktree case carries the id the session must be
 // created with, since the branch and folder shown were named after it, and the ref to
-// fork from when the user chose the remote tip over their own checkout. `pullFirst`
-// asks for the checkout to be fast-forwarded to its remote before the session starts.
+// fork from when the user chose the remote tip over their own checkout. Any pull the
+// user asked for has already run by the time this arrives.
 enum NewSessionChoice: Equatable {
-    case worktree(UUID, base: String?, pullFirst: Bool)
-    case folder(pullFirst: Bool)
+    case worktree(UUID, base: String?)
+    case folder
 }
 
 // Says when the checkout a session would fork from is not the default branch at its

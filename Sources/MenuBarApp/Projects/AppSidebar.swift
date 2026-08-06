@@ -275,7 +275,7 @@ struct AppSidebar: View {
     // worktrees to offer, so the session is just created.
     private func requestNewSession(in project: Project) {
         guard FileManager.default.fileExists(atPath: project.path + "/.git") else {
-            startSession(.folder(pullFirst: false), in: project)
+            startSession(.folder, in: project)
             return
         }
         choosingSessionKind = project
@@ -286,30 +286,11 @@ struct AppSidebar: View {
         // is the clearest sign yet that it wants to be open.
         expansion[project.id] = true
         switch choice {
-        case .worktree(let sessionID, let base, let pullFirst):
-            createWorktreeSession(in: project, id: sessionID, base: base, pullFirst: pullFirst)
-        case .folder(let pullFirst):
-            guard pullFirst else {
-                sessionToReveal = store.newSession(in: project.id).id
-                return
-            }
-            Task {
-                guard await pullCheckout(of: project) else { return }
-                sessionToReveal = store.newSession(in: project.id).id
-            }
+        case .worktree(let sessionID, let base):
+            createWorktreeSession(in: project, id: sessionID, base: base)
+        case .folder:
+            sessionToReveal = store.newSession(in: project.id).id
         }
-    }
-
-    // The fast-forward pull the new session sheet offered. On failure the session is not
-    // created: the user asked to start from the latest commits, and quietly starting from
-    // stale ones instead would betray that.
-    private func pullCheckout(of project: Project) async -> Bool {
-        guard let error = await GitActions.fastForwardPull(at: project.path) else { return true }
-        dialogs.show(Dialog(
-            title: "Could not update \(project.name)",
-            message: error,
-            actions: [.init(label: "OK", kind: .cancel)]))
-        return false
     }
 
     private func confirmRemoveSession(_ session: ChatSession) {
@@ -378,12 +359,8 @@ struct AppSidebar: View {
 
     // The session id is chosen up front so the worktree folder and branch can carry
     // it before the session exists, which is also what lets the sheet name both.
-    private func createWorktreeSession(in project: Project, id sessionID: UUID,
-                                       base: String?, pullFirst: Bool) {
+    private func createWorktreeSession(in project: Project, id sessionID: UUID, base: String?) {
         Task {
-            if pullFirst {
-                guard await pullCheckout(of: project) else { return }
-            }
             switch await GitWorktree.add(projectPath: project.path,
                                          projectName: project.name,
                                          sessionID: sessionID,
