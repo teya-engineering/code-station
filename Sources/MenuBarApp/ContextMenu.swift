@@ -134,8 +134,9 @@ private final class AnchorView: NSView {
 struct ContextMenuHost: View {
     @Environment(MenuPresenter.self) private var presenter
 
-    @State private var size: CGSize = .zero
-    @State private var measured = 0
+    @State private var measurement = MenuMeasurement()
+
+    private var size: CGSize { measurement.size }
 
     var body: some View {
         if presenter.isOpen {
@@ -149,14 +150,21 @@ struct ContextMenuHost: View {
 
                     card
                         .fixedSize()
+                        // The measurement carries the menu it was taken for, so two
+                        // menus that happen to be the same size still each report one,
+                        // and a report that arrives late cannot pass itself off as a
+                        // measurement of the menu that is open now.
                         .background(GeometryReader { card in
-                            Color.clear.preference(key: MenuSizeKey.self, value: card.size)
+                            Color.clear.preference(
+                                key: MenuSizeKey.self,
+                                value: MenuMeasurement(generation: presenter.generation,
+                                                       size: card.size))
                         })
                         .offset(x: x(in: geometry.size), y: y(in: geometry.size))
                         // Placing the menu needs its size, which is only known once it
                         // has been laid out. Hiding it for that one pass avoids a frame
                         // in the wrong corner.
-                        .opacity(measured == presenter.generation ? 1 : 0)
+                        .opacity(measurement.generation == presenter.generation ? 1 : 0)
 
                     // Escape closes the menu, the way a menu is expected to behave when
                     // the mouse is not involved.
@@ -165,10 +173,7 @@ struct ContextMenuHost: View {
                         .opacity(0)
                         .keyboardShortcut(.escape, modifiers: [])
                 }
-                .onPreferenceChange(MenuSizeKey.self) { newSize in
-                    size = newSize
-                    measured = presenter.generation
-                }
+                .onPreferenceChange(MenuSizeKey.self) { measurement = $0 }
             }
             .ignoresSafeArea()
         }
@@ -251,9 +256,17 @@ private struct MenuItemRow: View {
     }
 }
 
+private struct MenuMeasurement: Equatable {
+    var generation = -1
+    var size = CGSize.zero
+}
+
 private struct MenuSizeKey: PreferenceKey {
-    static let defaultValue = CGSize.zero
-    static func reduce(value: inout CGSize, nextValue: () -> CGSize) { value = nextValue() }
+    static let defaultValue = MenuMeasurement()
+    static func reduce(value: inout MenuMeasurement,
+                       nextValue: () -> MenuMeasurement) {
+        value = nextValue()
+    }
 }
 
 // MARK: - Catching the click
