@@ -28,7 +28,7 @@ struct PostmanView: View {
             SheetFooter(done: { dismiss() }) {
                 Text(environment == .production
                      ? "Production asks once per send. Staging never asks."
-                     : "Requests are shared by both environments. Each environment keeps its own credentials in the Keychain.")
+                     : "Requests are shared by both environments. Each environment keeps its own credentials and its own responses.")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
@@ -344,8 +344,8 @@ private struct RequestDetail: View {
     }
 
     private var environment: ApiEnvironment { auth.active }
-    private var running: Bool { runner.isRunning(draft.id) }
-    private var result: HTTPResult? { runner.result(draft.id) }
+    private var running: Bool { runner.isRunning(draft.id, in: environment) }
+    private var result: HTTPResult? { runner.result(draft.id, in: environment) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -700,12 +700,6 @@ private struct ResponsePane: View {
                     .font(.mono(11))
                     .foregroundStyle(.secondary)
 
-                if let origin = result.origin {
-                    Text("from \(origin)")
-                        .font(.mono(11))
-                        .foregroundStyle(originTint(origin))
-                }
-
                 if !result.headers.isEmpty {
                     Button(showingHeaders ? "Body" : "Headers · \(result.headers.count)") {
                         showingHeaders.toggle()
@@ -752,10 +746,6 @@ private struct ResponsePane: View {
         .onHover { inside in
             if inside { NSCursor.resizeUpDown.push() } else { NSCursor.pop() }
         }
-    }
-
-    private func originTint(_ origin: String) -> Color {
-        ApiEnvironment.allCases.first { $0.envValue == origin }?.brightAccent ?? .secondary
     }
 
     @ViewBuilder private var content: some View {

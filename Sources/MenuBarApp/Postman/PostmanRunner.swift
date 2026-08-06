@@ -1,13 +1,19 @@
 import Foundation
 import Observation
 
-// Sends the requests and keeps the last answer for each one, so switching between
-// requests in the sidebar does not throw away what came back.
+// Sends the requests and keeps the last answer for each one per environment, so
+// switching between requests in the sidebar does not throw away what came back, and an
+// answer from one environment is never on screen while the other is active.
 @MainActor
 @Observable
 final class PostmanRunner {
-    private(set) var inFlight: Set<UUID> = []
-    private(set) var results: [UUID: HTTPResult] = [:]
+    struct Key: Hashable {
+        let request: UUID
+        let environment: ApiEnvironment
+    }
+
+    private(set) var inFlight: Set<Key> = []
+    private(set) var results: [Key: HTTPResult] = [:]
 
     private let session: URLSession = {
         let config = URLSessionConfiguration.ephemeral
@@ -16,22 +22,27 @@ final class PostmanRunner {
         return URLSession(configuration: config)
     }()
 
-    func isRunning(_ id: UUID) -> Bool { inFlight.contains(id) }
-    func result(_ id: UUID) -> HTTPResult? { results[id] }
+    func isRunning(_ id: UUID, in environment: ApiEnvironment) -> Bool {
+        inFlight.contains(Key(request: id, environment: environment))
+    }
+
+    func result(_ id: UUID, in environment: ApiEnvironment) -> HTTPResult? {
+        results[Key(request: id, environment: environment)]
+    }
 
     func send(_ request: SavedRequest, environment: ApiEnvironment,
               authorization: String? = nil) async {
-        guard !inFlight.contains(request.id) else { return }
+        let key = Key(request: request.id, environment: environment)
+        guard !inFlight.contains(key) else { return }
         guard let urlRequest = Self.build(request, environment: environment,
                                           authorization: authorization) else {
-            results[request.id] = HTTPResult(status: 0, headers: [], body: "", duration: 0,
-                                             byteCount: 0, origin: environment.envValue,
-                                             failure: "That URL is not valid.")
+            results[key] = HTTPResult(status: 0, headers: [], body: "", duration: 0,
+                                      byteCount: 0, failure: "That URL is not valid.")
             return
         }
 
-        inFlight.insert(request.id)
-        defer { inFlight.remove(request.id) }
+        inFlight.insert(key)
+        defer { inFlight.remove(key) }
 
         let started = Date()
         do {
@@ -41,18 +52,16 @@ final class PostmanRunner {
             let headers = (http?.allHeaderFields as? [String: String] ?? [:])
                 .sorted { $0.key < $1.key }
                 .map { HeaderField(key: $0.key, value: $0.value) }
-            results[request.id] = HTTPResult(
+            results[key] = HTTPResult(
                 status: http?.statusCode ?? 0,
                 headers: headers,
                 body: Self.readable(data, contentType: http?.value(forHTTPHeaderField: "Content-Type")),
                 duration: elapsed,
-                byteCount: data.count,
-                origin: environment.envValue)
+                byteCount: data.count)
         } catch {
             let elapsed = Date().timeIntervalSince(started)
-            results[request.id] = HTTPResult(status: 0, headers: [], body: "", duration: elapsed,
-                                             byteCount: 0, origin: environment.envValue,
-                                             failure: error.localizedDescription)
+            results[key] = HTTPResult(status: 0, headers: [], body: "", duration: elapsed,
+                                      byteCount: 0, failure: error.localizedDescription)
         }
     }
 
