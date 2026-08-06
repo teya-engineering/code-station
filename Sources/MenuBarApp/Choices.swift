@@ -1,8 +1,8 @@
 import SwiftUI
 
-// The pieces both settings screens are built from: the app-wide defaults in the Settings
-// sheet and the per-session overrides in a session's own pane. They are the same choices
-// in both places, so they are the same controls in both places.
+// The pieces the Settings sheet is built from, where the app-wide defaults live. A
+// session's own overrides are picked on its composer bar instead; its Usage pane still
+// borrows ChoiceBlock for the heading.
 
 // A titled group of choices with a line underneath saying what the group means. The badge
 // is what marks a group as overridden, so a session shows at a glance where it has stepped

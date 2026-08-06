@@ -9,7 +9,7 @@ struct SessionView: View {
     @Environment(TerminalStore.self) private var terminals
     let sessionID: UUID
 
-    private enum Tab: Hashable { case chat, changes, explorer, settings }
+    private enum Tab: Hashable { case chat, changes, explorer, usage }
 
     @State private var tab: Tab = .chat
     @State private var dropTargeted = false
@@ -42,8 +42,8 @@ struct SessionView: View {
                 case .explorer:
                     ExplorerView(root: workingDirectory)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                case .settings:
-                    SessionSettingsView(sessionID: sessionID)
+                case .usage:
+                    SessionUsageView(sessionID: sessionID)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
 
@@ -194,7 +194,7 @@ struct SessionView: View {
                 segment("Chat", .chat)
                 segment("Changes", .changes)
                 segment("Explorer", .explorer)
-                segment("Settings", .settings)
+                segment("Usage", .usage)
             }
             .padding(3)
             .background(RoundedRectangle(cornerRadius: 10).fill(Color.black.opacity(0.05)))
@@ -450,28 +450,120 @@ struct SessionView: View {
     }
 
     // What the next turn will run against, on the line the eye is already on when hitting
-    // send: the branch it edits, the model doing the editing, and how full the window is.
-    // Each part goes missing on its own - the branch before git has answered or outside a
-    // repo, the rest before the first turn has reported anything.
+    // send: the branch it edits, the model, effort and permissions it runs with, and how
+    // full the window is. The three run choices are pickers, so the session can be steered
+    // without leaving the composer. A choice left on the app default keeps following
+    // Settings, including later changes there; an override holds for this conversation
+    // alone and is marked in the accent colour.
     @ViewBuilder private func contextReadout(_ session: ChatSession) -> some View {
         let repository = stats?.state == .ready ? stats : nil
         let usage = session.usage
-        if repository != nil || usage?.contextFraction != nil || session.pullRequest != nil {
-            HStack(spacing: 10) {
-                if let repository { branchTag(repository) }
-                if let model = usage?.model {
-                    Text(ModelChoice.shortName(of: model))
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                        .help("What the last turn ran on.")
-                }
-                Spacer(minLength: 8)
-                if let pullRequest = session.pullRequest { pullRequestTag(pullRequest) }
-                if let usage, let fraction = usage.contextFraction {
-                    contextMeter(usage, fraction: fraction)
-                }
+        HStack(spacing: 10) {
+            if let repository { branchTag(repository) }
+            modelMenu(lastRan: usage?.model)
+            effortMenu
+            permissionsMenu
+            Spacer(minLength: 8)
+            if let pullRequest = session.pullRequest { pullRequestTag(pullRequest) }
+            if let usage, let fraction = usage.contextFraction {
+                contextMeter(usage, fraction: fraction)
             }
         }
+    }
+
+    // MARK: - Run choices
+
+    // The session's overrides, and the app defaults they fall back to. The same choices
+    // the CLI hides behind /model, /effort and its permission modes, which cannot be
+    // typed at an agent that is driven over a pipe.
+    private var sessionSettings: SessionSettings {
+        store.session(sessionID)?.settings ?? SessionSettings()
+    }
+
+    private func changeSettings(_ edit: (inout SessionSettings) -> Void) {
+        var updated = sessionSettings
+        edit(&updated)
+        store.setSettings(updated, for: sessionID)
+    }
+
+    private func modelMenu(lastRan: String?) -> some View {
+        let settings = sessionSettings
+        // The chip names what the next turn will run on: the override, else the app
+        // default, else whatever the CLI last reported it decided on its own.
+        let label = settings.model.map { ModelChoice.title(of: $0) }
+            ?? runner.defaults.model.map { ModelChoice.title(of: $0) }
+            ?? lastRan.map { ModelChoice.shortName(of: $0) }
+            ?? "Default model"
+        return settingMenu(label,
+                           overridden: settings.model != nil,
+                           help: "The model this session runs on. Applies from the next turn.",
+                           defaultTitle: defaultTitle(runner.defaults.model.map { ModelChoice.title(of: $0) }),
+                           options: ModelChoice.all.compactMap { choice in
+                               choice.id.map { (id: $0, title: choice.title) }
+                           },
+                           selection: Binding(get: { settings.model },
+                                              set: { id in changeSettings { $0.model = id } }))
+    }
+
+    private var effortMenu: some View {
+        let settings = sessionSettings
+        let chosen = settings.effort ?? runner.defaults.effort
+        return settingMenu(chosen.map { "\(EffortChoice.summary(of: $0)) effort" } ?? "Default effort",
+                           overridden: settings.effort != nil,
+                           help: "How long the model thinks before it answers.",
+                           defaultTitle: defaultTitle(runner.defaults.effort.map { EffortChoice.summary(of: $0) }),
+                           options: EffortChoice.all.compactMap { choice in
+                               choice.id.map { (id: $0, title: choice.title) }
+                           },
+                           selection: Binding(get: { settings.effort },
+                                              set: { id in changeSettings { $0.effort = id } }))
+    }
+
+    private var permissionsMenu: some View {
+        let settings = sessionSettings
+        return settingMenu(PermissionMode.shortTitle(of: settings.permissionMode ?? runner.defaults.permissionMode),
+                           overridden: settings.permissionMode != nil,
+                           help: "How much the agent asks before it acts.",
+                           defaultTitle: defaultTitle(PermissionMode.shortTitle(of: runner.defaults.permissionMode)),
+                           options: PermissionMode.all.map { (id: $0.mode, title: $0.title) },
+                           selection: Binding(get: { settings.permissionMode },
+                                              set: { mode in changeSettings { $0.permissionMode = mode } }))
+    }
+
+    // The first row of every menu, naming what following the default currently means.
+    private func defaultTitle(_ resolved: String?) -> String {
+        resolved.map { "Use the default (\($0))" } ?? "Use the default"
+    }
+
+    private func settingMenu(_ label: String, overridden: Bool, help: String,
+                             defaultTitle: String,
+                             options: [(id: String, title: String)],
+                             selection: Binding<String?>) -> some View {
+        Menu {
+            Picker(label, selection: selection) {
+                Text(defaultTitle).tag(String?.none)
+                Divider()
+                ForEach(options, id: \.id) { option in
+                    Text(option.title).tag(String?.some(option.id))
+                }
+            }
+            .pickerStyle(.inline)
+            .labelsHidden()
+        } label: {
+            HStack(spacing: 4) {
+                Text(label)
+                    .font(.system(size: 11, weight: overridden ? .semibold : .regular))
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 7, weight: .semibold))
+            }
+            .foregroundStyle(overridden ? Theme.accent : Color.secondary)
+            .contentShape(Rectangle())
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help(overridden ? "\(help) Overridden for this session." : help)
     }
 
     // Where the work went. It appears the moment the agent opens one, and it is the only
@@ -534,8 +626,8 @@ struct SessionView: View {
                 .foregroundStyle(.secondary)
         }
         .contentShape(Rectangle())
-        .help("Context in use after the last turn. Open Settings for the full breakdown.")
-        .onTapGesture { tab = .settings }
+        .help("Context in use after the last turn. Open Usage for the full breakdown.")
+        .onTapGesture { tab = .usage }
     }
 
     // Prompts typed ahead, above the composer where what happens next belongs. A queue that

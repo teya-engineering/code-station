@@ -279,17 +279,22 @@ private struct DayStepper: View {
 // The permission modes the CLI takes, minus the ones that have no place in a desktop app:
 // nothing here can turn every check off.
 enum PermissionMode {
-    static let all: [(mode: String, title: String, detail: String)] = [
-        ("acceptEdits", "Accept edits, ask about the rest",
+    static let all: [(mode: String, title: String, short: String, detail: String)] = [
+        ("acceptEdits", "Accept edits, ask about the rest", "Accept edits",
          "Edits to files go through on their own. Commands and anything else are asked about."),
-        ("manual", "Ask about everything",
+        ("manual", "Ask about everything", "Ask everything",
          "Every edit and every command waits for an answer. The slowest, and the one that shows the most."),
-        ("auto", "Ask only about risky things",
+        ("auto", "Ask only about risky things", "Ask risky only",
          "Claude Code judges each step and only asks about the ones that can do damage."),
     ]
 
     static func title(of mode: String?) -> String {
         all.first { $0.mode == mode }?.title ?? mode ?? "Accept edits, ask about the rest"
+    }
+
+    // What the mode is called where a sentence does not fit, like the composer bar.
+    static func shortTitle(of mode: String?) -> String {
+        all.first { $0.mode == mode }?.short ?? mode ?? "Accept edits"
     }
 
     static func explanation(of mode: String?) -> String {
