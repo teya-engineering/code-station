@@ -87,19 +87,16 @@ struct SessionView: View {
                     Text(project.name)
                         .font(.system(size: 12, weight: .medium))
                         .lineLimit(1)
+                    // A worktree path is long and mostly noise, so it is held short here;
+                    // the full path is a hover away. The branch is not repeated either,
+                    // since the composer's footer already names it.
                     Text((session.worktreePath ?? project.path).abbreviatedPath)
                         .font(.mono(11))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
-                    if let branch = session.worktreeBranch {
-                        HStack(spacing: 4) {
-                            Image(systemName: "arrow.triangle.branch")
-                                .font(.system(size: 10))
-                            Text(branch).font(.mono(11))
-                        }
-                        .foregroundStyle(Theme.accent)
-                    }
+                        .frame(maxWidth: 260, alignment: .leading)
+                        .help((session.worktreePath ?? project.path).abbreviatedPath)
                 }
             }
 
