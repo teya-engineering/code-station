@@ -31,6 +31,10 @@ enum GitFreshness {
         // to differ from, so it reads as fine.
         var onDefaultBranch: Bool { defaultBranch == nil || currentBranch == defaultBranch }
         var isStale: Bool { !onDefaultBranch || behind > 0 }
+        // A clean checkout sitting behind its remote on the default branch can be
+        // brought up to date with a fast-forward pull; anything dirty or on another
+        // branch is the user's to sort out.
+        var canFastForward: Bool { onDefaultBranch && behind > 0 && !dirty && remoteRef != nil }
     }
 
     // Long enough for a fetch over a normal connection, short enough that a dead VPN

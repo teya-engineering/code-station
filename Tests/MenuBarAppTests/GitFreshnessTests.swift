@@ -55,6 +55,29 @@ struct GitFreshnessTests {
         #expect(report.dirty)
     }
 
+    // The pull-first option is only offered when it cannot go wrong: a clean checkout,
+    // on the default branch, with a remote to pull from.
+    @Test func offersAFastForwardOnlyForACleanDefaultBranchCheckout() async throws {
+        let pair = try ClonedRepo()
+        try pair.origin.commit("more.txt", "more")
+
+        let clean = try #require(await GitFreshness.check(at: pair.clone.path, fetch: true))
+        #expect(clean.canFastForward)
+
+        try pair.clone.write("README.md", "changed")
+        let dirty = try #require(await GitFreshness.check(at: pair.clone.path, fetch: false))
+        #expect(!dirty.canFastForward)
+    }
+
+    @Test func doesNotOfferAFastForwardOffTheDefaultBranch() async throws {
+        let pair = try ClonedRepo()
+        try pair.origin.commit("more.txt", "more")
+        pair.clone.git("checkout", "-q", "-b", "feature")
+        let report = try #require(await GitFreshness.check(at: pair.clone.path, fetch: true))
+        #expect(report.behind == 1)
+        #expect(!report.canFastForward)
+    }
+
     // Without a remote the local main is the only yardstick, so being on a feature
     // branch still reads as off the default branch.
     @Test func fallsBackToALocalMainWhenThereIsNoRemote() async throws {

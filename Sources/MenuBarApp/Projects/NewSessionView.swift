@@ -20,6 +20,8 @@ struct NewSessionView: View {
     @State private var freshness: GitFreshness.Report?
     // The user asked the worktree to fork from the remote tip instead of the checkout.
     @State private var baseOnRemote = false
+    // The user asked for a fast-forward pull of the checkout before the session starts.
+    @State private var pullFirst = false
 
     private var planned: GitWorktree.Created {
         GitWorktree.plan(projectName: project.name, sessionID: sessionID)
@@ -29,7 +31,8 @@ struct NewSessionView: View {
         VStack(spacing: 0) {
             header
             if let report = freshness, report.isStale || (useWorktree && report.dirty) {
-                FreshnessNotice(report: report, forWorktree: useWorktree, baseOnRemote: $baseOnRemote)
+                FreshnessNotice(report: report, forWorktree: useWorktree,
+                                baseOnRemote: $baseOnRemote, pullFirst: $pullFirst)
                     .padding(.horizontal, 20)
                     .padding(.bottom, 12)
             }
@@ -120,29 +123,34 @@ struct NewSessionView: View {
     }
 
     private func create() {
+        // Checked while the option was on screen, and still safe to apply now.
+        let pull = pullFirst && (freshness?.canFastForward ?? false)
         let base = baseOnRemote ? freshness?.remoteRef : nil
-        onCreate(useWorktree ? .worktree(sessionID, base: base) : .folder)
+        onCreate(useWorktree ? .worktree(sessionID, base: base, pullFirst: pull)
+                             : .folder(pullFirst: pull))
         dismiss()
     }
 }
 
 // What the sheet came back with. The worktree case carries the id the session must be
 // created with, since the branch and folder shown were named after it, and the ref to
-// fork from when the user chose the remote tip over their own checkout.
+// fork from when the user chose the remote tip over their own checkout. `pullFirst`
+// asks for the checkout to be fast-forwarded to its remote before the session starts.
 enum NewSessionChoice: Equatable {
-    case worktree(UUID, base: String?)
-    case folder
+    case worktree(UUID, base: String?, pullFirst: Bool)
+    case folder(pullFirst: Bool)
 }
 
 // Says when the checkout a session would fork from is not the default branch at its
-// latest revision. For a worktree it also offers the one fix the sheet can apply itself:
-// forking from the remote tip needs no change to the user's own checkout, so it is a
-// choice here rather than something the user must go and do first. The folder option
-// only warns; pulling or switching the user's working tree is theirs to do.
+// latest revision, and offers the fixes the sheet can apply itself: a worktree can fork
+// from the remote tip without touching the user's checkout, and a clean checkout on the
+// default branch can be pulled up to date first. Anything else - a dirty folder, a
+// different branch - only warns; sorting that out is the user's to do.
 private struct FreshnessNotice: View {
     let report: GitFreshness.Report
     let forWorktree: Bool
     @Binding var baseOnRemote: Bool
+    @Binding var pullFirst: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -165,28 +173,42 @@ private struct FreshnessNotice: View {
                 }
             }
             if forWorktree, report.isStale, let remote = report.remoteRef {
-                Button {
-                    baseOnRemote.toggle()
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: baseOnRemote ? "checkmark.square.fill" : "square")
-                            .font(.system(size: 12))
-                            .foregroundStyle(baseOnRemote ? AnyShapeStyle(Theme.accent)
-                                                          : AnyShapeStyle(.secondary))
-                        Text("Start this session from \(remote), leaving your checkout as it is")
-                            .font(.system(size: 12, weight: .medium))
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                // Sits on the text's left edge, past the warning icon above it.
-                .padding(.leading, 19)
+                check(isOn: $baseOnRemote, clearing: $pullFirst,
+                      label: "Start this session from \(remote), leaving your checkout as it is")
+            }
+            if report.canFastForward, let branch = report.currentBranch {
+                check(isOn: $pullFirst, clearing: $baseOnRemote,
+                      label: "Update \(branch) first with a git pull, bringing your checkout up to date")
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
         .background(RoundedRectangle(cornerRadius: 11).fill(Theme.attention.opacity(0.08)))
         .overlay(RoundedRectangle(cornerRadius: 11).stroke(Theme.attention.opacity(0.3)))
+    }
+
+    // The two fixes are alternatives - a pulled checkout is already at the remote tip -
+    // so ticking one clears the other.
+    private func check(isOn: Binding<Bool>, clearing other: Binding<Bool>, label: String) -> some View {
+        Button {
+            isOn.wrappedValue.toggle()
+            if isOn.wrappedValue { other.wrappedValue = false }
+        } label: {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Image(systemName: isOn.wrappedValue ? "checkmark.square.fill" : "square")
+                    .font(.system(size: 12))
+                    .foregroundStyle(isOn.wrappedValue ? AnyShapeStyle(Theme.accent)
+                                                       : AnyShapeStyle(.secondary))
+                Text(label)
+                    .font(.system(size: 12, weight: .medium))
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        // Sits on the text's left edge, past the warning icon above it.
+        .padding(.leading, 19)
     }
 
     // The trouble as one or two sentences: the wrong branch, the missing commits, and

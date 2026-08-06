@@ -30,6 +30,15 @@ enum GitActions {
         }
     }
 
+    // --ff-only so this can only move the branch up to the remote tip or fail: it runs
+    // unattended before a session starts, where a surprise merge has no place. The
+    // timeout covers the fetch a pull begins with.
+    static func fastForwardPull(at root: String) async -> String? {
+        await perform(at: root) { tool, url in
+            GitInspector.run(tool, ["pull", "--ff-only"], in: url, timeout: 30)
+        }
+    }
+
     // A branch with no upstream yet, which is every session worktree branch, is published
     // to origin under its own name and starts tracking it.
     static func push(hasUpstream: Bool, at root: String) async -> String? {

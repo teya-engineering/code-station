@@ -77,6 +77,46 @@ struct GitActionsTests {
         #expect(after.behind == 0)
     }
 
+    @Test func fastForwardPullMovesUpToTheRemoteTip() async throws {
+        let remote = try Bare()
+        let first = try Repo()
+        first.git("remote", "add", "origin", remote.path)
+        first.git("push", "-q", "-u", "origin", "HEAD")
+
+        let second = try Repo(cloneOf: remote)
+        try first.write("README.md", "moved on")
+        first.git("commit", "-qam", "second")
+        first.git("push", "-q")
+
+        let error = await GitActions.fastForwardPull(at: second.path)
+        #expect(error == nil)
+
+        let after = await GitInspector.snapshot(at: second.path)
+        #expect(after.behind == 0)
+    }
+
+    @Test func fastForwardPullRefusesToMerge() async throws {
+        let remote = try Bare()
+        let first = try Repo()
+        first.git("remote", "add", "origin", remote.path)
+        first.git("push", "-q", "-u", "origin", "HEAD")
+
+        let second = try Repo(cloneOf: remote)
+        try second.write("local.txt", "diverged")
+        second.git("add", ".")
+        second.git("commit", "-qm", "local work")
+        try first.write("README.md", "moved on")
+        first.git("commit", "-qam", "second")
+        first.git("push", "-q")
+
+        let error = await GitActions.fastForwardPull(at: second.path)
+        #expect(error?.isEmpty == false)
+
+        // The diverged branch is left exactly as it was.
+        let after = await GitInspector.snapshot(at: second.path)
+        #expect(after.ahead == 1)
+    }
+
     @Test func snapshotListsBranchesAndCountsDrift() async throws {
         let repo = try Repo()
         let remote = try Bare()
