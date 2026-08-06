@@ -22,7 +22,6 @@ struct ChangesView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider().overlay(Theme.hairline)
             content
         }
         .background(Theme.background)
@@ -73,7 +72,7 @@ struct ChangesView: View {
             .help("Refresh")
         }
         .padding(.horizontal, 20)
-        .padding(.vertical, 12)
+        .headerBand(height: Theme.subHeaderHeight)
     }
 
     // MARK: - Content
@@ -197,9 +196,7 @@ struct ChangesView: View {
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(Theme.accent)
                     Button {
-                        selectedID = nil
-                        diff = nil
-                        blocks = []
+                        closeDiff()
                     } label: {
                         Image(systemName: "xmark").font(.system(size: 11, weight: .semibold))
                     }
@@ -307,17 +304,13 @@ struct ChangesView: View {
         if let selectedID, let file = fresh.files.first(where: { $0.id == selectedID }) {
             await loadDiff(file, root: fresh.root)
         } else {
-            self.selectedID = nil
-            diff = nil
-            blocks = []
+            closeDiff()
         }
     }
 
     private func select(_ file: GitChange) {
         guard selectedID != file.id else {
-            selectedID = nil
-            diff = nil
-            blocks = []
+            closeDiff()
             return
         }
         selectedID = file.id
@@ -325,6 +318,12 @@ struct ChangesView: View {
         blocks = []
         let root = snapshot?.root ?? root
         Task { await loadDiff(file, root: root) }
+    }
+
+    private func closeDiff() {
+        selectedID = nil
+        diff = nil
+        blocks = []
     }
 
     private func loadDiff(_ file: GitChange, root: String) async {

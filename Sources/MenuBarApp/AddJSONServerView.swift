@@ -46,7 +46,7 @@ struct AddJSONServerView: View {
             if let error {
                 Label(error, systemImage: "exclamationmark.triangle")
                     .font(.system(size: 12))
-                    .foregroundStyle(Color(red: 0.75, green: 0.28, blue: 0.24))
+                    .foregroundStyle(Theme.deletion)
                     .fixedSize(horizontal: false, vertical: true)
             }
 

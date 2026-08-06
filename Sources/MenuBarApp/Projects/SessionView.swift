@@ -26,9 +26,9 @@ struct SessionView: View {
     var body: some View {
         // The sidebar can delete a session or its project while it is on screen.
         if let session = store.session(sessionID), let project = store.project(session.projectID) {
+            let workingDirectory = session.worktreePath ?? project.path
             VStack(spacing: 0) {
                 header(session: session, project: project)
-                Divider().overlay(Theme.hairline)
                 warningStrip(session: session, project: project)
 
                 switch tab {
@@ -37,7 +37,7 @@ struct SessionView: View {
                     Divider().overlay(Theme.hairline)
                     composer(session: session, project: project)
                 case .changes:
-                    ChangesView(root: session.worktreePath ?? project.path)
+                    ChangesView(root: workingDirectory)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 case .settings:
                     SessionSettingsView(sessionID: sessionID)
@@ -46,23 +46,23 @@ struct SessionView: View {
 
                 if terminals.isOpen(sessionID) {
                     TerminalDrawer(sessionID: sessionID,
-                                   directory: session.worktreePath ?? project.path,
+                                   directory: workingDirectory,
                                    focusTerminal: $terminalFocused)
                 }
             }
             .background(Theme.background)
             .onAppear { composerFocused = true }
-            .background(terminalShortcut(directory: session.worktreePath ?? project.path))
+            .background(terminalShortcut(directory: workingDirectory))
             .onChange(of: terminalFocused) { _, focused in
                 if focused { composerFocused = false }
             }
             .task(id: sessionID) {
-                refreshStats(session.worktreePath ?? project.path)
+                refreshStats(workingDirectory)
                 store.findPullRequest(in: sessionID)
             }
-            .onChange(of: completedToolCount) { refreshStats(session.worktreePath ?? project.path) }
+            .onChange(of: completedToolCount) { refreshStats(workingDirectory) }
             .onChange(of: runner.state(sessionID)) { _, state in
-                if !state.isBusy { refreshStats(session.worktreePath ?? project.path) }
+                if !state.isBusy { refreshStats(workingDirectory) }
             }
         } else {
             VStack(spacing: 14) {
@@ -111,8 +111,7 @@ struct SessionView: View {
             }
         }
         .padding(.horizontal, 20)
-        .padding(.vertical, 14)
-        .background(Theme.card)
+        .headerBand()
     }
 
     // "+38 -6 in 3 files": what the working tree looks like right now. Clicking it
@@ -315,9 +314,7 @@ struct SessionView: View {
     private func runningTool(_ session: ChatSession, root: String) -> String? {
         guard let last = session.messages.last, last.role == .assistant,
               let tool = last.tools.last(where: { $0.isRunning }) else { return nil }
-        let presentation = ToolPresentationCache.presentation(for: tool, projectPath: root)
-        guard !presentation.argument.isEmpty else { return presentation.verb }
-        return "\(presentation.verb) · \(presentation.argument)"
+        return ToolPresentationCache.presentation(for: tool, projectPath: root).label
     }
 
     // While a turn is starting there is no assistant message yet, and while tools run

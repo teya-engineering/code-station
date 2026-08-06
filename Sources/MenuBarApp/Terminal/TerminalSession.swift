@@ -35,8 +35,6 @@ final class TerminalSession: Identifiable {
         return FileManager.default.isExecutableFile(atPath: shell) ? shell : "/bin/zsh"
     }()
 
-    var shellName: String { (Self.shell as NSString).lastPathComponent }
-
     init(directory: String, name: String) {
         self.directory = directory
         self.name = name
@@ -52,8 +50,8 @@ final class TerminalSession: Identifiable {
             onOutput: { data in
                 Task { @MainActor in session.receive(data) }
             },
-            onExit: { code in
-                Task { @MainActor in session.shellExited(code) }
+            onExit: { _ in
+                Task { @MainActor in session.shellExited() }
             })
         pty = terminal
 
@@ -112,10 +110,6 @@ final class TerminalSession: Identifiable {
         pty?.write(data)
     }
 
-    func interrupt() {
-        pty?.write(Data([0x03]))
-    }
-
     func clear() {
         emulator.reset()
         lines = emulator.lines()
@@ -152,7 +146,7 @@ final class TerminalSession: Identifiable {
         lines = emulator.lines()
     }
 
-    private func shellExited(_ code: Int32) {
+    private func shellExited() {
         flush()
         busyPoll?.cancel()
         busyPoll = nil
@@ -244,12 +238,6 @@ final class TerminalStore {
         if selected[sessionID] == terminal.id {
             selected[sessionID] = terminals[sessionID]?.first?.id
         }
-    }
-
-    func closeAll(for sessionID: UUID) {
-        for terminal in sessions(for: sessionID) { terminal.stop() }
-        terminals[sessionID] = nil
-        selected[sessionID] = nil
     }
 
     func stopEverything() {

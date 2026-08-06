@@ -26,7 +26,6 @@ struct OldSessionsView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider().overlay(Theme.hairline)
             ScrollView {
                 VStack(spacing: 8) {
                     ForEach(rows) { row in
@@ -58,10 +57,8 @@ struct OldSessionsView: View {
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 20)
-        .padding(.vertical, 14)
-        .background(Theme.card)
+        .headerBand()
     }
 
     // The one thing this screen can do that cannot be undone, said before the button is
@@ -121,7 +118,7 @@ struct OldSessionsView: View {
     }
 
     private var losable: Int {
-        rows.filter { if case .wouldLoseWork = $0.outcome { true } else { false } }.count
+        rows.filter { $0.outcome.losesWork }.count
     }
 
     // "last turn 9 days ago · 4 turns · ⑂ conductor/pty-test · clean"
@@ -201,7 +198,7 @@ struct OldSessionsView: View {
     // row that holds uncommitted work is the one choice worth asking about twice.
     private func confirmDelete() {
         let chosen = rows.filter { ticked.contains($0.id) }
-        let losing = chosen.filter { if case .wouldLoseWork = $0.outcome { true } else { false } }
+        let losing = chosen.filter { $0.outcome.losesWork }
         guard !losing.isEmpty else {
             delete(chosen)
             return
@@ -270,13 +267,7 @@ private struct SessionChoiceRow: View {
                             .lineLimit(1)
                     }
                     if hasWorktree {
-                        Text("WT")
-                            .font(.mono(9.5, .semibold))
-                            .kerning(0.5)
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 3)
-                            .background(RoundedRectangle(cornerRadius: 5).fill(Color.black.opacity(0.05)))
+                        StatusPill(text: "WT", running: false)
                     }
                 }
                 Text(detail)

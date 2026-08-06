@@ -18,7 +18,6 @@ struct LogView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider().overlay(Theme.hairline)
             content
             SheetFooter(done: { dismiss() }) {
                 Button("Reveal in Finder") { SessionLog.revealInFinder() }
@@ -46,8 +45,7 @@ struct LogView: View {
                 .help("Stay at the newest line as it is written")
         }
         .padding(.horizontal, 20)
-        .padding(.vertical, 14)
-        .background(Theme.card)
+        .headerBand()
     }
 
     @ViewBuilder private var content: some View {

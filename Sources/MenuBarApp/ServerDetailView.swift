@@ -23,7 +23,7 @@ struct ServerDetailView: View {
                     varsSection(server)
                     outputSection
                     Divider().overlay(Theme.hairline)
-                    footer
+                    footer(server)
                 }
                 .padding(32)
                 .frame(maxWidth: 820, alignment: .leading)
@@ -52,7 +52,7 @@ struct ServerDetailView: View {
                         }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.large)
-                        .tint(state.isActive ? Color(red: 0.75, green: 0.28, blue: 0.24) : Theme.accent)
+                        .tint(state.isActive ? Theme.deletion : Theme.accent)
                     }
                     .padding(.top, 8)
                 }
@@ -73,7 +73,7 @@ struct ServerDetailView: View {
             if case let .failed(message) = state {
                 Text(message)
                     .font(.system(size: 13))
-                    .foregroundStyle(Color(red: 0.75, green: 0.28, blue: 0.24))
+                    .foregroundStyle(Theme.deletion)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -109,19 +109,32 @@ struct ServerDetailView: View {
         let registered = claude.isRegistered(server.name)
         let outOfSync = claude.isOutOfSync(server)
         let busy = claude.isBusy(server.name)
-        let amber = Color(red: 0.72, green: 0.52, blue: 0.20)
-        let red = Color(red: 0.75, green: 0.28, blue: 0.24)
+
+        let icon: String
+        let tint: Color
+        let caption: String
+        if !registered {
+            icon = "seal"
+            tint = .secondary
+            caption = "Not registered - Claude Code can't see this server yet."
+        } else if outOfSync {
+            icon = "exclamationmark.triangle.fill"
+            tint = Theme.secret
+            caption = "Registered, but the token or URL here differs from Claude Code."
+        } else {
+            icon = "checkmark.seal.fill"
+            tint = Theme.accent
+            caption = "Registered as a user-scope MCP server."
+        }
 
         return VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
-                Image(systemName: !registered ? "seal" : (outOfSync ? "exclamationmark.triangle.fill" : "checkmark.seal.fill"))
+                Image(systemName: icon)
                     .font(.system(size: 16))
-                    .foregroundStyle(!registered ? Color.secondary : (outOfSync ? amber : Theme.accent))
+                    .foregroundStyle(tint)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Claude Code").font(.system(size: 15, weight: .semibold))
-                    Text(!registered ? "Not registered - Claude Code can't see this server yet."
-                         : (outOfSync ? "Registered, but the token or URL here differs from Claude Code."
-                            : "Registered as a user-scope MCP server."))
+                    Text(caption)
                         .font(.system(size: 13))
                         .foregroundStyle(.secondary)
                 }
@@ -131,7 +144,7 @@ struct ServerDetailView: View {
                     Button("Update") { claude.reregister(server) }
                         .controlSize(.large)
                         .buttonStyle(.borderedProminent)
-                        .tint(amber)
+                        .tint(Theme.secret)
                         .disabled(!claude.available || busy)
                 }
                 Button {
@@ -142,7 +155,7 @@ struct ServerDetailView: View {
                 }
                 .controlSize(.large)
                 .buttonStyle(.borderedProminent)
-                .tint(registered ? red : Theme.accent)
+                .tint(registered ? Theme.deletion : Theme.accent)
                 .disabled(!claude.available || busy)
             }
 
@@ -152,11 +165,11 @@ struct ServerDetailView: View {
             }
             if !claude.available {
                 Text("Claude Code CLI not found on PATH.")
-                    .font(.system(size: 12)).foregroundStyle(Color(red: 0.75, green: 0.28, blue: 0.24))
+                    .font(.system(size: 12)).foregroundStyle(Theme.deletion)
             }
             if let error = claude.errors[server.name] {
                 Text(error)
-                    .font(.mono(11)).foregroundStyle(Color(red: 0.75, green: 0.28, blue: 0.24))
+                    .font(.mono(11)).foregroundStyle(Theme.deletion)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -236,11 +249,9 @@ struct ServerDetailView: View {
                 VStack(spacing: 8) {
                     ForEach(server.env) { v in
                         EnvRow(
-                            serverID: serverID,
-                            envID: v.id,
                             isSecret: v.isSecret,
-                            keyBinding: store.keyBinding(v.id, in: serverID),
-                            valueBinding: store.valueBinding(v.id, in: serverID),
+                            key: store.keyBinding(v.id, in: serverID),
+                            value: store.valueBinding(v.id, in: serverID),
                             onDelete: { store.removeVar(v.id, from: serverID) }
                         )
                     }
@@ -265,11 +276,11 @@ struct ServerDetailView: View {
             ]))
     }
 
-    private var footer: some View {
+    private func footer(_ server: Server) -> some View {
         HStack(spacing: 20) {
             Button("View raw JSON") { showingRawJSON = true }
                 .buttonStyle(.plain).foregroundStyle(Theme.accent)
-            Button("Delete server") { if let server { confirmDelete(server) } }
+            Button("Delete server") { confirmDelete(server) }
                 .buttonStyle(.plain).foregroundStyle(.red.opacity(0.85))
             Spacer()
             if let modified = store.lastModified {
@@ -278,6 +289,16 @@ struct ServerDetailView: View {
             }
         }
         .font(.system(size: 13, weight: .medium))
+    }
+}
+
+private struct SecretBadge: View {
+    var body: some View {
+        Text("SECRET")
+            .font(.system(size: 10, weight: .bold))
+            .foregroundStyle(Theme.secret)
+            .padding(.horizontal, 6).padding(.vertical, 2)
+            .background(RoundedRectangle(cornerRadius: 4).fill(Theme.secret.opacity(0.14)))
     }
 }
 
@@ -290,13 +311,7 @@ private struct ReadOnlyVarRow: View {
     var body: some View {
         HStack(spacing: 12) {
             Text(key).font(.mono(13, .semibold)).lineLimit(1)
-            if isSecret {
-                Text("SECRET")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(Theme.secret)
-                    .padding(.horizontal, 6).padding(.vertical, 2)
-                    .background(RoundedRectangle(cornerRadius: 4).fill(Theme.secret.opacity(0.14)))
-            }
+            if isSecret { SecretBadge() }
             Spacer(minLength: 16)
             if isSecret && !revealed {
                 Text(String(repeating: "•", count: 18)).font(.mono(13)).foregroundStyle(.secondary)
@@ -319,19 +334,19 @@ private struct StatePill: View {
 
     private var label: String {
         switch state {
-        case .stopped: return "stopped"
-        case .starting: return "starting"
-        case .running: return "running"
-        case .failed: return "failed"
+        case .stopped: "stopped"
+        case .starting: "starting"
+        case .running: "running"
+        case .failed: "failed"
         }
     }
 
     private var color: Color {
         switch state {
-        case .stopped: return Theme.dotOff
-        case .starting: return Theme.secret
-        case .running: return Theme.dotOn
-        case .failed: return Color(red: 0.75, green: 0.28, blue: 0.24)
+        case .stopped: Theme.dotOff
+        case .starting: Theme.secret
+        case .running: Theme.dotOn
+        case .failed: Theme.deletion
         }
     }
 
@@ -348,31 +363,22 @@ private struct StatePill: View {
 }
 
 private struct EnvRow: View {
-    let serverID: Server.ID
-    let envID: EnvVar.ID
     let isSecret: Bool
-    @Binding var keyBinding: String
-    @Binding var valueBinding: String
+    @Binding var key: String
+    @Binding var value: String
     let onDelete: () -> Void
 
     @State private var revealed = false
-    @FocusState private var focused: Bool
 
     var body: some View {
         HStack(spacing: 12) {
-            TextField("KEY", text: $keyBinding)
+            TextField("KEY", text: $key)
                 .textFieldStyle(.plain)
                 .font(.mono(13, .semibold))
                 .lineLimit(1)
                 .fixedSize()
 
-            if isSecret {
-                Text("SECRET")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(Theme.secret)
-                    .padding(.horizontal, 6).padding(.vertical, 2)
-                    .background(RoundedRectangle(cornerRadius: 4).fill(Theme.secret.opacity(0.14)))
-            }
+            if isSecret { SecretBadge() }
 
             Spacer(minLength: 16)
 
@@ -384,12 +390,11 @@ private struct EnvRow: View {
                 Button("Reveal") { revealed = true }
                     .controlSize(.small)
             } else {
-                TextField("value", text: $valueBinding)
+                TextField("value", text: $value)
                     .textFieldStyle(.plain)
                     .font(.mono(13))
                     .lineLimit(1)
                     .multilineTextAlignment(.trailing)
-                    .focused($focused)
                 if isSecret {
                     Button("Hide") { revealed = false }
                         .controlSize(.small)

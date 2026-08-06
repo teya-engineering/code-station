@@ -127,8 +127,7 @@ final class ProcessManager {
     }
 
     private func appendLog(_ id: Server.ID, _ text: String) {
-        var current = logs[id] ?? ""
-        current += text
+        var current = (logs[id] ?? "") + text
         if current.count > 8000 { current = String(current.suffix(8000)) }
         logs[id] = current
     }

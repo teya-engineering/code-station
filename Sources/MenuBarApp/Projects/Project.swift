@@ -4,7 +4,7 @@ import Foundation
 // copy: every session for a project runs Claude Code directly in this directory, so
 // only one session can be live at a time.
 struct Project: Identifiable, Codable, Equatable {
-    var id: UUID = UUID()
+    var id: UUID
     var name: String
     var path: String
 

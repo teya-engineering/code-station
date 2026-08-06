@@ -23,6 +23,16 @@ enum Theme {
     static let border = Color.black.opacity(0.08)
     static let hairline = Color.black.opacity(0.06)
 
+    // The band across the top of a pane or sheet. Every one of them is exactly this tall.
+    // Grown from padding instead, each band ends up the height of whatever text it happens
+    // to hold, and the rules closing two bands that sit side by side land a few points
+    // apart.
+    static let headerHeight: CGFloat = 72
+
+    // A band that sits under one of those rather than at the top of a pane. It is shorter
+    // so the two read as a heading and its sub-heading instead of two headings.
+    static let subHeaderHeight: CGFloat = 48
+
     // Tints for the sidebar's project monograms. Picked from the name so a project
     // keeps the same colour between launches, which is what makes the tile readable
     // as an identity rather than decoration.
@@ -44,6 +54,23 @@ enum Theme {
     // Drawn by AppKit around the focused terminal, so it is an NSColor rather than a
     // SwiftUI one.
     static let focusRing = NSColor(red: 0.20, green: 0.34, blue: 0.24, alpha: 0.22)
+}
+
+extension View {
+    // Lays a header out as a band of the shared height and draws the rule that closes it.
+    // The rule belongs to the band rather than sitting next to it, so a header cannot be
+    // given one twice or left without one.
+    func headerBand(_ background: Color = Theme.card,
+                    height: CGFloat = Theme.headerHeight) -> some View {
+        frame(maxWidth: .infinity, alignment: .leading)
+            .frame(height: height)
+            .background(background)
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(Theme.hairline)
+                    .frame(height: 1)
+            }
+    }
 }
 
 extension Font {

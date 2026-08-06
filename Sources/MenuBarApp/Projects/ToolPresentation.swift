@@ -21,6 +21,12 @@ struct ToolPresentation {
 
     let verb: String
     var argument = ""
+
+    // The one-line form of a call, used wherever a row names what is running:
+    // "Bash · swift build", or just the verb when the call has no argument.
+    var label: String {
+        argument.isEmpty ? verb : "\(verb) · \(argument)"
+    }
     var fileName: String?
     var added: Int?
     var removed: Int?

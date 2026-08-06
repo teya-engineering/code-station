@@ -62,7 +62,6 @@ struct SettingsView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider().overlay(Theme.hairline)
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     model
@@ -92,9 +91,8 @@ struct SettingsView: View {
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 20)
-        .padding(.vertical, 14)
+        .headerBand()
     }
 
     private func change(_ edit: (inout SessionSettings) -> Void) {

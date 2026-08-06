@@ -40,14 +40,12 @@ enum GitWorktree {
             throw Failure(message: "Could not find git on PATH.")
         }
         let planned = plan(projectName: projectName, sessionID: sessionID)
-        let path = planned.path
-        let branch = planned.branch
 
         let outcome: Result<Created, Failure> = await offMain {
             // Kept out of backups: a worktree can be recreated from the repository it came
             // from, and copying every checkout into Time Machine is not worth the room.
             _ = AppPaths.directory(folder, backedUp: false)
-            let result = run(tool, ["-C", projectPath, "worktree", "add", path, "-b", branch])
+            let result = run(tool, ["-C", projectPath, "worktree", "add", planned.path, "-b", planned.branch])
             guard result.status == 0 else {
                 return .failure(Failure(message: result.stderr.isEmpty
                     ? "git worktree add exited with code \(result.status)."

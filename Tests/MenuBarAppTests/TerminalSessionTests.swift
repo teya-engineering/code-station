@@ -16,9 +16,12 @@ struct TerminalSessionTests {
         return false
     }
 
+    private func makeSession() -> TerminalSession {
+        TerminalSession(directory: FileManager.default.temporaryDirectory.path, name: "Terminal")
+    }
+
     @Test func startsAShellAndShowsItsOutput() async {
-        let session = TerminalSession(directory: FileManager.default.temporaryDirectory.path,
-                                      name: "Terminal")
+        let session = makeSession()
         session.start()
         defer { session.stop() }
 
@@ -32,8 +35,7 @@ struct TerminalSessionTests {
     // This is what puts the green dot on a tab. It failed the first time round: the
     // property was never published because the poll returned early.
     @Test func reportsWhenACommandIsRunning() async {
-        let session = TerminalSession(directory: FileManager.default.temporaryDirectory.path,
-                                      name: "Terminal")
+        let session = makeSession()
         session.start()
         defer { session.stop() }
 
@@ -49,8 +51,7 @@ struct TerminalSessionTests {
     }
 
     @Test func clearingEmptiesTheScreen() async {
-        let session = TerminalSession(directory: FileManager.default.temporaryDirectory.path,
-                                      name: "Terminal")
+        let session = makeSession()
         session.start()
         defer { session.stop() }
 

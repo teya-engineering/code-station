@@ -59,7 +59,9 @@ struct PostmanView: View {
                             .appContextMenu {
                                 [.item("Duplicate") { store.duplicate(request.id) },
                                  .separator,
-                                 .item("Delete", kind: .destructive) { confirmDelete(request) }]
+                                 .item("Delete", kind: .destructive) {
+                                     dialogs.show(deleteDialog(for: request, store: store))
+                                 }]
                             }
                     }
                 }
@@ -120,16 +122,6 @@ struct PostmanView: View {
         .buttonStyle(.plain)
     }
 
-    private func confirmDelete(_ request: SavedRequest) {
-        dialogs.show(Dialog(
-            title: "Delete \"\(request.name.isEmpty ? "Untitled" : request.name)\"?",
-            message: "The request and everything set up on it are gone for good.",
-            actions: [
-                .init(label: "Delete request", kind: .destructive) { store.remove(request.id) },
-                .init(label: "Cancel", kind: .cancel)
-            ]))
-    }
-
     private var authState: String {
         if auth.busy { return "Signing in…" }
         if auth.awaitingPaste { return "Waiting for the code" }
@@ -156,6 +148,18 @@ struct PostmanView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
+}
+
+// The same question whether the delete starts from the sidebar or from the editor.
+@MainActor
+private func deleteDialog(for request: SavedRequest, store: PostmanStore) -> Dialog {
+    Dialog(
+        title: "Delete \"\(request.name.isEmpty ? "Untitled" : request.name)\"?",
+        message: "The request and everything set up on it are gone for good.",
+        actions: [
+            .init(label: "Delete request", kind: .destructive) { store.remove(request.id) },
+            .init(label: "Cancel", kind: .cancel)
+        ])
 }
 
 private struct RequestRow: View {
@@ -236,13 +240,7 @@ private struct RequestDetail: View {
                 .font(.serif(18))
             Spacer(minLength: 8)
             Button("Delete") {
-                dialogs.show(Dialog(
-                    title: "Delete \"\(draft.name.isEmpty ? "Untitled" : draft.name)\"?",
-                    message: "The request and everything set up on it are gone for good.",
-                    actions: [
-                        .init(label: "Delete request", kind: .destructive) { store.remove(draft.id) },
-                        .init(label: "Cancel", kind: .cancel)
-                    ]))
+                dialogs.show(deleteDialog(for: draft, store: store))
             }
                 .buttonStyle(.plain)
                 .font(.system(size: 12, weight: .semibold))

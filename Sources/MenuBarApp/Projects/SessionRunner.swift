@@ -283,26 +283,24 @@ final class SessionRunner {
         let runner = self
         let buffer = LineBuffer()
 
+        let parseLine: @Sendable (String) -> [StreamEvent] = { line in
+            SessionLog.note("< \(line)", session: sessionID)
+            return StreamEvent.parse(line, projectPath: workingDirectory)
+        }
+
         out.fileHandleForReading.readabilityHandler = { handle in
             let data = handle.availableData
             guard !data.isEmpty else {
                 handle.readabilityHandler = nil
                 SessionLog.note("stdout closed", session: sessionID)
-                let tail = buffer.flush()
-                    .flatMap { line -> [StreamEvent] in
-                        SessionLog.note("< \(line)", session: sessionID)
-                        return StreamEvent.parse(line, projectPath: workingDirectory)
-                    }
+                let tail = buffer.flush().flatMap(parseLine)
                 Task { @MainActor in
                     runner.apply(tail, sessionID: sessionID, token: token, store: store)
                     runner.pipeClosed(sessionID, token: token, stdout: true, store: store)
                 }
                 return
             }
-            let events = buffer.lines(from: data).flatMap { line -> [StreamEvent] in
-                SessionLog.note("< \(line)", session: sessionID)
-                return StreamEvent.parse(line, projectPath: workingDirectory)
-            }
+            let events = buffer.lines(from: data).flatMap(parseLine)
             // Even a line that means nothing to the app proves the CLI is alive, so the
             // clock moves on the read rather than on the events it turned into.
             Task { @MainActor in

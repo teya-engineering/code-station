@@ -75,7 +75,6 @@ struct TerminalLine: Identifiable, Equatable {
     let id: Int
     var spans: [TerminalSpan]
 
-    var isEmpty: Bool { spans.allSatisfy { $0.text.trimmingCharacters(in: .whitespaces).isEmpty } }
     var text: String { spans.map(\.text).joined() }
 }
 
@@ -103,7 +102,6 @@ struct TerminalEmulator {
     // Bytes held back because they are the start of a sequence, or of a character that
     // straddles two reads.
     private var pending: [UInt8] = []
-    private var revision = 0
 
     // Old output is dropped rather than kept forever; this is roughly what a terminal
     // keeps in its scrollback.
@@ -122,7 +120,7 @@ struct TerminalEmulator {
     // MARK: - Feeding bytes
 
     mutating func feed(_ data: Data) {
-        var bytes = pending + Array(data)
+        let bytes = pending + Array(data)
         pending = []
         var index = 0
 
@@ -165,7 +163,6 @@ struct TerminalEmulator {
                 index += size
             }
         }
-        bytes = []
         trimScrollback()
     }
 

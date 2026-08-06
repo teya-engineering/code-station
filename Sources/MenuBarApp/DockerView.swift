@@ -9,7 +9,6 @@ struct DockerView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider().overlay(Theme.hairline)
             list
             SheetFooter { dismiss() }
         }
@@ -46,7 +45,7 @@ struct DockerView: View {
             Spacer()
         }
         .padding(.horizontal, 20)
-        .padding(.vertical, 14)
+        .headerBand()
     }
 
     @ViewBuilder private var list: some View {

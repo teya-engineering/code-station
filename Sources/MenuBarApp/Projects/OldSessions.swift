@@ -42,6 +42,11 @@ enum SessionOutcome: Equatable {
     var isSafeToPreselect: Bool {
         self == .historyOnly || self == .worktreeRemoved
     }
+
+    var losesWork: Bool {
+        if case .wouldLoseWork = self { return true }
+        return false
+    }
 }
 
 // Removing a session means the conversation and, if it had one, the worktree it ran in.

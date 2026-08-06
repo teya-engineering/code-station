@@ -180,8 +180,9 @@ private struct QuestionCard: View {
 
     private var answers: [String: String] {
         var result: [String: String] = [:]
-        for question in request.questions where !answer(for: question).isEmpty {
-            result[question.text] = answer(for: question)
+        for question in request.questions {
+            let answer = answer(for: question)
+            if !answer.isEmpty { result[question.text] = answer }
         }
         return result
     }

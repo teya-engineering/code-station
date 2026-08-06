@@ -100,8 +100,6 @@ struct HTTPResult: Equatable {
     var byteCount: Int
     var failure: String?
 
-    var isFailure: Bool { failure != nil }
-
     var statusText: String {
         guard failure == nil else { return "Failed" }
         return "\(status) \(HTTPURLResponse.localizedString(forStatusCode: status).capitalized)"

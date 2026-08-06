@@ -41,32 +41,27 @@ struct AppSidebar: View {
     // MARK: - Heading
 
     private var heading: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 8) {
-                if let logo = AppArt.logo {
-                    Image(nsImage: logo)
-                        .resizable()
-                        .interpolation(.high)
-                        .frame(width: 40, height: 40)
-                        // The art carries its own margin, so it is pulled back to sit on
-                        // the same left edge as the text below it.
-                        .padding(.leading, -6)
-                }
-                Text("Teya Conductor")
-                    .font(.serif(18, .semibold))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-                Spacer(minLength: 8)
-                if busyCount > 0 {
-                    StatusPill(text: "\(busyCount) RUNNING", running: true)
-                }
+        HStack(spacing: 8) {
+            if let logo = AppArt.logo {
+                Image(nsImage: logo)
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: 40, height: 40)
+                    // The art carries its own margin, so it is pulled back to sit on
+                    // the same left edge as the text below it.
+                    .padding(.leading, -6)
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 14)
-            .padding(.bottom, 12)
-
-            Divider().overlay(Theme.hairline)
+            Text("Teya Conductor")
+                .font(.serif(18, .semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+            Spacer(minLength: 8)
+            if busyCount > 0 {
+                StatusPill(text: "\(busyCount) RUNNING", running: true)
+            }
         }
+        .padding(.horizontal, 20)
+        .headerBand(Theme.sidebar)
     }
 
     private var busyCount: Int {
@@ -260,14 +255,16 @@ struct AppSidebar: View {
     }
 
     private func removeProject(_ project: Project) {
-        let worktreeSessions = store.sessions(for: project.id).filter { $0.worktreePath != nil }
+        let worktrees = store.sessions(for: project.id).compactMap { session in
+            session.worktreePath.map { (path: $0, branch: session.worktreeBranch) }
+        }
         store.removeProject(project.id)
-        guard !worktreeSessions.isEmpty else { return }
+        guard !worktrees.isEmpty else { return }
         Task {
-            for session in worktreeSessions {
-                await GitWorktree.remove(worktreePath: session.worktreePath ?? "",
+            for worktree in worktrees {
+                await GitWorktree.remove(worktreePath: worktree.path,
                                          projectPath: project.path,
-                                         branch: session.worktreeBranch)
+                                         branch: worktree.branch)
             }
         }
     }
@@ -280,16 +277,11 @@ struct AppSidebar: View {
         let root = session.worktreePath ?? project.path
         let tools = session.messages.flatMap(\.tools)
         if busy, let running = tools.last(where: { $0.isRunning }) {
-            return toolLabel(running, root: root)
+            return ToolPresentationCache.presentation(for: running, projectPath: root).label
         }
         guard let last = tools.last(where: { !$0.isRunning }) else { return nil }
-        return (finished ? "ended after " : "last: ") + toolLabel(last, root: root)
-    }
-
-    private func toolLabel(_ tool: ToolUse, root: String) -> String {
-        let presentation = ToolPresentationCache.presentation(for: tool, projectPath: root)
-        guard !presentation.argument.isEmpty else { return presentation.verb }
-        return "\(presentation.verb) · \(presentation.argument)"
+        return (finished ? "ended after " : "last: ")
+            + ToolPresentationCache.presentation(for: last, projectPath: root).label
     }
 
     // Lines this session's edits have added and removed, summed over the whole
@@ -803,8 +795,9 @@ private struct ActivityLine: View {
     }
 }
 
-// State as a word rather than a dot, so a glance down the rail reads as text.
-private struct StatusPill: View {
+// State as a word rather than a dot, so a glance down the rail reads as text. The
+// old-sessions sheet borrows it for the same worktree badge the session cards wear.
+struct StatusPill: View {
     let text: String
     let running: Bool
 

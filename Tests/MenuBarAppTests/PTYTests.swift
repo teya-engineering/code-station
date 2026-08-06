@@ -46,15 +46,22 @@ struct PTYTests {
         return environment
     }
 
-    @Test func runsACommandAndReturnsItsOutput() async throws {
-        let collector = Collector()
-        let pty = PTY(onOutput: { collector.append($0) },
-                      onExit: { collector.recordExit($0) })
-        defer { pty.stop() }
+    private func makePTY(_ collector: Collector) -> PTY {
+        PTY(onOutput: { collector.append($0) }, onExit: { collector.recordExit($0) })
+    }
 
+    private func startShell(_ pty: PTY, columns: Int = 80, rows: Int = 24) throws {
         try pty.start(shell: "/bin/sh", arguments: ["-i"],
                       directory: FileManager.default.temporaryDirectory.path,
-                      environment: environment(), columns: 80, rows: 24)
+                      environment: environment(), columns: columns, rows: rows)
+    }
+
+    @Test func runsACommandAndReturnsItsOutput() async throws {
+        let collector = Collector()
+        let pty = makePTY(collector)
+        defer { pty.stop() }
+
+        try startShell(pty)
 
         pty.write(Data("echo conductor-was-here\r".utf8))
         #expect(await collector.waitFor("conductor-was-here"))
@@ -64,13 +71,10 @@ struct PTYTests {
     // makes interactive programs behave.
     @Test func theChildIsOnARealTerminal() async throws {
         let collector = Collector()
-        let pty = PTY(onOutput: { collector.append($0) },
-                      onExit: { collector.recordExit($0) })
+        let pty = makePTY(collector)
         defer { pty.stop() }
 
-        try pty.start(shell: "/bin/sh", arguments: ["-i"],
-                      directory: FileManager.default.temporaryDirectory.path,
-                      environment: environment(), columns: 80, rows: 24)
+        try startShell(pty)
 
         pty.write(Data("test -t 1 && echo is-a-tty\r".utf8))
         #expect(await collector.waitFor("is-a-tty"))
@@ -83,8 +87,7 @@ struct PTYTests {
         defer { try? FileManager.default.removeItem(at: directory) }
 
         let collector = Collector()
-        let pty = PTY(onOutput: { collector.append($0) },
-                      onExit: { collector.recordExit($0) })
+        let pty = makePTY(collector)
         defer { pty.stop() }
 
         try pty.start(shell: "/bin/sh", arguments: ["-i"], directory: directory.path,
@@ -98,13 +101,10 @@ struct PTYTests {
     // the right place.
     @Test func reportsTheWindowSizeItWasGiven() async throws {
         let collector = Collector()
-        let pty = PTY(onOutput: { collector.append($0) },
-                      onExit: { collector.recordExit($0) })
+        let pty = makePTY(collector)
         defer { pty.stop() }
 
-        try pty.start(shell: "/bin/sh", arguments: ["-i"],
-                      directory: FileManager.default.temporaryDirectory.path,
-                      environment: environment(), columns: 123, rows: 45)
+        try startShell(pty, columns: 123, rows: 45)
 
         pty.write(Data("stty size\r".utf8))
         #expect(await collector.waitFor("45 123"))
@@ -112,13 +112,10 @@ struct PTYTests {
 
     @Test func noticesTheShellExiting() async throws {
         let collector = Collector()
-        let pty = PTY(onOutput: { collector.append($0) },
-                      onExit: { collector.recordExit($0) })
+        let pty = makePTY(collector)
         defer { pty.stop() }
 
-        try pty.start(shell: "/bin/sh", arguments: ["-i"],
-                      directory: FileManager.default.temporaryDirectory.path,
-                      environment: environment(), columns: 80, rows: 24)
+        try startShell(pty)
 
         pty.write(Data("exit 3\r".utf8))
         let deadline = Date().addingTimeInterval(10)
@@ -134,13 +131,10 @@ struct PTYTests {
     // one is running. Nothing here guesses from output.
     @Test func knowsWhenACommandIsRunning() async throws {
         let collector = Collector()
-        let pty = PTY(onOutput: { collector.append($0) },
-                      onExit: { collector.recordExit($0) })
+        let pty = makePTY(collector)
         defer { pty.stop() }
 
-        try pty.start(shell: "/bin/sh", arguments: ["-i"],
-                      directory: FileManager.default.temporaryDirectory.path,
-                      environment: environment(), columns: 80, rows: 24)
+        try startShell(pty)
 
         // Wait for the first prompt so the shell has settled before anything is judged.
         pty.write(Data("echo ready\r".utf8))
@@ -180,7 +174,7 @@ struct PTYTests {
 extension PTYTests {
     @Test func busySignalWorksUnderZsh() async throws {
         let collector = Collector()
-        let pty = PTY(onOutput: { collector.append($0) }, onExit: { collector.recordExit($0) })
+        let pty = makePTY(collector)
         defer { pty.stop() }
 
         try pty.start(shell: "/bin/zsh", arguments: ["-i"],
