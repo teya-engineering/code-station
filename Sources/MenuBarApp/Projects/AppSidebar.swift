@@ -664,9 +664,9 @@ private struct SortChip: View {
     }
 }
 
-// One line per project: who it is on the left, what it has cost and how many sessions
-// it holds on the right. The sessions themselves carry the detail, so the row stays a
-// heading rather than competing with the cards under it.
+// One line per project: who it is, and the way in. The sessions themselves carry the
+// detail, so the row stays a heading rather than competing with the cards under it, and
+// its numbers live in the hint where they cost the line no room.
 private struct ProjectHeaderRow: View {
     let project: Project
     let isExpanded: Bool
@@ -711,13 +711,6 @@ private struct ProjectHeaderRow: View {
                     if finishedCount > 0 { FinishedDot() }
                 }
                 Spacer(minLength: 8)
-                // The name gives way before the numbers do: a truncated project name is
-                // still recognisable, a truncated cost is not.
-                Text(meta)
-                    .font(.mono(11))
-                    .foregroundStyle(isMissing ? AnyShapeStyle(Color.secondary) : AnyShapeStyle(.tertiary))
-                    .lineLimit(1)
-                    .layoutPriority(1)
 
                 // The chevron says which way the row goes; under the pointer it gives way
                 // to the two things you come to a project row to do. They share a slot of
@@ -768,15 +761,8 @@ private struct ProjectHeaderRow: View {
         }
     }
 
-    // What the project has spent and how much of it there is to open.
-    private var meta: String {
-        let sessions = "\(sessionCount) session\(sessionCount == 1 ? "" : "s")"
-        guard cost > 0 else { return sessions }
-        return "\(Money.short(cost)) · \(sessions)"
-    }
-
     // The path is the only thing that tells two projects of the same name apart, so it
-    // leads the hint. The counts under it are the ones the row itself has no room for.
+    // leads the hint. The counts under it are the ones the row itself no longer carries.
     private var tooltip: Tooltip {
         var rows = [Tooltip.Row(label: "Sessions", value: "\(sessionCount)")]
         if runningCount > 0 {
