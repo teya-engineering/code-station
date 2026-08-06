@@ -774,7 +774,7 @@ private struct MonogramTile: View {
     var body: some View {
         let tint = Theme.monogram(for: name)
         RoundedRectangle(cornerRadius: 8)
-            .fill(tint.opacity(0.14))
+            .fill(tint.opacity(0.16))
             .frame(width: 30, height: 30)
             .overlay(
                 Text(String(name.prefix(1)).uppercased())

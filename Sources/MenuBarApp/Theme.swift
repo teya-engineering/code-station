@@ -35,20 +35,31 @@ enum Theme {
 
     // Tints for the sidebar's project monograms. Picked from the name so a project
     // keeps the same colour between launches, which is what makes the tile readable
-    // as an identity rather than decoration.
+    // as an identity rather than decoration. They walk the whole colour wheel rather
+    // than staying near the rest of the palette, because two projects sitting next to
+    // each other have to be told apart at a glance.
     private static let monograms = [
-        Color(red: 0.28, green: 0.38, blue: 0.30),
-        Color(red: 0.70, green: 0.50, blue: 0.18),
-        Color(red: 0.35, green: 0.42, blue: 0.55),
-        Color(red: 0.60, green: 0.35, blue: 0.32),
-        Color(red: 0.40, green: 0.40, blue: 0.38)
+        Color(red: 0.24, green: 0.47, blue: 0.31),
+        Color(red: 0.13, green: 0.48, blue: 0.48),
+        Color(red: 0.20, green: 0.44, blue: 0.66),
+        Color(red: 0.34, green: 0.33, blue: 0.66),
+        Color(red: 0.52, green: 0.31, blue: 0.62),
+        Color(red: 0.74, green: 0.30, blue: 0.50),
+        Color(red: 0.74, green: 0.28, blue: 0.30),
+        Color(red: 0.78, green: 0.42, blue: 0.16),
+        Color(red: 0.72, green: 0.54, blue: 0.10),
+        Color(red: 0.45, green: 0.50, blue: 0.18)
     ]
 
-    // Swift's own hashValue is salted per process, so the sum of the scalars is used
-    // instead to keep the choice stable.
+    // Swift's own hashValue is salted per process, so the name is hashed here instead to
+    // keep the choice stable. Summing the scalars would be stable too, but it lands names
+    // built from the same letters on the same tint, which is most of a project list.
     static func monogram(for name: String) -> Color {
-        let seed = name.unicodeScalars.reduce(0) { $0 &+ Int($1.value) }
-        return monograms[seed % monograms.count]
+        var hash: UInt32 = 2166136261
+        for scalar in name.unicodeScalars {
+            hash = (hash ^ (scalar.value &* 2654435761)) &* 16777619
+        }
+        return monograms[Int(hash % UInt32(monograms.count))]
     }
 
     // Drawn by AppKit around the focused terminal, so it is an NSColor rather than a
