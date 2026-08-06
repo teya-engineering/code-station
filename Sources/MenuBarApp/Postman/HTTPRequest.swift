@@ -11,7 +11,8 @@ enum HTTPMethod: String, CaseIterable, Identifiable, Codable {
     var tint: Color {
         switch self {
         case .get, .head: Theme.addition
-        case .post, .put, .patch: Theme.secret
+        case .post, .put: Theme.secret
+        case .patch: Color(red: 0.35, green: 0.40, blue: 0.51)
         case .delete: Theme.deletion
         }
     }
@@ -98,6 +99,9 @@ struct HTTPResult: Equatable {
     var body: String
     var duration: TimeInterval
     var byteCount: Int
+    // The {{env}} value the request was resolved with, so an answer kept on screen
+    // still says which side it came from after the switch is flipped.
+    var origin: String?
     var failure: String?
 
     var statusText: String {

@@ -316,6 +316,27 @@ struct RedirectAnswerTests {
     }
 }
 
+struct ApiEnvironmentTests {
+
+    @Test func resolvesEnvEverywhereItAppears() {
+        let template = "https://api.{{env}}.example/v1/{{env}}/payments"
+        #expect(ApiEnvironment.staging.resolve(template) == "https://api.dev.example/v1/dev/payments")
+        #expect(ApiEnvironment.production.resolve(template) == "https://api.prd.example/v1/prd/payments")
+    }
+
+    // An unknown variable staying as typed is what makes the typo visible.
+    @Test func leavesUnknownVariablesAlone() {
+        #expect(ApiEnvironment.staging.resolve("https://api.{{environment}}.example")
+                == "https://api.{{environment}}.example")
+        #expect(ApiEnvironment.staging.resolve("no variables here") == "no variables here")
+    }
+
+    @Test func shortensTheTokenURLToItsHostForTheCard() {
+        let config = OAuthConfig(tokenURL: "https://auth.dev.example/oauth2/token")
+        #expect(config.tokenHost == "auth.dev.example/oauth2/token")
+    }
+}
+
 struct SavedRequestTests {
 
     // The requests file gains fields over time, and a file written before one existed has

@@ -43,6 +43,8 @@ struct TokenIdentity: Codable, Equatable {
     var scope: String
 }
 
+// One environment's whole OAuth setup. The secret lives in the Keychain; the store's
+// file only ever holds the addresses and the client id.
 struct OAuthConfig: Codable, Equatable {
     var grant: GrantType = .authorizationCodePKCE
     var authURL = ""
@@ -88,6 +90,13 @@ struct OAuthConfig: Codable, Equatable {
             if usesLoopback, callbackPort == nil { gaps.append("a port on the callback URL") }
         }
         return gaps
+    }
+
+    // The token endpoint without its scheme, short enough for the token card's one line.
+    var tokenHost: String {
+        tokenURL
+            .replacingOccurrences(of: "https://", with: "")
+            .replacingOccurrences(of: "http://", with: "")
     }
 }
 
@@ -139,13 +148,20 @@ struct OAuthToken: Codable, Equatable {
         return expiresAt.timeIntervalSinceNow < 10
     }
 
-    var expiryText: String {
-        guard let expiresAt else { return "No expiry given" }
+    // The short remaining life on the token card: "41 min".
+    var remainingText: String {
+        guard let expiresAt else { return "no expiry" }
         let seconds = Int(expiresAt.timeIntervalSinceNow)
-        if seconds <= 0 { return "Expired" }
-        if seconds < 60 { return "Expires in \(seconds)s" }
-        if seconds < 3600 { return "Expires in \(seconds / 60)m" }
-        return "Expires in \(seconds / 3600)h \((seconds % 3600) / 60)m"
+        if seconds <= 0 { return "expired" }
+        if seconds < 60 { return "\(seconds) s" }
+        if seconds < 3600 { return "\(seconds / 60) min" }
+        return "\(seconds / 3600) h \((seconds % 3600) / 60) min"
+    }
+
+    // The full sentence in the Environments sheet: "Token valid for 41 min".
+    var validityText: String {
+        guard expiresAt != nil else { return "Token has no expiry" }
+        return isExpired ? "Token expired" : "Token valid for \(remainingText)"
     }
 
     // A token outlives the session that fetched it, so how long it has left says nothing

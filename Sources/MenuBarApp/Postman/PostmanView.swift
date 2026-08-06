@@ -1,31 +1,43 @@
 import SwiftUI
 
 // A small HTTP client for the services a session is working on: the saved requests on
-// the left, the one being edited and its answer on the right.
+// the left, the one being edited and its answer on the right. Two environments share the
+// one request list; the active one picks the credentials, the {{env}} value and the
+// colour of the chrome, so where a send lands is legible at a glance.
 struct PostmanView: View {
     @Environment(PostmanStore.self) private var store
     @Environment(PostmanAuthStore.self) private var auth
     @Environment(DialogPresenter.self) private var dialogs
     @Environment(\.dismiss) private var dismiss
 
-    @State private var showingAuth = false
+    @State private var showingEnvironments = false
+
+    private var environment: ApiEnvironment { auth.active }
 
     var body: some View {
         VStack(spacing: 0) {
+            Rectangle().fill(environment.brightAccent).frame(height: 5)
             header
             Divider().overlay(Theme.hairline)
+            if environment == .production { productionBanner }
             HStack(spacing: 0) {
                 sidebar
                 Divider().overlay(Theme.hairline)
                 detail
             }
-            SheetFooter { dismiss() }
+            SheetFooter(done: { dismiss() }) {
+                Text(environment == .production
+                     ? "Production asks once per send. Staging never asks."
+                     : "Requests are shared by both environments. Each environment keeps its own credentials in the Keychain.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
         }
         // Kept inside the window's minimum size, since a sheet wider than its window
         // gets clipped rather than growing it.
-        .frame(width: 940, height: 640)
+        .frame(width: 940, height: 660)
         .background(Theme.background)
-        .sheet(isPresented: $showingAuth) { AuthorizationView() }
+        .sheet(isPresented: $showingEnvironments) { EnvironmentsView() }
     }
 
     private var header: some View {
@@ -35,10 +47,46 @@ struct PostmanView: View {
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
             Spacer()
+            environmentSwitch
+            Button("Environments") { showingEnvironments = true }
+                .buttonStyle(.plain)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(environment.accent)
         }
         .padding(.horizontal, 20)
-        .padding(.vertical, 14)
+        .padding(.vertical, 10)
         .background(Theme.card)
+    }
+
+    private var environmentSwitch: some View {
+        HStack(spacing: 2) {
+            ForEach(ApiEnvironment.allCases) { env in
+                EnvironmentSegment(env: env, selected: env == environment) {
+                    auth.active = env
+                }
+            }
+        }
+        .padding(3)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color.black.opacity(0.05)))
+    }
+
+    private var productionBanner: some View {
+        HStack(spacing: 8) {
+            Circle().fill(Theme.deletion).frame(width: 7, height: 7)
+            Text("PRODUCTION")
+                .font(.mono(11, .bold))
+                .kerning(1)
+                .foregroundStyle(Theme.deletion)
+            Text("Every send here hits live merchant data.")
+                .font(.system(size: 12))
+            Spacer()
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 8)
+        .background(Theme.deletion.opacity(0.10))
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(Theme.deletion.opacity(0.20)).frame(height: 1)
+        }
     }
 
     // MARK: - Sidebar
@@ -53,7 +101,9 @@ struct PostmanView: View {
             ScrollView {
                 VStack(spacing: 4) {
                     ForEach(store.requests) { request in
-                        RequestRow(request: request, selected: request.id == store.selectedID)
+                        RequestRow(request: request,
+                                   selected: request.id == store.selectedID,
+                                   accent: environment.accent)
                             .contentShape(Rectangle())
                             .onTapGesture { store.selectedID = request.id }
                             .appContextMenu {
@@ -82,7 +132,7 @@ struct PostmanView: View {
                 }
                 .buttonStyle(.plain)
 
-                authRow
+                tokenCard
             }
             .padding(16)
         }
@@ -90,42 +140,60 @@ struct PostmanView: View {
         .background(Theme.sidebar)
     }
 
-    // The token is shared by every request, so its state belongs next to the list rather
-    // than inside whichever request happens to be open.
-    private var authRow: some View {
-        Button {
-            showingAuth = true
-        } label: {
-            HStack(spacing: 8) {
+    // The active environment's token, next to the list because every request borrows it.
+    private var tokenCard: some View {
+        let config = auth.config(for: environment)
+        let ready = config.missing.isEmpty
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 7) {
                 Circle()
-                    .fill(auth.isAuthenticated ? Theme.dotOn : Theme.dotOff)
+                    .fill(auth.isAuthenticated(for: environment)
+                          ? environment.brightAccent : Theme.dotOff)
                     .frame(width: 7, height: 7)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Authorization")
-                        .font(.system(size: 12, weight: .semibold))
-                    Text(authState)
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
+                Text("\(environment.label) token")
+                    .font(.system(size: 12, weight: .semibold))
                 Spacer(minLength: 0)
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.tertiary)
+                if let token = auth.tokens[environment], auth.isAuthenticated(for: environment) {
+                    Text(token.remainingText)
+                        .font(.mono(10))
+                        .foregroundStyle(.secondary)
+                }
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 9)
-            .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
-            .contentShape(Rectangle())
+
+            Text(ready ? config.tokenHost : "No credentials yet")
+                .font(.mono(10))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+
+            Button(tokenAction) {
+                guard ready else {
+                    showingEnvironments = true
+                    return
+                }
+                auth.authenticate(environment)
+                // A callback that is not ours needs the paste field, which lives in the
+                // Environments sheet, so the sign-in and the sheet arrive together.
+                if config.grant.usesBrowser && !config.usesLoopback {
+                    showingEnvironments = true
+                }
+            }
+            .buttonStyle(.plain)
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(environment.accent)
+            .disabled(auth.busy.contains(environment))
         }
-        .buttonStyle(.plain)
+        .padding(.horizontal, 11)
+        .padding(.vertical, 10)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(environment.accent.opacity(0.3)))
     }
 
-    private var authState: String {
-        if auth.busy { return "Signing in…" }
-        if auth.awaitingPaste { return "Waiting for the code" }
-        return auth.tokenStatus
+    private var tokenAction: String {
+        if auth.busy.contains(environment) { return "Signing in…" }
+        if auth.awaitingPaste.contains(environment) { return "Waiting for the code" }
+        if !auth.config(for: environment).missing.isEmpty { return "Set up credentials" }
+        return "Re-authenticate"
     }
 
     // MARK: - Detail
@@ -150,6 +218,34 @@ struct PostmanView: View {
     }
 }
 
+private struct EnvironmentSegment: View {
+    let env: ApiEnvironment
+    let selected: Bool
+    let action: () -> Void
+
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Text(env.label)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(selected ? Color.white : Color.secondary)
+                Text(env.envValue)
+                    .font(.mono(10, .medium))
+                    .foregroundStyle(selected ? Color.white.opacity(0.72) : Color.secondary.opacity(0.6))
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(RoundedRectangle(cornerRadius: 8)
+                .fill(selected ? env.accent : (hovering ? Color.black.opacity(0.04) : .clear)))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+    }
+}
+
 // The same question whether the delete starts from the sidebar or from the editor.
 @MainActor
 private func deleteDialog(for request: SavedRequest, store: PostmanStore) -> Dialog {
@@ -165,6 +261,7 @@ private func deleteDialog(for request: SavedRequest, store: PostmanStore) -> Dia
 private struct RequestRow: View {
     let request: SavedRequest
     let selected: Bool
+    let accent: Color
 
     @State private var hovering = false
 
@@ -181,7 +278,7 @@ private struct RequestRow: View {
         .padding(.vertical, 8)
         .background(RoundedRectangle(cornerRadius: 8)
             .fill(selected ? Theme.card : (hovering ? Theme.field : .clear)))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(selected ? Theme.border : .clear))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(selected ? accent.opacity(0.3) : .clear))
         .onHover { hovering = $0 }
     }
 }
@@ -195,6 +292,21 @@ private struct MethodTag: View {
             .foregroundStyle(method.tint)
             .frame(width: 42, alignment: .leading)
     }
+}
+
+// The template with every {{env}} swapped for what it resolves to, the resolved parts
+// picked out in the environment's colour.
+private func resolvedText(_ template: String, env: ApiEnvironment,
+                          size: CGFloat, base: Color) -> Text {
+    let parts = template.components(separatedBy: "{{env}}")
+    var text = Text(verbatim: "")
+    for (index, part) in parts.enumerated() {
+        if index > 0 {
+            text = text + Text(env.envValue).font(.mono(size, .bold)).foregroundStyle(env.brightAccent)
+        }
+        text = text + Text(part).font(.mono(size)).foregroundStyle(base)
+    }
+    return text
 }
 
 // MARK: - Editing one request
@@ -217,6 +329,7 @@ private struct RequestDetail: View {
         _draft = State(initialValue: request)
     }
 
+    private var environment: ApiEnvironment { auth.active }
     private var running: Bool { runner.isRunning(draft.id) }
     private var result: HTTPResult? { runner.result(draft.id) }
 
@@ -224,6 +337,7 @@ private struct RequestDetail: View {
         VStack(alignment: .leading, spacing: 0) {
             title
             urlBar
+            resolvedLine
             tabs
             Divider().overlay(Theme.hairline)
             editor
@@ -272,14 +386,15 @@ private struct RequestDetail: View {
                 }
             }
 
-            TextField("https://host/path", text: $draft.url)
+            TextField("https://host/path — {{env}} resolves per environment", text: $draft.url)
                 .textFieldStyle(.plain)
                 .font(.mono(12))
                 .lineLimit(1)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 9)
                 .background(RoundedRectangle(cornerRadius: 9).fill(Theme.card))
-                .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
+                .overlay(RoundedRectangle(cornerRadius: 9)
+                    .stroke(environment.accent.opacity(0.35)))
                 .onSubmit(send)
 
             Button(action: send) {
@@ -289,13 +404,28 @@ private struct RequestDetail: View {
                     .padding(.horizontal, 20)
                     .padding(.vertical, 9)
                     .background(RoundedRectangle(cornerRadius: 9)
-                        .fill(running ? Color.black.opacity(0.4) : Color.black.opacity(0.88)))
+                        .fill(environment.accent.opacity(running ? 0.5 : 1)))
             }
             .buttonStyle(.plain)
             .disabled(running || draft.url.isEmpty)
         }
         .padding(.horizontal, 20)
-        .padding(.bottom, 14)
+        .padding(.bottom, 6)
+    }
+
+    // What the URL becomes on send, so the template stays editable above while the
+    // real address is always in sight.
+    private var resolvedLine: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text("→")
+                .font(.mono(10))
+                .foregroundStyle(.tertiary)
+            resolvedText(draft.url, env: environment, size: 10, base: .secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 12)
     }
 
     private var tabs: some View {
@@ -321,7 +451,7 @@ private struct RequestDetail: View {
         switch tab {
         case .headers: draft.headers.isEmpty ? tab.rawValue : "\(tab.rawValue) · \(draft.headers.count)"
         case .body: draft.bodyType == .none ? tab.rawValue : "\(tab.rawValue) · \(draft.bodyType.label)"
-        case .auth: draft.useAuth ? "\(tab.rawValue) · on" : "\(tab.rawValue) · off"
+        case .auth: draft.useAuth ? "\(tab.rawValue) · \(environment.rawValue) bearer" : "\(tab.rawValue) · off"
         }
     }
 
@@ -337,33 +467,17 @@ private struct RequestDetail: View {
         VStack(alignment: .leading, spacing: 12) {
             Toggle(isOn: $draft.useAuth) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Send the collection's token")
+                    Text("Send the environment's token")
                         .font(.system(size: 13, weight: .semibold))
-                    Text("Adds \(auth.config.headerPrefix) <token> as the Authorization header. An Authorization header of your own still wins.")
+                    Text("Adds \(auth.config(for: environment).headerPrefix) <token> as the Authorization header, from whichever environment is active when you send. An Authorization header of your own still wins.")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
 
-            HStack(spacing: 10) {
-                Circle()
-                    .fill(auth.isAuthenticated ? Theme.dotOn : Theme.dotOff)
-                    .frame(width: 7, height: 7)
-                Text(auth.tokenStatus)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                Spacer()
-            }
+            EnvironmentTokenControls(env: environment)
 
-            if let failure = auth.failure {
-                Text(failure)
-                    .font(.system(size: 11))
-                    .foregroundStyle(Theme.deletion)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            AuthenticateButton().frame(width: 220)
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -383,7 +497,7 @@ private struct RequestDetail: View {
                 } label: {
                     Text("+ Add header")
                         .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(Theme.accent)
+                        .foregroundStyle(environment.accent)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.vertical, 6)
                 }
@@ -417,12 +531,62 @@ private struct RequestDetail: View {
         // The draft is what the user is looking at, and it may be a keystroke ahead of
         // the store, so the run is built from it rather than from the saved copy.
         let request = draft
+        let env = environment
+        guard env == .production else {
+            fire(request, in: env)
+            return
+        }
+        // Production asks once per send. There is no way to stop it asking; the prompt
+        // is the guard.
+        dialogs.show(Dialog(
+            title: "Send to production?",
+            message: consequence(of: request.method),
+            content: AnyView(ResolvedRequestBox(request: request)),
+            actions: [
+                .init(label: "Send", kind: .destructive) { fire(request, in: env) },
+                .init(label: "Switch to staging") { auth.active = .staging },
+                .init(label: "Cancel", kind: .cancel)
+            ],
+            width: 400))
+    }
+
+    private func fire(_ request: SavedRequest, in env: ApiEnvironment) {
         Task {
             // Asked for per send rather than held, so an expired token is refreshed on
             // the way out instead of failing the call.
-            let authorization = request.useAuth ? await auth.authorizationHeader() : nil
-            await runner.send(request, authorization: authorization)
+            let authorization = request.useAuth ? await auth.authorizationHeader(for: env) : nil
+            await runner.send(request, environment: env, authorization: authorization)
         }
+    }
+
+    private func consequence(of method: HTTPMethod) -> String {
+        switch method {
+        case .delete: "This deletes real data. Switch to staging if you meant to test."
+        case .post: "This creates real data. Switch to staging if you meant to test."
+        case .put, .patch: "This changes real data. Switch to staging if you meant to test."
+        case .get, .head: "This runs against live data. Switch to staging if you meant to test."
+        }
+    }
+}
+
+// Exactly what the confirmation is about: the method and the URL as it will be sent.
+private struct ResolvedRequestBox: View {
+    let request: SavedRequest
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(request.method.rawValue)
+                .font(.mono(11, .bold))
+                .foregroundStyle(Theme.deletion)
+            resolvedText(request.url, env: .production, size: 11, base: .primary)
+                .lineLimit(2)
+                .truncationMode(.middle)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 11)
+        .padding(.vertical, 9)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.card))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
     }
 }
 
@@ -513,6 +677,12 @@ private struct ResponsePane: View {
                     .font(.mono(11))
                     .foregroundStyle(.secondary)
 
+                if let origin = result.origin {
+                    Text("from \(origin)")
+                        .font(.mono(11))
+                        .foregroundStyle(originTint(origin))
+                }
+
                 if !result.headers.isEmpty {
                     Button(showingHeaders ? "Body" : "Headers · \(result.headers.count)") {
                         showingHeaders.toggle()
@@ -530,7 +700,7 @@ private struct ResponsePane: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             } else if let text = copyable, !text.isEmpty {
-                Button("Copy") {
+                Button("Copy response") {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(text, forType: .string)
                 }
@@ -543,13 +713,17 @@ private struct ResponsePane: View {
         .padding(.vertical, 10)
     }
 
+    private func originTint(_ origin: String) -> Color {
+        ApiEnvironment.allCases.first { $0.envValue == origin }?.brightAccent ?? .secondary
+    }
+
     @ViewBuilder private var content: some View {
         if let result {
             ScrollView {
                 if let failure = result.failure {
                     Text(failure)
                         .font(.system(size: 12))
-                        .foregroundStyle(Theme.deletion)
+                        .foregroundStyle(ResponseStyle.failure)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(20)
@@ -559,25 +733,34 @@ private struct ResponsePane: View {
                             HStack(alignment: .top, spacing: 8) {
                                 Text(header.key)
                                     .font(.mono(11, .semibold))
+                                    .foregroundStyle(ResponseStyle.key)
                                     .frame(width: 200, alignment: .leading)
                                 Text(header.value)
                                     .font(.mono(11))
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(ResponseStyle.base)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                             }
                         }
                     }
                     .textSelection(.enabled)
                     .padding(20)
-                } else {
-                    Text(result.body.isEmpty ? "No body came back." : result.body)
+                } else if result.body.isEmpty {
+                    Text("No body came back.")
                         .font(.mono(11))
-                        .foregroundStyle(result.body.isEmpty ? .secondary : .primary)
+                        .foregroundStyle(ResponseStyle.base.opacity(0.6))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(20)
+                } else {
+                    Text(ResponseStyle.highlight(result.body))
+                        .font(.mono(11))
+                        .lineSpacing(4)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(20)
                 }
             }
+            .frame(maxWidth: .infinity)
+            .background(ResponseStyle.background)
         } else {
             Text(running ? "Sending…" : "Send the request to see what comes back.")
                 .font(.system(size: 12))

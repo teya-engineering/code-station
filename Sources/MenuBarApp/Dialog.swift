@@ -17,9 +17,13 @@ struct Dialog: Identifiable {
     let id = UUID()
     let title: String
     var message: String?
+    // Drawn between the message and the buttons, for a question that has to show more
+    // than a sentence, such as the exact request a confirmation is about.
+    var content: AnyView?
     var actions: [Action]
     // Runs when the dialog is dismissed with escape or a click outside it.
     var onCancel: () -> Void = {}
+    var width: CGFloat = 340
 }
 
 // Holds whatever dialog is open. It lives at the top of the window so a question asked
@@ -57,7 +61,7 @@ struct DialogHost: View {
                     .onTapGesture { presenter.dismiss() }
 
                 card(dialog)
-                    .frame(width: 340)
+                    .frame(width: dialog.width)
                     .transition(.scale(scale: 0.96).combined(with: .opacity))
             }
             .transition(.opacity)
@@ -76,6 +80,9 @@ struct DialogHost: View {
                         .font(.system(size: 13))
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
+                }
+                if let content = dialog.content {
+                    content
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)

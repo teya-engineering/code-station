@@ -94,7 +94,7 @@ final class PostmanStore {
     // An empty screen gives you nothing to copy, so a first run starts with the
     // orders dead letter endpoints already filled in.
     private static var examples: [SavedRequest] {
-        let base = "https://api.dev.example.com/orders-service/v1/internal/dlt"
+        let base = "https://api.{{env}}.example.com/orders-service/v1/internal/dlt"
         return [
             SavedRequest(name: "Fetch DLT messages from cache", method: .get, url: base + "/messages"),
             SavedRequest(name: "Start the DLT message consumer", method: .put, url: base + "/start"),

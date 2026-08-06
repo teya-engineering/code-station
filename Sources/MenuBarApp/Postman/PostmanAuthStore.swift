@@ -2,27 +2,36 @@ import AppKit
 import Foundation
 import Observation
 
-// The collection's OAuth setup and whatever token it currently holds. Requests borrow the
-// token from here rather than each keeping their own copy of it.
+// The two environments' OAuth setups and whatever token each currently holds. A send
+// borrows the active environment's token from here; switching environments never touches
+// the other side's token, so flipping back does not mean signing in again.
 @MainActor
 @Observable
 final class PostmanAuthStore {
-    var config: OAuthConfig { didSet { if config != oldValue { scheduleSave() } } }
-    private(set) var token: OAuthToken?
-    private(set) var busy = false
-    private(set) var failure: String?
+    var active: ApiEnvironment { didSet { if active != oldValue { scheduleSave() } } }
+    var staging: OAuthConfig { didSet { if staging != oldValue { scheduleSave() } } }
+    var production: OAuthConfig { didSet { if production != oldValue { scheduleSave() } } }
+
+    private(set) var tokens: [ApiEnvironment: OAuthToken] = [:]
+    private(set) var busy: Set<ApiEnvironment> = []
     // The browser is out with a sign-in whose answer has to be pasted back.
-    private(set) var awaitingPaste = false
-    private var attempt: Task<Void, Never>?
-    private var pending: Pending?
+    private(set) var awaitingPaste: Set<ApiEnvironment> = []
+    private(set) var failures: [ApiEnvironment: String] = [:]
+    private var attempts: [ApiEnvironment: Task<Void, Never>] = [:]
+    private var pending: [ApiEnvironment: Pending] = [:]
 
     let storeURL: URL
 
     private struct Persisted: Codable {
+        var active: ApiEnvironment
+        var staging: OAuthConfig
+        var production: OAuthConfig
+    }
+
+    // Written by the version that had one shared setup instead of one per environment.
+    // Read so it can be carried into staging, never written back.
+    private struct LegacyPersisted: Codable {
         var config: OAuthConfig
-        // Written by an earlier version, which kept the token in this file. Read so it
-        // can be moved into the Keychain, never written back.
-        var token: OAuthToken?
     }
 
     init() {
@@ -30,43 +39,79 @@ final class PostmanAuthStore {
             .map { URL(fileURLWithPath: $0) }
             ?? AppPaths.supportFile("postman-auth.json",
                                     movedFrom: AppPaths.legacy("postman-auth.json"))
-        let saved = try? JSONDecoder.oauth.decode(
-            Persisted.self, from: (try? Data(contentsOf: storeURL)) ?? Data())
+        let data = (try? Data(contentsOf: storeURL)) ?? Data()
+        let saved = try? JSONDecoder.oauth.decode(Persisted.self, from: data)
+        let legacy = (try? JSONDecoder.oauth.decode(LegacyPersisted.self, from: data))?.config
+            ?? Keychain.string(.legacyClientSecret).map { _ in OAuthConfig.teya }
 
-        config = saved?.config ?? .teya
-        token = saved?.token
-        let fromFile = !config.clientSecret.isEmpty || token != nil
-
-        // The Keychain is the truth for both; the file only ever holds them on the way
-        // over from a version that did not know better.
-        storedSecret = Keychain.string(.oauthClientSecret)
-        if let storedSecret { config.clientSecret = storedSecret }
-        storedTokenJSON = Keychain.string(.oauthToken)
-        if let storedTokenJSON,
-           let token = try? JSONDecoder.oauth.decode(OAuthToken.self, from: Data(storedTokenJSON.utf8)) {
-            self.token = token
+        // A config from before the split, or one emptied by it, is carried into both
+        // environments rather than dropped; the sides then diverge as they are edited.
+        func carried(_ config: OAuthConfig?) -> OAuthConfig {
+            if let config, !(config.tokenURL.isEmpty && config.clientID.isEmpty) { return config }
+            return legacy ?? .teya
         }
-        if fromFile { save() }
+        var staging = carried(saved?.staging)
+        var production = carried(saved?.production)
+        var tokens: [ApiEnvironment: OAuthToken] = [:]
+        var secrets: [ApiEnvironment: String] = [:]
+        var tokenJSON: [ApiEnvironment: String] = [:]
+
+        // The Keychain is the truth for the secrets and the tokens; the file never holds
+        // either. The single pre-split secret and token fall back into both sides, since
+        // they belonged to the one setup both start from.
+        for env in ApiEnvironment.allCases {
+            let secret = Keychain.string(env.secretAccount)
+            if let secret {
+                secrets[env] = secret
+            }
+            if let secret = secret ?? Keychain.string(.legacyClientSecret) {
+                if env == .staging { staging.clientSecret = secret }
+                else { production.clientSecret = secret }
+            }
+            if let json = Keychain.string(env.tokenAccount) ?? Keychain.string(.legacyToken) {
+                if Keychain.string(env.tokenAccount) != nil { tokenJSON[env] = json }
+                if let token = try? JSONDecoder.oauth.decode(OAuthToken.self, from: Data(json.utf8)) {
+                    tokens[env] = token
+                }
+            }
+        }
+
+        active = saved?.active ?? .staging
+        self.staging = staging
+        self.production = production
+        self.tokens = tokens
+        storedSecrets = secrets
+        storedTokenJSON = tokenJSON
     }
 
-    var isAuthenticated: Bool {
-        guard let token else { return false }
-        return !token.isExpired && token.matches(config)
+    func config(for env: ApiEnvironment) -> OAuthConfig {
+        env == .staging ? staging : production
+    }
+
+    func setConfig(_ config: OAuthConfig, for env: ApiEnvironment) {
+        if env == .staging { staging = config } else { production = config }
+    }
+
+    func isAuthenticated(for env: ApiEnvironment) -> Bool {
+        guard let token = tokens[env] else { return false }
+        return !token.isExpired && token.matches(config(for: env))
     }
 
     // The token on hand was issued for a different client or provider than the one set up
     // now. It is kept rather than dropped, since a keystroke in a field should not throw a
     // sign-in away, but it is not sent anywhere and it does not count as being signed in.
-    var tokenIsForOtherSettings: Bool {
-        guard let token else { return false }
-        return !token.matches(config)
+    func tokenIsForOtherSettings(_ env: ApiEnvironment) -> Bool {
+        guard let token = tokens[env] else { return false }
+        return !token.matches(config(for: env))
     }
 
     // One line on where the token stands, so every place that shows it says the same thing.
-    var tokenStatus: String {
-        guard let token else { return "Not signed in" }
-        if tokenIsForOtherSettings { return "Token is for other settings" }
-        return token.isExpired ? "Token expired" : token.expiryText
+    func tokenStatus(for env: ApiEnvironment) -> String {
+        if busy.contains(env) { return "Signing in…" }
+        if awaitingPaste.contains(env) { return "Waiting for the code" }
+        guard let token = tokens[env] else { return "Not signed in" }
+        if tokenIsForOtherSettings(env) { return "Token is for other settings" }
+        return token.validityText
     }
 
     // MARK: - Getting a token
@@ -74,91 +119,110 @@ final class PostmanAuthStore {
     // Started rather than awaited, so the attempt is a thing that can be called off. A
     // sign-in that goes wrong usually does so in the browser, where nothing comes back to
     // say so and waiting for the timeout is the only other way out.
-    func authenticate() {
-        guard !busy else { return }
+    func authenticate(_ env: ApiEnvironment) {
+        guard !busy.contains(env) else { return }
+        let config = config(for: env)
         let gaps = config.missing
         guard gaps.isEmpty else {
-            failure = "Fill in \(gaps.joined(separator: ", ")) first."
+            failures[env] = "Fill in \(gaps.joined(separator: ", ")) first."
             return
         }
 
-        busy = true
-        failure = nil
-        awaitingPaste = false
-        pending = nil
-        attempt = Task { [weak self] in
+        busy.insert(env)
+        failures[env] = nil
+        awaitingPaste.remove(env)
+        pending[env] = nil
+        attempts[env] = Task { [weak self] in
             guard let self else { return }
             defer {
-                self.busy = false
-                self.attempt = nil
+                self.busy.remove(env)
+                self.attempts[env] = nil
             }
             do {
-                switch self.config.grant {
-                case .authorizationCodePKCE: self.token = try await self.authorizationCode()
-                case .clientCredentials: self.token = try await self.clientCredentials()
+                switch config.grant {
+                case .authorizationCodePKCE:
+                    self.tokens[env] = try await self.authorizationCode(env, config: config)
+                case .clientCredentials:
+                    self.tokens[env] = try await self.clientCredentials(config)
                 }
                 self.save()
             } catch is PausedForPaste {
                 // The browser has the sign-in now; it finishes in submitRedirect.
             } catch is CancellationError {
-                self.failure = "Sign-in was cancelled."
+                self.failures[env] = "Sign-in was cancelled."
             } catch {
-                self.failure = error.localizedDescription
+                self.failures[env] = error.localizedDescription
             }
         }
     }
 
-    func cancelAuthentication() {
-        attempt?.cancel()
-        awaitingPaste = false
-        pending = nil
+    func cancelAuthentication(_ env: ApiEnvironment) {
+        attempts[env]?.cancel()
+        awaitingPaste.remove(env)
+        pending[env] = nil
     }
 
     // Refreshing goes to the token endpoint as the client that is set up now, which is not
     // the one that issued a token from other settings.
-    func refresh() async {
-        guard !busy, let current = token, current.matches(config),
+    func refresh(_ env: ApiEnvironment) async {
+        let config = config(for: env)
+        guard !busy.contains(env), let current = tokens[env], current.matches(config),
               let refreshToken = current.refreshToken else { return }
-        busy = true
-        failure = nil
-        defer { busy = false }
+        busy.insert(env)
+        failures[env] = nil
+        defer { busy.remove(env) }
         do {
-            token = try await exchange(["grant_type": "refresh_token",
-                                        "refresh_token": refreshToken])
+            tokens[env] = try await exchange(["grant_type": "refresh_token",
+                                              "refresh_token": refreshToken],
+                                             config: config,
+                                             keepingRefresh: refreshToken)
             save()
         } catch {
-            failure = error.localizedDescription
+            failures[env] = error.localizedDescription
         }
     }
 
-    func clearToken() {
-        token = nil
-        failure = nil
+    func clearToken(for env: ApiEnvironment) {
+        tokens[env] = nil
+        failures[env] = nil
         save()
     }
 
-    // The value a request should send. An expired token is refreshed first when the
-    // provider gave us the means to, so a send does not fail on staleness alone.
-    func authorizationHeader() async -> String? {
-        guard token?.matches(config) == true else { return nil }
-        if token?.isExpired == true, token?.refreshToken != nil { await refresh() }
-        guard let token, !token.isExpired else { return nil }
+    // The value a request should send. An expired token is brought back quietly when the
+    // grant allows it - a refresh token, or client credentials asked for again - so a send
+    // does not fail on staleness alone.
+    func authorizationHeader(for env: ApiEnvironment) async -> String? {
+        let config = config(for: env)
+        if let token = tokens[env], token.matches(config), token.isExpired,
+           token.refreshToken != nil {
+            await refresh(env)
+        }
+        if !isAuthenticated(for: env), config.grant == .clientCredentials,
+           config.missing.isEmpty, !busy.contains(env) {
+            busy.insert(env)
+            defer { busy.remove(env) }
+            if let token = try? await clientCredentials(config) {
+                tokens[env] = token
+                save()
+            }
+        }
+        guard let token = tokens[env], token.matches(config), !token.isExpired else { return nil }
         let prefix = config.headerPrefix.trimmingCharacters(in: .whitespaces)
         return prefix.isEmpty ? token.accessToken : "\(prefix) \(token.accessToken)"
     }
 
     // MARK: - The grants
 
-    private func authorizationCode() async throws -> OAuthToken {
+    private func authorizationCode(_ env: ApiEnvironment, config: OAuthConfig) async throws -> OAuthToken {
         let verifier = PKCE.verifier()
         let state = config.state.isEmpty ? UUID().uuidString : config.state
-        let authorizeURL = try authorizeURL(verifier: verifier, state: state)
+        let authorizeURL = try authorizeURL(config: config, verifier: verifier, state: state)
 
         // A callback that belongs to someone else lands in their page, out of reach, so
         // the browser is opened and the code is taken from what the user pastes back.
         guard config.usesLoopback else {
-            pending = Pending(verifier: verifier, state: state)
-            awaitingPaste = true
+            pending[env] = Pending(verifier: verifier, state: state)
+            awaitingPaste.insert(env)
             NSWorkspace.shared.open(authorizeURL)
             throw PausedForPaste()
         }
@@ -185,10 +249,10 @@ final class PostmanAuthStore {
             throw OAuthError("The state did not match, so the answer was ignored.")
         }
 
-        return try await redeem(code: code, verifier: verifier)
+        return try await redeem(code: code, verifier: verifier, config: config)
     }
 
-    private func authorizeURL(verifier: String, state: String) throws -> URL {
+    private func authorizeURL(config: OAuthConfig, verifier: String, state: String) throws -> URL {
         guard var components = URLComponents(string: config.authURL) else {
             throw OAuthError("The auth URL is not valid.")
         }
@@ -206,11 +270,19 @@ final class PostmanAuthStore {
         return url
     }
 
-    private func redeem(code: String, verifier: String) async throws -> OAuthToken {
+    private func redeem(code: String, verifier: String, config: OAuthConfig) async throws -> OAuthToken {
         try await exchange(["grant_type": "authorization_code",
                             "code": code,
                             "redirect_uri": config.callbackURL,
-                            "code_verifier": verifier])
+                            "code_verifier": verifier],
+                           config: config,
+                           keepingRefresh: nil)
+    }
+
+    private func clientCredentials(_ config: OAuthConfig) async throws -> OAuthToken {
+        var fields = ["grant_type": "client_credentials"]
+        if !config.scope.isEmpty { fields["scope"] = config.scope }
+        return try await exchange(fields, config: config, keepingRefresh: nil)
     }
 
     // MARK: - Finishing a pasted sign-in
@@ -225,52 +297,50 @@ final class PostmanAuthStore {
     // without an error being shown.
     private struct PausedForPaste: Error {}
 
-    func submitRedirect(_ text: String) {
-        guard !busy, let pending else { return }
+    func submitRedirect(_ text: String, for env: ApiEnvironment) {
+        guard !busy.contains(env), let pending = pending[env] else { return }
+        let config = config(for: env)
 
         switch RedirectAnswer.parse(text) {
         case .unreadable:
-            failure = "That does not look like the redirect URL or a code."
+            failures[env] = "That does not look like the redirect URL or a code."
         case .refused(let message):
-            failure = message
+            failures[env] = message
         case .code(let code, let state):
             // Providers echo the state back, but not all of them, and the paste is only
             // as good as what the browser was given.
             guard state == nil || state == pending.state else {
-                failure = "The state did not match, so the answer was ignored."
+                failures[env] = "The state did not match, so the answer was ignored."
                 return
             }
-            busy = true
-            failure = nil
-            attempt = Task { [weak self] in
+            busy.insert(env)
+            failures[env] = nil
+            attempts[env] = Task { [weak self] in
                 guard let self else { return }
                 defer {
-                    self.busy = false
-                    self.attempt = nil
+                    self.busy.remove(env)
+                    self.attempts[env] = nil
                 }
                 do {
-                    self.token = try await self.redeem(code: code, verifier: pending.verifier)
-                    self.pending = nil
-                    self.awaitingPaste = false
+                    self.tokens[env] = try await self.redeem(code: code,
+                                                             verifier: pending.verifier,
+                                                             config: config)
+                    self.pending[env] = nil
+                    self.awaitingPaste.remove(env)
                     self.save()
                 } catch is CancellationError {
-                    self.failure = "Sign-in was cancelled."
+                    self.failures[env] = "Sign-in was cancelled."
                 } catch {
-                    self.failure = error.localizedDescription
+                    self.failures[env] = error.localizedDescription
                 }
             }
         }
     }
 
-    private func clientCredentials() async throws -> OAuthToken {
-        var fields = ["grant_type": "client_credentials"]
-        if !config.scope.isEmpty { fields["scope"] = config.scope }
-        return try await exchange(fields)
-    }
-
     // MARK: - The token call
 
-    private func exchange(_ fields: [String: String]) async throws -> OAuthToken {
+    private func exchange(_ fields: [String: String], config: OAuthConfig,
+                          keepingRefresh: String?) async throws -> OAuthToken {
         guard let url = URL(string: config.tokenURL) else {
             throw OAuthError("The access token URL is not valid.")
         }
@@ -301,7 +371,7 @@ final class PostmanAuthStore {
         let parsed = try? JSONDecoder.oauth.decode(TokenResponse.self, from: data)
         if let failure = parsed?.failure { throw OAuthError(failure) }
 
-        guard let token = parsed?.token(keepingRefresh: token?.refreshToken,
+        guard let token = parsed?.token(keepingRefresh: keepingRefresh,
                                         identity: config.identity) else {
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             let text = String(data: data.prefix(400), encoding: .utf8) ?? ""
@@ -315,8 +385,8 @@ final class PostmanAuthStore {
     private var saveTask: Task<Void, Never>?
     // What the Keychain holds right now, so a save can tell when writing it again would
     // only store the same value.
-    private var storedSecret: String?
-    private var storedTokenJSON: String?
+    private var storedSecrets: [ApiEnvironment: String] = [:]
+    private var storedTokenJSON: [ApiEnvironment: String] = [:]
 
     // Editing a settings field lands here once per keystroke, so those are coalesced
     // into one write the way the request store does it.
@@ -329,39 +399,54 @@ final class PostmanAuthStore {
         }
     }
 
-    // The secret and the token go to the Keychain; the file keeps the rest, which is just
-    // the addresses and the client id. Keychain writes are slow and synchronous, so they
-    // are skipped when the value there already matches.
+    // The secrets and the tokens go to the Keychain; the file keeps the rest, which is
+    // just the addresses and the client ids. Keychain writes are slow and synchronous,
+    // so they are skipped when the value there already matches.
     func save() {
         saveTask?.cancel()
         saveTask = nil
 
-        let secret = config.clientSecret.isEmpty ? nil : config.clientSecret
-        if secret != storedSecret {
-            Keychain.set(secret, for: .oauthClientSecret)
-            storedSecret = secret
-        }
-
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         encoder.dateEncodingStrategy = .iso8601
-        let tokenJSON = token.flatMap { try? encoder.encode($0) }.map { String(decoding: $0, as: UTF8.self) }
-        if tokenJSON != storedTokenJSON {
-            Keychain.set(tokenJSON, for: .oauthToken)
-            storedTokenJSON = tokenJSON
+
+        for env in ApiEnvironment.allCases {
+            let secret = config(for: env).clientSecret
+            let value = secret.isEmpty ? nil : secret
+            if value != storedSecrets[env] {
+                Keychain.set(value, for: env.secretAccount)
+                storedSecrets[env] = value
+            }
+
+            let tokenJSON = tokens[env].flatMap { try? encoder.encode($0) }
+                .map { String(decoding: $0, as: UTF8.self) }
+            if tokenJSON != storedTokenJSON[env] {
+                Keychain.set(tokenJSON, for: env.tokenAccount)
+                storedTokenJSON[env] = tokenJSON
+            }
         }
 
-        var onDisk = config
-        onDisk.clientSecret = ""
-        guard let data = try? encoder.encode(Persisted(config: onDisk, token: nil)) else { return }
+        var onDisk = Persisted(active: active, staging: staging, production: production)
+        onDisk.staging.clientSecret = ""
+        onDisk.production.clientSecret = ""
+        guard let data = try? encoder.encode(onDisk) else { return }
         try? FileManager.default.createDirectory(
             at: storeURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? data.write(to: storeURL, options: .atomic)
     }
 }
 
+private extension ApiEnvironment {
+    var secretAccount: Keychain.Account {
+        self == .staging ? .stagingClientSecret : .productionClientSecret
+    }
+    var tokenAccount: Keychain.Account {
+        self == .staging ? .stagingToken : .productionToken
+    }
+}
+
 private extension JSONDecoder {
-    // Token endpoints answer in snake_case, and so does the file we write from it.
+    // Token endpoints answer in snake_case, and so do the files we write from them.
     static var oauth: JSONDecoder {
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
@@ -370,8 +455,8 @@ private extension JSONDecoder {
     }
 }
 
-private extension OAuthConfig {
-    // The orders collection's identity provider, so the example requests have
+extension OAuthConfig {
+    // The orders collection's identity provider, so both environments have
     // somewhere to sign in against without being typed out first.
     static var teya: OAuthConfig {
         OAuthConfig(grant: .authorizationCodePKCE,

@@ -19,11 +19,14 @@ final class PostmanRunner {
     func isRunning(_ id: UUID) -> Bool { inFlight.contains(id) }
     func result(_ id: UUID) -> HTTPResult? { results[id] }
 
-    func send(_ request: SavedRequest, authorization: String? = nil) async {
+    func send(_ request: SavedRequest, environment: ApiEnvironment,
+              authorization: String? = nil) async {
         guard !inFlight.contains(request.id) else { return }
-        guard let urlRequest = Self.build(request, authorization: authorization) else {
+        guard let urlRequest = Self.build(request, environment: environment,
+                                          authorization: authorization) else {
             results[request.id] = HTTPResult(status: 0, headers: [], body: "", duration: 0,
-                                            byteCount: 0, failure: "That URL is not valid.")
+                                             byteCount: 0, origin: environment.envValue,
+                                             failure: "That URL is not valid.")
             return
         }
 
@@ -43,18 +46,24 @@ final class PostmanRunner {
                 headers: headers,
                 body: Self.readable(data, contentType: http?.value(forHTTPHeaderField: "Content-Type")),
                 duration: elapsed,
-                byteCount: data.count)
+                byteCount: data.count,
+                origin: environment.envValue)
         } catch {
             let elapsed = Date().timeIntervalSince(started)
             results[request.id] = HTTPResult(status: 0, headers: [], body: "", duration: elapsed,
-                                             byteCount: 0, failure: error.localizedDescription)
+                                             byteCount: 0, origin: environment.envValue,
+                                             failure: error.localizedDescription)
         }
     }
 
     // MARK: - Building
 
-    private static func build(_ request: SavedRequest, authorization: String?) -> URLRequest? {
-        let trimmed = request.url.trimmingCharacters(in: .whitespacesAndNewlines)
+    private static func build(_ request: SavedRequest, environment: ApiEnvironment,
+                              authorization: String?) -> URLRequest? {
+        // {{env}} is substituted at the last moment, so the saved request stays a
+        // template and the same list serves both environments.
+        let trimmed = environment.resolve(request.url)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         guard let url = URL(string: trimmed), url.scheme != nil, url.host != nil else { return nil }
 
         var urlRequest = URLRequest(url: url)
