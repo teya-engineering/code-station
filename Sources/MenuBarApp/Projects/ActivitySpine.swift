@@ -27,6 +27,7 @@ struct ActivitySpine: View {
                         }
                     },
                     openChanges: openChanges)
+                    .transition(.fadeIn)
             }
         }
         .animation(.easeInOut(duration: 0.12), value: expanded)

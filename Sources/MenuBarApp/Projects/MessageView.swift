@@ -7,6 +7,15 @@ enum ChatColor {
     static let warningBackground = Color(red: 0.98, green: 0.90, blue: 0.88)
 }
 
+// How anything new lands in the transcript: it fades in where it appears. Arrival is
+// one-way, so nothing fades out - a row that leaves mid-stream would ghost under the
+// row replacing it.
+extension AnyTransition {
+    static var fadeIn: AnyTransition {
+        .asymmetric(insertion: .opacity, removal: .identity)
+    }
+}
+
 // One turn of the conversation. The user gets a bubble, Claude does not: long
 // answers read better as plain page text than as a giant tinted block.
 struct MessageView: View, Equatable {
@@ -71,6 +80,7 @@ struct MessageView: View, Equatable {
                     ActivitySpine(tools: tools,
                                   projectPath: projectPath,
                                   openChanges: openChanges)
+                        .transition(.fadeIn)
                 case .prose(_, let text):
                     prose(text)
                 }
@@ -83,6 +93,7 @@ struct MessageView: View, Equatable {
         ForEach(MessageSegment.split(text)) { segment in
             if segment.isCode {
                 CodeBlock(segment: segment)
+                    .transition(.fadeIn)
             } else {
                 Text(inline(segment.text))
                     .font(.system(size: 13))
@@ -90,6 +101,7 @@ struct MessageView: View, Equatable {
                     .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .transition(.fadeIn)
             }
         }
     }

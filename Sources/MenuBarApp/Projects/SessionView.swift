@@ -244,62 +244,16 @@ struct SessionView: View {
 
         return ScrollViewReader { proxy in
             ScrollView {
-                // Not lazy, deliberately. A lazy stack decides what to build from where
-                // the scroll view is looking, and when that offset stops being a valid
-                // one - the pane resizing under a transcript sitting at the bottom, a
-                // message landing as the bottom anchor is re-applied - it builds nothing
-                // at all and the transcript goes blank until it is scrolled by hand.
-                // A turn is a handful of rows, and the tool rows inside one are built
-                // eagerly anyway, so there is nothing much to save by being lazy and a
-                // whole class of blank pane to avoid. It also keeps a tool card that was
-                // opened open once it has been scrolled past.
-                VStack(alignment: .leading, spacing: 18) {
-                    if session.messages.isEmpty {
-                        Text("Ask for a change. Claude Code runs in the project folder, so what it edits is your working tree.")
-                            .font(.system(size: 13))
-                            .foregroundStyle(.secondary)
-                            .padding(.top, 8)
-                    }
-
-                    ForEach(session.messages) { message in
-                        MessageView(message: message,
-                                    projectPath: projectPath,
-                                    openChanges: { tab = .changes })
-                            // Every message is on screen now, and a streaming turn
-                            // rewrites the last one many times a second. Without this,
-                            // each of those redraws every message in the transcript,
-                            // parsing its markdown again on the way.
-                            .equatable()
-                    }
-
-                    pendingQuestion
-
-                    if showsThinking(state: state) {
-                        WorkingRow(runningTool: runningTool(session, root: projectPath),
-                                   since: runner.lastActivity(sessionID) ?? Date())
-                    }
-
-                    // A failed run belongs in the flow of the conversation, not in a dialog.
-                    if case .failed(let message) = state {
-                        HStack(alignment: .top, spacing: 8) {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                            Text(message)
-                                .textSelection(.enabled)
-                                .fixedSize(horizontal: false, vertical: true)
-                            Spacer(minLength: 0)
-                        }
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(ChatColor.warningText)
-                        .padding(12)
-                        .background(RoundedRectangle(cornerRadius: 10).fill(ChatColor.warningBackground))
-                    }
-
-                    Color.clear.frame(height: 1).id(bottomAnchor)
-                }
-                .padding(.horizontal, 24)
-                .padding(.vertical, 20)
-                .frame(maxWidth: 820, alignment: .leading)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                transcriptContent(session, state: state, projectPath: projectPath)
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 20)
+                    .frame(maxWidth: 820, alignment: .leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    // The soft landing for anything new: a fresh row fades in and the
+                    // rows above it glide up rather than jumping. Keyed on the shape of
+                    // the transcript, not its text, so it plays once per whole arrival
+                    // and never while a line is still being typed into.
+                    .animation(.easeOut(duration: 0.2), value: transcriptShape(session, state: state))
             }
             // Opening a transcript starts at the end, where the conversation is.
             .defaultScrollAnchor(.bottom)
@@ -320,10 +274,72 @@ struct SessionView: View {
                 proxy.scrollTo(bottomAnchor, anchor: .bottom)
             }
             .onChange(of: session.messages.count) { scrollToBottom(proxy, animated: true) }
-            .onChange(of: session.messages.last?.text ?? "") { scrollToBottom(proxy, animated: false) }
-            .onChange(of: session.messages.last?.tools.count ?? 0) { scrollToBottom(proxy, animated: false) }
+            // A finished line is worth a glide; tokens landing inside one are not.
+            .onChange(of: session.messages.last?.text ?? "") { old, new in
+                scrollToBottom(proxy, animated: newlineCount(old) != newlineCount(new))
+            }
+            .onChange(of: session.messages.last?.tools.count ?? 0) { scrollToBottom(proxy, animated: true) }
             .onChange(of: state) { scrollToBottom(proxy, animated: true) }
             .onChange(of: runner.question(sessionID)?.id) { scrollToBottom(proxy, animated: true) }
+        }
+    }
+
+    // Not lazy, deliberately. A lazy stack decides what to build from where the scroll
+    // view is looking, and when that offset stops being a valid one - the pane resizing
+    // under a transcript sitting at the bottom, a message landing as the bottom anchor
+    // is re-applied - it builds nothing at all and the transcript goes blank until it
+    // is scrolled by hand. A turn is a handful of rows, and the tool rows inside one
+    // are built eagerly anyway, so there is nothing much to save by being lazy and a
+    // whole class of blank pane to avoid. It also keeps a tool card that was opened
+    // open once it has been scrolled past.
+    private func transcriptContent(_ session: ChatSession, state: SessionState,
+                                   projectPath: String) -> some View {
+        VStack(alignment: .leading, spacing: 18) {
+            if session.messages.isEmpty {
+                Text("Ask for a change. Claude Code runs in the project folder, so what it edits is your working tree.")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 8)
+            }
+
+            ForEach(session.messages) { message in
+                MessageView(message: message,
+                            projectPath: projectPath,
+                            openChanges: { tab = .changes })
+                    // Every message is on screen now, and a streaming turn rewrites
+                    // the last one many times a second. Without this, each of those
+                    // redraws every message in the transcript, parsing its markdown
+                    // again on the way.
+                    .equatable()
+                    .transition(.fadeIn)
+            }
+
+            pendingQuestion
+                .transition(.fadeIn)
+
+            if showsThinking(state: state) {
+                WorkingRow(runningTool: runningTool(session, root: projectPath),
+                           since: runner.lastActivity(sessionID) ?? Date())
+                    .transition(.fadeIn)
+            }
+
+            // A failed run belongs in the flow of the conversation, not in a dialog.
+            if case .failed(let message) = state {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                    Text(message)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                }
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(ChatColor.warningText)
+                .padding(12)
+                .background(RoundedRectangle(cornerRadius: 10).fill(ChatColor.warningBackground))
+                .transition(.fadeIn)
+            }
+
+            Color.clear.frame(height: 1).id(bottomAnchor)
         }
     }
 
@@ -356,13 +372,38 @@ struct SessionView: View {
     }
 
     private func scrollToBottom(_ proxy: ScrollViewProxy, animated: Bool) {
-        // Animating every streamed token makes the transcript jitter, so only the
-        // arrival of a whole message is worth animating.
+        // Animating every streamed token makes the transcript jitter, so only whole
+        // arrivals - a message, a tool row, a finished line - are worth animating.
         if animated {
             withAnimation(.easeOut(duration: 0.18)) { proxy.scrollTo(bottomAnchor, anchor: .bottom) }
         } else {
             proxy.scrollTo(bottomAnchor, anchor: .bottom)
         }
+    }
+
+    // What the transcript is made of, coarsely: how many rows there are and how many
+    // lines the streaming message has settled. Tokens landing inside a line change the
+    // text but not this, which is what keeps the animation to one beat per addition.
+    private struct TranscriptShape: Equatable {
+        let messages: Int
+        let tools: Int
+        let lines: Int
+        let state: SessionState
+        let question: String?
+    }
+
+    private func transcriptShape(_ session: ChatSession, state: SessionState) -> TranscriptShape {
+        TranscriptShape(messages: session.messages.count,
+                        tools: session.messages.last?.tools.count ?? 0,
+                        lines: newlineCount(session.messages.last?.text ?? ""),
+                        state: state,
+                        question: runner.question(sessionID)?.id)
+    }
+
+    private func newlineCount(_ text: String) -> Int {
+        var count = 0
+        for byte in text.utf8 where byte == UInt8(ascii: "\n") { count += 1 }
+        return count
     }
 
     // MARK: - Composer
