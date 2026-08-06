@@ -21,6 +21,10 @@ struct AppSidebar: View {
     @State private var expansion: [UUID: Bool] = [:]
     @State private var renamingID: UUID?
     @State private var choosingSessionKind: Project?
+    // A session that has just been created and has not been brought into view yet. Only
+    // sessions the app itself opens are worth scrolling to: one the user clicked was
+    // already under the pointer.
+    @State private var sessionToReveal: UUID?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -108,22 +112,26 @@ struct AppSidebar: View {
                     .padding(.horizontal, 20)
                     .padding(.top, 16)
             } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 6) {
-                        ForEach(orderedProjects) { project in
-                            projectSection(project)
+                ScrollViewReader { scroller in
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 6) {
+                            ForEach(orderedProjects) { project in
+                                projectSection(project)
+                                    .id(project.id)
+                            }
                         }
+                        .padding(.horizontal, 12)
+                        .padding(.top, 10)
+                        .padding(.bottom, 8)
+                        // Keyed on what decides whether a session block is on screen, so the
+                        // reveal plays wherever the change came from: a click on the project
+                        // row, or the first session arriving under an already open one.
+                        // Easing out rather than a spring: the block must not overshoot its
+                        // own height, or it opens onto a gap under the last card.
+                        .animation(.easeOut(duration: 0.26), value: revealKey)
+                        .animation(.easeOut(duration: 0.22), value: appSettings.projectSort)
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.top, 10)
-                    .padding(.bottom, 8)
-                    // Keyed on what decides whether a session block is on screen, so the
-                    // reveal plays wherever the change came from: a click on the project
-                    // row, or the first session arriving under an already open one.
-                    // Easing out rather than a spring: the block must not overshoot its
-                    // own height, or it opens onto a gap under the last card.
-                    .animation(.easeOut(duration: 0.26), value: revealKey)
-                    .animation(.easeOut(duration: 0.22), value: appSettings.projectSort)
+                    .task(id: sessionToReveal) { await reveal(with: scroller) }
                 }
             }
         }
@@ -234,22 +242,43 @@ struct AppSidebar: View {
         return key
     }
 
+    // Brings a session the app has just opened into view. It scrolls to the project rather
+    // than to the card, so what arrives on screen is the whole block with its row: a card on
+    // its own, pinned to the top edge with its project above the fold, does not say what was
+    // opened. The newest session sorts first, so it is the card directly under that row.
+    //
+    // Creating a session also reorders the list under the recent sort, which is what makes
+    // this needed at all: the project leaves wherever the user was looking and lands at the
+    // top, off screen.
+    private func reveal(with scroller: ScrollViewProxy) async {
+        guard let id = sessionToReveal, let session = store.session(id) else { return }
+        // The card is created by the same change that asked for this, so the list has to be
+        // laid out again before there is anything to scroll to.
+        await Task.yield()
+        withAnimation(.easeOut(duration: 0.26)) {
+            scroller.scrollTo(session.projectID, anchor: .top)
+        }
+    }
+
     // MARK: - Creating and removing sessions
 
     // A git repository gets the folder-or-worktree choice; a plain folder has no
     // worktrees to offer, so the session is just created.
     private func requestNewSession(in project: Project) {
         guard FileManager.default.fileExists(atPath: project.path + "/.git") else {
-            store.newSession(in: project.id)
+            startSession(.folder, in: project)
             return
         }
         choosingSessionKind = project
     }
 
     private func startSession(_ choice: NewSessionChoice, in project: Project) {
+        // A collapsed project keeps its new session hidden, and starting work in a project
+        // is the clearest sign yet that it wants to be open.
+        expansion[project.id] = true
         switch choice {
         case .worktree(let sessionID): createWorktreeSession(in: project, id: sessionID)
-        case .folder: store.newSession(in: project.id)
+        case .folder: sessionToReveal = store.newSession(in: project.id).id
         }
     }
 
@@ -327,6 +356,7 @@ struct AppSidebar: View {
                                                         sessionID: sessionID)
                 store.newSession(in: project.id, id: sessionID,
                                  worktreePath: created.path, worktreeBranch: created.branch)
+                sessionToReveal = sessionID
             } catch {
                 dialogs.show(Dialog(
                     title: "Could not create a worktree",
