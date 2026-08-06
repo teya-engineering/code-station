@@ -99,9 +99,6 @@ struct HTTPResult: Equatable {
     var body: String
     var duration: TimeInterval
     var byteCount: Int
-    // The {{env}} value the request was resolved with, so an answer kept on screen
-    // still says which side it came from after the switch is flipped.
-    var origin: String?
     var failure: String?
 
     var statusText: String {
