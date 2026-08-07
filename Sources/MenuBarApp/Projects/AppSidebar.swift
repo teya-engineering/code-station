@@ -25,6 +25,12 @@ struct AppSidebar: View {
     // sessions the app itself opens are worth scrolling to: one the user clicked was
     // already under the pointer.
     @State private var sessionToReveal: UUID?
+    // Projects whose full session list is shown. Anything else stops at the cap, with a
+    // card that says how many are folded away: a project with dozens of sessions would
+    // otherwise push every other project off the rail.
+    @State private var showingAllSessions: Set<UUID> = []
+
+    private static let sessionCap = 5
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -203,8 +209,9 @@ struct AppSidebar: View {
             // An expanded project with nothing under it draws no block at all: an empty one
             // still carries its padding, which reads as the row shifting on every click.
             if expanded, !sessions.isEmpty {
+                let visible = visibleSessions(of: project, in: sessions)
                 VStack(alignment: .leading, spacing: 8) {
-                    ForEach(sessions) { session in
+                    ForEach(visible) { session in
                         let busy = runner.state(session.id).isBusy
                         let finished = store.hasFinished(session.id)
                         SessionCard(session: session,
@@ -229,6 +236,16 @@ struct AppSidebar: View {
                                 }]
                             }
                     }
+                    if sessions.count > Self.sessionCap {
+                        let hidden = sessions.count - visible.count
+                        SeeMoreCard(title: hidden > 0 ? "See \(hidden) more…" : "Show fewer") {
+                            if hidden > 0 {
+                                showingAllSessions.insert(project.id)
+                            } else {
+                                showingAllSessions.remove(project.id)
+                            }
+                        }
+                    }
                 }
                 // Sessions sit inset from their project row, so the nesting is visible
                 // without a line or a marker to draw it.
@@ -243,10 +260,21 @@ struct AppSidebar: View {
         expansion[project.id] ?? (project.id == store.selectedProject?.id)
     }
 
+    // The cards a project actually draws: all of them once the user has asked to see
+    // more, the newest few otherwise. Newest-first order means what is folded away is
+    // the tail that matters least.
+    private func visibleSessions(of project: Project, in sessions: [ChatSession]) -> [ChatSession] {
+        guard sessions.count > Self.sessionCap,
+              !showingAllSessions.contains(project.id) else { return sessions }
+        return Array(sessions.prefix(Self.sessionCap))
+    }
+
+    // Keyed on the cards that are drawn rather than the sessions that exist, so the
+    // slide plays for see-more the same as for a session arriving or leaving.
     private func revealKey(_ grouped: [UUID: [ChatSession]]) -> [UUID: Int] {
         var key: [UUID: Int] = [:]
         for project in store.projects where isExpanded(project) {
-            key[project.id] = grouped[project.id]?.count ?? 0
+            key[project.id] = visibleSessions(of: project, in: grouped[project.id] ?? []).count
         }
         return key
     }
@@ -435,7 +463,7 @@ struct AppSidebar: View {
         var folders: Set<String> = []
         let grouped = groupedSessions
         for project in store.projects where isExpanded(project) {
-            for session in grouped[project.id] ?? [] {
+            for session in visibleSessions(of: project, in: grouped[project.id] ?? []) {
                 folders.insert(folder(session, project: project))
             }
         }
@@ -1024,6 +1052,33 @@ private struct SessionCard: View {
         if finished { return Theme.attention.opacity(0.7) }
         if selected { return Color.black.opacity(0.30) }
         return .clear
+    }
+}
+
+// The card at the end of a capped session list. It wears the same shape as the cards
+// above it so the column stays one column, but stays quieter than any of them: it is
+// a control, not a session.
+private struct SeeMoreCard: View {
+    let title: String
+    let action: () -> Void
+
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 8)
+                .background(RoundedRectangle(cornerRadius: 11)
+                    .fill(hovering ? Color.black.opacity(0.05) : Color.black.opacity(0.02)))
+                .overlay(RoundedRectangle(cornerRadius: 11)
+                    .stroke(Theme.border, style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
     }
 }
 
