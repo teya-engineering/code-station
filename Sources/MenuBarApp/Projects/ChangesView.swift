@@ -18,8 +18,7 @@ struct ChangesView: View {
     @FocusState private var commitFocused: Bool
     @State private var selectedID: GitChange.ID?
     @State private var diff: FileDiff?
-    @State private var blocks: [DiffBlock] = []
-    @State private var diffWidth: CGFloat = 0
+    @State private var diffText: NSAttributedString?
     @State private var loadingDiff = false
 
     private var files: [GitChange] { snapshot?.files ?? [] }
@@ -357,8 +356,8 @@ struct ChangesView: View {
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if !blocks.isEmpty {
-                diffBody
+            } else if let diffText {
+                DiffTextView(text: diffText)
             } else {
                 Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -375,46 +374,6 @@ struct ChangesView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Theme.card)
-    }
-
-    private var diffBody: some View {
-        GeometryReader { geometry in
-            ScrollView([.vertical, .horizontal]) {
-                // Runs of same kind lines are drawn as one Text so that a 2000 line diff
-                // is a few dozen views instead of a few thousand.
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(blocks) { block in
-                        Text(block.text)
-                            .font(.mono(11))
-                            .foregroundStyle(color(block.kind))
-                            .textSelection(.enabled)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, block.kind == .section ? 4 : 0)
-                            .frame(width: max(diffWidth, geometry.size.width), alignment: .leading)
-                            .background(background(block.kind))
-                    }
-                }
-                .padding(.vertical, 6)
-            }
-        }
-    }
-
-    private func color(_ kind: DiffLine.Kind) -> Color {
-        switch kind {
-        case .addition: Theme.addition
-        case .deletion: Theme.deletion
-        case .hunk, .meta, .section: .secondary
-        case .context: .primary
-        }
-    }
-
-    private func background(_ kind: DiffLine.Kind) -> Color {
-        switch kind {
-        case .addition: Theme.dotOn.opacity(0.14)
-        case .deletion: Theme.deletion.opacity(0.10)
-        case .hunk, .section: Theme.field
-        case .meta, .context: .clear
-        }
     }
 
     // MARK: - Shared pieces
@@ -466,7 +425,7 @@ struct ChangesView: View {
         }
         selectedID = file.id
         diff = nil
-        blocks = []
+        diffText = nil
         let root = snapshot?.root ?? root
         Task { await loadDiff(file, root: root) }
     }
@@ -474,7 +433,7 @@ struct ChangesView: View {
     private func closeDiff() {
         selectedID = nil
         diff = nil
-        blocks = []
+        diffText = nil
     }
 
     private func loadDiff(_ file: GitChange, root: String) async {
@@ -482,8 +441,7 @@ struct ChangesView: View {
         let loaded = await GitInspector.diff(for: file, root: root)
         guard !Task.isCancelled, selectedID == file.id else { return }
         diff = loaded
-        blocks = DiffBlock.group(loaded.lines)
-        diffWidth = DiffBlock.width(of: loaded.lines)
+        diffText = loaded.lines.isEmpty ? nil : DiffText.attributed(loaded.lines)
         loadingDiff = false
     }
 
@@ -499,41 +457,6 @@ struct ChangesView: View {
         } else {
             NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: url.deletingLastPathComponent().path)
         }
-    }
-}
-
-// One run of consecutive diff lines that share a kind.
-struct DiffBlock: Identifiable {
-    let id: Int
-    let kind: DiffLine.Kind
-    let text: String
-
-    static func group(_ lines: [DiffLine]) -> [DiffBlock] {
-        var blocks: [DiffBlock] = []
-        var current: [String] = []
-        var kind: DiffLine.Kind?
-
-        for line in lines {
-            if line.kind != kind, let open = kind {
-                blocks.append(DiffBlock(id: blocks.count, kind: open, text: current.joined(separator: "\n")))
-                current = []
-            }
-            kind = line.kind
-            current.append(line.text)
-        }
-        if let kind, !current.isEmpty {
-            blocks.append(DiffBlock(id: blocks.count, kind: kind, text: current.joined(separator: "\n")))
-        }
-        return blocks
-    }
-
-    // Monospaced text means the longest line is also the widest, so one measurement is
-    // enough to size the scrollable area without laying out every line first.
-    static func width(of lines: [DiffLine]) -> CGFloat {
-        guard let longest = lines.max(by: { $0.text.count < $1.text.count })?.text else { return 0 }
-        let font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
-        let measured = (longest as NSString).size(withAttributes: [.font: font]).width
-        return ceil(measured) + 32
     }
 }
 
