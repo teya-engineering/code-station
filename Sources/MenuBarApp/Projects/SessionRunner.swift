@@ -17,11 +17,16 @@ final class SessionRunner {
         didSet { Preferences.agent = agent }
     }
 
-    // What every session runs with unless it has picked something of its own. This is what
-    // the Settings sheet edits, and a change here reaches every session that has not
-    // overridden it, from its next turn on.
-    var defaults = Preferences.sessionDefaults {
-        didSet { Preferences.sessionDefaults = defaults }
+    // What every session runs with unless it has picked something of its own. Each agent
+    // has its own defaults because their models and access controls do not overlap.
+    private var defaultsByAgent: [AgentKind: SessionSettings]
+
+    var defaults: SessionSettings {
+        get { defaults(for: agent) }
+        set {
+            defaultsByAgent[agent] = newValue
+            Preferences.setSessionDefaults(newValue, for: agent)
+        }
     }
 
     // The account's usage windows, keyed by kind, as of the last turn that ran. They
@@ -48,11 +53,18 @@ final class SessionRunner {
     private static let lostConversation = "No conversation found with session ID"
 
     init() {
+        defaultsByAgent = Dictionary(uniqueKeysWithValues: AgentKind.allCases.map {
+            ($0, Preferences.sessionDefaults(for: $0))
+        })
         var found: [AgentKind: String] = [:]
         for kind in AgentKind.allCases {
             if let path = ProcessManager.resolve(kind.command) { found[kind] = path }
         }
         paths = found
+    }
+
+    func defaults(for agent: AgentKind) -> SessionSettings {
+        defaultsByAgent[agent] ?? SessionSettings()
     }
 
     var available: Bool { paths[agent] != nil }
@@ -362,7 +374,7 @@ final class SessionRunner {
         process.arguments = Self.arguments(
             agent: agent,
             settings: session.settings ?? SessionSettings(),
-            defaults: defaults,
+            defaults: defaults(for: agent),
             // A pasted screenshot or a file picked from anywhere on disk sits outside the
             // folder the agent runs in, and reading outside it needs saying so up front.
             addDirectories: Self.directoriesOutside(workingDirectory, for: attachments),

@@ -161,13 +161,15 @@ private nonisolated func cliVersion(at path: String, searchPath: String) -> Stri
     return trimmed.isEmpty ? nil : trimmed
 }
 
-// The Agents tab of the Settings sheet: the dropdown that picks which agent runs the
-// sessions, and the details of whichever one is picked.
+// The Agents tab chooses which CLI runs sessions, then shows only that CLI's defaults
+// and connection details.
 struct AgentSettingsView: View {
     @Environment(SessionRunner.self) private var runner
     @State private var claude = ClaudeAgentInfo()
     @State private var codex = CodexAgentInfo()
     @State private var loggingIn: AgentKind?
+
+    private var defaults: SessionSettings { runner.defaults }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
@@ -223,6 +225,67 @@ struct AgentSettingsView: View {
         }
     }
 
+    private func change(_ edit: (inout SessionSettings) -> Void) {
+        var updated = defaults
+        edit(&updated)
+        runner.defaults = updated
+    }
+
+    private func model(for agent: AgentKind) -> some View {
+        ChoiceBlock("MODEL", note: "Applies from each session's next turn on.") {
+            VStack(spacing: 4) {
+                ForEach(ModelChoice.options(for: agent), id: \.title) { choice in
+                    OptionRow(title: choice.title,
+                              detail: choice.detail,
+                              selected: ModelChoice.valid(defaults.model, for: agent) == choice.id) {
+                        change { $0.model = choice.id }
+                    }
+                }
+            }
+        }
+    }
+
+    private func effort(for agent: AgentKind) -> some View {
+        ChoiceBlock("EFFORT", note: "How long the model thinks before it answers. More effort costs more tokens and more time, so it is the first thing to turn down when a limit is close.") {
+            HStack(spacing: 4) {
+                ForEach(EffortChoice.all(for: agent), id: \.title) { choice in
+                    ChoicePill(title: choice.title,
+                               selected: EffortChoice.valid(defaults.effort, for: agent) == choice.id) {
+                        change { $0.effort = choice.id }
+                    }
+                }
+            }
+        }
+    }
+
+    private var claudePermissions: some View {
+        ChoiceBlock("PERMISSIONS") {
+            VStack(spacing: 4) {
+                ForEach(PermissionMode.all, id: \.mode) { choice in
+                    OptionRow(title: choice.title,
+                              detail: choice.detail,
+                              selected: (defaults.permissionMode ?? "acceptEdits") == choice.mode) {
+                        change { $0.permissionMode = choice.mode }
+                    }
+                }
+            }
+        }
+    }
+
+    private var codexPermissions: some View {
+        ChoiceBlock("PERMISSIONS") {
+            VStack(spacing: 4) {
+                ForEach(CodexSandboxMode.allCases, id: \.rawValue) { mode in
+                    OptionRow(title: mode.title,
+                              detail: mode.detail,
+                              selected: CodexSandboxMode.resolved(defaults.codexSandboxMode) == mode) {
+                        change { $0.codexSandboxMode = mode.rawValue }
+                    }
+                }
+            }
+        }
+    }
+
     // MARK: - Claude Code
 
     private var claudeSection: some View {
@@ -238,6 +301,10 @@ struct AgentSettingsView: View {
                     }
                 }
             }
+            Divider().overlay(Theme.hairline)
+            model(for: .claudeCode)
+            effort(for: .claudeCode)
+            claudePermissions
             Divider().overlay(Theme.hairline)
             configRow(title: "Claude Code settings",
                       note: "The CLI's own configuration, at ~/.claude/settings.json. It belongs to Claude Code, so the app only points at it.",
@@ -288,6 +355,10 @@ struct AgentSettingsView: View {
                     }
                 }
             }
+            Divider().overlay(Theme.hairline)
+            model(for: .codex)
+            effort(for: .codex)
+            codexPermissions
             Divider().overlay(Theme.hairline)
             configRow(title: "Codex config",
                       note: "The CLI's own configuration, at ~/.codex/config.toml. It belongs to Codex, so the app only points at it.",

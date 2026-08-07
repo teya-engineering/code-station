@@ -47,13 +47,8 @@ final class AppSettings {
 
 // Settings is a setup job rather than somewhere to sit, so it is a sheet over the
 // window, the way the MCP config manager is.
-//
-// Everything about how the agent runs is decided here once, for every session. A session
-// can still step away from any of it in its own Settings tab, which is why the same
-// choices appear in both places: this is the default, that is the exception.
 struct SettingsView: View {
     @Environment(LoginItem.self) private var loginItem
-    @Environment(SessionRunner.self) private var runner
     @Environment(ProjectStore.self) private var store
     @Environment(AppSettings.self) private var settings
     @Environment(\.dismiss) private var dismiss
@@ -61,8 +56,6 @@ struct SettingsView: View {
     @State private var reviewingOldSessions = false
     @State private var showingLog = false
     @State private var tab = SettingsTab.general
-
-    private var defaults: SessionSettings { runner.defaults }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -72,10 +65,6 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 24) {
                     switch tab {
                     case .general:
-                        model
-                        effort
-                        permissions
-                        Divider().overlay(Theme.hairline)
                         oldSessions
                         startAtLogin
                         log
@@ -115,74 +104,6 @@ struct SettingsView: View {
         }
         .padding(.horizontal, 20)
         .headerBand(height: Theme.subHeaderHeight)
-    }
-
-    private func change(_ edit: (inout SessionSettings) -> Void) {
-        var updated = runner.defaults
-        edit(&updated)
-        runner.defaults = updated
-    }
-
-    // MARK: - How the agent runs
-
-    // The choices below belong to whichever agent the Agents tab has picked: each one
-    // has models and efforts of its own, and a choice made for one reads as "Default"
-    // while the other is active.
-    private var model: some View {
-        ChoiceBlock("MODEL", note: "Applies from each session's next turn on.") {
-            VStack(spacing: 4) {
-                ForEach(ModelChoice.options(for: runner.agent), id: \.title) { choice in
-                    OptionRow(title: choice.title,
-                              detail: choice.detail,
-                              selected: ModelChoice.valid(defaults.model, for: runner.agent) == choice.id) {
-                        change { $0.model = choice.id }
-                    }
-                }
-            }
-        }
-    }
-
-    private var effort: some View {
-        ChoiceBlock("EFFORT", note: "How long the model thinks before it answers. More effort costs more tokens and more time, so it is the first thing to turn down when a limit is close.") {
-            HStack(spacing: 4) {
-                ForEach(EffortChoice.all(for: runner.agent), id: \.title) { choice in
-                    ChoicePill(title: choice.title,
-                               selected: EffortChoice.valid(defaults.effort, for: runner.agent) == choice.id) {
-                        change { $0.effort = choice.id }
-                    }
-                }
-            }
-        }
-    }
-
-    // How much the agent asks before it acts. Whatever Claude Code asks goes to the
-    // session it is running in, so a stricter mode means more cards in the chat, not a
-    // stuck turn. Codex cannot send permission questions through its JSONL stream, so
-    // it offers the execution modes that work for the whole turn instead.
-    private var permissions: some View {
-        ChoiceBlock("PERMISSIONS") {
-            if runner.agent == .codex {
-                VStack(spacing: 4) {
-                    ForEach(CodexSandboxMode.allCases, id: \.rawValue) { mode in
-                        OptionRow(title: mode.title,
-                                  detail: mode.detail,
-                                  selected: CodexSandboxMode.resolved(defaults.codexSandboxMode) == mode) {
-                            change { $0.codexSandboxMode = mode.rawValue }
-                        }
-                    }
-                }
-            } else {
-                VStack(spacing: 4) {
-                    ForEach(PermissionMode.all, id: \.mode) { choice in
-                        OptionRow(title: choice.title,
-                                  detail: choice.detail,
-                                  selected: (defaults.permissionMode ?? "acceptEdits") == choice.mode) {
-                            change { $0.permissionMode = choice.mode }
-                        }
-                    }
-                }
-            }
-        }
     }
 
     // MARK: - The app itself
@@ -319,9 +240,6 @@ private struct DayStepper: View {
     }
 }
 
-// The sheet's tabs: what sessions run with, and the agent they run on. The note under
-// the title changes with the tab, since "a session can override it" is only true of the
-// first one.
 enum SettingsTab: CaseIterable {
     case general
     case agents
@@ -335,8 +253,8 @@ enum SettingsTab: CaseIterable {
 
     var note: String {
         switch self {
-        case .general: "What every session runs with. A session can override any of it for itself."
-        case .agents: "The coding agent that runs the sessions, and how it is signed in."
+        case .general: "Settings for Teya Conductor."
+        case .agents: "Choose an agent and set how it runs."
         }
     }
 }
