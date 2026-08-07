@@ -185,15 +185,23 @@ struct AppSidebar: View {
                 onCancelRename: { renamingID = nil }
             )
             .contentShape(Rectangle())
-            // The row opens on the click itself, so it carries no double click: a click
-            // that means one thing alone and another thing doubled cannot be acted on
-            // until the double click window has passed, and that wait is the whole
-            // distance between the click and the row moving. New session lives on the
-            // button the row grows under the pointer, and in the menu.
+            // The row opens on the click itself, so a single click never waits out a
+            // double click window: the double click below runs alongside it rather than
+            // instead of it. It only means anything on a project with no sessions, where
+            // expanding shows nothing - there, the second click starts a session, the
+            // same as the + button. Both single clicks still fire first, but on an empty
+            // project toggling the row twice is invisible.
             .onTapGesture {
                 store.selectedProjectID = project.id
                 expansion[project.id] = !expanded
+                // Closing a project puts its list away, and putting it away includes the
+                // tail the user had unfolded: the next open starts back at the cap.
+                if expanded { showingAllSessions.remove(project.id) }
             }
+            .simultaneousGesture(TapGesture(count: 2).onEnded {
+                guard sessions.isEmpty else { return }
+                requestNewSession(in: project)
+            })
             .appContextMenu {
                 [.item("Rename…") { renamingID = project.id },
                  .item("New session") { requestNewSession(in: project) },
@@ -756,8 +764,10 @@ private struct ProjectHeaderRow: View {
                 Spacer(minLength: 8)
 
                 // The chevron says which way the row goes; under the pointer it gives way
-                // to the two things you come to a project row to do. They share a slot of
-                // one width, so nothing beside them moves as the pointer arrives.
+                // to the two things you come to a project row to do. The buttons carry
+                // their word beside the glyph, so they take more room than the chevron
+                // did: the name gives way while the pointer is on the row, which costs
+                // nothing to read since the pointer is here for the buttons.
                 ZStack(alignment: .trailing) {
                     Image(systemName: "chevron.right")
                         .font(.system(size: 10, weight: .semibold))
@@ -770,25 +780,16 @@ private struct ProjectHeaderRow: View {
                             // so the bin is only offered once there is something idle to
                             // clear.
                             if clearableCount > 0 {
-                                Button(action: onClearSessions) {
-                                    Image(systemName: "trash")
-                                        .font(.system(size: 11))
-                                        .foregroundStyle(.secondary)
-                                }
-                                .buttonStyle(.plain)
-                                .appTooltip("Clear \(clearableCount) idle session\(clearableCount == 1 ? "" : "s")")
+                                RowAction(icon: "trash", title: "Delete", action: onClearSessions)
+                                    .appTooltip("Clear \(clearableCount) idle session\(clearableCount == 1 ? "" : "s")")
                             }
-                            Button(action: onNewSession) {
-                                Image(systemName: "plus")
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .foregroundStyle(.secondary)
-                            }
-                            .buttonStyle(.plain)
-                            .appTooltip("New session")
+                            RowAction(icon: "plus", title: "New", action: onNewSession)
+                                .appTooltip("New session")
                         }
+                        .fixedSize()
                     }
                 }
-                .frame(width: 35, alignment: .trailing)
+                .frame(minWidth: 35, alignment: .trailing)
             }
         }
         .padding(.horizontal, 10)
@@ -821,6 +822,28 @@ private struct ProjectHeaderRow: View {
                        subtitle: project.collapsedPath,
                        note: isMissing ? "This folder is no longer on disk." : nil,
                        rows: rows)
+    }
+}
+
+// A hover action on the project row: the glyph with its word beside it, so what the
+// button does is read rather than guessed.
+private struct RowAction: View {
+    let icon: String
+    let title: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 3) {
+                Image(systemName: icon)
+                    .font(.system(size: 10, weight: .semibold))
+                Text(title)
+                    .font(.system(size: 11, weight: .semibold))
+            }
+            .foregroundStyle(.secondary)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 
