@@ -217,7 +217,8 @@ extension StreamEvent {
         }
     }
 
-    private static func truncated(_ text: String) -> String {
+    // Shared with the Codex parser, which cuts its command output the same way.
+    static func truncated(_ text: String) -> String {
         guard text.count > maxToolOutput else { return text }
         return String(text.prefix(maxToolOutput)) + "\n… truncated"
     }

@@ -1,7 +1,42 @@
 import Foundation
 
-// What a session runs Claude Code with, on top of the prompt itself. These are the same
-// choices the CLI offers behind /model, /effort and its permission modes.
+// The coding agents the app can run a session on. Each is a CLI resolved on PATH, with
+// models, sign-in and conversation history of its own; the app speaks each one's stream
+// dialect and folds both onto the same events, so everything past the runner is shared.
+enum AgentKind: String, CaseIterable, Codable, Sendable, Identifiable {
+    case claudeCode = "claude"
+    case codex = "codex"
+
+    var id: String { rawValue }
+
+    // The executable the agent is run through.
+    var command: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .claudeCode: "Claude Code"
+        case .codex: "Codex"
+        }
+    }
+
+    var installHint: String {
+        switch self {
+        case .claudeCode: "npm install -g @anthropic-ai/claude-code"
+        case .codex: "npm install -g @openai/codex"
+        }
+    }
+
+    // What signing in means for each CLI, typed into a shell as-is.
+    var loginCommand: String {
+        switch self {
+        case .claudeCode: "claude /login"
+        case .codex: "codex login"
+        }
+    }
+}
+
+// What a session runs the agent with, on top of the prompt itself. These are the same
+// choices the CLIs offer behind their model, effort and permission settings.
 //
 // The same type holds both layers. As a session's settings, nil means "no override" and
 // the app default takes over; as the app defaults, nil means the flag is left off
@@ -17,10 +52,12 @@ struct SessionSettings: Codable, Equatable {
     }
 }
 
-// The model aliases the CLI takes. Full names ("claude-opus-5") work too, but an alias
-// always points at the newest of that family, which is what a picker should do.
+// The models each agent's picker offers. For Claude Code these are the aliases the CLI
+// takes - full names ("claude-opus-5") work too, but an alias always points at the
+// newest of that family, which is what a picker should do. For Codex they are the model
+// ids its CLI takes.
 enum ModelChoice {
-    static let all: [(id: String?, title: String, detail: String)] = [
+    static let claude: [(id: String?, title: String, detail: String)] = [
         (nil, "Default", "Whatever Claude Code is set to use."),
         ("opus", "Opus", "The strongest reasoning, and the slowest."),
         ("sonnet", "Sonnet", "The everyday balance of speed and depth."),
@@ -28,13 +65,35 @@ enum ModelChoice {
         ("fable", "Fable", "Tuned for writing and long-form prose."),
     ]
 
+    static let codex: [(id: String?, title: String, detail: String)] = [
+        (nil, "Default", "Whatever Codex is set to use."),
+        ("gpt-5.1-codex-max", "Codex Max", "The strongest reasoning, for long and hard work."),
+        ("gpt-5.1-codex", "Codex", "The everyday balance of speed and depth."),
+        ("gpt-5.1-codex-mini", "Codex Mini", "The fastest and cheapest; best for small, mechanical work."),
+    ]
+
+    static func options(for agent: AgentKind) -> [(id: String?, title: String, detail: String)] {
+        switch agent {
+        case .claudeCode: claude
+        case .codex: codex
+        }
+    }
+
+    // An id picked while the other agent was active means nothing to this one, so it
+    // reads as "nothing chosen" instead of being sent and refused.
+    static func valid(_ id: String?, for agent: AgentKind) -> String? {
+        guard let id, !id.isEmpty,
+              options(for: agent).contains(where: { $0.id == id }) else { return nil }
+        return id
+    }
+
     static func title(of id: String?) -> String {
-        all.first { $0.id == id }?.title ?? id ?? "Default"
+        (claude + codex).first { $0.id == id }?.title ?? id ?? "Default"
     }
 
     // How the app-wide choice reads on the row that says a session is following it.
-    static func summary(of id: String?) -> String {
-        guard let id, !id.isEmpty else { return "Whatever Claude Code is set to use" }
+    static func summary(of id: String?, agent: AgentKind) -> String {
+        guard let id, !id.isEmpty else { return "Whatever \(agent.title) is set to use" }
         return title(of: id)
     }
 
@@ -61,7 +120,7 @@ enum ModelChoice {
 // How long the model spends thinking before it answers. More effort costs more tokens
 // and more time, so it is the first thing to turn down when a limit is close.
 enum EffortChoice {
-    static let all: [(id: String?, title: String)] = [
+    static let claude: [(id: String?, title: String)] = [
         (nil, "Default"),
         ("low", "Low"),
         ("medium", "Medium"),
@@ -70,9 +129,30 @@ enum EffortChoice {
         ("max", "Max"),
     ]
 
-    static func summary(of id: String?) -> String {
-        guard let id, !id.isEmpty else { return "Whatever Claude Code is set to use" }
-        return all.first { $0.id == id }?.title ?? id
+    static let codex: [(id: String?, title: String)] = [
+        (nil, "Default"),
+        ("low", "Low"),
+        ("medium", "Medium"),
+        ("high", "High"),
+        ("xhigh", "Extra high"),
+    ]
+
+    static func all(for agent: AgentKind) -> [(id: String?, title: String)] {
+        switch agent {
+        case .claudeCode: claude
+        case .codex: codex
+        }
+    }
+
+    static func valid(_ id: String?, for agent: AgentKind) -> String? {
+        guard let id, !id.isEmpty,
+              all(for: agent).contains(where: { $0.id == id }) else { return nil }
+        return id
+    }
+
+    static func summary(of id: String?, agent: AgentKind) -> String {
+        guard let id, !id.isEmpty else { return "Whatever \(agent.title) is set to use" }
+        return all(for: agent).first { $0.id == id }?.title ?? id
     }
 }
 

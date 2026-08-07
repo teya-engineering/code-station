@@ -75,6 +75,13 @@ enum Preferences {
         set { set(newValue, "selectedProjectID") }
     }
 
+    // Which agent runs the sessions. Everything else about an agent lives in its own
+    // config; this is only the app's choice between them.
+    static var agent: AgentKind {
+        get { store.string(forKey: "agent").flatMap(AgentKind.init(rawValue:)) ?? .claudeCode }
+        set { store.set(newValue.rawValue, forKey: "agent") }
+    }
+
     // What a session runs with when it has not picked for itself. A model or effort left
     // unset means the flag is never passed, so Claude Code's own configuration decides;
     // the permission mode is always ours, since the app is what asks the questions.

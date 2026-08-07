@@ -217,7 +217,7 @@ struct SessionView: View {
         } else if let worktree = session.worktreePath, !FileManager.default.fileExists(atPath: worktree) {
             strip("Worktree not found at \(worktree.abbreviatedPath). It was removed outside the app; delete this session or recreate it.")
         } else if !runner.available {
-            strip("Claude Code CLI not found on PATH. Sessions cannot run until it is installed.")
+            strip("\(runner.agent.title) CLI not found on PATH. Sessions cannot run until it is installed.")
         }
     }
 
@@ -506,7 +506,11 @@ struct SessionView: View {
             if let repository { branchTag(repository) }
             modelMenu(lastRan: usage?.model)
             effortMenu
-            permissionsMenu
+            if runner.agent == .claudeCode {
+                permissionsMenu
+            } else {
+                sandboxTag
+            }
             Spacer(minLength: 8)
             if let pullRequest = session.pullRequest { pullRequestTag(pullRequest) }
             if let usage, let fraction = usage.contextFraction {
@@ -532,34 +536,42 @@ struct SessionView: View {
 
     private func modelMenu(lastRan: String?) -> some View {
         let settings = sessionSettings
+        let agent = runner.agent
+        // Choices made while the other agent was active mean nothing to this one, so
+        // they read as "nothing chosen" here the way the runner treats them.
+        let override = ModelChoice.valid(settings.model, for: agent)
+        let appDefault = ModelChoice.valid(runner.defaults.model, for: agent)
         // The chip names what the next turn will run on: the override, else the app
         // default, else whatever the CLI last reported it decided on its own.
-        let label = settings.model.map { ModelChoice.title(of: $0) }
-            ?? runner.defaults.model.map { ModelChoice.title(of: $0) }
+        let label = override.map { ModelChoice.title(of: $0) }
+            ?? appDefault.map { ModelChoice.title(of: $0) }
             ?? lastRan.map { ModelChoice.shortName(of: $0) }
             ?? "Default model"
         return settingMenu(label,
-                           overridden: settings.model != nil,
+                           overridden: override != nil,
                            help: "The model this session runs on. Applies from the next turn.",
-                           defaultTitle: defaultTitle(runner.defaults.model.map { ModelChoice.title(of: $0) }),
-                           options: ModelChoice.all.compactMap { choice in
+                           defaultTitle: defaultTitle(appDefault.map { ModelChoice.title(of: $0) }),
+                           options: ModelChoice.options(for: agent).compactMap { choice in
                                choice.id.map { (id: $0, title: choice.title) }
                            },
-                           selection: Binding(get: { settings.model },
+                           selection: Binding(get: { override },
                                               set: { id in changeSettings { $0.model = id } }))
     }
 
     private var effortMenu: some View {
         let settings = sessionSettings
-        let chosen = settings.effort ?? runner.defaults.effort
-        return settingMenu(chosen.map { "\(EffortChoice.summary(of: $0)) effort" } ?? "Default effort",
-                           overridden: settings.effort != nil,
+        let agent = runner.agent
+        let override = EffortChoice.valid(settings.effort, for: agent)
+        let appDefault = EffortChoice.valid(runner.defaults.effort, for: agent)
+        let chosen = override ?? appDefault
+        return settingMenu(chosen.map { "\(EffortChoice.summary(of: $0, agent: agent)) effort" } ?? "Default effort",
+                           overridden: override != nil,
                            help: "How long the model thinks before it answers.",
-                           defaultTitle: defaultTitle(runner.defaults.effort.map { EffortChoice.summary(of: $0) }),
-                           options: EffortChoice.all.compactMap { choice in
+                           defaultTitle: defaultTitle(appDefault.map { EffortChoice.summary(of: $0, agent: agent) }),
+                           options: EffortChoice.all(for: agent).compactMap { choice in
                                choice.id.map { (id: $0, title: choice.title) }
                            },
-                           selection: Binding(get: { settings.effort },
+                           selection: Binding(get: { override },
                                               set: { id in changeSettings { $0.effort = id } }))
     }
 
@@ -572,6 +584,16 @@ struct SessionView: View {
                            options: PermissionMode.all.map { (id: $0.mode, title: $0.title) },
                            selection: Binding(get: { settings.permissionMode },
                                               set: { mode in changeSettings { $0.permissionMode = mode } }))
+    }
+
+    // Codex has nothing to pick here: it never asks, it sandboxes. The chip still keeps
+    // the line readable by saying so where the permission mode would be.
+    private var sandboxTag: some View {
+        Text("Sandboxed")
+            .font(.system(size: 11))
+            .foregroundStyle(Color.secondary)
+            .fixedSize()
+            .help("Codex does not ask before it acts. Commands run inside a sandbox that can edit this session's folder and nothing outside it.")
     }
 
     // The first row of every menu, naming what following the default currently means.

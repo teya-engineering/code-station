@@ -558,7 +558,7 @@ struct AppSidebar: View {
                 .padding(.bottom, runner.available ? 16 : 6)
 
             if !runner.available {
-                Text("Claude Code was not found on PATH.")
+                Text("\(runner.agent.title) was not found on PATH.")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 16)

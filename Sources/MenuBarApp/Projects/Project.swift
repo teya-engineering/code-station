@@ -238,6 +238,9 @@ struct ChatSession: Identifiable, Codable, Equatable {
     var projectID: UUID
     var title: String = "New session"
     var claudeSessionID: String?
+    // Codex numbers its conversations separately, so a session keeps one id per agent
+    // and can carry on with either. What one agent said is invisible to the other.
+    var codexSessionID: String?
     var createdAt: Date = Date()
     // Set when the session runs in its own git worktree instead of the project
     // folder. The worktree and branch belong to this session and go with it.
@@ -260,6 +263,13 @@ struct ChatSession: Identifiable, Codable, Equatable {
     // When something last happened here, used for the sidebar's relative times.
     var lastActivity: Date { summary.lastMessageAt ?? createdAt }
 
+    func agentSessionID(for agent: AgentKind) -> String? {
+        switch agent {
+        case .claudeCode: claudeSessionID
+        case .codex: codexSessionID
+        }
+    }
+
     // The first thing the user asked makes a better title than "New session".
     mutating func retitleIfNeeded(from prompt: String) {
         guard title == "New session" else { return }
@@ -273,7 +283,7 @@ struct ChatSession: Identifiable, Codable, Equatable {
     // encodes to. It is still decoded: a file written before the split holds every
     // conversation inline, and that is what the store moves out on the first launch.
     private enum CodingKeys: String, CodingKey {
-        case id, projectID, title, claudeSessionID, createdAt, worktreePath, worktreeBranch
+        case id, projectID, title, claudeSessionID, codexSessionID, createdAt, worktreePath, worktreeBranch
         case settings, usage, pullRequest, summary, messages
     }
 
@@ -288,6 +298,7 @@ struct ChatSession: Identifiable, Codable, Equatable {
         projectID = try container.decode(UUID.self, forKey: .projectID)
         title = try container.decodeIfPresent(String.self, forKey: .title) ?? "New session"
         claudeSessionID = try container.decodeIfPresent(String.self, forKey: .claudeSessionID)
+        codexSessionID = try container.decodeIfPresent(String.self, forKey: .codexSessionID)
         createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
         worktreePath = try container.decodeIfPresent(String.self, forKey: .worktreePath)
         worktreeBranch = try container.decodeIfPresent(String.self, forKey: .worktreeBranch)
@@ -305,6 +316,7 @@ struct ChatSession: Identifiable, Codable, Equatable {
         try container.encode(projectID, forKey: .projectID)
         try container.encode(title, forKey: .title)
         try container.encodeIfPresent(claudeSessionID, forKey: .claudeSessionID)
+        try container.encodeIfPresent(codexSessionID, forKey: .codexSessionID)
         try container.encode(createdAt, forKey: .createdAt)
         try container.encodeIfPresent(worktreePath, forKey: .worktreePath)
         try container.encodeIfPresent(worktreeBranch, forKey: .worktreeBranch)

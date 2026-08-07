@@ -1,15 +1,22 @@
 import Foundation
 import Observation
 
-// Runs the Claude Code CLI for chat sessions. One process per turn, started in the
-// project's own folder, with `--resume` carrying the conversation forward. The reply is
-// streamed into the ProjectStore as it arrives; nothing about a conversation is kept
-// here, only the state that dies with the process. The one stretch: a turn that started
-// a background task is held open until the task is done, because the CLI can only wake
-// the agent with the result while its process is still alive.
+// Runs the coding agent's CLI for chat sessions. One process per turn, started in the
+// project's own folder, with the agent's resume mechanism carrying the conversation
+// forward. The reply is streamed into the ProjectStore as it arrives; nothing about a
+// conversation is kept here, only the state that dies with the process. The one stretch:
+// a Claude Code turn that started a background task is held open until the task is done,
+// because the CLI can only wake the agent with the result while its process is still
+// alive.
 @MainActor
 @Observable
 final class SessionRunner {
+    // Which agent new turns run on. Turns already going finish on the agent they
+    // started with.
+    var agent = Preferences.agent {
+        didSet { Preferences.agent = agent }
+    }
+
     // What every session runs with unless it has picked something of its own. This is what
     // the Settings sheet edits, and a change here reaches every session that has not
     // overridden it, from its next turn on.
@@ -35,16 +42,20 @@ final class SessionRunner {
     // without the words going with it.
     private var drafts: [UUID: Draft] = [:]
 
-    @ObservationIgnored private let claudePath: String?
+    @ObservationIgnored private let paths: [AgentKind: String]
 
     // How Claude Code says it no longer holds the conversation we asked to resume.
     private static let lostConversation = "No conversation found with session ID"
 
     init() {
-        claudePath = ProcessManager.resolve("claude")
+        var found: [AgentKind: String] = [:]
+        for kind in AgentKind.allCases {
+            if let path = ProcessManager.resolve(kind.command) { found[kind] = path }
+        }
+        paths = found
     }
 
-    var available: Bool { claudePath != nil }
+    var available: Bool { paths[agent] != nil }
 
     func state(_ sessionID: UUID) -> SessionState { states[sessionID] ?? .idle }
 
@@ -171,27 +182,49 @@ final class SessionRunner {
 
     // Everything the CLI is run with for one turn. The session's own choices win, the app
     // defaults fill the gaps, and anything neither has chosen is left off entirely rather
-    // than sent as a guess, so Claude Code's own configuration keeps deciding it.
-    nonisolated static func arguments(settings: SessionSettings, defaults: SessionSettings,
+    // than sent as a guess, so the agent's own configuration keeps deciding it. A model
+    // or effort picked while the other agent was active would only be refused, so it
+    // counts as unchosen here.
+    nonisolated static func arguments(agent: AgentKind = .claudeCode,
+                                      settings: SessionSettings, defaults: SessionSettings,
                                       addDirectories: [String] = [], resume: String? = nil) -> [String] {
-        let model = settings.model ?? defaults.model
-        let effort = settings.effort ?? defaults.effort
-        // The app is what puts the questions on screen, so it always says which ones it
-        // wants rather than letting the CLI's own config decide.
-        let permissionMode = settings.permissionMode ?? defaults.permissionMode ?? "acceptEdits"
+        let model = ModelChoice.valid(settings.model ?? defaults.model, for: agent)
+        let effort = EffortChoice.valid(settings.effort ?? defaults.effort, for: agent)
 
-        // Streaming input is what makes the CLI able to ask anything back: with
-        // "--permission-prompt-tool stdio" it puts permission prompts and the agent's own
-        // questions on stdout as control requests and waits for an answer on stdin.
-        // Without it a prompt is auto-denied and the turn carries on half-done.
-        var arguments = ["-p", "--output-format", "stream-json", "--input-format", "stream-json",
-                         "--permission-prompt-tool", "stdio", "--verbose",
-                         "--permission-mode", permissionMode]
-        if let model, !model.isEmpty { arguments += ["--model", model] }
-        if let effort, !effort.isEmpty { arguments += ["--effort", effort] }
-        if !addDirectories.isEmpty { arguments += ["--add-dir"] + addDirectories }
-        if let resume, !resume.isEmpty { arguments += ["--resume", resume] }
-        return arguments
+        switch agent {
+        case .claudeCode:
+            // The app is what puts the questions on screen, so it always says which ones
+            // it wants rather than letting the CLI's own config decide.
+            let permissionMode = settings.permissionMode ?? defaults.permissionMode ?? "acceptEdits"
+
+            // Streaming input is what makes the CLI able to ask anything back: with
+            // "--permission-prompt-tool stdio" it puts permission prompts and the agent's
+            // own questions on stdout as control requests and waits for an answer on
+            // stdin. Without it a prompt is auto-denied and the turn carries on half-done.
+            var arguments = ["-p", "--output-format", "stream-json", "--input-format", "stream-json",
+                             "--permission-prompt-tool", "stdio", "--verbose",
+                             "--permission-mode", permissionMode]
+            if let model { arguments += ["--model", model] }
+            if let effort { arguments += ["--effort", effort] }
+            if !addDirectories.isEmpty { arguments += ["--add-dir"] + addDirectories }
+            if let resume, !resume.isEmpty { arguments += ["--resume", resume] }
+            return arguments
+
+        case .codex:
+            // Codex has no streaming input and no permission questions: `exec` runs the
+            // whole turn inside a sandbox instead. workspace-write matches what the app
+            // promises - the agent can edit the session's folder and nothing outside it.
+            // Reading is not sandboxed, so attachment folders need no flag either.
+            var arguments = ["exec"]
+            if let resume, !resume.isEmpty { arguments += ["resume", resume] }
+            arguments += ["--json", "--skip-git-repo-check", "--sandbox", "workspace-write"]
+            if let model { arguments += ["--model", model] }
+            if let effort { arguments += ["-c", "model_reasoning_effort=\"\(effort)\""] }
+            // The prompt goes over stdin, which "-" asks for; passed as an argument, a
+            // prompt starting with a dash would be read as a flag.
+            arguments.append("-")
+            return arguments
+        }
     }
 
     // Claude Code takes one block of text, so a file goes over as its path and the agent
@@ -273,9 +306,10 @@ final class SessionRunner {
             states[sessionID] = .failed("This session's project is no longer in the app.")
             return
         }
-        guard let claudePath else {
+        let agent = agent
+        guard let agentPath = paths[agent] else {
             states[sessionID] = .failed(
-                "Could not find \"claude\" on PATH. Install the Claude Code CLI (npm install -g @anthropic-ai/claude-code) and reopen the app.")
+                "Could not find \"\(agent.command)\" on PATH. Install the \(agent.title) CLI (\(agent.installHint)) and reopen the app.")
             return
         }
         let workingDirectory = session.worktreePath ?? project.path
@@ -295,11 +329,12 @@ final class SessionRunner {
         store.append(reply, to: sessionID)
 
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: claudePath)
+        process.executableURL = URL(fileURLWithPath: agentPath)
         process.currentDirectoryURL = URL(fileURLWithPath: workingDirectory)
 
-        let resume = session.claudeSessionID.flatMap { $0.isEmpty ? nil : $0 }
+        let resume = session.agentSessionID(for: agent).flatMap { $0.isEmpty ? nil : $0 }
         process.arguments = Self.arguments(
+            agent: agent,
             settings: session.settings ?? SessionSettings(),
             defaults: defaults,
             // A pasted screenshot or a file picked from anywhere on disk sits outside the
@@ -323,7 +358,7 @@ final class SessionRunner {
         let input = Pipe()
         process.standardInput = input
 
-        let turn = Turn(process: process, messageID: reply.id, input: input,
+        let turn = Turn(process: process, agent: agent, messageID: reply.id, input: input,
                         prompt: prompt, attachments: attachments, resumed: resume != nil,
                         canRetryWithoutResume: canRetryWithoutResume)
         let token = turn.token
@@ -332,7 +367,8 @@ final class SessionRunner {
 
         let parseLine: @Sendable (String) -> [StreamEvent] = { line in
             SessionLog.note("< \(line)", session: sessionID)
-            return StreamEvent.parse(line, projectPath: workingDirectory)
+            return agent == .codex ? StreamEvent.parseCodex(line)
+                                   : StreamEvent.parse(line, projectPath: workingDirectory)
         }
 
         out.fileHandleForReading.readabilityHandler = { handle in
@@ -382,11 +418,21 @@ final class SessionRunner {
         do {
             turns[sessionID] = turn
             states[sessionID] = .starting
-            SessionLog.note("starting claude \(process.arguments?.joined(separator: " ") ?? "") in \(workingDirectory)",
+            SessionLog.note("starting \(agent.command) \(process.arguments?.joined(separator: " ") ?? "") in \(workingDirectory)",
                             session: sessionID)
             try process.run()
-            guard let line = Self.userMessageLine(prompt), turn.write(line) else {
-                throw Failure("the prompt could not be handed over")
+            switch agent {
+            case .claudeCode:
+                guard let line = Self.userMessageLine(prompt), turn.write(line) else {
+                    throw Failure("the prompt could not be handed over")
+                }
+            case .codex:
+                // Codex reads the prompt off stdin until the pipe closes, and nothing
+                // ever goes back down it: there are no questions to answer mid-turn.
+                guard turn.write(Data((prompt + "\n").utf8)) else {
+                    throw Failure("the prompt could not be handed over")
+                }
+                turn.closeInput()
             }
         } catch {
             turns[sessionID] = nil
@@ -395,7 +441,7 @@ final class SessionRunner {
             store.removeMessage(reply.id, from: sessionID)
             store.release(sessionID, for: .running)
             SessionLog.note("could not start: \(error.localizedDescription)", session: sessionID)
-            states[sessionID] = .failed("Could not start Claude Code: \(error.localizedDescription)")
+            states[sessionID] = .failed("Could not start \(agent.title): \(error.localizedDescription)")
         }
     }
 
@@ -461,9 +507,9 @@ final class SessionRunner {
         for event in events {
             switch event {
             case .initialized(let claudeSessionID):
-                // Saved right away, before the turn can fail: this id is what --resume
+                // Saved right away, before the turn can fail: this id is what resuming
                 // needs, so losing it would strand the conversation.
-                store.setClaudeSessionID(claudeSessionID, for: sessionID)
+                store.setAgentSessionID(claudeSessionID, agent: turn.agent, for: sessionID)
 
             case .text(let text):
                 states[sessionID] = .streaming
@@ -680,15 +726,16 @@ final class SessionRunner {
         if let failure = turn.failure { parts.append(failure) }
         let stderr = turn.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
         if !stderr.isEmpty { parts.append(stderr) }
-        if parts.isEmpty { parts.append("Claude Code exited with code \(status).") }
+        if parts.isEmpty { parts.append("\(turn.agent.title) exited with code \(status).") }
         let message = parts.joined(separator: "\n\n")
         SessionLog.note("turn failed: \(message)", session: sessionID)
 
         // Claude Code no longer holds the conversation we asked it to resume, usually
         // because its own history was pruned. The prompt is still good, so run it once
         // more as a new conversation instead of leaving the session stuck for good.
-        if turn.canRetryWithoutResume, turn.resumed, message.contains(Self.lostConversation) {
-            store.clearClaudeSessionID(for: sessionID)
+        if turn.agent == .claudeCode, turn.canRetryWithoutResume, turn.resumed,
+           message.contains(Self.lostConversation) {
+            store.clearAgentSessionID(agent: .claudeCode, for: sessionID)
             store.append(
                 ChatMessage(role: .system,
                             text: "The earlier conversation could not be resumed, so this reply starts a fresh one without the previous context."),
@@ -713,6 +760,9 @@ final class SessionRunner {
     private final class Turn {
         let token = UUID()
         let process: Process
+        // The agent this turn started on. The app-wide choice can move mid-turn, and
+        // the stream already in flight still has to be read in its own dialect.
+        let agent: AgentKind
         // Where the reply is being written. A question answered mid-turn closes the
         // message the turn opened with and moves this on to the one after the answer.
         var messageID: UUID
@@ -762,9 +812,10 @@ final class SessionRunner {
             try? input.fileHandleForWriting.close()
         }
 
-        init(process: Process, messageID: UUID, input: Pipe, prompt: String,
+        init(process: Process, agent: AgentKind, messageID: UUID, input: Pipe, prompt: String,
              attachments: [Attachment], resumed: Bool, canRetryWithoutResume: Bool) {
             self.process = process
+            self.agent = agent
             self.messageID = messageID
             self.input = input
             self.prompt = prompt

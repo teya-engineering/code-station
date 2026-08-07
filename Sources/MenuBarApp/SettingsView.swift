@@ -125,13 +125,16 @@ struct SettingsView: View {
 
     // MARK: - How the agent runs
 
+    // The choices below belong to whichever agent the Agents tab has picked: each one
+    // has models and efforts of its own, and a choice made for one reads as "Default"
+    // while the other is active.
     private var model: some View {
         ChoiceBlock("MODEL", note: "Applies from each session's next turn on.") {
             VStack(spacing: 4) {
-                ForEach(ModelChoice.all, id: \.title) { choice in
+                ForEach(ModelChoice.options(for: runner.agent), id: \.title) { choice in
                     OptionRow(title: choice.title,
                               detail: choice.detail,
-                              selected: defaults.model == choice.id) {
+                              selected: ModelChoice.valid(defaults.model, for: runner.agent) == choice.id) {
                         change { $0.model = choice.id }
                     }
                 }
@@ -142,8 +145,9 @@ struct SettingsView: View {
     private var effort: some View {
         ChoiceBlock("EFFORT", note: "How long the model thinks before it answers. More effort costs more tokens and more time, so it is the first thing to turn down when a limit is close.") {
             HStack(spacing: 4) {
-                ForEach(EffortChoice.all, id: \.title) { choice in
-                    ChoicePill(title: choice.title, selected: defaults.effort == choice.id) {
+                ForEach(EffortChoice.all(for: runner.agent), id: \.title) { choice in
+                    ChoicePill(title: choice.title,
+                               selected: EffortChoice.valid(defaults.effort, for: runner.agent) == choice.id) {
                         change { $0.effort = choice.id }
                     }
                 }
@@ -151,16 +155,29 @@ struct SettingsView: View {
         }
     }
 
-    // How much the agent asks before it acts. Whatever it does ask goes to the session it
-    // is running in, so a stricter mode means more cards in the chat, not a stuck turn.
+    // How much the agent asks before it acts. Whatever Claude Code asks goes to the
+    // session it is running in, so a stricter mode means more cards in the chat, not a
+    // stuck turn. Codex cannot ask at all: it runs inside a sandbox instead, so the
+    // block explains that rather than offering modes that would do nothing.
     private var permissions: some View {
         ChoiceBlock("PERMISSIONS") {
-            VStack(spacing: 4) {
-                ForEach(PermissionMode.all, id: \.mode) { choice in
-                    OptionRow(title: choice.title,
-                              detail: choice.detail,
-                              selected: (defaults.permissionMode ?? "acceptEdits") == choice.mode) {
-                        change { $0.permissionMode = choice.mode }
+            if runner.agent == .codex {
+                Text("Codex does not ask before it acts. Every command runs inside a sandbox that can edit the session's folder and nothing outside it.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(RoundedRectangle(cornerRadius: 9).fill(Theme.card))
+                    .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
+            } else {
+                VStack(spacing: 4) {
+                    ForEach(PermissionMode.all, id: \.mode) { choice in
+                        OptionRow(title: choice.title,
+                                  detail: choice.detail,
+                                  selected: (defaults.permissionMode ?? "acceptEdits") == choice.mode) {
+                            change { $0.permissionMode = choice.mode }
+                        }
                     }
                 }
             }

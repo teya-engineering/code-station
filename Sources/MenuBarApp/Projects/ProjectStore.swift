@@ -335,19 +335,25 @@ final class ProjectStore {
         scheduleSave()
     }
 
-    func setClaudeSessionID(_ claudeID: String, for sessionID: UUID) {
+    func setAgentSessionID(_ agentID: String, agent: AgentKind, for sessionID: UUID) {
         guard let i = index(sessionID) else { return }
-        guard sessions[i].claudeSessionID != claudeID else { return }
-        sessions[i].claudeSessionID = claudeID
+        guard sessions[i].agentSessionID(for: agent) != agentID else { return }
+        switch agent {
+        case .claudeCode: sessions[i].claudeSessionID = agentID
+        case .codex: sessions[i].codexSessionID = agentID
+        }
         scheduleSave()
     }
 
-    // Claude Code keeps its own conversation history, and it can be pruned or removed
-    // behind our back. Once that happens every `--resume` fails, so the id has to be
+    // An agent keeps its own conversation history, and it can be pruned or removed
+    // behind our back. Once that happens every resume fails, so the id has to be
     // droppable to let the next turn start a fresh conversation instead.
-    func clearClaudeSessionID(for sessionID: UUID) {
+    func clearAgentSessionID(agent: AgentKind, for sessionID: UUID) {
         guard let i = index(sessionID) else { return }
-        sessions[i].claudeSessionID = nil
+        switch agent {
+        case .claudeCode: sessions[i].claudeSessionID = nil
+        case .codex: sessions[i].codexSessionID = nil
+        }
         scheduleSave()
     }
 
