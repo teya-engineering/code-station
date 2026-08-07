@@ -95,9 +95,8 @@ do in Terminal.app.
 
 ### MCP Servers
 
-The **MCP Servers** entry at the bottom of the sidebar is the original config manager,
-unchanged. Server definitions live in `~/.config/mcp/config.json`; the "Add to Claude
-Code" button is what actually makes a server usable, by registering it with Claude Code.
+Server definitions live in `~/.config/mcp/config.json`. Each server can be registered
+with Claude Code, Codex, or both through the MCP Servers screen.
 
 - Lists configured servers with live running state and an env count.
 - Shows each server's command and environment variables, masking the service account
@@ -106,6 +105,11 @@ Code" button is what actually makes a server usable, by registering it with Clau
   `claude mcp add <name> -s user -e ... -- <abs path>/mcp-grafana`, so Claude Code spawns
   the stdio server itself. The card shows whether the server is currently registered
   (read from `~/.claude.json`). Restart the Claude Code session to pick up a change.
+- **Registers a server with the Codex CLI** ("Add to Codex"). This runs
+  `codex mcp add <name> --env ... -- <abs path>/mcp-grafana` for stdio servers or
+  `codex mcp add <name> --url <url>` for streamable HTTP servers. Codex owns the
+  registration in `~/.codex/config.toml`; the next Codex turn picks up the change.
+  Codex does not register SSE servers or remote servers that need custom headers.
 - Starts and stops a local `mcp-grafana` process per server, separate from Claude Code.
   With no transport args configured it runs in `streamable-http` mode on a local port and
   shows the endpoint (e.g. `http://localhost:8000/mcp`); output is shown live and start
@@ -135,8 +139,8 @@ typed at it.
 ## Requirements
 
 - macOS 14+
-- The Claude Code CLI on your PATH. Without it the app still runs and manages MCP config,
-  but sessions cannot start and the sidebar says so.
+- The Claude Code CLI or Codex CLI on your PATH. Without a selected agent's CLI the app
+  still runs and manages MCP config, but sessions for that agent cannot start.
 
 ## Run
 

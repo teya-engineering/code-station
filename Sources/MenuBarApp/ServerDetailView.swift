@@ -4,12 +4,14 @@ struct ServerDetailView: View {
     @Environment(ConfigStore.self) private var store
     @Environment(ProcessManager.self) private var processes
     @Environment(ClaudeCodeManager.self) private var claude
+    @Environment(CodexCodeManager.self) private var codex
     let serverID: Server.ID
 
     @Environment(DialogPresenter.self) private var dialogs
 
     @State private var showingRawJSON = false
-    @State private var copiedCommand = false
+    @State private var copiedClaudeCommand = false
+    @State private var copiedCodexCommand = false
 
     private var server: Server? { store.servers.first { $0.id == serverID } }
 
@@ -19,6 +21,7 @@ struct ServerDetailView: View {
                 VStack(alignment: .leading, spacing: 28) {
                     titleRow(server)
                     claudeCodeSection(server)
+                    codexSection(server)
                     commandSection(server)
                     varsSection(server)
                     outputSection
@@ -195,10 +198,10 @@ struct ServerDetailView: View {
                 if let command = claude.addCommand(for: server) {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(command, forType: .string)
-                    copiedCommand = true
+                    copiedClaudeCommand = true
                 }
             } label: {
-                Text(copiedCommand ? "Copied" : "Copy claude mcp add command")
+                Text(copiedClaudeCommand ? "Copied" : "Copy claude mcp add command")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(Theme.accent)
             }
@@ -207,7 +210,124 @@ struct ServerDetailView: View {
         .padding(18)
         .background(RoundedRectangle(cornerRadius: 12).fill(Theme.card))
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.border))
-        .onChange(of: server.env) { copiedCommand = false }
+        .onChange(of: server.env) { copiedClaudeCommand = false }
+    }
+
+    private func codexSection(_ server: Server) -> some View {
+        let supported = codex.supports(server)
+        let registered = codex.isRegistered(server.name)
+        let outOfSync = codex.isOutOfSync(server)
+        let busy = codex.isBusy(server.name)
+
+        let icon: String
+        let tint: Color
+        let caption: String
+        if !supported {
+            icon = "exclamationmark.triangle.fill"
+            tint = Theme.secret
+            caption = codexSupportCaption(server)
+        } else if !registered {
+            icon = "seal"
+            tint = .secondary
+            caption = "Not registered - Codex can't see this server yet."
+        } else if outOfSync {
+            icon = "exclamationmark.triangle.fill"
+            tint = Theme.secret
+            caption = "Registered, but the token or URL here differs from Codex."
+        } else {
+            icon = "checkmark.seal.fill"
+            tint = Theme.accent
+            caption = "Registered in Codex's MCP configuration."
+        }
+
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                Image(systemName: icon)
+                    .font(.system(size: 16))
+                    .foregroundStyle(tint)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Codex").font(.system(size: 15, weight: .semibold))
+                    Text(caption)
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                if busy { ProgressView().controlSize(.small).padding(.trailing, 4) }
+                if outOfSync {
+                    Button { codex.reregister(server) } label: {
+                        Text("Update")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 9)
+                            .background(RoundedRectangle(cornerRadius: 9).fill(Theme.secret))
+                            .contentShape(RoundedRectangle(cornerRadius: 9))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!codex.available || busy)
+                    .opacity(!codex.available || busy ? 0.4 : 1)
+                }
+                Button {
+                    registered ? codex.remove(server.name) : codex.add(server)
+                } label: {
+                    Text(registered ? "Remove from Codex" : "Add to Codex")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(minWidth: registered ? 100 : 140)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 9)
+                        .background(RoundedRectangle(cornerRadius: 9)
+                            .fill(registered ? Theme.deletion : Theme.accent))
+                        .contentShape(RoundedRectangle(cornerRadius: 9))
+                }
+                .buttonStyle(.plain)
+                .disabled(!supported || !codex.available || busy)
+                .opacity(!supported || !codex.available || busy ? 0.4 : 1)
+            }
+
+            if registered {
+                Label("The next Codex turn loads the change.", systemImage: "arrow.clockwise")
+                    .font(.system(size: 12)).foregroundStyle(.secondary)
+            }
+            if !codex.available {
+                Text("Codex CLI not found on PATH.")
+                    .font(.system(size: 12)).foregroundStyle(Theme.deletion)
+            }
+            if let error = codex.errors[server.name] {
+                Text(error)
+                    .font(.mono(11)).foregroundStyle(Theme.deletion)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if supported {
+                Button {
+                    if let command = codex.addCommand(for: server) {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(command, forType: .string)
+                        copiedCodexCommand = true
+                    }
+                } label: {
+                    Text(copiedCodexCommand ? "Copied" : "Copy codex mcp add command")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Theme.accent)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(18)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Theme.card))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.border))
+        .onChange(of: server.env) { copiedCodexCommand = false }
+    }
+
+    private func codexSupportCaption(_ server: Server) -> String {
+        if server.isRemote, server.transport != "http" {
+            return "Codex supports streamable HTTP, not \(server.transport.uppercased())."
+        }
+        if server.isRemote, server.headers.contains(where: { !$0.key.isEmpty }) {
+            return "Codex can't register remote servers with custom HTTP headers."
+        }
+        return "A command or URL is needed before Codex can register this server."
     }
 
     private func commandSection(_ server: Server) -> some View {

@@ -6,6 +6,60 @@ import Testing
 // the app's events, and its sign-in file read back into account details.
 struct CodexTests {
 
+    // MARK: - MCP registration
+
+    @Test func codexRegistersAStdioMCPServerWithItsEnvironment() {
+        let server = Server(name: "grafana-platform-dev", command: "mcp-grafana", args: ["--debug"],
+                            url: nil, type: nil,
+                            env: [EnvVar(key: "GRAFANA_URL", value: "https://grafana.example")],
+                            headers: [], disabled: false)
+
+        #expect(CodexCodeManager.addArguments(for: server, executable: "/opt/homebrew/bin/mcp-grafana") == [
+            "mcp", "add", "grafana-platform-dev", "--env", "GRAFANA_URL=https://grafana.example",
+            "--", "/opt/homebrew/bin/mcp-grafana", "--debug",
+        ])
+    }
+
+    @Test func codexRegistersStreamableHTTPServersWithoutHeaders() {
+        let server = Server(name: "remote", command: nil, args: [], url: "https://mcp.example/mcp",
+                            type: "http", env: [], headers: [], disabled: false)
+
+        #expect(CodexCodeManager.addArguments(for: server, executable: nil) == [
+            "mcp", "add", "remote", "--url", "https://mcp.example/mcp",
+        ])
+    }
+
+    @Test func codexDoesNotPretendToSupportSSEOrCustomHeaders() {
+        let sse = Server(name: "sse", command: nil, args: [], url: "https://mcp.example/sse",
+                         type: "sse", env: [], headers: [], disabled: false)
+        let headers = Server(name: "headers", command: nil, args: [], url: "https://mcp.example/mcp",
+                             type: "http", env: [],
+                             headers: [EnvVar(key: "X-API-Key", value: "secret")], disabled: false)
+
+        #expect(CodexCodeManager.addArguments(for: sse, executable: nil) == nil)
+        #expect(CodexCodeManager.addArguments(for: headers, executable: nil) == nil)
+    }
+
+    @MainActor @Test func codexReadsTheTransportReturnedByItsCLI() {
+        let entry = CodexCodeManager.Entry(json: """
+        {
+          "name": "grafana-platform-dev",
+          "enabled": true,
+          "transport": {
+            "type": "stdio",
+            "command": "/opt/homebrew/bin/mcp-grafana",
+            "args": ["--debug"],
+            "env": { "GRAFANA_URL": "https://grafana.example" }
+          }
+        }
+        """)
+
+        #expect(entry == CodexCodeManager.Entry(command: "/opt/homebrew/bin/mcp-grafana",
+                                                 args: ["--debug"],
+                                                 env: ["GRAFANA_URL": "https://grafana.example"],
+                                                 url: nil))
+    }
+
     // MARK: - Arguments
 
     @Test func codexRunsExecWithASandboxAndStdinPrompt() {

@@ -6,6 +6,7 @@ struct ConfigManagerView: View {
     @Environment(ConfigStore.self) private var store
     @Environment(ProcessManager.self) private var processes
     @Environment(ClaudeCodeManager.self) private var claude
+    @Environment(CodexCodeManager.self) private var codex
     @Environment(\.dismiss) private var dismiss
     @State private var showingAddGrafana = false
     @State private var showingAddJSON = false
@@ -40,7 +41,7 @@ struct ConfigManagerView: View {
         .background(Theme.background)
         .sheet(isPresented: $showingAddGrafana) { AddServerView() }
         .sheet(isPresented: $showingAddJSON) { AddJSONServerView() }
-        .onAppear { claude.refresh() }
+        .onAppear { refreshIntegrations() }
     }
 
     // MARK: - Header
@@ -49,7 +50,7 @@ struct ConfigManagerView: View {
         HStack(spacing: 12) {
             Button {
                 store.load()
-                claude.refresh()
+                refreshIntegrations()
             } label: {
                 Image(systemName: "arrow.clockwise")
                     .font(.system(size: 15, weight: .medium))
@@ -131,6 +132,23 @@ struct ConfigManagerView: View {
                     .disabled(claude.bulkBusy)
                 }
 
+                let codexNeeding = codex.serversNeedingSync(store.servers)
+                if codex.available, !codexNeeding.isEmpty {
+                    Button {
+                        codex.syncAll(store.servers)
+                    } label: {
+                        Text(codex.bulkBusy ? "Syncing…" : "Sync \(codexNeeding.count) to Codex")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(Theme.accent)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                            .background(RoundedRectangle(cornerRadius: 10).fill(Theme.accent.opacity(0.10)))
+                            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.accent.opacity(0.35)))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(codex.bulkBusy)
+                }
+
                 Text("+ Add server")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(.white)
@@ -155,7 +173,7 @@ struct ConfigManagerView: View {
                 .appMenu {
                     [.item("Reload from disk") {
                         store.load()
-                        claude.refresh()
+                        refreshIntegrations()
                      },
                      .item("Reveal config in Finder") {
                         NSWorkspace.shared.activateFileViewerSelecting([store.configURL])
@@ -198,6 +216,11 @@ struct ConfigManagerView: View {
     private var collapsedPath: String {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         return store.configURL.path.replacingOccurrences(of: home, with: "~")
+    }
+
+    private func refreshIntegrations() {
+        claude.refresh()
+        codex.refresh(store.servers)
     }
 
     // MARK: - Detail

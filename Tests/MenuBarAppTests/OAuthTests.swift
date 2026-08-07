@@ -79,8 +79,13 @@ struct OAuthTests {
 
     @Test func givesUpWhenTheBrowserNeverComesBack() async throws {
         let server = LoopbackServer()
-        try await server.start(port: 8914, timeout: 0.3)
-        await #expect(throws: OAuthError.self) { try await server.waitForRedirect() }
+        try await server.start(port: UInt16.random(in: 49_152...65_535), timeout: 1)
+        do {
+            _ = try await server.waitForRedirect()
+            Issue.record("Expected the browser timeout.")
+        } catch {
+            #expect(error.localizedDescription == "Timed out waiting for the browser to come back.")
+        }
     }
 
     // Binding fails before a browser tab is ever opened, so a busy port is an error you
