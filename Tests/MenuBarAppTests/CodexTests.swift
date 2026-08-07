@@ -33,11 +33,11 @@ struct CodexTests {
     }
 
     @Test func codexTakesItsOwnModelAndEffort() {
-        let settings = SessionSettings(model: "gpt-5.1-codex", effort: "high")
+        let settings = SessionSettings(model: "gpt-5.6-terra", effort: "high")
         let arguments = SessionRunner.arguments(agent: .codex,
                                                 settings: settings,
                                                 defaults: SessionSettings())
-        #expect(pair(arguments, after: "--model") == "gpt-5.1-codex")
+        #expect(pair(arguments, after: "--model") == "gpt-5.6-terra")
         #expect(pair(arguments, after: "-c") == "model_reasoning_effort=\"high\"")
     }
 
@@ -51,7 +51,7 @@ struct CodexTests {
         #expect(!codexArguments.contains("--model"))
         #expect(!codexArguments.contains("-c"))
 
-        let codexChoice = SessionSettings(model: "gpt-5.1-codex")
+        let codexChoice = SessionSettings(model: "gpt-5.6-terra")
         let claudeArguments = SessionRunner.arguments(agent: .claudeCode,
                                                       settings: codexChoice,
                                                       defaults: SessionSettings())
@@ -197,11 +197,11 @@ struct CodexTests {
     @Test func choicesBelongToTheirAgent() {
         #expect(ModelChoice.valid("opus", for: .claudeCode) == "opus")
         #expect(ModelChoice.valid("opus", for: .codex) == nil)
-        #expect(ModelChoice.valid("gpt-5.1-codex", for: .codex) == "gpt-5.1-codex")
-        #expect(ModelChoice.valid("gpt-5.1-codex", for: .claudeCode) == nil)
+        #expect(ModelChoice.valid("gpt-5.6-terra", for: .codex) == "gpt-5.6-terra")
+        #expect(ModelChoice.valid("gpt-5.6-terra", for: .claudeCode) == nil)
+        #expect(ModelChoice.shortName(of: "gpt-5.6-terra") == "Codex")
         #expect(ModelChoice.valid("", for: .claudeCode) == nil)
-        // "max" is a Claude effort; the shared ones work for both.
-        #expect(EffortChoice.valid("max", for: .codex) == nil)
+        #expect(EffortChoice.valid("max", for: .codex) == "max")
         #expect(EffortChoice.valid("high", for: .codex) == "high")
         #expect(EffortChoice.valid("high", for: .claudeCode) == "high")
     }

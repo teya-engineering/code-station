@@ -502,18 +502,19 @@ struct SessionView: View {
     @ViewBuilder private func contextReadout(_ session: ChatSession) -> some View {
         let repository = stats?.state == .ready ? stats : nil
         let usage = session.usage
+        let agent = runner.agent
         HStack(spacing: 10) {
             if let repository { branchTag(repository) }
-            modelMenu(lastRan: usage?.model)
+            modelMenu(lastRan: usage?.model(for: agent))
             effortMenu
-            if runner.agent == .claudeCode {
+            if agent == .claudeCode {
                 permissionsMenu
             } else {
                 sandboxTag
             }
             Spacer(minLength: 8)
             if let pullRequest = session.pullRequest { pullRequestTag(pullRequest) }
-            if let usage, let fraction = usage.contextFraction {
+            if let usage, let fraction = usage.contextFraction(for: agent) {
                 contextMeter(usage, fraction: fraction)
             }
         }

@@ -67,9 +67,9 @@ enum ModelChoice {
 
     static let codex: [(id: String?, title: String, detail: String)] = [
         (nil, "Default", "Whatever Codex is set to use."),
-        ("gpt-5.1-codex-max", "Codex Max", "The strongest reasoning, for long and hard work."),
-        ("gpt-5.1-codex", "Codex", "The everyday balance of speed and depth."),
-        ("gpt-5.1-codex-mini", "Codex Mini", "The fastest and cheapest; best for small, mechanical work."),
+        ("gpt-5.6-sol", "Codex Max", "The strongest reasoning, for long and hard work."),
+        ("gpt-5.6-terra", "Codex", "The everyday balance of speed and depth."),
+        ("gpt-5.6-luna", "Codex Mini", "The fastest and cheapest; best for small, mechanical work."),
     ]
 
     static func options(for agent: AgentKind) -> [(id: String?, title: String, detail: String)] {
@@ -101,6 +101,10 @@ enum ModelChoice {
     // "claude-haiku-4-5-20251001" is mostly prefix and a release date, and the family and
     // its number are all that separate one model from another at a glance.
     static func shortName(of canonical: String) -> String {
+        if let choice = (claude + codex).first(where: { $0.id == canonical }) {
+            return choice.title
+        }
+
         var name = canonical
         // A window variant is spelled "claude-opus-5[1m]", and the window is already a
         // number of its own on the same row.
@@ -135,6 +139,7 @@ enum EffortChoice {
         ("medium", "Medium"),
         ("high", "High"),
         ("xhigh", "Extra high"),
+        ("max", "Max"),
     ]
 
     static func all(for agent: AgentKind) -> [(id: String?, title: String)] {
@@ -183,27 +188,49 @@ struct SessionUsage: Codable, Equatable {
     // count towards it - they are still in the window, they were just cheaper.
     var contextTokens = 0
     var contextWindow = 0
+    // A session can move between agents, but its last model and context window belong
+    // to the one that produced them.
+    var latestAgent: AgentKind?
     var model: String?
 
-    mutating func add(_ turn: TurnUsage) {
+    mutating func add(_ turn: TurnUsage, from agent: AgentKind) {
         costUSD += turn.costUSD
         inputTokens += turn.inputTokens
         outputTokens += turn.outputTokens
         cacheReadTokens += turn.cacheReadTokens
         cacheWriteTokens += turn.cacheWriteTokens
         turns += 1
+        beginReport(from: agent)
         if turn.contextWindow > 0 { contextWindow = turn.contextWindow }
         if let model = turn.model { self.model = model }
     }
 
-    mutating func noteContext(_ tokens: Int) {
+    mutating func noteContext(_ tokens: Int, from agent: AgentKind) {
         guard tokens > 0 else { return }
+        beginReport(from: agent)
         contextTokens = tokens
+    }
+
+    func model(for agent: AgentKind) -> String? {
+        latestAgent == agent ? model : nil
     }
 
     var contextFraction: Double? {
         guard contextWindow > 0 else { return nil }
         return min(1, Double(contextTokens) / Double(contextWindow))
+    }
+
+    func contextFraction(for agent: AgentKind) -> Double? {
+        latestAgent == agent ? contextFraction : nil
+    }
+
+    private mutating func beginReport(from agent: AgentKind) {
+        if latestAgent != agent {
+            contextTokens = 0
+            contextWindow = 0
+            model = nil
+        }
+        latestAgent = agent
     }
 }
 
