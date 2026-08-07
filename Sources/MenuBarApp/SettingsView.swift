@@ -60,21 +60,28 @@ struct SettingsView: View {
 
     @State private var reviewingOldSessions = false
     @State private var showingLog = false
+    @State private var tab = SettingsTab.general
 
     private var defaults: SessionSettings { runner.defaults }
 
     var body: some View {
         VStack(spacing: 0) {
             header
+            tabs
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
-                    model
-                    effort
-                    permissions
-                    Divider().overlay(Theme.hairline)
-                    oldSessions
-                    startAtLogin
-                    log
+                    switch tab {
+                    case .general:
+                        model
+                        effort
+                        permissions
+                        Divider().overlay(Theme.hairline)
+                        oldSessions
+                        startAtLogin
+                        log
+                    case .agents:
+                        AgentSettingsView()
+                    }
                 }
                 .padding(20)
             }
@@ -91,12 +98,23 @@ struct SettingsView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 3) {
             Text("Settings").font(.serif(16))
-            Text("What every session runs with. A session can override any of it for itself.")
+            Text(tab.note)
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
         }
         .padding(.horizontal, 20)
         .headerBand()
+    }
+
+    private var tabs: some View {
+        HStack(spacing: 4) {
+            ForEach(SettingsTab.allCases, id: \.self) { choice in
+                ChoicePill(title: choice.title, selected: tab == choice) { tab = choice }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 20)
+        .headerBand(height: Theme.subHeaderHeight)
     }
 
     private func change(_ edit: (inout SessionSettings) -> Void) {
@@ -280,6 +298,28 @@ private struct DayStepper: View {
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
+    }
+}
+
+// The sheet's tabs: what sessions run with, and the agent they run on. The note under
+// the title changes with the tab, since "a session can override it" is only true of the
+// first one.
+enum SettingsTab: CaseIterable {
+    case general
+    case agents
+
+    var title: String {
+        switch self {
+        case .general: "General"
+        case .agents: "Agents"
+        }
+    }
+
+    var note: String {
+        switch self {
+        case .general: "What every session runs with. A session can override any of it for itself."
+        case .agents: "The coding agent that runs the sessions, and how it is signed in."
+        }
     }
 }
 
