@@ -422,6 +422,19 @@ final class SessionRunner {
         return line
     }
 
+    // What an agent said, cut down to the one line its row can hold. The whole of it is
+    // written back to the transcript on every update, so only what can be read is kept.
+    private static let statusLimit = 200
+
+    private static func statusLine(_ text: String) -> String? {
+        let line = text.split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        guard !line.isEmpty else { return nil }
+        return line.count > statusLimit ? String(line.prefix(statusLimit)) + "…" : line
+    }
+
     // MARK: - Applying the stream
     //
     // Every callback is matched against the live turn's token. A handler already in
@@ -452,6 +465,13 @@ final class SessionRunner {
                     message.text += text
                 }
 
+            case .agentText(let parentID, let text):
+                states[sessionID] = .streaming
+                store.updateMessage(turn.messageID, in: sessionID) { message in
+                    guard let i = message.tools.firstIndex(where: { $0.id == parentID }) else { return }
+                    message.tools[i].status = Self.statusLine(text)
+                }
+
             case .toolUse(let tool):
                 states[sessionID] = .streaming
                 store.updateMessage(turn.messageID, in: sessionID) { message in
@@ -469,6 +489,9 @@ final class SessionRunner {
                     guard let i = message.tools.firstIndex(where: { $0.id == id }) else { return }
                     message.tools[i].result = output
                     message.tools[i].isError = isError
+                    // An agent that has reported back is no longer partway through
+                    // anything, and its last words are in the result.
+                    message.tools[i].status = nil
                     command = message.tools[i].input
                 }
                 // The only moment a pull request announces itself is in the output of the

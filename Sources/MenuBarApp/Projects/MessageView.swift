@@ -76,8 +76,8 @@ struct MessageView: View, Equatable {
         VStack(alignment: .leading, spacing: 12) {
             ForEach(message.blocks) { block in
                 switch block {
-                case .tools(_, let tools):
-                    ActivitySpine(tools: tools,
+                case .tools(_, let nodes):
+                    ActivitySpine(nodes: nodes,
                                   projectPath: projectPath,
                                   openChanges: openChanges)
                         .transition(.fadeIn)
