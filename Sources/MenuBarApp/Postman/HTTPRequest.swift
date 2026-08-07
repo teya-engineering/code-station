@@ -52,9 +52,22 @@ struct HeaderField: Identifiable, Codable, Equatable {
     var enabled = true
 }
 
+struct RequestFolder: Identifiable, Codable, Equatable {
+    var id = UUID()
+    var name: String
+
+    init(id: UUID = UUID(), name: String) {
+        self.id = id
+        self.name = name
+    }
+}
+
 struct SavedRequest: Identifiable, Codable, Equatable {
     var id = UUID()
     var name: String
+    // A missing folder keeps a request at the top level. It is optional so saved
+    // collections from before folders existed continue to load unchanged.
+    var folderID: UUID?
     var method: HTTPMethod = .get
     var url: String = ""
     var headers: [HeaderField] = []
@@ -73,6 +86,7 @@ struct SavedRequest: Identifiable, Codable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
         name = try container.decodeIfPresent(String.self, forKey: .name) ?? "Untitled"
+        folderID = try container.decodeIfPresent(UUID.self, forKey: .folderID)
         method = try container.decodeIfPresent(HTTPMethod.self, forKey: .method) ?? .get
         url = try container.decodeIfPresent(String.self, forKey: .url) ?? ""
         headers = try container.decodeIfPresent([HeaderField].self, forKey: .headers) ?? []
@@ -83,12 +97,14 @@ struct SavedRequest: Identifiable, Codable, Equatable {
         useAuth = try container.decodeIfPresent(Bool.self, forKey: .useAuth) ?? true
     }
 
-    init(id: UUID = UUID(), name: String, method: HTTPMethod = .get, url: String = "",
+    init(id: UUID = UUID(), name: String, folderID: UUID? = nil,
+         method: HTTPMethod = .get, url: String = "",
          headers: [HeaderField] = [], queryParams: [HeaderField] = [],
          pathParams: [HeaderField] = [], bodyType: BodyType = .none, body: String = "",
          useAuth: Bool = true) {
         self.id = id
         self.name = name
+        self.folderID = folderID
         self.method = method
         self.url = url
         self.headers = headers
@@ -130,6 +146,25 @@ struct SavedRequest: Identifiable, Codable, Equatable {
 
     private static func queryEncoded(_ text: String) -> String {
         text.addingPercentEncoding(withAllowedCharacters: queryAllowed) ?? text
+    }
+}
+
+// Folders and requests are saved together so moving a request only changes one local
+// collection. The custom decoder accepts a missing folders key for early collection
+// files that only introduced the enclosing object.
+struct SavedRequestCollection: Codable, Equatable {
+    var folders: [RequestFolder]
+    var requests: [SavedRequest]
+
+    init(folders: [RequestFolder] = [], requests: [SavedRequest] = []) {
+        self.folders = folders
+        self.requests = requests
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        folders = try container.decodeIfPresent([RequestFolder].self, forKey: .folders) ?? []
+        requests = try container.decodeIfPresent([SavedRequest].self, forKey: .requests) ?? []
     }
 }
 

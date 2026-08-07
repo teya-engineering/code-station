@@ -11,6 +11,7 @@ struct PostmanView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var showingEnvironments = false
+    @State private var renamingFolderID: UUID?
 
     private var environment: ApiEnvironment { auth.active }
 
@@ -100,19 +101,16 @@ struct PostmanView: View {
 
             ScrollView {
                 VStack(spacing: 4) {
-                    ForEach(store.requests) { request in
-                        RequestRow(request: request,
-                                   selected: request.id == store.selectedID,
-                                   accent: environment.accent)
-                            .contentShape(Rectangle())
-                            .onTapGesture { store.selectedID = request.id }
-                            .appContextMenu {
-                                [.item("Duplicate") { store.duplicate(request.id) },
-                                 .separator,
-                                 .item("Delete", kind: .destructive) {
-                                     dialogs.show(deleteDialog(for: request, store: store))
-                                 }]
-                            }
+                    ForEach(store.folders) { folder in
+                        folderSection(folder)
+                    }
+
+                    if !store.folders.isEmpty, !store.requests(in: nil).isEmpty {
+                        Divider().overlay(Theme.hairline).padding(.vertical, 4)
+                    }
+
+                    ForEach(store.requests(in: nil)) { request in
+                        requestRow(request)
                     }
                 }
                 .padding(.horizontal, 12)
@@ -120,17 +118,7 @@ struct PostmanView: View {
             }
 
             VStack(spacing: 10) {
-                Button {
-                    store.add()
-                } label: {
-                    Text("+ New request")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background(RoundedRectangle(cornerRadius: 10).fill(Color.black.opacity(0.88)))
-                }
-                .buttonStyle(.plain)
+                newMenu
 
                 tokenCard
             }
@@ -138,6 +126,93 @@ struct PostmanView: View {
         }
         .frame(width: 268)
         .background(Theme.sidebar)
+    }
+
+    private func folderSection(_ folder: RequestFolder) -> some View {
+        let expanded = store.isExpanded(folder.id)
+        return VStack(alignment: .leading, spacing: 4) {
+            FolderRow(folder: folder,
+                      expanded: expanded,
+                      requestCount: store.requestCount(in: folder.id),
+                      isRenaming: renamingFolderID == folder.id,
+                      accent: environment.accent,
+                      onNewRequest: { store.add(to: folder.id) },
+                      onRename: { name in
+                          store.renameFolder(folder.id, to: name)
+                          renamingFolderID = nil
+                      },
+                      onCancelRename: { renamingFolderID = nil })
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    guard renamingFolderID != folder.id else { return }
+                    store.toggleFolder(folder.id)
+                }
+                .appContextMenu {
+                    [.item("New request") { store.add(to: folder.id) },
+                     .item("Rename…") { renamingFolderID = folder.id },
+                     .separator,
+                     .item("Delete folder", kind: .destructive) {
+                         dialogs.show(deleteFolderDialog(for: folder, store: store))
+                     }]
+                }
+
+            if expanded {
+                ForEach(store.requests(in: folder.id)) { request in
+                    requestRow(request, indentation: 16)
+                }
+            }
+        }
+    }
+
+    private func requestRow(_ request: SavedRequest, indentation: CGFloat = 0) -> some View {
+        RequestRow(request: request,
+                   selected: request.id == store.selectedID,
+                   accent: environment.accent,
+                   indentation: indentation)
+            .contentShape(Rectangle())
+            .onTapGesture { store.selectedID = request.id }
+            .appContextMenu { requestContextMenu(for: request) }
+    }
+
+    private func requestContextMenu(for request: SavedRequest) -> [MenuEntry] {
+        var entries: [MenuEntry] = [
+            .item("Duplicate") { store.duplicate(request.id) },
+            .separator,
+            .item("Move to top level", checked: request.folderID == nil) {
+                store.move(request.id, to: nil)
+            }
+        ]
+        entries.append(contentsOf: store.folders.map { folder in
+            .item("Move to \(folder.name)", checked: request.folderID == folder.id) {
+                store.move(request.id, to: folder.id)
+            }
+        })
+        entries.append(.separator)
+        entries.append(.item("Delete", kind: .destructive) {
+            dialogs.show(deleteDialog(for: request, store: store))
+        })
+        return entries
+    }
+
+    private var newMenu: some View {
+        HStack(spacing: 7) {
+            Text("+ New")
+                .font(.system(size: 14, weight: .semibold))
+            Spacer(minLength: 0)
+            Image(systemName: "chevron.up")
+                .font(.system(size: 9, weight: .semibold))
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color.black.opacity(0.88)))
+        .contentShape(Rectangle())
+        .appMenu(edge: .top, matchWidth: true) {
+            [.item("New request", subtitle: "starts at the top level") { store.add() },
+             .item("New folder", subtitle: "groups related requests") {
+                 renamingFolderID = store.addFolder().id
+             }]
+        }
     }
 
     // The active environment's token, next to the list because every request borrows it.
@@ -267,10 +342,106 @@ private func deleteDialog(for request: SavedRequest, store: PostmanStore) -> Dia
         ])
 }
 
+@MainActor
+private func deleteFolderDialog(for folder: RequestFolder, store: PostmanStore) -> Dialog {
+    let count = store.requestCount(in: folder.id)
+    let requests = "\(count) request\(count == 1 ? "" : "s")"
+    return Dialog(
+        title: "Delete \"\(folder.name)\"?",
+        message: count == 0
+            ? "This empty folder is gone for good."
+            : "The folder is gone. Its \(requests) stay at the top level.",
+        actions: [
+            .init(label: "Delete folder", kind: .destructive) { store.removeFolder(folder.id) },
+            .init(label: "Cancel", kind: .cancel)
+        ])
+}
+
+private struct FolderRow: View {
+    let folder: RequestFolder
+    let expanded: Bool
+    let requestCount: Int
+    let isRenaming: Bool
+    let accent: Color
+    let onNewRequest: () -> Void
+    let onRename: (String) -> Void
+    let onCancelRename: () -> Void
+
+    @State private var draftName = ""
+    @State private var hovering = false
+    @FocusState private var nameFocused: Bool
+
+    var body: some View {
+        HStack(spacing: 7) {
+            Image(systemName: "chevron.right")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(.tertiary)
+                .rotationEffect(.degrees(expanded ? 90 : 0))
+                .frame(width: 10)
+
+            Image(systemName: "folder.fill")
+                .font(.system(size: 12))
+                .foregroundStyle(accent)
+
+            if isRenaming {
+                TextField("Folder name", text: $draftName)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 13, weight: .semibold))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 4)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(Theme.field))
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.border))
+                    .focused($nameFocused)
+                    .onSubmit { onRename(draftName) }
+                    .onExitCommand(perform: onCancelRename)
+            } else {
+                Text(folder.name)
+                    .font(.system(size: 13, weight: .semibold))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+
+            Spacer(minLength: 0)
+
+            if hovering && !isRenaming {
+                Button(action: onNewRequest) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(accent)
+                        .frame(width: 20, height: 20)
+                        .background(Circle().fill(accent.opacity(0.12)))
+                }
+                .buttonStyle(.plain)
+                .appTooltip("New request in \(folder.name)")
+            } else {
+                Text("\(requestCount)")
+                    .font(.mono(10))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, isRenaming ? 5 : 8)
+        .background(RoundedRectangle(cornerRadius: 8)
+            .fill(hovering ? Theme.field : Color.clear))
+        .overlay(RoundedRectangle(cornerRadius: 8)
+            .stroke(hovering ? accent.opacity(0.18) : .clear))
+        .onHover { hovering = $0 }
+        .onAppear { prepareRename() }
+        .onChange(of: isRenaming) { _, _ in prepareRename() }
+    }
+
+    private func prepareRename() {
+        guard isRenaming else { return }
+        draftName = folder.name
+        nameFocused = true
+    }
+}
+
 private struct RequestRow: View {
     let request: SavedRequest
     let selected: Bool
     let accent: Color
+    var indentation: CGFloat = 0
 
     @State private var hovering = false
 
@@ -283,7 +454,8 @@ private struct RequestRow: View {
                 .truncationMode(.middle)
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 10)
+        .padding(.leading, 10 + indentation)
+        .padding(.trailing, 10)
         .padding(.vertical, 8)
         .background(RoundedRectangle(cornerRadius: 8)
             .fill(selected ? Theme.card : (hovering ? Theme.field : .clear)))
