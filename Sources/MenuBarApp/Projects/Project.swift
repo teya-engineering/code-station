@@ -50,8 +50,45 @@ struct ToolUse: Identifiable, Codable, Equatable {
     // Optional so conversations written before the app tracked it still decode; those
     // read as "before anything was said", which is how they have always been drawn.
     var textOffset: Int?
+    // The call that started the agent which made this one, when it was not the main
+    // loop that made it. Every call of a whole fan-out arrives in the same flat stream,
+    // so this is the only thing that says which agent was working.
+    var parentID: String?
+    // The last thing an agent said while it worked, kept only for the call that started
+    // it. A fan-out can run for many minutes with nothing else to show for it.
+    var status: String?
 
     var isRunning: Bool { result == nil }
+
+    // Calls that stand for an agent rather than for work done in this conversation.
+    // Their rows read as a container: what matters is what ran inside them.
+    static let agentTools: Set<String> = ["Task", "Agent", "Workflow"]
+
+    var startsAgents: Bool { Self.agentTools.contains(name) }
+}
+
+// One call and everything that ran inside it. A turn's calls are stored flat, in the
+// order the stream gave them, and this is that list read as what it really is.
+struct ToolNode: Identifiable {
+    let tool: ToolUse
+    var children: [ToolNode] = []
+    // Where the call sat in the turn's flat list, which is the order it happened in.
+    // Kept so the newest call of a whole subtree can be found again once the list has
+    // been folded into a tree and the order between branches is gone.
+    var order = 0
+
+    var id: String { tool.id }
+
+    // Every call inside this one, however deep.
+    var callCount: Int { children.reduce(children.count) { $0 + $1.callCount } }
+
+    var agentCount: Int { children.filter(\.tool.startsAgents).count }
+
+    // The newest call anywhere inside this one: what the agents are doing right now.
+    var newestDescendant: ToolNode? {
+        children.flatMap { [$0] + ($0.newestDescendant.map { [$0] } ?? []) }
+            .max { $0.order < $1.order }
+    }
 }
 
 // A run of the turn laid out in the order it happened: some text Claude wrote, or the
@@ -59,7 +96,7 @@ struct ToolUse: Identifiable, Codable, Equatable {
 // so they stay together and are drawn as a single spine.
 enum MessageBlock: Identifiable {
     case prose(id: Int, text: String)
-    case tools(id: Int, [ToolUse])
+    case tools(id: Int, [ToolNode])
 
     var id: Int {
         switch self {
@@ -84,6 +121,32 @@ struct ChatMessage: Identifiable, Codable, Equatable {
             && (attachments?.isEmpty ?? true)
     }
 
+    // The turn's calls read as a tree: a call an agent made hangs under the call that
+    // started that agent. A child whose parent is not in the turn is left at the top
+    // level rather than dropped, so a stream that lost an event still shows the work.
+    var toolTree: [ToolNode] {
+        let positions = Dictionary(tools.enumerated().map { ($0.element.id, $0.offset) },
+                                   uniquingKeysWith: { first, _ in first })
+        var childrenOf: [String: [ToolUse]] = [:]
+        var roots: [ToolUse] = []
+        for tool in tools {
+            if let parent = tool.parentID, parent != tool.id, positions[parent] != nil {
+                childrenOf[parent, default: []].append(tool)
+            } else {
+                roots.append(tool)
+            }
+        }
+        // Only a root can be reached from a root, and a call has one parent, so a chain
+        // that pointed back at itself would sit outside this walk entirely - it cannot
+        // recur forever.
+        func node(_ tool: ToolUse) -> ToolNode {
+            ToolNode(tool: tool,
+                     children: (childrenOf[tool.id] ?? []).map(node),
+                     order: positions[tool.id] ?? 0)
+        }
+        return roots.map(node)
+    }
+
     // The turn put back together in the order it came in. The stream gives text and
     // calls as separate events and the app stores them apart, so this is what stops a
     // call the model made after speaking from being drawn above what it said.
@@ -95,10 +158,10 @@ struct ChatMessage: Identifiable, Codable, Equatable {
         var cursor = 0
         var cursorIndex = text.startIndex
         let length = text.count
-        var round: [ToolUse] = []
+        var round: [ToolNode] = []
 
         func closeRound() {
-            guard let first = round.first else { return }
+            guard let first = round.first?.tool else { return }
             let end = min(max(first.textOffset ?? 0, cursor), length)
             if end > cursor {
                 let endIndex = text.index(cursorIndex, offsetBy: end - cursor)
@@ -110,11 +173,14 @@ struct ChatMessage: Identifiable, Codable, Equatable {
             round = []
         }
 
-        for tool in tools {
-            if let previous = round.first, (previous.textOffset ?? 0) != (tool.textOffset ?? 0) {
+        // Only the calls the main loop made set the shape of the turn. What ran inside
+        // an agent is drawn under the call that started it, wherever that call sits.
+        for node in toolTree {
+            if let previous = round.first?.tool,
+               (previous.textOffset ?? 0) != (node.tool.textOffset ?? 0) {
                 closeRound()
             }
-            round.append(tool)
+            round.append(node)
         }
         closeRound()
 

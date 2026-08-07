@@ -71,9 +71,12 @@ struct ToolPresentation {
         case "WebSearch":
             argument = input["query"] as? String ?? ""
             notesResultLineCount = true
-        case "Task":
-            argument = input["description"] as? String
+        case "Task", "Agent":
+            argument = input["name"] as? String
+                ?? input["description"] as? String
                 ?? Self.singleLine(input["prompt"] as? String ?? "")
+        case "Workflow":
+            argument = Self.workflowName(input)
         case "TodoWrite":
             if let todos = input["todos"] as? [Any] {
                 argument = "\(todos.count) item" + (todos.count == 1 ? "" : "s")
@@ -121,6 +124,21 @@ struct ToolPresentation {
 
     private static func object(from input: String) -> [String: Any] {
         (try? JSONSerialization.jsonObject(with: Data(input.utf8))) as? [String: Any] ?? [:]
+    }
+
+    // What a workflow goes by: the saved name it was launched under, the script file it
+    // was resumed from, or the name in the script's own meta block. Without one the row
+    // would carry a whole workflow script as its argument.
+    private static func workflowName(_ input: [String: Any]) -> String {
+        if let name = input["name"] as? String, !name.isEmpty { return name }
+        if let path = input["scriptPath"] as? String, !path.isEmpty {
+            return (path as NSString).lastPathComponent
+        }
+        let head = (input["script"] as? String ?? "").prefix(400)
+        guard let range = head.range(of: "name:\\s*['\"][^'\"]+", options: .regularExpression)
+        else { return "workflow" }
+        let name = head[range].drop { $0 != "'" && $0 != "\"" }.dropFirst()
+        return name.isEmpty ? "workflow" : String(name)
     }
 
     private static func relativize(_ path: String, to projectPath: String) -> String {

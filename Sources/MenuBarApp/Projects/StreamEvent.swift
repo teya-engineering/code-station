@@ -6,6 +6,10 @@ import Foundation
 enum StreamEvent: Sendable {
     case initialized(claudeSessionID: String)
     case text(String)
+    // Something an agent said while working, named by the call that started it. It is
+    // not part of the conversation - the agent reports back through its result - so it
+    // is only worth the one line that says the agent is still going.
+    case agentText(parentID: String, text: String)
     case toolUse(ToolUse)
     case toolResult(id: String, output: String, isError: Bool)
     // The agent asking something back. The turn is parked until it is answered.
@@ -66,7 +70,8 @@ extension StreamEvent {
             return [.initialized(claudeSessionID: id)]
 
         case "assistant":
-            var events = contentBlocks(of: object).compactMap(assistantEvent)
+            let parent = parentToolUseID(of: object)
+            var events = contentBlocks(of: object).compactMap { assistantEvent($0, parentID: parent) }
             if let tokens = promptSize(of: object) { events.append(.context(tokens: tokens)) }
             return events
 
@@ -109,7 +114,7 @@ extension StreamEvent {
     // A subagent has a window of its own, and its messages are tagged with the tool call
     // that started it. Those are left out: the meter is about the main conversation.
     private static func promptSize(of object: [String: Any]) -> Int? {
-        guard object["parent_tool_use_id"] == nil || object["parent_tool_use_id"] is NSNull,
+        guard parentToolUseID(of: object) == nil,
               let message = object["message"] as? [String: Any],
               let counts = message["usage"] as? [String: Any] else { return nil }
         let tokens = (counts["input_tokens"] as? Int ?? 0)
@@ -146,19 +151,28 @@ extension StreamEvent {
         return usage
     }
 
+    // Which agent a stream message came from, named by the call that started it. Absent
+    // on everything the main loop itself said.
+    private static func parentToolUseID(of object: [String: Any]) -> String? {
+        guard let id = object["parent_tool_use_id"] as? String, !id.isEmpty else { return nil }
+        return id
+    }
+
     private static func contentBlocks(of object: [String: Any]) -> [[String: Any]] {
         guard let message = object["message"] as? [String: Any] else { return [] }
         return (message["content"] as? [Any])?.compactMap { $0 as? [String: Any] } ?? []
     }
 
-    private static func assistantEvent(_ block: [String: Any]) -> StreamEvent? {
+    private static func assistantEvent(_ block: [String: Any], parentID: String?) -> StreamEvent? {
         switch block["type"] as? String {
         case "text":
             guard let text = block["text"] as? String, !text.isEmpty else { return nil }
-            return .text(text)
+            guard let parentID else { return .text(text) }
+            return .agentText(parentID: parentID, text: text)
         case "tool_use":
             guard let id = block["id"] as? String, let name = block["name"] as? String else { return nil }
-            return .toolUse(ToolUse(id: id, name: name, input: pretty(block["input"])))
+            return .toolUse(ToolUse(id: id, name: name, input: pretty(block["input"]),
+                                    parentID: parentID))
         default:
             return nil
         }
