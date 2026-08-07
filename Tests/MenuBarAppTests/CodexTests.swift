@@ -309,7 +309,7 @@ struct CodexTests {
         #expect(ModelChoice.valid("opus", for: .codex) == nil)
         #expect(ModelChoice.valid("gpt-5.6-terra", for: .codex) == "gpt-5.6-terra")
         #expect(ModelChoice.valid("gpt-5.6-terra", for: .claudeCode) == nil)
-        #expect(ModelChoice.shortName(of: "gpt-5.6-terra") == "Codex")
+        #expect(ModelChoice.shortName(of: "gpt-5.6-terra") == "Terra")
         #expect(ModelChoice.valid("", for: .claudeCode) == nil)
         #expect(EffortChoice.valid("max", for: .codex) == "max")
         #expect(EffortChoice.valid("high", for: .codex) == "high")

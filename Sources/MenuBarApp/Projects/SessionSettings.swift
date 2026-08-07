@@ -104,9 +104,9 @@ enum ModelChoice {
 
     static let codex: [(id: String?, title: String, detail: String)] = [
         (nil, "Default", "Whatever Codex is set to use."),
-        ("gpt-5.6-sol", "Codex Max", "The strongest reasoning, for long and hard work."),
-        ("gpt-5.6-terra", "Codex", "The everyday balance of speed and depth."),
-        ("gpt-5.6-luna", "Codex Mini", "The fastest and cheapest; best for small, mechanical work."),
+        ("gpt-5.6-sol", "Sol", "The strongest reasoning, for long and hard work."),
+        ("gpt-5.6-terra", "Terra", "The everyday balance of speed and depth."),
+        ("gpt-5.6-luna", "Luna", "The fastest and cheapest; best for small, mechanical work."),
     ]
 
     static func options(for agent: AgentKind) -> [(id: String?, title: String, detail: String)] {
