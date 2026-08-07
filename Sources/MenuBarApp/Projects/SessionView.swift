@@ -510,7 +510,7 @@ struct SessionView: View {
             if agent == .claudeCode {
                 permissionsMenu
             } else {
-                sandboxTag
+                codexAccessMenu
             }
             Spacer(minLength: 8)
             if let pullRequest = session.pullRequest { pullRequestTag(pullRequest) }
@@ -587,14 +587,20 @@ struct SessionView: View {
                                               set: { mode in changeSettings { $0.permissionMode = mode } }))
     }
 
-    // Codex has nothing to pick here: it never asks, it sandboxes. The chip still keeps
-    // the line readable by saying so where the permission mode would be.
-    private var sandboxTag: some View {
-        Text("Sandboxed")
-            .font(.system(size: 11))
-            .foregroundStyle(Color.secondary)
-            .fixedSize()
-            .help("Codex does not ask before it acts. Commands run inside a sandbox that can edit this session's folder and nothing outside it.")
+    private var codexAccessMenu: some View {
+        let settings = sessionSettings
+        let override = CodexSandboxMode.valid(settings.codexSandboxMode)
+        let appDefault = CodexSandboxMode.resolved(runner.defaults.codexSandboxMode)
+        let selected = override ?? appDefault
+        return settingMenu(selected.title,
+                           overridden: override != nil,
+                           help: selected.detail,
+                           defaultTitle: defaultTitle(appDefault.title),
+                           options: CodexSandboxMode.allCases.map { (id: $0.rawValue, title: $0.title) },
+                           selection: Binding(get: { override?.rawValue },
+                                              set: { value in
+                                                  changeSettings { $0.codexSandboxMode = value }
+                                              }))
     }
 
     // The first row of every menu, naming what following the default currently means.

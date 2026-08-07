@@ -1,8 +1,8 @@
 # Teya Conductor
 
-A small macOS app for running Claude Code against your projects, plus the MCP server
-manager it grew out of. It is a stripped-down take on Conductor: a project list and a
-chat per session, but only Claude Code.
+A small macOS app for running Claude Code or Codex against your projects, plus the MCP
+server manager it grew out of. It is a stripped-down take on Conductor: a project list
+and a chat per session.
 
 It lives in the Dock. Closing the window quits the app, so anything still running stops
 with it.
@@ -53,6 +53,11 @@ folder, so you can see what the agent did before you keep it.
   "don't ask again" should mean here; question cards show the options, take several
   answers at once when the question allows it, and always let you type something else.
   Settings chooses how much gets asked about.
+- Codex sessions are sandboxed by default. Choose **Approve for me** to keep the
+  sandbox while Codex automatically reviews permission requests. Choose **Full access**
+  when the agent needs a local service outside the sandbox, such as your GPG agent for a
+  signed commit. Full access can reach any file and the internet, so use it only with
+  code you trust.
 - **Changes** shows the branch, the changed files with per-file `+`/`-` counts, and the
   diff for any file you select. It is strictly read-only: nothing here stages, commits,
   or discards anything.

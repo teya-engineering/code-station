@@ -23,6 +23,44 @@ struct CodexTests {
         #expect(!arguments.contains("--effort"))
     }
 
+    @Test func codexFullAccessBypassesTheSandboxForNewAndResumedTurns() {
+        let settings = SessionSettings(codexSandboxMode: CodexSandboxMode.fullAccess.rawValue)
+        let arguments = SessionRunner.arguments(agent: .codex,
+                                                settings: settings,
+                                                defaults: SessionSettings(),
+                                                writableRoots: ["/Users/jo/Code/app/.git"])
+        #expect(arguments.contains("--dangerously-bypass-approvals-and-sandbox"))
+        #expect(!arguments.contains { $0.hasPrefix("sandbox_mode") })
+        #expect(!arguments.contains { $0.hasPrefix("sandbox_workspace_write") })
+
+        let resumed = SessionRunner.arguments(agent: .codex,
+                                              settings: settings,
+                                              defaults: SessionSettings(),
+                                              resume: "thread-1")
+        #expect(resumed.contains("--dangerously-bypass-approvals-and-sandbox"))
+    }
+
+    @Test func codexApproveForMeKeepsTheSandboxForNewAndResumedTurns() {
+        let settings = SessionSettings(codexSandboxMode: CodexSandboxMode.approveForMe.rawValue)
+        let arguments = SessionRunner.arguments(agent: .codex,
+                                                settings: settings,
+                                                defaults: SessionSettings(),
+                                                writableRoots: ["/Users/jo/Code/app/.git"])
+        #expect(arguments.contains("sandbox_mode=\"workspace-write\""))
+        #expect(arguments.contains("sandbox_workspace_write.writable_roots=[\"/Users/jo/Code/app/.git\"]"))
+        #expect(arguments.contains("--approve-for-me"))
+        #expect(!arguments.contains("--dangerously-bypass-approvals-and-sandbox"))
+
+        let resumed = SessionRunner.arguments(agent: .codex,
+                                              settings: settings,
+                                              defaults: SessionSettings(),
+                                              resume: "thread-1")
+        #expect(!resumed.contains("--approve-for-me"))
+        #expect(resumed.contains("approval_policy=\"on-failure\""))
+        #expect(resumed.contains("approvals_reviewer=\"auto_review\""))
+        #expect(!resumed.contains("--dangerously-bypass-approvals-and-sandbox"))
+    }
+
     // A worktree's git metadata lives in the main checkout's .git directory, so a
     // worktree session has to open that directory up or git cannot write anything.
     @Test func aWorktreeSessionOpensTheSharedGitDirectory() {

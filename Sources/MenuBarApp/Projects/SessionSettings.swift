@@ -45,10 +45,47 @@ struct SessionSettings: Codable, Equatable {
     var model: String?
     var effort: String?
     var permissionMode: String?
+    var codexSandboxMode: String?
 
     // A session that has chosen nothing runs exactly as the app settings say.
     var overridesAnything: Bool {
-        model != nil || effort != nil || permissionMode != nil
+        model != nil || effort != nil || permissionMode != nil || codexSandboxMode != nil
+    }
+}
+
+// Codex `exec` has no way to send a permission question back through the JSONL stream,
+// so the app offers the two execution modes it can apply consistently to new and resumed
+// turns. Full access is needed for local services such as a GPG agent.
+enum CodexSandboxMode: String, CaseIterable {
+    case workspaceWrite = "workspace-write"
+    case approveForMe = "approve-for-me"
+    case fullAccess = "danger-full-access"
+
+    var title: String {
+        switch self {
+        case .workspaceWrite: "Sandboxed"
+        case .approveForMe: "Approve for me"
+        case .fullAccess: "Full access"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .workspaceWrite:
+            "Can change this session's files. It cannot access local services such as your GPG agent."
+        case .approveForMe:
+            "Keeps the sandbox and lets Codex automatically review permission requests."
+        case .fullAccess:
+            "Can access any file, local service, and the internet. Use only with projects you trust."
+        }
+    }
+
+    static func valid(_ value: String?) -> Self? {
+        value.flatMap(Self.init(rawValue:))
+    }
+
+    static func resolved(_ value: String?) -> Self {
+        valid(value) ?? .workspaceWrite
     }
 }
 

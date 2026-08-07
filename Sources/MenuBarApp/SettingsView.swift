@@ -157,19 +157,20 @@ struct SettingsView: View {
 
     // How much the agent asks before it acts. Whatever Claude Code asks goes to the
     // session it is running in, so a stricter mode means more cards in the chat, not a
-    // stuck turn. Codex cannot ask at all: it runs inside a sandbox instead, so the
-    // block explains that rather than offering modes that would do nothing.
+    // stuck turn. Codex cannot send permission questions through its JSONL stream, so
+    // it offers the execution modes that work for the whole turn instead.
     private var permissions: some View {
         ChoiceBlock("PERMISSIONS") {
             if runner.agent == .codex {
-                Text("Codex does not ask before it acts. Every command runs inside a sandbox that can edit the session's folder and nothing outside it.")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(12)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(RoundedRectangle(cornerRadius: 9).fill(Theme.card))
-                    .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
+                VStack(spacing: 4) {
+                    ForEach(CodexSandboxMode.allCases, id: \.rawValue) { mode in
+                        OptionRow(title: mode.title,
+                                  detail: mode.detail,
+                                  selected: CodexSandboxMode.resolved(defaults.codexSandboxMode) == mode) {
+                            change { $0.codexSandboxMode = mode.rawValue }
+                        }
+                    }
+                }
             } else {
                 VStack(spacing: 4) {
                     ForEach(PermissionMode.all, id: \.mode) { choice in

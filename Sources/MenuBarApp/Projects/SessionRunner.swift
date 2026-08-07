@@ -191,6 +191,8 @@ final class SessionRunner {
                                       resume: String? = nil) -> [String] {
         let model = ModelChoice.valid(settings.model ?? defaults.model, for: agent)
         let effort = EffortChoice.valid(settings.effort ?? defaults.effort, for: agent)
+        let codexSandbox = CodexSandboxMode.resolved(settings.codexSandboxMode
+            ?? defaults.codexSandboxMode)
 
         switch agent {
         case .claudeCode:
@@ -212,24 +214,35 @@ final class SessionRunner {
             return arguments
 
         case .codex:
-            // Codex has no streaming input and no permission questions: `exec` runs the
-            // whole turn inside a sandbox instead. workspace-write matches what the app
-            // promises - the agent can edit the session's folder and nothing outside it.
-            // Reading is not sandboxed, so attachment folders need no flag either.
-            // The sandbox goes over as a config override rather than as "--sandbox",
-            // which the resume subcommand does not take.
+            // Codex has no streaming input for permission questions. The sandbox goes
+            // over as a config override because the resume subcommand has no --sandbox
+            // option. Its full-access flag works for both initial and resumed turns;
+            // the approve-for-me flag needs config overrides when resuming.
             var arguments = ["exec"]
             if let resume, !resume.isEmpty { arguments += ["resume", resume] }
-            arguments += ["--json", "--skip-git-repo-check",
-                          "-c", "sandbox_mode=\"workspace-write\""]
-            // A worktree session keeps its git metadata in the main checkout's .git
-            // directory, outside the sandbox. Without write access there git cannot
-            // even stage a file, so that directory goes in as an extra writable root.
-            if !writableRoots.isEmpty {
-                let list = writableRoots
-                    .map { "\"\($0.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\""))\"" }
-                    .joined(separator: ",")
-                arguments += ["-c", "sandbox_workspace_write.writable_roots=[\(list)]"]
+            arguments += ["--json", "--skip-git-repo-check"]
+            switch codexSandbox {
+            case .workspaceWrite, .approveForMe:
+                arguments += ["-c", "sandbox_mode=\"workspace-write\""]
+                // A worktree session keeps its git metadata in the main checkout's .git
+                // directory, outside the sandbox. Without write access there git cannot
+                // even stage a file, so that directory goes in as an extra writable root.
+                if !writableRoots.isEmpty {
+                    let list = writableRoots
+                        .map { "\"\($0.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\""))\"" }
+                        .joined(separator: ",")
+                    arguments += ["-c", "sandbox_workspace_write.writable_roots=[\(list)]"]
+                }
+                if codexSandbox == .approveForMe {
+                    if resume == nil || resume?.isEmpty == true {
+                        arguments.append("--approve-for-me")
+                    } else {
+                        arguments += ["-c", "approval_policy=\"on-failure\"",
+                                      "-c", "approvals_reviewer=\"auto_review\""]
+                    }
+                }
+            case .fullAccess:
+                arguments.append("--dangerously-bypass-approvals-and-sandbox")
             }
             if let model { arguments += ["--model", model] }
             if let effort { arguments += ["-c", "model_reasoning_effort=\"\(effort)\""] }

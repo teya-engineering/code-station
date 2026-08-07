@@ -84,17 +84,21 @@ enum Preferences {
 
     // What a session runs with when it has not picked for itself. A model or effort left
     // unset means the flag is never passed, so Claude Code's own configuration decides;
-    // the permission mode is always ours, since the app is what asks the questions.
+    // the permission mode and Codex sandbox are always ours, since the app owns both.
     static var sessionDefaults: SessionSettings {
         get {
             SessionSettings(model: text("defaultModel"),
                             effort: text("defaultEffort"),
-                            permissionMode: store.string(forKey: "permissionMode") ?? "acceptEdits")
+                            permissionMode: store.string(forKey: "permissionMode") ?? "acceptEdits",
+                            codexSandboxMode: store.string(forKey: "codexSandboxMode")
+                                ?? CodexSandboxMode.workspaceWrite.rawValue)
         }
         set {
             set(newValue.model, "defaultModel")
             set(newValue.effort, "defaultEffort")
             store.set(newValue.permissionMode ?? "acceptEdits", forKey: "permissionMode")
+            store.set(CodexSandboxMode.resolved(newValue.codexSandboxMode).rawValue,
+                      forKey: "codexSandboxMode")
         }
     }
 
