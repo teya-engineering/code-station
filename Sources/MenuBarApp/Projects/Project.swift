@@ -319,9 +319,12 @@ enum SessionState: Equatable {
     case idle
     case starting
     case streaming
+    // The turn has answered, but a background task it started is still running. The
+    // process is held open so the task's completion can wake the agent again.
+    case waiting
     case failed(String)
 
-    var isBusy: Bool { self == .starting || self == .streaming }
+    var isBusy: Bool { self == .starting || self == .streaming || self == .waiting }
 }
 
 // What the left sidebar can have selected.

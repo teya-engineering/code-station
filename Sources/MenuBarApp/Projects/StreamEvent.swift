@@ -25,6 +25,10 @@ enum StreamEvent: Sendable {
     // How big the prompt was on the last request the main loop made, which is how much of
     // the window is in use right now.
     case context(tokens: Int)
+    // Which background tasks the CLI still has running, sent whole whenever the set
+    // changes. A turn that ends while this is not empty is not really over: the CLI runs
+    // a follow-up turn when a task finishes, but only if its process is still alive.
+    case backgroundTasks(ids: [String])
     case finished(isError: Bool, message: String?)
 }
 
@@ -65,9 +69,16 @@ extension StreamEvent {
             return [.permissionWithdrawn(id: id)]
 
         case "system":
-            guard object["subtype"] as? String == "init",
-                  let id = object["session_id"] as? String, !id.isEmpty else { return [] }
-            return [.initialized(claudeSessionID: id)]
+            switch object["subtype"] as? String {
+            case "init":
+                guard let id = object["session_id"] as? String, !id.isEmpty else { return [] }
+                return [.initialized(claudeSessionID: id)]
+            case "background_tasks_changed":
+                let tasks = (object["tasks"] as? [Any])?.compactMap { $0 as? [String: Any] } ?? []
+                return [.backgroundTasks(ids: tasks.compactMap { $0["task_id"] as? String })]
+            default:
+                return []
+            }
 
         case "assistant":
             let parent = parentToolUseID(of: object)

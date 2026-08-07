@@ -4,7 +4,9 @@ import Observation
 // Runs the Claude Code CLI for chat sessions. One process per turn, started in the
 // project's own folder, with `--resume` carrying the conversation forward. The reply is
 // streamed into the ProjectStore as it arrives; nothing about a conversation is kept
-// here, only the state that dies with the process.
+// here, only the state that dies with the process. The one stretch: a turn that started
+// a background task is held open until the task is done, because the CLI can only wake
+// the agent with the result while its process is still alive.
 @MainActor
 @Observable
 final class SessionRunner {
@@ -139,6 +141,13 @@ final class SessionRunner {
     // Starts the oldest waiting prompt, if the session is free to take it. A prompt that
     // cannot start yet stays at the head of the queue rather than being lost.
     func runQueue(_ sessionID: UUID, store: ProjectStore) {
+        // A turn that is only waiting on a background task has a live process with an
+        // open pipe, so the next prompt goes straight down it instead of sitting behind
+        // a timer that could run for a long while.
+        if turns[sessionID]?.waitingOnTasks == true {
+            injectQueued(sessionID, store: store)
+            return
+        }
         guard !state(sessionID).isBusy,
               let next = queues[sessionID]?.first,
               let session = store.session(sessionID) else { return }
@@ -458,6 +467,7 @@ final class SessionRunner {
 
             case .text(let text):
                 states[sessionID] = .streaming
+                freshReply(turn, sessionID: sessionID, store: store)
                 store.updateMessage(turn.messageID, in: sessionID) { message in
                     // Each event carries a complete block, and blocks are split around
                     // tool calls, so they need a gap between them.
@@ -474,6 +484,7 @@ final class SessionRunner {
 
             case .toolUse(let tool):
                 states[sessionID] = .streaming
+                freshReply(turn, sessionID: sessionID, store: store)
                 store.updateMessage(turn.messageID, in: sessionID) { message in
                     // Stamped here rather than in the parser: only the message being
                     // built knows how much has been said so far, and that is what puts
@@ -519,20 +530,96 @@ final class SessionRunner {
             case .rateLimit(let limit):
                 rateLimits[limit.kind] = limit
 
-            case .usage(let turn):
-                store.recordUsage(turn, for: sessionID)
+            case .usage(let totals):
+                // A process reports running totals for its whole run, and a turn held
+                // open for background tasks sees several of them, so only what has grown
+                // since the last one is new spend.
+                store.recordUsage(Self.grown(totals, since: turn.recordedUsage), for: sessionID)
+                turn.recordedUsage = totals
 
             case .context(let tokens):
                 store.recordContext(tokens, for: sessionID)
 
+            case .backgroundTasks(let ids):
+                turn.pendingTasks = Set(ids)
+
             case .finished(let isError, let message):
+                if isError { turn.failure = message ?? "Claude Code reported an error." }
+                // A result with background tasks still running is not the end of the
+                // turn: the CLI runs a follow-up turn when a task finishes, but only
+                // while its process is alive, so the input pipe is held open until the
+                // last task is done and the turn after it has answered.
+                if !isError, !turn.pendingTasks.isEmpty {
+                    SessionLog.note("holding turn open for background tasks \(turn.pendingTasks.sorted())",
+                                    session: sessionID)
+                    turn.waitingOnTasks = true
+                    turn.needsFreshReply = true
+                    states[sessionID] = .waiting
+                    // A prompt typed while the agent was working can go down the open
+                    // pipe now instead of sitting behind the task.
+                    injectQueued(sessionID, store: store)
+                    continue
+                }
                 // Nothing more is coming, and the CLI keeps its input stream open waiting
                 // for another message, so this is where the turn is let go.
                 turn.closeInput()
-                guard isError else { continue }
-                turn.failure = message ?? "Claude Code reported an error."
             }
         }
+    }
+
+    // Opens a new reply bubble for a turn the CLI started on its own - the one it runs
+    // when a background task finishes. Without this the follow-up would keep writing
+    // into the bubble of the turn that already answered.
+    private func freshReply(_ turn: Turn, sessionID: UUID, store: ProjectStore) {
+        guard turn.needsFreshReply else { return }
+        turn.needsFreshReply = false
+        turn.waitingOnTasks = false
+        // The bubble being left behind is normally full, but a turn that said nothing
+        // would leave an empty one sitting in the transcript for good.
+        if store.transcript(of: sessionID).first(where: { $0.id == turn.messageID })?.isEmpty ?? false {
+            store.removeMessage(turn.messageID, from: sessionID)
+        }
+        let reply = ChatMessage(role: .assistant)
+        store.append(reply, to: sessionID)
+        turn.messageID = reply.id
+    }
+
+    // Hands the next queued prompt to the process a waiting turn is holding open. The
+    // CLI accepts further user messages for as long as the pipe is open, so the person
+    // is not stuck behind a task that could run for many minutes. One prompt at a time:
+    // the ones behind it go when this one's result comes back.
+    private func injectQueued(_ sessionID: UUID, store: ProjectStore) {
+        guard let turn = turns[sessionID], turn.waitingOnTasks,
+              let next = queues[sessionID]?.first else { return }
+        let prompt = Self.prompt(next.text, with: next.attachments)
+        // A failed write means the pipe is gone; the prompt stays queued and starts a
+        // fresh process once this turn winds down.
+        guard let line = Self.userMessageLine(prompt), turn.write(line) else { return }
+        queues[sessionID]?.removeFirst()
+        SessionLog.note("prompt sent into waiting turn", session: sessionID)
+
+        var message = ChatMessage(role: .user, text: next.text)
+        if !next.attachments.isEmpty { message.attachments = next.attachments.map(\.url.path) }
+        store.append(message, to: sessionID)
+        let reply = ChatMessage(role: .assistant)
+        store.append(reply, to: sessionID)
+        turn.messageID = reply.id
+        turn.needsFreshReply = false
+        turn.waitingOnTasks = false
+        states[sessionID] = .streaming
+    }
+
+    // What a new usage report adds over the one before it. Clamped at zero so a report
+    // that is not cumulative after all can only under-count, never charge twice.
+    nonisolated static func grown(_ totals: TurnUsage, since recorded: TurnUsage?) -> TurnUsage {
+        guard let recorded else { return totals }
+        var grown = totals
+        grown.costUSD = max(0, totals.costUSD - recorded.costUSD)
+        grown.inputTokens = max(0, totals.inputTokens - recorded.inputTokens)
+        grown.outputTokens = max(0, totals.outputTokens - recorded.outputTokens)
+        grown.cacheReadTokens = max(0, totals.cacheReadTokens - recorded.cacheReadTokens)
+        grown.cacheWriteTokens = max(0, totals.cacheWriteTokens - recorded.cacheWriteTokens)
+        return grown
     }
 
     private func appendStderr(_ sessionID: UUID, token: UUID, _ chunk: String) {
@@ -640,6 +727,16 @@ final class SessionRunner {
         var stdoutOpen = true
         var stderrOpen = true
         var exitStatus: Int32?
+        // The background tasks the CLI says are still running, by id.
+        var pendingTasks: Set<String> = []
+        // True from a result that left tasks running until the CLI moves again or a
+        // prompt is sent into the open pipe. This is what holds the input open.
+        var waitingOnTasks = false
+        // True when whatever streams next belongs in a reply bubble of its own, because
+        // the last one was already closed off by a result.
+        var needsFreshReply = false
+        // The totals from the last usage report, so the next one is recorded as a delta.
+        var recordedUsage: TurnUsage?
         // Moved on every read off the CLI's stdout, so it measures silence rather than
         // progress: a turn deep in a long build still counts as alive.
         var lastActivity = Date()

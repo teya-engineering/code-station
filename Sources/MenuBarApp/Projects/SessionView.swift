@@ -320,7 +320,8 @@ struct SessionView: View {
 
             if showsThinking(state: state) {
                 WorkingRow(runningTool: runningTool(session, root: projectPath),
-                           since: runner.lastActivity(sessionID) ?? Date())
+                           since: runner.lastActivity(sessionID) ?? Date(),
+                           waitingOnTasks: state == .waiting)
                     .transition(.fadeIn)
             }
 
@@ -775,6 +776,9 @@ struct SessionView: View {
 private struct WorkingRow: View {
     let runningTool: String?
     let since: Date
+    // The agent has answered and is being held open for a background task it started.
+    // Silence is the expected thing here, not a worry.
+    var waitingOnTasks = false
 
     // Below this a gap is just the model thinking, and a clock ticking on every turn would
     // be noise. Past the second one it is long enough to be worth doubting.
@@ -794,7 +798,7 @@ private struct WorkingRow: View {
         // the case it exists for.
         TimelineView(.periodic(from: .now, by: 1)) { context in
             let quiet = context.date.timeIntervalSince(since)
-            let word = words.word(after: context.date.timeIntervalSince(started))
+            let word = waitingOnTasks ? "Waiting" : words.word(after: context.date.timeIntervalSince(started))
             HStack(spacing: 8) {
                 WorkingGlyph()
                 Text("\(word)…")
@@ -802,14 +806,18 @@ private struct WorkingRow: View {
                     .foregroundStyle(.primary)
                     .id(word)
                     .transition(.opacity)
-                if let runningTool {
+                if waitingOnTasks {
+                    Text("for a background task to finish")
+                        .font(.mono(12))
+                        .foregroundStyle(.secondary)
+                } else if let runningTool {
                     Text(runningTool)
                         .font(.mono(12))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
-                if quiet >= Self.showQuietAfter {
+                if quiet >= Self.showQuietAfter, !waitingOnTasks {
                     Text("silent for \(elapsed(quiet))")
                         .font(.system(size: 11))
                         .foregroundStyle(quiet >= Self.concerningAfter
@@ -818,7 +826,7 @@ private struct WorkingRow: View {
                 Spacer(minLength: 0)
             }
             .animation(.easeInOut(duration: 0.25), value: word)
-            .help(quiet >= Self.concerningAfter
+            .help(quiet >= Self.concerningAfter && !waitingOnTasks
                   ? "Claude Code has sent nothing for a while. The log in Settings says what it last did."
                   : "")
         }
