@@ -11,6 +11,11 @@ struct EnvironmentsView: View {
     @State private var selected: ApiEnvironment?
     private var shown: ApiEnvironment { selected ?? auth.active }
 
+    // Edits land in a draft per environment and only reach the store on Save, so a
+    // half-typed credential is never what a send signs in with. Switching tabs keeps
+    // both drafts.
+    @State private var drafts: [ApiEnvironment: OAuthConfig] = [:]
+
     var body: some View {
         VStack(spacing: 0) {
             Rectangle().fill(shown.brightAccent).frame(height: 5)
@@ -75,7 +80,9 @@ struct EnvironmentsView: View {
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
 
-                    EnvironmentTokenControls(env: shown)
+                    // Signing in reads the stored config, so unsaved edits are saved
+                    // first rather than silently signing in with the old values.
+                    EnvironmentTokenControls(env: shown, beforeAuthenticate: save)
 
                     Text("Both environments hold the same fields; only the values differ. Switching re-authenticates against that environment's setup and re-resolves every {{env}} in the request list.")
                         .font(.system(size: 12))
@@ -85,8 +92,11 @@ struct EnvironmentsView: View {
                 .padding(20)
             }
 
-            SheetFooter(done: { dismiss() }) {
-                Text("Secrets are stored in the Keychain, never in the request file.")
+            SheetFooter(save: SheetSave(enabled: hasChanges, action: save),
+                        done: { dismiss() }) {
+                Text(hasChanges
+                     ? "Unsaved changes. Done leaves without keeping them."
+                     : "Secrets are stored in the Keychain, never in the request file.")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
@@ -98,8 +108,22 @@ struct EnvironmentsView: View {
     private var config: Binding<OAuthConfig> {
         let env = shown
         return Binding(
-            get: { auth.config(for: env) },
-            set: { auth.setConfig($0, for: env) })
+            get: { drafts[env] ?? auth.config(for: env) },
+            set: { drafts[env] = $0 })
+    }
+
+    private var hasChanges: Bool {
+        ApiEnvironment.allCases.contains { env in
+            drafts[env].map { $0 != auth.config(for: env) } ?? false
+        }
+    }
+
+    private func save() {
+        for env in ApiEnvironment.allCases {
+            if let draft = drafts[env], draft != auth.config(for: env) {
+                auth.setConfig(draft, for: env)
+            }
+        }
     }
 
     private var header: some View {
@@ -211,6 +235,9 @@ private struct OptionMenu: View {
 // Shown in the Environments sheet and on a request's Auth tab, so both say the same thing.
 struct EnvironmentTokenControls: View {
     let env: ApiEnvironment
+    // The Environments sheet edits a draft; this runs before a sign-in so the attempt
+    // uses what is on screen, not what was last saved.
+    var beforeAuthenticate: (() -> Void)?
 
     @Environment(PostmanAuthStore.self) private var auth
 
@@ -255,6 +282,7 @@ struct EnvironmentTokenControls: View {
                     .foregroundStyle(Theme.deletion)
             } else {
                 Button {
+                    beforeAuthenticate?()
                     auth.authenticate(env)
                 } label: {
                     Text(buttonLabel)
