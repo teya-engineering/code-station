@@ -24,6 +24,15 @@ struct RootView: View {
             detail
         }
         .background(Theme.background)
+        // Settings answers the shortcut every Mac app answers. The standard Settings
+        // scene is deliberately empty, so the shortcut is caught here and opens the
+        // same sheet the sidebar's menu does.
+        .background(
+            Button("", action: { showingSettings = true })
+                .buttonStyle(.plain)
+                .opacity(0)
+                .keyboardShortcut(",", modifiers: .command)
+        )
         .appOverlays()
         // A sheet is a window of its own, so the layer under it cannot draw over it; each
         // sheet gets one of its own to ask its own questions in.

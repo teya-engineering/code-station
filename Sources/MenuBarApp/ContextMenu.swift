@@ -12,8 +12,11 @@ enum MenuEntry {
     static func item(_ label: String,
                      kind: MenuItem.Kind = .plain,
                      checked: Bool = false,
+                     detail: String? = nil,
+                     detailColour: Color? = nil,
                      action: @escaping () -> Void) -> MenuEntry {
-        .item(MenuItem(label: label, kind: kind, checked: checked, handler: action))
+        .item(MenuItem(label: label, kind: kind, checked: checked,
+                       detail: detail, detailColour: detailColour, handler: action))
     }
 }
 
@@ -24,6 +27,10 @@ struct MenuItem {
     var kind: Kind = .plain
     // Marks the row that is currently in force, for menus that pick one of a set.
     var checked = false
+    // Trailing state on the row - a count, an environment, a shortcut - so a menu of
+    // places can say how each one is doing without being opened.
+    var detail: String?
+    var detailColour: Color?
     var handler: () -> Void = {}
 }
 
@@ -34,14 +41,18 @@ struct MenuItem {
 final class MenuPresenter {
     private(set) var entries: [MenuEntry] = []
     private(set) var origin: CGPoint = .zero
+    // Set when the menu should take the width of the control that opened it rather
+    // than the width of its own rows, so it reads as an extension of that control.
+    private(set) var width: CGFloat?
     // Changes on every open so the host can drop the size it measured for the last menu.
     private(set) var generation = 0
 
     var isOpen: Bool { !entries.isEmpty }
 
-    func show(_ entries: [MenuEntry], at point: CGPoint) {
+    func show(_ entries: [MenuEntry], at point: CGPoint, width: CGFloat? = nil) {
         self.entries = entries
         origin = point
+        self.width = width
         generation += 1
     }
 
@@ -63,9 +74,13 @@ extension View {
     }
 
     // Some controls are a menu button rather than a row with a menu behind it, so the
-    // same menu opens from a plain click and hangs under the button.
-    func appMenu(_ entries: @escaping () -> [MenuEntry]) -> some View {
-        modifier(AppMenuButton(entries: entries))
+    // same menu opens from a plain click and hangs under the button. A button sitting
+    // at the bottom of the window can anchor the menu to its top edge instead, and
+    // matching the width makes the menu read as the button unfolding.
+    func appMenu(edge: VerticalEdge = .bottom,
+                 matchWidth: Bool = false,
+                 _ entries: @escaping () -> [MenuEntry]) -> some View {
+        modifier(AppMenuButton(edge: edge, matchWidth: matchWidth, entries: entries))
     }
 }
 
@@ -82,6 +97,8 @@ private struct AppContextMenu: ViewModifier {
 
 private struct AppMenuButton: ViewModifier {
     @Environment(MenuPresenter.self) private var presenter
+    let edge: VerticalEdge
+    let matchWidth: Bool
     let entries: () -> [MenuEntry]
 
     @State private var anchor = MenuAnchor()
@@ -91,24 +108,28 @@ private struct AppMenuButton: ViewModifier {
             .background(MenuAnchorView(anchor: anchor))
             .contentShape(Rectangle())
             .onTapGesture {
-                guard let point = anchor.menuOrigin() else { return }
-                presenter.show(entries(), at: point)
+                guard let placement = anchor.placement(edge: edge) else { return }
+                presenter.show(entries(), at: placement.origin,
+                               width: matchWidth ? placement.width : nil)
             }
     }
 }
 
-// A menu hangs under the button that opened it, so the point it opens at is the button's
-// bottom left. It is measured the same way a right-click is, so both kinds of menu land
-// in the same coordinate space.
+// A menu hangs off the button that opened it: from its bottom left, or from its top left
+// for a button at the foot of the window, where the host's edge flip then lands the menu
+// above the button. It is measured the same way a right-click is, so both kinds of menu
+// land in the same coordinate space.
 @MainActor
 private final class MenuAnchor {
     weak var view: NSView?
 
-    func menuOrigin() -> CGPoint? {
+    func placement(edge: VerticalEdge) -> (origin: CGPoint, width: CGFloat)? {
         guard let view, let content = view.window?.contentView else { return nil }
         let frame = view.convert(view.bounds, to: content)
+        let top = content.isFlipped ? frame.minY : content.bounds.height - frame.maxY
         let bottom = content.isFlipped ? frame.maxY : content.bounds.height - frame.minY
-        return CGPoint(x: frame.minX, y: bottom + 4)
+        let y = edge == .bottom ? bottom + 4 : top - 4
+        return (CGPoint(x: frame.minX, y: y), frame.width)
     }
 }
 
@@ -149,7 +170,10 @@ struct ContextMenuHost: View {
                         .onTapGesture { presenter.dismiss() }
 
                     card
-                        .fixedSize()
+                        // A menu opened to a fixed width keeps it; anything else takes
+                        // the width its own rows ask for.
+                        .fixedSize(horizontal: presenter.width == nil, vertical: true)
+                        .frame(width: presenter.width)
                         // The measurement carries the menu it was taken for, so two
                         // menus that happen to be the same size still each report one,
                         // and a report that arrives late cannot pass itself off as a
@@ -245,6 +269,13 @@ private struct MenuItemRow: View {
                 }
                 Text(item.label)
                     .font(.system(size: 13))
+                if let detail = item.detail {
+                    Spacer(minLength: 24)
+                    Text(detail)
+                        .font(.mono(11))
+                        .foregroundStyle(item.detailColour.map(AnyShapeStyle.init)
+                                         ?? AnyShapeStyle(.tertiary))
+                }
             }
             .foregroundStyle(item.kind == .destructive ? Theme.deletion : Color.primary)
             .frame(maxWidth: .infinity, alignment: .leading)

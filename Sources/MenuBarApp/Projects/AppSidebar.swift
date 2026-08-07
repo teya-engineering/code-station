@@ -16,6 +16,10 @@ struct AppSidebar: View {
     @Environment(DialogPresenter.self) private var dialogs
     @Environment(AppSettings.self) private var appSettings
     @Environment(WorkingTreeWatch.self) private var workingTrees
+    @Environment(ConfigStore.self) private var configs
+    @Environment(DockerService.self) private var docker
+    @Environment(PostmanAuthStore.self) private var postmanAuth
+    @Environment(AIService.self) private var ai
 
     // A project is expanded by default while it is the selected one; anything the user
     // clicks on the disclosure arrow is remembered here and wins over that default.
@@ -30,6 +34,7 @@ struct AppSidebar: View {
     // card that says how many are folded away: a project with dozens of sessions would
     // otherwise push every other project off the rail.
     @State private var showingAllSessions: Set<UUID> = []
+    @State private var filterText = ""
 
     private static let sessionCap = 5
 
@@ -78,6 +83,7 @@ struct AppSidebar: View {
             .headerBand(Theme.sidebar)
 
             sortBar
+            filterBar
         }
     }
 
@@ -100,6 +106,37 @@ struct AppSidebar: View {
         }
         .padding(.horizontal, 20)
         .padding(.top, 12)
+        .padding(.bottom, 8)
+    }
+
+    // Narrows the list to projects whose name contains what is typed. It filters rather
+    // than searches: the rail keeps its order and simply drops the rows that do not match.
+    private var filterBar: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.tertiary)
+            TextField("Filter projects", text: $filterText)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12.5))
+            if !filterText.isEmpty {
+                Button {
+                    filterText = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .appTooltip("Clear filter")
+            }
+        }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 6)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.field))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
+        .padding(.horizontal, 20)
         .padding(.bottom, 12)
     }
 
@@ -113,6 +150,13 @@ struct AppSidebar: View {
         VStack(alignment: .leading, spacing: 0) {
             if store.projects.isEmpty {
                 Text("No projects yet. Add a folder and Claude Code will run right inside it.")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 16)
+            } else if orderedProjects.isEmpty {
+                Text("No project matches \"\(filterText.trimmingCharacters(in: .whitespaces))\".")
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -140,6 +184,7 @@ struct AppSidebar: View {
                         // own height, or it opens onto a gap under the last card.
                         .animation(.easeOut(duration: 0.26), value: revealKey(grouped))
                         .animation(.easeOut(duration: 0.22), value: appSettings.projectSort)
+                        .animation(.easeOut(duration: 0.22), value: filterText)
                     }
                     .task(id: sessionToReveal) { await reveal(with: scroller) }
                 }
@@ -148,7 +193,10 @@ struct AppSidebar: View {
     }
 
     private var orderedProjects: [Project] {
-        appSettings.projectSort.apply(to: store.projects, sessions: store.sessions)
+        let ordered = appSettings.projectSort.apply(to: store.projects, sessions: store.sessions)
+        let query = filterText.trimmingCharacters(in: .whitespaces)
+        guard !query.isEmpty else { return ordered }
+        return ordered.filter { $0.name.localizedCaseInsensitiveContains(query) }
     }
 
     // Every session under its project, newest first - the order the cards are drawn in.
@@ -505,15 +553,9 @@ struct AppSidebar: View {
             .padding(.top, 16)
             .padding(.bottom, 10)
 
-            HStack(spacing: 8) {
-                BottomRow(title: "MCP", action: onConfigureServers)
-                BottomRow(title: "Docker", action: onOpenDocker)
-                BottomRow(title: "Postman", action: onOpenPostman)
-                BottomRow(title: "AI", action: onOpenAI)
-                BottomRow(title: "Settings", action: onOpenSettings)
-            }
-            .padding(.horizontal, 16)
-            .padding(.bottom, runner.available ? 16 : 6)
+            ToolsButton(entries: toolsMenu)
+                .padding(.horizontal, 16)
+                .padding(.bottom, runner.available ? 16 : 6)
 
             if !runner.available {
                 Text("Claude Code was not found on PATH.")
@@ -561,6 +603,41 @@ struct AppSidebar: View {
         .background(RoundedRectangle(cornerRadius: 11).fill(Color.black.opacity(0.035)))
         .padding(.horizontal, 16)
         .padding(.top, 12)
+    }
+
+    // The five places you go to set something up, folded behind one button so the rail
+    // belongs to the projects. Each row carries its state as trailing text - the count,
+    // the environment, whether the model server is up - so folding them away costs a
+    // click but not the glance.
+    private func toolsMenu() -> [MenuEntry] {
+        // The count docker shows is from its last look; asking again now means the menu
+        // is at most one open behind, without polling a CLI while the menu sits closed.
+        Task { await docker.refresh() }
+        return [
+            .item("MCP servers", detail: "\(configs.servers.count)", action: onConfigureServers),
+            .item("Docker", detail: dockerDetail?.text,
+                  detailColour: dockerDetail?.colour, action: onOpenDocker),
+            .item("Postman", detail: postmanAuth.active.envValue,
+                  detailColour: postmanAuth.active.accent, action: onOpenPostman),
+            .item("Local AI", detail: aiDetail?.text,
+                  detailColour: aiDetail?.colour, action: onOpenAI),
+            .separator,
+            .item("Settings", detail: "⌘,", action: onOpenSettings)
+        ]
+    }
+
+    private var dockerDetail: (text: String, colour: Color?)? {
+        guard docker.hasLoaded, docker.failure == nil, !docker.containers.isEmpty else { return nil }
+        return ("\(docker.containers.count) running", Theme.addition)
+    }
+
+    private var aiDetail: (text: String, colour: Color?)? {
+        switch ai.state {
+        case .running, .runningExternally: ("running", Theme.addition)
+        case .starting: ("loading…", nil)
+        case .failed: ("failed", Theme.deletion)
+        case .stopped: nil
+        }
     }
 
     private var oldSessionDays: Int { appSettings.oldSessionDays }
@@ -656,30 +733,26 @@ private struct RevealLayout: Layout, Animatable {
 
 // MARK: - Rows
 
-// The pinned buttons under the project list: the places you go to set something up
-// rather than to work. Four across leaves each label little room, so it shrinks to fit
-// rather than truncating: a clipped word reads as a bug, a slightly smaller one does not.
-private struct BottomRow: View {
-    let title: String
-    let action: () -> Void
+// The one pinned button under the project list. Its menu opens above it at the same
+// width, so it reads as the button unfolding rather than a menu landing on the rail.
+private struct ToolsButton: View {
+    let entries: () -> [MenuEntry]
 
     @State private var hovering = false
 
     var body: some View {
-        Button(action: action) {
-            Text(title.uppercased())
-                .font(.mono(10, .semibold))
-                .kerning(0.5)
-                .foregroundStyle(.primary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
-                .background(RoundedRectangle(cornerRadius: 9).fill(hovering ? Theme.field : Theme.card))
-                .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
-                .contentShape(Rectangle())
+        HStack(spacing: 6) {
+            Text("Tools and settings")
+                .font(.system(size: 13, weight: .semibold))
+            Image(systemName: "chevron.down")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(.secondary)
         }
-        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 10)
+        .background(RoundedRectangle(cornerRadius: 10).fill(hovering ? Theme.field : Theme.card))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
+        .appMenu(edge: .top, matchWidth: true, entries)
         .onHover { hovering = $0 }
     }
 }
