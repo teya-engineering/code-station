@@ -14,7 +14,7 @@ struct CodexTests {
                                                 defaults: SessionSettings())
         #expect(arguments.first == "exec")
         #expect(arguments.contains("--json"))
-        #expect(pair(arguments, after: "--sandbox") == "workspace-write")
+        #expect(arguments.contains("sandbox_mode=\"workspace-write\""))
         // The prompt comes over stdin, asked for with "-" at the end.
         #expect(arguments.last == "-")
         #expect(!arguments.contains("resume"))
@@ -30,6 +30,9 @@ struct CodexTests {
                                                 resume: "thread-1")
         // Resume is a subcommand, so it has to come straight after exec.
         #expect(Array(arguments.prefix(3)) == ["exec", "resume", "thread-1"])
+        // Resume takes no "--sandbox" flag, only the config override.
+        #expect(!arguments.contains("--sandbox"))
+        #expect(arguments.contains("sandbox_mode=\"workspace-write\""))
     }
 
     @Test func codexTakesItsOwnModelAndEffort() {
@@ -38,7 +41,8 @@ struct CodexTests {
                                                 settings: settings,
                                                 defaults: SessionSettings())
         #expect(pair(arguments, after: "--model") == "gpt-5.6-terra")
-        #expect(pair(arguments, after: "-c") == "model_reasoning_effort=\"high\"")
+        // The sandbox is the first "-c", so the effort override is matched anywhere.
+        #expect(arguments.contains("model_reasoning_effort=\"high\""))
     }
 
     // A model picked while the other agent was active would only be refused, so it is
@@ -49,7 +53,7 @@ struct CodexTests {
                                                      settings: claudeChoice,
                                                      defaults: SessionSettings())
         #expect(!codexArguments.contains("--model"))
-        #expect(!codexArguments.contains("-c"))
+        #expect(!codexArguments.contains { $0.hasPrefix("model_reasoning_effort") })
 
         let codexChoice = SessionSettings(model: "gpt-5.6-terra")
         let claudeArguments = SessionRunner.arguments(agent: .claudeCode,

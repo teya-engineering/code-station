@@ -215,9 +215,12 @@ final class SessionRunner {
             // whole turn inside a sandbox instead. workspace-write matches what the app
             // promises - the agent can edit the session's folder and nothing outside it.
             // Reading is not sandboxed, so attachment folders need no flag either.
+            // The sandbox goes over as a config override rather than as "--sandbox",
+            // which the resume subcommand does not take.
             var arguments = ["exec"]
             if let resume, !resume.isEmpty { arguments += ["resume", resume] }
-            arguments += ["--json", "--skip-git-repo-check", "--sandbox", "workspace-write"]
+            arguments += ["--json", "--skip-git-repo-check",
+                          "-c", "sandbox_mode=\"workspace-write\""]
             if let model { arguments += ["--model", model] }
             if let effort { arguments += ["-c", "model_reasoning_effort=\"\(effort)\""] }
             // The prompt goes over stdin, which "-" asks for; passed as an argument, a
