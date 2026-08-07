@@ -81,6 +81,7 @@ final class ClaudeAgentInfo {
 // The Agents tab of the Settings sheet.
 struct AgentSettingsView: View {
     @State private var claude = ClaudeAgentInfo()
+    @State private var signingIn = false
 
     private var claudeSettingsPath: String {
         FileManager.default.homeDirectoryForCurrentUser
@@ -101,6 +102,9 @@ struct AgentSettingsView: View {
             }
             Divider().overlay(Theme.hairline)
             settingsFile
+        }
+        .sheet(isPresented: $signingIn, onDismiss: { claude.refresh() }) {
+            ClaudeLoginSheet().appOverlays()
         }
     }
 
@@ -139,7 +143,7 @@ struct AgentSettingsView: View {
                 divider
                 row("Account", claude.account.map { account in
                     account.name.map { "\($0) · \(account.email)" } ?? account.email
-                } ?? "Signed out - run \"claude /login\" in a terminal.")
+                } ?? "Signed out.")
                 if let plan = claude.account?.plan {
                     divider
                     row("Plan", plan)
@@ -154,10 +158,28 @@ struct AgentSettingsView: View {
             .background(RoundedRectangle(cornerRadius: 9).fill(Theme.card))
             .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
 
-            Text("Sessions run whichever \"claude\" is first on PATH. Signing in or out happens in the CLI itself; Refresh picks the change up.")
+            Text("Sessions run whichever \"claude\" is first on PATH. Signing in or out happens in the CLI itself; the button opens it right here, and Refresh picks the change up.")
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+
+            Button {
+                signingIn = true
+            } label: {
+                HStack(spacing: 6) {
+                    Text(">_")
+                        .font(.mono(11, .bold))
+                    Text("Run claude /login")
+                        .font(.system(size: 12, weight: .semibold))
+                }
+                .foregroundStyle(Color.primary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
         }
     }
 
@@ -202,5 +224,47 @@ struct AgentSettingsView: View {
             .foregroundStyle(Theme.accent)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+// Signing in belongs to the CLI, so the sheet does not imitate its login flow: it hosts
+// a real shell, starts "claude /login" in it, and lets the CLI take it from there. The
+// shell dies with the sheet, and whoever opened it re-reads the account afterwards.
+private struct ClaudeLoginSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var terminal: TerminalSession?
+    @State private var focused = true
+
+    var body: some View {
+        VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Sign in to Claude Code").font(.serif(16))
+                Text("Follow the CLI's login below, then close this when it is done.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 20)
+            .headerBand()
+            if let terminal {
+                TerminalScreen(terminal: terminal, isFocused: $focused)
+                    .frame(height: 420)
+            }
+            SheetFooter { dismiss() }
+        }
+        .frame(width: 680)
+        .background(Theme.background)
+        .onAppear(perform: start)
+        .onDisappear { terminal?.stop() }
+    }
+
+    private func start() {
+        guard terminal == nil else { return }
+        let session = TerminalSession(
+            directory: FileManager.default.homeDirectoryForCurrentUser.path,
+            name: "claude /login")
+        session.start()
+        // Queued into the pty now, run by the shell once it has read its rc files.
+        session.send("claude /login\n")
+        terminal = session
     }
 }
