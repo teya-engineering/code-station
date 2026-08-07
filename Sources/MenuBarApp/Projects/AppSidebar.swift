@@ -8,6 +8,7 @@ struct AppSidebar: View {
     let onOpenDocker: () -> Void
     let onOpenSettings: () -> Void
     let onOpenPostman: () -> Void
+    let onOpenAI: () -> Void
     let onReviewOldSessions: () -> Void
 
     @Environment(ProjectStore.self) private var store
@@ -500,6 +501,7 @@ struct AppSidebar: View {
                 BottomRow(title: "MCP", action: onConfigureServers)
                 BottomRow(title: "Docker", action: onOpenDocker)
                 BottomRow(title: "Postman", action: onOpenPostman)
+                BottomRow(title: "AI", action: onOpenAI)
                 BottomRow(title: "Settings", action: onOpenSettings)
             }
             .padding(.horizontal, 16)
