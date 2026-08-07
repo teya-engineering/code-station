@@ -19,6 +19,10 @@ struct NewSessionView: View {
     // passes: what the local refs already say, then the same read again after a fetch,
     // so the sheet is honest immediately and accurate a moment later.
     @State private var freshness: GitFreshness.Report?
+    // The fetch pass is still running. The sheet says so while it waits, so a warning
+    // that lands a few seconds in reads as the check finishing rather than appearing
+    // out of nowhere.
+    @State private var fetching = true
     // The user asked the worktree to fork from the remote tip instead of the checkout.
     @State private var baseOnRemote = false
     // The user asked for a fast-forward pull of the checkout before the session starts.
@@ -40,6 +44,18 @@ struct NewSessionView: View {
                                 baseOnRemote: $baseOnRemote, pullFirst: $pullFirst)
                     .padding(.horizontal, 20)
                     .padding(.bottom, 12)
+                    .transition(.opacity)
+            } else if fetching {
+                HStack(spacing: 7) {
+                    ProgressView().controlSize(.small)
+                    Text("Fetching branch information…")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 12)
+                .transition(.opacity)
             }
             VStack(spacing: 10) {
                 OptionCard(
@@ -69,9 +85,12 @@ struct NewSessionView: View {
         .disabled(pulling)
         .interactiveDismissDisabled(pulling)
         .task {
-            freshness = await GitFreshness.check(at: project.path, fetch: false)
-            if let fetched = await GitFreshness.check(at: project.path, fetch: true) {
-                freshness = fetched
+            let local = await GitFreshness.check(at: project.path, fetch: false)
+            withAnimation(.easeOut(duration: 0.2)) { freshness = local }
+            let fetched = await GitFreshness.check(at: project.path, fetch: true)
+            withAnimation(.easeOut(duration: 0.2)) {
+                if let fetched { freshness = fetched }
+                fetching = false
             }
         }
     }
