@@ -10,6 +10,7 @@ struct NewSessionView: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(DialogPresenter.self) private var dialogs
+    @Environment(SessionRunner.self) private var runner
 
     // Picked up front so the branch and folder shown here are the ones the session is
     // created with, rather than a guess at what they will look like.
@@ -31,6 +32,9 @@ struct NewSessionView: View {
     // goes quiet: a click anywhere while git works could only start the same work twice
     // or abandon it half done.
     @State private var pulling = false
+    // Leaving this unset is deliberate: the app-wide choice remains the default until
+    // this one launch says otherwise, so cancelling the sheet cannot change it.
+    @State private var selectedAgent: AgentKind?
 
     private var planned: GitWorktree.Created {
         GitWorktree.plan(projectName: project.name, sessionID: sessionID)
@@ -138,22 +142,62 @@ struct NewSessionView: View {
                 }
                 .buttonStyle(.plain)
                 .keyboardShortcut(.cancelAction)
-                Button { create() } label: {
-                    Text("Create session")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 18)
-                        .padding(.vertical, 7)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.accent))
-                        .contentShape(RoundedRectangle(cornerRadius: 8))
-                        .opacity(pulling ? 0.5 : 1)
-                }
-                .buttonStyle(.plain)
-                .keyboardShortcut(.defaultAction)
+                createButton
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
             .background(Theme.card)
+        }
+    }
+
+    private var createButton: some View {
+        VStack(alignment: .trailing, spacing: 3) {
+            HStack(spacing: 0) {
+                Button { create() } label: {
+                    Text("Create session")
+                        .font(.system(size: 13, weight: .semibold))
+                        .padding(.horizontal, 18)
+                        .frame(height: 32)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut(.defaultAction)
+
+                Rectangle()
+                    .fill(.white.opacity(0.35))
+                    .frame(width: 1, height: 16)
+
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .bold))
+                    .frame(width: 32, height: 32)
+                    .contentShape(Rectangle())
+                    .appMenu { agentMenu() }
+                    .accessibilityLabel("Choose coding agent")
+            }
+            .foregroundStyle(.white)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.accent))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .opacity(pulling ? 0.5 : 1)
+
+            Text(agentNote)
+                .font(.system(size: 10.5))
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var agentNote: String {
+        selectedAgent.map { "Will use \($0.title)" } ?? "Uses default: \(runner.agent.title)"
+    }
+
+    private func agentMenu() -> [MenuEntry] {
+        AgentKind.allCases.map { agent in
+            .item(agent.title,
+                  checked: selectedAgent == agent,
+                  subtitle: agent == .codex
+                      ? "OpenAI's coding agent."
+                      : "Anthropic's coding agent.") {
+                selectedAgent = agent
+            }
         }
     }
 
@@ -184,18 +228,20 @@ struct NewSessionView: View {
 
     private func finish() {
         let base = baseOnRemote ? freshness?.remoteRef : nil
-        onCreate(useWorktree ? .worktree(sessionID, base: base) : .folder)
+        let agent = selectedAgent ?? runner.agent
+        onCreate(useWorktree ? .worktree(sessionID, base: base, agent: agent) : .folder(agent: agent))
         dismiss()
     }
 }
 
 // What the sheet came back with. The worktree case carries the id the session must be
 // created with, since the branch and folder shown were named after it, and the ref to
-// fork from when the user chose the remote tip over their own checkout. Any pull the
-// user asked for has already run by the time this arrives.
+// fork from when the user chose the remote tip over their own checkout. The agent is
+// applied only once the session exists. Any pull the user asked for has already run by
+// the time this arrives.
 enum NewSessionChoice: Equatable {
-    case worktree(UUID, base: String?)
-    case folder
+    case worktree(UUID, base: String?, agent: AgentKind)
+    case folder(agent: AgentKind)
 }
 
 // Says when the checkout a session would fork from is not the default branch at its

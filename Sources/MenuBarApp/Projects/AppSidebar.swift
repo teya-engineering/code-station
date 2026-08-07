@@ -360,7 +360,7 @@ struct AppSidebar: View {
     // worktrees to offer, so the session is just created.
     private func requestNewSession(in project: Project) {
         guard FileManager.default.fileExists(atPath: project.path + "/.git") else {
-            startSession(.folder, in: project)
+            startSession(.folder(agent: runner.agent), in: project)
             return
         }
         choosingSessionKind = project
@@ -371,9 +371,10 @@ struct AppSidebar: View {
         // is the clearest sign yet that it wants to be open.
         expansion[project.id] = true
         switch choice {
-        case .worktree(let sessionID, let base):
-            createWorktreeSession(in: project, id: sessionID, base: base)
-        case .folder:
+        case .worktree(let sessionID, let base, let agent):
+            createWorktreeSession(in: project, id: sessionID, base: base, agent: agent)
+        case .folder(let agent):
+            runner.agent = agent
             sessionToReveal = store.newSession(in: project.id).id
         }
     }
@@ -444,13 +445,15 @@ struct AppSidebar: View {
 
     // The session id is chosen up front so the worktree folder and branch can carry
     // it before the session exists, which is also what lets the sheet name both.
-    private func createWorktreeSession(in project: Project, id sessionID: UUID, base: String?) {
+    private func createWorktreeSession(in project: Project, id sessionID: UUID, base: String?,
+                                       agent: AgentKind) {
         Task {
             switch await GitWorktree.add(projectPath: project.path,
                                          projectName: project.name,
                                          sessionID: sessionID,
                                          from: base) {
             case .success(let created):
+                runner.agent = agent
                 store.newSession(in: project.id, id: sessionID,
                                  worktreePath: created.path, worktreeBranch: created.branch)
                 sessionToReveal = sessionID
