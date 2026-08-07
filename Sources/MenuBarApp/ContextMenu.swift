@@ -1,6 +1,8 @@
 import AppKit
 import SwiftUI
 
+private let menuMinimumWidth: CGFloat = 170
+
 // The right-click menu, drawn by the app rather than by AppKit. The system menu cannot
 // be styled and arrives in the system's own font and colours, so it reads as a piece of
 // another program sitting on top of this one; this menu uses the same palette, type and
@@ -63,7 +65,7 @@ final class MenuPresenter {
     func show(_ entries: [MenuEntry], at point: CGPoint, width: CGFloat? = nil) {
         self.entries = entries
         origin = point
-        self.width = width
+        self.width = width.map { max($0, menuMinimumWidth) }
         generation += 1
     }
 
@@ -239,7 +241,7 @@ struct ContextMenuHost: View {
             }
         }
         .padding(.vertical, 6)
-        .frame(minWidth: 170, alignment: .leading)
+        .frame(minWidth: menuMinimumWidth, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 11).fill(Theme.card))
         .overlay(RoundedRectangle(cornerRadius: 11).stroke(Theme.border))
         .shadow(color: .black.opacity(0.16), radius: 18, y: 6)
