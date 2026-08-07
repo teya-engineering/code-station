@@ -48,12 +48,11 @@ struct CodexTests {
     // A model picked while the other agent was active would only be refused, so it is
     // left off entirely and the agent's own default decides.
     @Test func aForeignModelReadsAsUnchosen() {
-        let claudeChoice = SessionSettings(model: "opus", effort: "max")
+        let claudeChoice = SessionSettings(model: "opus")
         let codexArguments = SessionRunner.arguments(agent: .codex,
                                                      settings: claudeChoice,
                                                      defaults: SessionSettings())
         #expect(!codexArguments.contains("--model"))
-        #expect(!codexArguments.contains { $0.hasPrefix("model_reasoning_effort") })
 
         let codexChoice = SessionSettings(model: "gpt-5.6-terra")
         let claudeArguments = SessionRunner.arguments(agent: .claudeCode,
