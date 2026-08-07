@@ -104,7 +104,13 @@ final class TerminalSurface: SwiftTerm.TerminalView {
         nativeForegroundColor = NSColor(red: 0.15, green: 0.15, blue: 0.14, alpha: 1)
         caretColor = NSColor(red: 0.20, green: 0.34, blue: 0.24, alpha: 1)
         caretTextColor = NSColor(red: 0.965, green: 0.961, blue: 0.945, alpha: 1)
-        selectedTextBackgroundColor = NSColor(red: 0.20, green: 0.34, blue: 0.24, alpha: 0.22)
+        // SwiftTerm paints the selection opaquely, so a translucent colour comes out as
+        // its dark base instead of a tint over the paper. The blend is precomputed here:
+        // this is the accent green at ~22% over the background, as one solid colour.
+        selectedTextBackgroundColor = NSColor(red: 0.80, green: 0.82, blue: 0.79, alpha: 1)
+        // Selected text falls back to pure black otherwise, which reads as a black slab
+        // on the dark fill; keep it the same ink as the rest of the screen.
+        selectedTextForegroundColor = NSColor(red: 0.15, green: 0.15, blue: 0.14, alpha: 1)
         installColors([
             Self.ansi(0.20, 0.20, 0.19),  // black
             Self.ansi(0.75, 0.28, 0.24),  // red, the diff deletion colour
