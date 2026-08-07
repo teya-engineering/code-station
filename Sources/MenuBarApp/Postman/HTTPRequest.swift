@@ -58,6 +58,10 @@ struct SavedRequest: Identifiable, Codable, Equatable {
     var method: HTTPMethod = .get
     var url: String = ""
     var headers: [HeaderField] = []
+    // Query params are appended to the URL as ?key=value; path params fill the :name
+    // segments typed into the URL. Both are rows so they can be parked with the toggle.
+    var queryParams: [HeaderField] = []
+    var pathParams: [HeaderField] = []
     var bodyType: BodyType = .none
     var body: String = ""
     // Whether the collection's token is attached when the request is sent.
@@ -72,22 +76,60 @@ struct SavedRequest: Identifiable, Codable, Equatable {
         method = try container.decodeIfPresent(HTTPMethod.self, forKey: .method) ?? .get
         url = try container.decodeIfPresent(String.self, forKey: .url) ?? ""
         headers = try container.decodeIfPresent([HeaderField].self, forKey: .headers) ?? []
+        queryParams = try container.decodeIfPresent([HeaderField].self, forKey: .queryParams) ?? []
+        pathParams = try container.decodeIfPresent([HeaderField].self, forKey: .pathParams) ?? []
         bodyType = try container.decodeIfPresent(BodyType.self, forKey: .bodyType) ?? .none
         body = try container.decodeIfPresent(String.self, forKey: .body) ?? ""
         useAuth = try container.decodeIfPresent(Bool.self, forKey: .useAuth) ?? true
     }
 
     init(id: UUID = UUID(), name: String, method: HTTPMethod = .get, url: String = "",
-         headers: [HeaderField] = [], bodyType: BodyType = .none, body: String = "",
+         headers: [HeaderField] = [], queryParams: [HeaderField] = [],
+         pathParams: [HeaderField] = [], bodyType: BodyType = .none, body: String = "",
          useAuth: Bool = true) {
         self.id = id
         self.name = name
         self.method = method
         self.url = url
         self.headers = headers
+        self.queryParams = queryParams
+        self.pathParams = pathParams
         self.bodyType = bodyType
         self.body = body
         self.useAuth = useAuth
+    }
+
+    // The URL with the params folded in. {{env}} is left alone, so the result is still
+    // a template for the environment to resolve on send.
+    var expandedURL: String {
+        var expanded = url
+        // Longer names go first, so :id cannot eat the front of :idType. A param with
+        // no value is skipped, which leaves the placeholder visible instead of a hole.
+        let paths = pathParams
+            .filter { $0.enabled && !$0.key.isEmpty && !$0.value.isEmpty }
+            .sorted { $0.key.count > $1.key.count }
+        for param in paths {
+            expanded = expanded.replacingOccurrences(of: ":" + param.key, with: param.value)
+        }
+        let query = queryParams
+            .filter { $0.enabled && !$0.key.isEmpty }
+            .map { "\(Self.queryEncoded($0.key))=\(Self.queryEncoded($0.value))" }
+            .joined(separator: "&")
+        guard !query.isEmpty else { return expanded }
+        return expanded + (expanded.contains("?") ? "&" : "?") + query
+    }
+
+    // A space or & in a value must not change the URL's shape. Braces stay as typed so
+    // {{env}} still resolves inside a param.
+    private static let queryAllowed: CharacterSet = {
+        var set = CharacterSet.urlQueryAllowed
+        set.remove(charactersIn: "&=+#")
+        set.insert(charactersIn: "{}")
+        return set
+    }()
+
+    private static func queryEncoded(_ text: String) -> String {
+        text.addingPercentEncoding(withAllowedCharacters: queryAllowed) ?? text
     }
 }
 

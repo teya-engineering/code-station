@@ -241,15 +241,10 @@ private struct EnvironmentSegment: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 6) {
-                Text(env.label)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(selected ? Color.white : Color.secondary)
-                Text(env.envValue)
-                    .font(.mono(10, .medium))
-                    .foregroundStyle(selected ? Color.white.opacity(0.72) : Color.secondary.opacity(0.6))
-            }
-            .padding(.horizontal, 12)
+            Text(env.label)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(selected ? Color.white : Color.secondary)
+                .padding(.horizontal, 12)
             .padding(.vertical, 6)
             .background(RoundedRectangle(cornerRadius: 8)
                 .fill(selected ? env.accent : (hovering ? Color.black.opacity(0.04) : .clear)))
@@ -327,7 +322,7 @@ private func resolvedText(_ template: String, env: ApiEnvironment,
 
 private struct RequestDetail: View {
     @State private var draft: SavedRequest
-    @State private var tab = Tab.headers
+    @State private var tab = Tab.params
 
     @Environment(PostmanStore.self) private var store
     @Environment(PostmanRunner.self) private var runner
@@ -335,7 +330,7 @@ private struct RequestDetail: View {
     @Environment(DialogPresenter.self) private var dialogs
 
     private enum Tab: String, CaseIterable, Identifiable {
-        case headers = "Headers", body = "Body", auth = "Auth"
+        case params = "Params", headers = "Headers", body = "Body", auth = "Auth"
         var id: String { rawValue }
     }
 
@@ -434,7 +429,7 @@ private struct RequestDetail: View {
             Text("→")
                 .font(.mono(10))
                 .foregroundStyle(.tertiary)
-            resolvedText(draft.url, env: environment, size: 10, base: .secondary)
+            resolvedText(draft.expandedURL, env: environment, size: 10, base: .secondary)
                 .lineLimit(1)
                 .truncationMode(.middle)
         }
@@ -464,17 +459,76 @@ private struct RequestDetail: View {
 
     private func label(for tab: Tab) -> String {
         switch tab {
-        case .headers: draft.headers.isEmpty ? tab.rawValue : "\(tab.rawValue) · \(draft.headers.count)"
-        case .body: draft.bodyType == .none ? tab.rawValue : "\(tab.rawValue) · \(draft.bodyType.label)"
-        case .auth: draft.useAuth ? "\(tab.rawValue) · \(environment.rawValue) bearer" : "\(tab.rawValue) · off"
+        case .params:
+            let count = draft.queryParams.count + draft.pathParams.count
+            return count == 0 ? tab.rawValue : "\(tab.rawValue) · \(count)"
+        case .headers:
+            return draft.headers.isEmpty ? tab.rawValue : "\(tab.rawValue) · \(draft.headers.count)"
+        case .body:
+            return draft.bodyType == .none ? tab.rawValue : "\(tab.rawValue) · \(draft.bodyType.label)"
+        case .auth:
+            return draft.useAuth ? "\(tab.rawValue) · \(environment.rawValue) bearer" : "\(tab.rawValue) · off"
         }
     }
 
     @ViewBuilder private var editor: some View {
         switch tab {
+        case .params: paramsEditor
         case .headers: headerEditor
         case .body: bodyEditor
         case .auth: authEditor
+        }
+    }
+
+    private var paramsEditor: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 6) {
+                paramSection(title: "QUERY PARAMS",
+                             note: "Added to the URL as ?key=value on send.",
+                             keyPlaceholder: "key",
+                             addLabel: "+ Add query param",
+                             params: $draft.queryParams)
+                paramSection(title: "PATH PARAMS",
+                             note: "Values fill the :name segments typed into the URL.",
+                             keyPlaceholder: "name",
+                             addLabel: "+ Add path param",
+                             params: $draft.pathParams)
+                    .padding(.top, 14)
+            }
+            .padding(20)
+        }
+        .frame(maxHeight: .infinity)
+    }
+
+    private func paramSection(title: String, note: String, keyPlaceholder: String,
+                              addLabel: String, params: Binding<[HeaderField]>) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                SectionLabel(text: title)
+                Text(note)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.bottom, 2)
+
+            ForEach(params) { $param in
+                HeaderRow(header: $param,
+                          keyPlaceholder: keyPlaceholder,
+                          valuePlaceholder: "value") {
+                    params.wrappedValue.removeAll { $0.id == param.id }
+                }
+            }
+
+            Button {
+                params.wrappedValue.append(HeaderField(key: "", value: ""))
+            } label: {
+                Text(addLabel)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(environment.accent)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 6)
+            }
+            .buttonStyle(.plain)
         }
     }
 
@@ -594,7 +648,7 @@ private struct ResolvedRequestBox: View {
             Text(request.method.rawValue)
                 .font(.mono(11, .bold))
                 .foregroundStyle(Theme.deletion)
-            resolvedText(request.url, env: .production, size: 11, base: .primary)
+            resolvedText(request.expandedURL, env: .production, size: 11, base: .primary)
                 .lineLimit(2)
                 .truncationMode(.middle)
         }
@@ -627,6 +681,8 @@ private struct TabButton: View {
 
 private struct HeaderRow: View {
     @Binding var header: HeaderField
+    var keyPlaceholder = "Header"
+    var valuePlaceholder = "value"
     let onDelete: () -> Void
 
     var body: some View {
@@ -634,12 +690,12 @@ private struct HeaderRow: View {
             Toggle(isOn: $header.enabled) { EmptyView() }
                 .toggleStyle(.appCheckbox)
 
-            TextField("Header", text: $header.key)
+            TextField(keyPlaceholder, text: $header.key)
                 .textFieldStyle(.plain)
                 .font(.mono(12, .semibold))
                 .frame(width: 200, alignment: .leading)
 
-            TextField("value", text: $header.value)
+            TextField(valuePlaceholder, text: $header.value)
                 .textFieldStyle(.plain)
                 .font(.mono(12))
                 .frame(maxWidth: .infinity, alignment: .leading)

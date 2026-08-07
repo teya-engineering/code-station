@@ -71,7 +71,7 @@ final class PostmanRunner {
                               authorization: String?) -> URLRequest? {
         // {{env}} is substituted at the last moment, so the saved request stays a
         // template and the same list serves both environments.
-        let trimmed = environment.resolve(request.url)
+        let trimmed = environment.resolve(request.expandedURL)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard let url = URL(string: trimmed), url.scheme != nil, url.host != nil else { return nil }
 

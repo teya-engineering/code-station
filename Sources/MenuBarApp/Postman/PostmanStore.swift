@@ -53,8 +53,13 @@ final class PostmanStore {
         var copy = source
         copy.id = UUID()
         copy.name = source.name + " copy"
-        // Header ids have to be fresh too, or edits to the copy would land on both rows.
-        copy.headers = source.headers.map { HeaderField(key: $0.key, value: $0.value, enabled: $0.enabled) }
+        // Row ids have to be fresh too, or edits to the copy would land on both rows.
+        let fresh = { (rows: [HeaderField]) in
+            rows.map { HeaderField(key: $0.key, value: $0.value, enabled: $0.enabled) }
+        }
+        copy.headers = fresh(source.headers)
+        copy.queryParams = fresh(source.queryParams)
+        copy.pathParams = fresh(source.pathParams)
         requests.append(copy)
         selectedID = copy.id
         save()
