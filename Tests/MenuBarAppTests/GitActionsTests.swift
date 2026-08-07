@@ -53,6 +53,57 @@ struct GitActionsTests {
         #expect(after.ahead == 0)
     }
 
+    @Test func listsCommitsAheadOfTheUpstreamBeforePushing() async throws {
+        let repo = try Repo()
+        let remote = try Bare()
+        repo.git("remote", "add", "origin", remote.path)
+        repo.git("push", "-q", "-u", "origin", "HEAD")
+        try repo.write("README.md", "ahead now")
+        repo.git("commit", "-qam", "second")
+
+        let preview = await GitActions.commitsToPush(hasUpstream: true, at: repo.path)
+        guard case .commits(let commits) = preview else {
+            #expect(Bool(false))
+            return
+        }
+
+        #expect(commits.map(\.subject) == ["second"])
+        #expect(commits[0].shortID.count == 8)
+    }
+
+    @Test func listsUnpublishedCommitsBeforeTheFirstPush() async throws {
+        let repo = try Repo()
+        let remote = try Bare()
+        repo.git("remote", "add", "origin", remote.path)
+
+        let preview = await GitActions.commitsToPush(hasUpstream: false, at: repo.path)
+        guard case .commits(let commits) = preview else {
+            #expect(Bool(false))
+            return
+        }
+
+        #expect(commits.map(\.subject) == ["first"])
+    }
+
+    @Test func listsOnlyTheNewCommitsForAnUnpublishedBranch() async throws {
+        let repo = try Repo()
+        let remote = try Bare()
+        repo.git("remote", "add", "origin", remote.path)
+        repo.git("push", "-q", "-u", "origin", "HEAD")
+        repo.git("switch", "-qc", "session-branch")
+        try repo.write("session.txt", "new work")
+        repo.git("add", "session.txt")
+        repo.git("commit", "-qm", "session work")
+
+        let preview = await GitActions.commitsToPush(hasUpstream: false, at: repo.path)
+        guard case .commits(let commits) = preview else {
+            #expect(Bool(false))
+            return
+        }
+
+        #expect(commits.map(\.subject) == ["session work"])
+    }
+
     @Test func pullBringsInTheRemoteCommits() async throws {
         let remote = try Bare()
         let first = try Repo()

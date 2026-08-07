@@ -50,6 +50,7 @@ final class AppSettings {
 struct SettingsView: View {
     @Environment(LoginItem.self) private var loginItem
     @Environment(ProjectStore.self) private var store
+    @Environment(SessionRunner.self) private var runner
     @Environment(AppSettings.self) private var settings
     @Environment(\.dismiss) private var dismiss
 
@@ -66,6 +67,7 @@ struct SettingsView: View {
                     switch tab {
                     case .general:
                         oldSessions
+                        defaultAgent
                         startAtLogin
                         log
                     case .agents:
@@ -172,6 +174,44 @@ struct SettingsView: View {
                     .font(.system(size: 12))
                     .foregroundStyle(Theme.deletion)
                     .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var defaultAgent: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Default agent")
+                    .font(.system(size: 13, weight: .semibold))
+                Text("New sessions use this agent unless you choose a different one when creating them.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+            HStack(spacing: 8) {
+                Text(runner.agent.title)
+                    .font(.system(size: 13, weight: .medium))
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 34)
+            .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
+            .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
+            .contentShape(Rectangle())
+            .appMenu(matchWidth: true) {
+                AgentKind.allCases.map { agent in
+                    .item(agent.title,
+                          checked: runner.agent == agent,
+                          subtitle: agent == .codex
+                              ? "OpenAI's coding agent."
+                              : "Anthropic's coding agent.") {
+                        runner.agent = agent
+                    }
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

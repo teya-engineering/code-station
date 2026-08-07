@@ -116,7 +116,7 @@ struct NewSessionView: View {
     private var footer: some View {
         VStack(spacing: 0) {
             Divider().overlay(Theme.hairline)
-            HStack(spacing: 10) {
+            HStack(alignment: .top, spacing: 10) {
                 if pulling {
                     ProgressView().controlSize(.small)
                     Text("Pulling \(freshness?.currentBranch ?? "the checkout") from origin…")

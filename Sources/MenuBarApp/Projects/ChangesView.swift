@@ -84,10 +84,7 @@ struct ChangesView: View {
                 }
                 if snapshot.hasCommits {
                     headerAction("Push", icon: "arrow.up", count: snapshot.ahead) {
-                        let hasUpstream = snapshot.upstream != nil
-                        perform("Pushing…", failure: "Could not push") {
-                            await GitActions.push(hasUpstream: hasUpstream, at: repoRoot)
-                        }
+                        confirmPush(snapshot)
                     }
                 }
             } else {
@@ -383,6 +380,84 @@ struct ChangesView: View {
     }
 
     // MARK: - Actions
+
+    private func confirmPush(_ snapshot: GitSnapshot) {
+        let root = snapshot.root
+        let upstream = snapshot.upstream
+        let hasUpstream = upstream != nil
+        Task {
+            working = "Checking commits…"
+            let preview = await GitActions.commitsToPush(hasUpstream: hasUpstream, at: root)
+            working = nil
+            switch preview {
+            case .commits(let commits):
+                dialogs.show(pushDialog(commits: commits, upstream: upstream,
+                                        hasUpstream: hasUpstream, root: root))
+            case .failed(let error):
+                fail("Could not check commits to push", error)
+            }
+        }
+    }
+
+    private func pushDialog(commits: [GitPushCommit], upstream: String?,
+                            hasUpstream: Bool, root: String) -> Dialog {
+        let count = commits.count
+        let title = count == 0
+            ? (hasUpstream ? "Push branch?" : "Publish branch?")
+            : "Push \(count) commit\(count == 1 ? "" : "s")?"
+        let message = upstream.map {
+            count == 0
+                ? "No commits are ahead of \($0)."
+                : "These commits will be pushed to \($0)."
+        } ?? "This branch will be published to origin and start tracking it."
+        return Dialog(
+            title: title,
+            message: message,
+            content: AnyView(pushCommitList(commits)),
+            actions: [
+                .init(label: count == 0 ? (hasUpstream ? "Push" : "Publish branch") : "Push commits",
+                      kind: .primary) {
+                    perform("Pushing…", failure: "Could not push") {
+                        await GitActions.push(hasUpstream: hasUpstream, at: root)
+                    }
+                },
+                .init(label: "Cancel", kind: .cancel)
+            ],
+            width: 520)
+    }
+
+    @ViewBuilder private func pushCommitList(_ commits: [GitPushCommit]) -> some View {
+        if commits.isEmpty {
+            Text("There are no new commits to send.")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+        } else {
+            VStack(alignment: .leading, spacing: 6) {
+                SectionLabel(text: "COMMITS")
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 4) {
+                        ForEach(commits) { commit in
+                            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                                Text(commit.shortID)
+                                    .font(.mono(11, .medium))
+                                    .foregroundStyle(.secondary)
+                                Text(commit.subject)
+                                    .font(.system(size: 12))
+                                    .lineLimit(2)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                Spacer(minLength: 0)
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 8)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.field))
+                        }
+                    }
+                }
+                .frame(maxHeight: 190)
+            }
+        }
+    }
 
     // Every git action ends in a reload, success or not: a failed pull can still have
     // moved the tree, and the header has to show whatever is true now.
