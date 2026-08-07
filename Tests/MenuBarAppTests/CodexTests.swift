@@ -23,6 +23,21 @@ struct CodexTests {
         #expect(!arguments.contains("--effort"))
     }
 
+    // A worktree's git metadata lives in the main checkout's .git directory, so a
+    // worktree session has to open that directory up or git cannot write anything.
+    @Test func aWorktreeSessionOpensTheSharedGitDirectory() {
+        let arguments = SessionRunner.arguments(agent: .codex,
+                                                settings: SessionSettings(),
+                                                defaults: SessionSettings(),
+                                                writableRoots: ["/Users/jo/Code/app/.git"])
+        #expect(arguments.contains("sandbox_workspace_write.writable_roots=[\"/Users/jo/Code/app/.git\"]"))
+
+        let withoutRoots = SessionRunner.arguments(agent: .codex,
+                                                   settings: SessionSettings(),
+                                                   defaults: SessionSettings())
+        #expect(!withoutRoots.contains { $0.hasPrefix("sandbox_workspace_write") })
+    }
+
     @Test func codexResumesAThreadThroughTheSubcommand() {
         let arguments = SessionRunner.arguments(agent: .codex,
                                                 settings: SessionSettings(),

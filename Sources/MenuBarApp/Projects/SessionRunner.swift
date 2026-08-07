@@ -187,7 +187,8 @@ final class SessionRunner {
     // counts as unchosen here.
     nonisolated static func arguments(agent: AgentKind = .claudeCode,
                                       settings: SessionSettings, defaults: SessionSettings,
-                                      addDirectories: [String] = [], resume: String? = nil) -> [String] {
+                                      addDirectories: [String] = [], writableRoots: [String] = [],
+                                      resume: String? = nil) -> [String] {
         let model = ModelChoice.valid(settings.model ?? defaults.model, for: agent)
         let effort = EffortChoice.valid(settings.effort ?? defaults.effort, for: agent)
 
@@ -221,6 +222,15 @@ final class SessionRunner {
             if let resume, !resume.isEmpty { arguments += ["resume", resume] }
             arguments += ["--json", "--skip-git-repo-check",
                           "-c", "sandbox_mode=\"workspace-write\""]
+            // A worktree session keeps its git metadata in the main checkout's .git
+            // directory, outside the sandbox. Without write access there git cannot
+            // even stage a file, so that directory goes in as an extra writable root.
+            if !writableRoots.isEmpty {
+                let list = writableRoots
+                    .map { "\"\($0.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\""))\"" }
+                    .joined(separator: ",")
+                arguments += ["-c", "sandbox_workspace_write.writable_roots=[\(list)]"]
+            }
             if let model { arguments += ["--model", model] }
             if let effort { arguments += ["-c", "model_reasoning_effort=\"\(effort)\""] }
             // The prompt goes over stdin, which "-" asks for; passed as an argument, a
@@ -343,6 +353,9 @@ final class SessionRunner {
             // A pasted screenshot or a file picked from anywhere on disk sits outside the
             // folder the agent runs in, and reading outside it needs saying so up front.
             addDirectories: Self.directoriesOutside(workingDirectory, for: attachments),
+            // The git metadata of a worktree lives under the project's own .git folder,
+            // and committing there has to be allowed for the session to do git work.
+            writableRoots: session.worktreePath != nil ? [project.path + "/.git"] : [],
             resume: resume)
 
         var env = ProcessInfo.processInfo.environment
