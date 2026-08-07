@@ -12,10 +12,14 @@ enum MenuEntry {
     static func item(_ label: String,
                      kind: MenuItem.Kind = .plain,
                      checked: Bool = false,
+                     badge: String? = nil,
+                     badgeTint: Color? = nil,
+                     subtitle: String? = nil,
                      detail: String? = nil,
                      detailColour: Color? = nil,
                      action: @escaping () -> Void) -> MenuEntry {
         .item(MenuItem(label: label, kind: kind, checked: checked,
+                       badge: badge, badgeTint: badgeTint, subtitle: subtitle,
                        detail: detail, detailColour: detailColour, handler: action))
     }
 }
@@ -27,6 +31,13 @@ struct MenuItem {
     var kind: Kind = .plain
     // Marks the row that is currently in force, for menus that pick one of a set.
     var checked = false
+    // A small type chip before the label, for menus that add one of several kinds of
+    // thing and want the kind readable before the words.
+    var badge: String?
+    var badgeTint: Color?
+    // A second line under the label saying what picking the row does, so the mechanism
+    // is explained at the moment of choosing.
+    var subtitle: String?
     // Trailing state on the row - a count, an environment, a shortcut - so a menu of
     // places can say how each one is doing without being opened.
     var detail: String?
@@ -267,8 +278,27 @@ private struct MenuItemRow: View {
                         .frame(width: 12)
                         .opacity(item.checked ? 1 : 0)
                 }
-                Text(item.label)
-                    .font(.system(size: 13))
+                if let badge = item.badge {
+                    let tint = item.badgeTint ?? Color.secondary
+                    Text(badge)
+                        .font(.mono(9, .bold))
+                        .kerning(0.5)
+                        .foregroundStyle(tint)
+                        .padding(.vertical, 3)
+                        // One width for every chip, so the labels line up in a column.
+                        .frame(width: 48)
+                        .background(RoundedRectangle(cornerRadius: 5).fill(tint.opacity(0.12)))
+                        .padding(.trailing, 3)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(item.label)
+                        .font(.system(size: 13, weight: item.subtitle == nil ? .regular : .semibold))
+                    if let subtitle = item.subtitle {
+                        Text(subtitle)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
+                }
                 if let detail = item.detail {
                     Spacer(minLength: 24)
                     Text(detail)
@@ -280,7 +310,7 @@ private struct MenuItemRow: View {
             .foregroundStyle(item.kind == .destructive ? Theme.deletion : Color.primary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 12)
-            .padding(.vertical, 6)
+            .padding(.vertical, item.subtitle == nil ? 6 : 8)
             .background(RoundedRectangle(cornerRadius: 6)
                 .fill(hovering ? Color.black.opacity(0.05) : .clear)
                 .padding(.horizontal, 5))

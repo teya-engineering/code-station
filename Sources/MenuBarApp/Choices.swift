@@ -95,6 +95,9 @@ struct ChoicePill: View {
         Button(action: choose) {
             Text(title)
                 .font(.system(size: 12, weight: .semibold))
+                // A squeezed pill must never fold its title onto two lines.
+                .lineLimit(1)
+                .fixedSize()
                 .foregroundStyle(selected ? Color.white : Color.secondary)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)

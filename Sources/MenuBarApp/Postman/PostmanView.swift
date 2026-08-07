@@ -443,15 +443,6 @@ private struct RequestDetail: View {
                 TabButton(title: label(for: item), selected: tab == item) { tab = item }
             }
             Spacer()
-            if tab == .body {
-                HStack(spacing: 4) {
-                    ForEach(BodyType.allCases) { kind in
-                        ChoicePill(title: kind.label, selected: draft.bodyType == kind) {
-                            draft.bodyType = kind
-                        }
-                    }
-                }
-            }
         }
         .padding(.horizontal, 20)
         .padding(.bottom, 10)
@@ -486,14 +477,26 @@ private struct RequestDetail: View {
                 paramSection(title: "QUERY PARAMS",
                              note: "Added to the URL as ?key=value on send.",
                              keyPlaceholder: "key",
-                             addLabel: "+ Add query param",
                              params: $draft.queryParams)
                 paramSection(title: "PATH PARAMS",
                              note: "Values fill the :name segments typed into the URL.",
                              keyPlaceholder: "name",
-                             addLabel: "+ Add path param",
                              params: $draft.pathParams)
                     .padding(.top, 14)
+
+                AddPill(label: "+ Add param") {
+                    [.item("Query param",
+                           badge: "QUERY", badgeTint: PostmanTint.query,
+                           subtitle: "appended to the URL after the ?") {
+                         draft.queryParams.append(HeaderField(key: "", value: ""))
+                     },
+                     .item("Path param",
+                           badge: "PATH", badgeTint: PostmanTint.path,
+                           subtitle: "fills a :name segment typed into the URL") {
+                         draft.pathParams.append(HeaderField(key: "", value: ""))
+                     }]
+                }
+                .padding(.top, 14)
             }
             .padding(20)
         }
@@ -501,7 +504,7 @@ private struct RequestDetail: View {
     }
 
     private func paramSection(title: String, note: String, keyPlaceholder: String,
-                              addLabel: String, params: Binding<[HeaderField]>) -> some View {
+                              params: Binding<[HeaderField]>) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 SectionLabel(text: title)
@@ -518,17 +521,6 @@ private struct RequestDetail: View {
                     params.wrappedValue.removeAll { $0.id == param.id }
                 }
             }
-
-            Button {
-                params.wrappedValue.append(HeaderField(key: "", value: ""))
-            } label: {
-                Text(addLabel)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(environment.accent)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 6)
-            }
-            .buttonStyle(.plain)
         }
     }
 
@@ -556,45 +548,66 @@ private struct RequestDetail: View {
 
     private var headerEditor: some View {
         ScrollView {
-            VStack(spacing: 6) {
+            VStack(alignment: .leading, spacing: 6) {
                 ForEach($draft.headers) { $header in
                     HeaderRow(header: $header) {
                         draft.headers.removeAll { $0.id == header.id }
                     }
                 }
-                Button {
-                    draft.headers.append(HeaderField(key: "", value: ""))
-                } label: {
-                    Text("+ Add header")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(environment.accent)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.vertical, 6)
+                AddPill(label: "+ Add header") {
+                    [.item("Content-Type",
+                           subtitle: "arrives filled in as application/json") {
+                         draft.headers.append(HeaderField(key: "Content-Type",
+                                                          value: BodyType.json.contentType ?? ""))
+                     },
+                     .item("Accept",
+                           subtitle: "asks the server to answer in JSON") {
+                         draft.headers.append(HeaderField(key: "Accept",
+                                                          value: BodyType.json.contentType ?? ""))
+                     },
+                     .item("Authorization",
+                           subtitle: "a token of your own; it wins over the Auth tab's") {
+                         draft.headers.append(HeaderField(key: "Authorization", value: ""))
+                     },
+                     .separator,
+                     .item("Custom header",
+                           subtitle: "starts empty") {
+                         draft.headers.append(HeaderField(key: "", value: ""))
+                     }]
                 }
-                .buttonStyle(.plain)
+                .padding(.top, draft.headers.isEmpty ? 0 : 8)
             }
             .padding(20)
         }
         .frame(maxHeight: .infinity)
     }
 
-    @ViewBuilder private var bodyEditor: some View {
-        if draft.bodyType == .none {
-            Text("This request is sent without a body. Pick JSON, Text or Form to add one.")
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .padding(20)
-        } else {
-            TextEditor(text: $draft.body)
-                .font(.mono(12))
-                .scrollContentBackground(.hidden)
-                .padding(8)
-                .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
-                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
-                .padding(20)
-                .frame(maxHeight: .infinity)
+    // The type picker lives in the pane rather than on the tab row, which has no room
+    // to spare once the tab labels carry their counts.
+    private var bodyEditor: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 4) {
+                ForEach(BodyType.allCases) { kind in
+                    ChoicePill(title: kind.label, selected: draft.bodyType == kind) {
+                        draft.bodyType = kind
+                    }
+                }
+            }
+            if draft.bodyType == .none {
+                Text("This request is sent without a body. Pick JSON, Text or Form to add one.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+            } else {
+                TextEditor(text: $draft.body)
+                    .font(.mono(12))
+                    .scrollContentBackground(.hidden)
+                    .padding(8)
+                    .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
+                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
+            }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .padding(20)
     }
 
     private func send() {
@@ -676,6 +689,37 @@ private struct TabButton: View {
                 .overlay(RoundedRectangle(cornerRadius: 7).stroke(selected ? Theme.border : .clear))
         }
         .buttonStyle(.plain)
+    }
+}
+
+// The chip colours for the two kinds of param, so QUERY and PATH read apart at a glance.
+private enum PostmanTint {
+    static let query = Theme.addition
+    static let path = Color(red: 0.32, green: 0.36, blue: 0.62)
+}
+
+// The one "+ Add" button under a list: a pill that unfolds into a menu of the kinds of
+// row it can add, each row saying where that kind lands.
+private struct AddPill: View {
+    let label: String
+    let entries: () -> [MenuEntry]
+
+    @State private var hovering = false
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(label)
+                .font(.system(size: 12, weight: .semibold))
+            Image(systemName: "chevron.down")
+                .font(.system(size: 8, weight: .semibold))
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
+        .background(RoundedRectangle(cornerRadius: 10).fill(hovering ? Theme.field : Theme.card))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
+        .onHover { hovering = $0 }
+        .appMenu(entries)
     }
 }
 
