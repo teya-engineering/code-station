@@ -580,11 +580,12 @@ final class SessionRunner {
                 // A process reports running totals for its whole run, and a turn held
                 // open for background tasks sees several of them, so only what has grown
                 // since the last one is new spend.
-                store.recordUsage(Self.grown(totals, since: turn.recordedUsage), for: sessionID)
+                store.recordUsage(Self.grown(totals, since: turn.recordedUsage),
+                                  from: turn.agent, for: sessionID)
                 turn.recordedUsage = totals
 
             case .context(let tokens):
-                store.recordContext(tokens, for: sessionID)
+                store.recordContext(tokens, from: turn.agent, for: sessionID)
 
             case .backgroundTasks(let ids):
                 turn.pendingTasks = Set(ids)

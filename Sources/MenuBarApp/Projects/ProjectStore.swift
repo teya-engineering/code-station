@@ -172,18 +172,18 @@ final class ProjectStore {
         saveIndex()
     }
 
-    func recordUsage(_ turn: TurnUsage, for sessionID: UUID) {
+    func recordUsage(_ turn: TurnUsage, from agent: AgentKind, for sessionID: UUID) {
         guard let i = index(sessionID) else { return }
         var usage = sessions[i].usage ?? SessionUsage()
-        usage.add(turn)
+        usage.add(turn, from: agent)
         sessions[i].usage = usage
         scheduleIndexSave()
     }
 
-    func recordContext(_ tokens: Int, for sessionID: UUID) {
+    func recordContext(_ tokens: Int, from agent: AgentKind, for sessionID: UUID) {
         guard let i = index(sessionID) else { return }
         var usage = sessions[i].usage ?? SessionUsage()
-        usage.noteContext(tokens)
+        usage.noteContext(tokens, from: agent)
         sessions[i].usage = usage
         scheduleIndexSave()
     }
