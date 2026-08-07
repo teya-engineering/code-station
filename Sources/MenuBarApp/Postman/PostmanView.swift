@@ -322,7 +322,7 @@ private func resolvedText(_ template: String, env: ApiEnvironment,
 
 private struct RequestDetail: View {
     @State private var draft: SavedRequest
-    @State private var tab = Tab.params
+    @State private var tab = Tab.queryParams
 
     @Environment(PostmanStore.self) private var store
     @Environment(PostmanRunner.self) private var runner
@@ -330,7 +330,8 @@ private struct RequestDetail: View {
     @Environment(DialogPresenter.self) private var dialogs
 
     private enum Tab: String, CaseIterable, Identifiable {
-        case params = "Params", headers = "Headers", body = "Body", auth = "Auth"
+        case queryParams = "Query params", pathParams = "Path params"
+        case headers = "Headers", body = "Body", auth = "Auth"
         var id: String { rawValue }
     }
 
@@ -450,8 +451,11 @@ private struct RequestDetail: View {
 
     private func label(for tab: Tab) -> String {
         switch tab {
-        case .params:
-            let count = draft.queryParams.count + draft.pathParams.count
+        case .queryParams:
+            let count = draft.queryParams.count
+            return count == 0 ? tab.rawValue : "\(tab.rawValue) · \(count)"
+        case .pathParams:
+            let count = draft.pathParams.count
             return count == 0 ? tab.rawValue : "\(tab.rawValue) · \(count)"
         case .headers:
             return draft.headers.isEmpty ? tab.rawValue : "\(tab.rawValue) · \(draft.headers.count)"
@@ -464,38 +468,47 @@ private struct RequestDetail: View {
 
     @ViewBuilder private var editor: some View {
         switch tab {
-        case .params: paramsEditor
+        case .queryParams:
+            paramsEditor(title: "QUERY PARAMS",
+                         note: "Added to the URL as ?key=value on send.",
+                         keyPlaceholder: "key",
+                         addLabel: "+ Add query param",
+                         params: $draft.queryParams) {
+                draft.queryParams.append(HeaderField(key: "", value: ""))
+            }
+        case .pathParams:
+            paramsEditor(title: "PATH PARAMS",
+                         note: "Values fill the :name segments typed into the URL.",
+                         keyPlaceholder: "name",
+                         addLabel: "+ Add path param",
+                         params: $draft.pathParams) {
+                draft.pathParams.append(HeaderField(key: "", value: ""))
+            }
         case .headers: headerEditor
         case .body: bodyEditor
         case .auth: authEditor
         }
     }
 
-    private var paramsEditor: some View {
+    private func paramsEditor(title: String, note: String, keyPlaceholder: String,
+                              addLabel: String, params: Binding<[HeaderField]>,
+                              add: @escaping () -> Void) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 6) {
-                paramSection(title: "QUERY PARAMS",
-                             note: "Added to the URL as ?key=value on send.",
-                             keyPlaceholder: "key",
-                             params: $draft.queryParams)
-                paramSection(title: "PATH PARAMS",
-                             note: "Values fill the :name segments typed into the URL.",
-                             keyPlaceholder: "name",
-                             params: $draft.pathParams)
-                    .padding(.top, 14)
+                paramSection(title: title,
+                             note: note,
+                             keyPlaceholder: keyPlaceholder,
+                             params: params)
 
-                AddPill(label: "+ Add param") {
-                    [.item("Query param",
-                           badge: "QUERY", badgeTint: PostmanTint.query,
-                           subtitle: "appended to the URL after the ?") {
-                         draft.queryParams.append(HeaderField(key: "", value: ""))
-                     },
-                     .item("Path param",
-                           badge: "PATH", badgeTint: PostmanTint.path,
-                           subtitle: "fills a :name segment typed into the URL") {
-                         draft.pathParams.append(HeaderField(key: "", value: ""))
-                     }]
+                Button(action: add) {
+                    Text(addLabel)
+                        .font(.system(size: 12, weight: .semibold))
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 9)
+                        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
+                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
                 }
+                .buttonStyle(.plain)
                 .padding(.top, 14)
             }
             .padding(20)
@@ -690,12 +703,6 @@ private struct TabButton: View {
         }
         .buttonStyle(.plain)
     }
-}
-
-// The chip colours for the two kinds of param, so QUERY and PATH read apart at a glance.
-private enum PostmanTint {
-    static let query = Theme.addition
-    static let path = Color(red: 0.32, green: 0.36, blue: 0.62)
 }
 
 // The one "+ Add" button under a list: a pill that unfolds into a menu of the kinds of
