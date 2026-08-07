@@ -82,22 +82,34 @@ enum Preferences {
         set { store.set(newValue.rawValue, forKey: "agent") }
     }
 
-    // What a session runs with when it has not picked for itself. A model or effort left
-    // unset means the flag is never passed, so Claude Code's own configuration decides;
-    // the permission mode and Codex sandbox are always ours, since the app owns both.
-    static var sessionDefaults: SessionSettings {
-        get {
-            SessionSettings(model: text("defaultModel"),
-                            effort: text("defaultEffort"),
-                            permissionMode: store.string(forKey: "permissionMode") ?? "acceptEdits",
+    // What a session runs with when it has not picked for itself. Defaults belong to the
+    // agent that reads them, so one CLI's model and access choices cannot affect another.
+    static func sessionDefaults(for agent: AgentKind) -> SessionSettings {
+        switch agent {
+        case .claudeCode:
+            SessionSettings(model: text("claudeDefaultModel") ?? text("defaultModel"),
+                            effort: text("claudeDefaultEffort") ?? text("defaultEffort"),
+                            permissionMode: store.string(forKey: "claudePermissionMode")
+                                ?? store.string(forKey: "permissionMode")
+                                ?? "acceptEdits")
+        case .codex:
+            SessionSettings(model: text("codexDefaultModel") ?? text("defaultModel"),
+                            effort: text("codexDefaultEffort") ?? text("defaultEffort"),
                             codexSandboxMode: store.string(forKey: "codexSandboxMode")
                                 ?? CodexSandboxMode.workspaceWrite.rawValue)
         }
-        set {
-            set(newValue.model, "defaultModel")
-            set(newValue.effort, "defaultEffort")
-            store.set(newValue.permissionMode ?? "acceptEdits", forKey: "permissionMode")
-            store.set(CodexSandboxMode.resolved(newValue.codexSandboxMode).rawValue,
+    }
+
+    static func setSessionDefaults(_ settings: SessionSettings, for agent: AgentKind) {
+        switch agent {
+        case .claudeCode:
+            set(settings.model, "claudeDefaultModel")
+            set(settings.effort, "claudeDefaultEffort")
+            store.set(settings.permissionMode ?? "acceptEdits", forKey: "claudePermissionMode")
+        case .codex:
+            set(settings.model, "codexDefaultModel")
+            set(settings.effort, "codexDefaultEffort")
+            store.set(CodexSandboxMode.resolved(settings.codexSandboxMode).rawValue,
                       forKey: "codexSandboxMode")
         }
     }
