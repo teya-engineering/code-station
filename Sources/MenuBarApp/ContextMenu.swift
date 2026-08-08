@@ -14,6 +14,7 @@ enum MenuEntry {
     static func item(_ label: String,
                      kind: MenuItem.Kind = .plain,
                      checked: Bool = false,
+                     showsUpdate: Bool = false,
                      badge: String? = nil,
                      badgeTint: Color? = nil,
                      subtitle: String? = nil,
@@ -21,6 +22,7 @@ enum MenuEntry {
                      detailColour: Color? = nil,
                      action: @escaping () -> Void) -> MenuEntry {
         .item(MenuItem(label: label, kind: kind, checked: checked,
+                       showsUpdate: showsUpdate,
                        badge: badge, badgeTint: badgeTint, subtitle: subtitle,
                        detail: detail, detailColour: detailColour, handler: action))
     }
@@ -33,6 +35,7 @@ struct MenuItem {
     var kind: Kind = .plain
     // Marks the row that is currently in force, for menus that pick one of a set.
     var checked = false
+    var showsUpdate = false
     // A small type chip before the label, for menus that add one of several kinds of
     // thing and want the kind readable before the words.
     var badge: String?
@@ -293,8 +296,13 @@ private struct MenuItemRow: View {
                         .padding(.trailing, 3)
                 }
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(item.label)
-                        .font(.system(size: 13, weight: item.subtitle == nil ? .regular : .semibold))
+                    HStack(spacing: 6) {
+                        Text(item.label)
+                            .font(.system(size: 13, weight: item.subtitle == nil ? .regular : .semibold))
+                        if item.showsUpdate {
+                            UpdateIndicator()
+                        }
+                    }
                     if let subtitle = item.subtitle {
                         Text(subtitle)
                             .font(.system(size: 11))

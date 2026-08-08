@@ -160,6 +160,15 @@ struct SectionDot: View {
     }
 }
 
+struct UpdateIndicator: View {
+    var body: some View {
+        Circle()
+            .fill(Theme.deletion)
+            .frame(width: 7, height: 7)
+            .accessibilityLabel("Update available")
+    }
+}
+
 // How full something is, from a rate limit window to a context window. It takes the width
 // it is given, so the caller decides whether it is a full-width bar or a small inline one.
 struct Meter: View {

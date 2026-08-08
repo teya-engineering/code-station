@@ -5,6 +5,7 @@ import SwiftUI
 // top of it, since that is a setup job rather than a place to sit.
 struct RootView: View {
     @Environment(ProjectStore.self) private var store
+    @Environment(AppSettings.self) private var settings
     @State private var skills = SkillsManager()
     @State private var configuringServers = false
     @State private var showingSkills = false
@@ -17,7 +18,8 @@ struct RootView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            AppSidebar(onConfigureServers: { configuringServers = true },
+            AppSidebar(skills: skills,
+                       onConfigureServers: { configuringServers = true },
                        onOpenSkills: { showingSkills = true },
                        onOpenDocker: { showingDocker = true },
                        onOpenSettings: { showingSettings = true },
@@ -29,6 +31,7 @@ struct RootView: View {
             detail
         }
         .background(Theme.background)
+        .task(id: settings.skillsRefreshInterval) { await refreshSkillsAutomatically() }
         // Settings answers the shortcut every Mac app answers. The standard Settings
         // scene is deliberately empty, so the shortcut is caught here and opens the
         // same sheet the sidebar's menu does.
@@ -51,6 +54,21 @@ struct RootView: View {
             TroubleshootView(skills: skills).appOverlays()
         }
         .sheet(isPresented: $reviewingOldSessions) { OldSessionsView().appOverlays() }
+    }
+
+    private func refreshSkillsAutomatically() async {
+        let interval = settings.skillsRefreshInterval
+        await skills.loadForNotifications(every: interval)
+        guard interval != .never else { return }
+
+        while !Task.isCancelled {
+            do {
+                try await Task.sleep(for: .seconds(3_600))
+            } catch {
+                return
+            }
+            await skills.refreshIfNeeded(every: interval)
+        }
     }
 
     @ViewBuilder private var detail: some View {

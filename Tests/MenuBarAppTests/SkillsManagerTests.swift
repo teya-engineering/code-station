@@ -128,4 +128,23 @@ struct SkillsManagerTests {
         #expect(!SkillsManager.isOutdated(installedVersion: nil,
                                           latestVersion: "1.9.1"))
     }
+
+    @Test func schedulesAutomaticRefreshesAtTheChosenInterval() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+
+        #expect(!SkillsRefreshInterval.never.shouldRefresh(lastRefresh: nil, now: now))
+        #expect(SkillsRefreshInterval.oneDay.shouldRefresh(lastRefresh: nil, now: now))
+        #expect(!SkillsRefreshInterval.oneDay.shouldRefresh(
+            lastRefresh: now.addingTimeInterval(-86_399), now: now))
+        #expect(SkillsRefreshInterval.oneDay.shouldRefresh(
+            lastRefresh: now.addingTimeInterval(-86_400), now: now))
+        #expect(!SkillsRefreshInterval.fiveDays.shouldRefresh(
+            lastRefresh: now.addingTimeInterval(-4 * 86_400), now: now))
+        #expect(SkillsRefreshInterval.fiveDays.shouldRefresh(
+            lastRefresh: now.addingTimeInterval(-5 * 86_400), now: now))
+        #expect(!SkillsRefreshInterval.thirtyDays.shouldRefresh(
+            lastRefresh: now.addingTimeInterval(-29 * 86_400), now: now))
+        #expect(SkillsRefreshInterval.thirtyDays.shouldRefresh(
+            lastRefresh: now.addingTimeInterval(-30 * 86_400), now: now))
+    }
 }

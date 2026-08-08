@@ -83,6 +83,30 @@ struct SkillInstallation: Equatable, Sendable {
     let enabled: Bool
 }
 
+enum SkillsRefreshInterval: Int, CaseIterable, Identifiable, Sendable {
+    case never = 0
+    case oneDay = 1
+    case fiveDays = 5
+    case thirtyDays = 30
+
+    var id: Int { rawValue }
+
+    var title: String {
+        switch self {
+        case .never: "Never"
+        case .oneDay: "Every 1 day"
+        case .fiveDays: "Every 5 days"
+        case .thirtyDays: "Every 30 days"
+        }
+    }
+
+    nonisolated func shouldRefresh(lastRefresh: Date?, now: Date = Date()) -> Bool {
+        guard self != .never else { return false }
+        guard let lastRefresh else { return true }
+        return now.timeIntervalSince(lastRefresh) >= TimeInterval(rawValue * 86_400)
+    }
+}
+
 enum SkillActionProgress: String, Equatable, Sendable {
     case checkingMarketplace = "Checking marketplace…"
     case cloningMarketplace = "Cloning marketplace…"
@@ -109,7 +133,6 @@ final class SkillsManager {
     private(set) var catalogueNotice: String?
 
     private let cacheURL: URL
-    private var refreshID = UUID()
 
     struct Action: Hashable, Sendable {
         let host: SkillHost
@@ -176,8 +199,7 @@ final class SkillsManager {
     }
 
     func refresh() async {
-        let id = UUID()
-        refreshID = id
+        guard !isRefreshing else { return }
         isRefreshing = true
         catalogueNotice = nil
         hostFailures = [:]
@@ -187,14 +209,32 @@ final class SkillsManager {
         async let codexLoad = Self.loadInstallations(for: .codex)
 
         let (catalogue, claude, codex) = await (catalogueLoad, claudeLoad, codexLoad)
-        guard refreshID == id else { return }
 
         marketplace = catalogue.marketplace
         catalogueNotice = catalogue.notice
+        if catalogue.didRefresh {
+            Preferences.skillsLastRefresh = Date()
+        }
         apply(claude, to: .claude)
         apply(codex, to: .codex)
         isRefreshing = false
         hasLoaded = true
+    }
+
+    func refreshIfNeeded(every interval: SkillsRefreshInterval, now: Date = Date()) async {
+        guard interval.shouldRefresh(lastRefresh: Preferences.skillsLastRefresh, now: now) else {
+            return
+        }
+        await refresh()
+    }
+
+    func loadForNotifications(every interval: SkillsRefreshInterval,
+                              now: Date = Date()) async {
+        if interval.shouldRefresh(lastRefresh: Preferences.skillsLastRefresh, now: now) {
+            await refresh()
+        } else {
+            await loadCachedState()
+        }
     }
 
     func setInstalled(_ installed: Bool, plugin: SkillMarketplace.Plugin,
@@ -269,10 +309,37 @@ final class SkillsManager {
     struct CatalogueLoad: Sendable {
         let marketplace: SkillMarketplace?
         let notice: String?
+        let didRefresh: Bool
     }
 
     nonisolated static func decodeMarketplace(_ data: Data) throws -> SkillMarketplace {
         try JSONDecoder().decode(SkillMarketplace.self, from: data)
+    }
+
+    private func loadCachedState() async {
+        guard !hasLoaded, !isRefreshing else { return }
+        isRefreshing = true
+
+        let catalogue = Self.loadCachedCatalogue(at: cacheURL)
+        async let claudeLoad = Self.loadInstallations(for: .claude)
+        async let codexLoad = Self.loadInstallations(for: .codex)
+        let (claude, codex) = await (claudeLoad, codexLoad)
+
+        marketplace = catalogue.marketplace
+        catalogueNotice = catalogue.notice
+        apply(claude, to: .claude)
+        apply(codex, to: .codex)
+        isRefreshing = false
+        hasLoaded = true
+    }
+
+    private nonisolated static func loadCachedCatalogue(at cacheURL: URL) -> CatalogueLoad {
+        let manifest = cacheURL.appendingPathComponent(".claude-plugin/marketplace.json")
+        guard let data = try? Data(contentsOf: manifest),
+              let marketplace = try? decodeMarketplace(data) else {
+            return CatalogueLoad(marketplace: nil, notice: nil, didRefresh: false)
+        }
+        return CatalogueLoad(marketplace: marketplace, notice: nil, didRefresh: false)
     }
 
     private nonisolated static func loadCatalogue(at cacheURL: URL) async -> CatalogueLoad {
@@ -312,11 +379,12 @@ final class SkillsManager {
             let detail = gitResult.ok
                 ? "The marketplace did not contain a readable .claude-plugin/marketplace.json file."
                 : gitResult.failureMessage
-            return CatalogueLoad(marketplace: nil, notice: detail)
+            return CatalogueLoad(marketplace: nil, notice: detail, didRefresh: false)
         }
         return CatalogueLoad(marketplace: marketplace,
                              notice: gitResult.ok ? nil
-                                 : "Could not refresh the marketplace. Showing the cached list. \(gitResult.failureMessage)")
+                                 : "Could not refresh the marketplace. Showing the cached list. \(gitResult.failureMessage)",
+                             didRefresh: gitResult.ok)
     }
 
     // MARK: - Installed plugins
