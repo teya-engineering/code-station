@@ -160,6 +160,63 @@ struct TranscriptStoreTests {
         #expect(!FileManager.default.fileExists(atPath: transcriptFile(store, session.id).path))
     }
 
+    @Test func workspaceSessionsKeepAnOrderedSnapshotOfTheirDirectories() throws {
+        let store = makeStore()
+        let api = project(in: store)
+        let web = project(in: store)
+        let workspace = try #require(store.addWorkspace(name: "Checkout",
+                                                        projectIDs: [web.id, api.id],
+                                                        leadProjectID: api.id))
+        let session = try #require(store.newSession(
+            in: workspace.id,
+            projects: [
+                SessionProject(projectID: api.id, worktreePath: "/work/api", worktreeBranch: "conductor/1"),
+                SessionProject(projectID: web.id, worktreePath: nil, worktreeBranch: nil),
+            ]))
+
+        #expect(session.projectID == api.id)
+        #expect(store.workingDirectories(for: session) == ["/work/api", web.path])
+        #expect(store.gitMetadataDirectories(for: session) == [api.path + "/.git"])
+        #expect(store.standaloneSessions(for: api.id).isEmpty)
+        #expect(store.sessions(in: workspace.id).map(\.id) == [session.id])
+    }
+
+    @Test func workspacesSurviveAnIndexRoundTrip() throws {
+        let store = makeStore()
+        let first = project(in: store)
+        let second = project(in: store)
+        let workspace = try #require(store.addWorkspace(name: "Payments",
+                                                        projectIDs: [first.id, second.id],
+                                                        leadProjectID: second.id))
+        store.save()
+
+        let loaded = ProjectStore()
+
+        #expect(loaded.workspace(workspace.id)?.name == "Payments")
+        #expect(loaded.workspace(workspace.id)?.projectIDs == [second.id, first.id])
+        #expect(loaded.workspace(workspace.id)?.leadProjectID == second.id)
+    }
+
+    @Test func removingAnAttachedProjectRemovesSessionsThatUseIt() throws {
+        let store = makeStore()
+        let first = project(in: store)
+        let second = project(in: store)
+        let workspace = try #require(store.addWorkspace(name: "Checkout",
+                                                        projectIDs: [first.id, second.id],
+                                                        leadProjectID: first.id))
+        let session = try #require(store.newSession(
+            in: workspace.id,
+            projects: [SessionProject(projectID: first.id, worktreePath: nil,
+                                      worktreeBranch: nil),
+                       SessionProject(projectID: second.id, worktreePath: nil,
+                                      worktreeBranch: nil)]))
+
+        store.removeProject(second.id)
+
+        #expect(store.session(session.id) == nil)
+        #expect(store.workspace(workspace.id) == nil)
+    }
+
     // MARK: - Answering mid-turn
 
     // A turn writes everything it says into the message it opened with, so an answer

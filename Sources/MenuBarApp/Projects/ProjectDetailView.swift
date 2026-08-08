@@ -182,7 +182,7 @@ struct ProjectDetailView: View {
     }
 
     private func sessions(_ project: Project) -> some View {
-        let available = store.sessions(for: project.id)
+        let available = store.standaloneSessions(for: project.id)
         return ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 folder(project)

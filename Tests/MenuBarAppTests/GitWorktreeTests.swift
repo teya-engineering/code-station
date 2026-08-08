@@ -27,4 +27,13 @@ struct GitWorktreeTests {
         let plan = GitWorktree.plan(projectName: "api/v2 (old)", sessionID: sessionID)
         #expect(plan.path.hasSuffix("/api-v2--old--4f2ab8c1"))
     }
+
+    @Test func groupsWorkspaceCheckoutsUnderTheSession() {
+        let projectID = UUID(uuidString: "AABBCCDD-0000-0000-0000-000000000000")!
+        let plan = GitWorktree.plan(projectName: "Project A", projectID: projectID,
+                                    sessionID: sessionID)
+
+        #expect(plan.path.hasSuffix("/4f2ab8c1/Project-A-aabbccdd"))
+        #expect(plan.branch == "conductor/4f2ab8c1")
+    }
 }

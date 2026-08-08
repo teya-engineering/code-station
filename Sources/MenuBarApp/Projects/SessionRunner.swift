@@ -176,12 +176,11 @@ final class SessionRunner {
               let next = queues[sessionID]?.first,
               let session = store.session(sessionID) else { return }
 
-        // Two agents in one folder would edit the same files underneath each other, so
-        // sessions that share a directory cannot run at once. Worktree sessions each
-        // have their own directory, so they run in parallel freely.
+        // Two agents sharing any direct project folder would edit the same files under
+        // each other. Workspace sessions therefore conflict when any root overlaps.
         if let other = busySession(sharingDirectoryWith: session, store: store) {
             states[sessionID] = .failed(
-                "\"\(other.title)\" is already running in this folder. Sessions that share a directory cannot run at the same time - stop that one first, or use a worktree session to run in parallel.")
+                "\"\(other.title)\" is already running in one of these folders. Sessions that share a directory cannot run at the same time - stop that one first, or use worktrees to run in parallel.")
             return
         }
 
@@ -259,6 +258,12 @@ final class SessionRunner {
             }
             if let model { arguments += ["--model", model] }
             if let effort { arguments += ["-c", "model_reasoning_effort=\"\(effort)\""] }
+            // The resume subcommand does not accept --add-dir. Resumed turns receive
+            // the same paths through writable_roots above and keep the directory map
+            // from their existing conversation.
+            if resume == nil {
+                for directory in addDirectories { arguments += ["--add-dir", directory] }
+            }
             // The prompt goes over stdin, which "-" asks for; passed as an argument, a
             // prompt starting with a dash would be read as a flag.
             arguments.append("-")
@@ -280,12 +285,20 @@ final class SessionRunner {
     // that is inside the project look like it is outside it.
     nonisolated static func directoriesOutside(_ workingDirectory: String,
                                                for attachments: [Attachment]) -> [String] {
-        let root = URL(fileURLWithPath: workingDirectory).resolvingSymlinksInPath().path
+        directoriesOutside([workingDirectory], for: attachments)
+    }
+
+    nonisolated static func directoriesOutside(_ workingDirectories: [String],
+                                               for attachments: [Attachment]) -> [String] {
+        let roots = workingDirectories.map {
+            URL(fileURLWithPath: $0).resolvingSymlinksInPath().path
+        }
         var directories: [String] = []
         for attachment in attachments {
             let parent = attachment.url.deletingLastPathComponent()
                 .resolvingSymlinksInPath().path
-            guard parent != root, !parent.hasPrefix(root + "/"), !directories.contains(parent) else {
+            let alreadyReachable = roots.contains { parent == $0 || parent.hasPrefix($0 + "/") }
+            guard !alreadyReachable, !directories.contains(parent) else {
                 continue
             }
             directories.append(parent)
@@ -295,11 +308,19 @@ final class SessionRunner {
 
     private func busySession(sharingDirectoryWith session: ChatSession,
                              store: ProjectStore) -> ChatSession? {
-        guard let directory = store.workingDirectory(for: session) else { return nil }
+        let directories = Set(store.workingDirectories(for: session).map {
+            URL(fileURLWithPath: $0).resolvingSymlinksInPath().path
+        })
+        guard !directories.isEmpty else { return nil }
         return turns.keys
             .filter { $0 != session.id }
             .compactMap { store.session($0) }
-            .first { store.workingDirectory(for: $0) == directory }
+            .first { other in
+                let otherDirectories = Set(store.workingDirectories(for: other).map {
+                    URL(fileURLWithPath: $0).resolvingSymlinksInPath().path
+                })
+                return !directories.isDisjoint(with: otherDirectories)
+            }
     }
 
     // Leaves whatever has streamed in so far in place.
@@ -341,7 +362,7 @@ final class SessionRunner {
         // Read the session again rather than passing it in: a retry runs after the stored
         // claudeSessionID has been cleared, and must not try to resume anything.
         guard let session = store.session(sessionID) else { return }
-        guard let project = store.project(session.projectID) else {
+        guard store.project(session.projectID) != nil else {
             states[sessionID] = .failed("This session's project is no longer in the app.")
             return
         }
@@ -351,13 +372,29 @@ final class SessionRunner {
                 "Could not find \"\(agent.command)\" on PATH. Install the \(agent.title) CLI (\(agent.installHint)) and reopen the app.")
             return
         }
-        let workingDirectory = session.worktreePath ?? project.path
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: workingDirectory, isDirectory: &isDirectory),
-              isDirectory.boolValue else {
-            states[sessionID] = .failed("\(workingDirectory) no longer exists.")
+        let workingDirectories = store.workingDirectories(for: session)
+        guard !workingDirectories.isEmpty else {
+            states[sessionID] = .failed("This session has no working directory.")
             return
         }
+        guard let missing = workingDirectories.first(where: { path in
+            var isDirectory: ObjCBool = false
+            return !FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
+                || !isDirectory.boolValue
+        }) else {
+            launch(prompt, attachments: attachments, sessionID: sessionID, store: store,
+                   session: session, agent: agent, agentPath: agentPath,
+                   workingDirectories: workingDirectories, canRetryWithoutResume: canRetryWithoutResume)
+            return
+        }
+        states[sessionID] = .failed("\(missing) no longer exists.")
+    }
+
+    private func launch(_ prompt: String, attachments: [Attachment], sessionID: UUID,
+                        store: ProjectStore, session: ChatSession,
+                        agent: AgentKind, agentPath: String, workingDirectories: [String],
+                        canRetryWithoutResume: Bool) {
+        guard let workingDirectory = workingDirectories.first else { return }
 
         // A turn writes into the conversation for as long as it runs, whether or not
         // anyone has it open, so the transcript is held until this turn is done with it.
@@ -372,16 +409,20 @@ final class SessionRunner {
         process.currentDirectoryURL = URL(fileURLWithPath: workingDirectory)
 
         let resume = session.agentSessionID(for: agent).flatMap { $0.isEmpty ? nil : $0 }
+        let promptForAgent = resume == nil ? workspacePrompt(prompt, session: session, store: store)
+                                           : prompt
+        let projectDirectories = Array(workingDirectories.dropFirst())
+        let attachmentDirectories = Self.directoriesOutside(workingDirectories, for: attachments)
+        let additionalDirectories = unique(projectDirectories + attachmentDirectories)
+        let writableRoots = unique(additionalDirectories + store.gitMetadataDirectories(for: session))
         process.arguments = Self.arguments(
             agent: agent,
             settings: session.settings ?? SessionSettings(),
             defaults: defaults(for: agent),
             // A pasted screenshot or a file picked from anywhere on disk sits outside the
             // folder the agent runs in, and reading outside it needs saying so up front.
-            addDirectories: Self.directoriesOutside(workingDirectory, for: attachments),
-            // The git metadata of a worktree lives under the project's own .git folder,
-            // and committing there has to be allowed for the session to do git work.
-            writableRoots: session.worktreePath != nil ? [project.path + "/.git"] : [],
+            addDirectories: additionalDirectories,
+            writableRoots: writableRoots,
             resume: resume)
 
         var env = ProcessInfo.processInfo.environment
@@ -401,7 +442,7 @@ final class SessionRunner {
         process.standardInput = input
 
         let turn = Turn(process: process, agent: agent, messageID: reply.id, input: input,
-                        prompt: prompt, attachments: attachments, resumed: resume != nil,
+                        prompt: promptForAgent, attachments: attachments, resumed: resume != nil,
                         canRetryWithoutResume: canRetryWithoutResume)
         let token = turn.token
         let runner = self
@@ -465,13 +506,13 @@ final class SessionRunner {
             try process.run()
             switch agent {
             case .claudeCode:
-                guard let line = Self.userMessageLine(prompt), turn.write(line) else {
+                guard let line = Self.userMessageLine(promptForAgent), turn.write(line) else {
                     throw Failure("the prompt could not be handed over")
                 }
             case .codex:
                 // Codex reads the prompt off stdin until the pipe closes, and nothing
                 // ever goes back down it: there are no questions to answer mid-turn.
-                guard turn.write(Data((prompt + "\n").utf8)) else {
+                guard turn.write(Data((promptForAgent + "\n").utf8)) else {
                     throw Failure("the prompt could not be handed over")
                 }
                 turn.closeInput()
@@ -485,6 +526,34 @@ final class SessionRunner {
             SessionLog.note("could not start: \(error.localizedDescription)", session: sessionID)
             states[sessionID] = .failed("Could not start \(agent.title): \(error.localizedDescription)")
         }
+    }
+
+    private func unique(_ paths: [String]) -> [String] {
+        var seen: Set<String> = []
+        return paths.filter { seen.insert($0).inserted }
+    }
+
+    // Additional roots grant access but do not make their repository instructions part
+    // of the lead project's discovery chain. The first turn names every root and asks
+    // the agent to load local guidance before it edits an attached project.
+    private func workspacePrompt(_ prompt: String, session: ChatSession,
+                                 store: ProjectStore) -> String {
+        guard session.workspaceID != nil else { return prompt }
+        let rows = store.checkoutProjects(for: session).enumerated().compactMap { pair -> String? in
+            let (index, checkout) = pair
+            guard let project = store.project(checkout.projectID) else { return nil }
+            let path = checkout.worktreePath ?? project.path
+            return "- \(index == 0 ? "Lead" : "Attached") \(project.name): \(path)"
+        }
+        guard rows.count > 1 else { return prompt }
+        let context = """
+        This is a multi-project workspace. The lead project is your working directory.
+        The other project roots are available to the same session:
+        \(rows.joined(separator: "\n"))
+
+        Before editing an attached project, read the AGENTS.md or CLAUDE.md files that apply inside it.
+        """
+        return context + "\n\n" + prompt
     }
 
     private struct Failure: LocalizedError {

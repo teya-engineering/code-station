@@ -15,10 +15,12 @@ struct SessionView: View {
     @State private var dropTargeted = false
     @State private var terminalFocused = false
     @State private var composerFocused = false
+    @State private var selectedProjectID: UUID?
 
     // Working tree totals for the header; refreshed as tools finish so the numbers
     // track the run rather than only its end.
     @State private var stats: GitSnapshot?
+    @State private var workspaceStats: [String: GitSnapshot] = [:]
     @State private var statsTask: Task<Void, Never>?
 
     private let bottomAnchor = "transcript-bottom"
@@ -27,10 +29,16 @@ struct SessionView: View {
     var body: some View {
         // The sidebar can delete a session or its project while it is on screen.
         if let session = store.session(sessionID), let project = store.project(session.projectID) {
-            let workingDirectory = session.worktreePath ?? project.path
+            let workingDirectories = store.workingDirectories(for: session)
+            let workingDirectory = workingDirectories.first ?? project.path
+            let visibleDirectory = directory(for: selectedProjectID ?? session.projectID,
+                                             in: session) ?? workingDirectory
             VStack(spacing: 0) {
                 header(session: session, project: project)
                 warningStrip(session: session, project: project)
+                if session.workspaceID != nil, tab != .chat {
+                    workspaceProjectBar(session)
+                }
 
                 switch tab {
                 case .chat:
@@ -38,10 +46,10 @@ struct SessionView: View {
                     Divider().overlay(Theme.hairline)
                     composer(session: session, project: project)
                 case .changes:
-                    ChangesView(root: workingDirectory)
+                    ChangesView(root: visibleDirectory)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 case .explorer:
-                    ExplorerView(root: workingDirectory)
+                    ExplorerView(root: visibleDirectory)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
 
@@ -58,12 +66,13 @@ struct SessionView: View {
                 if focused { composerFocused = false }
             }
             .task(id: sessionID) {
-                refreshStats(workingDirectory)
+                selectedProjectID = session.projectID
+                refreshStats(workingDirectories)
                 store.findPullRequest(in: sessionID)
             }
-            .onChange(of: completedToolCount) { refreshStats(workingDirectory) }
+            .onChange(of: completedToolCount) { refreshStats(workingDirectories) }
             .onChange(of: runner.state(sessionID)) { _, state in
-                if !state.isBusy { refreshStats(workingDirectory) }
+                if !state.isBusy { refreshStats(workingDirectories) }
             }
         } else {
             VStack(spacing: 14) {
@@ -85,13 +94,15 @@ struct SessionView: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                 HStack(spacing: 8) {
-                    Text(project.name)
+                    Text(session.workspaceID.flatMap(store.workspace)?.name ?? project.name)
                         .font(.system(size: 12, weight: .medium))
                         .lineLimit(1)
                     // A worktree path is long and mostly noise, so it is held short here;
                     // the full path is a hover away. The branch is not repeated either,
                     // since the composer's footer already names it.
-                    Text((session.worktreePath ?? project.path).abbreviatedPath)
+                    Text(session.workspaceID == nil
+                         ? (session.worktreePath ?? project.path).abbreviatedPath
+                         : "workspace · \(store.checkoutProjects(for: session).count) projects")
                         .font(.mono(11))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -123,15 +134,65 @@ struct SessionView: View {
         .headerBand()
     }
 
+    private func workspaceProjectBar(_ session: ChatSession) -> some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: 6) {
+                ForEach(store.checkoutProjects(for: session)) { checkout in
+                    if let project = store.project(checkout.projectID) {
+                        let root = checkout.worktreePath ?? project.path
+                        let snapshot = workspaceStats[root]
+                        let selected = selectedProjectID == project.id
+                        Button { selectedProjectID = project.id } label: {
+                            HStack(spacing: 7) {
+                                RoundedRectangle(cornerRadius: 3)
+                                    .fill(project.id == session.projectID
+                                          ? Theme.accent : Theme.secret)
+                                    .frame(width: 9, height: 9)
+                                Text(project.name)
+                                    .font(.system(size: 12.5, weight: .semibold))
+                                    .lineLimit(1)
+                                if let snapshot, !snapshot.files.isEmpty {
+                                    Text("+\(snapshot.totalAdded)")
+                                        .foregroundStyle(Theme.addition)
+                                    Text("-\(snapshot.totalRemoved)")
+                                        .foregroundStyle(Theme.deletion)
+                                }
+                            }
+                            .font(.mono(10.5, .semibold))
+                            .padding(.horizontal, 12)
+                            .frame(height: 36)
+                            .background(selected ? Theme.card : Color.clear)
+                            .overlay(alignment: .bottom) {
+                                Rectangle()
+                                    .fill(selected ? Theme.accent : Color.clear)
+                                    .frame(height: 2)
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            .padding(.horizontal, 20)
+        }
+        .scrollIndicators(.hidden)
+        .background(Theme.card)
+        .overlay(alignment: .bottom) { Divider().overlay(Theme.hairline) }
+    }
+
     // "+38 -6 in 3 files": what the working tree looks like right now. Clicking it
     // opens the full diff.
     @ViewBuilder private var diffStats: some View {
-        if let stats, stats.state == .ready, !stats.files.isEmpty {
+        let snapshots = workspaceStats.values.filter { $0.state == .ready }
+        let added = snapshots.reduce(0) { $0 + $1.totalAdded }
+        let removed = snapshots.reduce(0) { $0 + $1.totalRemoved }
+        let files = snapshots.reduce(0) { $0 + $1.files.count }
+        if files > 0 {
             Button { tab = .changes } label: {
                 HStack(spacing: 6) {
-                    Text("+\(stats.totalAdded)").foregroundStyle(Theme.addition)
-                    Text("-\(stats.totalRemoved)").foregroundStyle(Theme.deletion)
-                    Text("in \(stats.files.count) file\(stats.files.count == 1 ? "" : "s")")
+                    Text("+\(added)").foregroundStyle(Theme.addition)
+                    Text("-\(removed)").foregroundStyle(Theme.deletion)
+                    Text("in \(files) file\(files == 1 ? "" : "s")")
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                 }
@@ -150,11 +211,18 @@ struct SessionView: View {
         return last.tools.filter { !$0.isRunning }.count
     }
 
-    private func refreshStats(_ root: String) {
+    private func refreshStats(_ roots: [String]) {
         statsTask?.cancel()
         statsTask = Task {
-            let snapshot = await GitInspector.snapshot(at: root)
-            if !Task.isCancelled { stats = snapshot }
+            var snapshots: [String: GitSnapshot] = [:]
+            for root in roots {
+                if Task.isCancelled { return }
+                snapshots[root] = await GitInspector.snapshot(at: root)
+            }
+            if !Task.isCancelled {
+                workspaceStats = snapshots
+                stats = roots.first.flatMap { snapshots[$0] }
+            }
         }
     }
 
@@ -187,11 +255,25 @@ struct SessionView: View {
     @ViewBuilder private func warningStrip(session: ChatSession, project: Project) -> some View {
         if store.isMissing(project) {
             strip("Folder not found at \(project.collapsedPath). Move it back or remove the project.")
+        } else if let missing = missingCheckout(in: session) {
+            strip("Workspace folder not found at \(missing.abbreviatedPath). Move it back or recreate this session.")
         } else if let worktree = session.worktreePath, !FileManager.default.fileExists(atPath: worktree) {
             strip("Worktree not found at \(worktree.abbreviatedPath). It was removed outside the app; delete this session or recreate it.")
         } else if !runner.available {
             strip("\(runner.agent.title) CLI not found on PATH. Sessions cannot run until it is installed.")
         }
+    }
+
+    private func missingCheckout(in session: ChatSession) -> String? {
+        store.workingDirectories(for: session).first {
+            !FileManager.default.fileExists(atPath: $0)
+        }
+    }
+
+    private func directory(for projectID: UUID, in session: ChatSession) -> String? {
+        guard let checkout = store.checkoutProjects(for: session)
+            .first(where: { $0.projectID == projectID }) else { return nil }
+        return checkout.worktreePath ?? store.project(projectID)?.path
     }
 
     private func strip(_ message: String) -> some View {

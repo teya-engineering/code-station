@@ -130,6 +130,30 @@ struct CodexTests {
         #expect(!withoutRoots.contains { $0.hasPrefix("sandbox_workspace_write") })
     }
 
+    @Test func codexAddsWorkspaceRootsOnANewTurnAndKeepsThemWritableOnResume() {
+        let root = "/Users/jo/Code/web"
+        let writable = [root, "/Users/jo/Code/api/.git"]
+        let initial = SessionRunner.arguments(agent: .codex,
+                                              settings: SessionSettings(),
+                                              defaults: SessionSettings(),
+                                              addDirectories: [root],
+                                              writableRoots: writable)
+
+        #expect(pair(initial, after: "--add-dir") == root)
+        #expect(initial.contains(
+            "sandbox_workspace_write.writable_roots=[\"/Users/jo/Code/web\",\"/Users/jo/Code/api/.git\"]"))
+
+        let resumed = SessionRunner.arguments(agent: .codex,
+                                              settings: SessionSettings(),
+                                              defaults: SessionSettings(),
+                                              addDirectories: [root],
+                                              writableRoots: writable,
+                                              resume: "thread-1")
+        #expect(!resumed.contains("--add-dir"))
+        #expect(resumed.contains(
+            "sandbox_workspace_write.writable_roots=[\"/Users/jo/Code/web\",\"/Users/jo/Code/api/.git\"]"))
+    }
+
     @Test func codexResumesAThreadThroughTheSubcommand() {
         let arguments = SessionRunner.arguments(agent: .codex,
                                                 settings: SessionSettings(),
