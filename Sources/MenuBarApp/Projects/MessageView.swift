@@ -43,6 +43,8 @@ struct MessageView: View, Equatable {
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
+        case .instructions:
+            instructionBubble
         }
     }
 
@@ -67,6 +69,21 @@ struct MessageView: View, Equatable {
             .padding(.vertical, 10)
             .background(RoundedRectangle(cornerRadius: 12).fill(Theme.accent.opacity(0.10)))
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.accent.opacity(0.22)))
+        }
+    }
+
+    private var instructionBubble: some View {
+        HStack(spacing: 0) {
+            Spacer(minLength: 80)
+            Text(message.text)
+                .font(.system(size: 13))
+                .textSelection(.enabled)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(RoundedRectangle(cornerRadius: 12).fill(Theme.secret.opacity(0.14)))
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.secret.opacity(0.30)))
         }
     }
 

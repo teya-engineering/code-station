@@ -863,8 +863,12 @@ struct SessionView: View {
     private func send() {
         let draft = runner.draft(sessionID)
         let prompt = draft.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !prompt.isEmpty || !draft.attachments.isEmpty else { return }
-        runner.send(prompt, attachments: draft.attachments, sessionID: sessionID, store: store)
+        guard !draft.isEmpty else { return }
+        runner.send(prompt,
+                    attachments: draft.attachments,
+                    customInstructions: draft.customInstructions,
+                    sessionID: sessionID,
+                    store: store)
         runner.clearDraft(sessionID)
     }
 }

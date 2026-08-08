@@ -37,11 +37,14 @@ struct TroubleshootRequest {
     let projects: [String]
     let mcpServersEnabled: Bool
 
-    var prompt: String {
+    var userInput: String {
         let description = problem.trimmingCharacters(in: .whitespacesAndNewlines)
-        let problemText = description.isEmpty
+        return description.isEmpty
             ? "Troubleshoot the problem shown in the attached files."
             : description
+    }
+
+    var customInstructions: String {
         let projectText = projects.joined(separator: ", ")
         let mcpText = mcpServersEnabled
             ? "MCP servers are enabled. Use them when they provide relevant logs, metrics, or service context."
@@ -51,8 +54,6 @@ struct TroubleshootRequest {
             : ""
 
         return """
-        \(problemText)
-
         Troubleshooting context:
         - Environment: \(environment.promptTitle)
         - Projects: \(projectText)
@@ -705,7 +706,9 @@ struct TroubleshootView: View {
                 environment: chosenEnvironment,
                 projects: projects.map(\.name),
                 mcpServersEnabled: enableMCPServers)
-            runner.send(request.prompt, attachments: attachments,
+            runner.send(request.userInput,
+                        attachments: attachments,
+                        customInstructions: request.customInstructions,
                         sessionID: session.id, store: store)
             dismiss()
         }
