@@ -118,9 +118,6 @@ struct TroubleshootView: View {
         .frame(width: 760, height: 680)
         .background(Theme.background)
         .onAppear {
-            if selectedProjects.isEmpty, let project = store.selectedProject {
-                selectedProjects.insert(project.id)
-            }
             problemFocused = requiredSkillState == .available
         }
         .task { await skills.refresh() }
