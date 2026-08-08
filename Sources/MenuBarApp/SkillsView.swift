@@ -191,7 +191,8 @@ struct SkillsView: View {
                                           host: SkillHost) -> some View {
         let installation = manager.installation(of: plugin, on: host)
         let outdated = manager.isOutdated(plugin, on: host)
-        let working = manager.isBusy(plugin, on: host)
+        let progress = manager.progress(of: plugin, on: host)
+        let working = progress != nil
         let available = manager.isAvailable(host)
         let manageable = manager.canManage(host)
 
@@ -202,7 +203,7 @@ struct SkillsView: View {
                     Task { await manager.setInstalled(selected, plugin: plugin, on: host) }
                 })) {
                     Text(statusText(installation, available: available,
-                                    manageable: manageable, working: working))
+                                    manageable: manageable, progress: progress))
                         .font(.system(size: 11.5, weight: .medium))
                         .foregroundStyle(manageable ? Color.primary : Color.secondary)
                         .lineLimit(2)
@@ -231,8 +232,8 @@ struct SkillsView: View {
     }
 
     private func statusText(_ installation: SkillInstallation?, available: Bool,
-                            manageable: Bool, working: Bool) -> String {
-        if working { return "Working…" }
+                            manageable: Bool, progress: SkillActionProgress?) -> String {
+        if let progress { return progress.rawValue }
         guard available else { return "CLI not found" }
         guard manageable else { return "Plugin command failed" }
         guard let installation else { return "Not installed" }

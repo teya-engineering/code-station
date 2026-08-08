@@ -83,6 +83,16 @@ struct SkillInstallation: Equatable, Sendable {
     let enabled: Bool
 }
 
+enum SkillActionProgress: String, Equatable, Sendable {
+    case checkingMarketplace = "Checking marketplace…"
+    case cloningMarketplace = "Cloning marketplace…"
+    case refreshingMarketplace = "Refreshing marketplace…"
+    case installing = "Installing skill…"
+    case uninstalling = "Uninstalling skill…"
+    case updating = "Updating skill…"
+    case checkingInstallation = "Checking installation…"
+}
+
 @MainActor
 @Observable
 final class SkillsManager {
@@ -93,7 +103,7 @@ final class SkillsManager {
     private(set) var installations: [SkillHost: [String: SkillInstallation]] = [:]
     private(set) var hostFailures: [SkillHost: String] = [:]
     private(set) var actionFailures: [Action: String] = [:]
-    private(set) var busy: Set<Action> = []
+    private var actionProgress: [Action: SkillActionProgress] = [:]
     private(set) var isRefreshing = false
     private(set) var hasLoaded = false
     private(set) var catalogueNotice: String?
@@ -152,8 +162,9 @@ final class SkillsManager {
         return installedVersion != latestVersion
     }
 
-    func isBusy(_ plugin: SkillMarketplace.Plugin, on host: SkillHost) -> Bool {
-        busy.contains(Action(host: host, plugin: plugin.name))
+    func progress(of plugin: SkillMarketplace.Plugin,
+                  on host: SkillHost) -> SkillActionProgress? {
+        actionProgress[Action(host: host, plugin: plugin.name)]
     }
 
     func actionFailure(_ plugin: SkillMarketplace.Plugin, on host: SkillHost) -> String? {
@@ -185,18 +196,22 @@ final class SkillsManager {
     func setInstalled(_ installed: Bool, plugin: SkillMarketplace.Plugin,
                       on host: SkillHost) async {
         let action = Action(host: host, plugin: plugin.name)
-        guard !busy.contains(action), canManage(host) else { return }
-        busy.insert(action)
+        guard actionProgress[action] == nil, canManage(host) else { return }
+        actionProgress[action] = installed ? .checkingMarketplace : .uninstalling
         actionFailures[action] = nil
+        defer { actionProgress[action] = nil }
 
         let result: CommandResult
         if installed {
-            let ready = await Self.prepareMarketplace(for: host)
-            result = ready.ok
-                ? await Self.run(host.command,
-                                 host.installArguments(plugin: plugin.name,
-                                                       marketplace: Self.marketplaceName))
-                : ready
+            let ready = await prepareMarketplace(for: host, action: action)
+            if ready.ok {
+                actionProgress[action] = .installing
+                result = await Self.run(host.command,
+                                        host.installArguments(plugin: plugin.name,
+                                                              marketplace: Self.marketplaceName))
+            } else {
+                result = ready
+            }
         } else {
             result = await Self.run(host.command,
                                     host.removeArguments(plugin: plugin.name,
@@ -204,31 +219,36 @@ final class SkillsManager {
         }
 
         if result.ok {
+            actionProgress[action] = .checkingInstallation
             await refreshInstallations(for: host)
         } else {
             actionFailures[action] = result.failureMessage
         }
-        busy.remove(action)
     }
 
     func update(_ plugin: SkillMarketplace.Plugin, on host: SkillHost) async {
         let action = Action(host: host, plugin: plugin.name)
-        guard !busy.contains(action), canManage(host) else { return }
-        busy.insert(action)
+        guard actionProgress[action] == nil, canManage(host) else { return }
+        actionProgress[action] = .checkingMarketplace
         actionFailures[action] = nil
+        defer { actionProgress[action] = nil }
 
-        let ready = await Self.prepareMarketplace(for: host)
-        let result = ready.ok
-            ? await Self.run(host.command,
-                             host.updateArguments(plugin: plugin.name,
-                                                  marketplace: Self.marketplaceName))
-            : ready
+        let ready = await prepareMarketplace(for: host, action: action)
+        let result: CommandResult
+        if ready.ok {
+            actionProgress[action] = .updating
+            result = await Self.run(host.command,
+                                    host.updateArguments(plugin: plugin.name,
+                                                         marketplace: Self.marketplaceName))
+        } else {
+            result = ready
+        }
         if result.ok {
+            actionProgress[action] = .checkingInstallation
             await refreshInstallations(for: host)
         } else {
             actionFailures[action] = result.failureMessage
         }
-        busy.remove(action)
     }
 
     private func refreshInstallations(for host: SkillHost) async {
@@ -361,17 +381,20 @@ final class SkillsManager {
                                 failure: nil)
     }
 
-    private nonisolated static func prepareMarketplace(for host: SkillHost) async -> CommandResult {
-        let listed = await run(host.command, host.marketplaceListArguments)
+    private func prepareMarketplace(for host: SkillHost, action: Action) async -> CommandResult {
+        actionProgress[action] = .checkingMarketplace
+        let listed = await Self.run(host.command, host.marketplaceListArguments)
         guard listed.ok else { return listed }
 
-        if !marketplaceNames(from: listed.output).contains(marketplaceName) {
-            let added = await run(host.command,
-                                  host.marketplaceAddArguments(source: repositoryURL))
+        if !Self.marketplaceNames(from: listed.output).contains(Self.marketplaceName) {
+            actionProgress[action] = .cloningMarketplace
+            let added = await Self.run(host.command,
+                                       host.marketplaceAddArguments(source: Self.repositoryURL))
             guard added.ok else { return added }
         }
-        return await run(host.command,
-                         host.marketplaceRefreshArguments(name: marketplaceName))
+        actionProgress[action] = .refreshingMarketplace
+        return await Self.run(host.command,
+                              host.marketplaceRefreshArguments(name: Self.marketplaceName))
     }
 
     // MARK: - Commands
