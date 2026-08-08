@@ -11,15 +11,16 @@ struct TroubleshootTests {
             mcpServersEnabled: true,
             mcpServerNames: ["grafana-shared-shared", "grafana-platform-prd"])
 
-        #expect(request.prompt.contains("Payments return 503 after deployment"))
-        #expect(request.prompt.contains("production (prod)"))
-        #expect(request.prompt.contains("payments-api, merchant-web"))
-        #expect(request.prompt.contains("MCP servers are enabled"))
-        #expect(request.prompt.contains("grafana-platform-prd, grafana-shared-shared"))
-        #expect(request.prompt.contains("Search the available tool catalogue"))
-        #expect(request.prompt.contains("before concluding that a server or tool is unavailable"))
-        #expect(request.prompt.contains("do not mutate data, configuration, deployments, or running services"))
-        #expect(request.prompt.contains("wait for a follow-up before applying it"))
+        #expect(request.userInput == "Payments return 503 after deployment")
+        #expect(!request.customInstructions.contains(request.userInput))
+        #expect(request.customInstructions.contains("production (prod)"))
+        #expect(request.customInstructions.contains("payments-api, merchant-web"))
+        #expect(request.customInstructions.contains("MCP servers are enabled"))
+        #expect(request.customInstructions.contains("grafana-platform-prd, grafana-shared-shared"))
+        #expect(request.customInstructions.contains("Search the available tool catalogue"))
+        #expect(request.customInstructions.contains("before concluding that a server or tool is unavailable"))
+        #expect(request.customInstructions.contains("do not mutate data, configuration, deployments, or running services"))
+        #expect(request.customInstructions.contains("wait for a follow-up before applying it"))
     }
 
     @Test func attachmentOnlyDiagnosisStillHasAnInstruction() {
@@ -29,8 +30,22 @@ struct TroubleshootTests {
             projects: ["api"],
             mcpServersEnabled: false)
 
-        #expect(request.prompt.hasPrefix("Troubleshoot the problem shown in the attached files."))
-        #expect(request.prompt.contains("MCP servers are disabled for this diagnosis"))
+        #expect(request.userInput == "Troubleshoot the problem shown in the attached files.")
+        #expect(request.customInstructions.contains("MCP servers are disabled for this diagnosis"))
+    }
+
+    @Test func queuedDiagnosisSeparatesTheTranscriptAndKeepsTheAgentPromptTogether() {
+        let queued = SessionRunner.QueuedPrompt(
+            text: "Payments return 503",
+            attachments: [],
+            customInstructions: "Use read-only checks first.")
+
+        #expect(queued.prompt == "Payments return 503\n\nUse read-only checks first.")
+        #expect(queued.transcriptMessages.map(\.role) == [.user, .instructions])
+        #expect(queued.transcriptMessages.map(\.text) == [
+            "Payments return 503",
+            "Use read-only checks first.",
+        ])
     }
 
     @Test func claudeRunsWithOnlyAnEmptyMCPConfigurationWhenDisabled() {

@@ -85,7 +85,7 @@ extension String {
 }
 
 enum MessageRole: String, Codable {
-    case user, assistant, system
+    case user, assistant, system, instructions
 }
 
 // One tool call inside an assistant turn. `result` stays nil until Claude Code

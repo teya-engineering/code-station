@@ -41,7 +41,6 @@ final class CodexCodeManager {
     }
 
     func isRegistered(_ name: String) -> Bool { entries[name] != nil }
-    func isEnabled(_ name: String) -> Bool { entries[name]?.enabled == true }
     func isBusy(_ name: String) -> Bool { busy.contains(name) }
 
     func supports(_ server: Server) -> Bool {

@@ -47,11 +47,14 @@ struct TroubleshootRequest {
         self.mcpServerNames = mcpServerNames
     }
 
-    var prompt: String {
+    var userInput: String {
         let description = problem.trimmingCharacters(in: .whitespacesAndNewlines)
-        let problemText = description.isEmpty
+        return description.isEmpty
             ? "Troubleshoot the problem shown in the attached files."
             : description
+    }
+
+    var customInstructions: String {
         let projectText = projects.joined(separator: ", ")
         let mcpText: String
         if !mcpServersEnabled {
@@ -69,8 +72,6 @@ struct TroubleshootRequest {
             : ""
 
         return """
-        \(problemText)
-
         Troubleshooting context:
         - Environment: \(environment.promptTitle)
         - Projects: \(projectText)
@@ -152,9 +153,6 @@ struct TroubleshootView: View {
         .frame(width: 760, height: 680)
         .background(Theme.background)
         .onAppear {
-            if selectedProjects.isEmpty, let project = store.selectedProject {
-                selectedProjects.insert(project.id)
-            }
             refreshMCPConfiguration()
             problemFocused = requiredSkillState == .available
         }
@@ -808,7 +806,9 @@ struct TroubleshootView: View {
                 projects: projects.map(\.name),
                 mcpServersEnabled: enableMCPServers,
                 mcpServerNames: enableMCPServers ? selectedServers.map(\.name) : [])
-            runner.send(request.prompt, attachments: attachments,
+            runner.send(request.userInput,
+                        attachments: attachments,
+                        customInstructions: request.customInstructions,
                         sessionID: session.id, store: store)
             dismiss()
         }
