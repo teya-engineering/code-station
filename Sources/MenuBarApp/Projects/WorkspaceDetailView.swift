@@ -188,21 +188,6 @@ struct WorkspaceDetailView: View {
 
                 Spacer(minLength: 12)
 
-                if git {
-                    checkoutButton("Worktree", selected: worktree) {
-                        store.setUsesWorktree(true, for: project.id,
-                                              inWorkspace: workspace.id)
-                    }
-                    checkoutButton("Project folder", selected: !worktree) {
-                        store.setUsesWorktree(false, for: project.id,
-                                              inWorkspace: workspace.id)
-                    }
-                } else if !missing {
-                    Text("Uses project folder")
-                        .font(.system(size: 11.5, weight: .medium))
-                        .foregroundStyle(.secondary)
-                }
-
                 if !lead {
                     Button {
                         store.setLeadProject(project.id, inWorkspace: workspace.id)
@@ -217,6 +202,21 @@ struct WorkspaceDetailView: View {
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                }
+
+                if git {
+                    checkoutButton("Worktree", selected: worktree) {
+                        store.setUsesWorktree(true, for: project.id,
+                                              inWorkspace: workspace.id)
+                    }
+                    checkoutButton("Project folder", selected: !worktree) {
+                        store.setUsesWorktree(false, for: project.id,
+                                              inWorkspace: workspace.id)
+                    }
+                } else if !missing {
+                    Text("Uses project folder")
+                        .font(.system(size: 11.5, weight: .medium))
+                        .foregroundStyle(.secondary)
                 }
 
                 Button {
