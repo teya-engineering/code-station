@@ -1,8 +1,8 @@
 import AppKit
 import SwiftUI
 
-// The project is the place to decide what to work on. It keeps the folder and every
-// available conversation together, without opening a conversation until the user asks.
+// The project keeps its folder, conversations and folder-level tools together without
+// opening a conversation until the user asks.
 struct ProjectDetailView: View {
     let projectID: UUID
 
@@ -10,17 +10,30 @@ struct ProjectDetailView: View {
     @Environment(SessionRunner.self) private var runner
     @Environment(DialogPresenter.self) private var dialogs
     @Environment(WorkingTreeWatch.self) private var workingTrees
+    @Environment(TerminalStore.self) private var terminals
 
+    private enum Tab: Hashable { case sessions, changes, explorer }
+
+    @State private var tab: Tab = .sessions
     @State private var choosingSessionKind: Project?
+    @State private var terminalFocused = false
+
+    private var terminalScope: TerminalScope { .project(projectID) }
 
     var body: some View {
         if let project = store.project(projectID) {
             VStack(spacing: 0) {
                 header(project)
                 if store.isMissing(project) { missingFolder(project) }
-                sessions(project)
+                content(project)
+                if terminals.isOpen(terminalScope) {
+                    TerminalDrawer(scope: terminalScope,
+                                   directory: project.path,
+                                   focusTerminal: $terminalFocused)
+                }
             }
             .background(Theme.background)
+            .background(terminalShortcut(project))
             .sheet(item: $choosingSessionKind) { project in
                 NewSessionView(project: project) { choice in
                     startSession(choice, in: project)
@@ -48,32 +61,110 @@ struct ProjectDetailView: View {
 
             Spacer(minLength: 16)
 
-            Button { reveal(project) } label: {
-                Label("Reveal in Finder", systemImage: "folder")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.primary)
-                    .padding(.horizontal, 13)
-                    .frame(height: 32)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(Theme.card))
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
-                    .contentShape(RoundedRectangle(cornerRadius: 8))
+            ViewThatFits(in: .horizontal) {
+                headerControls(project, compactActions: false)
+                headerControls(project, compactActions: true)
             }
-            .buttonStyle(.plain)
-
-            Button { requestNewSession(in: project) } label: {
-                Label("New session", systemImage: "plus")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 13)
-                    .frame(height: 32)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(Theme.accent))
-                    .contentShape(RoundedRectangle(cornerRadius: 8))
-            }
-            .buttonStyle(.plain)
-            .disabled(store.isMissing(project))
+            .layoutPriority(1)
         }
         .padding(.horizontal, 20)
         .headerBand()
+    }
+
+    private func headerControls(_ project: Project, compactActions: Bool) -> some View {
+        HStack(spacing: compactActions ? 10 : 12) {
+            HeaderTabToggle(selection: $tab,
+                            options: [("Sessions", .sessions),
+                                      ("Changes", .changes),
+                                      ("Explorer", .explorer)])
+
+            TerminalToggle(isOpen: terminals.isOpen(terminalScope)) {
+                toggleTerminal(directory: project.path)
+            }
+            .disabled(store.isMissing(project))
+            .opacity(store.isMissing(project) ? 0.4 : 1)
+
+            revealButton(project, compact: compactActions)
+            newSessionButton(project, compact: compactActions)
+        }
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private func revealButton(_ project: Project, compact: Bool) -> some View {
+        Button { reveal(project) } label: {
+            Group {
+                if compact {
+                    Image(systemName: "folder")
+                        .frame(width: 32, height: 32)
+                } else {
+                    Label("Reveal in Finder", systemImage: "folder")
+                        .padding(.horizontal, 13)
+                        .frame(height: 32)
+                }
+            }
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(.primary)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.card))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
+            .contentShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+        .help("Reveal in Finder")
+    }
+
+    private func newSessionButton(_ project: Project, compact: Bool) -> some View {
+        Button { requestNewSession(in: project) } label: {
+            Group {
+                if compact {
+                    Image(systemName: "plus")
+                        .frame(width: 32, height: 32)
+                } else {
+                    Label("New session", systemImage: "plus")
+                        .padding(.horizontal, 13)
+                        .frame(height: 32)
+                }
+            }
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(.white)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.accent))
+            .contentShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+        .disabled(store.isMissing(project))
+        .help("New session")
+    }
+
+    @ViewBuilder private func content(_ project: Project) -> some View {
+        switch tab {
+        case .sessions:
+            sessions(project)
+        case .changes:
+            ChangesView(root: project.path)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        case .explorer:
+            ExplorerView(root: project.path)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private func terminalShortcut(_ project: Project) -> some View {
+        Button("") {
+            if !terminals.isOpen(terminalScope) {
+                terminals.setOpen(true, for: terminalScope, directory: project.path)
+                terminalFocused = true
+            } else {
+                terminalFocused.toggle()
+            }
+        }
+        .keyboardShortcut("`", modifiers: .control)
+        .opacity(0)
+        .disabled(store.isMissing(project))
+    }
+
+    private func toggleTerminal(directory: String) {
+        let opening = !terminals.isOpen(terminalScope)
+        terminals.setOpen(opening, for: terminalScope, directory: directory)
+        terminalFocused = opening
     }
 
     private func missingFolder(_ project: Project) -> some View {

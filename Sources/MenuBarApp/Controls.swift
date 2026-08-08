@@ -1,5 +1,39 @@
 import SwiftUI
 
+// Segmented choices used in pane headers. Keeping the control shared means project and
+// session navigation have the same hit areas, spacing and selected state.
+struct HeaderTabToggle<Selection: Hashable>: View {
+    @Binding var selection: Selection
+    let options: [(label: String, value: Selection)]
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(options.indices, id: \.self) { index in
+                segment(options[index])
+            }
+        }
+        .padding(3)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color.black.opacity(0.05)))
+    }
+
+    private func segment(_ option: (label: String, value: Selection)) -> some View {
+        let active = selection == option.value
+        return Button { selection = option.value } label: {
+            Text(option.label)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(active ? Color.primary : Color.secondary)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 5)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(active ? Color.white : .clear)
+                        .shadow(color: .black.opacity(active ? 0.08 : 0), radius: 1, y: 0.5))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 // The app's own switch and checkbox. The native toggle styles draw with the system's
 // chrome and accent, which reads as a piece of another program next to the rest of
 // the app, so everything interactive is drawn here with the shared palette instead.

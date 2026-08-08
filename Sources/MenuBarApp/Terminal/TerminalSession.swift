@@ -172,87 +172,94 @@ extension TerminalSession: @preconcurrency TerminalViewDelegate {
     func rangeChanged(source: TerminalView, startY: Int, endY: Int) {}
 }
 
-// The terminals belonging to each chat session, plus how the drawer is sitting.
+// A terminal can belong to a project overview or to one chat session. The scope keeps
+// project shells apart from session shells even if their IDs happen to match.
+enum TerminalScope: Hashable {
+    case project(UUID)
+    case session(UUID)
+}
+
+// The terminals belonging to each project or chat session, plus how the drawer is sitting.
 // Keeping them here, rather than in the view, is what lets a shell keep running while
-// the drawer is collapsed or another session is on screen.
+// the drawer is collapsed or another screen is open.
 @MainActor
 @Observable
 final class TerminalStore {
     static let minimumHeight: CGFloat = 120
     static let defaultHeight: CGFloat = 300
 
-    private var terminals: [UUID: [TerminalSession]] = [:]
-    private var selected: [UUID: UUID] = [:]
-    private var open: Set<UUID> = []
-    private var heights: [UUID: CGFloat] = [:]
+    private var terminals: [TerminalScope: [TerminalSession]] = [:]
+    private var selected: [TerminalScope: UUID] = [:]
+    private var open: Set<TerminalScope> = []
+    private var heights: [TerminalScope: CGFloat] = [:]
 
-    func sessions(for sessionID: UUID) -> [TerminalSession] { terminals[sessionID] ?? [] }
+    func sessions(for scope: TerminalScope) -> [TerminalSession] { terminals[scope] ?? [] }
 
-    func selection(for sessionID: UUID) -> TerminalSession? {
-        let all = sessions(for: sessionID)
-        if let id = selected[sessionID], let match = all.first(where: { $0.id == id }) { return match }
+    func selection(for scope: TerminalScope) -> TerminalSession? {
+        let all = sessions(for: scope)
+        if let id = selected[scope], let match = all.first(where: { $0.id == id }) { return match }
         return all.first
     }
 
-    func select(_ terminal: TerminalSession, in sessionID: UUID) {
-        selected[sessionID] = terminal.id
+    func select(_ terminal: TerminalSession, in scope: TerminalScope) {
+        selected[scope] = terminal.id
     }
 
     // MARK: - Drawer
 
-    // Shut by default, and it takes nothing from the chat while it is: a session opens
-    // on the conversation, and the terminal appears only when it is asked for.
-    func isOpen(_ sessionID: UUID) -> Bool { open.contains(sessionID) }
+    // Shut by default, so a project or session opens on its main content and the terminal
+    // appears only when it is asked for.
+    func isOpen(_ scope: TerminalScope) -> Bool { open.contains(scope) }
 
-    func setOpen(_ isOpen: Bool, for sessionID: UUID, directory: String) {
+    func setOpen(_ isOpen: Bool, for scope: TerminalScope, directory: String) {
         if isOpen {
-            ensureOne(for: sessionID, directory: directory)
-            open.insert(sessionID)
+            ensureOne(for: scope, directory: directory)
+            open.insert(scope)
         } else {
-            open.remove(sessionID)
+            open.remove(scope)
         }
     }
 
-    func height(for sessionID: UUID) -> CGFloat { heights[sessionID] ?? Self.defaultHeight }
+    func height(for scope: TerminalScope) -> CGFloat { heights[scope] ?? Self.defaultHeight }
 
-    func setHeight(_ height: CGFloat, for sessionID: UUID) {
-        heights[sessionID] = max(Self.minimumHeight, height)
+    func setHeight(_ height: CGFloat, for scope: TerminalScope) {
+        heights[scope] = max(Self.minimumHeight, height)
     }
 
     // MARK: - Tabs
 
-    // The first terminal for a session is made on demand, so no shell is started for a
-    // session whose drawer is never opened.
+    // The first terminal for a screen is made on demand, so no shell is started for a
+    // project or session whose drawer is never opened.
     @discardableResult
-    func add(to sessionID: UUID, directory: String) -> TerminalSession {
+    func add(to scope: TerminalScope, directory: String) -> TerminalSession {
         let terminal = TerminalSession(directory: directory,
-                                       name: nextName(in: sessionID))
+                                       name: nextName(in: scope))
         terminal.start()
-        terminals[sessionID, default: []].append(terminal)
-        selected[sessionID] = terminal.id
+        terminals[scope, default: []].append(terminal)
+        selected[scope] = terminal.id
         return terminal
     }
 
     // "Terminal", then "Terminal 2"; renamed tabs are skipped over rather than counted,
     // so closing one does not produce a duplicate name.
-    private func nextName(in sessionID: UUID) -> String {
-        let taken = Set(sessions(for: sessionID).map(\.name))
+    private func nextName(in scope: TerminalScope) -> String {
+        let taken = Set(sessions(for: scope).map(\.name))
         if !taken.contains("Terminal") { return "Terminal" }
         var number = 2
         while taken.contains("Terminal \(number)") { number += 1 }
         return "Terminal \(number)"
     }
 
-    func ensureOne(for sessionID: UUID, directory: String) {
-        guard sessions(for: sessionID).isEmpty else { return }
-        add(to: sessionID, directory: directory)
+    func ensureOne(for scope: TerminalScope, directory: String) {
+        guard sessions(for: scope).isEmpty else { return }
+        add(to: scope, directory: directory)
     }
 
-    func close(_ terminal: TerminalSession, in sessionID: UUID) {
+    func close(_ terminal: TerminalSession, in scope: TerminalScope) {
         terminal.stop()
-        terminals[sessionID]?.removeAll { $0.id == terminal.id }
-        if selected[sessionID] == terminal.id {
-            selected[sessionID] = terminals[sessionID]?.first?.id
+        terminals[scope]?.removeAll { $0.id == terminal.id }
+        if selected[scope] == terminal.id {
+            selected[scope] = terminals[scope]?.first?.id
         }
     }
 

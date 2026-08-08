@@ -59,7 +59,8 @@ struct AppSidebar: View {
     // MARK: - Heading
 
     private var heading: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        let notices = sessionNotices
+        return VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 8) {
                 if let logo = AppArt.logo {
                     Image(nsImage: logo)
@@ -75,8 +76,14 @@ struct AppSidebar: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
                 Spacer(minLength: 8)
-                if busyCount > 0 {
-                    StatusPill(text: "\(busyCount) RUNNING", running: true)
+                if !notices.isEmpty {
+                    let active = notices.filter { $0.notice != .finished }.count
+                    StatusPill(text: active > 0 ? "\(active) RUNNING" : "\(notices.count) FINISHED",
+                               running: active > 0,
+                               tint: active > 0 ? nil : Theme.attention,
+                               disclosure: true)
+                        .appMenu { sessionNoticeMenu }
+                        .appTooltip("Show active and unread sessions")
                 }
             }
             .padding(.horizontal, 20)
@@ -140,8 +147,45 @@ struct AppSidebar: View {
         .padding(.bottom, 12)
     }
 
-    private var busyCount: Int {
-        store.sessions.filter { runner.state($0.id).isBusy }.count
+    private struct NoticedSession {
+        let session: ChatSession
+        let project: Project
+        let notice: SessionNotice
+    }
+
+    private var sessionNotices: [NoticedSession] {
+        store.sessions.compactMap { session in
+            guard let project = store.project(session.projectID),
+                  let notice = SessionNotice(
+                    isBusy: runner.state(session.id).isBusy,
+                    needsInput: runner.question(session.id) != nil,
+                    finishedUnseen: store.hasFinished(session.id)) else { return nil }
+            return NoticedSession(session: session, project: project, notice: notice)
+        }
+        .sorted {
+            if $0.notice != $1.notice { return $0.notice.rawValue < $1.notice.rawValue }
+            return $0.session.lastActivity > $1.session.lastActivity
+        }
+    }
+
+    private var sessionNoticeMenu: [MenuEntry] {
+        let notices = sessionNotices
+        var entries: [MenuEntry] = []
+        for (index, noticed) in notices.enumerated() {
+            if index > 0, notices[index - 1].notice != noticed.notice {
+                entries.append(.separator)
+            }
+            entries.append(.item(
+                noticed.session.title,
+                checked: isSelected(noticed.session),
+                badge: noticed.notice.badge,
+                badgeTint: noticed.notice.tint,
+                subtitle: noticed.project.name,
+                detail: RelativeTime.short(noticed.session.lastActivity)) {
+                    store.selectSession(noticed.session.id)
+                })
+        }
+        return entries
     }
 
     // MARK: - Projects
@@ -1239,16 +1283,47 @@ private struct ActivityLine: View {
 struct StatusPill: View {
     let text: String
     let running: Bool
+    var tint: Color? = nil
+    var disclosure = false
 
     var body: some View {
-        Text(text.uppercased())
-            .font(.mono(9.5, .semibold))
-            .kerning(0.5)
-            .foregroundStyle(running ? AnyShapeStyle(Theme.addition) : AnyShapeStyle(.secondary))
-            .padding(.horizontal, 6)
-            .padding(.vertical, 3)
-            .background(RoundedRectangle(cornerRadius: 5)
-                .fill(running ? Theme.dotOn.opacity(0.18) : Color.black.opacity(0.05)))
+        HStack(spacing: 4) {
+            Text(text.uppercased())
+                .font(.mono(9.5, .semibold))
+                .kerning(0.5)
+            if disclosure {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 7, weight: .bold))
+            }
+        }
+        .foregroundStyle(colour)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 3)
+        .background(RoundedRectangle(cornerRadius: 5)
+            .fill(fill))
+    }
+
+    private var colour: Color { tint ?? (running ? Theme.addition : Color.secondary) }
+
+    private var fill: Color {
+        tint?.opacity(0.14) ?? (running ? Theme.dotOn.opacity(0.18) : Color.black.opacity(0.05))
+    }
+}
+
+private extension SessionNotice {
+    var badge: String {
+        switch self {
+        case .needsInput: "INPUT"
+        case .running: "RUNNING"
+        case .finished: "FINISHED"
+        }
+    }
+
+    var tint: Color {
+        switch self {
+        case .running: Theme.addition
+        case .needsInput, .finished: Theme.attention
+        }
     }
 }
 

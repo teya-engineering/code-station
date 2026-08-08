@@ -339,6 +339,26 @@ enum SessionState: Equatable {
     var isBusy: Bool { self == .starting || self == .streaming || self == .waiting }
 }
 
+// Why a session belongs in the activity menu. A question outranks a run because it tells
+// the user there is something to do, and a live run outranks an older unseen completion.
+enum SessionNotice: Int, Equatable {
+    case needsInput
+    case running
+    case finished
+
+    init?(isBusy: Bool, needsInput: Bool, finishedUnseen: Bool) {
+        if needsInput {
+            self = .needsInput
+        } else if isBusy {
+            self = .running
+        } else if finishedUnseen {
+            self = .finished
+        } else {
+            return nil
+        }
+    }
+}
+
 // What the left sidebar can have selected.
 enum SidebarSelection: Hashable {
     case session(UUID)

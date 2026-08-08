@@ -22,6 +22,7 @@ struct SessionView: View {
     @State private var statsTask: Task<Void, Never>?
 
     private let bottomAnchor = "transcript-bottom"
+    private var terminalScope: TerminalScope { .session(sessionID) }
 
     var body: some View {
         // The sidebar can delete a session or its project while it is on screen.
@@ -44,8 +45,8 @@ struct SessionView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
 
-                if terminals.isOpen(sessionID) {
-                    TerminalDrawer(sessionID: sessionID,
+                if terminals.isOpen(terminalScope) {
+                    TerminalDrawer(scope: terminalScope,
                                    directory: workingDirectory,
                                    focusTerminal: $terminalFocused)
                 }
@@ -107,8 +108,11 @@ struct SessionView: View {
             // words wrap. Holding them at their natural width makes the title give way first.
             HStack(spacing: 16) {
                 diffStats
-                TabToggle(tab: $tab)
-                TerminalToggle(isOpen: terminals.isOpen(sessionID)) {
+                HeaderTabToggle(selection: $tab,
+                                options: [("Chat", .chat),
+                                          ("Changes", .changes),
+                                          ("Explorer", .explorer)])
+                TerminalToggle(isOpen: terminals.isOpen(terminalScope)) {
                     toggleTerminal(directory: session.worktreePath ?? project.path)
                 }
             }
@@ -159,8 +163,8 @@ struct SessionView: View {
     // hidden button is how a shortcut gets a home when there is no menu item for it.
     private func terminalShortcut(directory: String) -> some View {
         Button("") {
-            if !terminals.isOpen(sessionID) {
-                terminals.setOpen(true, for: sessionID, directory: directory)
+            if !terminals.isOpen(terminalScope) {
+                terminals.setOpen(true, for: terminalScope, directory: directory)
                 terminalFocused = true
             } else {
                 terminalFocused.toggle()
@@ -174,41 +178,10 @@ struct SessionView: View {
     // The button both opens and shuts it; opening puts the cursor straight in the shell
     // so it can be used without reaching for the mouse again.
     private func toggleTerminal(directory: String) {
-        let opening = !terminals.isOpen(sessionID)
-        terminals.setOpen(opening, for: sessionID, directory: directory)
+        let opening = !terminals.isOpen(terminalScope)
+        terminals.setOpen(opening, for: terminalScope, directory: directory)
         terminalFocused = opening
         if !opening { composerFocused = true }
-    }
-
-    private struct TabToggle: View {
-        @Binding var tab: Tab
-
-        var body: some View {
-            HStack(spacing: 2) {
-                segment("Chat", .chat)
-                segment("Changes", .changes)
-                segment("Explorer", .explorer)
-            }
-            .padding(3)
-            .background(RoundedRectangle(cornerRadius: 10).fill(Color.black.opacity(0.05)))
-        }
-
-        private func segment(_ label: String, _ value: Tab) -> some View {
-            let active = tab == value
-            return Button { tab = value } label: {
-                Text(label)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(active ? Color.primary : Color.secondary)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 5)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(active ? Color.white : .clear)
-                            .shadow(color: .black.opacity(active ? 0.08 : 0), radius: 1, y: 0.5))
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-        }
     }
 
     @ViewBuilder private func warningStrip(session: ChatSession, project: Project) -> some View {

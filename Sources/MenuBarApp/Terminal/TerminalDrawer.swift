@@ -1,13 +1,12 @@
 import AppKit
 import SwiftUI
 
-// A real shell in the session's folder, opened from the header button. It shares the
-// screen with the conversation rather than replacing it, so watching a build and
-// reading what Claude Code did are the same glance. Dragging the tab strip resizes it.
+// A real shell in the folder behind the current project or session. It shares the screen
+// with the main content rather than replacing it. Dragging the tab strip resizes it.
 // Closing it leaves every shell running, so a build survives being put away.
 struct TerminalDrawer: View {
     @Environment(TerminalStore.self) private var terminals
-    let sessionID: UUID
+    let scope: TerminalScope
     let directory: String
     @Binding var focusTerminal: Bool
 
@@ -18,9 +17,9 @@ struct TerminalDrawer: View {
     // Height at the moment the drag began; the translation is measured from there.
     @State private var dragStartHeight: CGFloat?
 
-    private var open: [TerminalSession] { terminals.sessions(for: sessionID) }
-    private var current: TerminalSession? { terminals.selection(for: sessionID) }
-    private var height: CGFloat { dragHeight ?? terminals.height(for: sessionID) }
+    private var open: [TerminalSession] { terminals.sessions(for: scope) }
+    private var current: TerminalSession? { terminals.selection(for: scope) }
+    private var height: CGFloat { dragHeight ?? terminals.height(for: scope) }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -44,7 +43,7 @@ struct TerminalDrawer: View {
             }
 
             Button {
-                terminals.add(to: sessionID, directory: directory)
+                terminals.add(to: scope, directory: directory)
                 focusTerminal = true
             } label: {
                 Image(systemName: "plus")
@@ -60,7 +59,7 @@ struct TerminalDrawer: View {
             Spacer(minLength: 12)
 
             Button("Close") {
-                terminals.setOpen(false, for: sessionID, directory: directory)
+                terminals.setOpen(false, for: scope, directory: directory)
                 focusTerminal = false
             }
             .buttonStyle(.plain)
@@ -81,7 +80,7 @@ struct TerminalDrawer: View {
                     dragHeight = max(TerminalStore.minimumHeight, start - value.translation.height)
                 }
                 .onEnded { _ in
-                    if let dragHeight { terminals.setHeight(dragHeight, for: sessionID) }
+                    if let dragHeight { terminals.setHeight(dragHeight, for: scope) }
                     dragHeight = nil
                     dragStartHeight = nil
                 })
@@ -93,7 +92,7 @@ struct TerminalDrawer: View {
     private func tab(_ terminal: TerminalSession) -> some View {
         let selected = terminal.id == current?.id
         return Button {
-            terminals.select(terminal, in: sessionID)
+            terminals.select(terminal, in: scope)
             focusTerminal = true
         } label: {
             HStack(spacing: 6) {
@@ -136,7 +135,7 @@ struct TerminalDrawer: View {
             if open.count > 1 {
                 entries.append(.separator)
                 entries.append(.item("Close", kind: .destructive) {
-                    terminals.close(terminal, in: sessionID)
+                    terminals.close(terminal, in: scope)
                 })
             }
             return entries
@@ -157,9 +156,8 @@ struct TerminalDrawer: View {
     }
 }
 
-// The header control that opens and shuts the terminal. It sits beside Chat/Changes
-// but is deliberately its own button: the terminal is not a third place to be, it is
-// something you pull up alongside wherever you already are.
+// The header control that opens and shuts the terminal. It is deliberately separate
+// from the tabs because it can stay open alongside any of them.
 struct TerminalToggle: View {
     let isOpen: Bool
     let action: () -> Void
