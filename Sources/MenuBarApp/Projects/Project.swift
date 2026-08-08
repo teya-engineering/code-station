@@ -288,6 +288,7 @@ struct ChatSession: Identifiable, Codable, Equatable {
     var id: UUID = UUID()
     var projectID: UUID
     var title: String = "New session"
+    var isTroubleshooting = false
     var claudeSessionID: String?
     // Codex numbers its conversations separately, so a session keeps one id per agent
     // and can carry on with either. What one agent said is invisible to the other.
@@ -338,7 +339,8 @@ struct ChatSession: Identifiable, Codable, Equatable {
     // encodes to. It is still decoded: a file written before the split holds every
     // conversation inline, and that is what the store moves out on the first launch.
     private enum CodingKeys: String, CodingKey {
-        case id, projectID, title, claudeSessionID, codexSessionID, createdAt, worktreePath, worktreeBranch
+        case id, projectID, title, isTroubleshooting, claudeSessionID, codexSessionID, createdAt
+        case worktreePath, worktreeBranch
         case workspaceID, sessionProjects, settings, usage, pullRequest, summary, messages
     }
 
@@ -352,6 +354,8 @@ struct ChatSession: Identifiable, Codable, Equatable {
         id = try container.decode(UUID.self, forKey: .id)
         projectID = try container.decode(UUID.self, forKey: .projectID)
         title = try container.decodeIfPresent(String.self, forKey: .title) ?? "New session"
+        isTroubleshooting = try container.decodeIfPresent(Bool.self, forKey: .isTroubleshooting)
+            ?? false
         claudeSessionID = try container.decodeIfPresent(String.self, forKey: .claudeSessionID)
         codexSessionID = try container.decodeIfPresent(String.self, forKey: .codexSessionID)
         createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
@@ -372,6 +376,7 @@ struct ChatSession: Identifiable, Codable, Equatable {
         try container.encode(id, forKey: .id)
         try container.encode(projectID, forKey: .projectID)
         try container.encode(title, forKey: .title)
+        try container.encode(isTroubleshooting, forKey: .isTroubleshooting)
         try container.encodeIfPresent(claudeSessionID, forKey: .claudeSessionID)
         try container.encodeIfPresent(codexSessionID, forKey: .codexSessionID)
         try container.encode(createdAt, forKey: .createdAt)
