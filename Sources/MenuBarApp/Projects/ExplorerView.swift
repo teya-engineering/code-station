@@ -30,6 +30,12 @@ struct ExplorerView: View {
     @State private var original = ""
     @State private var saving = false
 
+    @State private var findPresented = false
+    @State private var findQuery = ""
+    @State private var findResult = FileFindResult()
+    @State private var findSelection = 0
+    @FocusState private var findFocused: Bool
+
     private var rootURL: URL { URL(fileURLWithPath: root) }
 
     var body: some View {
@@ -42,6 +48,8 @@ struct ExplorerView: View {
             }
         }
         .background(Theme.background)
+        .background(findShortcut)
+        .onChange(of: findQuery) { refreshFind() }
         .task(id: root) { await openRoot() }
     }
 
@@ -233,6 +241,10 @@ struct ExplorerView: View {
                 .padding(.horizontal, 20)
                 .padding(.vertical, 10)
 
+                if findPresented {
+                    findBar
+                }
+
                 if editing {
                     editor
                 } else {
@@ -306,6 +318,129 @@ struct ExplorerView: View {
 
     private var dirty: Bool { draft != original }
 
+    // MARK: - Find
+
+    private var previewLines: [String]? {
+        guard case .text(let lines, _, _) = preview else { return nil }
+        return lines
+    }
+
+    private var currentFindMatch: FileFindMatch? {
+        guard findResult.matches.indices.contains(findSelection) else { return nil }
+        return findResult.matches[findSelection]
+    }
+
+    private var findShortcut: some View {
+        Button("") { showFind() }
+            .buttonStyle(.plain)
+            .keyboardShortcut("f", modifiers: .control)
+            .opacity(0)
+            .disabled(previewLines == nil || editing)
+            .accessibilityHidden(true)
+    }
+
+    private var findBar: some View {
+        HStack(spacing: 8) {
+            HStack(spacing: 7) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                TextField("Find in file", text: $findQuery)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12))
+                    .focused($findFocused)
+                    .onSubmit { moveFind(by: 1) }
+                    .onExitCommand(perform: closeFind)
+            }
+            .padding(.horizontal, 10)
+            .frame(minWidth: 90, idealWidth: 260, maxWidth: 260)
+            .frame(height: 28)
+            .background(RoundedRectangle(cornerRadius: 7).fill(Theme.field))
+            .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.border))
+
+            Text(findSummary)
+                .font(.mono(10))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .frame(minWidth: 55, idealWidth: 82, alignment: .trailing)
+
+            findButton("chevron.up", help: "Previous match", disabled: findResult.matches.isEmpty) {
+                moveFind(by: -1)
+            }
+            findButton("chevron.down", help: "Next match", disabled: findResult.matches.isEmpty) {
+                moveFind(by: 1)
+            }
+            findButton("xmark", help: "Close find") { closeFind() }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(Theme.card)
+        .overlay(alignment: .bottom) { Rectangle().fill(Theme.hairline).frame(height: 1) }
+        .onAppear { findFocused = true }
+    }
+
+    private var findSummary: String {
+        guard !findQuery.isEmpty else { return "" }
+        guard !findResult.matches.isEmpty else { return "No matches" }
+        let total = "\(findResult.matches.count)\(findResult.hasMore ? "+" : "")"
+        return "\(findSelection + 1) of \(total)"
+    }
+
+    private func findButton(_ systemName: String, help: String, disabled: Bool = false,
+                            action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 9, weight: .bold))
+                .foregroundStyle(Theme.accent.opacity(disabled ? 0.3 : 1))
+                .frame(width: 26, height: 26)
+                .background(RoundedRectangle(cornerRadius: 7).fill(Theme.field))
+                .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.border))
+                .contentShape(RoundedRectangle(cornerRadius: 7))
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled)
+        .help(help)
+        .accessibilityLabel(help)
+    }
+
+    private func showFind() {
+        findPresented = true
+        refreshFind()
+        findFocused = true
+    }
+
+    private func closeFind() {
+        findPresented = false
+        findFocused = false
+    }
+
+    private func refreshFind() {
+        guard let previewLines else {
+            findResult = FileFindResult()
+            findSelection = 0
+            return
+        }
+        findResult = FileFind.search(findQuery, in: previewLines)
+        findSelection = 0
+    }
+
+    private func moveFind(by offset: Int) {
+        let count = findResult.matches.count
+        guard count > 0 else { return }
+        findSelection = (findSelection + offset + count) % count
+    }
+
+    private func resetFind() {
+        findPresented = false
+        findFocused = false
+        findQuery = ""
+        findResult = FileFindResult()
+        findSelection = 0
+    }
+
     private func editButtons(_ node: FileNode) -> some View {
         HStack(spacing: 8) {
             Button { cancelEdit() } label: {
@@ -351,28 +486,39 @@ struct ExplorerView: View {
     // pinning it would cost a second scroll view kept in step with this one.
     private func fileText(_ lines: [String]) -> some View {
         let gutter = MonoMetrics.width(of: "\(lines.count)") + 8
+        let shownMatches = findPresented ? findResult.matches : []
+        let content = chunks(lines, matches: shownMatches)
         return GeometryReader { geometry in
-            ScrollView([.vertical, .horizontal]) {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(chunks(lines)) { chunk in
-                        HStack(alignment: .top, spacing: 12) {
-                            Text(chunk.numbers)
-                                .foregroundStyle(.tertiary)
-                                .multilineTextAlignment(.trailing)
-                                .frame(width: gutter, alignment: .trailing)
-                            Text(chunk.text)
-                                .textSelection(.enabled)
-                                .frame(width: max(textWidth, geometry.size.width - gutter - 36),
-                                       alignment: .leading)
+            ScrollViewReader { scroll in
+                ScrollView([.vertical, .horizontal]) {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(content) { chunk in
+                            HStack(alignment: .top, spacing: 12) {
+                                Text(chunk.numbers)
+                                    .foregroundStyle(.tertiary)
+                                    .multilineTextAlignment(.trailing)
+                                    .frame(width: gutter, alignment: .trailing)
+                                Text(highlightedText(chunk))
+                                    .textSelection(.enabled)
+                                    .frame(width: max(textWidth, geometry.size.width - gutter - 36),
+                                           alignment: .leading)
+                            }
+                            .font(.mono(11))
+                            .id(chunk.id)
                         }
-                        .font(.mono(11))
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    // A scroll view centres content that does not fill it, so a short file would
+                    // float in the middle of the pane. Growing to the full height pins it to the top.
+                    .frame(minHeight: geometry.size.height, alignment: .topLeading)
+                }
+                .onChange(of: currentFindMatch) { _, match in
+                    guard findPresented, let match else { return }
+                    withAnimation(.easeOut(duration: 0.15)) {
+                        scroll.scrollTo(match.line, anchor: .center)
                     }
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                // A scroll view centres content that does not fill it, so a short file would
-                // float in the middle of the pane. Growing to the full height pins it to the top.
-                .frame(minHeight: geometry.size.height, alignment: .topLeading)
             }
         }
     }
@@ -384,16 +530,65 @@ struct ExplorerView: View {
         let id: Int
         let numbers: String
         let text: String
+        let matches: [ChunkMatch]
     }
 
-    private func chunks(_ lines: [String], size: Int = 100) -> [Chunk] {
-        stride(from: 0, to: lines.count, by: size).map { start in
-            let end = min(start + size, lines.count)
-            return Chunk(
+    private struct ChunkMatch {
+        let resultIndex: Int
+        let range: NSRange
+    }
+
+    // Matching lines stand alone so navigation can scroll to the exact line. Everything
+    // else stays in larger chunks, preserving the preview's low view count.
+    private func chunks(_ lines: [String], matches: [FileFindMatch], size: Int = 100) -> [Chunk] {
+        let matchesByLine = Dictionary(grouping: matches.indices) { matches[$0].line }
+        let matchingLines = matchesByLine.keys.sorted()
+        var matchingLineIndex = 0
+        var start = 0
+        var result: [Chunk] = []
+
+        while start < lines.count {
+            let isMatchingLine = matchingLineIndex < matchingLines.count
+                && matchingLines[matchingLineIndex] == start
+            let end: Int
+            let chunkMatches: [ChunkMatch]
+            if isMatchingLine {
+                end = start + 1
+                chunkMatches = (matchesByLine[start] ?? []).map { index in
+                    let match = matches[index]
+                    return ChunkMatch(resultIndex: index,
+                                      range: NSRange(location: match.location, length: match.length))
+                }
+                matchingLineIndex += 1
+            } else {
+                let nextMatch = matchingLineIndex < matchingLines.count
+                    ? matchingLines[matchingLineIndex]
+                    : lines.count
+                end = min(start + size, nextMatch)
+                chunkMatches = []
+            }
+
+            result.append(Chunk(
                 id: start,
                 numbers: (start..<end).map { "\($0 + 1)" }.joined(separator: "\n"),
-                text: lines[start..<end].joined(separator: "\n"))
+                text: lines[start..<end].joined(separator: "\n"),
+                matches: chunkMatches))
+            start = end
         }
+        return result
+    }
+
+    private func highlightedText(_ chunk: Chunk) -> AttributedString {
+        guard !chunk.matches.isEmpty else { return AttributedString(chunk.text) }
+        let text = NSMutableAttributedString(string: chunk.text)
+        let ordinary = NSColor(Theme.secret).withAlphaComponent(0.24)
+        let selected = NSColor(Theme.secret).withAlphaComponent(0.52)
+        for match in chunk.matches {
+            text.addAttribute(.backgroundColor,
+                              value: match.resultIndex == findSelection ? selected : ordinary,
+                              range: match.range)
+        }
+        return AttributedString(text)
     }
 
     private func relativePath(_ node: FileNode) -> String {
@@ -413,6 +608,7 @@ struct ExplorerView: View {
         editing = false
         draft = ""
         original = ""
+        resetFind()
         await load(root)
     }
 
@@ -464,6 +660,7 @@ struct ExplorerView: View {
     }
 
     private func beginEdit(_ node: FileNode) {
+        resetFind()
         Task {
             loadingPreview = true
             let text = await FileTree.fullText(of: node.url)
@@ -512,6 +709,7 @@ struct ExplorerView: View {
     }
 
     private func select(_ node: FileNode) {
+        resetFind()
         selected = node
         preview = nil
         textWidth = 0
