@@ -86,6 +86,22 @@ final class ProjectStore {
         return project(session.projectID)
     }
 
+    // Choosing a project is different from opening a conversation. Keeping the two
+    // actions separate leaves the project screen available until a session is chosen.
+    func selectProject(_ id: UUID) {
+        guard project(id) != nil else { return }
+        selectedProjectID = id
+        selection = nil
+        saveIndex()
+    }
+
+    func selectSession(_ id: UUID) {
+        guard let session = session(id) else { return }
+        selectedProjectID = session.projectID
+        selection = .session(id)
+        saveIndex()
+    }
+
     // MARK: - Turns worth knowing about
 
     // A turn that ended. The session on screen needs no marker, since its result is
