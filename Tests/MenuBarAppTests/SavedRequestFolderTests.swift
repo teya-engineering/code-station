@@ -17,6 +17,7 @@ struct SavedRequestFolderTests {
         #expect(store.folders == [.default])
         #expect(store.requests[0].id == oldRequest.id)
         #expect(store.requests[0].folderID == RequestFolder.defaultID)
+        #expect(store.selected == nil)
     }
 
     @Test @MainActor func persistsFoldersAndKeepsRequestsWhenAFolderIsRemoved() throws {
@@ -58,6 +59,7 @@ struct SavedRequestFolderTests {
         #expect(store.folders == [.default])
         #expect(store.requests.allSatisfy { $0.folderID == RequestFolder.defaultID })
         #expect(newRequest.folderID == RequestFolder.defaultID)
+        #expect(store.selected?.id == newRequest.id)
     }
 
     @Test @MainActor func defaultFolderCannotBeRenamedOrRemoved() throws {
@@ -75,5 +77,22 @@ struct SavedRequestFolderTests {
         #expect(store.folders == [.default])
         #expect(store.requests[0].id == request.id)
         #expect(store.requests[0].folderID == RequestFolder.defaultID)
+    }
+
+    @Test @MainActor func deletingTheSelectedRequestLeavesTheDetailEmpty() throws {
+        let file = FileManager.default.temporaryDirectory
+            .appendingPathComponent("postman-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: file) }
+        try JSONEncoder().encode(SavedRequestCollection()).write(to: file)
+
+        let store = PostmanStore(storeURL: file)
+        let first = store.add(SavedRequest(name: "First"))
+        store.add(SavedRequest(name: "Second"))
+        store.selectedID = first.id
+
+        store.remove(first.id)
+
+        #expect(store.requests.map(\.name) == ["Second"])
+        #expect(store.selected == nil)
     }
 }

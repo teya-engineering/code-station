@@ -39,6 +39,7 @@ struct PostmanView: View {
         .frame(width: 940, height: 660)
         .background(Theme.background)
         .sheet(isPresented: $showingEnvironments) { EnvironmentsView() }
+        .onAppear { store.selectedID = nil }
     }
 
     private var header: some View {
@@ -298,7 +299,7 @@ struct PostmanView: View {
                 Image(systemName: "arrow.up.arrow.down.circle")
                     .font(.system(size: 34))
                     .foregroundStyle(.tertiary)
-                Text("Pick a request, or make a new one")
+                Text("Select a request or create a new one")
                     .font(.serif(18))
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)

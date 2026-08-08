@@ -52,7 +52,7 @@ final class PostmanStore {
 
     func remove(_ id: UUID) {
         requests.removeAll { $0.id == id }
-        if selectedID == id { selectedID = requests.first?.id }
+        if selectedID == id { selectedID = nil }
         save()
     }
 
@@ -173,7 +173,6 @@ final class PostmanStore {
                 return request
             }
             expandedFolderIDs = [RequestFolder.defaultID]
-            selectedID = requests.first?.id
             return
         }
 
@@ -186,7 +185,6 @@ final class PostmanStore {
             requests = saved
         } else {
             requests = Self.examples
-            selectedID = requests.first?.id
             return
         }
 
@@ -203,7 +201,6 @@ final class PostmanStore {
             return request
         }
         expandedFolderIDs = folderIDs
-        selectedID = requests.first?.id
     }
 
     private func validFolderID(_ folderID: UUID?) -> UUID {
