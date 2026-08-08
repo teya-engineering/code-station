@@ -115,15 +115,37 @@ final class SessionRunner {
         let id = UUID()
         let text: String
         let attachments: [Attachment]
+        let customInstructions: String?
+
+        var prompt: String {
+            guard let customInstructions else { return text }
+            guard !text.isEmpty else { return customInstructions }
+            return "\(text)\n\n\(customInstructions)"
+        }
+
+        var transcriptMessages: [ChatMessage] {
+            var userMessage = ChatMessage(role: .user, text: text)
+            if !attachments.isEmpty {
+                userMessage.attachments = attachments.map(\.url.path)
+            }
+            guard let customInstructions else { return [userMessage] }
+            return [
+                userMessage,
+                ChatMessage(role: .instructions, text: customInstructions),
+            ]
+        }
     }
 
     // An unsent composer: what has been typed, and what has been dropped or pasted onto it.
     struct Draft: Equatable {
         var text: String = ""
         var attachments: [Attachment] = []
+        var customInstructions: String?
 
         var isEmpty: Bool {
             text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attachments.isEmpty
+                && customInstructions?
+                    .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
         }
     }
 
@@ -151,18 +173,28 @@ final class SessionRunner {
         let current = draft(sessionID)
         if !current.isEmpty {
             queues[sessionID]?.insert(QueuedPrompt(text: current.text.trimmingCharacters(in: .whitespacesAndNewlines),
-                                                   attachments: current.attachments), at: index)
+                                                   attachments: current.attachments,
+                                                   customInstructions: current.customInstructions),
+                                      at: index)
         }
-        drafts[sessionID] = Draft(text: item.text, attachments: item.attachments)
+        drafts[sessionID] = Draft(text: item.text,
+                                  attachments: item.attachments,
+                                  customInstructions: item.customInstructions)
     }
 
     // Nothing is ever sent straight to the CLI: a prompt joins the queue and the queue is
     // what runs. Typing during a turn therefore costs nothing, and the ones already waiting
     // keep their order.
-    func send(_ prompt: String, attachments: [Attachment] = [], sessionID: UUID, store: ProjectStore) {
+    func send(_ prompt: String, attachments: [Attachment] = [],
+              customInstructions: String? = nil, sessionID: UUID, store: ProjectStore) {
         let text = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty || !attachments.isEmpty else { return }
-        queues[sessionID, default: []].append(QueuedPrompt(text: text, attachments: attachments))
+        let instructions = customInstructions?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty || !attachments.isEmpty || instructions?.isEmpty == false else { return }
+        queues[sessionID, default: []].append(QueuedPrompt(
+            text: text,
+            attachments: attachments,
+            customInstructions: instructions?.isEmpty == false ? instructions : nil))
         runQueue(sessionID, store: store)
     }
 
@@ -189,10 +221,10 @@ final class SessionRunner {
         }
 
         queues[sessionID]?.removeFirst()
-        var message = ChatMessage(role: .user, text: next.text)
-        if !next.attachments.isEmpty { message.attachments = next.attachments.map(\.url.path) }
-        store.append(message, to: sessionID)
-        launch(Self.prompt(next.text, with: next.attachments), attachments: next.attachments,
+        for message in next.transcriptMessages {
+            store.append(message, to: sessionID)
+        }
+        launch(Self.prompt(next.prompt, with: next.attachments), attachments: next.attachments,
                sessionID: sessionID, store: store, canRetryWithoutResume: true)
     }
 
@@ -790,16 +822,16 @@ final class SessionRunner {
     private func injectQueued(_ sessionID: UUID, store: ProjectStore) {
         guard let turn = turns[sessionID], turn.waitingOnTasks,
               let next = queues[sessionID]?.first else { return }
-        let prompt = Self.prompt(next.text, with: next.attachments)
+        let prompt = Self.prompt(next.prompt, with: next.attachments)
         // A failed write means the pipe is gone; the prompt stays queued and starts a
         // fresh process once this turn winds down.
         guard let line = Self.userMessageLine(prompt), turn.write(line) else { return }
         queues[sessionID]?.removeFirst()
         SessionLog.note("prompt sent into waiting turn", session: sessionID)
 
-        var message = ChatMessage(role: .user, text: next.text)
-        if !next.attachments.isEmpty { message.attachments = next.attachments.map(\.url.path) }
-        store.append(message, to: sessionID)
+        for message in next.transcriptMessages {
+            store.append(message, to: sessionID)
+        }
         let reply = ChatMessage(role: .assistant)
         store.append(reply, to: sessionID)
         turn.messageID = reply.id
