@@ -2,9 +2,10 @@ import AppKit
 import SwiftUI
 
 // The left navigation for the whole window: every project with its sessions, plus a
-// pinned button that opens the MCP config manager.
+// pinned button that opens the app's tools and settings.
 struct AppSidebar: View {
     let onConfigureServers: () -> Void
+    let onOpenSkills: () -> Void
     let onOpenDocker: () -> Void
     let onOpenSettings: () -> Void
     let onOpenPostman: () -> Void
@@ -879,7 +880,7 @@ struct AppSidebar: View {
         .padding(.top, 12)
     }
 
-    // The five places you go to set something up, folded behind one button so the rail
+    // The places you go to set something up, folded behind one button so the rail
     // belongs to the projects. Each row carries its state as trailing text - the count,
     // the environment, whether the model server is up - so folding them away costs a
     // click but not the glance.
@@ -889,6 +890,7 @@ struct AppSidebar: View {
         Task { await docker.refresh() }
         return [
             .item("MCP servers", detail: "\(configs.servers.count)", action: onConfigureServers),
+            .item("Skills", detail: "Claude + Codex", action: onOpenSkills),
             .item("Docker", detail: dockerDetail?.text,
                   detailColour: dockerDetail?.colour, action: onOpenDocker),
             .item("Postman", detail: postmanAuth.active.envValue,
