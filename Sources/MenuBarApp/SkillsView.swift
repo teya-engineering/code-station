@@ -2,7 +2,11 @@ import SwiftUI
 
 struct SkillsView: View {
     @Environment(\.dismiss) private var dismiss
-    @State private var manager = SkillsManager()
+    @State private var manager: SkillsManager
+
+    init(manager: SkillsManager) {
+        _manager = State(initialValue: manager)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -12,10 +16,7 @@ struct SkillsView: View {
         }
         .frame(width: 900, height: 660)
         .background(Theme.background)
-        .task {
-            guard !manager.hasLoaded else { return }
-            await manager.refresh()
-        }
+        .task { await manager.refresh() }
     }
 
     private var header: some View {

@@ -57,12 +57,16 @@ struct TroubleshootRequest {
 // A focused front door for incident investigation. Submitting creates a regular session,
 // so the evidence, answer, and any follow-up questions stay with the selected projects.
 struct TroubleshootView: View {
+    private static let requiredSkillName = "grafana-specialist"
+
     @Environment(\.dismiss) private var dismiss
     @Environment(ProjectStore.self) private var store
     @Environment(SessionRunner.self) private var runner
     @Environment(CodexCodeManager.self) private var codex
     @Environment(ConfigStore.self) private var configs
     @Environment(DialogPresenter.self) private var dialogs
+
+    let skills: SkillsManager
 
     @State private var problem = ""
     @State private var attachments: [Attachment] = []
@@ -72,6 +76,7 @@ struct TroubleshootView: View {
     @State private var agent: AgentKind?
     @State private var dropTargeted = false
     @State private var isStarting = false
+    @State private var showingSkills = false
     @FocusState private var problemFocused: Bool
 
     private var selectedAgent: AgentKind { agent ?? runner.agent }
@@ -82,10 +87,18 @@ struct TroubleshootView: View {
             Divider().overlay(Theme.hairline)
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    if environment == .prod { productionNotice }
-                    problemSection
-                    optionsSection
-                    projectsSection
+                    if requiredSkillState != .available {
+                        requiredSkillNotice
+                    }
+                    Group {
+                        if environment == .prod { productionNotice }
+                        problemSection
+                        optionsSection
+                        projectsSection
+                    }
+                    .disabled(requiredSkillState != .available)
+                    .allowsHitTesting(requiredSkillState == .available)
+                    .opacity(requiredSkillState == .available ? 1 : 0.5)
                 }
                 .padding(20)
             }
@@ -101,7 +114,14 @@ struct TroubleshootView: View {
                     selectedProjects.insert(first.id)
                 }
             }
-            problemFocused = true
+            problemFocused = requiredSkillState == .available
+        }
+        .task { await skills.refresh() }
+        .onChange(of: requiredSkillState) { _, state in
+            if state == .available { problemFocused = true }
+        }
+        .sheet(isPresented: $showingSkills) {
+            SkillsView(manager: skills).appOverlays()
         }
     }
 
@@ -139,6 +159,77 @@ struct TroubleshootView: View {
         .padding(.vertical, 10)
         .background(RoundedRectangle(cornerRadius: 10).fill(Theme.deletion.opacity(0.09)))
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.deletion.opacity(0.18)))
+    }
+
+    private var requiredSkillNotice: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Group {
+                if requiredSkillState == .checking {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                }
+            }
+            .frame(width: 16, height: 16)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(requiredSkillTitle)
+                    .font(.system(size: 12.5, weight: .semibold))
+                Text(requiredSkillDetail)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 12)
+
+            if requiredSkillState != .checking {
+                Button {
+                    showingSkills = true
+                } label: {
+                    HStack(spacing: 5) {
+                        Text("Open Skills")
+                        Image(systemName: "arrow.up.right")
+                            .font(.system(size: 9, weight: .semibold))
+                    }
+                    .font(.system(size: 11.5, weight: .semibold))
+                    .foregroundStyle(Theme.accent)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("Opens the Skills menu to install grafana-specialist")
+            }
+        }
+        .foregroundStyle(Theme.secret)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 11)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.secret.opacity(0.10)))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.secret.opacity(0.25)))
+    }
+
+    private var requiredSkillTitle: String {
+        switch requiredSkillState {
+        case .checking: "Checking the Grafana specialist skill"
+        case .available: ""
+        case .missing: "Grafana specialist skill required"
+        case .disabled: "Grafana specialist skill is disabled"
+        case .unavailable: "Could not check the Grafana specialist skill"
+        }
+    }
+
+    private var requiredSkillDetail: String {
+        switch requiredSkillState {
+        case .checking:
+            "Troubleshoot will unlock when the required skill check is complete."
+        case .available:
+            ""
+        case .missing:
+            "Install grafana-specialist for \(selectedAgent.title) in Skills before using Troubleshoot."
+        case .disabled:
+            "Enable grafana-specialist for \(selectedAgent.title) in Skills before using Troubleshoot."
+        case .unavailable:
+            "Troubleshoot is locked because the \(selectedAgent.title) plugin status could not be read. Open Skills to retry."
+        }
     }
 
     private var problemSection: some View {
@@ -305,16 +396,19 @@ struct TroubleshootView: View {
     private var footer: some View {
         VStack(spacing: 0) {
             Divider().overlay(Theme.hairline)
-            HStack(alignment: .center, spacing: 10) {
-                if !runner.isAvailable(selectedAgent) {
-                    Text("\(selectedAgent.title) CLI was not found on PATH.")
-                        .font(.system(size: 11.5))
-                        .foregroundStyle(Theme.deletion)
-                } else {
-                    Text("The diagnosis opens as a session for follow-up questions.")
-                        .font(.system(size: 11.5))
-                        .foregroundStyle(.secondary)
+            HStack(alignment: .top, spacing: 10) {
+                Group {
+                    if !runner.isAvailable(selectedAgent) {
+                        Text("\(selectedAgent.title) CLI was not found on PATH.")
+                            .font(.system(size: 11.5))
+                            .foregroundStyle(Theme.deletion)
+                    } else {
+                        Text("The diagnosis opens as a session for follow-up questions.")
+                            .font(.system(size: 11.5))
+                            .foregroundStyle(.secondary)
+                    }
                 }
+                .padding(.top, 9)
                 Spacer(minLength: 12)
                 Button { dismiss() } label: {
                     Text("Cancel")
@@ -376,10 +470,23 @@ struct TroubleshootView: View {
 
     private var canDiagnose: Bool {
         !isStarting
+            && requiredSkillState == .available
             && !selectedProjects.isEmpty
             && (!problem.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 || !attachments.isEmpty)
             && runner.isAvailable(selectedAgent)
+    }
+
+    private var requiredSkillState: RequiredSkillState {
+        guard skills.hasLoaded, !skills.isRefreshing else { return .checking }
+        let host: SkillHost = switch selectedAgent {
+        case .claudeCode: .claude
+        case .codex: .codex
+        }
+        guard skills.hostFailure(host) == nil else { return .unavailable }
+        guard let installation = skills.installation(named: Self.requiredSkillName, on: host)
+        else { return .missing }
+        return installation.enabled ? .available : .disabled
     }
 
     private var agentMenu: [MenuEntry] {
@@ -479,5 +586,13 @@ struct TroubleshootView: View {
         guard let current = store.selectedProjectID,
               let lead = selected.first(where: { $0.id == current }) else { return selected }
         return [lead] + selected.filter { $0.id != current }
+    }
+
+    private enum RequiredSkillState: Equatable {
+        case checking
+        case available
+        case missing
+        case disabled
+        case unavailable
     }
 }
