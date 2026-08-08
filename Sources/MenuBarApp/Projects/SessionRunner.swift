@@ -29,10 +29,11 @@ final class SessionRunner {
         }
     }
 
-    // The account's usage windows, keyed by kind, as of the last turn that ran. They
-    // belong to the account rather than to a session, so every session reads the same
-    // ones and whichever ran last is what they say.
-    private(set) var rateLimits: [String: RateLimit] = [:]
+    // The account's usage windows belong to an agent account rather than a session.
+    // Claude Code sends them while a turn runs, so they are kept apart from Codex's
+    // account usage instead of allowing the last reporting CLI to replace the other.
+    private(set) var rateLimits: [AgentKind: [String: RateLimit]] = [:]
+    private(set) var rateLimitsUpdatedAt: [AgentKind: Date] = [:]
 
     private var states: [UUID: SessionState] = [:]
     private var turns: [UUID: Turn] = [:]
@@ -615,7 +616,8 @@ final class SessionRunner {
                 }
 
             case .rateLimit(let limit):
-                rateLimits[limit.kind] = limit
+                rateLimits[turn.agent, default: [:]][limit.kind] = limit
+                rateLimitsUpdatedAt[turn.agent] = Date()
 
             case .usage(let totals):
                 // A process reports running totals for its whole run, and a turn held

@@ -280,6 +280,36 @@ struct CodexTests {
         }
     }
 
+    @Test func codexReadsCurrentAccountUsage() {
+        let checkedAt = Date(timeIntervalSince1970: 1_786_202_880)
+        let usage = CodexUsage(response: [
+            "rateLimitsByLimitId": [
+                "codex": [
+                    "limitName": NSNull(),
+                    "primary": [
+                        "usedPercent": 6,
+                        "resetsAt": 1_786_736_546,
+                    ],
+                    "secondary": [
+                        "usedPercent": 40,
+                        "resetsAt": 1_786_800_000,
+                    ],
+                ],
+                "codex_spark": [
+                    "limitName": "GPT-5.3-Codex-Spark",
+                    "primary": ["usedPercent": 0],
+                ],
+            ],
+        ], checkedAt: checkedAt)
+
+        #expect(usage?.windows.map(\.title) == [
+            "Current limit", "Current limit - secondary", "GPT-5.3-Codex-Spark",
+        ])
+        #expect(usage?.windows.map(\.usedPercent) == [6, 40, 0])
+        #expect(usage?.windows.first?.resetsAt == Date(timeIntervalSince1970: 1_786_736_546))
+        #expect(usage?.checkedAt == checkedAt)
+    }
+
     @Test func aFailedTurnCarriesItsMessage() {
         let events = StreamEvent.parseCodex("""
         {"type":"turn.failed","error":{"message":"stream disconnected"}}

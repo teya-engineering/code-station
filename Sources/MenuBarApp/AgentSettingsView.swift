@@ -3,8 +3,8 @@ import SwiftUI
 // The pane is about the agents the app can run: which one sessions use, whether its CLI
 // is there, who it is signed in as, and where its own files live. The account details
 // come straight from each CLI's own files rather than from asking the CLI, which keeps
-// opening the pane instant; only the versions need a process, and they arrive when they
-// arrive.
+// opening the pane instant. Versions and Codex account usage need a process, so they
+// arrive when they arrive.
 @MainActor
 @Observable
 final class ClaudeAgentInfo {
@@ -76,6 +76,9 @@ final class CodexAgentInfo {
     private(set) var path: String?
     private(set) var version: String?
     private(set) var account: Account?
+    private(set) var usage: CodexUsage?
+    private(set) var isRefreshingUsage = false
+    private var refreshID = UUID()
 
     init() { refresh() }
 
@@ -83,14 +86,31 @@ final class CodexAgentInfo {
         path = ProcessManager.resolve("codex")
         account = Self.readAccount()
         version = nil
+        usage = nil
+        isRefreshingUsage = false
+        refreshID = UUID()
         guard let path else { return }
         let info = self
         let searchPath = ProcessManager.searchPath
+        let id = refreshID
         Task.detached {
             // The CLI prints "codex-cli 0.52.0"; the number is the part worth keeping.
             let version = cliVersion(at: path, searchPath: searchPath)?
                 .split(separator: " ").last.map(String.init)
-            await MainActor.run { info.version = version }
+            await MainActor.run {
+                guard info.refreshID == id else { return }
+                info.version = version
+            }
+        }
+        guard account != nil else { return }
+        isRefreshingUsage = true
+        Task.detached {
+            let usage = CodexUsageReader.read(at: path, searchPath: searchPath)
+            await MainActor.run {
+                guard info.refreshID == id else { return }
+                info.usage = usage
+                info.isRefreshingUsage = false
+            }
         }
     }
 
@@ -161,8 +181,8 @@ private nonisolated func cliVersion(at path: String, searchPath: String) -> Stri
     return trimmed.isEmpty ? nil : trimmed
 }
 
-// The Agents tab chooses which CLI runs sessions, then shows only that CLI's defaults
-// and connection details.
+// The Agents tab keeps both CLIs one click apart while their defaults and account
+// details stay with the agent they belong to.
 struct AgentSettingsView: View {
     @Environment(SessionRunner.self) private var runner
     @State private var claude = ClaudeAgentInfo()
@@ -173,7 +193,7 @@ struct AgentSettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
-            picker
+            agentTabs
             Divider().overlay(Theme.hairline)
             switch runner.agent {
             case .claudeCode: claudeSection
@@ -190,38 +210,18 @@ struct AgentSettingsView: View {
         codex.refresh()
     }
 
-    // MARK: - Picking the agent
+    // MARK: - Agent tabs
 
-    private var picker: some View {
+    private var agentTabs: some View {
         ChoiceBlock("AGENT", note: "Every session runs on this agent from its next turn. Each agent keeps a conversation history of its own, so a session switched over starts the other agent without the context so far.") {
-            HStack(spacing: 8) {
-                Text(runner.agent.title)
-                    .font(.system(size: 13, weight: .medium))
-                Spacer(minLength: 0)
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 12)
-            .frame(height: 34)
-            .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
-            .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
-            .contentShape(Rectangle())
-            .appMenu(matchWidth: true) {
-                AgentKind.allCases.map { kind in
-                    .item(kind.title, checked: runner.agent == kind,
-                          subtitle: subtitle(of: kind)) {
+            HStack(spacing: 4) {
+                ForEach(AgentKind.allCases) { kind in
+                    ChoicePill(title: kind.title, selected: runner.agent == kind) {
                         runner.agent = kind
                     }
                 }
+                Spacer(minLength: 0)
             }
-        }
-    }
-
-    private func subtitle(of kind: AgentKind) -> String {
-        switch kind {
-        case .claudeCode: "Anthropic's CLI, signed in through Claude."
-        case .codex: "OpenAI's CLI, signed in through ChatGPT or an API key."
         }
     }
 
@@ -301,6 +301,11 @@ struct AgentSettingsView: View {
                     }
                 }
             }
+            accountUsage(windows: claudeUsage,
+                         checkedAt: runner.rateLimitsUpdatedAt[.claudeCode],
+                         isLoading: false,
+                         emptyMessage: "Run a Claude Code turn to receive its account usage here.",
+                         note: "Claude Code sends account limits while a turn is running. This is the latest report from this app.")
             Divider().overlay(Theme.hairline)
             model(for: .claudeCode)
             effort(for: .claudeCode)
@@ -355,6 +360,13 @@ struct AgentSettingsView: View {
                     }
                 }
             }
+            accountUsage(windows: codex.usage?.windows ?? [],
+                         checkedAt: codex.usage?.checkedAt,
+                         isLoading: codex.isRefreshingUsage,
+                         emptyMessage: codex.account == nil
+                             ? "Sign in to Codex to view account usage."
+                             : "Codex did not return account usage details.",
+                         note: "Read directly from your Codex account when this page opens or refreshes.")
             Divider().overlay(Theme.hairline)
             model(for: .codex)
             effort(for: .codex)
@@ -393,6 +405,79 @@ struct AgentSettingsView: View {
     }
 
     // MARK: - Shared pieces
+
+    private var claudeUsage: [AccountUsageWindow] {
+        (runner.rateLimits[.claudeCode] ?? [:]).values.compactMap { limit in
+            guard let utilization = limit.utilization else { return nil }
+            return AccountUsageWindow(id: limit.kind,
+                                      title: limit.title,
+                                      usedPercent: Int((utilization * 100).rounded()),
+                                      resetsAt: limit.resetsAt)
+        }
+        .sorted { $0.title < $1.title }
+    }
+
+    private func accountUsage(windows: [AccountUsageWindow], checkedAt: Date?, isLoading: Bool,
+                              emptyMessage: String, note: String) -> some View {
+        ChoiceBlock("CURRENT USAGE", note: note) {
+            if isLoading {
+                usageMessage("Checking current usage…")
+            } else if windows.isEmpty {
+                usageMessage(emptyMessage)
+            } else {
+                VStack(spacing: 8) {
+                    ForEach(windows) { window in
+                        usageRow(window)
+                    }
+                    if let checkedAt {
+                        Text("Updated \(checkedAt.formatted(date: .abbreviated, time: .shortened))")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .trailing)
+                    }
+                }
+            }
+        }
+    }
+
+    private func usageMessage(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 12))
+            .foregroundStyle(.secondary)
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 9).fill(Theme.card))
+            .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
+    }
+
+    private func usageRow(_ window: AccountUsageWindow) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Text(window.title)
+                    .font(.system(size: 13, weight: .semibold))
+                Spacer(minLength: 0)
+                Text("\(window.usedPercent)% used")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
+            Meter(fraction: window.usedFraction, colour: usageColor(for: window), height: 5)
+            if let resetsAt = window.resetsAt {
+                Text("Resets \(resetsAt.formatted(date: .abbreviated, time: .shortened))")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 9).fill(Theme.card))
+        .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
+    }
+
+    private func usageColor(for window: AccountUsageWindow) -> Color {
+        if window.usedPercent >= 90 { return Theme.deletion }
+        if window.usedPercent >= 75 { return Theme.attention }
+        return Theme.dotOn
+    }
 
     private func statusRow(installed: Bool, signedIn: Bool, refresh: @escaping () -> Void) -> some View {
         HStack(spacing: 10) {
