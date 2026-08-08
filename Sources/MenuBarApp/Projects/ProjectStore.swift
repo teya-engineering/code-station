@@ -12,6 +12,7 @@ import SwiftUI
 @Observable
 final class ProjectStore {
     private(set) var projects: [Project] = []
+    private(set) var workspaces: [ProjectWorkspace] = []
     // Session records without their transcripts. `messages` on one of these is only the
     // conversation while something holds it - see `hold(_:for:)`.
     private(set) var sessions: [ChatSession] = []
@@ -49,6 +50,8 @@ final class ProjectStore {
     private struct Persisted: Codable {
         var projects: [Project]
         var sessions: [ChatSession]
+        // Optional so an index written before workspaces existed still decodes.
+        var workspaces: [ProjectWorkspace]?
         // Written by an earlier version, which kept what was open in this file. It is a
         // preference now, so these are only read, to carry that choice over once.
         var selectedSessionID: UUID?
@@ -70,10 +73,16 @@ final class ProjectStore {
     // MARK: - Lookups
 
     func project(_ id: UUID) -> Project? { projects.first { $0.id == id } }
+    func workspace(_ id: UUID) -> ProjectWorkspace? { workspaces.first { $0.id == id } }
     func session(_ id: UUID) -> ChatSession? { sessions.first { $0.id == id } }
 
-    func sessions(for projectID: UUID) -> [ChatSession] {
-        sessions.filter { $0.projectID == projectID }.sorted { $0.createdAt > $1.createdAt }
+    func standaloneSessions(for projectID: UUID) -> [ChatSession] {
+        sessions.filter { $0.projectID == projectID && $0.workspaceID == nil }
+            .sorted { $0.createdAt > $1.createdAt }
+    }
+
+    func sessions(in workspaceID: UUID) -> [ChatSession] {
+        sessions.filter { $0.workspaceID == workspaceID }.sorted { $0.createdAt > $1.createdAt }
     }
 
     var selectedSession: ChatSession? {
@@ -117,7 +126,13 @@ final class ProjectStore {
     // A collapsed project hides its sessions, so the count is what says how much is
     // waiting behind it.
     func finishedCount(in projectID: UUID) -> Int {
-        sessions.filter { $0.projectID == projectID && finished.contains($0.id) }.count
+        sessions.filter {
+            $0.projectID == projectID && $0.workspaceID == nil && finished.contains($0.id)
+        }.count
+    }
+
+    func finishedCount(inWorkspace workspaceID: UUID) -> Int {
+        sessions.filter { $0.workspaceID == workspaceID && finished.contains($0.id) }.count
     }
 
     // MARK: - Projects
@@ -140,11 +155,24 @@ final class ProjectStore {
     }
 
     func removeProject(_ id: UUID) {
+        let affected = Set(sessions.filter { session in
+            session.projectID == id
+                || session.sessionProjects?.contains(where: { $0.projectID == id }) == true
+        }.map(\.id))
         projects.removeAll { $0.id == id }
-        for session in sessions where session.projectID == id { forget(session.id) }
-        sessions.removeAll { $0.projectID == id }
+        for sessionID in affected { forget(sessionID) }
+        sessions.removeAll { affected.contains($0.id) }
+        workspaces = workspaces.compactMap { workspace in
+            var updated = workspace
+            updated.projectIDs.removeAll { $0 == id }
+            guard updated.projectIDs.count >= 2 else { return nil }
+            if updated.leadProjectID == id, let first = updated.projectIDs.first {
+                updated.leadProjectID = first
+            }
+            return updated
+        }
         if selectedProjectID == id { selectedProjectID = projects.first?.id }
-        if let session = selectedSession, session.projectID == id { selection = nil }
+        if case .session(let sessionID) = selection, affected.contains(sessionID) { selection = nil }
         saveIndex()
     }
 
@@ -154,6 +182,24 @@ final class ProjectStore {
         guard !trimmed.isEmpty else { return }
         projects[i].name = trimmed
         saveIndex()
+    }
+
+    // MARK: - Workspaces
+
+    @discardableResult
+    func addWorkspace(name: String, projectIDs: [UUID], leadProjectID: UUID) -> ProjectWorkspace? {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        var seen: Set<UUID> = []
+        let members = projectIDs.filter { project($0) != nil && seen.insert($0).inserted }
+        guard !trimmed.isEmpty, members.count >= 2, members.contains(leadProjectID) else { return nil }
+
+        let ordered = [leadProjectID] + members.filter { $0 != leadProjectID }
+        let workspace = ProjectWorkspace(name: trimmed, projectIDs: ordered,
+                                         leadProjectID: leadProjectID)
+        workspaces.append(workspace)
+        workspaces.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        saveIndex()
+        return workspace
     }
 
     // MARK: - Sessions
@@ -173,10 +219,60 @@ final class ProjectStore {
         return session
     }
 
+    @discardableResult
+    func newSession(in workspaceID: UUID, id: UUID = UUID(),
+                    projects: [SessionProject]) -> ChatSession? {
+        guard let workspace = workspace(workspaceID),
+              projects.count >= 2,
+              Set(projects.map(\.projectID)).count == projects.count,
+              projects.first?.projectID == workspace.leadProjectID,
+              projects.allSatisfy({ project($0.projectID) != nil }) else { return nil }
+
+        var session = ChatSession(id: id, projectID: workspace.leadProjectID)
+        session.workspaceID = workspaceID
+        session.sessionProjects = projects
+        session.worktreePath = projects.first?.worktreePath
+        session.worktreeBranch = projects.first?.worktreeBranch
+        session.transcriptLoaded = true
+        sessions.append(session)
+        selectedProjectID = workspace.leadProjectID
+        selection = .session(session.id)
+        saveIndex()
+        return session
+    }
+
     // The folder a session's Claude Code runs in: its own worktree when it has one,
     // otherwise the project folder itself.
     func workingDirectory(for session: ChatSession) -> String? {
-        session.worktreePath ?? project(session.projectID)?.path
+        workingDirectories(for: session).first
+    }
+
+    // All roots visible to the agent, with the lead first. Old single-project sessions
+    // have no checkout snapshot and naturally resolve to their existing one-root form.
+    func workingDirectories(for session: ChatSession) -> [String] {
+        guard let checkouts = session.sessionProjects, !checkouts.isEmpty else {
+            return (session.worktreePath ?? project(session.projectID)?.path).map { [$0] } ?? []
+        }
+        return checkouts.compactMap { checkout in
+            checkout.worktreePath ?? project(checkout.projectID)?.path
+        }
+    }
+
+    func checkoutProjects(for session: ChatSession) -> [SessionProject] {
+        session.sessionProjects ?? [SessionProject(projectID: session.projectID,
+                                                  worktreePath: session.worktreePath,
+                                                  worktreeBranch: session.worktreeBranch)]
+    }
+
+    // A Git worktree keeps its writable metadata in the source repository. Codex needs
+    // each of these roots explicitly because they sit outside all checkout directories.
+    func gitMetadataDirectories(for session: ChatSession) -> [String] {
+        checkoutProjects(for: session).compactMap { checkout in
+            guard checkout.worktreePath != nil, let project = project(checkout.projectID) else {
+                return nil
+            }
+            return project.path + "/.git"
+        }
     }
 
     // What the next turn in this session runs with. A turn already in flight keeps the
@@ -451,7 +547,7 @@ final class ProjectStore {
             if case .session(let id) = selection { openSessionID = id }
             Preferences.selectedSessionID = openSessionID
             Preferences.selectedProjectID = selectedProjectID
-            persisted = Persisted(projects: projects, sessions: sessions)
+            persisted = Persisted(projects: projects, sessions: sessions, workspaces: workspaces)
         }
         guard !transcripts.isEmpty || persisted != nil else { return }
 
@@ -490,6 +586,7 @@ final class ProjectStore {
         decoder.dateDecodingStrategy = .iso8601
         guard let saved = try? decoder.decode(Persisted.self, from: data) else { return }
         projects = saved.projects
+        workspaces = saved.workspaces ?? []
         sessions = saved.sessions
         moveTranscriptsOutOfTheIndex()
         selectedProjectID = Preferences.selectedProjectID ?? saved.selectedProjectID ?? projects.first?.id

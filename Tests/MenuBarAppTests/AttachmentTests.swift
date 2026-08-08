@@ -141,4 +141,12 @@ struct AttachmentTests {
         #expect(SessionRunner.directoriesOutside("/Users/someone/project", for: attachments)
                 == [folder.resolvingSymlinksInPath().path])
     }
+
+    @Test func attachmentsInsideAnyWorkspaceRootNeedNoExtraAccess() {
+        let attachments = [Attachment(url: URL(fileURLWithPath: "/work/api/shot.png")),
+                           Attachment(url: URL(fileURLWithPath: "/work/web/design/shot.png"))]
+
+        #expect(SessionRunner.directoriesOutside(["/work/api", "/work/web"],
+                                                 for: attachments).isEmpty)
+    }
 }

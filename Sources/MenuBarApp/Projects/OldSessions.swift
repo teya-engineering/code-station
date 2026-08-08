@@ -54,13 +54,19 @@ enum SessionOutcome: Equatable {
 @MainActor
 enum SessionRemoval {
     static func remove(_ session: ChatSession, from store: ProjectStore) {
-        let project = store.project(session.projectID)
+        let worktrees = store.checkoutProjects(for: session).compactMap { checkout -> (String, String, String?)? in
+            guard let path = checkout.worktreePath,
+                  let project = store.project(checkout.projectID) else { return nil }
+            return (path, project.path, checkout.worktreeBranch)
+        }
         store.removeSession(session.id)
-        guard let worktree = session.worktreePath, let project else { return }
+        guard !worktrees.isEmpty else { return }
         Task {
-            await GitWorktree.remove(worktreePath: worktree,
-                                     projectPath: project.path,
-                                     branch: session.worktreeBranch)
+            for worktree in worktrees {
+                await GitWorktree.remove(worktreePath: worktree.0,
+                                         projectPath: worktree.1,
+                                         branch: worktree.2)
+            }
         }
     }
 }

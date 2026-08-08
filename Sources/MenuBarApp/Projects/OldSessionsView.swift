@@ -33,7 +33,7 @@ struct OldSessionsView: View {
                                          projectName: row.projectName,
                                          detail: detail(row),
                                          outcome: row.outcome,
-                                         hasWorktree: row.session.worktreePath != nil,
+                                         hasWorktree: !worktreePaths(row.session).isEmpty,
                                          ticked: ticked.contains(row.id),
                                          toggle: { toggle(row) })
                     }
@@ -133,8 +133,12 @@ struct OldSessionsView: View {
         if let turns = row.session.usage?.turns, turns > 0 {
             parts.append("\(turns) turn\(turns == 1 ? "" : "s")")
         }
-        if let path = row.session.worktreePath {
-            parts.append("⑂ " + (row.session.worktreeBranch ?? (path as NSString).lastPathComponent))
+        let worktrees = worktreePaths(row.session)
+        if let path = worktrees.first {
+            let label = worktrees.count == 1
+                ? (row.session.worktreeBranch ?? (path as NSString).lastPathComponent)
+                : "\(worktrees.count) worktrees"
+            parts.append("⑂ " + label)
             switch row.outcome {
             case .checking: parts.append("checking…")
             case .wouldLoseWork(let added, let removed):
@@ -156,30 +160,34 @@ struct OldSessionsView: View {
             .filter { !runner.state($0.id).isBusy }
             .map { session in
                 Row(session: session,
-                    projectName: store.project(session.projectID)?.name ?? "",
+                    projectName: session.workspaceID.flatMap(store.workspace)?.name
+                        ?? store.project(session.projectID)?.name ?? "",
                     outcome: startingOutcome(session))
             }
         ticked = Set(rows.filter { $0.outcome.isSafeToPreselect }.map(\.id))
 
         for row in rows where row.outcome == .checking {
-            guard let path = row.session.worktreePath else { continue }
-            let snapshot = await GitInspector.snapshot(at: path)
-            settle(row.id, on: outcome(from: snapshot))
+            var added = 0
+            var removed = 0
+            for path in worktreePaths(row.session) {
+                let snapshot = await GitInspector.snapshot(at: path)
+                guard snapshot.state == .ready else { continue }
+                added += snapshot.totalAdded
+                removed += snapshot.totalRemoved
+            }
+            settle(row.id, on: added == 0 && removed == 0
+                   ? .worktreeRemoved
+                   : .wouldLoseWork(added: added, removed: removed))
         }
     }
 
     private func startingOutcome(_ session: ChatSession) -> SessionOutcome {
-        guard let path = session.worktreePath,
-              FileManager.default.fileExists(atPath: path) else { return .historyOnly }
-        return .checking
+        worktreePaths(session).contains { FileManager.default.fileExists(atPath: $0) }
+            ? .checking : .historyOnly
     }
 
-    // git could not read the folder, so there is nothing there to lose: whatever the
-    // worktree was, only the conversation is left to remove.
-    private func outcome(from snapshot: GitSnapshot) -> SessionOutcome {
-        guard snapshot.state == .ready else { return .historyOnly }
-        guard !snapshot.files.isEmpty else { return .worktreeRemoved }
-        return .wouldLoseWork(added: snapshot.totalAdded, removed: snapshot.totalRemoved)
+    private func worktreePaths(_ session: ChatSession) -> [String] {
+        store.checkoutProjects(for: session).compactMap(\.worktreePath)
     }
 
     private func settle(_ id: UUID, on outcome: SessionOutcome) {

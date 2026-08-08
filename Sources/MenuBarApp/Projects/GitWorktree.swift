@@ -29,9 +29,23 @@ enum GitWorktree {
     // recognisable when browsing the worktrees directory by hand.
     static func plan(projectName: String, sessionID: UUID) -> Created {
         let suffix = String(sessionID.uuidString.prefix(8)).lowercased()
-        let name = String(projectName.map { $0.isLetter || $0.isNumber ? $0 : "-" })
+        let name = safeName(projectName)
         return Created(path: baseDirectory.appendingPathComponent("\(name)-\(suffix)").path,
                        branch: "conductor/\(suffix)")
+    }
+
+    // Workspace checkouts share a session folder. The project id suffix prevents two
+    // repositories with the same display name from choosing the same path.
+    static func plan(projectName: String, projectID: UUID, sessionID: UUID) -> Created {
+        let sessionSuffix = String(sessionID.uuidString.prefix(8)).lowercased()
+        let projectSuffix = String(projectID.uuidString.prefix(8)).lowercased()
+        let folder = baseDirectory.appendingPathComponent(sessionSuffix, isDirectory: true)
+        return Created(path: folder.appendingPathComponent("\(safeName(projectName))-\(projectSuffix)").path,
+                       branch: "conductor/\(sessionSuffix)")
+    }
+
+    private static func safeName(_ projectName: String) -> String {
+        String(projectName.map { $0.isLetter || $0.isNumber ? $0 : "-" })
     }
 
     // `base` is the ref the worktree's branch forks from; without one it forks from
@@ -39,15 +53,32 @@ enum GitWorktree {
     // start from the remote tip while the user's own checkout stays as it is.
     static func add(projectPath: String, projectName: String, sessionID: UUID,
                     from base: String? = nil) async -> Result<Created, Failure> {
+        await add(projectPath: projectPath,
+                  planned: plan(projectName: projectName, sessionID: sessionID),
+                  from: base)
+    }
+
+    static func add(projectPath: String, projectName: String, projectID: UUID,
+                    sessionID: UUID, from base: String? = nil) async -> Result<Created, Failure> {
+        await add(projectPath: projectPath,
+                  planned: plan(projectName: projectName, projectID: projectID,
+                                sessionID: sessionID),
+                  from: base)
+    }
+
+    private static func add(projectPath: String, planned: Created,
+                            from base: String?) async -> Result<Created, Failure> {
         guard let tool = await GitInspector.tool() else {
             return .failure(Failure(message: "Could not find git on PATH."))
         }
-        let planned = plan(projectName: projectName, sessionID: sessionID)
 
         return await GitInspector.offMain {
             // Kept out of backups: a worktree can be recreated from the repository it came
             // from, and copying every checkout into Time Machine is not worth the room.
             _ = AppPaths.directory(folder, backedUp: false)
+            try? FileManager.default.createDirectory(
+                at: URL(fileURLWithPath: planned.path).deletingLastPathComponent(),
+                withIntermediateDirectories: true)
             var arguments = ["-C", projectPath, "worktree", "add", planned.path, "-b", planned.branch]
             if let base { arguments.append(base) }
             let result = GitInspector.run(tool, arguments)
@@ -73,6 +104,11 @@ enum GitWorktree {
             }
             if FileManager.default.fileExists(atPath: worktreePath) {
                 try? FileManager.default.removeItem(atPath: worktreePath)
+            }
+            let parent = URL(fileURLWithPath: worktreePath).deletingLastPathComponent()
+            if parent.deletingLastPathComponent().standardizedFileURL == baseDirectory.standardizedFileURL,
+               (try? FileManager.default.contentsOfDirectory(atPath: parent.path).isEmpty) == true {
+                try? FileManager.default.removeItem(at: parent)
             }
             if let tool { _ = GitInspector.run(tool, ["-C", projectPath, "worktree", "prune"]) }
         }

@@ -20,6 +20,25 @@ files underneath each other; worktree sessions each have their own folder, so th
 in parallel freely. In a folder that is not a git repository the session just runs in
 place, since there is nothing to make a worktree from.
 
+A multi-project workspace is a named group of projects with one lead project. Each
+session starts in the lead checkout and gives the coding agent access to every attached
+checkout. Git projects can use independent worktrees, while plain folders and projects
+set to **Project folder** stay at their original paths. Workspace worktrees are grouped
+on disk by session:
+
+```text
+~/Library/Application Support/com.teya.conductor/worktrees/
+└── <session-id>/
+    ├── <project-name>-<project-id>/
+    └── <project-name>-<project-id>/
+```
+
+The folder above is not an umbrella repository. Each child keeps its own Git history
+and points back to the `.git` directory of its source project. Both Claude Code and
+Codex receive the attached checkout paths as extra working directories. Repository
+instructions in an attached project are named explicitly in the first agent prompt,
+because only the lead project participates in normal startup discovery.
+
 Either way, every session has a **Changes** tab showing the uncommitted diff of its
 folder, so you can see what the agent did before you keep it.
 
@@ -28,7 +47,12 @@ folder, so you can see what the agent did before you keep it.
 ### Projects and sessions
 
 - **+ Add project** picks a folder. A folder can only be added once.
+- **+ Workspace** creates a reusable multi-project workspace. A folder added while
+  creating one also becomes a normal project and can be reused elsewhere.
 - Each project holds a list of sessions. A session is one conversation with Claude Code.
+- A workspace session chooses **Worktree** or **Project folder** for each project. The
+  first project is the lead, and other projects can be attached or removed for that
+  session. If any worktree fails to be created, the whole creation is rolled back.
 - New sessions in a git repository choose between the project folder and a worktree.
   A worktree session shows its branch in the header, and its Changes tab diffs the
   worktree, not the project folder.

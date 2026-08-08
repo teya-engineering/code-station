@@ -26,6 +26,8 @@ struct AppSidebar: View {
     @State private var expansion: [UUID: Bool] = [:]
     @State private var renamingID: UUID?
     @State private var choosingSessionKind: Project?
+    @State private var choosingWorkspaceSession: ProjectWorkspace?
+    @State private var showingNewWorkspace = false
     // A session that has just been created and has not been brought into view yet. Only
     // sessions the app itself opens are worth scrolling to: one the user clicked was
     // already under the pointer.
@@ -51,6 +53,19 @@ struct AppSidebar: View {
         .sheet(item: $choosingSessionKind) { project in
             NewSessionView(project: project) { choice in
                 startSession(choice, in: project)
+            }
+            .appOverlays()
+        }
+        .sheet(item: $choosingWorkspaceSession) { workspace in
+            NewWorkspaceSessionView(workspace: workspace) { choice in
+                startWorkspaceSession(choice, in: workspace)
+            }
+            .appOverlays()
+        }
+        .sheet(isPresented: $showingNewWorkspace) {
+            NewWorkspaceView { workspace in
+                expansion[workspace.id] = true
+                choosingWorkspaceSession = workspace
             }
             .appOverlays()
         }
@@ -180,7 +195,8 @@ struct AppSidebar: View {
                 checked: isSelected(noticed.session),
                 badge: noticed.notice.badge,
                 badgeTint: noticed.notice.tint,
-                subtitle: noticed.project.name,
+                subtitle: noticed.session.workspaceID.flatMap(store.workspace)?.name
+                    ?? noticed.project.name,
                 detail: RelativeTime.short(noticed.session.lastActivity)) {
                     store.selectSession(noticed.session.id)
                 })
@@ -192,15 +208,15 @@ struct AppSidebar: View {
 
     private var projectList: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if store.projects.isEmpty {
+            if store.projects.isEmpty && store.workspaces.isEmpty {
                 Text("No projects yet. Add a folder and Claude Code will run right inside it.")
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 20)
                     .padding(.top, 16)
-            } else if orderedProjects.isEmpty {
-                Text("No project matches \"\(filterText.trimmingCharacters(in: .whitespaces))\".")
+            } else if orderedProjects.isEmpty && orderedWorkspaces.isEmpty {
+                Text("No project or workspace matches \"\(filterText.trimmingCharacters(in: .whitespaces))\".")
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -210,9 +226,15 @@ struct AppSidebar: View {
                 // Grouped once per redraw: every row below reads from this, and a
                 // streaming reply redraws the rail on every token.
                 let grouped = groupedSessions
+                let workspaceGroups = groupedWorkspaceSessions
                 ScrollViewReader { scroller in
                     ScrollView {
                         VStack(alignment: .leading, spacing: 6) {
+                            ForEach(orderedWorkspaces) { workspace in
+                                workspaceSection(workspace,
+                                                 sessions: workspaceGroups[workspace.id] ?? [])
+                                    .id(workspace.id)
+                            }
                             ForEach(orderedProjects) { project in
                                 projectSection(project, sessions: grouped[project.id] ?? [])
                                     .id(project.id)
@@ -226,7 +248,8 @@ struct AppSidebar: View {
                         // row, or the first session arriving under an already open one.
                         // Easing out rather than a spring: the block must not overshoot its
                         // own height, or it opens onto a gap under the last card.
-                        .animation(.easeOut(duration: 0.26), value: revealKey(grouped))
+                        .animation(.easeOut(duration: 0.26),
+                                   value: revealKey(grouped, workspaceGroups: workspaceGroups))
                         .animation(.easeOut(duration: 0.22), value: appSettings.projectSort)
                         .animation(.easeOut(duration: 0.22), value: filterText)
                     }
@@ -243,11 +266,118 @@ struct AppSidebar: View {
         return ordered.filter { $0.name.localizedCaseInsensitiveContains(query) }
     }
 
+    private var orderedWorkspaces: [ProjectWorkspace] {
+        let ordered = store.workspaces.sorted {
+            $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+        }
+        let query = filterText.trimmingCharacters(in: .whitespaces)
+        guard !query.isEmpty else { return ordered }
+        return ordered.filter { workspace in
+            workspace.name.localizedCaseInsensitiveContains(query)
+                || workspace.projectIDs.compactMap(store.project)
+                    .contains { $0.name.localizedCaseInsensitiveContains(query) }
+        }
+    }
+
     // Every session under its project, newest first - the order the cards are drawn in.
     private var groupedSessions: [UUID: [ChatSession]] {
-        var groups = Dictionary(grouping: store.sessions, by: \.projectID)
+        var groups = Dictionary(grouping: store.sessions.filter { $0.workspaceID == nil },
+                                by: \.projectID)
         for key in groups.keys { groups[key]?.sort { $0.createdAt > $1.createdAt } }
         return groups
+    }
+
+    private var groupedWorkspaceSessions: [UUID: [ChatSession]] {
+        let groups = Dictionary(grouping: store.sessions.compactMap { session in
+            session.workspaceID.map { ($0, session) }
+        }, by: \.0)
+        return groups.mapValues { rows in rows.map(\.1).sorted { $0.createdAt > $1.createdAt } }
+    }
+
+    private func workspaceSection(_ workspace: ProjectWorkspace,
+                                  sessions: [ChatSession]) -> some View {
+        let expanded = expansion[workspace.id] ?? true
+        let running = sessions.filter { runner.state($0.id).isBusy }.count
+        let projects = workspace.projectIDs.compactMap(store.project)
+
+        return VStack(alignment: .leading, spacing: 0) {
+            WorkspaceHeaderRow(
+                workspace: workspace,
+                projects: projects,
+                isExpanded: expanded,
+                sessionCount: sessions.count,
+                runningCount: running,
+                finishedCount: store.finishedCount(inWorkspace: workspace.id),
+                onNewSession: { choosingWorkspaceSession = workspace }
+            )
+            .contentShape(Rectangle())
+            .onTapGesture { expansion[workspace.id] = !expanded }
+            .appContextMenu {
+                [.item("New session") { choosingWorkspaceSession = workspace }]
+            }
+
+            if expanded, !sessions.isEmpty {
+                let visible = visibleWorkspaceSessions(workspace, sessions: sessions)
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(visible) { session in
+                        if let lead = store.project(session.projectID) {
+                            let busy = runner.state(session.id).isBusy
+                            let finished = store.hasFinished(session.id)
+                            let folders = store.workingDirectories(for: session)
+                            SessionCard(session: session,
+                                        selected: isSelected(session),
+                                        busy: busy,
+                                        finished: finished,
+                                        activity: activitySummary(session, project: lead,
+                                                                  busy: busy, finished: finished),
+                                        added: session.summary.added,
+                                        removed: session.summary.removed,
+                                        branch: workspaceBranch(session),
+                                        uncommitted: folders.contains(where: workingTrees.isDirty),
+                                        onDelete: { confirmRemoveSession(session) })
+                                .contentShape(Rectangle())
+                                .onTapGesture { store.selectSession(session.id) }
+                                .appContextMenu {
+                                    [.item("Delete session", kind: .destructive) {
+                                        confirmRemoveSession(session)
+                                    }]
+                                }
+                        }
+                    }
+                    if sessions.count > Self.sessionCap {
+                        let hidden = sessions.count - visible.count
+                        SeeMoreCard(title: hidden > 0 ? "See \(hidden) more…" : "Show fewer") {
+                            if hidden > 0 {
+                                showingAllSessions.insert(workspace.id)
+                            } else {
+                                showingAllSessions.remove(workspace.id)
+                            }
+                        }
+                    }
+                }
+                .padding(.leading, 14)
+                .padding(.top, 6)
+                .transition(.reveal)
+            }
+        }
+    }
+
+    private func visibleWorkspaceSessions(_ workspace: ProjectWorkspace,
+                                          sessions: [ChatSession]) -> [ChatSession] {
+        guard sessions.count > Self.sessionCap,
+              !showingAllSessions.contains(workspace.id) else { return sessions }
+        return Array(sessions.prefix(Self.sessionCap))
+    }
+
+    private func workspaceBranch(_ session: ChatSession) -> String? {
+        let checkouts = store.checkoutProjects(for: session)
+        let branches = checkouts.compactMap(\.worktreeBranch)
+        guard let first = branches.first else {
+            return "\(checkouts.count) projects"
+        }
+        return branches.allSatisfy { $0 == first }
+            ? "\(first) · \(checkouts.count) repos"
+            : "\(checkouts.count) repos"
     }
 
     private func projectSection(_ project: Project, sessions: [ChatSession]) -> some View {
@@ -361,10 +491,15 @@ struct AppSidebar: View {
 
     // Keyed on the cards that are drawn rather than the sessions that exist, so the
     // slide plays for see-more the same as for a session arriving or leaving.
-    private func revealKey(_ grouped: [UUID: [ChatSession]]) -> [UUID: Int] {
+    private func revealKey(_ grouped: [UUID: [ChatSession]],
+                           workspaceGroups: [UUID: [ChatSession]]) -> [UUID: Int] {
         var key: [UUID: Int] = [:]
         for project in store.projects where isExpanded(project) {
             key[project.id] = visibleSessions(of: project, in: grouped[project.id] ?? []).count
+        }
+        for workspace in store.workspaces where expansion[workspace.id] ?? true {
+            key[workspace.id] = visibleWorkspaceSessions(
+                workspace, sessions: workspaceGroups[workspace.id] ?? []).count
         }
         return key
     }
@@ -383,7 +518,7 @@ struct AppSidebar: View {
         // laid out again before there is anything to scroll to.
         await Task.yield()
         withAnimation(.easeOut(duration: 0.26)) {
-            scroller.scrollTo(session.projectID, anchor: .top)
+            scroller.scrollTo(session.workspaceID ?? session.projectID, anchor: .top)
         }
     }
 
@@ -412,18 +547,86 @@ struct AppSidebar: View {
         }
     }
 
+    // Worktrees are created as one transaction from the user's point of view. If any
+    // repository fails, the ones already created are removed before the error is shown.
+    private func startWorkspaceSession(_ choice: WorkspaceSessionChoice,
+                                       in workspace: ProjectWorkspace) {
+        expansion[workspace.id] = true
+        Task {
+            var checkouts: [SessionProject] = []
+            var created: [(worktree: String, project: String, branch: String?)] = []
+
+            for selected in choice.projects {
+                guard let project = store.project(selected.projectID) else {
+                    await rollBack(created)
+                    dialogs.show(Dialog(
+                        title: "Could not create the session",
+                        message: "One of the workspace projects is no longer in the app.",
+                        actions: [.init(label: "OK", kind: .cancel)]))
+                    return
+                }
+
+                guard selected.useWorktree else {
+                    checkouts.append(SessionProject(projectID: project.id,
+                                                    worktreePath: nil,
+                                                    worktreeBranch: nil))
+                    continue
+                }
+
+                switch await GitWorktree.add(projectPath: project.path,
+                                             projectName: project.name,
+                                             projectID: project.id,
+                                             sessionID: choice.sessionID) {
+                case .success(let worktree):
+                    checkouts.append(SessionProject(projectID: project.id,
+                                                    worktreePath: worktree.path,
+                                                    worktreeBranch: worktree.branch))
+                    created.append((worktree.path, project.path, worktree.branch))
+                case .failure(let failure):
+                    await rollBack(created)
+                    dialogs.show(Dialog(
+                        title: "Could not create a worktree for \(project.name)",
+                        message: failure.message,
+                        actions: [.init(label: "OK", kind: .cancel)]))
+                    return
+                }
+            }
+
+            runner.agent = choice.agent
+            guard store.newSession(in: workspace.id, id: choice.sessionID,
+                                   projects: checkouts) != nil else {
+                await rollBack(created)
+                dialogs.show(Dialog(
+                    title: "Could not create the session",
+                    message: "The workspace no longer has a valid lead project.",
+                    actions: [.init(label: "OK", kind: .cancel)]))
+                return
+            }
+            sessionToReveal = choice.sessionID
+        }
+    }
+
+    private func rollBack(_ worktrees: [(worktree: String, project: String, branch: String?)]) async {
+        for worktree in worktrees.reversed() {
+            await GitWorktree.remove(worktreePath: worktree.worktree,
+                                     projectPath: worktree.project,
+                                     branch: worktree.branch)
+        }
+    }
+
     private func confirmRemoveSession(_ session: ChatSession) {
-        let worktree = session.worktreePath
+        let worktrees = store.checkoutProjects(for: session).compactMap(\.worktreePath)
+        let dirty = worktrees.filter(workingTrees.isDirty).count
         dialogs.show(Dialog(
             title: "Delete \"\(session.title)\"?",
-            message: worktree.map { path in
-                let changes = workingTrees.isDirty(path)
-                    ? "Its worktree at \(path.abbreviatedPath) has uncommitted changes, and they are lost with it."
-                    : "Its worktree at \(path.abbreviatedPath) goes with it, along with anything uncommitted there."
-                return changes + " The branch is kept if it has unmerged commits."
-            } ?? "Its conversation history is removed from the app.",
+            message: worktrees.isEmpty
+                ? "Its conversation history is removed from the app."
+                : "Its \(worktrees.count) worktree\(worktrees.count == 1 ? "" : "s") go with it."
+                    + (dirty > 0
+                       ? " \(dirty) \(dirty == 1 ? "has" : "have") uncommitted changes that will be lost."
+                       : " Branches are kept if they have unmerged commits."),
             actions: [
-                .init(label: worktree == nil ? "Delete session" : "Delete session and worktree",
+                .init(label: worktrees.isEmpty ? "Delete session" : "Delete session and worktrees",
                       kind: .destructive) {
                     SessionRemoval.remove(session, from: store)
                 },
@@ -439,7 +642,7 @@ struct AppSidebar: View {
         guard !idle.isEmpty else { return }
         let worktrees = idle.filter { $0.worktreePath != nil }.count
         let dirty = idle.filter { $0.worktreePath.map(workingTrees.isDirty) ?? false }.count
-        let kept = store.sessions(for: project.id).count - idle.count
+        let kept = store.standaloneSessions(for: project.id).count - idle.count
         var message = "Their conversation history is removed from the app."
         if worktrees > 0 {
             message = "\(worktrees) of them ran in a worktree. Uncommitted changes there are lost, and branches are kept only where they have unmerged commits."
@@ -462,14 +665,15 @@ struct AppSidebar: View {
     }
 
     private func idleSessions(in project: Project) -> [ChatSession] {
-        store.sessions(for: project.id).filter { !runner.state($0.id).isBusy }
+        store.standaloneSessions(for: project.id).filter { !runner.state($0.id).isBusy }
     }
 
     private func confirmRemoveProject(_ project: Project) {
-        let count = store.sessions(for: project.id).count
+        let affected = sessions(using: project.id)
+        let count = affected.count
         dialogs.show(Dialog(
             title: "Remove \(project.name)?",
-            message: "This drops its \(count) session\(count == 1 ? "" : "s") from the app and removes any worktrees they used. The folder itself stays on disk.",
+            message: "This drops \(count) session\(count == 1 ? "" : "s") that use it and removes their worktrees. It is also removed from every workspace. The folder itself stays on disk.",
             actions: [
                 .init(label: "Remove project", kind: .destructive) { removeProject(project) },
                 .init(label: "Cancel", kind: .cancel)
@@ -500,17 +704,14 @@ struct AppSidebar: View {
     }
 
     private func removeProject(_ project: Project) {
-        let worktrees = store.sessions(for: project.id).compactMap { session in
-            session.worktreePath.map { (path: $0, branch: session.worktreeBranch) }
-        }
+        let affected = sessions(using: project.id)
+        for session in affected { SessionRemoval.remove(session, from: store) }
         store.removeProject(project.id)
-        guard !worktrees.isEmpty else { return }
-        Task {
-            for worktree in worktrees {
-                await GitWorktree.remove(worktreePath: worktree.path,
-                                         projectPath: project.path,
-                                         branch: worktree.branch)
-            }
+    }
+
+    private func sessions(using projectID: UUID) -> [ChatSession] {
+        store.sessions.filter { session in
+            store.checkoutProjects(for: session).contains { $0.projectID == projectID }
         }
     }
 
@@ -560,6 +761,13 @@ struct AppSidebar: View {
                 folders.insert(folder(session, project: project))
             }
         }
+        let workspaceGroups = groupedWorkspaceSessions
+        for workspace in store.workspaces where expansion[workspace.id] ?? true {
+            for session in visibleWorkspaceSessions(
+                workspace, sessions: workspaceGroups[workspace.id] ?? []) {
+                folders.formUnion(store.workingDirectories(for: session))
+            }
+        }
         return folders
     }
 
@@ -576,15 +784,36 @@ struct AppSidebar: View {
             let old = oldSessions
             if !old.isEmpty { oldSessionsStrip(old) }
 
-            Button(action: addProject) {
-                Text("+ Add project")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.white)
+            HStack(spacing: 8) {
+                Button(action: addProject) {
+                    Text("+ Add project")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 11)
+                        .background(RoundedRectangle(cornerRadius: 10)
+                            .fill(Color.black.opacity(0.88)))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                Button { showingNewWorkspace = true } label: {
+                    VStack(spacing: 1) {
+                        Text("+ Workspace")
+                            .font(.system(size: 13, weight: .semibold))
+                        Text("Multi-project")
+                            .font(.system(size: 9.5, weight: .medium))
+                            .foregroundStyle(.secondary)
+                    }
+                    .foregroundStyle(Theme.accent)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .background(RoundedRectangle(cornerRadius: 10).fill(Color.black.opacity(0.88)))
+                    .padding(.vertical, 6)
+                    .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
+                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
             .padding(.horizontal, 16)
             .padding(.top, 16)
             .padding(.bottom, 10)
@@ -607,7 +836,9 @@ struct AppSidebar: View {
     // says how much has gone stale and hands it to a screen that explains what clearing
     // each one would cost; it never offers to do anything on its own.
     private func oldSessionsStrip(_ old: [ChatSession]) -> some View {
-        let worktrees = old.filter { $0.worktreePath != nil }.count
+        let worktrees = old.reduce(0) { count, session in
+            count + store.checkoutProjects(for: session).compactMap(\.worktreePath).count
+        }
         return HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("\(old.count) session\(old.count == 1 ? "" : "s") older than \(oldSessionDays) day\(oldSessionDays == 1 ? "" : "s")")
@@ -615,8 +846,8 @@ struct AppSidebar: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
                 if worktrees > 0 {
-                    Text(worktrees == 1 ? "one of them holds a worktree"
-                                        : "\(worktrees) of them hold worktrees")
+                    Text(worktrees == 1 ? "one worktree remains"
+                                        : "\(worktrees) worktrees remain")
                         .font(.mono(11))
                         .foregroundStyle(.tertiary)
                         .lineLimit(1)
@@ -820,6 +1051,87 @@ private struct SortChip: View {
         }
         .buttonStyle(.plain)
         .appTooltip(hint)
+        .onHover { hovering = $0 }
+    }
+}
+
+// One line per workspace. The paired tiles distinguish it from a single project without
+// introducing another icon language into the sidebar.
+private struct WorkspaceHeaderRow: View {
+    let workspace: ProjectWorkspace
+    let projects: [Project]
+    let isExpanded: Bool
+    let sessionCount: Int
+    let runningCount: Int
+    let finishedCount: Int
+    let onNewSession: () -> Void
+
+    @State private var hovering = false
+
+    var body: some View {
+        HStack(spacing: 10) {
+            HStack(spacing: 2) {
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(Theme.accent)
+                    .frame(width: 10, height: 17)
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(Theme.secret)
+                    .frame(width: 10, height: 17)
+            }
+            .frame(width: 28, height: 28)
+            .background(RoundedRectangle(cornerRadius: 7).fill(Theme.card))
+            .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.border))
+
+            HStack(spacing: 5) {
+                Text(workspace.name)
+                    .font(.system(size: 14, weight: .semibold))
+                    .lineLimit(1)
+                if finishedCount > 0 { FinishedDot() }
+            }
+
+            Spacer(minLength: 8)
+
+            ZStack(alignment: .trailing) {
+                HStack(spacing: 6) {
+                    Text("\(projects.count) PROJECTS")
+                        .font(.mono(9.5, .semibold))
+                        .foregroundStyle(.tertiary)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                }
+                .opacity(hovering ? 0 : 1)
+
+                if hovering {
+                    RowAction(icon: "plus", title: "New", action: onNewSession)
+                        .appTooltip("New multi-project session")
+                }
+            }
+            .frame(minWidth: 72, alignment: .trailing)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(RoundedRectangle(cornerRadius: 10)
+            .fill(isExpanded ? Theme.accent.opacity(0.08)
+                              : hovering ? Color.black.opacity(0.03) : .clear))
+        .overlay(alignment: .topTrailing) {
+            if runningCount > 0 {
+                Text("\(runningCount)")
+                    .font(.mono(9, .semibold))
+                    .foregroundStyle(.white)
+                    .frame(minWidth: 16, minHeight: 16)
+                    .background(Circle().fill(Theme.dotOn))
+                    .offset(x: 3, y: -3)
+            }
+        }
+        .appTooltip {
+            Tooltip(
+                title: workspace.name,
+                subtitle: projects.map(\.name).joined(separator: " + "),
+                rows: [Tooltip.Row(label: "Sessions", value: "\(sessionCount)"),
+                       Tooltip.Row(label: "Projects", value: "\(projects.count)")])
+        }
         .onHover { hovering = $0 }
     }
 }

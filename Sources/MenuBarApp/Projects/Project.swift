@@ -24,6 +24,35 @@ struct Project: Identifiable, Codable, Equatable {
     }
 }
 
+// A workspace is a reusable group of projects. The lead project supplies the working
+// directory for every session, while the other projects are attached to the agent.
+// Membership is stored here, but each session takes its own snapshot so changing a
+// workspace never changes where an existing conversation runs.
+struct ProjectWorkspace: Identifiable, Codable, Equatable {
+    var id: UUID
+    var name: String
+    var projectIDs: [UUID]
+    var leadProjectID: UUID
+
+    init(id: UUID = UUID(), name: String, projectIDs: [UUID], leadProjectID: UUID) {
+        self.id = id
+        self.name = name
+        self.projectIDs = projectIDs
+        self.leadProjectID = leadProjectID
+    }
+}
+
+// One project as it was opened for a workspace session. A nil worktree path means the
+// project folder itself, which keeps plain folders useful without pretending they can
+// be isolated. The first item is always the lead project.
+struct SessionProject: Identifiable, Codable, Equatable {
+    var projectID: UUID
+    var worktreePath: String?
+    var worktreeBranch: String?
+
+    var id: UUID { projectID }
+}
+
 extension String {
     // "/Users/me/x" reads better as "~/x" anywhere a path is shown.
     var abbreviatedPath: String {
@@ -246,6 +275,10 @@ struct ChatSession: Identifiable, Codable, Equatable {
     // folder. The worktree and branch belong to this session and go with it.
     var worktreePath: String?
     var worktreeBranch: String?
+    // Set only for a multi-project session. The checkout list is a snapshot of the
+    // workspace at creation time, ordered with the lead project first.
+    var workspaceID: UUID?
+    var sessionProjects: [SessionProject]?
     // Optional so conversations written before the app had either still decode. Both
     // read as "nothing chosen yet" and "nothing spent yet".
     var settings: SessionSettings?
@@ -284,7 +317,7 @@ struct ChatSession: Identifiable, Codable, Equatable {
     // conversation inline, and that is what the store moves out on the first launch.
     private enum CodingKeys: String, CodingKey {
         case id, projectID, title, claudeSessionID, codexSessionID, createdAt, worktreePath, worktreeBranch
-        case settings, usage, pullRequest, summary, messages
+        case workspaceID, sessionProjects, settings, usage, pullRequest, summary, messages
     }
 
     init(id: UUID = UUID(), projectID: UUID) {
@@ -302,6 +335,8 @@ struct ChatSession: Identifiable, Codable, Equatable {
         createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
         worktreePath = try container.decodeIfPresent(String.self, forKey: .worktreePath)
         worktreeBranch = try container.decodeIfPresent(String.self, forKey: .worktreeBranch)
+        workspaceID = try container.decodeIfPresent(UUID.self, forKey: .workspaceID)
+        sessionProjects = try container.decodeIfPresent([SessionProject].self, forKey: .sessionProjects)
         settings = try container.decodeIfPresent(SessionSettings.self, forKey: .settings)
         usage = try container.decodeIfPresent(SessionUsage.self, forKey: .usage)
         pullRequest = try container.decodeIfPresent(PullRequest.self, forKey: .pullRequest)
@@ -320,6 +355,8 @@ struct ChatSession: Identifiable, Codable, Equatable {
         try container.encode(createdAt, forKey: .createdAt)
         try container.encodeIfPresent(worktreePath, forKey: .worktreePath)
         try container.encodeIfPresent(worktreeBranch, forKey: .worktreeBranch)
+        try container.encodeIfPresent(workspaceID, forKey: .workspaceID)
+        try container.encodeIfPresent(sessionProjects, forKey: .sessionProjects)
         try container.encodeIfPresent(settings, forKey: .settings)
         try container.encodeIfPresent(usage, forKey: .usage)
         try container.encodeIfPresent(pullRequest, forKey: .pullRequest)
