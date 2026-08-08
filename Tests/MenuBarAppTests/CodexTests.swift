@@ -57,7 +57,23 @@ struct CodexTests {
         #expect(entry == CodexCodeManager.Entry(command: "/opt/homebrew/bin/mcp-grafana",
                                                  args: ["--debug"],
                                                  env: ["GRAFANA_URL": "https://grafana.example"],
-                                                 url: nil))
+                                                 url: nil,
+                                                 enabled: true))
+    }
+
+    @Test func parsesDisabledServerState() throws {
+        let entry = try #require(CodexCodeManager.Entry(json: """
+            {
+              "name": "grafana-platform-dev",
+              "enabled": false,
+              "transport": {
+                "type": "stdio",
+                "command": "mcp-grafana"
+              }
+            }
+            """))
+
+        #expect(!entry.enabled)
     }
 
     // MARK: - Arguments

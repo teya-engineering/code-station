@@ -13,6 +13,7 @@ final class CodexCodeManager {
         var args: [String] = []
         var env: [String: String] = [:]
         var url: String?
+        var enabled = true
     }
 
     private struct ListedServer: Decodable {
@@ -28,6 +29,7 @@ final class CodexCodeManager {
     private(set) var entries: [String: Entry] = [:]
     private(set) var busy: Set<String> = []
     private(set) var bulkBusy = false
+    private(set) var isRefreshing = false
     private(set) var errors: [String: String] = [:]
     let available: Bool
 
@@ -39,6 +41,7 @@ final class CodexCodeManager {
     }
 
     func isRegistered(_ name: String) -> Bool { entries[name] != nil }
+    func isEnabled(_ name: String) -> Bool { entries[name]?.enabled == true }
     func isBusy(_ name: String) -> Bool { busy.contains(name) }
 
     func supports(_ server: Server) -> Bool {
@@ -68,8 +71,10 @@ final class CodexCodeManager {
         knownServers = Dictionary(uniqueKeysWithValues: servers.map { ($0.name, $0) })
         let id = UUID()
         refreshID = id
+        isRefreshing = true
         guard let codexPath = ProcessManager.resolve("codex") else {
             entries = [:]
+            isRefreshing = false
             return
         }
         refreshEntry(codexPath, servers: servers, index: 0, entries: [:], refreshID: id)
@@ -215,6 +220,7 @@ final class CodexCodeManager {
         guard refreshID == self.refreshID else { return }
         guard index < servers.count else {
             self.entries = entries
+            isRefreshing = false
             return
         }
 
@@ -335,5 +341,6 @@ extension CodexCodeManager.Entry {
         args = transport["args"] as? [String] ?? []
         env = transport["env"] as? [String: String] ?? [:]
         url = transport["url"] as? String
+        enabled = (root["enabled"] as? Bool) ?? (config["enabled"] as? Bool) ?? true
     }
 }

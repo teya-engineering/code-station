@@ -36,6 +36,16 @@ struct TroubleshootRequest {
     let environment: TroubleshootEnvironment
     let projects: [String]
     let mcpServersEnabled: Bool
+    let mcpServerNames: [String]
+
+    init(problem: String, environment: TroubleshootEnvironment, projects: [String],
+         mcpServersEnabled: Bool, mcpServerNames: [String] = []) {
+        self.problem = problem
+        self.environment = environment
+        self.projects = projects
+        self.mcpServersEnabled = mcpServersEnabled
+        self.mcpServerNames = mcpServerNames
+    }
 
     var prompt: String {
         let description = problem.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -43,9 +53,17 @@ struct TroubleshootRequest {
             ? "Troubleshoot the problem shown in the attached files."
             : description
         let projectText = projects.joined(separator: ", ")
-        let mcpText = mcpServersEnabled
-            ? "MCP servers are enabled. Use them when they provide relevant logs, metrics, or service context."
-            : "MCP servers are disabled for this diagnosis."
+        let mcpText: String
+        if !mcpServersEnabled {
+            mcpText = "MCP servers are disabled for this diagnosis."
+        } else if mcpServerNames.isEmpty {
+            mcpText = "MCP servers are enabled. Use them when they provide relevant logs, metrics, or service context."
+        } else {
+            let names = mcpServerNames.sorted().joined(separator: ", ")
+            mcpText = """
+            MCP servers are enabled: \(names). Their tools may be deferred from the initial tool list. Search the available tool catalogue for these server names before concluding that a server or tool is unavailable.
+            """
+        }
         let productionText = environment == .prod
             ? " Treat production as live: do not mutate data, configuration, deployments, or running services."
             : ""
@@ -63,6 +81,20 @@ struct TroubleshootRequest {
     }
 }
 
+struct TroubleshootMCPConfiguration: Equatable {
+    let missing: [String]
+    let disabled: [String]
+
+    init(requiredNames: [String], registeredNames: Set<String>,
+         disabledNames: Set<String> = []) {
+        let required = Set(requiredNames)
+        missing = required.subtracting(registeredNames).sorted()
+        disabled = required.intersection(registeredNames).intersection(disabledNames).sorted()
+    }
+
+    var isAvailable: Bool { missing.isEmpty && disabled.isEmpty }
+}
+
 // A focused front door for incident investigation. Submitting creates a regular session,
 // so the evidence, answer, and any follow-up questions stay with the selected projects.
 struct TroubleshootView: View {
@@ -71,6 +103,7 @@ struct TroubleshootView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(ProjectStore.self) private var store
     @Environment(SessionRunner.self) private var runner
+    @Environment(ClaudeCodeManager.self) private var claude
     @Environment(CodexCodeManager.self) private var codex
     @Environment(ConfigStore.self) private var configs
     @Environment(DialogPresenter.self) private var dialogs
@@ -88,6 +121,7 @@ struct TroubleshootView: View {
     @State private var isStarting = false
     @State private var showingSkills = false
     @State private var showingNewWorkspace = false
+    @State private var hasStartedMCPConfigurationCheck = false
     @FocusState private var problemFocused: Bool
 
     private var selectedAgent: AgentKind { agent ?? runner.agent }
@@ -121,6 +155,7 @@ struct TroubleshootView: View {
             if selectedProjects.isEmpty, let project = store.selectedProject {
                 selectedProjects.insert(project.id)
             }
+            refreshMCPConfiguration()
             problemFocused = requiredSkillState == .available
         }
         .task { await skills.refresh() }
@@ -346,6 +381,27 @@ struct TroubleshootView: View {
                     }
                 }
                 .toggleStyle(.appSwitch)
+
+                switch mcpConfigurationState {
+                case .ready:
+                    EmptyView()
+                case .checking:
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.small)
+                        Text("Checking \(selectedAgent.title) MCP configuration...")
+                    }
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                case let .unavailable(configuration):
+                    HStack(alignment: .top, spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .padding(.top, 1)
+                        Text(mcpConfigurationError(configuration))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Theme.deletion)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -452,6 +508,30 @@ struct TroubleshootView: View {
         configs.servers.filter(environment.includes)
     }
 
+    private var mcpConfigurationState: MCPConfigurationState {
+        guard mcpServersEnabled, !environmentMCPServers.isEmpty else { return .ready }
+        guard hasStartedMCPConfigurationCheck else { return .checking }
+        if selectedAgent == .codex, codex.isRefreshing { return .checking }
+
+        let registeredNames: Set<String>
+        let disabledNames: Set<String>
+        switch selectedAgent {
+        case .claudeCode:
+            registeredNames = Set(claude.entries.keys)
+            disabledNames = []
+        case .codex:
+            registeredNames = Set(codex.entries.keys)
+            disabledNames = Set(codex.entries.compactMap { $0.value.enabled ? nil : $0.key })
+        }
+        let configuration = TroubleshootMCPConfiguration(
+            requiredNames: environmentMCPServers.map(\.name),
+            registeredNames: registeredNames,
+            disabledNames: disabledNames)
+        return configuration.isAvailable
+            ? .ready
+            : .unavailable(configuration)
+    }
+
     static func projects(_ projects: [Project], matching filter: String) -> [Project] {
         let query = filter.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return projects }
@@ -550,6 +630,7 @@ struct TroubleshootView: View {
     private var canDiagnose: Bool {
         !isStarting
             && requiredSkillState == .available
+            && mcpConfigurationState == .ready
             && !selectedProjects.isEmpty
             && (!problem.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 || !attachments.isEmpty)
@@ -607,6 +688,24 @@ struct TroubleshootView: View {
             attachments.append(item)
         }
         problemFocused = true
+    }
+
+    private func refreshMCPConfiguration() {
+        claude.refresh()
+        codex.refresh(configs.servers)
+        hasStartedMCPConfigurationCheck = true
+    }
+
+    private func mcpConfigurationError(_ configuration: TroubleshootMCPConfiguration) -> String {
+        var messages: [String] = []
+        if !configuration.missing.isEmpty {
+            messages.append("Not configured for \(selectedAgent.title): \(configuration.missing.joined(separator: ", ")).")
+        }
+        if !configuration.disabled.isEmpty {
+            messages.append("Disabled in \(selectedAgent.title): \(configuration.disabled.joined(separator: ", ")).")
+        }
+        messages.append("Sync the listed servers in MCP Servers before diagnosing.")
+        return messages.joined(separator: " ")
     }
 
     private func diagnose() {
@@ -707,7 +806,8 @@ struct TroubleshootView: View {
                 problem: problem,
                 environment: chosenEnvironment,
                 projects: projects.map(\.name),
-                mcpServersEnabled: enableMCPServers)
+                mcpServersEnabled: enableMCPServers,
+                mcpServerNames: enableMCPServers ? selectedServers.map(\.name) : [])
             runner.send(request.prompt, attachments: attachments,
                         sessionID: session.id, store: store)
             dismiss()
@@ -727,5 +827,11 @@ struct TroubleshootView: View {
         case missing
         case disabled
         case unavailable
+    }
+
+    private enum MCPConfigurationState: Equatable {
+        case ready
+        case checking
+        case unavailable(TroubleshootMCPConfiguration)
     }
 }

@@ -8,12 +8,16 @@ struct TroubleshootTests {
             problem: "Payments return 503 after deployment",
             environment: .prod,
             projects: ["payments-api", "merchant-web"],
-            mcpServersEnabled: true)
+            mcpServersEnabled: true,
+            mcpServerNames: ["grafana-shared-shared", "grafana-platform-prd"])
 
         #expect(request.prompt.contains("Payments return 503 after deployment"))
         #expect(request.prompt.contains("production (prod)"))
         #expect(request.prompt.contains("payments-api, merchant-web"))
         #expect(request.prompt.contains("MCP servers are enabled"))
+        #expect(request.prompt.contains("grafana-platform-prd, grafana-shared-shared"))
+        #expect(request.prompt.contains("Search the available tool catalogue"))
+        #expect(request.prompt.contains("before concluding that a server or tool is unavailable"))
         #expect(request.prompt.contains("do not mutate data, configuration, deployments, or running services"))
         #expect(request.prompt.contains("wait for a follow-up before applying it"))
     }
@@ -106,6 +110,26 @@ struct TroubleshootTests {
 
         #expect(arguments.contains("mcp_servers.grafana-platform-prd.enabled=false"))
         #expect(!arguments.contains("mcp_servers.grafana-platform-dev.enabled=false"))
+    }
+
+    @Test func managedServersMustBeEnabledInTheSelectedClient() {
+        let configuration = TroubleshootMCPConfiguration(
+            requiredNames: [
+                "grafana-platform-dev",
+                "grafana-shared-shared",
+                "node_repl",
+            ],
+            registeredNames: [
+                "grafana-platform-dev",
+                "grafana-shared-shared",
+            ],
+            disabledNames: [
+                "grafana-shared-shared",
+            ])
+
+        #expect(configuration.missing == ["node_repl"])
+        #expect(configuration.disabled == ["grafana-shared-shared"])
+        #expect(!configuration.isAvailable)
     }
 
     private func server(_ name: String) -> Server {
