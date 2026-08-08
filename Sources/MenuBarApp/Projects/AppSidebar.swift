@@ -4,6 +4,7 @@ import SwiftUI
 // The left navigation for the whole window: every project with its sessions, plus a
 // pinned button that opens the app's tools and settings.
 struct AppSidebar: View {
+    let skills: SkillsManager
     let onConfigureServers: () -> Void
     let onOpenSkills: () -> Void
     let onOpenDocker: () -> Void
@@ -827,7 +828,7 @@ struct AppSidebar: View {
             .padding(.top, 16)
             .padding(.bottom, 10)
 
-            ToolsButton(entries: toolsMenu)
+            ToolsButton(showsUpdate: skills.updateCount > 0, entries: toolsMenu)
                 .padding(.horizontal, 16)
                 .padding(.bottom, runner.available ? 16 : 6)
 
@@ -891,7 +892,8 @@ struct AppSidebar: View {
         Task { await docker.refresh() }
         return [
             .item("MCP servers", detail: "\(configs.servers.count)", action: onConfigureServers),
-            .item("Skills", detail: "Claude + Codex", action: onOpenSkills),
+            .item("Skills", showsUpdate: skills.updateCount > 0,
+                  detail: "Claude + Codex", action: onOpenSkills),
             .item("Docker", detail: dockerDetail?.text,
                   detailColour: dockerDetail?.colour, action: onOpenDocker),
             .item("Postman", detail: postmanAuth.active.envValue,
@@ -1014,6 +1016,7 @@ private struct RevealLayout: Layout, Animatable {
 // The one pinned button under the project list. Its menu opens above it at the same
 // width, so it reads as the button unfolding rather than a menu landing on the rail.
 private struct ToolsButton: View {
+    let showsUpdate: Bool
     let entries: () -> [MenuEntry]
 
     @State private var hovering = false
@@ -1022,6 +1025,9 @@ private struct ToolsButton: View {
         HStack(spacing: 6) {
             Text("Tools and settings")
                 .font(.system(size: 13, weight: .semibold))
+            if showsUpdate {
+                UpdateIndicator()
+            }
             Image(systemName: "chevron.down")
                 .font(.system(size: 9, weight: .semibold))
                 .foregroundStyle(.secondary)

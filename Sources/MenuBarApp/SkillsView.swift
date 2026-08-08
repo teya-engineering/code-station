@@ -144,6 +144,12 @@ struct SkillsView: View {
                         Text(plugin.name)
                             .font(.system(size: 13.5, weight: .semibold))
                             .textSelection(.enabled)
+                        if SkillHost.allCases.contains(where: {
+                            manager.isOutdated(plugin, on: $0)
+                        }) {
+                            UpdateIndicator()
+                                .appTooltip("Update available")
+                        }
                         if let version = plugin.version {
                             Text("v\(version)")
                                 .font(.mono(10.5, .medium))

@@ -134,6 +134,20 @@ enum Preferences {
         }
     }
 
+    static var skillsRefreshInterval: SkillsRefreshInterval {
+        get {
+            guard store.object(forKey: "skillsRefreshInterval") != nil else { return .oneDay }
+            return SkillsRefreshInterval(rawValue: store.integer(forKey: "skillsRefreshInterval"))
+                ?? .oneDay
+        }
+        set { store.set(newValue.rawValue, forKey: "skillsRefreshInterval") }
+    }
+
+    static var skillsLastRefresh: Date? {
+        get { store.object(forKey: "skillsLastRefresh") as? Date }
+        set { store.set(newValue, forKey: "skillsLastRefresh") }
+    }
+
     // How the sidebar orders projects. An unset key reads as the alphabetical order,
     // which is the one the list has always been in.
     static var projectSort: ProjectSort {
