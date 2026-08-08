@@ -255,7 +255,7 @@ struct TroubleshootView: View {
                         .font(.system(size: 13))
                         .scrollContentBackground(.hidden)
                         .padding(10)
-                        .frame(height: 190)
+                        .frame(height: 120)
                         .focused($problemFocused)
                     if problem.isEmpty {
                         Text("Describe what is failing, what you expected, and anything you already checked.")
