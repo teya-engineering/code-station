@@ -1,0 +1,483 @@
+import AppKit
+import SwiftUI
+
+enum TroubleshootEnvironment: String, CaseIterable, Identifiable {
+    case dev
+    case prod
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .dev: "Dev"
+        case .prod: "Prod"
+        }
+    }
+
+    var promptTitle: String {
+        switch self {
+        case .dev: "development (dev)"
+        case .prod: "production (prod)"
+        }
+    }
+}
+
+struct TroubleshootRequest {
+    let problem: String
+    let environment: TroubleshootEnvironment
+    let projects: [String]
+    let mcpServersEnabled: Bool
+
+    var prompt: String {
+        let description = problem.trimmingCharacters(in: .whitespacesAndNewlines)
+        let problemText = description.isEmpty
+            ? "Troubleshoot the problem shown in the attached files."
+            : description
+        let projectText = projects.joined(separator: ", ")
+        let mcpText = mcpServersEnabled
+            ? "MCP servers are enabled. Use them when they provide relevant logs, metrics, or service context."
+            : "MCP servers are disabled for this diagnosis."
+        let productionText = environment == .prod
+            ? " Treat production as live: do not mutate data, configuration, deployments, or running services."
+            : ""
+
+        return """
+        \(problemText)
+
+        Troubleshooting context:
+        - Environment: \(environment.promptTitle)
+        - Projects: \(projectText)
+        - \(mcpText)
+
+        Investigate the problem and use read-only checks first. Do not change code or configuration.\(productionText) Explain the likely root cause, cite the evidence you found, and give concrete next steps. If a fix is needed, propose it and wait for a follow-up before applying it.
+        """
+    }
+}
+
+// A focused front door for incident investigation. Submitting creates a regular session,
+// so the evidence, answer, and any follow-up questions stay with the selected projects.
+struct TroubleshootView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(ProjectStore.self) private var store
+    @Environment(SessionRunner.self) private var runner
+    @Environment(CodexCodeManager.self) private var codex
+    @Environment(ConfigStore.self) private var configs
+    @Environment(DialogPresenter.self) private var dialogs
+
+    @State private var problem = ""
+    @State private var attachments: [Attachment] = []
+    @State private var selectedProjects: Set<UUID> = []
+    @State private var environment = TroubleshootEnvironment.dev
+    @State private var mcpServersEnabled = true
+    @State private var agent: AgentKind?
+    @State private var dropTargeted = false
+    @State private var isStarting = false
+    @FocusState private var problemFocused: Bool
+
+    private var selectedAgent: AgentKind { agent ?? runner.agent }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+            Divider().overlay(Theme.hairline)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    if environment == .prod { productionNotice }
+                    problemSection
+                    optionsSection
+                    projectsSection
+                }
+                .padding(20)
+            }
+            footer
+        }
+        .frame(width: 760, height: 680)
+        .background(Theme.background)
+        .onAppear {
+            if selectedProjects.isEmpty {
+                if let selected = store.selectedProjectID, store.project(selected) != nil {
+                    selectedProjects.insert(selected)
+                } else if let first = store.projects.first {
+                    selectedProjects.insert(first.id)
+                }
+            }
+            problemFocused = true
+        }
+    }
+
+    private var header: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "stethoscope")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(Theme.accent)
+                .frame(width: 34, height: 34)
+                .background(RoundedRectangle(cornerRadius: 9).fill(Theme.accent.opacity(0.10)))
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Troubleshoot").font(.serif(19))
+                Text("Give an agent the problem, evidence, and project context.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 20)
+        .headerBand()
+    }
+
+    private var productionNotice: some View {
+        HStack(spacing: 9) {
+            Circle().fill(Theme.deletion).frame(width: 7, height: 7)
+            Text("PRODUCTION")
+                .font(.mono(10.5, .bold))
+                .kerning(0.8)
+                .foregroundStyle(Theme.deletion)
+            Text("The agent is told to keep all checks read-only.")
+                .font(.system(size: 12))
+            Spacer()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.deletion.opacity(0.09)))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.deletion.opacity(0.18)))
+    }
+
+    private var problemSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            SectionLabel(text: "PROBLEM AND EVIDENCE")
+            VStack(alignment: .leading, spacing: 0) {
+                ZStack(alignment: .topLeading) {
+                    TextEditor(text: $problem)
+                        .font(.system(size: 13))
+                        .scrollContentBackground(.hidden)
+                        .padding(10)
+                        .frame(height: 190)
+                        .focused($problemFocused)
+                    if problem.isEmpty {
+                        Text("Describe what is failing, what you expected, and anything you already checked.")
+                            .font(.system(size: 13))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 15)
+                            .padding(.vertical, 18)
+                            .allowsHitTesting(false)
+                    }
+                }
+
+                Divider().overlay(Theme.hairline)
+
+                HStack(spacing: 10) {
+                    if attachments.isEmpty {
+                        Image(systemName: "arrow.down.doc")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                        Text(dropTargeted ? "Drop files here" : "Drag files here or add them from Finder")
+                            .font(.system(size: 11.5))
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 6) {
+                                ForEach(attachments) { attachment in
+                                    AttachmentChip(url: attachment.url) {
+                                        attachments.removeAll { $0.id == attachment.id }
+                                    }
+                                }
+                            }
+                            .padding(.vertical, 1)
+                        }
+                    }
+                    Spacer(minLength: 8)
+                    Button(action: chooseFiles) {
+                        HStack(spacing: 5) {
+                            Image(systemName: "paperclip")
+                            Text("Add files")
+                        }
+                        .font(.system(size: 11.5, weight: .semibold))
+                        .foregroundStyle(Theme.accent)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(RoundedRectangle(cornerRadius: 7).fill(Theme.field))
+                        .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.border))
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(10)
+            }
+            .background(RoundedRectangle(cornerRadius: 11).fill(Theme.card))
+            .overlay(RoundedRectangle(cornerRadius: 11)
+                .stroke(dropTargeted ? Theme.accent : Theme.border,
+                        lineWidth: dropTargeted ? 2 : 1))
+            .dropDestination(for: URL.self) { urls, _ in
+                attach(Attachments.fromDrop(urls))
+                return true
+            } isTargeted: { dropTargeted = $0 }
+        }
+    }
+
+    private var optionsSection: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 8) {
+                SectionLabel(text: "ENVIRONMENT")
+                HStack(spacing: 6) {
+                    ForEach(TroubleshootEnvironment.allCases) { option in
+                        ChoicePill(title: option.title, selected: environment == option) {
+                            environment = option
+                        }
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            VStack(alignment: .leading, spacing: 8) {
+                SectionLabel(text: "MCP SERVERS")
+                Toggle(isOn: $mcpServersEnabled) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Enable MCP servers")
+                            .font(.system(size: 13, weight: .medium))
+                        Text(configs.servers.isEmpty
+                             ? "Use any servers configured for the selected agent."
+                             : "\(configs.servers.count) managed server\(configs.servers.count == 1 ? "" : "s") available.")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .toggleStyle(.appSwitch)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 11).fill(Theme.card))
+        .overlay(RoundedRectangle(cornerRadius: 11).stroke(Theme.border))
+    }
+
+    private var projectsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                SectionLabel(text: "PROJECTS")
+                Spacer()
+                if !selectedProjects.isEmpty {
+                    Text("\(selectedProjects.count) selected")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            if store.projects.isEmpty {
+                Text("Add a project from the sidebar before starting a diagnosis.")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .padding(14)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
+                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
+            } else {
+                ScrollView {
+                    VStack(spacing: 0) {
+                        ForEach(store.projects) { project in
+                            Toggle(isOn: projectSelection(project.id)) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(project.name)
+                                        .font(.system(size: 13, weight: .medium))
+                                    Text(project.collapsedPath)
+                                        .font(.mono(10.5))
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .toggleStyle(.appCheckbox)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 9)
+
+                            if project.id != store.projects.last?.id {
+                                Divider().overlay(Theme.hairline).padding(.leading, 36)
+                            }
+                        }
+                    }
+                }
+                .frame(maxHeight: 170)
+                .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
+            }
+        }
+    }
+
+    private var footer: some View {
+        VStack(spacing: 0) {
+            Divider().overlay(Theme.hairline)
+            HStack(alignment: .center, spacing: 10) {
+                if !runner.isAvailable(selectedAgent) {
+                    Text("\(selectedAgent.title) CLI was not found on PATH.")
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(Theme.deletion)
+                } else {
+                    Text("The diagnosis opens as a session for follow-up questions.")
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 12)
+                Button { dismiss() } label: {
+                    Text("Cancel")
+                        .font(.system(size: 13, weight: .semibold))
+                        .padding(.horizontal, 18)
+                        .frame(height: 34)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.card))
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut(.cancelAction)
+
+                diagnoseButton
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+            .background(Theme.card)
+        }
+    }
+
+    private var diagnoseButton: some View {
+        VStack(alignment: .trailing, spacing: 3) {
+            HStack(spacing: 0) {
+                Button { diagnose() } label: {
+                    HStack(spacing: 7) {
+                        if isStarting { ProgressView().controlSize(.small) }
+                        Text(isStarting ? "Preparing diagnosis" : "Diagnose problem")
+                    }
+                    .font(.system(size: 13, weight: .semibold))
+                    .padding(.horizontal, 18)
+                    .frame(height: 34)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(!canDiagnose)
+
+                Rectangle()
+                    .fill(.white.opacity(0.35))
+                    .frame(width: 1, height: 17)
+
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .bold))
+                    .frame(width: 34, height: 34)
+                    .contentShape(Rectangle())
+                    .appMenu { agentMenu }
+                    .accessibilityLabel("Choose coding agent")
+            }
+            .foregroundStyle(.white)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.accent))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .opacity(canDiagnose ? 1 : 0.45)
+
+            Text("Will use \(selectedAgent.title)")
+                .font(.system(size: 10.5))
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var canDiagnose: Bool {
+        !isStarting
+            && !selectedProjects.isEmpty
+            && (!problem.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                || !attachments.isEmpty)
+            && runner.isAvailable(selectedAgent)
+    }
+
+    private var agentMenu: [MenuEntry] {
+        AgentKind.allCases.map { option in
+            .item(option.title,
+                  checked: selectedAgent == option,
+                  subtitle: option == .codex
+                      ? "OpenAI's coding agent."
+                      : "Anthropic's coding agent.") {
+                agent = option
+            }
+        }
+    }
+
+    private func projectSelection(_ id: UUID) -> Binding<Bool> {
+        Binding(get: { selectedProjects.contains(id) },
+                set: { selected in
+                    if selected {
+                        selectedProjects.insert(id)
+                    } else {
+                        selectedProjects.remove(id)
+                    }
+                })
+    }
+
+    private func chooseFiles() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = true
+        panel.prompt = "Attach"
+        panel.message = "Choose files that help explain the problem."
+        guard panel.runModal() == .OK else { return }
+        attach(panel.urls.map(Attachment.init(url:)))
+    }
+
+    private func attach(_ found: [Attachment]) {
+        for item in found where !attachments.contains(where: { $0.url == item.url }) {
+            attachments.append(item)
+        }
+        problemFocused = true
+    }
+
+    private func diagnose() {
+        guard canDiagnose else { return }
+        isStarting = true
+        let chosenAgent = selectedAgent
+
+        Task {
+            let projects = orderedSelectedProjects
+            guard let lead = projects.first else {
+                isStarting = false
+                return
+            }
+            var disabledServers: [String] = []
+            if !mcpServersEnabled, chosenAgent == .codex {
+                do {
+                    disabledServers = try await codex.enabledServerNames(in: lead.path)
+                } catch {
+                    isStarting = false
+                    dialogs.show(Dialog(
+                        title: "Could not disable MCP servers",
+                        message: error.localizedDescription,
+                        actions: [.init(label: "OK", kind: .cancel)]))
+                    return
+                }
+            }
+
+            guard let session = store.newSession(in: projects.map(\.id)) else {
+                isStarting = false
+                dialogs.show(Dialog(
+                    title: "Could not start the diagnosis",
+                    message: "The selected projects are no longer available.",
+                    actions: [.init(label: "OK", kind: .cancel)]))
+                return
+            }
+
+            var settings = SessionSettings()
+            settings.mcpServersEnabled = mcpServersEnabled
+            settings.disabledMCPServerNames = mcpServersEnabled ? nil : disabledServers
+            store.setSettings(settings, for: session.id)
+            runner.agent = chosenAgent
+
+            let request = TroubleshootRequest(
+                problem: problem,
+                environment: environment,
+                projects: projects.map(\.name),
+                mcpServersEnabled: mcpServersEnabled)
+            runner.send(request.prompt, attachments: attachments,
+                        sessionID: session.id, store: store)
+            dismiss()
+        }
+    }
+
+    private var orderedSelectedProjects: [Project] {
+        let selected = store.projects.filter { selectedProjects.contains($0.id) }
+        guard let current = store.selectedProjectID,
+              let lead = selected.first(where: { $0.id == current }) else { return selected }
+        return [lead] + selected.filter { $0.id != current }
+    }
+}

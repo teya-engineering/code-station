@@ -11,6 +11,7 @@ struct RootView: View {
     @State private var showingSettings = false
     @State private var showingPostman = false
     @State private var showingAI = false
+    @State private var showingTroubleshoot = false
     @State private var reviewingOldSessions = false
 
     var body: some View {
@@ -21,6 +22,7 @@ struct RootView: View {
                        onOpenSettings: { showingSettings = true },
                        onOpenPostman: { showingPostman = true },
                        onOpenAI: { showingAI = true },
+                       onOpenTroubleshoot: { showingTroubleshoot = true },
                        onReviewOldSessions: { reviewingOldSessions = true })
             Divider().overlay(Theme.hairline)
             detail
@@ -44,6 +46,7 @@ struct RootView: View {
         .sheet(isPresented: $showingSettings) { SettingsView().appOverlays() }
         .sheet(isPresented: $showingPostman) { PostmanView().appOverlays() }
         .sheet(isPresented: $showingAI) { AIView().appOverlays() }
+        .sheet(isPresented: $showingTroubleshoot) { TroubleshootView().appOverlays() }
         .sheet(isPresented: $reviewingOldSessions) { OldSessionsView().appOverlays() }
     }
 

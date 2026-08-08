@@ -15,6 +15,16 @@ final class CodexCodeManager {
         var url: String?
     }
 
+    private struct ListedServer: Decodable {
+        let name: String
+        let enabled: Bool
+    }
+
+    private struct DiscoveryFailure: LocalizedError, Sendable {
+        let message: String
+        var errorDescription: String? { message }
+    }
+
     private(set) var entries: [String: Entry] = [:]
     private(set) var busy: Set<String> = []
     private(set) var bulkBusy = false
@@ -105,6 +115,60 @@ final class CodexCodeManager {
         }
         guard !steps.isEmpty else { return }
         runSteps(steps, names: names)
+    }
+
+    // Codex has no single flag that suppresses every configured MCP server. A diagnosis
+    // that turns MCP off snapshots the enabled names and passes one config override per
+    // server, using the CLI as the source of truth instead of parsing its TOML file.
+    func enabledServerNames(in directory: String) async throws -> [String] {
+        guard let codexPath = ProcessManager.resolve("codex") else {
+            throw DiscoveryFailure(message: "Codex CLI not found on PATH.")
+        }
+        let searchPath = ProcessManager.searchPath
+
+        return try await Task.detached {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: codexPath)
+            process.currentDirectoryURL = URL(fileURLWithPath: directory)
+            process.arguments = ["mcp", "list", "--json"]
+            var environment = ProcessInfo.processInfo.environment
+            environment["PATH"] = searchPath
+            process.environment = environment
+
+            let output = Pipe()
+            let errors = Pipe()
+            process.standardOutput = output
+            process.standardError = errors
+            let outputReader = Task.detached {
+                output.fileHandleForReading.readDataToEndOfFile()
+            }
+            let errorReader = Task.detached {
+                errors.fileHandleForReading.readDataToEndOfFile()
+            }
+
+            do {
+                try process.run()
+            } catch {
+                output.fileHandleForWriting.closeFile()
+                errors.fileHandleForWriting.closeFile()
+                throw DiscoveryFailure(message: "Could not start Codex: \(error.localizedDescription)")
+            }
+            process.waitUntilExit()
+            let data = await outputReader.value
+            let errorData = await errorReader.value
+
+            guard process.terminationStatus == 0 else {
+                let message = String(decoding: errorData, as: UTF8.self)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                throw DiscoveryFailure(message: message.isEmpty
+                    ? "Codex could not list its MCP servers."
+                    : message)
+            }
+            guard let servers = try? JSONDecoder().decode([ListedServer].self, from: data) else {
+                throw DiscoveryFailure(message: "Codex returned an unreadable MCP server list.")
+            }
+            return servers.filter(\.enabled).map(\.name)
+        }.value
     }
 
     // Kept separate from process handling so the supported Codex CLI forms stay easy

@@ -68,7 +68,9 @@ final class SessionRunner {
         defaultsByAgent[agent] ?? SessionSettings()
     }
 
-    var available: Bool { paths[agent] != nil }
+    func isAvailable(_ agent: AgentKind) -> Bool { paths[agent] != nil }
+
+    var available: Bool { isAvailable(agent) }
 
     func state(_ sessionID: UUID) -> SessionState { states[sessionID] ?? .idle }
 
@@ -221,6 +223,9 @@ final class SessionRunner {
                              "--permission-mode", permissionMode]
             if let model { arguments += ["--model", model] }
             if let effort { arguments += ["--effort", effort] }
+            if settings.mcpServersEnabled == false {
+                arguments += ["--strict-mcp-config", "--mcp-config", #"{"mcpServers":{}}"#]
+            }
             if !addDirectories.isEmpty { arguments += ["--add-dir"] + addDirectories }
             if let resume, !resume.isEmpty { arguments += ["--resume", resume] }
             return arguments
@@ -258,6 +263,11 @@ final class SessionRunner {
             }
             if let model { arguments += ["--model", model] }
             if let effort { arguments += ["-c", "model_reasoning_effort=\"\(effort)\""] }
+            if settings.mcpServersEnabled == false {
+                for name in settings.disabledMCPServerNames ?? [] where !name.isEmpty {
+                    arguments += ["-c", "mcp_servers.\(name).enabled=false"]
+                }
+            }
             // The resume subcommand does not accept --add-dir. Resumed turns receive
             // the same paths through writable_roots above and keep the directory map
             // from their existing conversation.
@@ -538,7 +548,6 @@ final class SessionRunner {
     // the agent to load local guidance before it edits an attached project.
     private func workspacePrompt(_ prompt: String, session: ChatSession,
                                  store: ProjectStore) -> String {
-        guard session.workspaceID != nil else { return prompt }
         let rows = store.checkoutProjects(for: session).enumerated().compactMap { pair -> String? in
             let (index, checkout) = pair
             guard let project = store.project(checkout.projectID) else { return nil }
