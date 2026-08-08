@@ -13,6 +13,14 @@ struct NewWorkspaceView: View {
     @State private var selected: [UUID] = []
     @State private var leadProjectID: UUID?
 
+    init(initialProjectIDs: [UUID] = [], onCreate: @escaping (ProjectWorkspace) -> Void) {
+        var seen: Set<UUID> = []
+        let projects = initialProjectIDs.filter { seen.insert($0).inserted }
+        self.onCreate = onCreate
+        _selected = State(initialValue: projects)
+        _leadProjectID = State(initialValue: projects.first)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 7) {

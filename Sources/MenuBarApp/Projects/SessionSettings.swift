@@ -47,12 +47,16 @@ struct SessionSettings: Codable, Equatable {
     var permissionMode: String?
     var codexSandboxMode: String?
     var mcpServersEnabled: Bool?
+    // An allowlist of managed servers for sessions that need a filtered MCP config.
+    // Nil keeps using the agent's own configuration without filtering it.
+    var allowedMCPServerNames: [String]?
     var disabledMCPServerNames: [String]?
 
     // A session that has chosen nothing runs exactly as the app settings say.
     var overridesAnything: Bool {
         model != nil || effort != nil || permissionMode != nil || codexSandboxMode != nil
-            || mcpServersEnabled != nil
+            || mcpServersEnabled != nil || allowedMCPServerNames != nil
+            || disabledMCPServerNames != nil
     }
 }
 

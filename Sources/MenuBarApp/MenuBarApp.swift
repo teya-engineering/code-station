@@ -27,7 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let claude = ClaudeCodeManager()
     private let codex = CodexCodeManager()
     private let projects = ProjectStore()
-    private let runner = SessionRunner()
+    private lazy var runner = SessionRunner(configs: store)
     private let workingTrees = WorkingTreeWatch()
     private let terminals = TerminalStore()
     private let loginItem = LoginItem()
