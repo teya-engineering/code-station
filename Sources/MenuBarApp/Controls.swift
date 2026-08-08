@@ -105,8 +105,8 @@ private struct SubtleButtonGlow: ViewModifier {
     func body(content: Content) -> some View {
         content
             .shadow(
-                color: Theme.accent.opacity(hovering ? 0.14 : 0),
-                radius: hovering ? 7 : 1
+                color: Theme.accent.opacity(hovering ? 0.26 : 0),
+                radius: hovering ? 10 : 1
             )
             .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: hovering)
             .onHover { hovering = $0 }
