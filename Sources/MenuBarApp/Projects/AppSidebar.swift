@@ -883,7 +883,7 @@ struct AppSidebar: View {
     }
 
     // The setup and utility screens are folded behind one button so the rail
-    // belongs to the projects. Each row carries its state as trailing text - the count,
+    // belongs to the projects. Each card carries its state under the name - the count,
     // the environment, whether the model server is up - so folding them away costs a
     // click but not the glance.
     private func toolsMenu() -> [MenuEntry] {
@@ -891,16 +891,24 @@ struct AppSidebar: View {
         // is at most one open behind, without polling a CLI while the menu sits closed.
         Task { await docker.refresh() }
         return [
-            .item("MCP servers", detail: "\(configs.servers.count)", action: onConfigureServers),
-            .item("Skills", showsUpdate: skills.updateCount > 0,
-                  detail: "Claude + Codex", action: onOpenSkills),
-            .item("Docker", detail: dockerDetail?.text,
-                  detailColour: dockerDetail?.colour, action: onOpenDocker),
-            .item("Postman", detail: postmanAuth.active.envValue,
-                  detailColour: postmanAuth.active.accent, action: onOpenPostman),
-            .item("Local AI", detail: aiDetail?.text,
-                  detailColour: aiDetail?.colour, action: onOpenAI),
-            .item("Troubleshoot", action: onOpenTroubleshoot),
+            .cards([
+                MenuCardItem(label: "MCP servers", icon: "server.rack",
+                             detail: "\(configs.servers.count)", handler: onConfigureServers),
+                MenuCardItem(label: "Skills", icon: "sparkles",
+                             showsUpdate: skills.updateCount > 0,
+                             detail: "Claude + Codex", handler: onOpenSkills),
+                MenuCardItem(label: "Docker", icon: "shippingbox.fill",
+                             detail: dockerDetail?.text, detailColour: dockerDetail?.colour,
+                             handler: onOpenDocker),
+                MenuCardItem(label: "Postman", icon: "paperplane.fill",
+                             detail: postmanAuth.active.envValue,
+                             detailColour: postmanAuth.active.accent, handler: onOpenPostman),
+                MenuCardItem(label: "Local AI", icon: "cpu",
+                             detail: aiDetail?.text, detailColour: aiDetail?.colour,
+                             handler: onOpenAI),
+                MenuCardItem(label: "Troubleshoot", icon: "stethoscope",
+                             handler: onOpenTroubleshoot)
+            ]),
             .separator,
             .item("Settings", detail: "⌘,", action: onOpenSettings)
         ]
