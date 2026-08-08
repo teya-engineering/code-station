@@ -89,10 +89,16 @@ struct SessionView: View {
     private func header(session: ChatSession, project: Project) -> some View {
         HStack(alignment: .center, spacing: 16) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(session.title)
-                    .font(.serif(22, .semibold))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                HStack(spacing: 8) {
+                    if session.isTroubleshooting {
+                        StatusPill(text: "Troubleshoot", running: false, tint: Theme.secret)
+                            .fixedSize()
+                    }
+                    Text(session.title)
+                        .font(.serif(22, .semibold))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
                 HStack(spacing: 8) {
                     Text(session.workspaceID.flatMap(store.workspace)?.name ?? project.name)
                         .font(.system(size: 12, weight: .medium))

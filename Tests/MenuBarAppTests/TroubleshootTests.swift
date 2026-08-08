@@ -123,6 +123,31 @@ struct TroubleshootTests {
 
 @MainActor
 struct TroubleshootProjectTests {
+    @Test func troubleshootingMarkerSurvivesSessionPersistence() throws {
+        var session = ChatSession(projectID: UUID())
+        session.isTroubleshooting = true
+
+        let data = try JSONEncoder().encode(session)
+        let decoded = try JSONDecoder().decode(ChatSession.self, from: data)
+
+        #expect(decoded.isTroubleshooting)
+    }
+
+    @Test func sessionsWrittenBeforeTroubleshootingDefaultToRegular() throws {
+        let id = UUID()
+        let projectID = UUID()
+        let data = Data("""
+            {
+              "id": "\(id.uuidString)",
+              "projectID": "\(projectID.uuidString)"
+            }
+            """.utf8)
+
+        let session = try JSONDecoder().decode(ChatSession.self, from: data)
+
+        #expect(!session.isTroubleshooting)
+    }
+
     @Test func filtersProjectsByNameOrPathIgnoringCase() {
         let api = Project(name: "Payments API", path: "/Development/services/payments-api")
         let web = Project(name: "Merchant Web", path: "/Development/frontends/merchant-web")
@@ -170,10 +195,12 @@ struct TroubleshootProjectTests {
             projects: [
                 SessionProject(projectID: first.id, worktreePath: nil, worktreeBranch: nil),
                 SessionProject(projectID: second.id, worktreePath: nil, worktreeBranch: nil),
-            ]))
+            ],
+            isTroubleshooting: true))
 
         #expect(session.projectID == first.id)
         #expect(session.workspaceID == workspace.id)
+        #expect(session.isTroubleshooting)
         #expect(store.workspaces == [workspace])
         #expect(store.workingDirectories(for: session) == [first.path, second.path])
         #expect(store.selection == .session(session.id))

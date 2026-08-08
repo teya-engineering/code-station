@@ -274,10 +274,12 @@ final class ProjectStore {
 
     @discardableResult
     func newSession(in projectID: UUID, id: UUID = UUID(),
-                    worktreePath: String? = nil, worktreeBranch: String? = nil) -> ChatSession {
+                    worktreePath: String? = nil, worktreeBranch: String? = nil,
+                    isTroubleshooting: Bool = false) -> ChatSession {
         var session = ChatSession(id: id, projectID: projectID)
         session.worktreePath = worktreePath
         session.worktreeBranch = worktreeBranch
+        session.isTroubleshooting = isTroubleshooting
         // Nothing has been said yet, and there is no file to go looking for.
         session.transcriptLoaded = true
         sessions.append(session)
@@ -289,7 +291,7 @@ final class ProjectStore {
 
     @discardableResult
     func newSession(in workspaceID: UUID, id: UUID = UUID(),
-                    projects: [SessionProject]) -> ChatSession? {
+                    projects: [SessionProject], isTroubleshooting: Bool = false) -> ChatSession? {
         guard let workspace = workspace(workspaceID),
               projects.count >= 2,
               Set(projects.map(\.projectID)).count == projects.count,
@@ -301,6 +303,7 @@ final class ProjectStore {
         session.sessionProjects = projects
         session.worktreePath = projects.first?.worktreePath
         session.worktreeBranch = projects.first?.worktreeBranch
+        session.isTroubleshooting = isTroubleshooting
         session.transcriptLoaded = true
         sessions.append(session)
         selectedProjectID = workspace.leadProjectID

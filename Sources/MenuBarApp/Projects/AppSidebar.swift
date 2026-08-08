@@ -1387,11 +1387,17 @@ private struct SessionCard: View {
                     }
             }
 
-            Text(session.title)
-                .font(.system(size: 13, weight: .semibold))
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 6) {
+                if session.isTroubleshooting {
+                    StatusPill(text: "Troubleshoot", running: false, tint: Theme.secret)
+                        .fixedSize()
+                }
+                Text(session.title)
+                    .font(.system(size: 13, weight: .semibold))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
 
             ActivityLine(activity: activity)
 

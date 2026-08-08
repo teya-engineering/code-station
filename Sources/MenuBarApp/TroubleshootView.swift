@@ -118,12 +118,8 @@ struct TroubleshootView: View {
         .frame(width: 760, height: 680)
         .background(Theme.background)
         .onAppear {
-            if selectedProjects.isEmpty {
-                if let selected = store.selectedProjectID, store.project(selected) != nil {
-                    selectedProjects.insert(selected)
-                } else if let first = store.projects.first {
-                    selectedProjects.insert(first.id)
-                }
+            if selectedProjects.isEmpty, let project = store.selectedProject {
+                selectedProjects.insert(project.id)
             }
             problemFocused = requiredSkillState == .available
         }
@@ -475,9 +471,7 @@ struct TroubleshootView: View {
                             .font(.system(size: 11.5))
                             .foregroundStyle(Theme.deletion)
                     } else {
-                        Text(selectedProjects.count == 1
-                             ? "The diagnosis opens as a session in the selected project."
-                             : "Create a workspace for the selected projects before the diagnosis starts.")
+                        Text(diagnosisDestinationText)
                             .font(.system(size: 11.5))
                             .foregroundStyle(.secondary)
                     }
@@ -501,6 +495,17 @@ struct TroubleshootView: View {
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
             .background(Theme.card)
+        }
+    }
+
+    private var diagnosisDestinationText: String {
+        switch selectedProjects.count {
+        case 0:
+            "Select a project for the diagnosis."
+        case 1:
+            "The diagnosis opens as a session in the selected project."
+        default:
+            "Create a workspace for the selected projects before the diagnosis starts."
         }
     }
 
@@ -545,6 +550,7 @@ struct TroubleshootView: View {
     private var canDiagnose: Bool {
         !isStarting
             && requiredSkillState == .available
+            && !selectedProjects.isEmpty
             && (!problem.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 || !attachments.isEmpty)
             && runner.isAvailable(selectedAgent)
@@ -606,6 +612,13 @@ struct TroubleshootView: View {
     private func diagnose() {
         guard canDiagnose else { return }
         let projects = orderedSelectedProjects
+        guard projects.count == selectedProjects.count else {
+            dialogs.show(Dialog(
+                title: "Could not start the diagnosis",
+                message: "One of the selected projects is no longer available.",
+                actions: [.init(label: "OK", kind: .cancel)]))
+            return
+        }
         guard let project = Self.projectSessionTarget(projects) else {
             showingNewWorkspace = true
             return
@@ -667,7 +680,8 @@ struct TroubleshootView: View {
                     SessionProject(projectID: $0.id, worktreePath: nil, worktreeBranch: nil)
                 }
                 guard let workspaceSession = store.newSession(in: workspace.id,
-                                                              projects: checkouts) else {
+                                                              projects: checkouts,
+                                                              isTroubleshooting: true) else {
                     isStarting = false
                     dialogs.show(Dialog(
                         title: "Could not start the diagnosis",
@@ -677,7 +691,7 @@ struct TroubleshootView: View {
                 }
                 session = workspaceSession
             } else {
-                session = store.newSession(in: lead.id)
+                session = store.newSession(in: lead.id, isTroubleshooting: true)
             }
 
             var settings = SessionSettings()
