@@ -5,6 +5,7 @@ import SwiftUI
 // top of it, since that is a setup job rather than a place to sit.
 struct RootView: View {
     @Environment(ProjectStore.self) private var store
+    @State private var skills = SkillsManager()
     @State private var configuringServers = false
     @State private var showingSkills = false
     @State private var showingDocker = false
@@ -41,12 +42,14 @@ struct RootView: View {
         // A sheet is a window of its own, so the layer under it cannot draw over it; each
         // sheet gets one of its own to ask its own questions in.
         .sheet(isPresented: $configuringServers) { ConfigManagerView().appOverlays() }
-        .sheet(isPresented: $showingSkills) { SkillsView().appOverlays() }
+        .sheet(isPresented: $showingSkills) { SkillsView(manager: skills).appOverlays() }
         .sheet(isPresented: $showingDocker) { DockerView().appOverlays() }
         .sheet(isPresented: $showingSettings) { SettingsView().appOverlays() }
         .sheet(isPresented: $showingPostman) { PostmanView().appOverlays() }
         .sheet(isPresented: $showingAI) { AIView().appOverlays() }
-        .sheet(isPresented: $showingTroubleshoot) { TroubleshootView().appOverlays() }
+        .sheet(isPresented: $showingTroubleshoot) {
+            TroubleshootView(skills: skills).appOverlays()
+        }
         .sheet(isPresented: $reviewingOldSessions) { OldSessionsView().appOverlays() }
     }
 

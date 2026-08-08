@@ -148,7 +148,11 @@ final class SkillsManager {
 
     func installation(of plugin: SkillMarketplace.Plugin,
                       on host: SkillHost) -> SkillInstallation? {
-        installations[host]?[plugin.name]
+        installation(named: plugin.name, on: host)
+    }
+
+    func installation(named plugin: String, on host: SkillHost) -> SkillInstallation? {
+        installations[host]?[plugin]
     }
 
     func isOutdated(_ plugin: SkillMarketplace.Plugin, on host: SkillHost) -> Bool {
