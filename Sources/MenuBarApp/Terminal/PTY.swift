@@ -1,14 +1,14 @@
 import Darwin
 import Foundation
+import SwiftTerm
 
 // A shell running on a pseudo terminal. The child gets a real tty, so programs behave
 // the way they do in Terminal.app: colours stay on, progress lines redraw, and job
 // control works.
 //
-// posix_spawn is used rather than fork: this process is multithreaded, and only
-// async-signal-safe calls are allowed between fork and exec, which Swift cannot
-// promise. Opening the slave as the child's stdin, with the child made a session
-// leader, is what gives it a controlling terminal.
+// SwiftTerm's launcher prepares the process arguments before forkpty and moves
+// straight to exec in the child. forkpty is required here because the shell needs
+// the slave to be its controlling terminal, not merely its standard input.
 final class PTY: @unchecked Sendable {
     private let lock = NSLock()
     private var master: Int32 = -1
@@ -107,51 +107,43 @@ final class PTY: @unchecked Sendable {
 
     func start(shell: String, arguments: [String], directory: String,
                environment: [String: String], columns: Int, rows: Int) throws {
-        let master = posix_openpt(O_RDWR | O_NOCTTY)
-        guard master >= 0 else { throw Failure(message: "Could not open a pseudo terminal.") }
-        guard grantpt(master) == 0, unlockpt(master) == 0, let name = ptsname(master) else {
-            close(master)
-            throw Failure(message: "Could not set up the pseudo terminal.")
+        guard FileManager.default.isExecutableFile(atPath: shell) else {
+            throw Failure(message: "Could not start \(shell): the executable is not available.")
         }
-        let slavePath = String(cString: name)
-
-        var actions: posix_spawn_file_actions_t?
-        posix_spawn_file_actions_init(&actions)
-        defer { posix_spawn_file_actions_destroy(&actions) }
-        // Opening the tty as fd 0 in a fresh session is what makes it the controlling
-        // terminal; 1 and 2 are then the same tty.
-        posix_spawn_file_actions_addopen(&actions, 0, slavePath, O_RDWR, 0)
-        posix_spawn_file_actions_adddup2(&actions, 0, 1)
-        posix_spawn_file_actions_adddup2(&actions, 0, 2)
-        posix_spawn_file_actions_addchdir_np(&actions, directory)
-
-        var attributes: posix_spawnattr_t?
-        posix_spawnattr_init(&attributes)
-        defer { posix_spawnattr_destroy(&attributes) }
-        posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETSID))
-
-        let argv = ([shell] + arguments).map { strdup($0) } + [nil]
-        let envp = environment.map { strdup("\($0.key)=\($0.value)") } + [nil]
-        defer {
-            for pointer in argv where pointer != nil { free(pointer) }
-            for pointer in envp where pointer != nil { free(pointer) }
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: directory, isDirectory: &isDirectory),
+              isDirectory.boolValue, access(directory, X_OK) == 0 else {
+            throw Failure(message: "Could not start \(shell): \(directory) is not accessible.")
         }
 
-        var pid: pid_t = 0
-        let status = posix_spawn(&pid, shell, &actions, &attributes, argv, envp)
-        guard status == 0 else {
-            close(master)
-            throw Failure(message: "Could not start \(shell): \(String(cString: strerror(status))).")
+        var size = winsize(ws_row: UInt16(max(rows, 1)), ws_col: UInt16(max(columns, 1)),
+                           ws_xpixel: 0, ws_ypixel: 0)
+        var shellSignalMask = sigset_t()
+        sigemptyset(&shellSignalMask)
+        var appSignalMask = sigset_t()
+        let maskStatus = pthread_sigmask(SIG_SETMASK, &shellSignalMask, &appSignalMask)
+        guard maskStatus == 0 else {
+            throw Failure(message: "Could not prepare signals for \(shell): \(String(cString: strerror(maskStatus))).")
+        }
+        defer { pthread_sigmask(SIG_SETMASK, &appSignalMask, nil) }
+
+        guard let process = PseudoTerminalHelpers.fork(
+            andExec: shell,
+            args: [shell] + arguments,
+            env: environment.map { "\($0.key)=\($0.value)" },
+            currentDirectory: directory,
+            desiredWindowSize: &size
+        ) else {
+            throw Failure(message: "Could not start \(shell) in a pseudo terminal.")
         }
 
         lock.lock()
-        self.master = master
-        self.child = pid
+        master = process.masterFd
+        child = process.pid
         lock.unlock()
 
-        resize(columns: columns, rows: rows)
-        startReading(master: master)
-        startWatching(pid: pid)
+        startReading(master: process.masterFd)
+        startWatching(pid: process.pid)
     }
 
     private func startReading(master: Int32) {

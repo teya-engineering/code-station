@@ -97,6 +97,29 @@ struct PTYTests {
         #expect(await collector.waitFor(directory.lastPathComponent))
     }
 
+    // A tty file descriptor alone is not enough. The shell needs a controlling
+    // terminal so its foreground command receives terminal-generated signals.
+    @Test func interruptsTheForegroundCommand() async throws {
+        let collector = Collector()
+        let pty = makePTY(collector)
+        defer { pty.stop() }
+
+        try startShell(pty)
+
+        pty.write(Data("printf 'terminal-%s\\n' ready\r".utf8))
+        #expect(await collector.waitFor("terminal-ready"))
+        pty.captureIdleBaseline()
+
+        pty.write(Data("printf 'command-%s\\n' started; sleep 30\r".utf8))
+        #expect(await collector.waitFor("command-started"))
+        #expect(await waitUntil(seconds: 3) { pty.isBusy })
+
+        pty.write(Data([0x03]))
+        pty.write(Data("printf 'command-%s\\n' interrupted\r".utf8))
+
+        #expect(await collector.waitFor("command-interrupted", seconds: 3))
+    }
+
     // The shell is told the window size, so anything that draws a full line wraps in
     // the right place.
     @Test func reportsTheWindowSizeItWasGiven() async throws {
