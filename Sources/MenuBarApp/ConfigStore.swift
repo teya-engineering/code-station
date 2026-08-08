@@ -97,8 +97,20 @@ final class ConfigStore {
         saveTask = nil
         // Never overwrite a file we could not read in the first place.
         guard loadError == nil else { return }
+        guard let data = Self.mcpConfigurationData(
+            from: servers, allowing: servers.map(\.name)) else { return }
+
+        try? FileManager.default.createDirectory(
+            at: configURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? data.write(to: configURL, options: .atomic)
+        lastModified = Date()
+    }
+
+    nonisolated static func mcpConfigurationData(from servers: [Server],
+                                                 allowing names: [String]) -> Data? {
+        let allowed = Set(names)
         var map: [String: ConfigFile.Entry] = [:]
-        for server in servers {
+        for server in servers where allowed.contains(server.name) {
             var env: [String: String] = [:]
             for v in server.env where !v.key.isEmpty { env[v.key] = v.value }
             var headers: [String: String] = [:]
@@ -116,12 +128,7 @@ final class ConfigStore {
 
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-        guard let data = try? encoder.encode(ConfigFile(mcpServers: map)) else { return }
-
-        try? FileManager.default.createDirectory(
-            at: configURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? data.write(to: configURL, options: .atomic)
-        lastModified = Date()
+        return try? encoder.encode(ConfigFile(mcpServers: map))
     }
 
     // The file is always written pretty-printed with clean URLs, so show it verbatim.

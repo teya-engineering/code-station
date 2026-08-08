@@ -309,29 +309,6 @@ final class ProjectStore {
         return session
     }
 
-    // A diagnosis can span any set of projects without turning that one-off selection
-    // into a saved workspace. The first project is the working directory and the rest
-    // are attached roots, matching the way a workspace session reaches its files.
-    @discardableResult
-    func newSession(in projectIDs: [UUID], id: UUID = UUID()) -> ChatSession? {
-        var seen: Set<UUID> = []
-        let selected = projectIDs.filter { project($0) != nil && seen.insert($0).inserted }
-        guard let lead = selected.first else { return nil }
-
-        var session = ChatSession(id: id, projectID: lead)
-        if selected.count > 1 {
-            session.sessionProjects = selected.map {
-                SessionProject(projectID: $0, worktreePath: nil, worktreeBranch: nil)
-            }
-        }
-        session.transcriptLoaded = true
-        sessions.append(session)
-        selectedProjectID = lead
-        selection = .session(session.id)
-        saveIndex()
-        return session
-    }
-
     // The folder a session's Claude Code runs in: its own worktree when it has one,
     // otherwise the project folder itself.
     func workingDirectory(for session: ChatSession) -> String? {

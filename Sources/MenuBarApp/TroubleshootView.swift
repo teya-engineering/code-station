@@ -20,6 +20,15 @@ enum TroubleshootEnvironment: String, CaseIterable, Identifiable {
         case .prod: "production (prod)"
         }
     }
+
+    func includes(_ server: Server) -> Bool {
+        guard let (_, serverEnvironment) = Grafana.parts(from: server.name) else { return true }
+        let selectedEnvironment: DeployEnv = switch self {
+        case .dev: .dev
+        case .prod: .prd
+        }
+        return serverEnvironment == selectedEnvironment || serverEnvironment == .shared
+    }
 }
 
 struct TroubleshootRequest {
@@ -78,6 +87,7 @@ struct TroubleshootView: View {
     @State private var dropTargeted = false
     @State private var isStarting = false
     @State private var showingSkills = false
+    @State private var showingNewWorkspace = false
     @FocusState private var problemFocused: Bool
 
     private var selectedAgent: AgentKind { agent ?? runner.agent }
@@ -123,6 +133,13 @@ struct TroubleshootView: View {
         }
         .sheet(isPresented: $showingSkills) {
             SkillsView(manager: skills).appOverlays()
+        }
+        .sheet(isPresented: $showingNewWorkspace) {
+            NewWorkspaceView(initialProjectIDs: orderedSelectedProjects.map(\.id)) { workspace in
+                showingNewWorkspace = false
+                startDiagnosis(in: workspace)
+            }
+            .appOverlays()
         }
     }
 
@@ -327,7 +344,7 @@ struct TroubleshootView: View {
                             .font(.system(size: 13, weight: .medium))
                         Text(configs.servers.isEmpty
                              ? "Use any servers configured for the selected agent."
-                             : "\(configs.servers.count) managed server\(configs.servers.count == 1 ? "" : "s") available.")
+                             : "\(environmentMCPServers.count) managed server\(environmentMCPServers.count == 1 ? "" : "s") available for \(environment.title).")
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
                     }
@@ -354,7 +371,7 @@ struct TroubleshootView: View {
             }
 
             if store.projects.isEmpty {
-                Text("Add a project from the sidebar before starting a diagnosis.")
+                Text("Create a workspace and add projects to it to start the diagnosis.")
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
                     .padding(14)
@@ -435,6 +452,10 @@ struct TroubleshootView: View {
         Self.projects(store.projects, matching: projectFilter)
     }
 
+    private var environmentMCPServers: [Server] {
+        configs.servers.filter(environment.includes)
+    }
+
     static func projects(_ projects: [Project], matching filter: String) -> [Project] {
         let query = filter.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return projects }
@@ -454,7 +475,9 @@ struct TroubleshootView: View {
                             .font(.system(size: 11.5))
                             .foregroundStyle(Theme.deletion)
                     } else {
-                        Text("The diagnosis opens as a session for follow-up questions.")
+                        Text(selectedProjects.count == 1
+                             ? "The diagnosis opens as a session in the selected project."
+                             : "Create a workspace for the selected projects before the diagnosis starts.")
                             .font(.system(size: 11.5))
                             .foregroundStyle(.secondary)
                     }
@@ -522,7 +545,6 @@ struct TroubleshootView: View {
     private var canDiagnose: Bool {
         !isStarting
             && requiredSkillState == .available
-            && !selectedProjects.isEmpty
             && (!problem.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 || !attachments.isEmpty)
             && runner.isAvailable(selectedAgent)
@@ -583,49 +605,95 @@ struct TroubleshootView: View {
 
     private func diagnose() {
         guard canDiagnose else { return }
+        let projects = orderedSelectedProjects
+        guard let project = Self.projectSessionTarget(projects) else {
+            showingNewWorkspace = true
+            return
+        }
+        startDiagnosis(in: project)
+    }
+
+    static func projectSessionTarget(_ projects: [Project]) -> Project? {
+        projects.count == 1 ? projects[0] : nil
+    }
+
+    private func startDiagnosis(in project: Project) {
+        startDiagnosis(projects: [project], workspace: nil)
+    }
+
+    private func startDiagnosis(in workspace: ProjectWorkspace) {
+        let projects = workspace.projectIDs.compactMap(store.project)
+        guard projects.count == workspace.projectIDs.count else {
+            dialogs.show(Dialog(
+                title: "Could not start the diagnosis",
+                message: "One of the workspace projects is no longer available.",
+                actions: [.init(label: "OK", kind: .cancel)]))
+            return
+        }
+        startDiagnosis(projects: projects, workspace: workspace)
+    }
+
+    private func startDiagnosis(projects: [Project], workspace: ProjectWorkspace?) {
+        guard let lead = projects.first else { return }
         isStarting = true
         let chosenAgent = selectedAgent
+        let chosenEnvironment = environment
+        let enableMCPServers = mcpServersEnabled
 
         Task {
-            let projects = orderedSelectedProjects
-            guard let lead = projects.first else {
-                isStarting = false
-                return
-            }
+            let managedServers = configs.servers
+            let selectedServers = managedServers.filter(chosenEnvironment.includes)
             var disabledServers: [String] = []
-            if !mcpServersEnabled, chosenAgent == .codex {
+            if chosenAgent == .codex, !enableMCPServers || !managedServers.isEmpty {
                 do {
-                    disabledServers = try await codex.enabledServerNames(in: lead.path)
+                    let enabledServers = try await codex.enabledServerNames(in: lead.path)
+                    let selectedNames = Set(selectedServers.map(\.name))
+                    disabledServers = enableMCPServers
+                        ? enabledServers.filter { !selectedNames.contains($0) }
+                        : enabledServers
                 } catch {
                     isStarting = false
                     dialogs.show(Dialog(
-                        title: "Could not disable MCP servers",
+                        title: "Could not filter MCP servers",
                         message: error.localizedDescription,
                         actions: [.init(label: "OK", kind: .cancel)]))
                     return
                 }
             }
 
-            guard let session = store.newSession(in: projects.map(\.id)) else {
-                isStarting = false
-                dialogs.show(Dialog(
-                    title: "Could not start the diagnosis",
-                    message: "The selected projects are no longer available.",
-                    actions: [.init(label: "OK", kind: .cancel)]))
-                return
+            let session: ChatSession
+            if let workspace {
+                let checkouts = projects.map {
+                    SessionProject(projectID: $0.id, worktreePath: nil, worktreeBranch: nil)
+                }
+                guard let workspaceSession = store.newSession(in: workspace.id,
+                                                              projects: checkouts) else {
+                    isStarting = false
+                    dialogs.show(Dialog(
+                        title: "Could not start the diagnosis",
+                        message: "The workspace no longer has a valid lead project.",
+                        actions: [.init(label: "OK", kind: .cancel)]))
+                    return
+                }
+                session = workspaceSession
+            } else {
+                session = store.newSession(in: lead.id)
             }
 
             var settings = SessionSettings()
-            settings.mcpServersEnabled = mcpServersEnabled
-            settings.disabledMCPServerNames = mcpServersEnabled ? nil : disabledServers
+            settings.mcpServersEnabled = enableMCPServers
+            settings.allowedMCPServerNames = enableMCPServers && !managedServers.isEmpty
+                ? selectedServers.map(\.name)
+                : nil
+            settings.disabledMCPServerNames = disabledServers.isEmpty ? nil : disabledServers
             store.setSettings(settings, for: session.id)
             runner.agent = chosenAgent
 
             let request = TroubleshootRequest(
                 problem: problem,
-                environment: environment,
+                environment: chosenEnvironment,
                 projects: projects.map(\.name),
-                mcpServersEnabled: mcpServersEnabled)
+                mcpServersEnabled: enableMCPServers)
             runner.send(request.prompt, attachments: attachments,
                         sessionID: session.id, store: store)
             dismiss()

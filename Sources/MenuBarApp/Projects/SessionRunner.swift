@@ -49,11 +49,13 @@ final class SessionRunner {
     private var drafts: [UUID: Draft] = [:]
 
     @ObservationIgnored private let paths: [AgentKind: String]
+    @ObservationIgnored private let configs: ConfigStore?
 
     // How Claude Code says it no longer holds the conversation we asked to resume.
     private static let lostConversation = "No conversation found with session ID"
 
-    init() {
+    init(configs: ConfigStore? = nil) {
+        self.configs = configs
         defaultsByAgent = Dictionary(uniqueKeysWithValues: AgentKind.allCases.map {
             ($0, Preferences.sessionDefaults(for: $0))
         })
@@ -202,7 +204,8 @@ final class SessionRunner {
     nonisolated static func arguments(agent: AgentKind = .claudeCode,
                                       settings: SessionSettings, defaults: SessionSettings,
                                       addDirectories: [String] = [], writableRoots: [String] = [],
-                                      resume: String? = nil) -> [String] {
+                                      resume: String? = nil,
+                                      mcpConfigPath: String? = nil) -> [String] {
         let model = ModelChoice.valid(settings.model ?? defaults.model, for: agent)
         let effort = EffortChoice.valid(settings.effort ?? defaults.effort, for: agent)
         let codexSandbox = CodexSandboxMode.resolved(settings.codexSandboxMode
@@ -225,6 +228,8 @@ final class SessionRunner {
             if let effort { arguments += ["--effort", effort] }
             if settings.mcpServersEnabled == false {
                 arguments += ["--strict-mcp-config", "--mcp-config", #"{"mcpServers":{}}"#]
+            } else if let mcpConfigPath {
+                arguments += ["--strict-mcp-config", "--mcp-config", mcpConfigPath]
             }
             if !addDirectories.isEmpty { arguments += ["--add-dir"] + addDirectories }
             if let resume, !resume.isEmpty { arguments += ["--resume", resume] }
@@ -263,10 +268,8 @@ final class SessionRunner {
             }
             if let model { arguments += ["--model", model] }
             if let effort { arguments += ["-c", "model_reasoning_effort=\"\(effort)\""] }
-            if settings.mcpServersEnabled == false {
-                for name in settings.disabledMCPServerNames ?? [] where !name.isEmpty {
-                    arguments += ["-c", "mcp_servers.\(name).enabled=false"]
-                }
+            for name in settings.disabledMCPServerNames ?? [] where !name.isEmpty {
+                arguments += ["-c", "mcp_servers.\(name).enabled=false"]
             }
             // The resume subcommand does not accept --add-dir. Resumed turns receive
             // the same paths through writable_roots above and keep the directory map
@@ -406,6 +409,14 @@ final class SessionRunner {
                         canRetryWithoutResume: Bool) {
         guard let workingDirectory = workingDirectories.first else { return }
 
+        let mcpConfigURL: URL?
+        do {
+            mcpConfigURL = try temporaryMCPConfig(for: session, agent: agent)
+        } catch {
+            states[sessionID] = .failed(error.localizedDescription)
+            return
+        }
+
         // A turn writes into the conversation for as long as it runs, whether or not
         // anyone has it open, so the transcript is held until this turn is done with it.
         store.hold(sessionID, for: .running)
@@ -433,7 +444,8 @@ final class SessionRunner {
             // folder the agent runs in, and reading outside it needs saying so up front.
             addDirectories: additionalDirectories,
             writableRoots: writableRoots,
-            resume: resume)
+            resume: resume,
+            mcpConfigPath: mcpConfigURL?.path)
 
         var env = ProcessInfo.processInfo.environment
         env["PATH"] = ProcessManager.searchPath
@@ -453,7 +465,8 @@ final class SessionRunner {
 
         let turn = Turn(process: process, agent: agent, messageID: reply.id, input: input,
                         prompt: promptForAgent, attachments: attachments, resumed: resume != nil,
-                        canRetryWithoutResume: canRetryWithoutResume)
+                        canRetryWithoutResume: canRetryWithoutResume,
+                        mcpConfigURL: mcpConfigURL)
         let token = turn.token
         let runner = self
         let buffer = LineBuffer()
@@ -541,6 +554,24 @@ final class SessionRunner {
     private func unique(_ paths: [String]) -> [String] {
         var seen: Set<String> = []
         return paths.filter { seen.insert($0).inserted }
+    }
+
+    private func temporaryMCPConfig(for session: ChatSession, agent: AgentKind) throws -> URL? {
+        guard agent == .claudeCode,
+              let allowedNames = session.settings?.allowedMCPServerNames else { return nil }
+        guard let configs,
+              let data = ConfigStore.mcpConfigurationData(
+                from: configs.servers, allowing: allowedNames) else {
+            throw Failure("Could not prepare the filtered MCP server configuration.")
+        }
+
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("conductor-mcp-\(UUID().uuidString).json")
+        guard FileManager.default.createFile(
+            atPath: url.path, contents: data, attributes: [.posixPermissions: 0o600]) else {
+            throw Failure("Could not prepare the filtered MCP server configuration.")
+        }
+        return url
     }
 
     // Additional roots grant access but do not make their repository instructions part
@@ -876,6 +907,7 @@ final class SessionRunner {
         (turn.process.standardOutput as? Pipe)?.fileHandleForReading.readabilityHandler = nil
         (turn.process.standardError as? Pipe)?.fileHandleForReading.readabilityHandler = nil
         turn.closeInput()
+        if let url = turn.mcpConfigURL { try? FileManager.default.removeItem(at: url) }
     }
 
     // One live turn. Only ever touched on the main actor.
@@ -894,6 +926,7 @@ final class SessionRunner {
         let attachments: [Attachment]
         let resumed: Bool
         let canRetryWithoutResume: Bool
+        let mcpConfigURL: URL?
         var stderr = ""
         var failure: String?
         var stdoutOpen = true
@@ -935,7 +968,8 @@ final class SessionRunner {
         }
 
         init(process: Process, agent: AgentKind, messageID: UUID, input: Pipe, prompt: String,
-             attachments: [Attachment], resumed: Bool, canRetryWithoutResume: Bool) {
+             attachments: [Attachment], resumed: Bool, canRetryWithoutResume: Bool,
+             mcpConfigURL: URL?) {
             self.process = process
             self.agent = agent
             self.messageID = messageID
@@ -944,6 +978,7 @@ final class SessionRunner {
             self.attachments = attachments
             self.resumed = resumed
             self.canRetryWithoutResume = canRetryWithoutResume
+            self.mcpConfigURL = mcpConfigURL
         }
     }
 }
