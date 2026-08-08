@@ -6,6 +6,7 @@ import SwiftUI
 struct RootView: View {
     @Environment(ProjectStore.self) private var store
     @State private var configuringServers = false
+    @State private var showingSkills = false
     @State private var showingDocker = false
     @State private var showingSettings = false
     @State private var showingPostman = false
@@ -16,6 +17,7 @@ struct RootView: View {
     var body: some View {
         HStack(spacing: 0) {
             AppSidebar(onConfigureServers: { configuringServers = true },
+                       onOpenSkills: { showingSkills = true },
                        onOpenDocker: { showingDocker = true },
                        onOpenSettings: { showingSettings = true },
                        onOpenPostman: { showingPostman = true },
@@ -39,6 +41,7 @@ struct RootView: View {
         // A sheet is a window of its own, so the layer under it cannot draw over it; each
         // sheet gets one of its own to ask its own questions in.
         .sheet(isPresented: $configuringServers) { ConfigManagerView().appOverlays() }
+        .sheet(isPresented: $showingSkills) { SkillsView().appOverlays() }
         .sheet(isPresented: $showingDocker) { DockerView().appOverlays() }
         .sheet(isPresented: $showingSettings) { SettingsView().appOverlays() }
         .sheet(isPresented: $showingPostman) { PostmanView().appOverlays() }

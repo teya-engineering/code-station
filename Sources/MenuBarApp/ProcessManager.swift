@@ -142,7 +142,7 @@ final class ProcessManager {
     // MARK: - Executable resolution
 
     // A Finder-launched app has a minimal PATH, so search the usual install dirs too.
-    private static let searchDirs: [String] = {
+    nonisolated private static let searchDirs: [String] = {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         var dirs = (ProcessInfo.processInfo.environment["PATH"] ?? "")
             .split(separator: ":").map(String.init)
@@ -150,9 +150,9 @@ final class ProcessManager {
         return dirs
     }()
 
-    static var searchPath: String { searchDirs.joined(separator: ":") }
+    nonisolated static var searchPath: String { searchDirs.joined(separator: ":") }
 
-    static func resolve(_ command: String) -> String? {
+    nonisolated static func resolve(_ command: String) -> String? {
         guard !command.isEmpty else { return nil }
         if command.contains("/") {
             return FileManager.default.isExecutableFile(atPath: command) ? command : nil

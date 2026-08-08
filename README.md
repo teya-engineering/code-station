@@ -151,6 +151,18 @@ with Claude Code, Codex, or both through the MCP Servers screen.
 
 Every edit is saved to the config file straight away.
 
+### Skills
+
+**Tools and settings > Skills** reads the packages published by the
+[`example/claude-plugins`](https://github.com/example/claude-plugins) marketplace. Each
+package can be installed or removed independently for Claude Code and Codex. Installs
+use each agent's own plugin CLI and user scope, so they are available in every project.
+
+The screen refreshes the marketplace when it opens and compares its versions with both
+local plugin lists. An installed package with a different version is marked with an
+update action. If the remote marketplace cannot be reached, the last fetched catalogue
+remains available and the screen explains that it is showing cached data.
+
 ## Tests
 
 ```bash
