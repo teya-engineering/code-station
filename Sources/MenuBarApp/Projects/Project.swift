@@ -33,12 +33,34 @@ struct ProjectWorkspace: Identifiable, Codable, Equatable {
     var name: String
     var projectIDs: [UUID]
     var leadProjectID: UUID
+    // Each session can still override its checkout mode. These are only the choices
+    // preselected when a session starts, which keeps repeated workspace setup quick.
+    var worktreeProjectIDs: [UUID]
 
-    init(id: UUID = UUID(), name: String, projectIDs: [UUID], leadProjectID: UUID) {
+    init(id: UUID = UUID(), name: String, projectIDs: [UUID], leadProjectID: UUID,
+         worktreeProjectIDs: [UUID]? = nil) {
         self.id = id
         self.name = name
         self.projectIDs = projectIDs
         self.leadProjectID = leadProjectID
+        self.worktreeProjectIDs = worktreeProjectIDs ?? projectIDs
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, projectIDs, leadProjectID, worktreeProjectIDs
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        projectIDs = try container.decode([UUID].self, forKey: .projectIDs)
+        leadProjectID = try container.decode(UUID.self, forKey: .leadProjectID)
+        // Workspaces written before checkout defaults existed already opened every Git
+        // repository as a worktree, so selecting every member preserves that behavior.
+        worktreeProjectIDs = try container.decodeIfPresent([UUID].self,
+                                                            forKey: .worktreeProjectIDs)
+            ?? projectIDs
     }
 }
 
@@ -399,4 +421,5 @@ enum SessionNotice: Int, Equatable {
 // What the left sidebar can have selected.
 enum SidebarSelection: Hashable {
     case session(UUID)
+    case workspace(UUID)
 }

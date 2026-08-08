@@ -91,8 +91,11 @@ final class ProjectStore {
     }
 
     var selectedProject: Project? {
-        guard let session = selectedSession else { return selectedProjectID.flatMap(project) }
-        return project(session.projectID)
+        switch selection {
+        case .session(let id): return session(id).flatMap { project($0.projectID) }
+        case .workspace: return nil
+        case nil: return selectedProjectID.flatMap(project)
+        }
     }
 
     // Choosing a project is different from opening a conversation. Keeping the two
@@ -108,6 +111,12 @@ final class ProjectStore {
         guard let session = session(id) else { return }
         selectedProjectID = session.projectID
         selection = .session(id)
+        saveIndex()
+    }
+
+    func selectWorkspace(_ id: UUID) {
+        guard workspace(id) != nil else { return }
+        selection = .workspace(id)
         saveIndex()
     }
 
@@ -165,6 +174,7 @@ final class ProjectStore {
         workspaces = workspaces.compactMap { workspace in
             var updated = workspace
             updated.projectIDs.removeAll { $0 == id }
+            updated.worktreeProjectIDs.removeAll { $0 == id }
             guard updated.projectIDs.count >= 2 else { return nil }
             if updated.leadProjectID == id, let first = updated.projectIDs.first {
                 updated.leadProjectID = first
@@ -173,6 +183,9 @@ final class ProjectStore {
         }
         if selectedProjectID == id { selectedProjectID = projects.first?.id }
         if case .session(let sessionID) = selection, affected.contains(sessionID) { selection = nil }
+        if case .workspace(let workspaceID) = selection, workspace(workspaceID) == nil {
+            selection = nil
+        }
         saveIndex()
     }
 
@@ -194,12 +207,67 @@ final class ProjectStore {
         guard !trimmed.isEmpty, members.count >= 2, members.contains(leadProjectID) else { return nil }
 
         let ordered = [leadProjectID] + members.filter { $0 != leadProjectID }
+        let worktreeProjectIDs = ordered.filter { id in
+            project(id).map { FileManager.default.fileExists(atPath: $0.path + "/.git") } ?? false
+        }
         let workspace = ProjectWorkspace(name: trimmed, projectIDs: ordered,
-                                         leadProjectID: leadProjectID)
+                                         leadProjectID: leadProjectID,
+                                         worktreeProjectIDs: worktreeProjectIDs)
         workspaces.append(workspace)
         workspaces.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         saveIndex()
         return workspace
+    }
+
+    func renameWorkspace(_ id: UUID, to name: String) {
+        guard let i = workspaces.firstIndex(where: { $0.id == id }) else { return }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        workspaces[i].name = trimmed
+        workspaces.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        saveIndex()
+    }
+
+    func setLeadProject(_ projectID: UUID, inWorkspace id: UUID) {
+        guard let i = workspaces.firstIndex(where: { $0.id == id }),
+              workspaces[i].projectIDs.contains(projectID) else { return }
+        workspaces[i].leadProjectID = projectID
+        workspaces[i].projectIDs.removeAll { $0 == projectID }
+        workspaces[i].projectIDs.insert(projectID, at: 0)
+        saveIndex()
+    }
+
+    func setUsesWorktree(_ usesWorktree: Bool, for projectID: UUID, inWorkspace id: UUID) {
+        guard let i = workspaces.firstIndex(where: { $0.id == id }),
+              workspaces[i].projectIDs.contains(projectID) else { return }
+        workspaces[i].worktreeProjectIDs.removeAll { $0 == projectID }
+        if usesWorktree { workspaces[i].worktreeProjectIDs.append(projectID) }
+        saveIndex()
+    }
+
+    func addProject(_ projectID: UUID, toWorkspace id: UUID) {
+        guard project(projectID) != nil,
+              let i = workspaces.firstIndex(where: { $0.id == id }),
+              !workspaces[i].projectIDs.contains(projectID) else { return }
+        workspaces[i].projectIDs.append(projectID)
+        if let project = project(projectID),
+           FileManager.default.fileExists(atPath: project.path + "/.git") {
+            workspaces[i].worktreeProjectIDs.append(projectID)
+        }
+        saveIndex()
+    }
+
+    func removeProject(_ projectID: UUID, fromWorkspace id: UUID) {
+        guard let i = workspaces.firstIndex(where: { $0.id == id }),
+              workspaces[i].projectIDs.contains(projectID),
+              workspaces[i].projectIDs.count > 2 else { return }
+        workspaces[i].projectIDs.removeAll { $0 == projectID }
+        workspaces[i].worktreeProjectIDs.removeAll { $0 == projectID }
+        if workspaces[i].leadProjectID == projectID,
+           let first = workspaces[i].projectIDs.first {
+            workspaces[i].leadProjectID = first
+        }
+        saveIndex()
     }
 
     // MARK: - Sessions
@@ -544,8 +612,11 @@ final class ProjectStore {
         if indexDirty {
             indexDirty = false
             var openSessionID: UUID?
+            var openWorkspaceID: UUID?
             if case .session(let id) = selection { openSessionID = id }
+            if case .workspace(let id) = selection { openWorkspaceID = id }
             Preferences.selectedSessionID = openSessionID
+            Preferences.selectedWorkspaceID = openWorkspaceID
             Preferences.selectedProjectID = selectedProjectID
             persisted = Persisted(projects: projects, sessions: sessions, workspaces: workspaces)
         }
@@ -593,6 +664,8 @@ final class ProjectStore {
         if let id = Preferences.selectedSessionID ?? saved.selectedSessionID,
            sessions.contains(where: { $0.id == id }) {
             selection = .session(id)
+        } else if let id = Preferences.selectedWorkspaceID, workspace(id) != nil {
+            selection = .workspace(id)
         }
     }
 

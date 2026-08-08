@@ -50,6 +50,10 @@ struct RootView: View {
             SessionView(sessionID: id)
                 .id(id)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+        case .workspace(let id):
+            WorkspaceDetailView(workspaceID: id)
+                .id(id)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         case nil:
             if let project = store.selectedProject {
                 ProjectDetailView(projectID: project.id)

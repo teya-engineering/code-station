@@ -304,6 +304,7 @@ struct AppSidebar: View {
             WorkspaceHeaderRow(
                 workspace: workspace,
                 projects: projects,
+                selected: store.selection == .workspace(workspace.id),
                 isExpanded: expanded,
                 sessionCount: sessions.count,
                 runningCount: running,
@@ -311,7 +312,11 @@ struct AppSidebar: View {
                 onNewSession: { choosingWorkspaceSession = workspace }
             )
             .contentShape(Rectangle())
-            .onTapGesture { expansion[workspace.id] = !expanded }
+            .onTapGesture {
+                store.selectWorkspace(workspace.id)
+                expansion[workspace.id] = !expanded
+                if expanded { showingAllSessions.remove(workspace.id) }
+            }
             .appContextMenu {
                 [.item("New session") { choosingWorkspaceSession = workspace }]
             }
@@ -1063,6 +1068,7 @@ private struct SortChip: View {
 private struct WorkspaceHeaderRow: View {
     let workspace: ProjectWorkspace
     let projects: [Project]
+    let selected: Bool
     let isExpanded: Bool
     let sessionCount: Int
     let runningCount: Int
@@ -1116,8 +1122,11 @@ private struct WorkspaceHeaderRow: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .background(RoundedRectangle(cornerRadius: 10)
-            .fill(isExpanded ? Theme.accent.opacity(0.08)
-                              : hovering ? Color.black.opacity(0.03) : .clear))
+            .fill(selected ? Theme.accent.opacity(0.13)
+                           : isExpanded ? Theme.accent.opacity(0.08)
+                           : hovering ? Color.black.opacity(0.03) : .clear))
+        .overlay(RoundedRectangle(cornerRadius: 10)
+            .stroke(selected ? Theme.accent.opacity(0.22) : .clear))
         .overlay(alignment: .topTrailing) {
             if runningCount > 0 {
                 Text("\(runningCount)")

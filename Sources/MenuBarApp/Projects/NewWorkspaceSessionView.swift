@@ -19,7 +19,7 @@ struct NewWorkspaceSessionView: View {
         self.workspace = workspace
         self.onCreate = onCreate
         _projectIDs = State(initialValue: workspace.projectIDs)
-        _worktrees = State(initialValue: [])
+        _worktrees = State(initialValue: Set(workspace.worktreeProjectIDs))
     }
 
     var body: some View {
@@ -74,7 +74,6 @@ struct NewWorkspaceSessionView: View {
         }
         .frame(width: 680)
         .background(Theme.background)
-        .task { selectAvailableWorktrees() }
     }
 
     private func projectCard(_ project: Project, lead: Bool) -> some View {
@@ -247,22 +246,17 @@ struct NewWorkspaceSessionView: View {
         }
     }
 
-    private func selectAvailableWorktrees() {
-        for id in projectIDs {
-            if let project = store.project(id), isGitRepository(project) {
-                worktrees.insert(id)
-            }
-        }
-    }
-
     private func detach(_ id: UUID) {
         projectIDs.removeAll { $0 == id }
         worktrees.remove(id)
     }
 
     private func create() {
-        let choices = projectIDs.map {
-            WorkspaceProjectChoice(projectID: $0, useWorktree: worktrees.contains($0))
+        let choices = projectIDs.map { id in
+            let useWorktree = store.project(id).map {
+                worktrees.contains(id) && isGitRepository($0)
+            } ?? false
+            return WorkspaceProjectChoice(projectID: id, useWorktree: useWorktree)
         }
         onCreate(WorkspaceSessionChoice(sessionID: sessionID, projects: choices,
                                         agent: selectedAgent ?? runner.agent))

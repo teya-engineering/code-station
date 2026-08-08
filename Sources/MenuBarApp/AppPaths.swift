@@ -75,6 +75,11 @@ enum Preferences {
         set { set(newValue, "selectedProjectID") }
     }
 
+    static var selectedWorkspaceID: UUID? {
+        get { uuid("selectedWorkspaceID") }
+        set { set(newValue, "selectedWorkspaceID") }
+    }
+
     // Which agent runs the sessions. Everything else about an agent lives in its own
     // config; this is only the app's choice between them.
     static var agent: AgentKind {
