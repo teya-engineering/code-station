@@ -34,10 +34,11 @@ final class PostmanStore {
     func add(_ request: SavedRequest = SavedRequest(name: "New request"),
              to folderID: UUID? = nil) -> SavedRequest {
         var request = request
-        request.folderID = folderID.flatMap { id in folders.contains { $0.id == id } ? id : nil }
+        let folderID = validFolderID(folderID)
+        request.folderID = folderID
         requests.append(request)
         selectedID = request.id
-        if let folderID = request.folderID { expandedFolderIDs.insert(folderID) }
+        expandedFolderIDs.insert(folderID)
         save()
         return request
     }
@@ -83,31 +84,35 @@ final class PostmanStore {
 
     func renameFolder(_ id: UUID, to name: String) {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty, let index = folders.firstIndex(where: { $0.id == id }) else { return }
+        guard id != RequestFolder.defaultID,
+              !name.isEmpty,
+              let index = folders.firstIndex(where: { $0.id == id }) else { return }
         guard folders[index].name != name else { return }
         folders[index].name = name
         scheduleSave()
     }
 
     func removeFolder(_ id: UUID) {
-        guard folders.contains(where: { $0.id == id }) else { return }
+        guard id != RequestFolder.defaultID,
+              folders.contains(where: { $0.id == id }) else { return }
         folders.removeAll { $0.id == id }
         requests = requests.map { request in
             guard request.folderID == id else { return request }
             var request = request
-            request.folderID = nil
+            request.folderID = RequestFolder.defaultID
             return request
         }
+        expandedFolderIDs.insert(RequestFolder.defaultID)
         expandedFolderIDs.remove(id)
         save()
     }
 
     func move(_ requestID: UUID, to folderID: UUID?) {
         guard let index = requests.firstIndex(where: { $0.id == requestID }) else { return }
-        guard folderID == nil || folders.contains(where: { $0.id == folderID }) else { return }
+        let folderID = validFolderID(folderID)
         guard requests[index].folderID != folderID else { return }
         requests[index].folderID = folderID
-        if let folderID { expandedFolderIDs.insert(folderID) }
+        expandedFolderIDs.insert(folderID)
         save()
     }
 
@@ -161,7 +166,13 @@ final class PostmanStore {
 
     private func load() {
         guard let data = try? Data(contentsOf: storeURL), !data.isEmpty else {
-            requests = Self.examples
+            folders = [.default]
+            requests = Self.examples.map { request in
+                var request = request
+                request.folderID = RequestFolder.defaultID
+                return request
+            }
+            expandedFolderIDs = [RequestFolder.defaultID]
             selectedID = requests.first?.id
             return
         }
@@ -179,15 +190,27 @@ final class PostmanStore {
             return
         }
 
+        if !folders.contains(where: \.isDefault) {
+            folders.insert(.default, at: 0)
+        }
         let folderIDs = Set(folders.map(\.id))
         requests = requests.map { request in
-            guard let folderID = request.folderID, !folderIDs.contains(folderID) else { return request }
-            var request = request
-            request.folderID = nil
+            guard let folderID = request.folderID, folderIDs.contains(folderID) else {
+                var request = request
+                request.folderID = RequestFolder.defaultID
+                return request
+            }
             return request
         }
         expandedFolderIDs = folderIDs
         selectedID = requests.first?.id
+    }
+
+    private func validFolderID(_ folderID: UUID?) -> UUID {
+        guard let folderID, folders.contains(where: { $0.id == folderID }) else {
+            return RequestFolder.defaultID
+        }
+        return folderID
     }
 
     // An empty screen gives you nothing to copy, so a first run starts with the

@@ -104,14 +104,6 @@ struct PostmanView: View {
                     ForEach(store.folders) { folder in
                         folderSection(folder)
                     }
-
-                    if !store.folders.isEmpty, !store.requests(in: nil).isEmpty {
-                        Divider().overlay(Theme.hairline).padding(.vertical, 4)
-                    }
-
-                    ForEach(store.requests(in: nil)) { request in
-                        requestRow(request)
-                    }
                 }
                 .padding(.horizontal, 12)
                 .padding(.bottom, 8)
@@ -137,6 +129,7 @@ struct PostmanView: View {
                       isRenaming: renamingFolderID == folder.id,
                       accent: environment.accent,
                       onNewRequest: { store.add(to: folder.id) },
+                      onDropRequest: { store.move($0, to: folder.id) },
                       onRename: { name in
                           store.renameFolder(folder.id, to: name)
                           renamingFolderID = nil
@@ -148,12 +141,7 @@ struct PostmanView: View {
                     store.toggleFolder(folder.id)
                 }
                 .appContextMenu {
-                    [.item("New request") { store.add(to: folder.id) },
-                     .item("Rename…") { renamingFolderID = folder.id },
-                     .separator,
-                     .item("Delete folder", kind: .destructive) {
-                         dialogs.show(deleteFolderDialog(for: folder, store: store))
-                     }]
+                    folderContextMenu(for: folder)
                 }
 
             if expanded {
@@ -172,15 +160,26 @@ struct PostmanView: View {
             .contentShape(Rectangle())
             .onTapGesture { store.selectedID = request.id }
             .appContextMenu { requestContextMenu(for: request) }
+            .draggable(request.id.uuidString)
+    }
+
+    private func folderContextMenu(for folder: RequestFolder) -> [MenuEntry] {
+        var entries: [MenuEntry] = [
+            .item("New request") { store.add(to: folder.id) }
+        ]
+        guard !folder.isDefault else { return entries }
+        entries.append(.item("Rename…") { renamingFolderID = folder.id })
+        entries.append(.separator)
+        entries.append(.item("Delete folder", kind: .destructive) {
+            dialogs.show(deleteFolderDialog(for: folder, store: store))
+        })
+        return entries
     }
 
     private func requestContextMenu(for request: SavedRequest) -> [MenuEntry] {
         var entries: [MenuEntry] = [
             .item("Duplicate") { store.duplicate(request.id) },
-            .separator,
-            .item("Move to top level", checked: request.folderID == nil) {
-                store.move(request.id, to: nil)
-            }
+            .separator
         ]
         entries.append(contentsOf: store.folders.map { folder in
             .item("Move to \(folder.name)", checked: request.folderID == folder.id) {
@@ -208,7 +207,7 @@ struct PostmanView: View {
         .background(RoundedRectangle(cornerRadius: 10).fill(Color.black.opacity(0.88)))
         .contentShape(Rectangle())
         .appMenu(edge: .top, matchWidth: true) {
-            [.item("New request", subtitle: "starts at the top level") { store.add() },
+            [.item("New request", subtitle: "starts in Default") { store.add() },
              .item("New folder", subtitle: "groups related requests") {
                  renamingFolderID = store.addFolder().id
              }]
@@ -350,7 +349,7 @@ private func deleteFolderDialog(for folder: RequestFolder, store: PostmanStore) 
         title: "Delete \"\(folder.name)\"?",
         message: count == 0
             ? "This empty folder is gone for good."
-            : "The folder is gone. Its \(requests) stay at the top level.",
+            : "The folder is gone. Its \(requests) move to Default.",
         actions: [
             .init(label: "Delete folder", kind: .destructive) { store.removeFolder(folder.id) },
             .init(label: "Cancel", kind: .cancel)
@@ -364,11 +363,13 @@ private struct FolderRow: View {
     let isRenaming: Bool
     let accent: Color
     let onNewRequest: () -> Void
+    let onDropRequest: (UUID) -> Void
     let onRename: (String) -> Void
     let onCancelRename: () -> Void
 
     @State private var draftName = ""
     @State private var hovering = false
+    @State private var isDropTarget = false
     @FocusState private var nameFocused: Bool
 
     var body: some View {
@@ -403,29 +404,44 @@ private struct FolderRow: View {
 
             Spacer(minLength: 0)
 
-            if hovering && !isRenaming {
-                Button(action: onNewRequest) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(accent)
-                        .frame(width: 20, height: 20)
-                        .background(Circle().fill(accent.opacity(0.12)))
+            Group {
+                if hovering && !isRenaming {
+                    Button(action: onNewRequest) {
+                        Text("+ Request")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(accent)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .background(Capsule().fill(accent.opacity(0.12)))
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .appTooltip("New request in \(folder.name)")
+                } else {
+                    Text("\(requestCount)")
+                        .font(.mono(10))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
                 }
-                .buttonStyle(.plain)
-                .appTooltip("New request in \(folder.name)")
-            } else {
-                Text("\(requestCount)")
-                    .font(.mono(10))
-                    .foregroundStyle(.secondary)
             }
+            .frame(width: 62, height: 20)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, isRenaming ? 5 : 8)
         .background(RoundedRectangle(cornerRadius: 8)
-            .fill(hovering ? Theme.field : Color.clear))
+            .fill(isDropTarget ? accent.opacity(0.12) : (hovering ? Theme.field : Color.clear)))
         .overlay(RoundedRectangle(cornerRadius: 8)
-            .stroke(hovering ? accent.opacity(0.18) : .clear))
+            .stroke(isDropTarget ? accent.opacity(0.65) : (hovering ? accent.opacity(0.18) : .clear),
+                    lineWidth: isDropTarget ? 1.5 : 1))
         .onHover { hovering = $0 }
+        .dropDestination(for: String.self) { values, _ in
+            guard let value = values.first, let requestID = UUID(uuidString: value) else {
+                return false
+            }
+            onDropRequest(requestID)
+            return true
+        } isTargeted: {
+            isDropTarget = $0
+        }
         .onAppear { prepareRename() }
         .onChange(of: isRenaming) { _, _ in prepareRename() }
     }

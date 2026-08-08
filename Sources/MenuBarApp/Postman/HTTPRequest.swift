@@ -53,8 +53,13 @@ struct HeaderField: Identifiable, Codable, Equatable {
 }
 
 struct RequestFolder: Identifiable, Codable, Equatable {
+    static let defaultID = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+    static let `default` = RequestFolder(id: defaultID, name: "Default")
+
     var id = UUID()
     var name: String
+
+    var isDefault: Bool { id == Self.defaultID }
 
     init(id: UUID = UUID(), name: String) {
         self.id = id
@@ -65,8 +70,8 @@ struct RequestFolder: Identifiable, Codable, Equatable {
 struct SavedRequest: Identifiable, Codable, Equatable {
     var id = UUID()
     var name: String
-    // A missing folder keeps a request at the top level. It is optional so saved
-    // collections from before folders existed continue to load unchanged.
+    // This stays optional so collections saved before folders existed still decode.
+    // The store assigns missing and unknown folders to Default as it loads them.
     var folderID: UUID?
     var method: HTTPMethod = .get
     var url: String = ""
