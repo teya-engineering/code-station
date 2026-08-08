@@ -36,7 +36,7 @@ struct SessionView: View {
             VStack(spacing: 0) {
                 header(session: session, project: project)
                 warningStrip(session: session, project: project)
-                if session.workspaceID != nil, tab != .chat {
+                if store.checkoutProjects(for: session).count > 1, tab != .chat {
                     workspaceProjectBar(session)
                 }
 
@@ -100,9 +100,9 @@ struct SessionView: View {
                     // A worktree path is long and mostly noise, so it is held short here;
                     // the full path is a hover away. The branch is not repeated either,
                     // since the composer's footer already names it.
-                    Text(session.workspaceID == nil
+                    Text(store.checkoutProjects(for: session).count == 1
                          ? (session.worktreePath ?? project.path).abbreviatedPath
-                         : "workspace · \(store.checkoutProjects(for: session).count) projects")
+                         : "\(store.checkoutProjects(for: session).count) projects")
                         .font(.mono(11))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -560,6 +560,15 @@ struct SessionView: View {
         let agent = runner.agent
         HStack(spacing: 10) {
             if let repository { branchTag(repository) }
+            if session.settings?.mcpServersEnabled == false {
+                Text("MCP off")
+                    .font(.mono(10.5, .semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .background(RoundedRectangle(cornerRadius: 7).fill(Theme.field))
+                    .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.border))
+            }
             modelMenu(lastRan: usage?.model(for: agent))
             effortMenu
             if agent == .claudeCode {

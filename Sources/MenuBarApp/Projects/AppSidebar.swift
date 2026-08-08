@@ -9,6 +9,7 @@ struct AppSidebar: View {
     let onOpenSettings: () -> Void
     let onOpenPostman: () -> Void
     let onOpenAI: () -> Void
+    let onOpenTroubleshoot: () -> Void
     let onReviewOldSessions: () -> Void
 
     @Environment(ProjectStore.self) private var store
@@ -879,7 +880,7 @@ struct AppSidebar: View {
         .padding(.top, 12)
     }
 
-    // The five places you go to set something up, folded behind one button so the rail
+    // The setup and utility screens are folded behind one button so the rail
     // belongs to the projects. Each row carries its state as trailing text - the count,
     // the environment, whether the model server is up - so folding them away costs a
     // click but not the glance.
@@ -895,6 +896,7 @@ struct AppSidebar: View {
                   detailColour: postmanAuth.active.accent, action: onOpenPostman),
             .item("Local AI", detail: aiDetail?.text,
                   detailColour: aiDetail?.colour, action: onOpenAI),
+            .item("Troubleshoot", action: onOpenTroubleshoot),
             .separator,
             .item("Settings", detail: "⌘,", action: onOpenSettings)
         ]

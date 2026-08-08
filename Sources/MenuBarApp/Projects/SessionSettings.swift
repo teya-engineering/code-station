@@ -46,10 +46,13 @@ struct SessionSettings: Codable, Equatable {
     var effort: String?
     var permissionMode: String?
     var codexSandboxMode: String?
+    var mcpServersEnabled: Bool?
+    var disabledMCPServerNames: [String]?
 
     // A session that has chosen nothing runs exactly as the app settings say.
     var overridesAnything: Bool {
         model != nil || effort != nil || permissionMode != nil || codexSandboxMode != nil
+            || mcpServersEnabled != nil
     }
 }
 
