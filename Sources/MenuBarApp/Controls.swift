@@ -97,3 +97,24 @@ extension ToggleStyle where Self == AppSwitchStyle {
 extension ToggleStyle where Self == AppCheckboxStyle {
     static var appCheckbox: AppCheckboxStyle { AppCheckboxStyle() }
 }
+
+private struct SubtleButtonGlow: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var hovering = false
+
+    func body(content: Content) -> some View {
+        content
+            .shadow(
+                color: Theme.accent.opacity(hovering ? 0.14 : 0),
+                radius: hovering ? 7 : 1
+            )
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: hovering)
+            .onHover { hovering = $0 }
+    }
+}
+
+extension View {
+    func subtleButtonGlow() -> some View {
+        modifier(SubtleButtonGlow())
+    }
+}

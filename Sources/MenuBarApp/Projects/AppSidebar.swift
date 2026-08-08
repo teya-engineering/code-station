@@ -796,6 +796,7 @@ struct AppSidebar: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .subtleButtonGlow()
 
                 Button { showingNewWorkspace = true } label: {
                     VStack(spacing: 1) {
@@ -813,6 +814,7 @@ struct AppSidebar: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .subtleButtonGlow()
             }
             .padding(.horizontal, 16)
             .padding(.top, 16)
@@ -1019,6 +1021,7 @@ private struct ToolsButton: View {
         .padding(.vertical, 10)
         .background(RoundedRectangle(cornerRadius: 10).fill(hovering ? Theme.field : Theme.card))
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
+        .subtleButtonGlow()
         .appMenu(edge: .top, matchWidth: true, entries)
         .onHover { hovering = $0 }
     }
