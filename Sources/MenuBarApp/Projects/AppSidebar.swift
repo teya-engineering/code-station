@@ -233,23 +233,13 @@ struct AppSidebar: View {
                 onCancelRename: { renamingID = nil }
             )
             .contentShape(Rectangle())
-            // The row opens on the click itself, so a single click never waits out a
-            // double click window: the double click below runs alongside it rather than
-            // instead of it. It only means anything on a project with no sessions, where
-            // expanding shows nothing - there, the second click starts a session, the
-            // same as the + button. Both single clicks still fire first, but on an empty
-            // project toggling the row twice is invisible.
             .onTapGesture {
-                store.selectedProjectID = project.id
+                store.selectProject(project.id)
                 expansion[project.id] = !expanded
                 // Closing a project puts its list away, and putting it away includes the
                 // tail the user had unfolded: the next open starts back at the cap.
                 if expanded { showingAllSessions.remove(project.id) }
             }
-            .simultaneousGesture(TapGesture(count: 2).onEnded {
-                guard sessions.isEmpty else { return }
-                requestNewSession(in: project)
-            })
             .appContextMenu {
                 [.item("Rename…") { renamingID = project.id },
                  .item("New session") { requestNewSession(in: project) },
@@ -284,8 +274,7 @@ struct AppSidebar: View {
                                     onDelete: { confirmRemoveSession(session) })
                             .contentShape(Rectangle())
                             .onTapGesture {
-                                store.selectedProjectID = project.id
-                                store.selection = .session(session.id)
+                                store.selectSession(session.id)
                             }
                             .appContextMenu {
                                 [.item("Delete session", kind: .destructive) {

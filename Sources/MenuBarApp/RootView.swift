@@ -51,8 +51,14 @@ struct RootView: View {
                 .id(id)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         case nil:
-            WelcomeView()
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            if let project = store.selectedProject {
+                ProjectDetailView(projectID: project.id)
+                    .id(project.id)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                WelcomeView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         }
     }
 }
