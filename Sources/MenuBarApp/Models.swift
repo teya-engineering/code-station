@@ -73,6 +73,8 @@ struct Server: Identifiable, Equatable {
 
     var isGrafana: Bool { command == Grafana.command || name.hasPrefix("grafana-") }
 
+    var deployEnvironment: DeployEnv? { Grafana.parts(from: name)?.1 }
+
     var description: String {
         if let (scope, env) = Grafana.parts(from: name) {
             return "Grafana MCP server for the \(scope.rawValue) scope in \(env.rawValue)."

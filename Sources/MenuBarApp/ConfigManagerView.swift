@@ -303,8 +303,8 @@ private struct ServerRow: View {
                 Text(server.transport).font(.mono(11)).foregroundStyle(.secondary)
             }
             Spacer()
-            if !server.env.isEmpty {
-                Text("\(server.env.count) env")
+            if let environment = server.deployEnvironment {
+                Text(environment.rawValue)
                     .font(.mono(11))
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 8)
