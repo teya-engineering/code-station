@@ -71,6 +71,7 @@ struct TroubleshootView: View {
     @State private var problem = ""
     @State private var attachments: [Attachment] = []
     @State private var selectedProjects: Set<UUID> = []
+    @State private var projectFilter = ""
     @State private var environment = TroubleshootEnvironment.dev
     @State private var mcpServersEnabled = true
     @State private var agent: AgentKind?
@@ -361,35 +362,85 @@ struct TroubleshootView: View {
                     .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
                     .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
             } else {
-                ScrollView {
-                    VStack(spacing: 0) {
-                        ForEach(store.projects) { project in
-                            Toggle(isOn: projectSelection(project.id)) {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(project.name)
-                                        .font(.system(size: 13, weight: .medium))
-                                    Text(project.collapsedPath)
-                                        .font(.mono(10.5))
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(1)
-                                        .truncationMode(.middle)
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            }
-                            .toggleStyle(.appCheckbox)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 9)
+                projectFilterField
 
-                            if project.id != store.projects.last?.id {
-                                Divider().overlay(Theme.hairline).padding(.leading, 36)
+                Group {
+                    if filteredProjects.isEmpty {
+                        Text("No project matches \"\(projectFilter.trimmingCharacters(in: .whitespacesAndNewlines))\".")
+                            .font(.system(size: 13))
+                            .foregroundStyle(.secondary)
+                            .padding(14)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    } else {
+                        ScrollView {
+                            VStack(spacing: 0) {
+                                ForEach(filteredProjects) { project in
+                                    Toggle(isOn: projectSelection(project.id)) {
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(project.name)
+                                                .font(.system(size: 13, weight: .medium))
+                                            Text(project.collapsedPath)
+                                                .font(.mono(10.5))
+                                                .foregroundStyle(.secondary)
+                                                .lineLimit(1)
+                                                .truncationMode(.middle)
+                                        }
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                    }
+                                    .toggleStyle(.appCheckbox)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 9)
+
+                                    if project.id != filteredProjects.last?.id {
+                                        Divider().overlay(Theme.hairline).padding(.leading, 36)
+                                    }
+                                }
                             }
                         }
+                        .frame(maxHeight: 170)
                     }
                 }
-                .frame(maxHeight: 170)
                 .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
                 .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
             }
+        }
+    }
+
+    private var projectFilterField: some View {
+        HStack(spacing: 7) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.tertiary)
+            TextField("Filter projects by name or path", text: $projectFilter)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12.5))
+            if !projectFilter.isEmpty {
+                Button { projectFilter = "" } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .appTooltip("Clear filter")
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.field))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
+    }
+
+    private var filteredProjects: [Project] {
+        Self.projects(store.projects, matching: projectFilter)
+    }
+
+    static func projects(_ projects: [Project], matching filter: String) -> [Project] {
+        let query = filter.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return projects }
+        return projects.filter {
+            $0.name.localizedCaseInsensitiveContains(query)
+                || $0.path.localizedCaseInsensitiveContains(query)
         }
     }
 

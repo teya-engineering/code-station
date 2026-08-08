@@ -61,6 +61,15 @@ struct TroubleshootTests {
 
 @MainActor
 struct TroubleshootProjectTests {
+    @Test func filtersProjectsByNameOrPathIgnoringCase() {
+        let api = Project(name: "Payments API", path: "/Development/services/payments-api")
+        let web = Project(name: "Merchant Web", path: "/Development/frontends/merchant-web")
+
+        #expect(TroubleshootView.projects([api, web], matching: "PAYMENTS") == [api])
+        #expect(TroubleshootView.projects([api, web], matching: "frontends") == [web])
+        #expect(TroubleshootView.projects([api, web], matching: "  ") == [api, web])
+    }
+
     @Test func multiProjectDiagnosisUsesAttachedRootsWithoutSavingAWorkspace() throws {
         let storeURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("conductor-troubleshoot-tests-\(UUID().uuidString).json")
