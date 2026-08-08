@@ -9,6 +9,7 @@ private let menuMinimumWidth: CGFloat = 170
 // rows as the rest of the window, the way the in-app dialog does.
 enum MenuEntry {
     case item(MenuItem)
+    case cards([MenuCardItem])
     case separator
 
     static func item(_ label: String,
@@ -26,6 +27,15 @@ enum MenuEntry {
                        badge: badge, badgeTint: badgeTint, subtitle: subtitle,
                        detail: detail, detailColour: detailColour, handler: action))
     }
+}
+
+struct MenuCardItem {
+    let label: String
+    let icon: String
+    var showsUpdate = false
+    var detail: String?
+    var detailColour: Color?
+    var handler: () -> Void = {}
 }
 
 struct MenuItem {
@@ -77,6 +87,11 @@ final class MenuPresenter {
     // The item runs after the menu is gone, so an action that opens a dialog is not
     // left sitting behind a menu.
     func run(_ item: MenuItem) {
+        entries = []
+        item.handler()
+    }
+
+    func run(_ item: MenuCardItem) {
         entries = []
         item.handler()
     }
@@ -235,6 +250,8 @@ struct ContextMenuHost: View {
                 switch entry {
                 case .item(let item):
                     MenuItemRow(item: item, checkColumn: hasChecks) { presenter.run(item) }
+                case .cards(let items):
+                    MenuCardGrid(items: items) { presenter.run($0) }
                 case .separator:
                     Divider()
                         .overlay(Theme.hairline)
@@ -264,6 +281,77 @@ struct ContextMenuHost: View {
             ? presenter.origin.y - size.height
             : presenter.origin.y
         return max(8, min(flipped, bounds.height - size.height - 8))
+    }
+}
+
+private struct MenuCardGrid: View {
+    let items: [MenuCardItem]
+    let action: (MenuCardItem) -> Void
+
+    private let columns = [
+        GridItem(.flexible(), spacing: 8),
+        GridItem(.flexible(), spacing: 8)
+    ]
+
+    var body: some View {
+        LazyVGrid(columns: columns, spacing: 8) {
+            ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                MenuCardItemView(item: item) { action(item) }
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 2)
+    }
+}
+
+private struct MenuCardItemView: View {
+    let item: MenuCardItem
+    let action: () -> Void
+
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(alignment: .top, spacing: 6) {
+                    Image(systemName: item.icon)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Theme.accent)
+                        .frame(width: 26, height: 26)
+                        .background(RoundedRectangle(cornerRadius: 7)
+                            .fill(Theme.accent.opacity(0.10)))
+                    Spacer(minLength: 4)
+                    if item.showsUpdate {
+                        UpdateIndicator()
+                            .padding(.top, 2)
+                    }
+                }
+
+                Spacer(minLength: 8)
+
+                Text(item.label)
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .lineLimit(1)
+
+                if let detail = item.detail {
+                    Text(detail)
+                        .font(.mono(10))
+                        .foregroundStyle(item.detailColour.map(AnyShapeStyle.init)
+                                         ?? AnyShapeStyle(.tertiary))
+                        .lineLimit(1)
+                        .padding(.top, 2)
+                }
+            }
+            .foregroundStyle(Color.primary)
+            .frame(maxWidth: .infinity, minHeight: 76, alignment: .topLeading)
+            .padding(10)
+            .background(RoundedRectangle(cornerRadius: 9)
+                .fill(hovering ? Color.black.opacity(0.055) : Theme.field))
+            .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
     }
 }
 
