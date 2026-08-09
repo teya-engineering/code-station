@@ -32,6 +32,8 @@ struct TerminalDrawer: View {
             }
         }
         .background(Theme.card)
+        .onAppear { terminals.setDrawerVisible(true, for: scope) }
+        .onDisappear { terminals.setDrawerVisible(false, for: scope) }
     }
 
     // MARK: - Strip

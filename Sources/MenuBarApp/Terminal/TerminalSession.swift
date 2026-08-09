@@ -29,6 +29,7 @@ final class TerminalSession: Identifiable {
     @ObservationIgnored private var incoming = Data()
     @ObservationIgnored private var flushScheduled = false
     @ObservationIgnored private var busyPoll: Task<Void, Never>?
+    @ObservationIgnored private var busyMonitoringEnabled = true
 
     private static let shell: String = {
         // The login shell is what the user actually configured; fall back to zsh, the
@@ -74,7 +75,7 @@ final class TerminalSession: Identifiable {
                                columns: screen.cols, rows: screen.rows)
             isRunning = true
             failure = nil
-            watchForCommands()
+            if busyMonitoringEnabled { watchForCommands() }
         } catch {
             pty = nil
             failure = error.localizedDescription
@@ -90,17 +91,37 @@ final class TerminalSession: Identifiable {
         isBusy = false
     }
 
-    // There is nothing to be notified about here, so the shell's children are polled
-    // slowly enough to be free and often enough to feel live.
+    // Process sampling happens away from the main actor. Idle tabs are checked less
+    // often than running commands, while hidden drawers stop checking altogether.
     private func watchForCommands() {
         busyPoll?.cancel()
-        busyPoll = Task { [weak self] in
+        guard let pty else { return }
+        busyPoll = Task.detached { [weak self, pty] in
             while !Task.isCancelled {
-                guard let self, let pty = self.pty else { return }
                 let busy = pty.sampleBusy()
-                if busy != self.isBusy { self.isBusy = busy }
-                try? await Task.sleep(for: .milliseconds(400))
+                guard !Task.isCancelled else { return }
+                let active = await MainActor.run {
+                    guard let self, self.pty === pty, self.busyMonitoringEnabled else {
+                        return false
+                    }
+                    if busy != self.isBusy { self.isBusy = busy }
+                    return true
+                }
+                guard active else { return }
+                try? await Task.sleep(for: busy ? .milliseconds(500) : .seconds(1))
             }
+        }
+    }
+
+    func setBusyMonitoring(_ enabled: Bool) {
+        guard busyMonitoringEnabled != enabled else { return }
+        busyMonitoringEnabled = enabled
+        if enabled, isRunning {
+            watchForCommands()
+        } else {
+            busyPoll?.cancel()
+            busyPoll = nil
+            isBusy = false
         }
     }
 
@@ -191,6 +212,7 @@ final class TerminalStore {
     private var terminals: [TerminalScope: [TerminalSession]] = [:]
     private var selected: [TerminalScope: UUID] = [:]
     private var open: Set<TerminalScope> = []
+    @ObservationIgnored private var visibleDrawers: Set<TerminalScope> = []
     private var heights: [TerminalScope: CGFloat] = [:]
 
     func sessions(for scope: TerminalScope) -> [TerminalSession] { terminals[scope] ?? [] }
@@ -217,6 +239,18 @@ final class TerminalStore {
             open.insert(scope)
         } else {
             open.remove(scope)
+            setDrawerVisible(false, for: scope)
+        }
+    }
+
+    func setDrawerVisible(_ visible: Bool, for scope: TerminalScope) {
+        if visible {
+            visibleDrawers.insert(scope)
+        } else {
+            visibleDrawers.remove(scope)
+        }
+        for terminal in sessions(for: scope) {
+            terminal.setBusyMonitoring(visible)
         }
     }
 
@@ -235,6 +269,7 @@ final class TerminalStore {
         let terminal = TerminalSession(directory: directory,
                                        name: nextName(in: scope))
         terminal.start()
+        terminal.setBusyMonitoring(visibleDrawers.contains(scope))
         terminals[scope, default: []].append(terminal)
         selected[scope] = terminal.id
         return terminal
@@ -267,5 +302,6 @@ final class TerminalStore {
         for terminal in terminals.values.flatMap({ $0 }) { terminal.stop() }
         terminals = [:]
         selected = [:]
+        visibleDrawers = []
     }
 }

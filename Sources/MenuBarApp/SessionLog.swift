@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 import Foundation
 
 // A record on disk of the CLI protocol events and what the app did about them.
@@ -18,6 +19,7 @@ enum SessionLog {
     // Writes are ordered and off the main actor. Logging sits in the middle of the read
     // handler for every chunk of CLI output, so it must never wait on the disk.
     private static let queue = DispatchQueue(label: "\(AppPaths.bundleID).log", qos: .utility)
+    private static let writer = Writer()
 
     private static let clock: DateFormatter = {
         let formatter = DateFormatter()
@@ -26,7 +28,24 @@ enum SessionLog {
         return formatter
     }()
 
-    static var file: URL { AppPaths.logs.appendingPathComponent("sessions.log") }
+    static let file: URL = {
+        // A running app can roll its log between a test write and the test reading the
+        // path back. Each test process gets the same real writer behavior without
+        // competing with the app or another test process for the rollover files.
+        let process = ProcessInfo.processInfo
+        let isTestProcess = Bundle.main.bundleURL.pathExtension == "xctest"
+            || process.arguments.contains { $0.contains(".xctest/") }
+            || process.processName == "xctest"
+            || process.processName.hasSuffix("PackageTests")
+            || process.environment["XCTestConfigurationFilePath"] != nil
+        guard isTestProcess else {
+            return AppPaths.logs.appendingPathComponent("sessions.log")
+        }
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(AppPaths.bundleID)-session-logs-\(getpid())")
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory.appendingPathComponent("sessions.log")
+    }()
 
     // One entry. `session` is the app's own session id, short enough at eight characters
     // to scan a file by eye and still tell two live turns apart.
@@ -34,7 +53,10 @@ enum SessionLog {
         let stamp = Date()
         let tag = session.map { String($0.uuidString.prefix(8)) } ?? "--------"
         let body = message.count > maxLine ? String(message.prefix(maxLine)) + "…" : message
-        queue.async { append("\(clock.string(from: stamp)) [\(tag)] \(body)\n") }
+        queue.async {
+            writer.append("\(clock.string(from: stamp)) [\(tag)] \(body)\n",
+                          to: file, maxBytes: maxBytes)
+        }
     }
 
     // Where a stuck turn is usually explained, so it is worth having by hand rather than
@@ -80,26 +102,64 @@ enum SessionLog {
         return text
     }
 
-    // MARK: - Private
+    // Queue confinement lets one handle serve the whole process without adding a lock
+    // to the path that receives every CLI event.
+    private final class Writer: @unchecked Sendable {
+        private var handle: FileHandle?
+        private var size = 0
 
-    // Always on the queue.
-    private static func append(_ entry: String) {
-        let files = FileManager.default
-        let url = file
+        func append(_ entry: String, to url: URL, maxBytes: Int) {
+            let data = Data(entry.utf8)
+            openIfNeeded(url)
 
-        if let size = (try? files.attributesOfItem(atPath: url.path)[.size]) as? Int, size > maxBytes {
+            if size > maxBytes {
+                roll(url)
+                openIfNeeded(url)
+            }
+
+            guard let handle else {
+                try? data.write(to: url)
+                size = data.count
+                return
+            }
+            do {
+                try handle.write(contentsOf: data)
+                size += data.count
+            } catch {
+                close()
+                openIfNeeded(url)
+                guard let reopened = self.handle else {
+                    try? data.write(to: url)
+                    size = data.count
+                    return
+                }
+                if (try? reopened.write(contentsOf: data)) != nil {
+                    size += data.count
+                }
+            }
+        }
+
+        private func openIfNeeded(_ url: URL) {
+            guard handle == nil else { return }
+            let descriptor = Darwin.open(url.path, O_WRONLY | O_APPEND | O_CREAT, 0o644)
+            guard descriptor >= 0 else { return }
+            var attributes = stat()
+            size = fstat(descriptor, &attributes) == 0 ? Int(attributes.st_size) : 0
+            handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+        }
+
+        private func roll(_ url: URL) {
+            close()
+            let files = FileManager.default
             let previous = url.appendingPathExtension("1")
             try? files.removeItem(at: previous)
             try? files.moveItem(at: url, to: previous)
+            size = 0
         }
 
-        let data = Data(entry.utf8)
-        guard let handle = try? FileHandle(forWritingTo: url) else {
-            try? data.write(to: url)
-            return
+        private func close() {
+            try? handle?.close()
+            handle = nil
         }
-        defer { try? handle.close() }
-        _ = try? handle.seekToEnd()
-        try? handle.write(contentsOf: data)
     }
 }

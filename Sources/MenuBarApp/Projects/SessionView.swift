@@ -30,6 +30,14 @@ struct TranscriptWindow: Equatable {
     }
 }
 
+private struct TranscriptBottomOffsetKey: PreferenceKey {
+    static let defaultValue = CGFloat.greatestFiniteMagnitude
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
 // The detail pane for one Claude Code conversation: the transcript or the working tree
 // diff, with a real shell docked underneath. The terminal shares the screen rather
 // than replacing it, so a build and what the agent did are one glance apart.
@@ -38,6 +46,7 @@ struct SessionView: View {
     @Environment(SessionRunner.self) private var runner
     @Environment(TerminalStore.self) private var terminals
     @Environment(DialogPresenter.self) private var dialogs
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let sessionID: UUID
 
     private enum Tab: Hashable { case chat, changes, explorer }
@@ -48,6 +57,8 @@ struct SessionView: View {
     @State private var composerFocused = false
     @State private var selectedProjectID: UUID?
     @State private var transcriptWindow = TranscriptWindow()
+    @State private var transcriptPinnedToBottom = true
+    @State private var transcriptViewportHeight: CGFloat = 0
 
     // Working tree totals for the header; refreshed as tools finish so the numbers
     // track the run rather than only its end.
@@ -56,6 +67,7 @@ struct SessionView: View {
     @State private var statsTask: Task<Void, Never>?
 
     private let bottomAnchor = "transcript-bottom"
+    private var transcriptCoordinateSpace: String { "transcript-scroll-\(sessionID)" }
     private var terminalScope: TerminalScope { .session(sessionID) }
 
     var body: some View {
@@ -346,6 +358,7 @@ struct SessionView: View {
     private func transcript(_ session: ChatSession) -> some View {
         let state = runner.state(sessionID)
         let projectPath = store.workingDirectory(for: session) ?? ""
+        let textShape = streamingTextShape(session)
 
         return ScrollViewReader { proxy in
             ScrollView {
@@ -372,8 +385,10 @@ struct SessionView: View {
                     // rows above it glide up rather than jumping. Keyed on the shape of
                     // the transcript, not its text, so it plays once per whole arrival
                     // and never while a line is still being typed into.
-                    .animation(.easeOut(duration: 0.2), value: transcriptShape(session, state: state))
+                    .animation(reduceMotion ? nil : .easeOut(duration: 0.2),
+                               value: transcriptShape(session, state: state, textShape: textShape))
             }
+            .coordinateSpace(name: transcriptCoordinateSpace)
             // Opening a transcript starts at the end, where the conversation is.
             .defaultScrollAnchor(.bottom)
             // The pane changes height under a transcript that is already there: the
@@ -381,22 +396,33 @@ struct SessionView: View {
             // The end of the content moves with it, and the scroll view is left holding
             // the offset that used to reach it, so it has to be sent there again.
             .background(GeometryReader { geometry in
-                Color.clear.onChange(of: geometry.size.height) {
+                Color.clear.onChange(of: geometry.size.height, initial: true) { _, height in
+                    transcriptViewportHeight = height
+                    guard transcriptPinnedToBottom else { return }
                     Task { proxy.scrollTo(bottomAnchor, anchor: .bottom) }
                 }
             })
+            .onPreferenceChange(TranscriptBottomOffsetKey.self) { bottomOffset in
+                guard transcriptViewportHeight > 0 else { return }
+                let pinned = bottomOffset <= transcriptViewportHeight + 24
+                if pinned != transcriptPinnedToBottom {
+                    transcriptPinnedToBottom = pinned
+                }
+            }
             // Rows measure again after the first layout - an attachment, an image, text
             // that wraps differently once it has its real width - and the end of the
             // transcript moves with them. One nudge once that settles lands on it.
             .task(id: sessionID) {
                 transcriptWindow.reset()
+                transcriptPinnedToBottom = true
                 await Task.yield()
                 proxy.scrollTo(bottomAnchor, anchor: .bottom)
             }
             .onChange(of: session.messages.count) { scrollToBottom(proxy, animated: true) }
-            // A finished line is worth a glide; tokens landing inside one are not.
-            .onChange(of: session.messages.last?.text ?? "") { old, new in
-                scrollToBottom(proxy, animated: newlineCount(old) != newlineCount(new))
+            // A finished line is worth a glide. A long line is followed in coarse chunks
+            // so streaming tokens do not each perform another scroll operation.
+            .onChange(of: textShape) { old, new in
+                scrollToBottom(proxy, animated: old.lines != new.lines)
             }
             .onChange(of: session.messages.last?.tools.count ?? 0) { scrollToBottom(proxy, animated: true) }
             .onChange(of: state) { scrollToBottom(proxy, animated: true) }
@@ -484,7 +510,14 @@ struct SessionView: View {
                 .transition(.fadeIn)
             }
 
-            Color.clear.frame(height: 1).id(bottomAnchor)
+            Color.clear
+                .frame(height: 1)
+                .background(GeometryReader { geometry in
+                    Color.clear.preference(
+                        key: TranscriptBottomOffsetKey.self,
+                        value: geometry.frame(in: .named(transcriptCoordinateSpace)).maxY)
+                })
+                .id(bottomAnchor)
         }
     }
 
@@ -517,9 +550,10 @@ struct SessionView: View {
     }
 
     private func scrollToBottom(_ proxy: ScrollViewProxy, animated: Bool) {
+        guard transcriptPinnedToBottom else { return }
         // Animating every streamed token makes the transcript jitter, so only whole
         // arrivals - a message, a tool row, a finished line - are worth animating.
-        if animated {
+        if animated, !reduceMotion {
             withAnimation(.easeOut(duration: 0.18)) { proxy.scrollTo(bottomAnchor, anchor: .bottom) }
         } else {
             proxy.scrollTo(bottomAnchor, anchor: .bottom)
@@ -537,12 +571,23 @@ struct SessionView: View {
         let question: String?
     }
 
-    private func transcriptShape(_ session: ChatSession, state: SessionState) -> TranscriptShape {
+    private struct StreamingTextShape: Equatable {
+        let lines: Int
+        let chunks: Int
+    }
+
+    private func transcriptShape(_ session: ChatSession, state: SessionState,
+                                 textShape: StreamingTextShape) -> TranscriptShape {
         TranscriptShape(messages: session.messages.count,
                         tools: session.messages.last?.tools.count ?? 0,
-                        lines: newlineCount(session.messages.last?.text ?? ""),
+                        lines: textShape.lines,
                         state: state,
                         question: runner.question(sessionID)?.id)
+    }
+
+    private func streamingTextShape(_ session: ChatSession) -> StreamingTextShape {
+        let text = session.messages.last?.text ?? ""
+        return StreamingTextShape(lines: newlineCount(text), chunks: text.utf8.count / 120)
     }
 
     private func newlineCount(_ text: String) -> Int {
@@ -1001,6 +1046,8 @@ struct SessionView: View {
 // reports something every few seconds, so the silence is the number worth watching: it is
 // the only thing that separates a long build from a turn that will never come back.
 private struct WorkingRow: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     let runningTool: String?
     let since: Date
     // The agent has answered and is being held open for a background task it started.
@@ -1027,7 +1074,7 @@ private struct WorkingRow: View {
             let quiet = context.date.timeIntervalSince(since)
             let word = waitingOnTasks ? "Waiting" : words.word(after: context.date.timeIntervalSince(started))
             HStack(spacing: 8) {
-                WorkingGlyph()
+                WorkingGlyph(date: context.date, animated: !reduceMotion)
                 Text("\(word)…")
                     .font(.mono(12, .medium))
                     .foregroundStyle(.primary)
@@ -1052,7 +1099,7 @@ private struct WorkingRow: View {
                 }
                 Spacer(minLength: 0)
             }
-            .animation(.easeInOut(duration: 0.25), value: word)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: word)
             .help(quiet >= Self.concerningAfter && !waitingOnTasks
                   ? "Claude Code has sent nothing for a while. The log in Settings says what it last did."
                   : "")

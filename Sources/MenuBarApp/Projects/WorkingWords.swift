@@ -41,17 +41,18 @@ struct WorkingWords {
 // which is exactly when the row is worth looking at.
 struct WorkingGlyph: View {
     private static let frames = ["✳", "✻", "✽", "✻"]
-    private static let frameRate: TimeInterval = 0.15
+
+    let date: Date
+    var animated = true
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: Self.frameRate)) { context in
-            // Counted off the absolute clock rather than off the timeline's own start, so
-            // a redraw that re-anchors the schedule does not jump the animation.
-            let step = Int(context.date.timeIntervalSinceReferenceDate / Self.frameRate)
-            Text(Self.frames[abs(step) % Self.frames.count])
-                .font(.mono(12))
-                .foregroundStyle(Theme.attention)
-        }
+        // Counted off the absolute clock so a redraw does not restart the sequence. The
+        // containing working row owns the clock, which keeps the whole row to one update
+        // per second instead of running a second, display-rate timeline for this mark.
+        let step = animated ? Int(date.timeIntervalSinceReferenceDate) : 0
+        Text(Self.frames[abs(step) % Self.frames.count])
+            .font(.mono(12))
+            .foregroundStyle(Theme.attention)
         // These glyphs are not all the same width, and the text beside them must not
         // shuffle sideways every frame.
         .frame(width: 13, alignment: .center)

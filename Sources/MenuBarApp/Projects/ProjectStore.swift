@@ -32,6 +32,8 @@ final class ProjectStore {
     // Session records without their transcripts. `messages` on one of these is only the
     // conversation while something holds it - see `hold(_:for:)`.
     private(set) var sessions: [ChatSession] = []
+    @ObservationIgnored private var sidebarSessionCache: [ChatSession] = []
+    private var sidebarSessionRevision = 0
     var selection: SidebarSelection? {
         // Opening a session is reading it, wherever the click came from, and it is also
         // what brings the conversation into memory - and lets the last one go.
@@ -110,6 +112,18 @@ final class ProjectStore {
     func workspace(_ id: UUID) -> ProjectWorkspace? { workspaces.first { $0.id == id } }
     func session(_ id: UUID) -> ChatSession? { sessions.first { $0.id == id } }
 
+    // The rail needs session metadata, but observing the main array would also make it
+    // observe every transcript write because ChatSession is a value. This copy is
+    // published only when card metadata changes and never carries message payloads.
+    var sidebarSessions: [ChatSession] {
+        _ = sidebarSessionRevision
+        return sidebarSessionCache
+    }
+
+    func sidebarSession(_ id: UUID) -> ChatSession? {
+        sidebarSessions.first { $0.id == id }
+    }
+
     func standaloneSessions(for projectID: UUID) -> [ChatSession] {
         sessions.filter { $0.projectID == projectID && $0.workspaceID == nil }
             .sorted { $0.createdAt > $1.createdAt }
@@ -169,13 +183,13 @@ final class ProjectStore {
     // A collapsed project hides its sessions, so the count is what says how much is
     // waiting behind it.
     func finishedCount(in projectID: UUID) -> Int {
-        sessions.filter {
+        sidebarSessions.filter {
             $0.projectID == projectID && $0.workspaceID == nil && finished.contains($0.id)
         }.count
     }
 
     func finishedCount(inWorkspace workspaceID: UUID) -> Int {
-        sessions.filter { $0.workspaceID == workspaceID && finished.contains($0.id) }.count
+        sidebarSessions.filter { $0.workspaceID == workspaceID && finished.contains($0.id) }.count
     }
 
     // MARK: - Projects
@@ -321,6 +335,7 @@ final class ProjectStore {
         // Nothing has been said yet, and there is no file to go looking for.
         session.transcriptLoaded = true
         sessions.append(session)
+        publishSidebarSessions()
         selectedProjectID = projectID
         selection = .session(session.id)
         saveIndex()
@@ -344,6 +359,7 @@ final class ProjectStore {
         session.isTroubleshooting = isTroubleshooting
         session.transcriptLoaded = true
         sessions.append(session)
+        publishSidebarSessions()
         selectedProjectID = workspace.leadProjectID
         selection = .session(session.id)
         saveIndex()
@@ -389,6 +405,7 @@ final class ProjectStore {
     private func rollBackSessionInsertion(_ sessionID: UUID, selection: SidebarSelection?,
                                           projectID: UUID?) {
         sessions.removeAll { $0.id == sessionID }
+        publishSidebarSessions()
         clearSessionMemory(sessionID)
         self.selection = selection
         selectedProjectID = projectID
@@ -443,6 +460,7 @@ final class ProjectStore {
         var usage = sessions[i].usage ?? SessionUsage()
         usage.add(turn, from: agent)
         sessions[i].usage = usage
+        publishSidebarSessions()
         scheduleIndexSave()
     }
 
@@ -451,6 +469,7 @@ final class ProjectStore {
         var usage = sessions[i].usage ?? SessionUsage()
         usage.noteContext(tokens, from: agent)
         sessions[i].usage = usage
+        publishSidebarSessions()
         scheduleIndexSave()
     }
 
@@ -539,6 +558,7 @@ final class ProjectStore {
         switch persistRemovalJournal(updated) {
         case .success:
             pendingSessionRemovals = updated
+            if restored { publishSidebarSessions() }
             saveError = nil
             return .success(())
         case .failure(let failure):
@@ -588,6 +608,7 @@ final class ProjectStore {
             ToolPresentationCache.forget(session.messages.flatMap(\.tools).map(\.id))
         }
         sessions.removeAll { $0.id == sessionID }
+        publishSidebarSessions()
         clearSessionMemory(sessionID)
         if case .session(sessionID) = selection { selection = nil }
     }
@@ -691,8 +712,10 @@ final class ProjectStore {
     func append(_ message: ChatMessage, to sessionID: UUID) {
         guard let i = index(sessionID) else { return }
         loadTranscript(i)
+        let previousTitle = sessions[i].title
         sessions[i].messages.append(message)
         if message.role == .user { sessions[i].retitleIfNeeded(from: message.text) }
+        if sessions[i].title != previousTitle { publishSidebarSessions() }
         transcriptChanged(i)
     }
 
@@ -791,6 +814,8 @@ final class ProjectStore {
     private var indexRevision = 0
     private var saveGeneration = 0
     private var lastCompletedGeneration = 0
+    private var asynchronousWriteInFlight = false
+    private var saveAfterCurrentWrite = false
 
     // The index carries what the sidebar reads, so anything that changes a title, a
     // number or where a session runs goes through one of these.
@@ -852,7 +877,7 @@ final class ProjectStore {
     private func scheduleSave() {
         saveTask?.cancel()
         saveTask = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(400))
+            try? await Task.sleep(for: .seconds(1))
             guard !Task.isCancelled else { return }
             self?.save(waiting: false)
         }
@@ -870,6 +895,10 @@ final class ProjectStore {
         guard loadError == nil else {
             saveError = "Changes were not saved because the existing project index could not be loaded."
             return false
+        }
+        if !waiting, asynchronousWriteInFlight {
+            saveAfterCurrentWrite = true
+            return true
         }
 
         var transcripts: [PendingTranscript] = []
@@ -965,28 +994,39 @@ final class ProjectStore {
             return completion
         }
         if waiting {
-            finishWrite(Self.writer.sync(execute: job))
+            finishWrite(Self.writer.sync(execute: job), asynchronous: false)
             return dirtyTranscripts.isEmpty && !indexDirty
         }
+        asynchronousWriteInFlight = true
         Self.writer.async { [weak self] in
             let completion = job()
-            Task { @MainActor in self?.finishWrite(completion) }
+            Task { @MainActor in self?.finishWrite(completion, asynchronous: true) }
         }
         return blockedFailures.isEmpty
     }
 
-    private func finishWrite(_ completion: WriteCompletion) {
+    private func finishWrite(_ completion: WriteCompletion, asynchronous: Bool) {
+        var summaryChanged = false
         for (sessionID, summary) in completion.summaries
         where transcriptRevisions[sessionID] == summary.revision {
             guard let i = index(sessionID) else { continue }
+            summaryChanged = summaryChanged || sessions[i].summary != summary.value
             sessions[i].summary = summary.value
         }
+        if summaryChanged { publishSidebarSessions() }
         for (sessionID, revision) in completion.transcriptSuccesses
         where transcriptRevisions[sessionID] == revision {
             dirtyTranscripts.remove(sessionID)
         }
         if completion.indexSucceeded, completion.indexRevision == indexRevision {
             indexDirty = false
+        }
+        if asynchronous {
+            asynchronousWriteInFlight = false
+            if saveAfterCurrentWrite {
+                saveAfterCurrentWrite = false
+                if !dirtyTranscripts.isEmpty || indexDirty { scheduleSave() }
+            }
         }
         guard completion.generation >= lastCompletedGeneration else { return }
         lastCompletedGeneration = completion.generation
@@ -1054,6 +1094,7 @@ final class ProjectStore {
     }
 
     func load() {
+        defer { publishSidebarSessions() }
         let data: Data?
         do {
             data = try files.readIfPresent(storeURL)
@@ -1091,6 +1132,16 @@ final class ProjectStore {
         } else if let id = Preferences.selectedWorkspaceID, workspace(id) != nil {
             selection = .workspace(id)
         }
+    }
+
+    private func publishSidebarSessions() {
+        sidebarSessionCache = sessions.map { session in
+            var card = session
+            card.messages = []
+            card.transcriptLoaded = false
+            return card
+        }
+        sidebarSessionRevision &+= 1
     }
 
     // An index written before conversations had files of their own carries them inline,

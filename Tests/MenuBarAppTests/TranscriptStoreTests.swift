@@ -110,6 +110,20 @@ struct TranscriptStoreTests {
         #expect(store.session(session.id)?.lastActivity == sent)
     }
 
+    @Test func sidebarCopyTracksMetadataWithoutCarryingTheTranscript() throws {
+        let store = makeStore()
+        let session = store.newSession(in: project(in: store).id)
+        store.append(ChatMessage(role: .user, text: "Investigate CPU usage"), to: session.id)
+        store.append(ChatMessage(role: .assistant, tools: [edit()]), to: session.id)
+        #expect(store.save())
+
+        let sidebarSession = try #require(store.sidebarSession(session.id))
+        #expect(sidebarSession.title == "Investigate CPU usage")
+        #expect(sidebarSession.summary.added == 1)
+        #expect(sidebarSession.messages.isEmpty)
+        #expect(!sidebarSession.transcriptLoaded)
+    }
+
     @Test func derivesSidebarSummaryAwayFromTheMainActor() async {
         let sent = Date(timeIntervalSince1970: 1_800_000_000)
         let messages = [ChatMessage(role: .assistant, text: "", tools: [edit()], date: sent)]

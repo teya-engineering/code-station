@@ -37,6 +37,7 @@ final class SessionRunner {
     private(set) var rateLimitsUpdatedAt: [AgentKind: Date] = [:]
 
     private var states: [UUID: SessionState] = [:]
+    private var runningTools: [UUID: [ToolUse]] = [:]
     private var turns: [UUID: Turn] = [:]
     // Everything the agent is waiting on, oldest first. Parallel tool calls can park more
     // than one at a time, and each is answered on its own.
@@ -81,6 +82,13 @@ final class SessionRunner {
     var available: Bool { isAvailable(agent) }
 
     func state(_ sessionID: UUID) -> SessionState { states[sessionID] ?? .idle }
+
+    func runningTool(_ sessionID: UUID) -> ToolUse? { runningTools[sessionID]?.last }
+
+    private func setState(_ state: SessionState, for sessionID: UUID) {
+        guard states[sessionID] != state else { return }
+        states[sessionID] = state
+    }
 
     // When this session last heard anything at all from the CLI. A turn that is working
     // says something every few seconds, so a long gap here is the one visible difference
@@ -224,8 +232,9 @@ final class SessionRunner {
         // Two agents sharing any direct project folder would edit the same files under
         // each other. Workspace sessions therefore conflict when any root overlaps.
         if let other = busySession(sharingDirectoryWith: session, store: store) {
-            states[sessionID] = .failed(
-                "\"\(other.title)\" is already running in one of these folders. Sessions that share a directory cannot run at the same time - stop that one first, or use worktrees to run in parallel.")
+            setState(.failed(
+                "\"\(other.title)\" is already running in one of these folders. Sessions that share a directory cannot run at the same time - stop that one first, or use worktrees to run in parallel."),
+                for: sessionID)
             return
         }
 
@@ -401,6 +410,7 @@ final class SessionRunner {
     func finishRemoval(_ sessionID: UUID) {
         removals.remove(sessionID)
         states[sessionID] = nil
+        runningTools[sessionID] = nil
         asked[sessionID] = nil
         queues[sessionID] = nil
         drafts[sessionID] = nil
@@ -412,7 +422,7 @@ final class SessionRunner {
         turn.stopRequested = true
         turn.stopFailure = failure
         asked[sessionID] = nil
-        states[sessionID] = .stopping
+        setState(.stopping, for: sessionID)
         turn.closeInput()
         CommandRunner.signalProcessGroup(turn.processGroup, signal: SIGTERM)
         let token = turn.token
@@ -434,18 +444,19 @@ final class SessionRunner {
         // claudeSessionID has been cleared, and must not try to resume anything.
         guard let session = store.session(sessionID) else { return }
         guard store.project(session.projectID) != nil else {
-            states[sessionID] = .failed("This session's project is no longer in the app.")
+            setState(.failed("This session's project is no longer in the app."), for: sessionID)
             return
         }
         let agent = agent
         guard let agentPath = paths[agent] else {
-            states[sessionID] = .failed(
-                "Could not find \"\(agent.command)\" on PATH. Install the \(agent.title) CLI (\(agent.installHint)) and reopen the app.")
+            setState(.failed(
+                "Could not find \"\(agent.command)\" on PATH. Install the \(agent.title) CLI (\(agent.installHint)) and reopen the app."),
+                for: sessionID)
             return
         }
         let workingDirectories = store.workingDirectories(for: session)
         guard !workingDirectories.isEmpty else {
-            states[sessionID] = .failed("This session has no working directory.")
+            setState(.failed("This session has no working directory."), for: sessionID)
             return
         }
         guard let missing = workingDirectories.first(where: { path in
@@ -458,7 +469,7 @@ final class SessionRunner {
                    workingDirectories: workingDirectories, canRetryWithoutResume: canRetryWithoutResume)
             return
         }
-        states[sessionID] = .failed("\(missing) no longer exists.")
+        setState(.failed("\(missing) no longer exists."), for: sessionID)
     }
 
     private func launch(_ prompt: String, attachments: [Attachment], sessionID: UUID,
@@ -471,7 +482,7 @@ final class SessionRunner {
         do {
             mcpConfigURL = try temporaryMCPConfig(for: session, agent: agent)
         } catch {
-            states[sessionID] = .failed(error.localizedDescription)
+            setState(.failed(error.localizedDescription), for: sessionID)
             return
         }
 
@@ -539,8 +550,9 @@ final class SessionRunner {
             store.removeMessage(reply.id, from: sessionID)
             store.release(sessionID, for: .running)
             SessionLog.note("could not start: \(error.localizedDescription)", session: sessionID)
-            states[sessionID] = .failed(
-                "Could not start \(agent.title): \(error.localizedDescription)")
+            setState(.failed(
+                "Could not start \(agent.title): \(error.localizedDescription)"),
+                for: sessionID)
             return
         }
         try? input.fileHandleForReading.close()
@@ -554,6 +566,7 @@ final class SessionRunner {
         let token = turn.token
         let runner = self
         let buffer = LineBuffer()
+        let stream = StreamBatcher()
 
         let parseLine: @Sendable (String) -> [StreamEvent] = { line in
             let events = agent == .codex ? StreamEvent.parseCodex(line)
@@ -571,17 +584,22 @@ final class SessionRunner {
                 handle.readabilityHandler = nil
                 SessionLog.note("stdout closed", session: sessionID)
                 let tail = buffer.flush().flatMap(parseLine)
-                Task { @MainActor in
-                    runner.apply(tail, sessionID: sessionID, token: token, store: store)
-                    runner.pipeClosed(sessionID, token: token, stdout: true, store: store)
+                if stream.append(events: tail, stdoutClosed: true) {
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(40))
+                        runner.flush(stream, sessionID: sessionID, token: token, store: store)
+                    }
                 }
                 return
             }
             let events = buffer.lines(from: data).flatMap(parseLine)
             // Even a line that means nothing to the app proves the CLI is alive, so the
             // clock moves on the read rather than on the events it turned into.
-            Task { @MainActor in
-                runner.apply(events, sessionID: sessionID, token: token, store: store)
+            if stream.append(events: events, stdoutActivity: true) {
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(40))
+                    runner.flush(stream, sessionID: sessionID, token: token, store: store)
+                }
             }
         }
 
@@ -590,22 +608,34 @@ final class SessionRunner {
             guard !data.isEmpty else {
                 handle.readabilityHandler = nil
                 SessionLog.note("stderr closed", session: sessionID)
-                Task { @MainActor in
-                    runner.pipeClosed(sessionID, token: token, stdout: false, store: store)
+                if stream.append(stderrClosed: true) {
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(40))
+                        runner.flush(stream, sessionID: sessionID, token: token, store: store)
+                    }
                 }
                 return
             }
             let chunk = String(decoding: data, as: UTF8.self)
             SessionLog.note("stderr bytes=\(data.count)", session: sessionID)
-            Task { @MainActor in runner.appendStderr(sessionID, token: token, chunk) }
+            if stream.append(stderr: chunk) {
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(40))
+                    runner.flush(stream, sessionID: sessionID, token: token, store: store)
+                }
+            }
         }
 
         turns[sessionID] = turn
-        states[sessionID] = .starting
+        setState(.starting, for: sessionID)
         SessionLog.note("starting \(agent.command) arguments=\(processArguments.count)",
                         session: sessionID)
 
-        DispatchQueue.global(qos: .userInitiated).async {
+        let exitMonitor = DispatchSource.makeProcessSource(
+            identifier: processGroup, eventMask: .exit,
+            queue: DispatchQueue.global(qos: .userInitiated))
+        turn.exitMonitor = exitMonitor
+        let handleExit: @Sendable () -> Void = {
             let status = CommandRunner.waitForExit(of: processGroup)
             let stopped = CommandRunner.ensureProcessGroupStopped(processGroup)
             SessionLog.note(
@@ -620,6 +650,8 @@ final class SessionRunner {
                 }
             }
         }
+        exitMonitor.setEventHandler(handler: handleExit)
+        exitMonitor.activate()
 
         switch agent {
         case .claudeCode:
@@ -752,7 +784,7 @@ final class SessionRunner {
                 store.setAgentSessionID(claudeSessionID, agent: turn.agent, for: sessionID)
 
             case .text(let text):
-                states[sessionID] = .streaming
+                setState(.streaming, for: sessionID)
                 freshReply(turn, sessionID: sessionID, store: store)
                 store.updateMessage(turn.messageID, in: sessionID) { message in
                     // Each event carries a complete block, and blocks are split around
@@ -762,15 +794,16 @@ final class SessionRunner {
                 }
 
             case .agentText(let parentID, let text):
-                states[sessionID] = .streaming
+                setState(.streaming, for: sessionID)
                 store.updateMessage(turn.messageID, in: sessionID) { message in
                     guard let i = message.tools.firstIndex(where: { $0.id == parentID }) else { return }
                     message.tools[i].status = Self.statusLine(text)
                 }
 
             case .toolUse(let tool):
-                states[sessionID] = .streaming
+                setState(.streaming, for: sessionID)
                 freshReply(turn, sessionID: sessionID, store: store)
+                runningTools[sessionID, default: []].append(tool)
                 store.updateMessage(turn.messageID, in: sessionID) { message in
                     // Stamped here rather than in the parser: only the message being
                     // built knows how much has been said so far, and that is what puts
@@ -781,6 +814,7 @@ final class SessionRunner {
                 }
 
             case .toolResult(let id, let output, let isError):
+                runningTools[sessionID]?.removeAll { $0.id == id }
                 var command = ""
                 store.updateMessage(turn.messageID, in: sessionID) { message in
                     guard let i = message.tools.firstIndex(where: { $0.id == id }) else { return }
@@ -798,7 +832,7 @@ final class SessionRunner {
                 }
 
             case .permissionRequest(let request):
-                states[sessionID] = .streaming
+                setState(.streaming, for: sessionID)
                 asked[sessionID, default: []].append(request)
 
             case .permissionWithdrawn(let id):
@@ -842,7 +876,7 @@ final class SessionRunner {
                                     session: sessionID)
                     turn.waitingOnTasks = true
                     turn.needsFreshReply = true
-                    states[sessionID] = .waiting
+                    setState(.waiting, for: sessionID)
                     // A prompt typed while the agent was working can go down the open
                     // pipe now instead of sitting behind the task.
                     injectQueued(sessionID, store: store)
@@ -855,7 +889,24 @@ final class SessionRunner {
         }
         if turn.stopRequested {
             asked[sessionID] = nil
-            states[sessionID] = .stopping
+            setState(.stopping, for: sessionID)
+        }
+    }
+
+    private func flush(_ stream: StreamBatcher, sessionID: UUID, token: UUID,
+                       store: ProjectStore) {
+        let batch = stream.drain()
+        if batch.stdoutActivity || !batch.events.isEmpty {
+            apply(batch.events, sessionID: sessionID, token: token, store: store)
+        }
+        if !batch.stderr.isEmpty {
+            appendStderr(sessionID, token: token, batch.stderr)
+        }
+        if batch.stdoutClosed {
+            pipeClosed(sessionID, token: token, stdout: true, store: store)
+        }
+        if batch.stderrClosed {
+            pipeClosed(sessionID, token: token, stdout: false, store: store)
         }
     }
 
@@ -898,7 +949,7 @@ final class SessionRunner {
         turn.messageID = reply.id
         turn.needsFreshReply = false
         turn.waitingOnTasks = false
-        states[sessionID] = .streaming
+        setState(.streaming, for: sessionID)
     }
 
     // What a new usage report adds over the one before it. Clamped at zero so a report
@@ -944,7 +995,7 @@ final class SessionRunner {
         turn.stopFailure = turn.stopFailure
             ?? "The agent process group could not be stopped."
         asked[sessionID] = nil
-        states[sessionID] = .stopping
+        setState(.stopping, for: sessionID)
         turn.closeInput()
     }
 
@@ -957,6 +1008,7 @@ final class SessionRunner {
         guard let turn = turns[sessionID], !turn.stdoutOpen, !turn.stderrOpen,
               let status = turn.exitStatus else { return }
         turns[sessionID] = nil
+        runningTools[sessionID] = nil
         // The process that parked them is gone, so nothing is listening for an answer.
         asked[sessionID] = nil
         cleanUp(turn)
@@ -969,10 +1021,10 @@ final class SessionRunner {
 
         if turn.stopRequested {
             if let failure = turn.stopFailure {
-                states[sessionID] = .failed(failure)
+                setState(.failed(failure), for: sessionID)
                 store.noteTurnEnded(for: sessionID)
             } else {
-                states[sessionID] = .idle
+                setState(.idle, for: sessionID)
             }
             store.release(sessionID, for: .running)
             return
@@ -982,7 +1034,7 @@ final class SessionRunner {
         // exit code counts as a failed turn.
         guard turn.failure != nil || status != 0 else {
             SessionLog.note("turn finished", session: sessionID)
-            states[sessionID] = .idle
+            setState(.idle, for: sessionID)
             // Given back before the queue runs: the next turn takes the transcript for
             // itself, and releasing after it started would take that hold away.
             store.release(sessionID, for: .running)
@@ -1020,7 +1072,7 @@ final class SessionRunner {
             return
         }
 
-        states[sessionID] = .failed(message)
+        setState(.failed(message), for: sessionID)
         store.release(sessionID, for: .running)
         store.noteTurnEnded(for: sessionID)
     }
@@ -1028,6 +1080,8 @@ final class SessionRunner {
     private func cleanUp(_ turn: Turn) {
         turn.output.fileHandleForReading.readabilityHandler = nil
         turn.errorOutput.fileHandleForReading.readabilityHandler = nil
+        turn.exitMonitor?.cancel()
+        turn.exitMonitor = nil
         turn.closeInput()
         if let url = turn.mcpConfigURL { try? FileManager.default.removeItem(at: url) }
     }
@@ -1045,6 +1099,7 @@ final class SessionRunner {
         let input: Pipe
         let output: Pipe
         let errorOutput: Pipe
+        var exitMonitor: DispatchSourceProcess?
         private var inputOpen = true
         let prompt: String
         let attachments: [Attachment]
@@ -1109,5 +1164,43 @@ final class SessionRunner {
             self.canRetryWithoutResume = canRetryWithoutResume
             self.mcpConfigURL = mcpConfigURL
         }
+    }
+}
+
+private final class StreamBatcher: @unchecked Sendable {
+    struct Batch {
+        var events: [StreamEvent] = []
+        var stderr = ""
+        var stdoutActivity = false
+        var stdoutClosed = false
+        var stderrClosed = false
+    }
+
+    private let lock = NSLock()
+    private var pending = Batch()
+    private var flushScheduled = false
+
+    func append(events: [StreamEvent] = [], stderr: String = "",
+                stdoutActivity: Bool = false, stdoutClosed: Bool = false,
+                stderrClosed: Bool = false) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        pending.events.append(contentsOf: events)
+        pending.stderr += stderr
+        pending.stdoutActivity = pending.stdoutActivity || stdoutActivity
+        pending.stdoutClosed = pending.stdoutClosed || stdoutClosed
+        pending.stderrClosed = pending.stderrClosed || stderrClosed
+        guard !flushScheduled else { return false }
+        flushScheduled = true
+        return true
+    }
+
+    func drain() -> Batch {
+        lock.lock()
+        defer { lock.unlock() }
+        let batch = pending
+        pending = Batch()
+        flushScheduled = false
+        return batch
     }
 }

@@ -61,7 +61,7 @@ struct AppSidebar: View {
         .background(Theme.sidebar)
         .task { await watchWorkingTrees() }
         .task(id: oldSessionDays) { await refreshOldSessionsHourly() }
-        .onChange(of: store.sessions.count) { _, _ in refreshOldSessions() }
+        .onChange(of: store.sidebarSessions.count) { _, _ in refreshOldSessions() }
         .sheet(item: $choosingSessionKind) { project in
             NewSessionView(project: project) { choice in
                 startSession(choice, in: project)
@@ -181,7 +181,7 @@ struct AppSidebar: View {
     }
 
     private var sessionNotices: [NoticedSession] {
-        store.sessions.compactMap { session in
+        store.sidebarSessions.compactMap { session in
             guard let project = store.project(session.projectID),
                   let notice = SessionNotice(
                     isBusy: runner.state(session.id).isBusy,
@@ -272,7 +272,8 @@ struct AppSidebar: View {
     }
 
     private var orderedProjects: [Project] {
-        let ordered = appSettings.projectSort.apply(to: store.projects, sessions: store.sessions)
+        let ordered = appSettings.projectSort.apply(
+            to: store.projects, sessions: store.sidebarSessions)
         let query = filterText.trimmingCharacters(in: .whitespaces)
         guard !query.isEmpty else { return ordered }
         return ordered.filter { $0.name.localizedCaseInsensitiveContains(query) }
@@ -293,14 +294,14 @@ struct AppSidebar: View {
 
     // Every session under its project, newest first - the order the cards are drawn in.
     private var groupedSessions: [UUID: [ChatSession]] {
-        var groups = Dictionary(grouping: store.sessions.filter { $0.workspaceID == nil },
+        var groups = Dictionary(grouping: store.sidebarSessions.filter { $0.workspaceID == nil },
                                 by: \.projectID)
         for key in groups.keys { groups[key]?.sort { $0.createdAt > $1.createdAt } }
         return groups
     }
 
     private var groupedWorkspaceSessions: [UUID: [ChatSession]] {
-        let groups = Dictionary(grouping: store.sessions.compactMap { session in
+        let groups = Dictionary(grouping: store.sidebarSessions.compactMap { session in
             session.workspaceID.map { ($0, session) }
         }, by: \.0)
         return groups.mapValues { rows in rows.map(\.1).sorted { $0.createdAt > $1.createdAt } }
@@ -494,7 +495,12 @@ struct AppSidebar: View {
     }
 
     private func isExpanded(_ project: Project) -> Bool {
-        expansion[project.id] ?? (project.id == store.selectedProject?.id)
+        let selectedProjectID: UUID? = switch store.selection {
+        case .session(let id): store.sidebarSession(id)?.projectID
+        case .workspace: nil
+        case nil: store.selectedProjectID
+        }
+        return expansion[project.id] ?? (project.id == selectedProjectID)
     }
 
     private func isExpanded(_ workspace: ProjectWorkspace) -> Bool {
@@ -710,20 +716,17 @@ struct AppSidebar: View {
     }
 
     private func sessions(using projectID: UUID) -> [ChatSession] {
-        store.sessions.filter { session in
+        store.sidebarSessions.filter { session in
             store.checkoutProjects(for: session).contains { $0.projectID == projectID }
         }
     }
 
     // The line under a session's title. A running session shows the call in flight
-    // ("Bash · swift build"), which only its own transcript knows and which it has in
-    // memory for as long as it runs. Everything else reads from the summary, so a
-    // session says where it left off without its conversation being loaded at all.
+    // ("Bash · swift build"), which the runner keeps while the turn is alive. Everything
+    // else reads from the saved summary, so the rail never observes transcript writes.
     private func activitySummary(_ session: ChatSession, project: Project,
                                  busy: Bool, finished: Bool) -> String? {
-        // A turn writes into the message it opened, so a call still in flight can only
-        // be in the last one.
-        if busy, let running = session.messages.last?.tools.last(where: { $0.isRunning }) {
+        if busy, let running = runner.runningTool(session.id) {
             let root = folder(session, project: project)
             return ToolPresentationCache.presentation(for: running, projectPath: root).label
         }
@@ -922,7 +925,7 @@ struct AppSidebar: View {
     private var oldSessionDays: Int { appSettings.oldSessionDays }
 
     private func refreshOldSessions() {
-        let sessions = OldSessions.olderThan(oldSessionDays, in: store.sessions)
+        let sessions = OldSessions.olderThan(oldSessionDays, in: store.sidebarSessions)
             .filter { !runner.state($0.id).isBusy }
         let worktrees = sessions.reduce(0) { count, session in
             count + store.checkoutProjects(for: session).compactMap(\.worktreePath).count
@@ -1375,7 +1378,7 @@ private struct SessionCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
-                StateDot(colour: stateColour, pulsing: busy)
+                StateDot(colour: stateColour)
                 Text(stateWord)
                     .font(.mono(9.5, .semibold))
                     .kerning(0.6)
@@ -1570,23 +1573,15 @@ private struct SeeMoreCard: View {
     }
 }
 
-// The state light at the top of a session card. It breathes while the session runs,
-// which is the only movement in the sidebar and so reads as "this one is live".
+// The state light at the top of a session card. The colour and adjacent state word carry
+// the live state without keeping the whole sidebar in a display-rate animation loop.
 private struct StateDot: View {
     let colour: Color
-    let pulsing: Bool
-
-    @State private var dim = false
 
     var body: some View {
         Circle()
             .fill(colour)
             .frame(width: 7, height: 7)
-            .opacity(pulsing && dim ? 0.35 : 1)
-            .animation(pulsing ? .easeInOut(duration: 0.9).repeatForever(autoreverses: true) : .default,
-                       value: dim)
-            .onAppear { dim = pulsing }
-            .onChange(of: pulsing) { _, running in dim = running }
     }
 }
 

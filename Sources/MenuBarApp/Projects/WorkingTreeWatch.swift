@@ -11,34 +11,47 @@ import SwiftUI
 @MainActor
 @Observable
 final class WorkingTreeWatch {
-    // How often the folders on screen are looked at again. Long enough to be invisible on
-    // a big repository, short enough that committing in a terminal clears the mark while
-    // you are still looking at the window.
-    static let interval: Duration = .seconds(10)
+    // Status is deliberately less immediate than the open changes view. This monitor
+    // only backs a small safety mark in the sidebar, so a lower rate avoids repeatedly
+    // walking every visible repository while still noticing terminal commits promptly.
+    static let interval: Duration = .seconds(30)
+
+    typealias Inspector = @Sendable (String) async -> Bool
 
     private var dirty: [String: Bool] = [:]
-    // A folder already being looked at is skipped rather than queued, so a slow repository
-    // cannot pile up runs behind itself. Not observed: nothing drawn depends on it.
     @ObservationIgnored private var running: Set<String> = []
+    @ObservationIgnored private let inspect: Inspector
 
-    // A folder nobody has asked about reads as clean, which is what an unanswered
-    // question has to look like: the mark appears when there is an answer saying so.
-    func isDirty(_ path: String) -> Bool { dirty[path] ?? false }
+    init(inspect: @escaping Inspector = { await GitInspector.isDirty(at: $0) }) {
+        self.inspect = inspect
+    }
 
-    // The caller says which folders matter, so nothing runs git for a project whose
-    // sessions are not even on screen.
+    func isDirty(_ path: String) -> Bool {
+        dirty[Self.normalized(path)] ?? false
+    }
+
     func refresh(_ paths: some Collection<String>) {
-        let pending = paths.filter { path in
+        let pending = Set(paths.map(Self.normalized)).filter { path in
             guard !running.contains(path) else { return false }
             running.insert(path)
             return true
         }
+        guard !pending.isEmpty else { return }
+
         Task {
             for path in pending {
-                let result = await GitInspector.isDirty(at: path)
+                let result = await inspect(path)
                 running.remove(path)
-                dirty[path] = result
+                if result {
+                    if dirty[path] != true { dirty[path] = true }
+                } else if dirty[path] != nil {
+                    dirty.removeValue(forKey: path)
+                }
             }
         }
+    }
+
+    private static func normalized(_ path: String) -> String {
+        URL(fileURLWithPath: path).standardizedFileURL.path
     }
 }

@@ -194,7 +194,7 @@ struct PersistenceSafetyTests {
                                  text: String(repeating: "x", count: 12_000_000)),
                      to: session.id)
 
-        try await Task.sleep(for: .milliseconds(405))
+        try await Task.sleep(for: .milliseconds(1_005))
         store.removeSession(session.id)
 
         let transcript = store.transcriptsURL
