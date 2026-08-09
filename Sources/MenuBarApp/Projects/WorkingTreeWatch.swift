@@ -28,9 +28,13 @@ final class WorkingTreeWatch {
     // The caller says which folders matter, so nothing runs git for a project whose
     // sessions are not even on screen.
     func refresh(_ paths: some Collection<String>) {
-        for path in paths where !running.contains(path) {
+        let pending = paths.filter { path in
+            guard !running.contains(path) else { return false }
             running.insert(path)
-            Task {
+            return true
+        }
+        Task {
+            for path in pending {
                 let result = await GitInspector.isDirty(at: path)
                 running.remove(path)
                 dirty[path] = result

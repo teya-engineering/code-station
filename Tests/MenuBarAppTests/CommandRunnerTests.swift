@@ -207,6 +207,24 @@ struct CommandRunnerTests {
         #expect(!processExists(pid))
     }
 
+    @Test func gitWorkRunsSequentially() async {
+        let probe = ConcurrencyProbe()
+
+        await withTaskGroup(of: Void.self) { group in
+            for _ in 0..<20 {
+                group.addTask {
+                    await GitInspector.offMain {
+                        probe.enter()
+                        usleep(10_000)
+                        probe.leave()
+                    }
+                }
+            }
+        }
+
+        #expect(probe.peak == 1)
+    }
+
     @Test func codexUsageReaderCompletesItsBoundedExchange() async throws {
         let script = FileManager.default.temporaryDirectory
             .appendingPathComponent("codex-usage-\(UUID().uuidString)")
@@ -254,5 +272,22 @@ struct CommandRunnerTests {
 
     private func processExists(_ pid: pid_t) -> Bool {
         Darwin.kill(pid, 0) == 0 || errno == EPERM
+    }
+
+    private final class ConcurrencyProbe: @unchecked Sendable {
+        private let lock = NSLock()
+        private var active = 0
+        private(set) var peak = 0
+
+        func enter() {
+            lock.withLock {
+                active += 1
+                peak = max(peak, active)
+            }
+        }
+
+        func leave() {
+            lock.withLock { active -= 1 }
+        }
     }
 }

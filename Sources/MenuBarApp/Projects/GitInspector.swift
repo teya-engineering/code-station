@@ -107,6 +107,12 @@ enum GitInspector {
     private static let lineCharacterLimit = 2000
     private static let outputByteLimit = 8 << 20
     private static let untrackedByteLimit = 4 << 20
+    // Git commands use blocking process and pipe calls. A serial queue keeps those calls
+    // from exhausting the shared dispatch pool when many folders need inspection.
+    private static let queue = DispatchQueue(
+        label: "com.teya.conductor.git",
+        qos: .userInitiated
+    )
 
     // MARK: - Snapshot
 
@@ -554,10 +560,11 @@ enum GitInspector {
         return result
     }
 
-    // git is slow enough on a big repo to be felt, so it never runs on the main thread.
+    // Git is slow enough on a big repo to be felt, so it runs on one serial background
+    // queue rather than the main thread or an unbounded number of shared workers.
     static func offMain<T: Sendable>(_ work: @escaping @Sendable () -> T) async -> T {
         await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
+            queue.async {
                 continuation.resume(returning: work())
             }
         }
