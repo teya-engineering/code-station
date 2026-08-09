@@ -40,8 +40,15 @@ struct AppSidebar: View {
     // otherwise push every other project off the rail.
     @State private var showingAllSessions: Set<UUID> = []
     @State private var filterText = ""
+    @State private var oldSessionSummary = OldSessionSummary()
 
     private static let sessionCap = 3
+    private static let oldSessionRefreshInterval: Duration = .seconds(3_600)
+
+    private struct OldSessionSummary: Equatable {
+        var sessions = 0
+        var worktrees = 0
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -53,6 +60,8 @@ struct AppSidebar: View {
         .frame(width: 330)
         .background(Theme.sidebar)
         .task { await watchWorkingTrees() }
+        .task(id: oldSessionDays) { await refreshOldSessionsHourly() }
+        .onChange(of: store.sessions.count) { _, _ in refreshOldSessions() }
         .sheet(item: $choosingSessionKind) { project in
             NewSessionView(project: project) { choice in
                 startSession(choice, in: project)
@@ -763,8 +772,7 @@ struct AppSidebar: View {
 
     private var bottomBar: some View {
         VStack(alignment: .leading, spacing: 0) {
-            let old = oldSessions
-            if !old.isEmpty { oldSessionsStrip(old) }
+            if oldSessionSummary.sessions > 0 { oldSessionsStrip(oldSessionSummary) }
 
             HStack(spacing: 8) {
                 Button(action: addProject) {
@@ -819,19 +827,16 @@ struct AppSidebar: View {
     // Sessions pile up quietly, and the worktrees behind them take real disk. The strip
     // says how much has gone stale and hands it to a screen that explains what clearing
     // each one would cost; it never offers to do anything on its own.
-    private func oldSessionsStrip(_ old: [ChatSession]) -> some View {
-        let worktrees = old.reduce(0) { count, session in
-            count + store.checkoutProjects(for: session).compactMap(\.worktreePath).count
-        }
+    private func oldSessionsStrip(_ summary: OldSessionSummary) -> some View {
         return HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("\(old.count) session\(old.count == 1 ? "" : "s") older than \(oldSessionDays) day\(oldSessionDays == 1 ? "" : "s")")
+                Text("\(summary.sessions) session\(summary.sessions == 1 ? "" : "s") older than \(oldSessionDays) day\(oldSessionDays == 1 ? "" : "s")")
                     .font(.system(size: 13, weight: .semibold))
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
-                if worktrees > 0 {
-                    Text(worktrees == 1 ? "one worktree remains"
-                                        : "\(worktrees) worktrees remain")
+                if summary.worktrees > 0 {
+                    Text(summary.worktrees == 1 ? "one worktree remains"
+                                                : "\(summary.worktrees) worktrees remain")
                         .font(.mono(11))
                         .foregroundStyle(.tertiary)
                         .lineLimit(1)
@@ -907,9 +912,24 @@ struct AppSidebar: View {
 
     private var oldSessionDays: Int { appSettings.oldSessionDays }
 
-    private var oldSessions: [ChatSession] {
-        OldSessions.olderThan(oldSessionDays, in: store.sessions)
+    private func refreshOldSessions() {
+        let sessions = OldSessions.olderThan(oldSessionDays, in: store.sessions)
             .filter { !runner.state($0.id).isBusy }
+        let worktrees = sessions.reduce(0) { count, session in
+            count + store.checkoutProjects(for: session).compactMap(\.worktreePath).count
+        }
+        oldSessionSummary = OldSessionSummary(sessions: sessions.count, worktrees: worktrees)
+    }
+
+    private func refreshOldSessionsHourly() async {
+        while !Task.isCancelled {
+            refreshOldSessions()
+            do {
+                try await Task.sleep(for: Self.oldSessionRefreshInterval)
+            } catch {
+                return
+            }
+        }
     }
 
     // MARK: - Actions
