@@ -136,9 +136,9 @@ enum Preferences {
 
     static var skillsRefreshInterval: SkillsRefreshInterval {
         get {
-            guard store.object(forKey: "skillsRefreshInterval") != nil else { return .oneDay }
+            guard store.object(forKey: "skillsRefreshInterval") != nil else { return .fiveDays }
             return SkillsRefreshInterval(rawValue: store.integer(forKey: "skillsRefreshInterval"))
-                ?? .oneDay
+                ?? .fiveDays
         }
         set { store.set(newValue.rawValue, forKey: "skillsRefreshInterval") }
     }

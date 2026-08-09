@@ -70,15 +70,20 @@ final class MenuPresenter {
     // Set when the menu should take the width of the control that opened it rather
     // than the width of its own rows, so it reads as an extension of that control.
     private(set) var width: CGFloat?
+    // Lets a menu wider than its control stay attached to the control's trailing edge.
+    // A right-click menu has no control edge and still flips to the left of the click.
+    private(set) var trailingAnchor: CGFloat?
     // Changes on every open so the host can drop the size it measured for the last menu.
     private(set) var generation = 0
 
     var isOpen: Bool { !entries.isEmpty }
 
-    func show(_ entries: [MenuEntry], at point: CGPoint, width: CGFloat? = nil) {
+    func show(_ entries: [MenuEntry], at point: CGPoint, width: CGFloat? = nil,
+              trailingAnchor: CGFloat? = nil) {
         self.entries = entries
         origin = point
         self.width = width.map { max($0, menuMinimumWidth) }
+        self.trailingAnchor = trailingAnchor
         generation += 1
     }
 
@@ -141,7 +146,8 @@ private struct AppMenuButton: ViewModifier {
             .onTapGesture {
                 guard let placement = anchor.placement(edge: edge) else { return }
                 presenter.show(entries(), at: placement.origin,
-                               width: matchWidth ? placement.width : nil)
+                               width: matchWidth ? placement.width : nil,
+                               trailingAnchor: placement.trailingEdge)
             }
     }
 }
@@ -154,13 +160,14 @@ private struct AppMenuButton: ViewModifier {
 private final class MenuAnchor {
     weak var view: NSView?
 
-    func placement(edge: VerticalEdge) -> (origin: CGPoint, width: CGFloat)? {
+    func placement(edge: VerticalEdge) -> (origin: CGPoint, width: CGFloat,
+                                            trailingEdge: CGFloat)? {
         guard let view, let content = view.window?.contentView else { return nil }
         let frame = view.convert(view.bounds, to: content)
         let top = content.isFlipped ? frame.minY : content.bounds.height - frame.maxY
         let bottom = content.isFlipped ? frame.maxY : content.bounds.height - frame.minY
         let y = edge == .bottom ? bottom + 4 : top - 4
-        return (CGPoint(x: frame.minX, y: y), frame.width)
+        return (CGPoint(x: frame.minX, y: y), frame.width, frame.maxX)
     }
 }
 
@@ -267,11 +274,11 @@ struct ContextMenuHost: View {
         .shadow(color: .black.opacity(0.16), radius: 18, y: 6)
     }
 
-    // A menu opened near an edge flips back over the click rather than hanging off the
-    // window, which is what the system menu does too.
+    // A menu near an edge stays attached to its control when it has one. A right-click
+    // menu instead flips over the click, which is what the system menu does too.
     private func x(in bounds: CGSize) -> CGFloat {
         let flipped = presenter.origin.x + size.width > bounds.width - 8
-            ? presenter.origin.x - size.width
+            ? (presenter.trailingAnchor ?? presenter.origin.x) - size.width
             : presenter.origin.x
         return max(8, min(flipped, bounds.width - size.width - 8))
     }
