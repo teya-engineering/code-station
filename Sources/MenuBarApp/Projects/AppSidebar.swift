@@ -31,9 +31,8 @@ struct AppSidebar: View {
     @State private var choosingSessionKind: Project?
     @State private var choosingWorkspaceSession: ProjectWorkspace?
     @State private var showingNewWorkspace = false
-    // A session that has just been created and has not been brought into view yet. Only
-    // sessions the app itself opens are worth scrolling to: one the user clicked was
-    // already under the pointer.
+    // A session opened away from its sidebar card and not brought into view yet. A card
+    // clicked in the sidebar is already under the pointer, so it does not need this.
     @State private var sessionToReveal: UUID?
     // Projects whose full session list is shown. Anything else stops at the cap, with a
     // card that says how many are folded away: a project with dozens of sessions would
@@ -224,10 +223,19 @@ struct AppSidebar: View {
                 subtitle: noticed.session.workspaceID.flatMap(store.workspace)?.name
                     ?? noticed.project.name,
                 detail: RelativeTime.short(noticed.session.lastActivity)) {
-                    store.selectSession(noticed.session.id)
+                    openNoticedSession(noticed.session)
                 })
         }
         return entries
+    }
+
+    private func openNoticedSession(_ session: ChatSession) {
+        let containerID = session.workspaceID ?? session.projectID
+        filterText = ""
+        setExpanded(true, for: containerID)
+        showingAllSessions.insert(containerID)
+        store.selectSession(session.id)
+        sessionToReveal = session.id
     }
 
     // MARK: - Projects
@@ -550,14 +558,10 @@ struct AppSidebar: View {
         return key
     }
 
-    // Brings a session the app has just opened into view. It scrolls to the project rather
-    // than to the card, so what arrives on screen is the whole block with its row: a card on
-    // its own, pinned to the top edge with its project above the fold, does not say what was
-    // opened. The newest session sorts first, so it is the card directly under that row.
-    //
-    // Creating a session also reorders the list under the recent sort, which is what makes
-    // this needed at all: the project leaves wherever the user was looking and lands at the
-    // top, off screen.
+    // Brings a session opened away from the rail into view. It scrolls to the project or
+    // workspace rather than to the card, so the session stays visible in its full context.
+    // Creating a session can also reorder the list under the recent sort, which may move
+    // its project off screen.
     private func reveal(with scroller: ScrollViewProxy) async {
         guard let id = sessionToReveal, let session = store.session(id) else { return }
         // The card is created by the same change that asked for this, so the list has to be
@@ -566,6 +570,7 @@ struct AppSidebar: View {
         withAnimation(.easeOut(duration: 0.26)) {
             scroller.scrollTo(session.workspaceID ?? session.projectID, anchor: .top)
         }
+        sessionToReveal = nil
     }
 
     // MARK: - Creating and removing sessions
