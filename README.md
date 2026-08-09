@@ -1,5 +1,8 @@
 # Teya Conductor
 
+[![GitHub Pages](https://img.shields.io/badge/GitHub%20Pages-site-222222.svg?logo=githubpages)](https://example.github.io/)
+[![Contributing](https://img.shields.io/badge/Contributing-guide-2ea44f.svg?logo=github)](CONTRIBUTING.md)
+
 Teya Conductor is a macOS app for running Codex and Claude Code across local projects. It brings the conversation, project files, Git state, and a terminal into one window, while each coding agent continues to use its own CLI and account.
 
 ## Main features
