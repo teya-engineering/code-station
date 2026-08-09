@@ -51,9 +51,16 @@ struct DockerContainerTests {
         let image = DockerImage(line: line)
 
         #expect(image?.reference == "postgres:17-alpine")
+        #expect(image?.removalTarget == "postgres:17-alpine")
         #expect(image?.shortID == "1234567890ab")
         #expect(image?.createdSince == "3 days ago")
         #expect(image?.containers == "2")
+    }
+
+    @Test func removesAnUntaggedImageByID() {
+        let image = DockerImage(line: #"{"ID":"sha256:abcdef","Repository":"<none>","Tag":"<none>"}"#)
+
+        #expect(image?.removalTarget == "sha256:abcdef")
     }
 
     @Test func readsNetworkDetailsAndComposeProject() {
@@ -75,5 +82,63 @@ struct DockerContainerTests {
         #expect(volume?.composeProject == "conductor")
         #expect(volume?.composeVolume == "postgres_data")
         #expect(volume?.mountpoint == "/var/lib/docker/volumes/conductor_postgres_data/_data")
+    }
+}
+
+@MainActor
+struct DockerServiceTests {
+    @Test func stopsEveryContainerInAComposeGroup() async throws {
+        let recorder = DockerCommandRecorder()
+        let service = DockerService(
+            runner: { await recorder.run($0) },
+            availability: { true })
+        let first = try #require(DockerContainer(line:
+            #"{"ID":"container-1","Labels":"com.docker.compose.project=app","Names":"app-api"}"#))
+        let second = try #require(DockerContainer(line:
+            #"{"ID":"container-2","Labels":"com.docker.compose.project=app","Names":"app-db"}"#))
+
+        let failure = await service.stop([first, second])
+
+        #expect(failure == nil)
+        #expect(service.stopping.isEmpty)
+        #expect(await recorder.commands == [
+            ["stop", "container-1", "container-2"],
+            ["ps", "--no-trunc", "--size", "--format", "{{json .}}"]
+        ])
+    }
+
+    @Test func deletesEachDockerResourceWithItsSafeIdentifier() async throws {
+        let recorder = DockerCommandRecorder()
+        let service = DockerService(
+            runner: { await recorder.run($0) },
+            availability: { true })
+        let image = try #require(DockerImage(line:
+            #"{"ID":"sha256:image-id","Repository":"postgres","Tag":"17-alpine"}"#))
+        let network = try #require(DockerNetwork(line:
+            #"{"ID":"network-id","Name":"app_default"}"#))
+        let volume = try #require(DockerVolume(line:
+            #"{"Name":"app_data"}"#))
+
+        #expect(await service.delete(image) == nil)
+        #expect(await service.delete(network) == nil)
+        #expect(await service.delete(volume) == nil)
+
+        #expect(await recorder.commands == [
+            ["image", "rm", "postgres:17-alpine"],
+            ["image", "ls", "--no-trunc", "--format", "{{json .}}"],
+            ["network", "rm", "network-id"],
+            ["network", "ls", "--no-trunc", "--format", "{{json .}}"],
+            ["volume", "rm", "app_data"],
+            ["volume", "ls", "--format", "{{json .}}"]
+        ])
+    }
+}
+
+private actor DockerCommandRecorder {
+    private(set) var commands: [[String]] = []
+
+    func run(_ arguments: [String]) -> DockerService.Output {
+        commands.append(arguments)
+        return DockerService.Output(status: 0)
     }
 }

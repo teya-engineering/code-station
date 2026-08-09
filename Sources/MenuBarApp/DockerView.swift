@@ -2,6 +2,7 @@ import SwiftUI
 
 struct DockerView: View {
     @Environment(DockerService.self) private var docker
+    @Environment(DialogPresenter.self) private var dialogs
     @Environment(\.dismiss) private var dismiss
 
     private enum Tab: Hashable {
@@ -106,7 +107,12 @@ struct DockerView: View {
                             ForEach(group.containers) { container in
                                 ContainerRow(container: container,
                                              stopping: docker.stopping.contains(container.id)) {
-                                    Task { await docker.stop(container) }
+                                    Task {
+                                        if let failure = await docker.stop([container]) {
+                                            showFailure(title: "Could not stop \"\(container.name)\"",
+                                                        message: failure)
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -127,7 +133,10 @@ struct DockerView: View {
             ScrollView {
                 LazyVStack(spacing: 6) {
                     ForEach(docker.images) { image in
-                        ImageRow(image: image)
+                        ImageRow(image: image,
+                                 deleting: docker.deletingImages.contains(image.id)) {
+                            confirmDelete(image)
+                        }
                     }
                 }
                 .padding(20)
@@ -145,7 +154,10 @@ struct DockerView: View {
             ScrollView {
                 LazyVStack(spacing: 6) {
                     ForEach(docker.networks) { network in
-                        NetworkRow(network: network)
+                        NetworkRow(network: network,
+                                   deleting: docker.deletingNetworks.contains(network.id)) {
+                            confirmDelete(network)
+                        }
                     }
                 }
                 .padding(20)
@@ -163,7 +175,10 @@ struct DockerView: View {
             ScrollView {
                 LazyVStack(spacing: 6) {
                     ForEach(docker.volumes) { volume in
-                        VolumeRow(volume: volume)
+                        VolumeRow(volume: volume,
+                                  deleting: docker.deletingVolumes.contains(volume.id)) {
+                            confirmDelete(volume)
+                        }
                     }
                 }
                 .padding(20)
@@ -189,7 +204,8 @@ struct DockerView: View {
     }
 
     private func containerGroupHeader(_ group: ContainerGroup) -> some View {
-        HStack(spacing: 8) {
+        let stopping = group.containers.contains { docker.stopping.contains($0.id) }
+        return HStack(spacing: 8) {
             SectionDot(size: 5)
             Text(group.composeProject ?? "Standalone containers")
                 .font(.system(size: 12, weight: .semibold))
@@ -198,11 +214,86 @@ struct DockerView: View {
                 .font(.system(size: 10))
                 .foregroundStyle(.tertiary)
             Spacer()
-            if group.composeProject != nil {
+            if let project = group.composeProject {
                 DockerBadge(text: "COMPOSE")
+                Button {
+                    Task {
+                        if let failure = await docker.stop(group.containers) {
+                            showFailure(title: "Could not stop \"\(project)\"",
+                                        message: failure)
+                        }
+                    }
+                } label: {
+                    Text(stopping ? "Stopping…" : "Stop compose")
+                        .font(.system(size: 9.5, weight: .semibold))
+                        .foregroundStyle(stopping ? Color.secondary : Theme.deletion)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(RoundedRectangle(cornerRadius: 6).fill(Theme.field))
+                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.border))
+                        .contentShape(RoundedRectangle(cornerRadius: 6))
+                }
+                .buttonStyle(.plain)
+                .disabled(stopping)
+                .help("Stop every running container in this compose project")
             }
         }
         .padding(.horizontal, 2)
+    }
+
+    private func confirmDelete(_ image: DockerImage) {
+        dialogs.show(Dialog(
+            title: "Delete \"\(image.reference)\"?",
+            message: "Docker will remove this image. An image used by a container cannot be deleted.",
+            actions: [
+                .init(label: "Delete image", kind: .destructive) {
+                    Task {
+                        if let failure = await docker.delete(image) {
+                            showFailure(title: "Could not delete image", message: failure)
+                        }
+                    }
+                },
+                .init(label: "Cancel", kind: .cancel)
+            ]))
+    }
+
+    private func confirmDelete(_ network: DockerNetwork) {
+        dialogs.show(Dialog(
+            title: "Delete \"\(network.name)\"?",
+            message: "Docker will remove this network. A network connected to a container cannot be deleted.",
+            actions: [
+                .init(label: "Delete network", kind: .destructive) {
+                    Task {
+                        if let failure = await docker.delete(network) {
+                            showFailure(title: "Could not delete network", message: failure)
+                        }
+                    }
+                },
+                .init(label: "Cancel", kind: .cancel)
+            ]))
+    }
+
+    private func confirmDelete(_ volume: DockerVolume) {
+        dialogs.show(Dialog(
+            title: "Delete \"\(volume.id)\"?",
+            message: "All data in this volume will be lost. A volume used by a container cannot be deleted.",
+            actions: [
+                .init(label: "Delete volume", kind: .destructive) {
+                    Task {
+                        if let failure = await docker.delete(volume) {
+                            showFailure(title: "Could not delete volume", message: failure)
+                        }
+                    }
+                },
+                .init(label: "Cancel", kind: .cancel)
+            ]))
+    }
+
+    private func showFailure(title: String, message: String) {
+        dialogs.show(Dialog(
+            title: title,
+            message: message,
+            actions: [.init(label: "OK", kind: .cancel)]))
     }
 
     private func message(icon: String, title: String, detail: String) -> some View {
@@ -283,6 +374,8 @@ private struct ContainerRow: View {
 
 private struct ImageRow: View {
     let image: DockerImage
+    let deleting: Bool
+    let onDelete: () -> Void
 
     private var usage: String? {
         guard !image.containers.isEmpty, image.containers != "N/A" else { return nil }
@@ -315,6 +408,8 @@ private struct ImageRow: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+
+                DockerDeleteButton(deleting: deleting, resource: "image", action: onDelete)
             }
         }
     }
@@ -322,6 +417,8 @@ private struct ImageRow: View {
 
 private struct NetworkRow: View {
     let network: DockerNetwork
+    let deleting: Bool
+    let onDelete: () -> Void
 
     private var metadata: String {
         [network.driver, network.scope, "ID \(network.shortID)"]
@@ -354,6 +451,8 @@ private struct NetworkRow: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+
+                DockerDeleteButton(deleting: deleting, resource: "network", action: onDelete)
             }
         }
     }
@@ -361,6 +460,8 @@ private struct NetworkRow: View {
 
 private struct VolumeRow: View {
     let volume: DockerVolume
+    let deleting: Bool
+    let onDelete: () -> Void
 
     private var metadata: String {
         var details = [volume.driver, volume.scope].filter { !$0.isEmpty }
@@ -395,8 +496,32 @@ private struct VolumeRow: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+
+                DockerDeleteButton(deleting: deleting, resource: "volume", action: onDelete)
             }
         }
+    }
+}
+
+private struct DockerDeleteButton: View {
+    let deleting: Bool
+    let resource: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(deleting ? "Deleting…" : "Delete")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(deleting ? Color.secondary : Theme.deletion)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(RoundedRectangle(cornerRadius: 7).fill(Theme.field))
+                .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.border))
+                .contentShape(RoundedRectangle(cornerRadius: 7))
+        }
+        .buttonStyle(.plain)
+        .disabled(deleting)
+        .help("Delete this Docker \(resource)")
     }
 }
 

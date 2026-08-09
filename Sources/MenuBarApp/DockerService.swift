@@ -82,6 +82,10 @@ struct DockerImage: Identifiable, Sendable, Equatable {
         let value = imageID.hasPrefix("sha256:") ? String(imageID.dropFirst(7)) : imageID
         return String(value.prefix(12))
     }
+
+    var removalTarget: String {
+        repository == "<none>" || tag.isEmpty || tag == "<none>" ? imageID : reference
+    }
 }
 
 struct DockerNetwork: Identifiable, Sendable, Equatable {
@@ -137,11 +141,29 @@ struct DockerVolume: Identifiable, Sendable, Equatable {
 @MainActor
 @Observable
 final class DockerService {
+    struct Output: Sendable {
+        var text = ""
+        var errorText = ""
+        var status: Int32 = -1
+
+        var ok: Bool { status == 0 }
+        var failureMessage: String {
+            let trimmed = errorText.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? "docker exited with code \(status)." : trimmed
+        }
+    }
+
+    typealias Runner = @Sendable ([String]) async -> Output
+    typealias Availability = @Sendable () -> Bool
+
     private(set) var containers: [DockerContainer] = []
     private(set) var images: [DockerImage] = []
     private(set) var networks: [DockerNetwork] = []
     private(set) var volumes: [DockerVolume] = []
     private(set) var stopping: Set<String> = []
+    private(set) var deletingImages: Set<String> = []
+    private(set) var deletingNetworks: Set<String> = []
+    private(set) var deletingVolumes: Set<String> = []
 
     private(set) var containerFailure: String?
     private(set) var imageFailure: String?
@@ -155,7 +177,15 @@ final class DockerService {
 
     var failure: String? { containerFailure }
     var hasLoaded: Bool { hasLoadedContainers }
-    var isAvailable: Bool { ProcessManager.resolve("docker") != nil }
+    var isAvailable: Bool { availability() }
+
+    @ObservationIgnored private let runner: Runner
+    @ObservationIgnored private let availability: Availability
+
+    init(runner: Runner? = nil, availability: Availability? = nil) {
+        self.runner = runner ?? Self.run
+        self.availability = availability ?? { ProcessManager.resolve("docker") != nil }
+    }
 
     func refresh() async {
         guard isAvailable else {
@@ -163,10 +193,10 @@ final class DockerService {
             return
         }
 
-        async let containerResult = Self.run(["ps", "--no-trunc", "--size", "--format", "{{json .}}"])
-        async let imageResult = Self.run(["image", "ls", "--no-trunc", "--format", "{{json .}}"])
-        async let networkResult = Self.run(["network", "ls", "--no-trunc", "--format", "{{json .}}"])
-        async let volumeResult = Self.run(["volume", "ls", "--format", "{{json .}}"])
+        async let containerResult = runner(["ps", "--no-trunc", "--size", "--format", "{{json .}}"])
+        async let imageResult = runner(["image", "ls", "--no-trunc", "--format", "{{json .}}"])
+        async let networkResult = runner(["network", "ls", "--no-trunc", "--format", "{{json .}}"])
+        async let volumeResult = runner(["volume", "ls", "--format", "{{json .}}"])
 
         let results = await (containerResult, imageResult, networkResult, volumeResult)
         applyContainers(results.0)
@@ -180,21 +210,67 @@ final class DockerService {
             dockerUnavailable()
             return
         }
-        applyContainers(await Self.run(["ps", "--no-trunc", "--size", "--format", "{{json .}}"]))
+        applyContainers(await runner(["ps", "--no-trunc", "--size", "--format", "{{json .}}"]))
     }
 
     // Docker asks the container to quit and only kills it if it will not, so this can
     // sit for a few seconds on a container that ignores the signal.
-    func stop(_ container: DockerContainer) async {
-        stopping.insert(container.id)
-        let result = await Self.run(["stop", container.id])
-        stopping.remove(container.id)
-        if !result.ok {
-            containerFailure = result.failureMessage
-            return
-        }
-        containers.removeAll { $0.id == container.id }
+    func stop(_ containers: [DockerContainer]) async -> String? {
+        let containers = containers.filter { !stopping.contains($0.id) }
+        guard !containers.isEmpty else { return nil }
+
+        let ids = containers.map(\.id)
+        stopping.formUnion(ids)
+        let result = await runner(["stop"] + ids)
+        stopping.subtract(ids)
         await refreshContainers()
+
+        if !result.ok {
+            return result.failureMessage
+        }
+        return nil
+    }
+
+    func delete(_ image: DockerImage) async -> String? {
+        guard deletingImages.insert(image.id).inserted else { return nil }
+        defer { deletingImages.remove(image.id) }
+
+        let result = await runner(["image", "rm", image.removalTarget])
+        guard result.ok else { return result.failureMessage }
+        await refreshImages()
+        return nil
+    }
+
+    func delete(_ network: DockerNetwork) async -> String? {
+        guard deletingNetworks.insert(network.id).inserted else { return nil }
+        defer { deletingNetworks.remove(network.id) }
+
+        let result = await runner(["network", "rm", network.id])
+        guard result.ok else { return result.failureMessage }
+        await refreshNetworks()
+        return nil
+    }
+
+    func delete(_ volume: DockerVolume) async -> String? {
+        guard deletingVolumes.insert(volume.id).inserted else { return nil }
+        defer { deletingVolumes.remove(volume.id) }
+
+        let result = await runner(["volume", "rm", volume.id])
+        guard result.ok else { return result.failureMessage }
+        await refreshVolumes()
+        return nil
+    }
+
+    private func refreshImages() async {
+        applyImages(await runner(["image", "ls", "--no-trunc", "--format", "{{json .}}"]))
+    }
+
+    private func refreshNetworks() async {
+        applyNetworks(await runner(["network", "ls", "--no-trunc", "--format", "{{json .}}"]))
+    }
+
+    private func refreshVolumes() async {
+        applyVolumes(await runner(["volume", "ls", "--format", "{{json .}}"]))
     }
 
     private func applyContainers(_ result: Output) {
@@ -270,18 +346,6 @@ final class DockerService {
     }
 
     // MARK: - Running docker
-
-    private struct Output: Sendable {
-        var text = ""
-        var errorText = ""
-        var status: Int32 = -1
-
-        var ok: Bool { status == 0 }
-        var failureMessage: String {
-            let trimmed = errorText.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? "docker exited with code \(status)." : trimmed
-        }
-    }
 
     nonisolated private static func run(_ arguments: [String]) async -> Output {
         guard let path = ProcessManager.resolve("docker") else {
