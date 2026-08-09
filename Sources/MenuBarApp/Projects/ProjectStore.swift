@@ -218,6 +218,42 @@ final class ProjectStore {
         return project
     }
 
+    @discardableResult
+    func addAdHocTask(named name: String,
+                      in root: URL = AppPaths.support
+                        .appendingPathComponent("ad-hoc-tasks", isDirectory: true))
+        -> Result<Project, PersistenceFailure> {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return .failure(PersistenceFailure(message: "Enter a name for the ad-hoc task."))
+        }
+
+        let directory = root.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: directory,
+                                                    withIntermediateDirectories: true)
+        } catch {
+            return .failure(PersistenceFailure(
+                message: "The empty task folder could not be created: \(error.localizedDescription)"))
+        }
+
+        let previousProjectID = selectedProjectID
+        let project = Project(name: trimmed, path: directory.standardizedFileURL.path)
+        projects.append(project)
+        projects.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        selectedProjectID = project.id
+        markIndexDirty()
+        guard save() else {
+            projects.removeAll { $0.id == project.id }
+            selectedProjectID = previousProjectID
+            Preferences.selectedProjectID = previousProjectID
+            markIndexDirty()
+            try? FileManager.default.removeItem(at: directory)
+            return .failure(persistenceFailure("The ad-hoc task could not be saved."))
+        }
+        return .success(project)
+    }
+
     func removeProject(_ id: UUID) {
         let affected = Set(sessions.filter { session in
             session.projectID == id

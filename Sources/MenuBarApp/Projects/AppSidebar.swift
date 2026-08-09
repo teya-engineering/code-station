@@ -31,6 +31,7 @@ struct AppSidebar: View {
     @State private var choosingSessionKind: Project?
     @State private var choosingWorkspaceSession: ProjectWorkspace?
     @State private var showingNewWorkspace = false
+    @State private var showingNewAdHocTask = false
     // A session opened away from its sidebar card and not brought into view yet. A card
     // clicked in the sidebar is already under the pointer, so it does not need this.
     @State private var sessionToReveal: UUID?
@@ -79,6 +80,10 @@ struct AppSidebar: View {
                 choosingWorkspaceSession = workspace
             }
             .appOverlays()
+        }
+        .sheet(isPresented: $showingNewAdHocTask) {
+            NewAdHocTaskView(onCreate: createAdHocTask)
+                .appOverlays()
         }
     }
 
@@ -821,41 +826,10 @@ struct AppSidebar: View {
         VStack(alignment: .leading, spacing: 0) {
             if oldSessionSummary.sessions > 0 { oldSessionsStrip(oldSessionSummary) }
 
-            HStack(spacing: 8) {
-                Button(action: addProject) {
-                    Text("+ Add project")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 11)
-                        .background(RoundedRectangle(cornerRadius: 10)
-                            .fill(Color.black.opacity(0.88)))
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .subtleButtonGlow()
-
-                Button { showingNewWorkspace = true } label: {
-                    VStack(spacing: 1) {
-                        Text("+ Workspace")
-                            .font(.system(size: 13, weight: .semibold))
-                        Text("Multi-project")
-                            .font(.system(size: 9.5, weight: .medium))
-                            .foregroundStyle(.secondary)
-                    }
-                    .foregroundStyle(Theme.accent)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 6)
-                    .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
-                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .subtleButtonGlow()
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, 16)
-            .padding(.bottom, 10)
+            AddButton(entries: addMenu)
+                .padding(.horizontal, 16)
+                .padding(.top, 16)
+                .padding(.bottom, 10)
 
             ToolsButton(showsUpdate: skills.updateCount > 0, entries: toolsMenu)
                 .padding(.horizontal, 16)
@@ -982,6 +956,18 @@ struct AppSidebar: View {
 
     // MARK: - Actions
 
+    private func addMenu() -> [MenuEntry] {
+        [
+            .item("Add project", subtitle: "Choose an existing folder.", action: addProject),
+            .item("Create workspace", subtitle: "Group two or more projects.") {
+                showingNewWorkspace = true
+            },
+            .item("Ad-hoc task", subtitle: "Start in a new empty folder.") {
+                showingNewAdHocTask = true
+            }
+        ]
+    }
+
     private func addProject() {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
@@ -995,6 +981,18 @@ struct AppSidebar: View {
         // pointed itself at the existing one, so there is nothing to report.
         let added = store.addProject(at: url)
         if let id = added?.id ?? store.selectedProjectID { setExpanded(true, for: id) }
+    }
+
+    private func createAdHocTask(named name: String) {
+        switch store.addAdHocTask(named: name) {
+        case .success(let project):
+            startSession(.folder(agent: runner.agent), in: project)
+        case .failure(let failure):
+            dialogs.show(Dialog(
+                title: "Could not create the ad-hoc task",
+                message: failure.message,
+                actions: [.init(label: "OK", kind: .cancel)]))
+        }
     }
 
     // Opening a folder on its own would just reveal it in Finder, so name the app.
@@ -1065,6 +1063,32 @@ private struct RevealLayout: Layout, Animatable {
 }
 
 // MARK: - Rows
+
+// New project containers share one entry point. Its menu opens above at the same width,
+// like the tools control below it, so the choices stay close to the project list.
+private struct AddButton: View {
+    let entries: () -> [MenuEntry]
+
+    @State private var hovering = false
+
+    var body: some View {
+        HStack(spacing: 7) {
+            Text("+ New")
+                .font(.system(size: 13, weight: .semibold))
+            Image(systemName: "chevron.down")
+                .font(.system(size: 9, weight: .semibold))
+        }
+        .foregroundStyle(.white)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 11)
+        .background(RoundedRectangle(cornerRadius: 10)
+            .fill(Color.black.opacity(hovering ? 0.78 : 0.88)))
+        .subtleButtonGlow()
+        .appMenu(edge: .top, matchWidth: true, entries)
+        .onHover { hovering = $0 }
+        .accessibilityLabel("New project, workspace, or ad-hoc task")
+    }
+}
 
 // The one pinned button under the project list. Its menu opens above it at the same
 // width, so it reads as the button unfolding rather than a menu landing on the rail.
