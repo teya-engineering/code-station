@@ -34,15 +34,11 @@ struct AppSidebar: View {
     // A session opened away from its sidebar card and not brought into view yet. A card
     // clicked in the sidebar is already under the pointer, so it does not need this.
     @State private var sessionToReveal: UUID?
-    // Projects whose full session list is shown. Anything else stops at the cap, with a
-    // card that says how many are folded away: a project with dozens of sessions would
-    // otherwise push every other project off the rail.
-    @State private var showingAllSessions: Set<UUID> = []
+    @State private var sessionVisibility = SidebarSessionVisibility()
     @State private var filterText = ""
     @State private var oldSessionSummary = OldSessionSummary()
     @State private var hoveringHome = false
 
-    private static let sessionCap = 3
     private static let oldSessionRefreshInterval: Duration = .seconds(3_600)
 
     private struct OldSessionSummary: Equatable {
@@ -62,6 +58,9 @@ struct AppSidebar: View {
         .task { await watchWorkingTrees() }
         .task(id: oldSessionDays) { await refreshOldSessionsHourly() }
         .onChange(of: store.sidebarSessions.count) { _, _ in refreshOldSessions() }
+        .onChange(of: store.sidebarSessions.map(\.id)) { previous, current in
+            preserveVisibleSessions(previous: previous, current: current)
+        }
         .sheet(item: $choosingSessionKind) { project in
             NewSessionView(project: project) { choice in
                 startSession(choice, in: project)
@@ -233,7 +232,7 @@ struct AppSidebar: View {
         let containerID = session.workspaceID ?? session.projectID
         filterText = ""
         setExpanded(true, for: containerID)
-        showingAllSessions.insert(containerID)
+        sessionVisibility.showAll(containerID)
         store.selectSession(session.id)
         sessionToReveal = session.id
     }
@@ -350,7 +349,7 @@ struct AppSidebar: View {
             .onTapGesture {
                 store.selectWorkspace(workspace.id)
                 setExpanded(!expanded, for: workspace.id)
-                if expanded { showingAllSessions.remove(workspace.id) }
+                if expanded { sessionVisibility.reset(workspace.id) }
             }
             .appContextMenu {
                 [.item("New session") { choosingWorkspaceSession = workspace }]
@@ -358,7 +357,7 @@ struct AppSidebar: View {
 
             if expanded, !sessions.isEmpty {
                 let visible = visibleWorkspaceSessions(workspace, sessions: sessions)
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 6) {
                     ForEach(visible) { session in
                         if let lead = store.project(session.projectID) {
                             let busy = runner.state(session.id).isBusy
@@ -384,14 +383,10 @@ struct AppSidebar: View {
                                 }
                         }
                     }
-                    if sessions.count > Self.sessionCap {
-                        let hidden = sessions.count - visible.count
-                        SeeMoreCard(title: hidden > 0 ? "See \(hidden) more…" : "Show fewer") {
-                            if hidden > 0 {
-                                showingAllSessions.insert(workspace.id)
-                            } else {
-                                showingAllSessions.remove(workspace.id)
-                            }
+                    let hidden = sessions.count - visible.count
+                    if hidden > 0 {
+                        SeeMoreCard(title: "See \(hidden) more…") {
+                            sessionVisibility.showAll(workspace.id)
                         }
                     }
                 }
@@ -404,9 +399,8 @@ struct AppSidebar: View {
 
     private func visibleWorkspaceSessions(_ workspace: ProjectWorkspace,
                                           sessions: [ChatSession]) -> [ChatSession] {
-        guard sessions.count > Self.sessionCap,
-              !showingAllSessions.contains(workspace.id) else { return sessions }
-        return Array(sessions.prefix(Self.sessionCap))
+        Array(sessions.prefix(sessionVisibility.visibleCount(
+            for: workspace.id, total: sessions.count)))
     }
 
     private func workspaceBranch(_ session: ChatSession) -> String? {
@@ -452,7 +446,7 @@ struct AppSidebar: View {
                 setExpanded(!expanded, for: project.id)
                 // Closing a project puts its list away, and putting it away includes the
                 // tail the user had unfolded: the next open starts back at the cap.
-                if expanded { showingAllSessions.remove(project.id) }
+                if expanded { sessionVisibility.reset(project.id) }
             }
             .appContextMenu {
                 [.item("Rename…") { renamingID = project.id },
@@ -471,7 +465,7 @@ struct AppSidebar: View {
             // still carries its padding, which reads as the row shifting on every click.
             if expanded, !sessions.isEmpty {
                 let visible = visibleSessions(of: project, in: sessions)
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 6) {
                     ForEach(visible) { session in
                         let busy = runner.state(session.id).isBusy
                         let finished = store.hasFinished(session.id)
@@ -496,14 +490,10 @@ struct AppSidebar: View {
                                 }]
                             }
                     }
-                    if sessions.count > Self.sessionCap {
-                        let hidden = sessions.count - visible.count
-                        SeeMoreCard(title: hidden > 0 ? "See \(hidden) more…" : "Show fewer") {
-                            if hidden > 0 {
-                                showingAllSessions.insert(project.id)
-                            } else {
-                                showingAllSessions.remove(project.id)
-                            }
+                    let hidden = sessions.count - visible.count
+                    if hidden > 0 {
+                        SeeMoreCard(title: "See \(hidden) more…") {
+                            sessionVisibility.showAll(project.id)
                         }
                     }
                 }
@@ -534,13 +524,39 @@ struct AppSidebar: View {
         Preferences.sidebarExpansion = expansion
     }
 
-    // The cards a project actually draws: all of them once the user has asked to see
-    // more, the newest few otherwise. Newest-first order means what is folded away is
-    // the tail that matters least.
+    // New sessions extend an open list so they never displace work the user is watching.
+    // Closing the project resets the list to its newest four sessions.
     private func visibleSessions(of project: Project, in sessions: [ChatSession]) -> [ChatSession] {
-        guard sessions.count > Self.sessionCap,
-              !showingAllSessions.contains(project.id) else { return sessions }
-        return Array(sessions.prefix(Self.sessionCap))
+        Array(sessions.prefix(sessionVisibility.visibleCount(
+            for: project.id, total: sessions.count)))
+    }
+
+    private func preserveVisibleSessions(previous: [UUID], current: [UUID]) {
+        let addedIDs = Set(current).subtracting(previous)
+        guard !addedIDs.isEmpty else { return }
+
+        let currentSessions = Dictionary(grouping: store.sidebarSessions) {
+            $0.workspaceID ?? $0.projectID
+        }
+        let additions = Dictionary(grouping: store.sidebarSessions.filter {
+            addedIDs.contains($0.id)
+        }) {
+            $0.workspaceID ?? $0.projectID
+        }
+
+        for (containerID, added) in additions where isExpanded(containerID) {
+            let currentCount = currentSessions[containerID]?.count ?? added.count
+            sessionVisibility.preserveVisibleSessions(
+                added: added.count,
+                previousTotal: currentCount - added.count,
+                in: containerID)
+        }
+    }
+
+    private func isExpanded(_ containerID: UUID) -> Bool {
+        if let workspace = store.workspace(containerID) { return isExpanded(workspace) }
+        if let project = store.project(containerID) { return isExpanded(project) }
+        return false
     }
 
     // Keyed on the cards that are drawn rather than the sessions that exist, so the
@@ -1378,9 +1394,8 @@ private struct UncommittedMark: View {
     }
 }
 
-// A session as a card rather than a row: state at the top, what it is doing in the
-// middle, what it has produced at the bottom. It is the unit of the sidebar, so it
-// carries enough to decide whether to open it without opening it.
+// A session as a compact card: state at the top, what it is doing in the middle, and
+// small change or usage totals at the bottom when they exist.
 private struct SessionCard: View {
     let session: ChatSession
     let selected: Bool
@@ -1396,7 +1411,7 @@ private struct SessionCard: View {
     @State private var hovering = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 6) {
                 StateDot(colour: stateColour)
                 Text(stateWord)
@@ -1436,7 +1451,7 @@ private struct SessionCard: View {
                         .fixedSize()
                 }
                 Text(session.title)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 12.5, weight: .semibold))
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -1447,8 +1462,7 @@ private struct SessionCard: View {
             // Only a running session gets a bar, and it is how full its context is: the
             // one number that says how much room the session has left to keep going.
             if busy {
-                Meter(fraction: session.usage?.contextFraction ?? 0, colour: Theme.dotOn, height: 4)
-                    .padding(.top, 1)
+                Meter(fraction: session.usage?.contextFraction ?? 0, colour: Theme.dotOn, height: 3)
             }
 
             if hasFooter {
@@ -1463,14 +1477,6 @@ private struct SessionCard: View {
                             .font(.mono(11, .medium))
                             .foregroundStyle(Theme.deletion)
                     }
-                    if let branch {
-                        Label(branch, systemImage: "arrow.triangle.branch")
-                            .labelStyle(.titleAndIcon)
-                            .font(.mono(10))
-                            .foregroundStyle(.tertiary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
                     Spacer(minLength: 6)
                     if let usage = session.usage, usage.turns > 0 {
                         // The cost stays out of the card: it reads as a bill, which on a
@@ -1483,18 +1489,16 @@ private struct SessionCard: View {
                 }
             }
         }
-        .padding(.horizontal, 11)
-        .padding(.vertical, 9)
-        .background(RoundedRectangle(cornerRadius: 11).fill(cardFill))
-        .overlay(RoundedRectangle(cornerRadius: 11).stroke(cardStroke, lineWidth: bordered ? 1.5 : 1))
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(RoundedRectangle(cornerRadius: 10).fill(cardFill))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(cardStroke, lineWidth: bordered ? 1.5 : 1))
         .animation(.easeOut(duration: 0.25), value: [busy, finished])
         .appTooltip { tooltip }
         .onHover { hovering = $0 }
     }
 
-    // The card truncates a title to one line and says nothing about where the session
-    // runs, so the hint carries both, along with the numbers the footer drops when the
-    // rail is narrow.
+    // The hint carries the branch and full path because the compact card leaves both out.
     private var tooltip: Tooltip {
         var rows = [Tooltip.Row(label: "State", value: stateWord)]
         if let branch {
@@ -1531,7 +1535,7 @@ private struct SessionCard: View {
     }
 
     private var hasFooter: Bool {
-        added > 0 || removed > 0 || branch != nil || (session.usage?.turns ?? 0) > 0
+        added > 0 || removed > 0 || (session.usage?.turns ?? 0) > 0
     }
 
     // What the card is doing outranks selection, since a column of sessions is read for
@@ -1581,10 +1585,10 @@ private struct SeeMoreCard: View {
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 8)
-                .background(RoundedRectangle(cornerRadius: 11)
+                .padding(.vertical, 6)
+                .background(RoundedRectangle(cornerRadius: 10)
                     .fill(hovering ? Color.black.opacity(0.05) : Color.black.opacity(0.02)))
-                .overlay(RoundedRectangle(cornerRadius: 11)
+                .overlay(RoundedRectangle(cornerRadius: 10)
                     .stroke(Theme.border, style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
                 .contentShape(Rectangle())
         }
