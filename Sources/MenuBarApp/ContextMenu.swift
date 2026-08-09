@@ -33,7 +33,7 @@ struct MenuCardItem {
     let label: String
     let icon: String
     var showsUpdate = false
-    var detail: String?
+    let detail: String
     var detailColour: Color?
     var handler: () -> Void = {}
 }
@@ -340,14 +340,12 @@ private struct MenuCardItemView: View {
                     .font(.system(size: 12.5, weight: .semibold))
                     .lineLimit(1)
 
-                if let detail = item.detail {
-                    Text(detail)
-                        .font(.mono(10))
-                        .foregroundStyle(item.detailColour.map(AnyShapeStyle.init)
-                                         ?? AnyShapeStyle(.tertiary))
-                        .lineLimit(1)
-                        .padding(.top, 2)
-                }
+                Text(item.detail)
+                    .font(.mono(10))
+                    .foregroundStyle(item.detailColour.map(AnyShapeStyle.init)
+                                     ?? AnyShapeStyle(.tertiary))
+                    .lineLimit(1)
+                    .padding(.top, 2)
             }
             .foregroundStyle(Color.primary)
             .frame(maxWidth: .infinity, minHeight: 76, alignment: .topLeading)
