@@ -895,6 +895,7 @@ struct AppSidebar: View {
                              detail: postmanAuth.active.envValue,
                              detailColour: postmanAuth.active.accent, handler: onOpenPostman),
                 MenuCardItem(label: "Local AI", icon: "cpu",
+                             showsBeta: true,
                              detail: aiDetail.text, detailColour: aiDetail.colour,
                              handler: onOpenAI),
                 MenuCardItem(label: "Troubleshoot", icon: "stethoscope",

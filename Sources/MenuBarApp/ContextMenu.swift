@@ -32,6 +32,7 @@ enum MenuEntry {
 struct MenuCardItem {
     let label: String
     let icon: String
+    var showsBeta = false
     var showsUpdate = false
     let detail: String
     var detailColour: Color?
@@ -336,8 +337,16 @@ private struct MenuCardItemView: View {
 
                 Spacer(minLength: 8)
 
-                Text(item.label)
-                    .font(.system(size: 12.5, weight: .semibold))
+                HStack(alignment: .firstTextBaseline, spacing: 3) {
+                    Text(item.label)
+                        .font(.system(size: 12.5, weight: .semibold))
+                    if item.showsBeta {
+                        Text("beta")
+                            .font(.system(size: 8, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .baselineOffset(4)
+                    }
+                }
                     .lineLimit(1)
 
                 Text(item.detail)
