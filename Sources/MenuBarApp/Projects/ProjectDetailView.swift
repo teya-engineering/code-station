@@ -207,7 +207,7 @@ struct ProjectDetailView: View {
                         ForEach(available) { session in
                             ProjectSessionRow(session: session,
                                               isBusy: runner.state(session.id).isBusy,
-                                              onResume: { store.selectSession(session.id) },
+                                              onOpen: { store.selectSession(session.id) },
                                               onDelete: { confirmRemove(session) })
                         }
                     }
@@ -344,72 +344,66 @@ struct ProjectDetailView: View {
 private struct ProjectSessionRow: View {
     let session: ChatSession
     let isBusy: Bool
-    let onResume: () -> Void
+    let onOpen: () -> Void
     let onDelete: () -> Void
 
     var body: some View {
-        HStack(alignment: .center, spacing: 14) {
-            Circle()
-                .fill(isBusy ? Theme.dotOn : Theme.dotOff)
-                .frame(width: 8, height: 8)
+        ZStack(alignment: .trailing) {
+            Button(action: onOpen) {
+                HStack(alignment: .center, spacing: 14) {
+                    Circle()
+                        .fill(isBusy ? Theme.dotOn : Theme.dotOff)
+                        .frame(width: 8, height: 8)
 
-            VStack(alignment: .leading, spacing: 5) {
-                Text(session.title)
-                    .font(.system(size: 14, weight: .semibold))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-
-                HStack(spacing: 7) {
-                    StatusPill(text: isBusy ? "Running" : "Idle", running: isBusy)
-                    if let branch = session.worktreeBranch {
-                        Label(branch, systemImage: "arrow.triangle.branch")
-                            .labelStyle(.titleAndIcon)
-                            .font(.mono(10.5))
-                            .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(session.title)
+                            .font(.system(size: 14, weight: .semibold))
                             .lineLimit(1)
-                            .truncationMode(.middle)
-                    } else {
-                        Text("Project folder")
-                            .font(.mono(10.5))
-                            .foregroundStyle(.secondary)
+                            .truncationMode(.tail)
+
+                        HStack(spacing: 7) {
+                            StatusPill(text: isBusy ? "Running" : "Idle", running: isBusy)
+                            if let branch = session.worktreeBranch {
+                                Label(branch, systemImage: "arrow.triangle.branch")
+                                    .labelStyle(.titleAndIcon)
+                                    .font(.mono(10.5))
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                            } else {
+                                Text("Project folder")
+                                    .font(.mono(10.5))
+                                    .foregroundStyle(.secondary)
+                            }
+                            Text("Last active \(session.lastActivity.formatted(date: .abbreviated, time: .shortened))")
+                                .font(.mono(10.5))
+                                .foregroundStyle(.tertiary)
+                                .lineLimit(1)
+                        }
                     }
-                    Text("Last active \(session.lastActivity.formatted(date: .abbreviated, time: .shortened))")
-                        .font(.mono(10.5))
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(1)
+
+                    Spacer(minLength: 56)
                 }
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(RoundedRectangle(cornerRadius: 11).fill(Theme.card))
+                .overlay(RoundedRectangle(cornerRadius: 11).stroke(Theme.border))
+                .contentShape(RoundedRectangle(cornerRadius: 11))
             }
+            .buttonStyle(.plain)
 
-            Spacer(minLength: 12)
-
-            HStack(spacing: 8) {
-                Button(action: onResume) {
-                    Text(isBusy ? "Open" : "Resume")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(Theme.accent)
-                        .padding(.horizontal, 12)
-                        .frame(height: 30)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.card))
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
-                        .contentShape(RoundedRectangle(cornerRadius: 8))
-                }
-                .buttonStyle(.plain)
-
-                Button(action: onDelete) {
-                    Image(systemName: "trash")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Theme.deletion)
-                        .frame(width: 30, height: 30)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.card))
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
-                        .contentShape(RoundedRectangle(cornerRadius: 8))
-                }
-                .buttonStyle(.plain)
-                .appTooltip("Delete session")
+            Button(action: onDelete) {
+                Image(systemName: "trash")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Theme.deletion)
+                    .frame(width: 30, height: 30)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Theme.card))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
+                    .contentShape(RoundedRectangle(cornerRadius: 8))
             }
+            .buttonStyle(.plain)
+            .appTooltip("Delete session")
+            .padding(.trailing, 14)
         }
-        .padding(14)
-        .background(RoundedRectangle(cornerRadius: 11).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 11).stroke(Theme.border))
     }
 }
