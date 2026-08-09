@@ -77,9 +77,9 @@ App-owned data lives under:
 ~/Library/Application Support/com.teya.conductor/
 ```
 
-This includes the project and session index, one transcript file per session, saved HTTP requests, worktrees, temporary attachments, and the cached skills marketplace. Small UI preferences use `UserDefaults`. OAuth client secrets and tokens use the macOS Keychain. Session logs live under `~/Library/Logs/com.teya.conductor`.
+This includes the project and session index, one transcript file per session, saved HTTP requests, command shortcuts, worktrees, temporary attachments, and the cached skills marketplace. Small UI preferences use `UserDefaults`. OAuth client secrets and tokens use the macOS Keychain. Session logs live under `~/Library/Logs/com.teya.conductor`.
 
-MCP definitions are read from and written to `~/.config/mcp/config.json`. The app uses those shared definitions when it registers a server in each coding agent's own configuration. Locally started MCP servers, the local model server, agent processes, and terminal shells are child processes owned by the app and are stopped when the app quits.
+MCP definitions are read from and written to `~/.config/mcp/config.json`. The app uses those shared definitions when it registers a server in each coding agent's own configuration. Locally started MCP servers, shortcut commands, agent processes, and terminal shells are child processes owned by the app and are stopped when the app quits.
 
 A Finder-launched app receives a limited `PATH`. Executable lookup also checks common Homebrew, local user, Go, and system binary directories. Use `ProcessManager.resolve` for new command-line integrations so they follow the same behavior.
 

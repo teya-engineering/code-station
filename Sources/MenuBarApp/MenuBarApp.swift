@@ -36,7 +36,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let postman = PostmanStore()
     private let postmanRunner = PostmanRunner()
     private let postmanAuth = PostmanAuthStore()
-    private let aiService = AIService()
+    private let shortcuts = ShortcutStore()
     private var window: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -83,7 +83,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     .environment(postman)
                     .environment(postmanRunner)
                     .environment(postmanAuth)
-                    .environment(aiService))
+                    .environment(shortcuts))
             // Let the window own its size instead of shrinking to the view's ideal size.
             hosting.sizingOptions = []
             let win = NSWindow(
@@ -107,7 +107,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         processes.stopAll()
-        aiService.shutdown()
+        shortcuts.stopAll()
         runner.stopAll()
         terminals.stopEverything()
         projects.save()

@@ -29,7 +29,7 @@ Teya Conductor is a macOS app for running Codex and Claude Code across local pro
 - Install and update agent skills from the Example Engineering marketplace.
 - Save and send HTTP requests with environment variables, path and query parameters, headers, request bodies, and OAuth secrets and tokens stored in the macOS Keychain.
 - Inspect running Docker containers and stop them when needed.
-- Start a local Qwen model through `llama-server` and inspect its output.
+- Save, edit, run, and stop shell-command shortcuts while inspecting their output. A local Qwen model through `llama-server` is included by default.
 - Start a guided troubleshooting session with project context, attachments, environment safeguards, and configured observability tools.
 
 ## Build and run
@@ -41,7 +41,7 @@ Teya Conductor is a macOS app for running Codex and Claude Code across local pro
 - Git
 - At least one supported coding agent installed and signed in: `codex` or `claude`
 
-Docker, MCP server executables, and `llama-server` are optional. Their tools remain available in the app and explain what is missing when an integration is not installed.
+Docker, MCP server executables, and `llama-server` are optional. Their tools and shortcuts remain available in the app and show command failures in context when a dependency is not installed.
 
 ### Build the app
 

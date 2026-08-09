@@ -1,8 +1,9 @@
 import Darwin
 import Foundation
 
-// Runs commands that are expected to finish and whose output is consumed only after
-// they exit. Long-lived and streaming processes keep their own lifecycle managers.
+// Runs a command in its own process group so cancellation and timeouts also stop any
+// children it creates. Most callers consume captured output after exit; callers that
+// show live output can receive chunks while the command is still running.
 enum CommandRunner {
     struct Output: Sendable, Equatable {
         let output: String
@@ -47,7 +48,9 @@ enum CommandRunner {
         environment: [String: String]? = nil,
         input: Data? = nil,
         outputLineHandler: (@Sendable (String) -> OutputLineAction)? = nil,
-        timeout: Duration,
+        outputChunkHandler: (@Sendable (Data) -> Void)? = nil,
+        errorOutputChunkHandler: (@Sendable (Data) -> Void)? = nil,
+        timeout: Duration?,
         outputByteLimit: Int = 1_048_576
     ) async throws -> Output {
         precondition(outputByteLimit > 0)
@@ -65,6 +68,8 @@ enum CommandRunner {
                             environment: environment,
                             input: input,
                             outputLineHandler: outputLineHandler,
+                            outputChunkHandler: outputChunkHandler,
+                            errorOutputChunkHandler: errorOutputChunkHandler,
                             timeout: timeout,
                             outputByteLimit: outputByteLimit,
                             controller: controller
@@ -88,6 +93,8 @@ enum CommandRunner {
         environment: [String: String]? = nil,
         input: Data? = nil,
         outputLineHandler: (@Sendable (String) -> OutputLineAction)? = nil,
+        outputChunkHandler: (@Sendable (Data) -> Void)? = nil,
+        errorOutputChunkHandler: (@Sendable (Data) -> Void)? = nil,
         timeout: Duration? = nil,
         outputByteLimit: Int = 1_048_576
     ) throws -> Output {
@@ -99,6 +106,8 @@ enum CommandRunner {
             environment: environment,
             input: input,
             outputLineHandler: outputLineHandler,
+            outputChunkHandler: outputChunkHandler,
+            errorOutputChunkHandler: errorOutputChunkHandler,
             timeout: timeout,
             outputByteLimit: outputByteLimit,
             controller: ProcessController()
@@ -112,6 +121,8 @@ enum CommandRunner {
         environment: [String: String]?,
         input: Data?,
         outputLineHandler: (@Sendable (String) -> OutputLineAction)?,
+        outputChunkHandler: (@Sendable (Data) -> Void)?,
+        errorOutputChunkHandler: (@Sendable (Data) -> Void)?,
         timeout: Duration?,
         outputByteLimit: Int,
         controller: ProcessController
@@ -185,6 +196,7 @@ enum CommandRunner {
                 outputPipe.fileHandleForReading,
                 limit: outputByteLimit,
                 lineHandler: outputLineHandler,
+                chunkHandler: outputChunkHandler,
                 inputHandle: inputPipe?.fileHandleForWriting,
                 controller: controller
             )
@@ -194,6 +206,7 @@ enum CommandRunner {
         DispatchQueue.global(qos: .userInitiated).async {
             errorBox.value = capture(errorPipe.fileHandleForReading,
                                      limit: outputByteLimit,
+                                     chunkHandler: errorOutputChunkHandler,
                                      controller: controller)
             drains.leave()
         }
@@ -388,6 +401,7 @@ enum CommandRunner {
         _ handle: FileHandle,
         limit: Int,
         lineHandler: (@Sendable (String) -> OutputLineAction)? = nil,
+        chunkHandler: (@Sendable (Data) -> Void)? = nil,
         inputHandle: FileHandle? = nil,
         controller: ProcessController? = nil
     ) -> Capture {
@@ -420,6 +434,7 @@ enum CommandRunner {
                                error: String(cString: strerror(errno)))
             }
             let chunk = Data(buffer.prefix(count))
+            chunkHandler?(chunk)
             let remaining = limit - data.count
             if remaining > 0 { data.append(chunk.prefix(remaining)) }
             if chunk.count > remaining { truncated = true }

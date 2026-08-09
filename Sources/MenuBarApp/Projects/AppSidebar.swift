@@ -10,7 +10,7 @@ struct AppSidebar: View {
     let onOpenDocker: () -> Void
     let onOpenSettings: () -> Void
     let onOpenPostman: () -> Void
-    let onOpenAI: () -> Void
+    let onOpenShortcuts: () -> Void
     let onOpenTroubleshoot: () -> Void
     let onReviewOldSessions: () -> Void
 
@@ -22,7 +22,7 @@ struct AppSidebar: View {
     @Environment(ConfigStore.self) private var configs
     @Environment(DockerService.self) private var docker
     @Environment(PostmanAuthStore.self) private var postmanAuth
-    @Environment(AIService.self) private var ai
+    @Environment(ShortcutStore.self) private var shortcuts
 
     // A project is expanded by default while it is the selected one. Explicit choices
     // win over that default and are restored when the app opens again.
@@ -894,10 +894,9 @@ struct AppSidebar: View {
                 MenuCardItem(label: "Postman", icon: "paperplane.fill",
                              detail: postmanAuth.active.envValue,
                              detailColour: postmanAuth.active.accent, handler: onOpenPostman),
-                MenuCardItem(label: "Local AI", icon: "cpu",
-                             showsBeta: true,
-                             detail: aiDetail.text, detailColour: aiDetail.colour,
-                             handler: onOpenAI),
+                MenuCardItem(label: "Shortcuts", icon: "bolt.fill",
+                             detail: shortcutsDetail.text, detailColour: shortcutsDetail.colour,
+                             handler: onOpenShortcuts),
                 MenuCardItem(label: "Troubleshoot", icon: "stethoscope",
                              detail: "Agent diagnosis",
                              handler: onOpenTroubleshoot)
@@ -914,13 +913,14 @@ struct AppSidebar: View {
         return ("\(docker.containers.count) running", Theme.addition)
     }
 
-    private var aiDetail: (text: String, colour: Color?) {
-        switch ai.state {
-        case .running, .runningExternally: ("running", Theme.addition)
-        case .starting: ("loading…", nil)
-        case .failed: ("failed", Theme.deletion)
-        case .stopped: ("not running", nil)
+    private var shortcutsDetail: (text: String, colour: Color?) {
+        if shortcuts.runningCount > 0 {
+            return ("\(shortcuts.runningCount) running", Theme.addition)
         }
+        if shortcuts.failureCount > 0 {
+            return ("\(shortcuts.failureCount) failed", Theme.deletion)
+        }
+        return ("\(shortcuts.shortcuts.count) saved", nil)
     }
 
     private var oldSessionDays: Int { appSettings.oldSessionDays }

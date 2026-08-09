@@ -9,13 +9,14 @@ struct RootView: View {
     @Environment(PostmanStore.self) private var postman
     @Environment(PostmanAuthStore.self) private var postmanAuth
     @Environment(AppSettings.self) private var settings
+    @Environment(ShortcutStore.self) private var shortcuts
     @State private var skills = SkillsManager()
     @State private var configuringServers = false
     @State private var showingSkills = false
     @State private var showingDocker = false
     @State private var showingSettings = false
     @State private var showingPostman = false
-    @State private var showingAI = false
+    @State private var showingShortcuts = false
     @State private var showingTroubleshoot = false
     @State private var reviewingOldSessions = false
     @State private var sessionCleanupError: String?
@@ -29,7 +30,7 @@ struct RootView: View {
                            onOpenDocker: { showingDocker = true },
                            onOpenSettings: { showingSettings = true },
                            onOpenPostman: { showingPostman = true },
-                           onOpenAI: { showingAI = true },
+                           onOpenShortcuts: { showingShortcuts = true },
                            onOpenTroubleshoot: { showingTroubleshoot = true },
                            onReviewOldSessions: { reviewingOldSessions = true })
                 Divider().overlay(Theme.hairline)
@@ -60,7 +61,7 @@ struct RootView: View {
         .sheet(isPresented: $showingDocker) { DockerView().appOverlays() }
         .sheet(isPresented: $showingSettings) { SettingsView().appOverlays() }
         .sheet(isPresented: $showingPostman) { PostmanView().appOverlays() }
-        .sheet(isPresented: $showingAI) { AIView().appOverlays() }
+        .sheet(isPresented: $showingShortcuts) { ShortcutsView().appOverlays() }
         .sheet(isPresented: $showingTroubleshoot) {
             TroubleshootView(skills: skills).appOverlays()
         }
@@ -71,7 +72,8 @@ struct RootView: View {
         [configs.loadError, configs.saveError,
          store.loadError, store.transcriptLoadErrors.values.first, store.saveError,
          postman.loadError, postman.saveError,
-         postmanAuth.loadError, postmanAuth.saveError]
+         postmanAuth.loadError, postmanAuth.saveError,
+         shortcuts.loadError, shortcuts.saveError]
             .compactMap { $0 }
             .first
     }
