@@ -182,6 +182,7 @@ struct HTTPResult: Equatable {
     var duration: TimeInterval
     var byteCount: Int
     var failure: String?
+    var isTruncated = false
 
     var statusText: String {
         guard failure == nil else { return "Failed" }

@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Observation
 
@@ -95,10 +96,11 @@ final class AIService {
             state = .stopped
             return
         }
-        // The server was started from a terminal, so the only handle on it is its
-        // command line.
-        await Self.killExternal()
-        state = .stopped
+        // An external process is stopped only after its listener and full argument
+        // list both identify the same llama-server instance.
+        state = await Self.killExternal()
+            ? .stopped
+            : .failed("The process on port \(Self.port) is not a matching llama-server and was not stopped.")
     }
 
     // Quits the process the app launched, and only that one: a server someone started
@@ -151,15 +153,75 @@ final class AIService {
         return (response as? HTTPURLResponse)?.statusCode == 200
     }
 
-    private static func killExternal() async {
-        await Task.detached {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
-            process.arguments = ["-f", "llama-server.*--port \(port)"]
-            process.standardOutput = FileHandle.nullDevice
-            process.standardError = FileHandle.nullDevice
-            try? process.run()
-            process.waitUntilExit()
-        }.value
+    private static func killExternal() async -> Bool {
+        guard let output = try? await CommandRunner.run(
+            executable: "/usr/sbin/lsof",
+            arguments: ["-nP", "-t", "-iTCP:\(port)", "-sTCP:LISTEN"],
+            timeout: .seconds(5),
+            outputByteLimit: 65_536
+        ) else { return false }
+
+        let pids = listenerPIDs(from: output.output)
+        if pids.isEmpty { return output.status == 1 }
+
+        let matching = pids.filter { pid in
+            guard let command = processCommand(pid: pid) else { return false }
+            return isLlamaServer(command: command, port: port)
+        }
+        guard !matching.isEmpty else { return false }
+        var stoppedAll = true
+        for pid in matching where Darwin.kill(pid, SIGTERM) != 0 { stoppedAll = false }
+        return stoppedAll
+    }
+
+    nonisolated static func listenerPIDs(from output: String) -> [Int32] {
+        var seen: Set<Int32> = []
+        return output.split(whereSeparator: \Character.isWhitespace)
+            .compactMap { Int32($0) }
+            .filter { $0 > 0 && seen.insert($0).inserted }
+    }
+
+    nonisolated static func isLlamaServer(command: [String], port: Int) -> Bool {
+        guard let executable = command.first,
+              URL(fileURLWithPath: executable).lastPathComponent == "llama-server" else { return false }
+        return command.indices.dropFirst().contains { index in
+            command[index] == "--port"
+                && command.indices.contains(index + 1)
+                && command[index + 1] == String(port)
+        }
+    }
+
+    private nonisolated static func processCommand(pid: Int32) -> [String]? {
+        var query = [CTL_KERN, KERN_PROCARGS2, pid]
+        var size = 0
+        guard sysctl(&query, UInt32(query.count), nil, &size, nil, 0) == 0, size > 0 else {
+            return nil
+        }
+
+        var data = Data(count: size)
+        let result = data.withUnsafeMutableBytes { buffer in
+            sysctl(&query, UInt32(query.count), buffer.baseAddress, &size, nil, 0)
+        }
+        guard result == 0, size >= MemoryLayout<Int32>.size else { return nil }
+        data.count = size
+
+        let count = data.withUnsafeBytes { $0.loadUnaligned(as: Int32.self) }
+        guard count > 0 else { return nil }
+        let bytes = [UInt8](data)
+        var offset = MemoryLayout<Int32>.size
+        let executableStart = offset
+        while offset < bytes.count, bytes[offset] != 0 { offset += 1 }
+        let executable = String(decoding: bytes[executableStart..<offset], as: UTF8.self)
+        while offset < bytes.count, bytes[offset] == 0 { offset += 1 }
+
+        var arguments: [String] = []
+        while arguments.count < Int(count), offset < bytes.count {
+            let start = offset
+            while offset < bytes.count, bytes[offset] != 0 { offset += 1 }
+            arguments.append(String(decoding: bytes[start..<offset], as: UTF8.self))
+            while offset < bytes.count, bytes[offset] == 0 { offset += 1 }
+        }
+        guard arguments.count == Int(count) else { return nil }
+        return [executable] + arguments.dropFirst()
     }
 }

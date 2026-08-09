@@ -279,25 +279,28 @@ struct ProjectDetailView: View {
         case .worktree(let sessionID, let base, let agent):
             createWorktreeSession(in: project, id: sessionID, base: base, agent: agent)
         case .folder(let agent):
-            runner.agent = agent
-            store.newSession(in: project.id)
+            switch store.insertSession(in: project.id) {
+            case .success:
+                runner.agent = agent
+            case .failure(let failure):
+                dialogs.show(Dialog(
+                    title: "Could not create the session",
+                    message: failure.message,
+                    actions: [.init(label: "OK", kind: .cancel)]))
+            }
         }
     }
 
     private func createWorktreeSession(in project: Project, id sessionID: UUID, base: String?,
                                        agent: AgentKind) {
         Task {
-            switch await GitWorktree.add(projectPath: project.path,
-                                         projectName: project.name,
-                                         sessionID: sessionID,
-                                         from: base) {
-            case .success(let created):
+            switch await SessionLifecycle.createWorktreeSession(
+                in: project, id: sessionID, base: base, store: store) {
+            case .success:
                 runner.agent = agent
-                store.newSession(in: project.id, id: sessionID,
-                                 worktreePath: created.path, worktreeBranch: created.branch)
             case .failure(let failure):
                 dialogs.show(Dialog(
-                    title: "Could not create a worktree",
+                    title: failure.title,
                     message: failure.message,
                     actions: [.init(label: "OK", kind: .cancel)]))
             }
@@ -317,7 +320,15 @@ struct ProjectDetailView: View {
             actions: [
                 .init(label: worktree == nil ? "Delete session" : "Delete session and worktree",
                       kind: .destructive) {
-                    SessionRemoval.remove(session, from: store)
+                    Task {
+                        if case .failure(let failure) = await SessionLifecycle.remove(
+                            session, from: store, runner: runner) {
+                            dialogs.show(Dialog(
+                                title: failure.title,
+                                message: failure.message,
+                                actions: [.init(label: "OK", kind: .cancel)]))
+                        }
+                    }
                 },
                 .init(label: "Cancel", kind: .cancel)
             ]))

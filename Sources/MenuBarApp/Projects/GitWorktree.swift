@@ -4,12 +4,12 @@ import Foundation
 // isolated checkout on its own branch, kept in the app's config directory, so several
 // sessions of one project can edit files at the same time without racing each other.
 enum GitWorktree {
-    struct Created {
+    struct Created: Sendable {
         let path: String
         let branch: String
     }
 
-    struct Failure: Error {
+    struct Failure: Error, Sendable {
         let message: String
     }
 
@@ -92,25 +92,35 @@ enum GitWorktree {
         }
     }
 
-    // Best effort teardown: the worktree folder goes even if git cannot remove it
-    // (a deleted project folder, for example), and the branch is only deleted when
-    // git considers that safe, so committed work is never thrown away.
-    static func remove(worktreePath: String, projectPath: String, branch: String?) async {
+    // The checkout folder must be gone before its session record is dropped. Git may no
+    // longer know about the checkout, so filesystem removal remains the final fallback.
+    // Branch deletion and pruning are best effort because a branch with unmerged commits
+    // is deliberately kept.
+    static func remove(worktreePath: String, projectPath: String?, branch: String?) async
+        -> Result<Void, Failure> {
         let tool = await GitInspector.tool()
-        await GitInspector.offMain {
-            if let tool {
+        return await GitInspector.offMain {
+            if let tool, let projectPath {
                 _ = GitInspector.run(tool, ["-C", projectPath, "worktree", "remove", "--force", worktreePath])
                 if let branch { _ = GitInspector.run(tool, ["-C", projectPath, "branch", "-d", branch]) }
             }
             if FileManager.default.fileExists(atPath: worktreePath) {
-                try? FileManager.default.removeItem(atPath: worktreePath)
+                do {
+                    try FileManager.default.removeItem(atPath: worktreePath)
+                } catch {
+                    return .failure(Failure(
+                        message: "Could not remove \(worktreePath.abbreviatedPath): \(error.localizedDescription)"))
+                }
             }
             let parent = URL(fileURLWithPath: worktreePath).deletingLastPathComponent()
             if parent.deletingLastPathComponent().standardizedFileURL == baseDirectory.standardizedFileURL,
                (try? FileManager.default.contentsOfDirectory(atPath: parent.path).isEmpty) == true {
                 try? FileManager.default.removeItem(at: parent)
             }
-            if let tool { _ = GitInspector.run(tool, ["-C", projectPath, "worktree", "prune"]) }
+            if let tool, let projectPath {
+                _ = GitInspector.run(tool, ["-C", projectPath, "worktree", "prune"])
+            }
+            return .success(())
         }
     }
 }

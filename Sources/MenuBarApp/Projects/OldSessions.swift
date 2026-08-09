@@ -49,28 +49,6 @@ enum SessionOutcome: Equatable {
     }
 }
 
-// Removing a session means the conversation and, if it had one, the worktree it ran in.
-// The sidebar and the old-sessions sheet both do it, and they have to do it the same way.
-@MainActor
-enum SessionRemoval {
-    static func remove(_ session: ChatSession, from store: ProjectStore) {
-        let worktrees = store.checkoutProjects(for: session).compactMap { checkout -> (String, String, String?)? in
-            guard let path = checkout.worktreePath,
-                  let project = store.project(checkout.projectID) else { return nil }
-            return (path, project.path, checkout.worktreeBranch)
-        }
-        store.removeSession(session.id)
-        guard !worktrees.isEmpty else { return }
-        Task {
-            for worktree in worktrees {
-                await GitWorktree.remove(worktreePath: worktree.0,
-                                         projectPath: worktree.1,
-                                         branch: worktree.2)
-            }
-        }
-    }
-}
-
 // "12 days ago", counted from the last turn. Days are the only unit this deals in: the
 // threshold is in days, so an answer in hours would not line up with the question.
 enum SessionAge {

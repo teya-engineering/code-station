@@ -11,12 +11,16 @@ final class ConfigStore {
     // Set when the file exists but could not be parsed. While true, saving is blocked
     // so a file we can't read is never overwritten with an empty config.
     private(set) var loadError: String?
+    private(set) var saveError: String?
 
     let configURL: URL
+    private let files: PersistentFileClient
+    private var hasUnsavedChanges = false
 
-    init() {
-        configURL = FileManager.default.homeDirectoryForCurrentUser
+    init(configURL: URL? = nil, files: PersistentFileClient = .live) {
+        self.configURL = configURL ?? FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".config/mcp/config.json")
+        self.files = files
         load()
     }
 
@@ -27,19 +31,43 @@ final class ConfigStore {
     func load() {
         // Edits still waiting to be written go out first, so typing and then reloading
         // does not read a stale file and lose them.
-        flushPendingSave()
+        guard loadError != nil || flushPendingSave() else { return }
+
+        let data: Data?
+        do {
+            data = try files.readIfPresent(configURL)
+        } catch {
+            loadError = PersistentFile.loadMessage(for: configURL, error: error)
+            return
+        }
+
         // No file yet is a normal empty state; a present-but-unreadable file is not.
-        guard let data = try? Data(contentsOf: configURL), !data.isEmpty else {
+        guard let data else {
+            saveTask?.cancel()
+            saveTask = nil
             servers = []
+            selectedID = nil
+            lastModified = nil
             loadError = nil
+            saveError = nil
+            hasUnsavedChanges = false
             return
         }
-        guard let file = try? JSONDecoder().decode(ConfigFile.self, from: data) else {
+
+        let file: ConfigFile
+        do {
+            file = try JSONDecoder().decode(ConfigFile.self, from: data)
+        } catch {
             // Keep whatever we already have and refuse to overwrite the file.
-            loadError = "The config file at \(configURL.path) could not be parsed. Fix it by hand; edits are disabled until it loads."
+            loadError = PersistentFile.decodeMessage(for: configURL, error: error)
             return
         }
+
         loadError = nil
+        saveError = nil
+        hasUnsavedChanges = false
+        saveTask?.cancel()
+        saveTask = nil
         servers = file.mcpServers
             .map { name, entry in server(named: name, from: entry) }
             .sorted { $0.name < $1.name }
@@ -78,6 +106,7 @@ final class ConfigStore {
     // into one file write the way the request store does it.
     private func scheduleSave() {
         saveTask?.cancel()
+        hasUnsavedChanges = true
         saveTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(400))
             guard !Task.isCancelled else { return }
@@ -87,23 +116,38 @@ final class ConfigStore {
 
     // Writes out an edit that is still waiting on its debounce, so readers of the file
     // and the app's last moments see what is on screen.
-    func flushPendingSave() {
-        guard saveTask != nil else { return }
-        save()
+    @discardableResult
+    func flushPendingSave() -> Bool {
+        guard saveTask != nil || hasUnsavedChanges else { return true }
+        return save()
     }
 
-    private func save() {
+    @discardableResult
+    func save() -> Bool {
         saveTask?.cancel()
         saveTask = nil
+        hasUnsavedChanges = true
         // Never overwrite a file we could not read in the first place.
-        guard loadError == nil else { return }
+        guard loadError == nil else {
+            saveError = "Changes were not saved because the existing MCP config could not be loaded."
+            return false
+        }
         guard let data = Self.mcpConfigurationData(
-            from: servers, allowing: servers.map(\.name)) else { return }
+            from: servers, allowing: servers.map(\.name)) else {
+            saveError = "The MCP config could not be encoded."
+            return false
+        }
 
-        try? FileManager.default.createDirectory(
-            at: configURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? data.write(to: configURL, options: .atomic)
-        lastModified = Date()
+        do {
+            try files.write(data, configURL)
+            hasUnsavedChanges = false
+            saveError = nil
+            lastModified = Date()
+            return true
+        } catch {
+            saveError = PersistentFile.saveMessage(for: configURL, error: error)
+            return false
+        }
     }
 
     nonisolated static func mcpConfigurationData(from servers: [Server],

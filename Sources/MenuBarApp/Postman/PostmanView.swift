@@ -585,7 +585,7 @@ private struct RequestDetail: View {
                 }
             }
 
-            TextField("https://host/path — {{env}} resolves per environment", text: $draft.url)
+            TextField("https://host/path - {{env}} resolves per environment", text: $draft.url)
                 .textFieldStyle(.plain)
                 .font(.mono(12))
                 .lineLimit(1)
@@ -596,17 +596,23 @@ private struct RequestDetail: View {
                     .stroke(environment.accent.opacity(0.35)))
                 .onSubmit(send)
 
-            Button(action: send) {
-                Text(running ? "Sending…" : "Send")
+            Button {
+                if running {
+                    cancel()
+                } else {
+                    send()
+                }
+            } label: {
+                Text(running ? "Cancel" : "Send")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.white)
                     .padding(.horizontal, 20)
                     .padding(.vertical, 9)
                     .background(RoundedRectangle(cornerRadius: 9)
-                        .fill(environment.accent.opacity(running ? 0.5 : 1)))
+                        .fill(running ? Theme.deletion : environment.accent))
             }
             .buttonStyle(.plain)
-            .disabled(running || draft.url.isEmpty)
+            .disabled(!running && draft.url.isEmpty)
         }
         .padding(.horizontal, 20)
         .padding(.bottom, 6)
@@ -844,6 +850,10 @@ private struct RequestDetail: View {
         }
     }
 
+    private func cancel() {
+        runner.cancel(draft.id, in: environment)
+    }
+
     private func consequence(of method: HTTPMethod) -> String {
         switch method {
         case .delete: "This deletes real data. Switch to staging if you meant to test."
@@ -992,7 +1002,8 @@ private struct ResponsePane: View {
                     .padding(.vertical, 3)
                     .background(Capsule().fill(result.tint.opacity(0.14)))
 
-                Text("\(Int(result.duration * 1000)) ms · \(byteText(result.byteCount))")
+                Text("\(Int(result.duration * 1000)) ms · \(byteText(result.byteCount))"
+                     + (result.isTruncated ? " · truncated" : ""))
                     .font(.mono(11))
                     .foregroundStyle(.secondary)
 
@@ -1103,6 +1114,8 @@ private struct ResponsePane: View {
     }
 
     private func byteText(_ count: Int) -> String {
-        count < 1024 ? "\(count) B" : String(format: "%.1f kB", Double(count) / 1024)
+        if count < 1024 { return "\(count) B" }
+        if count < 1024 * 1024 { return String(format: "%.1f kB", Double(count) / 1024) }
+        return String(format: "%.1f MB", Double(count) / Double(1024 * 1024))
     }
 }

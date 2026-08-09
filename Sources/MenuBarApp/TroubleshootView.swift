@@ -772,24 +772,28 @@ struct TroubleshootView: View {
                 }
             }
 
-            let session: ChatSession
+            let sessionResult: Result<ChatSession, PersistenceFailure>
             if let workspace {
                 let checkouts = projects.map {
                     SessionProject(projectID: $0.id, worktreePath: nil, worktreeBranch: nil)
                 }
-                guard let workspaceSession = store.newSession(in: workspace.id,
-                                                              projects: checkouts,
-                                                              isTroubleshooting: true) else {
-                    isStarting = false
-                    dialogs.show(Dialog(
-                        title: "Could not start the diagnosis",
-                        message: "The workspace no longer has a valid lead project.",
-                        actions: [.init(label: "OK", kind: .cancel)]))
-                    return
-                }
-                session = workspaceSession
+                sessionResult = store.insertSession(in: workspace.id,
+                                                    projects: checkouts,
+                                                    isTroubleshooting: true)
             } else {
-                session = store.newSession(in: lead.id, isTroubleshooting: true)
+                sessionResult = store.insertSession(in: lead.id, isTroubleshooting: true)
+            }
+            let session: ChatSession
+            switch sessionResult {
+            case .success(let created):
+                session = created
+            case .failure(let failure):
+                isStarting = false
+                dialogs.show(Dialog(
+                    title: "Could not start the diagnosis",
+                    message: failure.message,
+                    actions: [.init(label: "OK", kind: .cancel)]))
+                return
             }
 
             var settings = SessionSettings()

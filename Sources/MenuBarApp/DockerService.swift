@@ -101,40 +101,21 @@ final class DockerService {
         guard let path = ProcessManager.resolve("docker") else {
             return Output(errorText: "Docker was not found on PATH.")
         }
-        let searchPath = ProcessManager.searchPath
-        return await Task.detached {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: path)
-            process.arguments = arguments
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = ProcessManager.searchPath
 
-            var environment = ProcessInfo.processInfo.environment
-            environment["PATH"] = searchPath
-            process.environment = environment
-
-            let out = Pipe()
-            let errorPipe = Pipe()
-            process.standardOutput = out
-            process.standardError = errorPipe
-            process.standardInput = FileHandle.nullDevice
-
-            var result = Output()
-            do {
-                try process.run()
-            } catch {
-                result.errorText = error.localizedDescription
-                return result
-            }
-            // Drain both pipes at the same time. Reading one to the end while the
-            // child sits blocked writing to the other would deadlock.
-            let outTask = Task.detached { out.fileHandleForReading.readDataToEndOfFile() }
-            let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-            let outData = await outTask.value
-            process.waitUntilExit()
-
-            result.text = String(decoding: outData, as: UTF8.self)
-            result.errorText = String(decoding: errorData, as: UTF8.self)
-            result.status = process.terminationStatus
-            return result
-        }.value
+        do {
+            let output = try await CommandRunner.run(
+                executable: path,
+                arguments: arguments,
+                environment: environment,
+                timeout: .seconds(30)
+            )
+            return Output(text: output.output,
+                          errorText: output.errorOutput,
+                          status: output.status)
+        } catch {
+            return Output(errorText: error.localizedDescription)
+        }
     }
 }

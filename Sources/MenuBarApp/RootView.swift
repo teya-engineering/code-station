@@ -4,7 +4,10 @@ import SwiftUI
 // belongs to the session being worked on; MCP servers are configured in a sheet on
 // top of it, since that is a setup job rather than a place to sit.
 struct RootView: View {
+    @Environment(ConfigStore.self) private var configs
     @Environment(ProjectStore.self) private var store
+    @Environment(PostmanStore.self) private var postman
+    @Environment(PostmanAuthStore.self) private var postmanAuth
     @Environment(AppSettings.self) private var settings
     @State private var skills = SkillsManager()
     @State private var configuringServers = false
@@ -15,22 +18,30 @@ struct RootView: View {
     @State private var showingAI = false
     @State private var showingTroubleshoot = false
     @State private var reviewingOldSessions = false
+    @State private var sessionCleanupError: String?
 
     var body: some View {
-        HStack(spacing: 0) {
-            AppSidebar(skills: skills,
-                       onConfigureServers: { configuringServers = true },
-                       onOpenSkills: { showingSkills = true },
-                       onOpenDocker: { showingDocker = true },
-                       onOpenSettings: { showingSettings = true },
-                       onOpenPostman: { showingPostman = true },
-                       onOpenAI: { showingAI = true },
-                       onOpenTroubleshoot: { showingTroubleshoot = true },
-                       onReviewOldSessions: { reviewingOldSessions = true })
-            Divider().overlay(Theme.hairline)
-            detail
+        ZStack(alignment: .top) {
+            HStack(spacing: 0) {
+                AppSidebar(skills: skills,
+                           onConfigureServers: { configuringServers = true },
+                           onOpenSkills: { showingSkills = true },
+                           onOpenDocker: { showingDocker = true },
+                           onOpenSettings: { showingSettings = true },
+                           onOpenPostman: { showingPostman = true },
+                           onOpenAI: { showingAI = true },
+                           onOpenTroubleshoot: { showingTroubleshoot = true },
+                           onReviewOldSessions: { reviewingOldSessions = true })
+                Divider().overlay(Theme.hairline)
+                detail
+            }
+            if let attention {
+                AttentionBanner(title: attention.title, message: attention.message)
+                    .padding(.top, 12)
+            }
         }
         .background(Theme.background)
+        .task { await resumePendingSessionRemovals() }
         .task(id: settings.skillsRefreshInterval) { await refreshSkillsAutomatically() }
         // Settings answers the shortcut every Mac app answers. The standard Settings
         // scene is deliberately empty, so the shortcut is caught here and opens the
@@ -54,6 +65,32 @@ struct RootView: View {
             TroubleshootView(skills: skills).appOverlays()
         }
         .sheet(isPresented: $reviewingOldSessions) { OldSessionsView().appOverlays() }
+    }
+
+    private var persistenceError: String? {
+        [configs.loadError, configs.saveError,
+         store.loadError, store.transcriptLoadErrors.values.first, store.saveError,
+         postman.loadError, postman.saveError,
+         postmanAuth.loadError, postmanAuth.saveError]
+            .compactMap { $0 }
+            .first
+    }
+
+    private var attention: (title: String, message: String)? {
+        if let persistenceError {
+            return ("Storage needs attention", persistenceError)
+        }
+        if let sessionCleanupError {
+            return ("Session cleanup needs attention", sessionCleanupError)
+        }
+        return nil
+    }
+
+    private func resumePendingSessionRemovals() async {
+        let failures = await SessionLifecycle.resumePendingRemovals(in: store)
+        sessionCleanupError = failures.isEmpty
+            ? nil
+            : failures.map(\.message).joined(separator: "\n")
     }
 
     private func refreshSkillsAutomatically() async {
@@ -91,6 +128,33 @@ struct RootView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+    }
+}
+
+private struct AttentionBanner: View {
+    let title: String
+    let message: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 9) {
+            Image(systemName: "externaldrive.badge.exclamationmark")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Theme.deletion)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 12, weight: .semibold))
+                Text(message)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(4)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .frame(maxWidth: 720, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.deletion.opacity(0.45)))
+        .shadow(color: Color.black.opacity(0.12), radius: 12, y: 4)
     }
 }
 

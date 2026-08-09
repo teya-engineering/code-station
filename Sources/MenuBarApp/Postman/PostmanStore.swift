@@ -17,6 +17,8 @@ final class PostmanStore {
     var responseHeight: CGFloat = 230
 
     let storeURL: URL
+    private(set) var loadError: String?
+    private(set) var saveError: String?
 
     var selected: SavedRequest? { requests.first { $0.id == selectedID } }
 
@@ -152,20 +154,42 @@ final class PostmanStore {
         }
     }
 
-    func save() {
+    @discardableResult
+    func save() -> Bool {
         saveTask?.cancel()
         saveTask = nil
+        guard loadError == nil else {
+            saveError = "Changes were not saved because the existing request file could not be loaded."
+            return false
+        }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-        guard let data = try? encoder.encode(SavedRequestCollection(folders: folders,
-                                                                      requests: requests)) else { return }
-        try? FileManager.default.createDirectory(
-            at: storeURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? data.write(to: storeURL, options: .atomic)
+        do {
+            let data = try encoder.encode(SavedRequestCollection(folders: folders,
+                                                                  requests: requests))
+            try PersistentFile.write(data, to: storeURL)
+            saveError = nil
+            return true
+        } catch {
+            saveError = PersistentFile.saveMessage(for: storeURL, error: error)
+            return false
+        }
     }
 
     private func load() {
-        guard let data = try? Data(contentsOf: storeURL), !data.isEmpty else {
+        let data: Data?
+        do {
+            data = try PersistentFile.readIfPresent(storeURL)
+        } catch {
+            loadError = PersistentFile.loadMessage(for: storeURL, error: error)
+            folders = [.default]
+            requests = []
+            expandedFolderIDs = [RequestFolder.defaultID]
+            return
+        }
+
+        guard let data else {
+            loadError = nil
             folders = [.default]
             requests = Self.examples.map { request in
                 var request = request
@@ -184,9 +208,13 @@ final class PostmanStore {
             folders = []
             requests = saved
         } else {
-            requests = Self.examples
+            loadError = "The request file at \(storeURL.path) could not be parsed. Fix or remove it before saving changes."
+            folders = [.default]
+            requests = []
+            expandedFolderIDs = [RequestFolder.defaultID]
             return
         }
+        loadError = nil
 
         if !folders.contains(where: \.isDefault) {
             folders.insert(.default, at: 0)

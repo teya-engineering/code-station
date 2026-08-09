@@ -31,4 +31,13 @@ struct SessionLogTests {
         #expect(entry.count < 2_200)
         #expect(entry.hasSuffix("…"))
     }
+
+    @Test func streamSummariesDoNotContainPayloads() {
+        let secret = "token-\(UUID().uuidString)"
+
+        #expect(StreamEvent.text(secret).logSummary == "text bytes=\(secret.utf8.count)")
+        #expect(StreamEvent.toolResult(id: "tool-1", output: secret, isError: false)
+            .logSummary == "tool result id=tool-1 bytes=\(secret.utf8.count) error=false")
+        #expect(!StreamEvent.text(secret).logSummary.contains(secret))
+    }
 }

@@ -550,8 +550,14 @@ struct AppSidebar: View {
         case .worktree(let sessionID, let base, let agent):
             createWorktreeSession(in: project, id: sessionID, base: base, agent: agent)
         case .folder(let agent):
-            runner.agent = agent
-            sessionToReveal = store.newSession(in: project.id).id
+            switch store.insertSession(in: project.id) {
+            case .success(let session):
+                runner.agent = agent
+                sessionToReveal = session.id
+            case .failure(let failure):
+                showLifecycleFailure(SessionLifecycle.Failure(
+                    title: "Could not create the session", message: failure.message))
+            }
         }
     }
 
@@ -561,64 +567,14 @@ struct AppSidebar: View {
                                        in workspace: ProjectWorkspace) {
         expansion[workspace.id] = true
         Task {
-            var checkouts: [SessionProject] = []
-            var created: [(worktree: String, project: String, branch: String?)] = []
-
-            for selected in choice.projects {
-                guard let project = store.project(selected.projectID) else {
-                    await rollBack(created)
-                    dialogs.show(Dialog(
-                        title: "Could not create the session",
-                        message: "One of the workspace projects is no longer in the app.",
-                        actions: [.init(label: "OK", kind: .cancel)]))
-                    return
-                }
-
-                guard selected.useWorktree else {
-                    checkouts.append(SessionProject(projectID: project.id,
-                                                    worktreePath: nil,
-                                                    worktreeBranch: nil))
-                    continue
-                }
-
-                switch await GitWorktree.add(projectPath: project.path,
-                                             projectName: project.name,
-                                             projectID: project.id,
-                                             sessionID: choice.sessionID) {
-                case .success(let worktree):
-                    checkouts.append(SessionProject(projectID: project.id,
-                                                    worktreePath: worktree.path,
-                                                    worktreeBranch: worktree.branch))
-                    created.append((worktree.path, project.path, worktree.branch))
-                case .failure(let failure):
-                    await rollBack(created)
-                    dialogs.show(Dialog(
-                        title: "Could not create a worktree for \(project.name)",
-                        message: failure.message,
-                        actions: [.init(label: "OK", kind: .cancel)]))
-                    return
-                }
+            switch await SessionLifecycle.createWorkspaceSession(
+                choice, in: workspace, store: store) {
+            case .success:
+                runner.agent = choice.agent
+                sessionToReveal = choice.sessionID
+            case .failure(let failure):
+                showLifecycleFailure(failure)
             }
-
-            runner.agent = choice.agent
-            guard store.newSession(in: workspace.id, id: choice.sessionID,
-                                   projects: checkouts) != nil else {
-                await rollBack(created)
-                dialogs.show(Dialog(
-                    title: "Could not create the session",
-                    message: "The workspace no longer has a valid lead project.",
-                    actions: [.init(label: "OK", kind: .cancel)]))
-                return
-            }
-            sessionToReveal = choice.sessionID
-        }
-    }
-
-    private func rollBack(_ worktrees: [(worktree: String, project: String, branch: String?)]) async {
-        for worktree in worktrees.reversed() {
-            await GitWorktree.remove(worktreePath: worktree.worktree,
-                                     projectPath: worktree.project,
-                                     branch: worktree.branch)
         }
     }
 
@@ -636,7 +592,7 @@ struct AppSidebar: View {
             actions: [
                 .init(label: worktrees.isEmpty ? "Delete session" : "Delete session and worktrees",
                       kind: .destructive) {
-                    SessionRemoval.remove(session, from: store)
+                    removeSessions([session])
                 },
                 .init(label: "Cancel", kind: .cancel)
             ]))
@@ -666,7 +622,7 @@ struct AppSidebar: View {
             message: message,
             actions: [
                 .init(label: "Clear sessions", kind: .destructive) {
-                    for session in idle { SessionRemoval.remove(session, from: store) }
+                    removeSessions(idle)
                 },
                 .init(label: "Cancel", kind: .cancel)
             ]))
@@ -693,28 +649,46 @@ struct AppSidebar: View {
     private func createWorktreeSession(in project: Project, id sessionID: UUID, base: String?,
                                        agent: AgentKind) {
         Task {
-            switch await GitWorktree.add(projectPath: project.path,
-                                         projectName: project.name,
-                                         sessionID: sessionID,
-                                         from: base) {
-            case .success(let created):
+            switch await SessionLifecycle.createWorktreeSession(
+                in: project, id: sessionID, base: base, store: store) {
+            case .success:
                 runner.agent = agent
-                store.newSession(in: project.id, id: sessionID,
-                                 worktreePath: created.path, worktreeBranch: created.branch)
                 sessionToReveal = sessionID
             case .failure(let failure):
-                dialogs.show(Dialog(
-                    title: "Could not create a worktree",
-                    message: failure.message,
-                    actions: [.init(label: "OK", kind: .cancel)]))
+                showLifecycleFailure(failure)
             }
         }
     }
 
     private func removeProject(_ project: Project) {
         let affected = sessions(using: project.id)
-        for session in affected { SessionRemoval.remove(session, from: store) }
-        store.removeProject(project.id)
+        removeSessions(affected) { store.removeProject(project.id) }
+    }
+
+    private func removeSessions(_ sessions: [ChatSession], onSuccess: (() -> Void)? = nil) {
+        Task {
+            var failures: [SessionLifecycle.Failure] = []
+            for session in sessions {
+                if case .failure(let failure) = await SessionLifecycle.remove(
+                    session, from: store, runner: runner) {
+                    failures.append(failure)
+                }
+            }
+            guard failures.isEmpty else {
+                showLifecycleFailure(SessionLifecycle.Failure(
+                    title: failures.count == 1
+                        ? failures[0].title
+                        : "Could not delete some sessions",
+                    message: failures.map(\.message).joined(separator: "\n")))
+                return
+            }
+            onSuccess?()
+        }
+    }
+
+    private func showLifecycleFailure(_ failure: SessionLifecycle.Failure) {
+        dialogs.show(Dialog(title: failure.title, message: failure.message,
+                            actions: [.init(label: "OK", kind: .cancel)]))
     }
 
     private func sessions(using projectID: UUID) -> [ChatSession] {

@@ -229,10 +229,27 @@ struct OldSessionsView: View {
     }
 
     private func delete(_ chosen: [Row]) {
-        for row in chosen {
-            SessionRemoval.remove(row.session, from: store)
+        Task {
+            var failures: [SessionLifecycle.Failure] = []
+            for row in chosen {
+                if case .failure(let failure) = await SessionLifecycle.remove(
+                    row.session, from: store, runner: runner) {
+                    failures.append(failure)
+                }
+            }
+            rows.removeAll { store.session($0.id) == nil }
+            ticked = ticked.intersection(rows.map(\.id))
+            guard failures.isEmpty else {
+                dialogs.show(Dialog(
+                    title: failures.count == 1
+                        ? failures[0].title
+                        : "Could not delete some sessions",
+                    message: failures.map(\.message).joined(separator: "\n"),
+                    actions: [.init(label: "OK", kind: .cancel)]))
+                return
+            }
+            dismiss()
         }
-        dismiss()
     }
 }
 
