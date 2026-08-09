@@ -118,6 +118,7 @@ struct SettingsView: View {
     // The threshold only decides what gets offered up for review. Nothing acts on it on
     // its own, which is why the number can be moved freely without asking what it will do.
     private var oldSessions: some View {
+        @Bindable var settings = settings
         let days = settings.oldSessionDays
         let stale = OldSessions.olderThan(days, in: store.sessions).count
 
@@ -133,25 +134,7 @@ struct SettingsView: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     Spacer(minLength: 0)
-                    HStack(spacing: 8) {
-                        Text(dayTitle(days))
-                            .font(.system(size: 13, weight: .medium))
-                        Image(systemName: "chevron.up.chevron.down")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.horizontal, 12)
-                    .frame(height: 34)
-                    .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
-                    .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
-                    .contentShape(Rectangle())
-                    .appMenu(matchWidth: true) {
-                        OldSessions.dayOptions.map { days in
-                            .item(dayTitle(days), checked: settings.oldSessionDays == days) {
-                                settings.oldSessionDays = days
-                            }
-                        }
-                    }
+                    DayField(days: $settings.oldSessionDays)
                 }
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -174,10 +157,6 @@ struct SettingsView: View {
                 }
             }
         }
-    }
-
-    private func dayTitle(_ days: Int) -> String {
-        "\(days) day\(days == 1 ? "" : "s")"
     }
 
     private var skillRefresh: some View {
@@ -306,6 +285,36 @@ struct SettingsView: View {
                 .foregroundStyle(Theme.accent)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct DayField: View {
+    @Binding var days: Int
+
+    private var value: Binding<Int> {
+        Binding(
+            get: { days },
+            set: { days = OldSessions.resolvedDays($0) }
+        )
+    }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            TextField("Days", value: value, format: .number)
+                .textFieldStyle(.plain)
+                .font(.system(size: 13, weight: .semibold))
+                .monospacedDigit()
+                .multilineTextAlignment(.trailing)
+                .frame(width: 36)
+                .accessibilityLabel("Old session age in days")
+            Text(days == 1 ? "day" : "days")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 34)
+        .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
+        .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
     }
 }
 

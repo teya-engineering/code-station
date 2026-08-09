@@ -4,11 +4,11 @@ import Foundation
 // ran in a worktree leave a checkout on disk as well. Nothing here ever deletes on its
 // own - it only works out what has gone quiet, so the app can offer to clear it.
 enum OldSessions {
-    static let dayOptions = [1, 3, 7]
+    static let dayRange = 1...365
     static let defaultDays = 3
 
     static func resolvedDays(_ days: Int) -> Int {
-        dayOptions.contains(days) ? days : defaultDays
+        min(max(days, dayRange.lowerBound), dayRange.upperBound)
     }
 
     static func olderThan(_ days: Int, in sessions: [ChatSession], now: Date = Date()) -> [ChatSession] {
