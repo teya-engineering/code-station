@@ -110,6 +110,47 @@ struct TranscriptStoreTests {
         #expect(store.session(session.id)?.lastActivity == sent)
     }
 
+    @Test func derivesSidebarSummaryAwayFromTheMainActor() async {
+        let sent = Date(timeIntervalSince1970: 1_800_000_000)
+        let messages = [ChatMessage(role: .assistant, text: "", tools: [edit()], date: sent)]
+
+        let summary = await Task.detached {
+            SessionSummary.of(messages, projectPath: "/tmp")
+        }.value
+
+        #expect(summary.added == 1)
+        #expect(summary.removed == 1)
+        #expect(summary.lastTool == "Edit · x.swift")
+        #expect(summary.lastMessageAt == sent)
+    }
+
+    @Test func transcriptWindowAddsEarlierMessagesInBoundedPages() {
+        let messages = (0..<8).map { ChatMessage(role: .user, text: "\($0)") }
+        var window = TranscriptWindow(pageSize: 3)
+
+        #expect(window.visibleMessages(in: messages).map(\.text) == ["5", "6", "7"])
+        #expect(window.hiddenCount(totalCount: messages.count) == 5)
+
+        window.loadEarlier(totalCount: messages.count)
+        #expect(window.visibleMessages(in: messages).map(\.text) == ["2", "3", "4", "5", "6", "7"])
+        #expect(window.hiddenCount(totalCount: messages.count) == 2)
+
+        window.loadEarlier(totalCount: messages.count)
+        #expect(window.visibleMessages(in: messages).map(\.text)
+            == ["0", "1", "2", "3", "4", "5", "6", "7"])
+        #expect(window.hiddenCount(totalCount: messages.count) == 0)
+    }
+
+    @Test func transcriptWindowResetsWhenAViewChangesSessions() {
+        var window = TranscriptWindow(pageSize: 2)
+        window.loadEarlier(totalCount: 5)
+        #expect(window.visibleCount == 4)
+
+        window.reset()
+
+        #expect(window.visibleCount == 2)
+    }
+
     // A turn runs in a session nobody has open, and the reply has to land somewhere.
     @Test func holdsAConversationThatIsStillBeingWrittenTo() {
         let store = makeStore()

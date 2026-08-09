@@ -501,41 +501,21 @@ final class SkillsManager {
         guard let path = ProcessManager.resolve(command) else {
             return CommandResult(errorText: "\(command) was not found on PATH.")
         }
-        let searchPath = ProcessManager.searchPath
-        return await Task.detached {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: path)
-            process.arguments = arguments
-            process.standardInput = FileHandle.nullDevice
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = ProcessManager.searchPath
 
-            var environment = ProcessInfo.processInfo.environment
-            environment["PATH"] = searchPath
-            process.environment = environment
-
-            let outputPipe = Pipe()
-            let errorPipe = Pipe()
-            process.standardOutput = outputPipe
-            process.standardError = errorPipe
-
-            var result = CommandResult()
-            do {
-                try process.run()
-            } catch {
-                result.errorText = error.localizedDescription
-                return result
-            }
-
-            let outputTask = Task.detached {
-                outputPipe.fileHandleForReading.readDataToEndOfFile()
-            }
-            let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-            let outputData = await outputTask.value
-            process.waitUntilExit()
-
-            result.output = String(decoding: outputData, as: UTF8.self)
-            result.errorText = String(decoding: errorData, as: UTF8.self)
-            result.status = process.terminationStatus
-            return result
-        }.value
+        do {
+            let output = try await CommandRunner.run(
+                executable: path,
+                arguments: arguments,
+                environment: environment,
+                timeout: .seconds(180)
+            )
+            return CommandResult(output: output.output,
+                                 errorText: output.errorOutput,
+                                 status: output.status)
+        } catch {
+            return CommandResult(errorText: error.localizedDescription)
+        }
     }
 }

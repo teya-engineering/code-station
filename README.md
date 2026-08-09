@@ -169,8 +169,9 @@ remains available and the screen explains that it is showing cached data.
 swift test
 ```
 
-Covers the terminal: the ANSI parser, and a real shell on a real pty answering what is
-typed at it.
+Covers session and transcript behavior, terminal and PTY integration, Git and worktree
+operations, Postman and OAuth flows, file browsing, skills, settings, and UI-facing
+presentation logic.
 
 ## Requirements
 

@@ -84,13 +84,13 @@ extension String {
     }
 }
 
-enum MessageRole: String, Codable {
+enum MessageRole: String, Codable, Sendable {
     case user, assistant, system, instructions
 }
 
 // One tool call inside an assistant turn. `result` stays nil until Claude Code
 // reports the tool_result, so the UI can show a call as still in flight.
-struct ToolUse: Identifiable, Codable, Equatable {
+struct ToolUse: Identifiable, Codable, Equatable, Sendable {
     var id: String
     var name: String
     var input: String
@@ -156,7 +156,7 @@ enum MessageBlock: Identifiable {
     }
 }
 
-struct ChatMessage: Identifiable, Codable, Equatable {
+struct ChatMessage: Identifiable, Codable, Equatable, Sendable {
     var id: UUID = UUID()
     var role: MessageRole
     var text: String = ""
@@ -245,7 +245,7 @@ struct ChatMessage: Identifiable, Codable, Equatable {
 // Everything the sidebar says about a session whose transcript is not in memory. It is
 // derived from the conversation and written beside it in the index, which is what lets
 // a session be described without being loaded.
-struct SessionSummary: Codable, Equatable {
+struct SessionSummary: Codable, Equatable, Sendable {
     var lastMessageAt: Date?
     // The last call that finished, in the one-line form a row shows: "Bash · swift build".
     var lastTool: String?
@@ -259,12 +259,12 @@ struct SessionSummary: Codable, Equatable {
 
     // Built from the whole transcript rather than kept up to date call by call: a result
     // lands long after the call that asked for it, and both numbers have to include it.
-    @MainActor
     static func of(_ messages: [ChatMessage], projectPath: String) -> SessionSummary {
         var summary = SessionSummary(lastMessageAt: messages.last?.date)
         for tool in messages.flatMap(\.tools) {
             guard !tool.isRunning else { continue }
-            let presentation = ToolPresentationCache.presentation(for: tool, projectPath: projectPath)
+            let presentation = ToolPresentationCache.presentation(for: tool,
+                                                                   projectPath: projectPath)
             if !tool.isError {
                 summary.added += presentation.added ?? 0
                 summary.removed += presentation.removed ?? 0
@@ -395,12 +395,17 @@ enum SessionState: Equatable {
     case idle
     case starting
     case streaming
+    // Stop has been requested, but the process still owns its working directory until
+    // termination is confirmed.
+    case stopping
     // The turn has answered, but a background task it started is still running. The
     // process is held open so the task's completion can wake the agent again.
     case waiting
     case failed(String)
 
-    var isBusy: Bool { self == .starting || self == .streaming || self == .waiting }
+    var isBusy: Bool {
+        self == .starting || self == .streaming || self == .stopping || self == .waiting
+    }
 }
 
 // Why a session belongs in the activity menu. A question outranks a run because it tells

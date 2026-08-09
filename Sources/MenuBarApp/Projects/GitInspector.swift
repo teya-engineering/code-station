@@ -508,7 +508,7 @@ enum GitInspector {
         return GitTool(path: path, searchPath: ProcessManager.searchPath)
     }
 
-    struct CommandOutput {
+    struct CommandOutput: Sendable {
         var text = ""
         var errorText = ""
         var status: Int32 = -1
@@ -525,74 +525,33 @@ enum GitInspector {
     // target may no longer exist, and a missing working directory would keep the
     // process from launching at all.
     static func run(_ tool: GitTool, _ arguments: [String], in directory: URL? = nil,
-                    timeout: TimeInterval? = nil) -> CommandOutput {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: tool.path)
-        process.currentDirectoryURL = directory
-        process.arguments = arguments
-
+                    timeout: TimeInterval? = nil,
+                    captureByteLimit: Int = GitInspector.outputByteLimit) -> CommandOutput {
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = tool.searchPath
         // No tty here, so make sure git can never sit waiting for a password or an editor.
         environment["GIT_TERMINAL_PROMPT"] = "0"
         environment["GIT_OPTIONAL_LOCKS"] = "0"
         environment["GIT_PAGER"] = "cat"
-        process.environment = environment
-
-        let out = Pipe()
-        let errorPipe = Pipe()
-        process.standardOutput = out
-        process.standardError = errorPipe
-        process.standardInput = FileHandle.nullDevice
 
         var result = CommandOutput()
         do {
-            try process.run()
+            let output = try CommandRunner.runBlocking(
+                executable: tool.path,
+                arguments: arguments,
+                currentDirectory: directory,
+                environment: environment,
+                timeout: timeout.map { .seconds($0) },
+                outputByteLimit: captureByteLimit
+            )
+            result.text = output.output
+            result.errorText = output.errorOutput
+            result.status = output.status
+            result.truncated = output.outputTruncated || output.errorOutputTruncated
         } catch {
             result.errorText = error.localizedDescription
-            return result
         }
-
-        // A command that talks to the network can hang on a connection that swallows
-        // packets rather than refusing them; killing it turns no answer into a failure.
-        let killer = timeout.map { limit in
-            let item = DispatchWorkItem { process.terminate() }
-            DispatchQueue.global().asyncAfter(deadline: .now() + limit, execute: item)
-            return item
-        }
-
-        // Both pipes have to be drained at the same time: git blocks once either buffer
-        // fills, so reading them one after the other can hang forever.
-        let box = DataBox()
-        let group = DispatchGroup()
-        group.enter()
-        DispatchQueue.global(qos: .userInitiated).async {
-            box.value = errorPipe.fileHandleForReading.readDataToEndOfFile()
-            group.leave()
-        }
-        var data = out.fileHandleForReading.readDataToEndOfFile()
-        group.wait()
-        process.waitUntilExit()
-        killer?.cancel()
-
-        if data.count > outputByteLimit {
-            data = data.prefix(outputByteLimit)
-            result.truncated = true
-        }
-        // Lenient UTF-8: bad bytes become replacement characters instead of losing the file.
-        result.text = String(decoding: data, as: UTF8.self)
-        result.errorText = String(decoding: box.value, as: UTF8.self)
-        result.status = process.terminationStatus
         return result
-    }
-
-    private final class DataBox: @unchecked Sendable {
-        private let lock = NSLock()
-        private var storage = Data()
-        var value: Data {
-            get { lock.lock(); defer { lock.unlock() }; return storage }
-            set { lock.lock(); storage = newValue; lock.unlock() }
-        }
     }
 
     // git is slow enough on a big repo to be felt, so it never runs on the main thread.

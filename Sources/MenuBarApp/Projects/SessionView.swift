@@ -1,5 +1,35 @@
 import SwiftUI
 
+// Long conversations stay fully available to the runner and persistence layer, but the
+// view only builds a bounded tail. Earlier pages are added on demand without changing
+// the transcript format or making old sessions migrate their data.
+struct TranscriptWindow: Equatable {
+    let pageSize: Int
+    private(set) var visibleCount: Int
+
+    init(pageSize: Int = 80) {
+        self.pageSize = max(1, pageSize)
+        visibleCount = max(1, pageSize)
+    }
+
+    func hiddenCount(totalCount: Int) -> Int {
+        max(0, totalCount - visibleCount)
+    }
+
+    func visibleMessages(in messages: [ChatMessage]) -> ArraySlice<ChatMessage> {
+        messages.suffix(visibleCount)
+    }
+
+    mutating func loadEarlier(totalCount: Int) {
+        guard hiddenCount(totalCount: totalCount) > 0 else { return }
+        visibleCount = min(totalCount, visibleCount + pageSize)
+    }
+
+    mutating func reset() {
+        visibleCount = pageSize
+    }
+}
+
 // The detail pane for one Claude Code conversation: the transcript or the working tree
 // diff, with a real shell docked underneath. The terminal shares the screen rather
 // than replacing it, so a build and what the agent did are one glance apart.
@@ -16,6 +46,7 @@ struct SessionView: View {
     @State private var terminalFocused = false
     @State private var composerFocused = false
     @State private var selectedProjectID: UUID?
+    @State private var transcriptWindow = TranscriptWindow()
 
     // Working tree totals for the header; refreshed as tools finish so the numbers
     // track the run rather than only its end.
@@ -70,9 +101,13 @@ struct SessionView: View {
                 refreshStats(workingDirectories)
                 store.findPullRequest(in: sessionID)
             }
-            .onChange(of: completedToolCount) { refreshStats(workingDirectories) }
+            .onChange(of: completedToolCount) {
+                refreshStats(workingDirectories, after: .milliseconds(350))
+            }
             .onChange(of: runner.state(sessionID)) { _, state in
-                if !state.isBusy { refreshStats(workingDirectories) }
+                if !state.isBusy {
+                    refreshStats(workingDirectories, after: .milliseconds(350))
+                }
             }
         } else {
             VStack(spacing: 14) {
@@ -217,13 +252,24 @@ struct SessionView: View {
         return last.tools.filter { !$0.isRunning }.count
     }
 
-    private func refreshStats(_ roots: [String]) {
+    private func refreshStats(_ roots: [String], after delay: Duration? = nil) {
         statsTask?.cancel()
         statsTask = Task {
+            if let delay {
+                do {
+                    try await Task.sleep(for: delay)
+                } catch {
+                    return
+                }
+            }
             var snapshots: [String: GitSnapshot] = [:]
-            for root in roots {
-                if Task.isCancelled { return }
-                snapshots[root] = await GitInspector.snapshot(at: root)
+            await withTaskGroup(of: (String, GitSnapshot).self) { group in
+                for root in roots {
+                    group.addTask { (root, await GitInspector.snapshot(at: root)) }
+                }
+                for await (root, snapshot) in group {
+                    snapshots[root] = snapshot
+                }
             }
             if !Task.isCancelled {
                 workspaceStats = snapshots
@@ -302,7 +348,17 @@ struct SessionView: View {
 
         return ScrollViewReader { proxy in
             ScrollView {
-                transcriptContent(session, state: state, projectPath: projectPath)
+                let visibleMessages = transcriptWindow.visibleMessages(in: session.messages)
+                transcriptContent(session, messages: visibleMessages, state: state,
+                                  projectPath: projectPath) {
+                    let firstVisibleID = visibleMessages.first?.id
+                    transcriptWindow.loadEarlier(totalCount: session.messages.count)
+                    guard let firstVisibleID else { return }
+                    Task {
+                        await Task.yield()
+                        proxy.scrollTo(firstVisibleID, anchor: .top)
+                    }
+                }
                     .padding(.horizontal, 24)
                     .padding(.vertical, 20)
                     // Capped so prose keeps a readable line length, and centered so a
@@ -332,6 +388,7 @@ struct SessionView: View {
             // that wraps differently once it has its real width - and the end of the
             // transcript moves with them. One nudge once that settles lands on it.
             .task(id: sessionID) {
+                transcriptWindow.reset()
                 await Task.yield()
                 proxy.scrollTo(bottomAnchor, anchor: .bottom)
             }
@@ -351,11 +408,13 @@ struct SessionView: View {
     // under a transcript sitting at the bottom, a message landing as the bottom anchor
     // is re-applied - it builds nothing at all and the transcript goes blank until it
     // is scrolled by hand. A turn is a handful of rows, and the tool rows inside one
-    // are built eagerly anyway, so there is nothing much to save by being lazy and a
-    // whole class of blank pane to avoid. It also keeps a tool card that was opened
-    // open once it has been scrolled past.
-    private func transcriptContent(_ session: ChatSession, state: SessionState,
-                                   projectPath: String) -> some View {
+    // are built eagerly anyway. Bounding the eager stack keeps large transcripts cheap
+    // without bringing back the blank-pane bug, and keeps an opened tool card alive while
+    // it remains in the loaded window.
+    private func transcriptContent(_ session: ChatSession,
+                                   messages: ArraySlice<ChatMessage>,
+                                   state: SessionState, projectPath: String,
+                                   loadEarlier: @escaping () -> Void) -> some View {
         VStack(alignment: .leading, spacing: 18) {
             if session.messages.isEmpty {
                 Text("Ask for a change. Claude Code runs in the project folder, so what it edits is your working tree.")
@@ -364,7 +423,29 @@ struct SessionView: View {
                     .padding(.top, 8)
             }
 
-            ForEach(session.messages) { message in
+            let hiddenCount = transcriptWindow.hiddenCount(totalCount: session.messages.count)
+            if hiddenCount > 0 {
+                Button(action: loadEarlier) {
+                    HStack(spacing: 7) {
+                        Image(systemName: "arrow.up")
+                        Text("Load earlier messages")
+                        Text("\(hiddenCount) hidden")
+                            .foregroundStyle(.secondary)
+                    }
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Theme.accent)
+                    .padding(.horizontal, 12)
+                    .frame(height: 34)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Theme.card))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
+                    .contentShape(RoundedRectangle(cornerRadius: 8))
+                }
+                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity)
+                .accessibilityLabel("Load earlier messages, \(hiddenCount) hidden")
+            }
+
+            ForEach(messages) { message in
                 MessageView(message: message,
                             projectPath: projectPath,
                             openChanges: { tab = .changes })
@@ -483,7 +564,8 @@ struct SessionView: View {
     private func composer(session: ChatSession, project: Project) -> some View {
         let workingDirectory = session.worktreePath ?? project.path
         let blocked = !FileManager.default.fileExists(atPath: workingDirectory) || !runner.available
-        let busy = runner.state(sessionID).isBusy
+        let state = runner.state(sessionID)
+        let busy = state.isBusy
         let canSend = !blocked && !runner.draft(sessionID).isEmpty
 
         return VStack(alignment: .leading, spacing: 8) {
@@ -517,7 +599,14 @@ struct SessionView: View {
                     .help(busy ? "Queue this for when the turn ends" : "Send (shift-return for a new line)")
                 }
 
-                if busy {
+                if state == .stopping {
+                    Image(systemName: "hourglass")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 32, height: 32)
+                        .background(Circle().fill(Theme.field))
+                        .help("Stopping this turn")
+                } else if busy {
                     Button {
                         runner.stop(sessionID, store: store)
                     } label: {

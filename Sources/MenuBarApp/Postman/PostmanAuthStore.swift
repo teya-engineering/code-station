@@ -21,6 +21,9 @@ final class PostmanAuthStore {
     private var pending: [ApiEnvironment: Pending] = [:]
 
     let storeURL: URL
+    private let keychain: KeychainClient
+    private(set) var loadError: String?
+    private(set) var saveError: String?
 
     private struct Persisted: Codable {
         var active: ApiEnvironment
@@ -28,13 +31,25 @@ final class PostmanAuthStore {
         var production: OAuthConfig
     }
 
-    init() {
-        storeURL = ProcessInfo.processInfo.environment["CONDUCTOR_POSTMAN_AUTH"]
-            .map { URL(fileURLWithPath: $0) }
+    init(storeURL: URL? = nil, keychain: KeychainClient = .live) {
+        self.storeURL = storeURL
+            ?? ProcessInfo.processInfo.environment["CONDUCTOR_POSTMAN_AUTH"]
+                .map { URL(fileURLWithPath: $0) }
             ?? AppPaths.supportFile("postman-auth.json",
                                     movedFrom: AppPaths.legacy("postman-auth.json"))
-        let data = (try? Data(contentsOf: storeURL)) ?? Data()
-        let saved = try? JSONDecoder.oauth.decode(Persisted.self, from: data)
+        self.keychain = keychain
+
+        var loadFailures: [String] = []
+        var saved: Persisted?
+        do {
+            if let data = try PersistentFile.readIfPresent(self.storeURL) {
+                saved = try JSONDecoder.oauth.decode(Persisted.self, from: data)
+            }
+        } catch let error as DecodingError {
+            loadFailures.append(PersistentFile.decodeMessage(for: self.storeURL, error: error))
+        } catch {
+            loadFailures.append(PersistentFile.loadMessage(for: self.storeURL, error: error))
+        }
 
         // An environment left empty starts from the defaults rather than from nothing.
         func carried(_ config: OAuthConfig?) -> OAuthConfig {
@@ -50,16 +65,25 @@ final class PostmanAuthStore {
         // The Keychain is the truth for the secrets and the tokens; the file never holds
         // either.
         for env in ApiEnvironment.allCases {
-            if let secret = Keychain.string(env.secretAccount) {
-                secrets[env] = secret
-                if env == .staging { staging.clientSecret = secret }
-                else { production.clientSecret = secret }
+            do {
+                if let secret = try keychain.string(env.secretAccount) {
+                    secrets[env] = secret
+                    if env == .staging { staging.clientSecret = secret }
+                    else { production.clientSecret = secret }
+                }
+            } catch {
+                loadFailures.append(error.localizedDescription)
             }
-            if let json = Keychain.string(env.tokenAccount) {
-                tokenJSON[env] = json
-                if let token = try? JSONDecoder.oauth.decode(OAuthToken.self, from: Data(json.utf8)) {
+
+            do {
+                if let json = try keychain.string(env.tokenAccount) {
+                    let token = try JSONDecoder.oauth.decode(OAuthToken.self,
+                                                              from: Data(json.utf8))
+                    tokenJSON[env] = json
                     tokens[env] = token
                 }
+            } catch {
+                loadFailures.append(error.localizedDescription)
             }
         }
 
@@ -69,6 +93,7 @@ final class PostmanAuthStore {
         self.tokens = tokens
         storedSecrets = secrets
         storedTokenJSON = tokenJSON
+        loadError = loadFailures.isEmpty ? nil : loadFailures.joined(separator: "\n")
     }
 
     func config(for env: ApiEnvironment) -> OAuthConfig {
@@ -389,37 +414,66 @@ final class PostmanAuthStore {
     // The secrets and the tokens go to the Keychain; the file keeps the rest, which is
     // just the addresses and the client ids. Keychain writes are slow and synchronous,
     // so they are skipped when the value there already matches.
-    func save() {
+    @discardableResult
+    func save() -> Bool {
         saveTask?.cancel()
         saveTask = nil
+        guard loadError == nil else {
+            saveError = "Changes were not saved because the existing OAuth settings could not be loaded."
+            return false
+        }
 
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         encoder.dateEncodingStrategy = .iso8601
 
+        var failures: [String] = []
         for env in ApiEnvironment.allCases {
             let secret = config(for: env).clientSecret
             let value = secret.isEmpty ? nil : secret
             if value != storedSecrets[env] {
-                Keychain.set(value, for: env.secretAccount)
-                storedSecrets[env] = value
+                do {
+                    try keychain.set(value, env.secretAccount)
+                    storedSecrets[env] = value
+                } catch {
+                    failures.append(error.localizedDescription)
+                }
             }
 
-            let tokenJSON = tokens[env].flatMap { try? encoder.encode($0) }
-                .map { String(decoding: $0, as: UTF8.self) }
-            if tokenJSON != storedTokenJSON[env] {
-                Keychain.set(tokenJSON, for: env.tokenAccount)
-                storedTokenJSON[env] = tokenJSON
+            let tokenJSON: String?
+            do {
+                tokenJSON = try tokens[env].map { token in
+                    String(decoding: try encoder.encode(token), as: UTF8.self)
+                }
+            } catch {
+                failures.append("The \(env.rawValue) token could not be encoded: \(error.localizedDescription)")
+                continue
             }
+            if tokenJSON != storedTokenJSON[env] {
+                do {
+                    try keychain.set(tokenJSON, env.tokenAccount)
+                    storedTokenJSON[env] = tokenJSON
+                } catch {
+                    failures.append(error.localizedDescription)
+                }
+            }
+        }
+        guard failures.isEmpty else {
+            saveError = failures.joined(separator: "\n")
+            return false
         }
 
         var onDisk = Persisted(active: active, staging: staging, production: production)
         onDisk.staging.clientSecret = ""
         onDisk.production.clientSecret = ""
-        guard let data = try? encoder.encode(onDisk) else { return }
-        try? FileManager.default.createDirectory(
-            at: storeURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? data.write(to: storeURL, options: .atomic)
+        do {
+            try PersistentFile.write(encoder.encode(onDisk), to: storeURL)
+            saveError = nil
+            return true
+        } catch {
+            saveError = PersistentFile.saveMessage(for: storeURL, error: error)
+            return false
+        }
     }
 }
 

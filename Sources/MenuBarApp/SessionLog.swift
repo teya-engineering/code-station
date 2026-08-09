@@ -1,16 +1,15 @@
 import AppKit
 import Foundation
 
-// A record on disk of what the CLI actually said, and of what the app did about it.
+// A record on disk of the CLI protocol events and what the app did about them.
 //
 // A turn that stops moving leaves nothing behind on screen: the process is alive, its
 // pipes are open, the transcript is whatever streamed before the silence. Everything that
-// would explain the gap - the last line read, a request the app could not answer, an exit
-// nobody noticed - passes through here and nowhere else, so this is the only place the
-// difference between working and stuck can be seen after the fact.
+// would explain the gap - the last event type, a request the app could not answer, an exit
+// nobody noticed - passes through here and nowhere else. Payloads stay in the transcript
+// instead of being copied into a second file that may hold prompts, source code, or secrets.
 enum SessionLog {
-    // Enough of a line to recognise it. A tool result can be a whole file, and the
-    // transcript already keeps the content, so the log only needs the shape of it.
+    // Bounds unexpected diagnostic text even though stream payloads are summarized.
     private static let maxLine = 2_000
     // Past this the file is rolled over. One spare generation is kept: a hang is noticed
     // within minutes or not at all, so older history buys nothing.

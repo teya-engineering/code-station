@@ -3,9 +3,9 @@ import Foundation
 // How one tool call reads in the UI: a verb, the one argument that matters, and,
 // for an edit, the line changes it is making. All of it comes from the call's input,
 // which the CLI sends complete and never changes afterwards.
-struct ToolPresentation {
-    struct Line: Identifiable, Equatable {
-        enum Kind: Equatable { case addition, deletion, context }
+struct ToolPresentation: Sendable {
+    struct Line: Identifiable, Equatable, Sendable {
+        enum Kind: Equatable, Sendable { case addition, deletion, context }
         let id: Int
         let kind: Kind
         let text: String
@@ -93,31 +93,35 @@ struct ToolPresentation {
     // changed lines plus a little surrounding context, so this reads like a real diff
     // without needing a diff algorithm.
     private static func diff(old: String, new: String) -> (lines: [Line], added: Int, removed: Int) {
-        var oldLines = old.isEmpty ? [] : old.components(separatedBy: "\n")
-        var newLines = new.isEmpty ? [] : new.components(separatedBy: "\n")
+        let oldLines = old.isEmpty ? [] : old.components(separatedBy: "\n")
+        let newLines = new.isEmpty ? [] : new.components(separatedBy: "\n")
 
-        var prefix: [String] = []
-        while let first = oldLines.first, first == newLines.first {
-            prefix.append(first)
-            oldLines.removeFirst()
-            newLines.removeFirst()
+        var prefixCount = 0
+        let sharedCount = min(oldLines.count, newLines.count)
+        while prefixCount < sharedCount,
+              oldLines[prefixCount] == newLines[prefixCount] {
+            prefixCount += 1
         }
-        var suffix: [String] = []
-        while let last = oldLines.last, !newLines.isEmpty, last == newLines.last {
-            suffix.insert(last, at: 0)
-            oldLines.removeLast()
-            newLines.removeLast()
+
+        var suffixCount = 0
+        while suffixCount < sharedCount - prefixCount,
+              oldLines[oldLines.count - suffixCount - 1]
+                == newLines[newLines.count - suffixCount - 1] {
+            suffixCount += 1
         }
+
+        let oldChange = oldLines[prefixCount..<(oldLines.count - suffixCount)]
+        let newChange = newLines[prefixCount..<(newLines.count - suffixCount)]
 
         var lines: [Line] = []
         func append(_ kind: Line.Kind, _ text: String) {
             lines.append(Line(id: lines.count, kind: kind, text: text))
         }
-        for text in prefix.suffix(2) { append(.context, text) }
-        for text in oldLines { append(.deletion, text) }
-        for text in newLines { append(.addition, text) }
-        for text in suffix.prefix(2) { append(.context, text) }
-        return (lines, newLines.count, oldLines.count)
+        for text in oldLines[..<prefixCount].suffix(2) { append(.context, text) }
+        for text in oldChange { append(.deletion, text) }
+        for text in newChange { append(.addition, text) }
+        for text in oldLines[(oldLines.count - suffixCount)...].prefix(2) { append(.context, text) }
+        return (lines, newChange.count, oldChange.count)
     }
 
     // MARK: - Helpers
@@ -156,24 +160,47 @@ struct ToolPresentation {
     }
 }
 
-// The transcript and the sidebar both redraw on every streamed token, so parsing a
-// call's input JSON on each draw would be wasted work. Inputs are immutable once the
-// call exists, which makes its id a safe cache key.
-@MainActor
+// The transcript and the sidebar both redraw on every streamed token, while summaries
+// are derived on the persistence queue. Inputs are immutable once the call exists, so
+// one locked cache avoids parsing the same JSON and diff on either path.
 enum ToolPresentationCache {
-    private static var cache: [String: ToolPresentation] = [:]
+    private static let storage = Storage()
 
     static func presentation(for tool: ToolUse, projectPath: String) -> ToolPresentation {
-        if let cached = cache[tool.id] { return cached }
-        let fresh = ToolPresentation(tool: tool, projectPath: projectPath)
-        cache[tool.id] = fresh
-        return fresh
+        storage.presentation(for: tool, projectPath: projectPath)
     }
 
     // Dropped when the conversation they were built from leaves memory. An entry for an
     // edit holds the lines it changed, so keeping them for every call the app has ever
     // drawn would undo the point of letting the conversation go.
     static func forget(_ toolIDs: some Sequence<String>) {
-        for id in toolIDs { cache.removeValue(forKey: id) }
+        storage.forget(toolIDs)
+    }
+
+    private final class Storage: @unchecked Sendable {
+        private let lock = NSLock()
+        private var values: [String: ToolPresentation] = [:]
+
+        func presentation(for tool: ToolUse, projectPath: String) -> ToolPresentation {
+            if let cached = withLock({ values[tool.id] }) { return cached }
+            let fresh = ToolPresentation(tool: tool, projectPath: projectPath)
+            return withLock {
+                if let cached = values[tool.id] { return cached }
+                values[tool.id] = fresh
+                return fresh
+            }
+        }
+
+        func forget(_ toolIDs: some Sequence<String>) {
+            withLock {
+                for id in toolIDs { values.removeValue(forKey: id) }
+            }
+        }
+
+        private func withLock<T>(_ operation: () -> T) -> T {
+            lock.lock()
+            defer { lock.unlock() }
+            return operation()
+        }
     }
 }

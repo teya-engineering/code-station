@@ -67,76 +67,48 @@ struct CodexUsage: Equatable, Sendable {
 }
 
 enum CodexUsageReader {
-    static func read(at path: String, searchPath: String) -> CodexUsage? {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: path)
-        process.arguments = ["app-server", "--stdio"]
+    static func read(at path: String, searchPath: String) async -> CodexUsage? {
+        guard let initialize = messageData([
+            "id": 1,
+            "method": "initialize",
+            "params": ["clientInfo": ["name": "Teya", "version": "1"]],
+        ]), let usageRequest = messageData([
+            "id": 2,
+            "method": "account/rateLimits/read",
+        ]) else { return nil }
+
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = searchPath
-        process.environment = environment
 
-        let input = Pipe()
-        let output = Pipe()
-        process.standardInput = input
-        process.standardOutput = output
-        process.standardError = FileHandle.nullDevice
+        guard let output = try? await CommandRunner.run(
+            executable: path,
+            arguments: ["app-server", "--stdio"],
+            environment: environment,
+            input: initialize,
+            outputLineHandler: { line in
+                guard let data = line.data(using: .utf8),
+                      let message = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let id = message["id"] as? Int else { return .none }
+                if id == 1 { return .write(usageRequest) }
+                return id == 2 ? .finishProcess : .none
+            },
+            timeout: .seconds(10),
+            outputByteLimit: 262_144
+        ) else { return nil }
 
-        guard (try? process.run()) != nil else { return nil }
-        defer {
-            input.fileHandleForWriting.closeFile()
-            if process.isRunning { process.terminate() }
-            process.waitUntilExit()
-        }
-
-        guard send(["id": 1,
-                    "method": "initialize",
-                    "params": ["clientInfo": ["name": "Teya", "version": "1"]]],
-                   to: input.fileHandleForWriting)
-        else { return nil }
-
-        var buffer = Data()
-        var requestedUsage = false
-        while let message = nextMessage(from: output.fileHandleForReading, buffer: &buffer) {
-            guard let id = message["id"] as? Int else { continue }
-            if id == 1 {
-                guard send(["id": 2, "method": "account/rateLimits/read"],
-                           to: input.fileHandleForWriting)
-                else { return nil }
-                requestedUsage = true
-            } else if id == 2, requestedUsage, let result = message["result"] as? [String: Any] {
-                return CodexUsage(response: result)
-            }
+        for line in output.output.split(separator: "\n") {
+            guard let data = line.data(using: .utf8),
+                  let message = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  (message["id"] as? Int) == 2,
+                  let result = message["result"] as? [String: Any] else { continue }
+            return CodexUsage(response: result)
         }
         return nil
     }
 
-    // MARK: - Private
-
-    private static func send(_ object: [String: Any], to handle: FileHandle) -> Bool {
-        guard var data = try? JSONSerialization.data(withJSONObject: object) else { return false }
+    private static func messageData(_ object: [String: Any]) -> Data? {
+        guard var data = try? JSONSerialization.data(withJSONObject: object) else { return nil }
         data.append(0x0A)
-        do {
-            try handle.write(contentsOf: data)
-            return true
-        } catch {
-            return false
-        }
-    }
-
-    private static func nextMessage(from handle: FileHandle, buffer: inout Data) -> [String: Any]? {
-        while true {
-            if let newline = buffer.firstIndex(of: 0x0A) {
-                let line = buffer[..<newline]
-                buffer.removeSubrange(...newline)
-                guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else {
-                    continue
-                }
-                return object
-            }
-
-            let chunk = handle.availableData
-            guard !chunk.isEmpty else { return nil }
-            buffer.append(chunk)
-        }
+        return data
     }
 }

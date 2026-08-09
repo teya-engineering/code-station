@@ -190,18 +190,28 @@ struct AttachmentChip: View {
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
         .frame(maxWidth: 220)
         .help(url.path)
-        .task(id: url) { preview = Self.thumbnail(url) }
+        .task(id: url) {
+            let thumbnail = await Task.detached(priority: .utility) {
+                Self.thumbnail(url)
+            }.value
+            guard !Task.isCancelled else { return }
+            preview = thumbnail.map { Image(decorative: $0.image, scale: 1) }
+        }
     }
 
     private var missing: Bool { !FileManager.default.fileExists(atPath: url.path) }
 
     // Screenshots are large, so the chip decodes a small copy instead of the whole image.
-    private static func thumbnail(_ url: URL) -> Image? {
+    private nonisolated static func thumbnail(_ url: URL) -> Thumbnail? {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
               let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
                   kCGImageSourceCreateThumbnailFromImageAlways: true,
                   kCGImageSourceThumbnailMaxPixelSize: 96,
               ] as CFDictionary) else { return nil }
-        return Image(decorative: image, scale: 1)
+        return Thumbnail(image: image)
+    }
+
+    private struct Thumbnail: @unchecked Sendable {
+        let image: CGImage
     }
 }

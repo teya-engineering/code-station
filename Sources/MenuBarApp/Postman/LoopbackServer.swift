@@ -224,13 +224,24 @@ final class LoopbackServer: @unchecked Sendable {
         }, uniquingKeysWith: { first, _ in first })
     }
 
-    private static func page(title: String, detail: String) -> String {
-        """
+    static func page(title: String, detail: String) -> String {
+        let title = htmlEscaped(title)
+        let detail = htmlEscaped(detail)
+        return """
         <!doctype html><meta charset="utf-8"><title>\(title)</title>
         <body style="font-family:-apple-system,system-ui,sans-serif;background:#f6f5f1;color:#1c1c1a;
         display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
         <div style="text-align:center"><h1 style="font-weight:600;font-size:20px">\(title)</h1>
         <p style="color:#6b6b66;font-size:14px">\(detail)</p></div>
         """
+    }
+
+    private static func htmlEscaped(_ text: String) -> String {
+        text
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+            .replacingOccurrences(of: "\"", with: "&quot;")
+            .replacingOccurrences(of: "'", with: "&#39;")
     }
 }

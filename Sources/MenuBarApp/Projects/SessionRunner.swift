@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Observation
 
@@ -47,6 +48,7 @@ final class SessionRunner {
     // again from nothing every time another session is picked, so this cannot live there
     // without the words going with it.
     private var drafts: [UUID: Draft] = [:]
+    private var removals: Set<UUID> = []
 
     @ObservationIgnored private let paths: [AgentKind: String]
     @ObservationIgnored private let configs: ConfigStore?
@@ -54,16 +56,20 @@ final class SessionRunner {
     // How Claude Code says it no longer holds the conversation we asked to resume.
     private static let lostConversation = "No conversation found with session ID"
 
-    init(configs: ConfigStore? = nil) {
+    init(configs: ConfigStore? = nil, paths: [AgentKind: String]? = nil) {
         self.configs = configs
         defaultsByAgent = Dictionary(uniqueKeysWithValues: AgentKind.allCases.map {
             ($0, Preferences.sessionDefaults(for: $0))
         })
+        if let paths {
+            self.paths = paths
+            return
+        }
         var found: [AgentKind: String] = [:]
         for kind in AgentKind.allCases {
             if let path = ProcessManager.resolve(kind.command) { found[kind] = path }
         }
-        paths = found
+        self.paths = found
     }
 
     func defaults(for agent: AgentKind) -> SessionSettings {
@@ -96,8 +102,9 @@ final class SessionRunner {
                         session: sessionID)
 
         guard let line = request.responseLine(answer), turn.write(line) else {
-            states[sessionID] = .failed("Could not send the answer to Claude Code. The turn has been stopped.")
-            stop(sessionID, store: store)
+            requestStop(
+                sessionID,
+                failure: "Could not send the answer to Claude Code. The turn has been stopped.")
             return
         }
 
@@ -187,6 +194,7 @@ final class SessionRunner {
     // keep their order.
     func send(_ prompt: String, attachments: [Attachment] = [],
               customInstructions: String? = nil, sessionID: UUID, store: ProjectStore) {
+        guard !removals.contains(sessionID), store.session(sessionID) != nil else { return }
         let text = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         let instructions = customInstructions?
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -201,6 +209,7 @@ final class SessionRunner {
     // Starts the oldest waiting prompt, if the session is free to take it. A prompt that
     // cannot start yet stays at the head of the queue rather than being lost.
     func runQueue(_ sessionID: UUID, store: ProjectStore) {
+        guard !removals.contains(sessionID) else { return }
         // A turn that is only waiting on a background task has a live process with an
         // open pipe, so the next prompt goes straight down it instead of sitting behind
         // a timer that could run for a long while.
@@ -369,35 +378,52 @@ final class SessionRunner {
     }
 
     // Leaves whatever has streamed in so far in place.
-    func stop(_ sessionID: UUID, store: ProjectStore) {
-        guard let messageID = turns[sessionID]?.messageID, stopTurn(sessionID) else { return }
-        // A turn stopped before it wrote anything leaves a blank bubble behind - and one
-        // stopped just after a question was answered leaves the half of the reply that
-        // had not begun.
-        if store.transcript(of: sessionID).first(where: { $0.id == messageID })?.isEmpty ?? false {
-            store.removeMessage(messageID, from: sessionID)
-        }
-        store.release(sessionID, for: .running)
+    func stop(_ sessionID: UUID, store _: ProjectStore) {
+        requestStop(sessionID)
     }
 
     // Only for the app going away. The transcripts are not given back because there is
     // nothing left to give them back to; the store writes out what is still pending as
     // part of the same shutdown.
     func stopAll() {
-        for sessionID in Array(turns.keys) { stopTurn(sessionID) }
+        for sessionID in Array(turns.keys) { requestStop(sessionID) }
     }
 
-    @discardableResult
-    private func stopTurn(_ sessionID: UUID) -> Bool {
-        guard let turn = turns[sessionID] else { return false }
-        SessionLog.note("stopped by hand", session: sessionID)
-        turns[sessionID] = nil
+    func beginRemoval(_ sessionID: UUID) -> Bool {
+        guard !state(sessionID).isBusy else { return false }
+        return removals.insert(sessionID).inserted
+    }
+
+    func cancelRemoval(_ sessionID: UUID) {
+        removals.remove(sessionID)
+    }
+
+    func finishRemoval(_ sessionID: UUID) {
+        removals.remove(sessionID)
+        states[sessionID] = nil
         asked[sessionID] = nil
-        states[sessionID] = .idle
-        turn.process.terminationHandler = nil
-        cleanUp(turn)
-        if turn.process.isRunning { turn.process.terminate() }
-        return true
+        queues[sessionID] = nil
+        drafts[sessionID] = nil
+    }
+
+    private func requestStop(_ sessionID: UUID, failure: String? = nil) {
+        guard let turn = turns[sessionID], !turn.stopRequested else { return }
+        SessionLog.note("stopped by hand", session: sessionID)
+        turn.stopRequested = true
+        turn.stopFailure = failure
+        asked[sessionID] = nil
+        states[sessionID] = .stopping
+        turn.closeInput()
+        CommandRunner.signalProcessGroup(turn.processGroup, signal: SIGTERM)
+        let token = turn.token
+        let processGroup = turn.processGroup
+        let runner = self
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.5) {
+            Task { @MainActor in
+                guard runner.turn(sessionID, token)?.stopRequested == true else { return }
+                CommandRunner.signalProcessGroup(processGroup, signal: SIGKILL)
+            }
+        }
     }
 
     // MARK: - Running one turn
@@ -457,10 +483,6 @@ final class SessionRunner {
         let reply = ChatMessage(role: .assistant)
         store.append(reply, to: sessionID)
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: agentPath)
-        process.currentDirectoryURL = URL(fileURLWithPath: workingDirectory)
-
         let resume = session.agentSessionID(for: agent).flatMap { $0.isEmpty ? nil : $0 }
         let promptForAgent = resume == nil ? workspacePrompt(prompt, session: session, store: store)
                                            : prompt
@@ -468,7 +490,7 @@ final class SessionRunner {
         let attachmentDirectories = Self.directoriesOutside(workingDirectories, for: attachments)
         let additionalDirectories = unique(projectDirectories + attachmentDirectories)
         let writableRoots = unique(additionalDirectories + store.gitMetadataDirectories(for: session))
-        process.arguments = Self.arguments(
+        let processArguments = Self.arguments(
             agent: agent,
             settings: session.settings ?? SessionSettings(),
             defaults: defaults(for: agent),
@@ -481,32 +503,66 @@ final class SessionRunner {
 
         var env = ProcessInfo.processInfo.environment
         env["PATH"] = ProcessManager.searchPath
-        process.environment = env
 
         let out = Pipe()
         let errors = Pipe()
-        process.standardOutput = out
-        process.standardError = errors
 
         // The prompt goes in as a JSON line on stdin rather than as an argument, and the
         // pipe stays open for the rest of the turn: it is the way back for the answers to
         // whatever the agent asks. Prompts are not read as flags there either, which an
         // argument starting with a dash would be.
         let input = Pipe()
-        process.standardInput = input
+        _ = fcntl(input.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
 
-        let turn = Turn(process: process, agent: agent, messageID: reply.id, input: input,
+        let processGroup: pid_t
+        do {
+            processGroup = try CommandRunner.spawnIsolatedProcess(
+                executable: agentPath,
+                arguments: processArguments,
+                currentDirectory: URL(fileURLWithPath: workingDirectory),
+                environment: env,
+                standardInput: input.fileHandleForReading.fileDescriptor,
+                standardOutput: out.fileHandleForWriting.fileDescriptor,
+                standardError: errors.fileHandleForWriting.fileDescriptor,
+                descriptorsToClose: [
+                    input.fileHandleForWriting.fileDescriptor,
+                    out.fileHandleForReading.fileDescriptor,
+                    errors.fileHandleForReading.fileDescriptor,
+                ])
+        } catch {
+            for handle in [input.fileHandleForReading, input.fileHandleForWriting,
+                           out.fileHandleForReading, out.fileHandleForWriting,
+                           errors.fileHandleForReading, errors.fileHandleForWriting] {
+                try? handle.close()
+            }
+            if let mcpConfigURL { try? FileManager.default.removeItem(at: mcpConfigURL) }
+            store.removeMessage(reply.id, from: sessionID)
+            store.release(sessionID, for: .running)
+            SessionLog.note("could not start: \(error.localizedDescription)", session: sessionID)
+            states[sessionID] = .failed(
+                "Could not start \(agent.title): \(error.localizedDescription)")
+            return
+        }
+        try? input.fileHandleForReading.close()
+        try? out.fileHandleForWriting.close()
+        try? errors.fileHandleForWriting.close()
+
+        let turn = Turn(processGroup: processGroup, agent: agent, messageID: reply.id,
+                        input: input, output: out, errorOutput: errors,
                         prompt: promptForAgent, attachments: attachments, resumed: resume != nil,
-                        canRetryWithoutResume: canRetryWithoutResume,
-                        mcpConfigURL: mcpConfigURL)
+                        canRetryWithoutResume: canRetryWithoutResume, mcpConfigURL: mcpConfigURL)
         let token = turn.token
         let runner = self
         let buffer = LineBuffer()
 
         let parseLine: @Sendable (String) -> [StreamEvent] = { line in
-            SessionLog.note("< \(line)", session: sessionID)
-            return agent == .codex ? StreamEvent.parseCodex(line)
-                                   : StreamEvent.parse(line, projectPath: workingDirectory)
+            let events = agent == .codex ? StreamEvent.parseCodex(line)
+                                         : StreamEvent.parse(line, projectPath: workingDirectory)
+            let detail = events.isEmpty
+                ? "stream event ignored bytes=\(line.utf8.count)"
+                : events.map(\.logSummary).joined(separator: ", ")
+            SessionLog.note("< \(detail)", session: sessionID)
+            return events
         }
 
         out.fileHandleForReading.readabilityHandler = { handle in
@@ -540,46 +596,47 @@ final class SessionRunner {
                 return
             }
             let chunk = String(decoding: data, as: UTF8.self)
-            SessionLog.note("! \(chunk.trimmingCharacters(in: .whitespacesAndNewlines))",
-                            session: sessionID)
+            SessionLog.note("stderr bytes=\(data.count)", session: sessionID)
             Task { @MainActor in runner.appendStderr(sessionID, token: token, chunk) }
         }
 
-        process.terminationHandler = { finished in
-            let status = finished.terminationStatus
-            SessionLog.note("exited with status \(status)", session: sessionID)
+        turns[sessionID] = turn
+        states[sessionID] = .starting
+        SessionLog.note("starting \(agent.command) arguments=\(processArguments.count)",
+                        session: sessionID)
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            let status = CommandRunner.waitForExit(of: processGroup)
+            let stopped = CommandRunner.ensureProcessGroupStopped(processGroup)
+            SessionLog.note(
+                stopped ? "exited with status \(status)"
+                        : "process group \(processGroup) survived SIGKILL",
+                session: sessionID)
             Task { @MainActor in
-                runner.processExited(sessionID, token: token, status: status, store: store)
+                if stopped {
+                    runner.processExited(sessionID, token: token, status: status, store: store)
+                } else {
+                    runner.processGroupDidNotStop(sessionID, token: token)
+                }
             }
         }
 
-        do {
-            turns[sessionID] = turn
-            states[sessionID] = .starting
-            SessionLog.note("starting \(agent.command) \(process.arguments?.joined(separator: " ") ?? "") in \(workingDirectory)",
-                            session: sessionID)
-            try process.run()
-            switch agent {
-            case .claudeCode:
-                guard let line = Self.userMessageLine(promptForAgent), turn.write(line) else {
-                    throw Failure("the prompt could not be handed over")
-                }
-            case .codex:
-                // Codex reads the prompt off stdin until the pipe closes, and nothing
-                // ever goes back down it: there are no questions to answer mid-turn.
-                guard turn.write(Data((promptForAgent + "\n").utf8)) else {
-                    throw Failure("the prompt could not be handed over")
-                }
-                turn.closeInput()
+        switch agent {
+        case .claudeCode:
+            guard let line = Self.userMessageLine(promptForAgent), turn.write(line) else {
+                requestStop(sessionID, failure:
+                    "Could not start \(agent.title): the prompt could not be handed over.")
+                return
             }
-        } catch {
-            turns[sessionID] = nil
-            process.terminationHandler = nil
-            cleanUp(turn)
-            store.removeMessage(reply.id, from: sessionID)
-            store.release(sessionID, for: .running)
-            SessionLog.note("could not start: \(error.localizedDescription)", session: sessionID)
-            states[sessionID] = .failed("Could not start \(agent.title): \(error.localizedDescription)")
+        case .codex:
+            // Codex reads the prompt off stdin until the pipe closes, and nothing
+            // ever goes back down it: there are no questions to answer mid-turn.
+            guard turn.write(Data((promptForAgent + "\n").utf8)) else {
+                requestStop(sessionID, failure:
+                    "Could not start \(agent.title): the prompt could not be handed over.")
+                return
+            }
+            turn.closeInput()
         }
     }
 
@@ -796,6 +853,10 @@ final class SessionRunner {
                 turn.closeInput()
             }
         }
+        if turn.stopRequested {
+            asked[sessionID] = nil
+            states[sessionID] = .stopping
+        }
     }
 
     // Opens a new reply bubble for a turn the CLI started on its own - the one it runs
@@ -868,7 +929,23 @@ final class SessionRunner {
     private func processExited(_ sessionID: UUID, token: UUID, status: Int32, store: ProjectStore) {
         guard let turn = turn(sessionID, token) else { return }
         turn.exitStatus = status
+        if turn.stopRequested {
+            // A stopped turn does not need to wait for delayed pipe EOF callbacks once
+            // the agent process itself has exited.
+            turn.stdoutOpen = false
+            turn.stderrOpen = false
+        }
         finishIfDone(sessionID, store: store)
+    }
+
+    private func processGroupDidNotStop(_ sessionID: UUID, token: UUID) {
+        guard let turn = turn(sessionID, token) else { return }
+        turn.stopRequested = true
+        turn.stopFailure = turn.stopFailure
+            ?? "The agent process group could not be stopped."
+        asked[sessionID] = nil
+        states[sessionID] = .stopping
+        turn.closeInput()
     }
 
     // The exit status and the last bytes of output arrive on different queues, so a turn
@@ -888,6 +965,17 @@ final class SessionRunner {
         // bubble sitting under the failure.
         if store.transcript(of: sessionID).first(where: { $0.id == turn.messageID })?.isEmpty ?? false {
             store.removeMessage(turn.messageID, from: sessionID)
+        }
+
+        if turn.stopRequested {
+            if let failure = turn.stopFailure {
+                states[sessionID] = .failed(failure)
+                store.noteTurnEnded(for: sessionID)
+            } else {
+                states[sessionID] = .idle
+            }
+            store.release(sessionID, for: .running)
+            return
         }
 
         // Warnings on stderr are common and harmless, so only a reported error or a bad
@@ -913,7 +1001,9 @@ final class SessionRunner {
         if !stderr.isEmpty { parts.append(stderr) }
         if parts.isEmpty { parts.append("\(turn.agent.title) exited with code \(status).") }
         let message = parts.joined(separator: "\n\n")
-        SessionLog.note("turn failed: \(message)", session: sessionID)
+        SessionLog.note(
+            "turn failed status=\(status) failure=\(turn.failure != nil) stderrBytes=\(turn.stderr.utf8.count)",
+            session: sessionID)
 
         // Claude Code no longer holds the conversation we asked it to resume, usually
         // because its own history was pruned. The prompt is still good, so run it once
@@ -936,8 +1026,8 @@ final class SessionRunner {
     }
 
     private func cleanUp(_ turn: Turn) {
-        (turn.process.standardOutput as? Pipe)?.fileHandleForReading.readabilityHandler = nil
-        (turn.process.standardError as? Pipe)?.fileHandleForReading.readabilityHandler = nil
+        turn.output.fileHandleForReading.readabilityHandler = nil
+        turn.errorOutput.fileHandleForReading.readabilityHandler = nil
         turn.closeInput()
         if let url = turn.mcpConfigURL { try? FileManager.default.removeItem(at: url) }
     }
@@ -945,7 +1035,7 @@ final class SessionRunner {
     // One live turn. Only ever touched on the main actor.
     private final class Turn {
         let token = UUID()
-        let process: Process
+        let processGroup: pid_t
         // The agent this turn started on. The app-wide choice can move mid-turn, and
         // the stream already in flight still has to be read in its own dialect.
         let agent: AgentKind
@@ -953,6 +1043,8 @@ final class SessionRunner {
         // message the turn opened with and moves this on to the one after the answer.
         var messageID: UUID
         let input: Pipe
+        let output: Pipe
+        let errorOutput: Pipe
         private var inputOpen = true
         let prompt: String
         let attachments: [Attachment]
@@ -961,6 +1053,8 @@ final class SessionRunner {
         let mcpConfigURL: URL?
         var stderr = ""
         var failure: String?
+        var stopRequested = false
+        var stopFailure: String?
         var stdoutOpen = true
         var stderrOpen = true
         var exitStatus: Int32?
@@ -981,7 +1075,7 @@ final class SessionRunner {
         // One line down the pipe the CLI is reading. False when it could not be sent: the
         // process is gone, or its end of the pipe is shut.
         func write(_ line: Data) -> Bool {
-            guard inputOpen, process.isRunning else { return false }
+            guard inputOpen else { return false }
             do {
                 try input.fileHandleForWriting.write(contentsOf: line)
                 return true
@@ -999,13 +1093,16 @@ final class SessionRunner {
             try? input.fileHandleForWriting.close()
         }
 
-        init(process: Process, agent: AgentKind, messageID: UUID, input: Pipe, prompt: String,
+        init(processGroup: pid_t, agent: AgentKind, messageID: UUID, input: Pipe,
+             output: Pipe, errorOutput: Pipe, prompt: String,
              attachments: [Attachment], resumed: Bool, canRetryWithoutResume: Bool,
              mcpConfigURL: URL?) {
-            self.process = process
+            self.processGroup = processGroup
             self.agent = agent
             self.messageID = messageID
             self.input = input
+            self.output = output
+            self.errorOutput = errorOutput
             self.prompt = prompt
             self.attachments = attachments
             self.resumed = resumed

@@ -16,12 +16,18 @@ struct ConfigManagerView: View {
         VStack(spacing: 0) {
             header
             Divider().overlay(Theme.hairline)
-            if let loadError = store.loadError {
+            if let persistenceError = store.loadError ?? store.saveError {
                 HStack(spacing: 8) {
                     Image(systemName: "exclamationmark.triangle.fill")
-                    Text(loadError).fixedSize(horizontal: false, vertical: true)
+                    Text(persistenceError).fixedSize(horizontal: false, vertical: true)
                     Spacer()
-                    Button("Reload") { store.load() }
+                    Button(store.loadError == nil ? "Retry" : "Reload") {
+                        if store.loadError == nil {
+                            store.flushPendingSave()
+                        } else {
+                            store.load()
+                        }
+                    }
                         .buttonStyle(.plain)
                         .underline()
                 }
@@ -35,6 +41,7 @@ struct ConfigManagerView: View {
                 Divider().overlay(Theme.hairline)
                 detail
             }
+            .disabled(store.loadError != nil)
             SheetFooter { dismiss() }
         }
         .frame(width: 940, height: 640)

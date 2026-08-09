@@ -513,55 +513,13 @@ struct WorkspaceDetailView: View {
     private func startSession(_ choice: WorkspaceSessionChoice,
                               in workspace: ProjectWorkspace) {
         Task {
-            var checkouts: [SessionProject] = []
-            var created: [(worktree: String, project: String, branch: String?)] = []
-
-            for selected in choice.projects {
-                guard let project = store.project(selected.projectID) else {
-                    await rollBack(created)
-                    showCreationError("One of the workspace projects is no longer in the app.")
-                    return
-                }
-
-                guard selected.useWorktree else {
-                    checkouts.append(SessionProject(projectID: project.id,
-                                                    worktreePath: nil,
-                                                    worktreeBranch: nil))
-                    continue
-                }
-
-                switch await GitWorktree.add(projectPath: project.path,
-                                             projectName: project.name,
-                                             projectID: project.id,
-                                             sessionID: choice.sessionID) {
-                case .success(let worktree):
-                    checkouts.append(SessionProject(projectID: project.id,
-                                                    worktreePath: worktree.path,
-                                                    worktreeBranch: worktree.branch))
-                    created.append((worktree.path, project.path, worktree.branch))
-                case .failure(let failure):
-                    await rollBack(created)
-                    showCreationError(failure.message,
-                                      title: "Could not create a worktree for \(project.name)")
-                    return
-                }
+            switch await SessionLifecycle.createWorkspaceSession(
+                choice, in: workspace, store: store) {
+            case .success:
+                runner.agent = choice.agent
+            case .failure(let failure):
+                showCreationError(failure.message, title: failure.title)
             }
-
-            runner.agent = choice.agent
-            guard store.newSession(in: workspace.id, id: choice.sessionID,
-                                   projects: checkouts) != nil else {
-                await rollBack(created)
-                showCreationError("The workspace no longer has a valid lead project.")
-                return
-            }
-        }
-    }
-
-    private func rollBack(_ worktrees: [(worktree: String, project: String, branch: String?)]) async {
-        for worktree in worktrees.reversed() {
-            await GitWorktree.remove(worktreePath: worktree.worktree,
-                                     projectPath: worktree.project,
-                                     branch: worktree.branch)
         }
     }
 

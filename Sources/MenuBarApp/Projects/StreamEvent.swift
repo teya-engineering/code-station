@@ -37,6 +37,39 @@ extension StreamEvent {
     // very long output is cut down before it reaches the store.
     static let maxToolOutput = 20_000
 
+    // Logs describe the protocol without copying prompts, source code, tool input, or
+    // command output into a second long-lived file.
+    var logSummary: String {
+        switch self {
+        case .initialized:
+            "initialized"
+        case .text(let text):
+            "text bytes=\(text.utf8.count)"
+        case .agentText(let parentID, let text):
+            "agent text parent=\(parentID) bytes=\(text.utf8.count)"
+        case .toolUse(let tool):
+            "tool use name=\(tool.name) id=\(tool.id)"
+        case .toolResult(let id, let output, let isError):
+            "tool result id=\(id) bytes=\(output.utf8.count) error=\(isError)"
+        case .permissionRequest(let request):
+            "permission request tool=\(request.toolName) id=\(request.id)"
+        case .permissionWithdrawn(let id):
+            "permission withdrawn id=\(id)"
+        case .unanswerable(let requestID, let subtype):
+            "unsupported request subtype=\(subtype) id=\(requestID)"
+        case .rateLimit:
+            "rate limit updated"
+        case .usage:
+            "usage updated"
+        case .context(let tokens):
+            "context tokens=\(tokens)"
+        case .backgroundTasks(let ids):
+            "background tasks count=\(ids.count)"
+        case .finished(let isError, let message):
+            "finished error=\(isError) messageBytes=\(message?.utf8.count ?? 0)"
+        }
+    }
+
     // One JSON line can carry several content blocks, so a line maps to zero or more
     // events. This is decoded by hand rather than with Codable: the payload is deeply
     // nested, most fields are optional, shapes differ between CLI versions, and a single

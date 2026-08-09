@@ -42,6 +42,15 @@ struct OAuthTests {
         #expect(LoopbackServer.query(from: "GET /callback HTTP/1.1\r\n\r\n") == [:])
     }
 
+    @Test func escapesProviderTextBeforePuttingItInTheBrowserPage() {
+        let page = LoopbackServer.page(title: #"Failed </title><script>bad()</script>"#,
+                                       detail: #"Try <again> & say "no""#)
+
+        #expect(!page.contains("<script>bad()</script>"))
+        #expect(page.contains("&lt;script&gt;bad()&lt;/script&gt;"))
+        #expect(page.contains("Try &lt;again&gt; &amp; say &quot;no&quot;"))
+    }
+
     // The whole point of the listener: a real request on the loopback port hands its
     // query back to the flow that is waiting for it.
     @Test func handsBackTheQueryTheBrowserArrivesWith() async throws {

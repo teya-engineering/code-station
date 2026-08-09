@@ -2,6 +2,22 @@ import Foundation
 import Observation
 import SwiftUI
 
+struct PersistenceFailure: Error, Equatable, Sendable {
+    let message: String
+}
+
+struct PendingSessionRemoval: Identifiable, Codable, Equatable {
+    struct Worktree: Codable, Equatable, Sendable {
+        let path: String
+        let projectPath: String?
+        let branch: String?
+    }
+
+    var id: UUID { session.id }
+    let session: ChatSession
+    let worktrees: [Worktree]
+}
+
 // Projects and their conversations. What the app knows about a session - its title, what
 // it cost, where it runs - lives in one index file and is always in memory. The
 // conversation itself is a file per session, read when the session is opened and dropped
@@ -38,6 +54,14 @@ final class ProjectStore {
     let storeURL: URL
     // One file per conversation, named by session id.
     let transcriptsURL: URL
+    let removalJournalURL: URL
+    private let files: PersistentFileClient
+    private(set) var loadError: String?
+    private(set) var saveError: String?
+    private(set) var transcriptLoadErrors: [UUID: String] = [:]
+    private(set) var pendingSessionRemovals: [PendingSessionRemoval] = []
+    private var indexLoadError: String?
+    private var removalJournalLoadError: String?
 
     // Why a conversation is in memory. The session on screen is held while it is open,
     // and a session with a turn in flight is held whether or not anyone is watching it,
@@ -58,15 +82,25 @@ final class ProjectStore {
         var selectedProjectID: UUID?
     }
 
-    init() {
-        storeURL = ProcessInfo.processInfo.environment["CONDUCTOR_STORE"]
-            .map { URL(fileURLWithPath: $0) }
+    private struct RemovalJournal: Codable {
+        var removals: [PendingSessionRemoval]
+    }
+
+    init(storeURL: URL? = nil, files: PersistentFileClient = .live) {
+        self.storeURL = storeURL
+            ?? ProcessInfo.processInfo.environment["CONDUCTOR_STORE"]
+                .map { URL(fileURLWithPath: $0) }
             ?? AppPaths.supportFile("projects.json", movedFrom: AppPaths.legacy("projects.json"))
+        self.files = files
         // Named after the index rather than fixed, so a store pointed somewhere else -
         // a test, a second copy of the app - takes its conversations with it.
-        transcriptsURL = storeURL.deletingLastPathComponent()
-            .appendingPathComponent(storeURL.deletingPathExtension().lastPathComponent
+        transcriptsURL = self.storeURL.deletingLastPathComponent()
+            .appendingPathComponent(self.storeURL.deletingPathExtension().lastPathComponent
                 + "-transcripts", isDirectory: true)
+        removalJournalURL = self.storeURL.deletingLastPathComponent()
+            .appendingPathComponent(self.storeURL.deletingPathExtension().lastPathComponent
+                + "-removals.json")
+        loadRemovalJournal()
         load()
     }
 
@@ -169,8 +203,12 @@ final class ProjectStore {
                 || session.sessionProjects?.contains(where: { $0.projectID == id }) == true
         }.map(\.id))
         projects.removeAll { $0.id == id }
-        for sessionID in affected { forget(sessionID) }
-        sessions.removeAll { affected.contains($0.id) }
+        for sessionID in affected {
+            if case .failure(let failure) = removeSession(sessionID) {
+                saveError = failure.message
+                return
+            }
+        }
         workspaces = workspaces.compactMap { workspace in
             var updated = workspace
             updated.projectIDs.removeAll { $0 == id }
@@ -312,6 +350,51 @@ final class ProjectStore {
         return session
     }
 
+    func insertSession(in projectID: UUID, id: UUID = UUID(),
+                       worktreePath: String? = nil, worktreeBranch: String? = nil,
+                       isTroubleshooting: Bool = false)
+        -> Result<ChatSession, PersistenceFailure> {
+        let previousSelection = selection
+        let previousProjectID = selectedProjectID
+        let session = newSession(in: projectID, id: id,
+                                 worktreePath: worktreePath,
+                                 worktreeBranch: worktreeBranch,
+                                 isTroubleshooting: isTroubleshooting)
+        guard save() else {
+            rollBackSessionInsertion(session.id, selection: previousSelection,
+                                     projectID: previousProjectID)
+            return .failure(persistenceFailure("The session could not be saved."))
+        }
+        return .success(session)
+    }
+
+    func insertSession(in workspaceID: UUID, id: UUID = UUID(),
+                       projects: [SessionProject], isTroubleshooting: Bool = false)
+        -> Result<ChatSession, PersistenceFailure> {
+        let previousSelection = selection
+        let previousProjectID = selectedProjectID
+        guard let session = newSession(in: workspaceID, id: id, projects: projects,
+                                       isTroubleshooting: isTroubleshooting) else {
+            return .failure(PersistenceFailure(
+                message: "The workspace no longer has a valid lead project."))
+        }
+        guard save() else {
+            rollBackSessionInsertion(session.id, selection: previousSelection,
+                                     projectID: previousProjectID)
+            return .failure(persistenceFailure("The session could not be saved."))
+        }
+        return .success(session)
+    }
+
+    private func rollBackSessionInsertion(_ sessionID: UUID, selection: SidebarSelection?,
+                                          projectID: UUID?) {
+        sessions.removeAll { $0.id == sessionID }
+        clearSessionMemory(sessionID)
+        self.selection = selection
+        selectedProjectID = projectID
+        markIndexDirty()
+    }
+
     // The folder a session's Claude Code runs in: its own worktree when it has one,
     // otherwise the project folder itself.
     func workingDirectory(for session: ChatSession) -> String? {
@@ -388,20 +471,149 @@ final class ProjectStore {
         saveIndex()
     }
 
-    func removeSession(_ id: UUID) {
-        sessions.removeAll { $0.id == id }
-        forget(id)
-        if case .session(id) = selection { selection = nil }
-        saveIndex()
+    @discardableResult
+    func removeSession(_ id: UUID) -> Result<Void, PersistenceFailure> {
+        if session(id) == nil, !pendingSessionRemovals.contains(where: { $0.id == id }) {
+            return .success(())
+        }
+        switch prepareSessionRemoval(id) {
+        case .success:
+            return finishSessionRemoval(id)
+        case .failure(let failure):
+            return .failure(failure)
+        }
     }
 
-    // Everything a deleted session leaves behind: its conversation on disk, its place in
-    // the queue of things to write, and whatever was holding it in memory.
-    private func forget(_ sessionID: UUID) {
+    func prepareSessionRemoval(_ sessionID: UUID)
+        -> Result<PendingSessionRemoval, PersistenceFailure> {
+        if let pending = pendingSessionRemovals.first(where: { $0.id == sessionID }) {
+            return .success(pending)
+        }
+        guard var session = session(sessionID) else {
+            return .failure(PersistenceFailure(message: "The session is no longer in the app."))
+        }
+        guard save() else {
+            return .failure(persistenceFailure(
+                "The session could not be saved before removal started."))
+        }
+        let worktrees = checkoutProjects(for: session).compactMap { checkout in
+            checkout.worktreePath.map { path in
+                PendingSessionRemoval.Worktree(
+                    path: path,
+                    projectPath: project(checkout.projectID)?.path,
+                    branch: checkout.worktreeBranch)
+            }
+        }
+        session.messages = []
+        session.transcriptLoaded = false
+        let pending = PendingSessionRemoval(session: session, worktrees: worktrees)
+        let updated = pendingSessionRemovals + [pending]
+        switch persistRemovalJournal(updated) {
+        case .success:
+            pendingSessionRemovals = updated
+            removeSessionFromMemory(sessionID)
+            return .success(pending)
+        case .failure(let failure):
+            return .failure(failure)
+        }
+    }
+
+    // Safe only before worktree cleanup starts. Once any checkout may have been removed,
+    // the durable removal has to remain pending and be retried instead.
+    func cancelSessionRemoval(_ sessionID: UUID) -> Result<Void, PersistenceFailure> {
+        guard let pending = pendingSessionRemovals.first(where: { $0.id == sessionID }) else {
+            return .success(())
+        }
+
+        let restored = session(sessionID) == nil
+        if restored {
+            sessions.append(pending.session)
+            markIndexDirty()
+            guard save() else {
+                sessions.removeAll { $0.id == sessionID }
+                return .failure(persistenceFailure("The session could not be restored."))
+            }
+        }
+
+        let updated = pendingSessionRemovals.filter { $0.id != sessionID }
+        switch persistRemovalJournal(updated) {
+        case .success:
+            pendingSessionRemovals = updated
+            saveError = nil
+            return .success(())
+        case .failure(let failure):
+            if restored { sessions.removeAll { $0.id == sessionID } }
+            saveError = failure.message
+            return .failure(failure)
+        }
+    }
+
+    func finishSessionRemoval(_ sessionID: UUID) -> Result<Void, PersistenceFailure> {
+        guard pendingSessionRemovals.contains(where: { $0.id == sessionID }) else {
+            return session(sessionID) == nil
+                ? .success(())
+                : .failure(PersistenceFailure(
+                    message: "The session removal was not prepared before cleanup."))
+        }
+
+        removeSessionFromMemory(sessionID)
+        let transcriptResult = deleteTranscript(sessionID)
+        markIndexDirty()
+        let indexSaved = save()
+
+        var failures: [String] = []
+        if case .failure(let failure) = transcriptResult { failures.append(failure.message) }
+        if !indexSaved {
+            failures.append(persistenceFailure("The session index could not be saved.").message)
+        }
+        guard failures.isEmpty else {
+            saveError = failures.joined(separator: "\n")
+            return .failure(PersistenceFailure(message: saveError ?? failures[0]))
+        }
+
+        let updated = pendingSessionRemovals.filter { $0.id != sessionID }
+        switch persistRemovalJournal(updated) {
+        case .success:
+            pendingSessionRemovals = updated
+            saveError = nil
+            return .success(())
+        case .failure(let failure):
+            saveError = failure.message
+            return .failure(failure)
+        }
+    }
+
+    private func removeSessionFromMemory(_ sessionID: UUID) {
+        if let session = session(sessionID) {
+            ToolPresentationCache.forget(session.messages.flatMap(\.tools).map(\.id))
+        }
+        sessions.removeAll { $0.id == sessionID }
+        clearSessionMemory(sessionID)
+        if case .session(sessionID) = selection { selection = nil }
+    }
+
+    private func clearSessionMemory(_ sessionID: UUID) {
         finished.remove(sessionID)
         holds[sessionID] = nil
         dirtyTranscripts.remove(sessionID)
-        try? FileManager.default.removeItem(at: transcriptURL(sessionID))
+        transcriptRevisions[sessionID] = nil
+        transcriptLoadErrors[sessionID] = nil
+    }
+
+    private func deleteTranscript(_ sessionID: UUID) -> Result<Void, PersistenceFailure> {
+        let url = transcriptURL(sessionID)
+        // A debounced write may already be queued with an older snapshot. Delete on the
+        // same queue after it, so that snapshot cannot recreate the removed transcript.
+        let files = files
+        return Self.writer.sync {
+            do {
+                try files.removeIfPresent(url)
+                return .success(())
+            } catch {
+                return .failure(PersistenceFailure(
+                    message: "The transcript at \(url.path) could not be deleted: \(error.localizedDescription)"))
+            }
+        }
     }
 
     // MARK: - Holding a conversation in memory
@@ -423,6 +635,7 @@ final class ProjectStore {
         // Nothing may be dropped that is not on disk yet: the debounced write may still
         // be waiting on a turn that has just ended.
         save()
+        guard !dirtyTranscripts.contains(sessionID) else { return }
         // The presentations were built from calls that are about to go, and the cache
         // has no other reason to hold on to them.
         ToolPresentationCache.forget(sessions[i].messages.flatMap(\.tools).map(\.id))
@@ -437,9 +650,8 @@ final class ProjectStore {
     }
 
     // A transcript nobody asked for still has to be read before it can be changed, so
-    // every mutation below goes through here first. A session with no file yet - a new
-    // one, or one whose file could not be read - counts as loaded and empty, which is
-    // what it is.
+    // every mutation below goes through here first. A missing file is an empty
+    // conversation. A file that cannot be read stays protected from later writes.
     private func loadTranscript(_ i: Int) {
         guard !sessions[i].transcriptLoaded else { return }
         sessions[i].messages = readTranscript(sessions[i].id)
@@ -447,12 +659,24 @@ final class ProjectStore {
     }
 
     private func readTranscript(_ sessionID: UUID) -> [ChatMessage] {
-        guard let data = try? Data(contentsOf: transcriptURL(sessionID)), !data.isEmpty else {
+        let url = transcriptURL(sessionID)
+        do {
+            guard let data = try files.readIfPresent(url) else {
+                transcriptLoadErrors[sessionID] = nil
+                return []
+            }
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            let messages = try decoder.decode([ChatMessage].self, from: data)
+            transcriptLoadErrors[sessionID] = nil
+            return messages
+        } catch let error as DecodingError {
+            transcriptLoadErrors[sessionID] = PersistentFile.decodeMessage(for: url, error: error)
+            return []
+        } catch {
+            transcriptLoadErrors[sessionID] = PersistentFile.loadMessage(for: url, error: error)
             return []
         }
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        return (try? decoder.decode([ChatMessage].self, from: data)) ?? []
     }
 
     private func transcriptURL(_ sessionID: UUID) -> URL {
@@ -513,8 +737,10 @@ final class ProjectStore {
     // a streaming reply changes the transcript many times a second, and deriving the
     // summary walks every call in the conversation.
     private func transcriptChanged(_ i: Int) {
-        dirtyTranscripts.insert(sessions[i].id)
-        indexDirty = true
+        let sessionID = sessions[i].id
+        dirtyTranscripts.insert(sessionID)
+        transcriptRevisions[sessionID, default: 0] &+= 1
+        markIndexDirty()
         scheduleSave()
     }
 
@@ -525,7 +751,7 @@ final class ProjectStore {
         case .claudeCode: sessions[i].claudeSessionID = agentID
         case .codex: sessions[i].codexSessionID = agentID
         }
-        scheduleSave()
+        scheduleIndexSave()
     }
 
     // An agent keeps its own conversation history, and it can be pruned or removed
@@ -537,7 +763,7 @@ final class ProjectStore {
         case .claudeCode: sessions[i].claudeSessionID = nil
         case .codex: sessions[i].codexSessionID = nil
         }
-        scheduleSave()
+        scheduleIndexSave()
     }
 
     // A turn that fails before Claude Code produces anything leaves an empty assistant
@@ -560,18 +786,27 @@ final class ProjectStore {
     // and the numbers the sidebar shows for it, so those are the only two files that
     // ever need rewriting, however many sessions the app is holding.
     private var dirtyTranscripts: Set<UUID> = []
+    private var transcriptRevisions: [UUID: Int] = [:]
     private var indexDirty = false
+    private var indexRevision = 0
+    private var saveGeneration = 0
+    private var lastCompletedGeneration = 0
 
     // The index carries what the sidebar reads, so anything that changes a title, a
     // number or where a session runs goes through one of these.
     private func saveIndex() {
-        indexDirty = true
+        markIndexDirty()
         save()
     }
 
     private func scheduleIndexSave() {
-        indexDirty = true
+        markIndexDirty()
         scheduleSave()
+    }
+
+    private func markIndexDirty() {
+        indexDirty = true
+        indexRevision &+= 1
     }
 
     // Encoding a long conversation and putting it on disk is too much to pay between
@@ -579,6 +814,39 @@ final class ProjectStore {
     // One serial queue keeps them in order, and a caller that has to see the bytes on
     // disk before its next line waits on it.
     private static let writer = DispatchQueue(label: "com.teya.conductor.project-store-writes")
+
+    private struct PendingTranscript: @unchecked Sendable {
+        let sessionID: UUID
+        let revision: Int
+        let messages: [ChatMessage]
+        let projectPath: String
+        let url: URL
+    }
+
+    private struct PendingIndex: @unchecked Sendable {
+        let revision: Int
+        let value: Persisted
+    }
+
+    private struct WriteCompletion: Sendable {
+        struct Summary: Sendable {
+            let revision: Int
+            let value: SessionSummary
+        }
+
+        let generation: Int
+        var transcriptSuccesses: [UUID: Int] = [:]
+        var summaries: [UUID: Summary] = [:]
+        var transcriptFailures: [String] = []
+        var indexRevision: Int?
+        var indexSucceeded = false
+        var indexFailure: String?
+        var blockedFailures: [String] = []
+
+        var failures: [String] {
+            blockedFailures + transcriptFailures + [indexFailure].compactMap { $0 }
+        }
+    }
 
     // Coalesce the burst of writes that a streaming reply produces into one file write.
     private func scheduleSave() {
@@ -592,28 +860,40 @@ final class ProjectStore {
 
     // Returns with everything on disk. This is what dropping a transcript from memory
     // relies on, debounce or no debounce.
-    func save() { save(waiting: true) }
+    @discardableResult
+    func save() -> Bool { save(waiting: true) }
 
-    private func save(waiting: Bool) {
+    @discardableResult
+    private func save(waiting: Bool) -> Bool {
         saveTask?.cancel()
         saveTask = nil
-
-        // The summary is what the sidebar reads for every session it is not showing
-        // the transcript of; deriving it walks the whole conversation, so it happens
-        // once per write rather than once per streamed event.
-        var transcripts: [(messages: [ChatMessage], url: URL)] = []
-        for sessionID in dirtyTranscripts {
-            // A session removed before its last write landed has nothing to write to.
-            guard let i = index(sessionID), sessions[i].transcriptLoaded else { continue }
-            let root = workingDirectory(for: sessions[i]) ?? ""
-            sessions[i].summary = SessionSummary.of(sessions[i].messages, projectPath: root)
-            transcripts.append((sessions[i].messages, transcriptURL(sessionID)))
+        guard loadError == nil else {
+            saveError = "Changes were not saved because the existing project index could not be loaded."
+            return false
         }
-        dirtyTranscripts.removeAll()
 
-        var persisted: Persisted?
-        if indexDirty {
-            indexDirty = false
+        var transcripts: [PendingTranscript] = []
+        var blockedFailures: [String] = []
+        for sessionID in dirtyTranscripts {
+            if let error = transcriptLoadErrors[sessionID] {
+                blockedFailures.append(error)
+                continue
+            }
+            // A session removed before its last write landed has nothing to write to.
+            guard let i = index(sessionID), sessions[i].transcriptLoaded else {
+                blockedFailures.append("The transcript for session \(sessionID) is not loaded and could not be saved.")
+                continue
+            }
+            let root = workingDirectory(for: sessions[i]) ?? ""
+            transcripts.append(PendingTranscript(sessionID: sessionID,
+                                                 revision: transcriptRevisions[sessionID] ?? 0,
+                                                 messages: sessions[i].messages,
+                                                 projectPath: root,
+                                                 url: transcriptURL(sessionID)))
+        }
+
+        var persisted: PendingIndex?
+        if indexDirty, blockedFailures.isEmpty {
             var openSessionID: UUID?
             var openWorkspaceID: UUID?
             if case .session(let id) = selection { openSessionID = id }
@@ -621,47 +901,188 @@ final class ProjectStore {
             Preferences.selectedSessionID = openSessionID
             Preferences.selectedWorkspaceID = openWorkspaceID
             Preferences.selectedProjectID = selectedProjectID
-            persisted = Persisted(projects: projects, sessions: sessions, workspaces: workspaces)
+            persisted = PendingIndex(revision: indexRevision,
+                                     value: Persisted(projects: projects, sessions: sessions,
+                                                      workspaces: workspaces))
         }
-        guard !transcripts.isEmpty || persisted != nil else { return }
+        guard !transcripts.isEmpty || persisted != nil else {
+            saveError = blockedFailures.isEmpty ? nil : blockedFailures.joined(separator: "\n")
+            return blockedFailures.isEmpty && dirtyTranscripts.isEmpty && !indexDirty
+        }
 
-        let transcriptsDirectory = transcriptsURL
         let indexURL = storeURL
+        let files = files
         let pendingTranscripts = transcripts
         let pendingIndex = persisted
-        let job: @Sendable () -> Void = {
+        let pendingBlockedFailures = blockedFailures
+        saveGeneration &+= 1
+        let generation = saveGeneration
+        let job: @Sendable () -> WriteCompletion = {
+            var completion = WriteCompletion(generation: generation,
+                                             blockedFailures: pendingBlockedFailures)
             // Only this app reads the transcripts back, so they skip the pretty
             // formatting; the index stays readable for a human poking at it.
             let transcriptEncoder = JSONEncoder()
             transcriptEncoder.outputFormatting = .withoutEscapingSlashes
             transcriptEncoder.dateEncodingStrategy = .iso8601
             for transcript in pendingTranscripts {
-                guard let data = try? transcriptEncoder.encode(transcript.messages) else { continue }
-                Self.write(data, to: transcript.url, inside: transcriptsDirectory)
+                let summary = SessionSummary.of(transcript.messages,
+                                                projectPath: transcript.projectPath)
+                do {
+                    let data = try transcriptEncoder.encode(transcript.messages)
+                    try files.write(data, transcript.url)
+                    completion.transcriptSuccesses[transcript.sessionID] = transcript.revision
+                    completion.summaries[transcript.sessionID] = WriteCompletion.Summary(
+                        revision: transcript.revision, value: summary)
+                } catch {
+                    completion.transcriptFailures.append(
+                        PersistentFile.saveMessage(for: transcript.url, error: error))
+                }
             }
-            guard let persisted = pendingIndex else { return }
+            guard let pendingIndex else { return completion }
+            completion.indexRevision = pendingIndex.revision
+            guard completion.transcriptFailures.isEmpty else {
+                completion.indexFailure = "The project index was not saved because a transcript could not be saved."
+                return completion
+            }
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
             encoder.dateEncodingStrategy = .iso8601
-            guard let data = try? encoder.encode(persisted) else { return }
-            Self.write(data, to: indexURL, inside: indexURL.deletingLastPathComponent())
+            do {
+                var value = pendingIndex.value
+                for (sessionID, summary) in completion.summaries {
+                    guard let i = value.sessions.firstIndex(where: { $0.id == sessionID }) else {
+                        continue
+                    }
+                    value.sessions[i].summary = summary.value
+                }
+                let data = try encoder.encode(value)
+                try files.write(data, indexURL)
+                completion.indexSucceeded = true
+            } catch {
+                completion.indexFailure = PersistentFile.saveMessage(for: indexURL, error: error)
+            }
+            return completion
         }
-        if waiting { Self.writer.sync(execute: job) } else { Self.writer.async(execute: job) }
+        if waiting {
+            finishWrite(Self.writer.sync(execute: job))
+            return dirtyTranscripts.isEmpty && !indexDirty
+        }
+        Self.writer.async { [weak self] in
+            let completion = job()
+            Task { @MainActor in self?.finishWrite(completion) }
+        }
+        return blockedFailures.isEmpty
     }
 
-    private nonisolated static func write(_ data: Data, to url: URL, inside directory: URL) {
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        try? data.write(to: url, options: .atomic)
+    private func finishWrite(_ completion: WriteCompletion) {
+        for (sessionID, summary) in completion.summaries
+        where transcriptRevisions[sessionID] == summary.revision {
+            guard let i = index(sessionID) else { continue }
+            sessions[i].summary = summary.value
+        }
+        for (sessionID, revision) in completion.transcriptSuccesses
+        where transcriptRevisions[sessionID] == revision {
+            dirtyTranscripts.remove(sessionID)
+        }
+        if completion.indexSucceeded, completion.indexRevision == indexRevision {
+            indexDirty = false
+        }
+        guard completion.generation >= lastCompletedGeneration else { return }
+        lastCompletedGeneration = completion.generation
+        let failures = completion.failures
+        saveError = failures.isEmpty ? nil : failures.joined(separator: "\n")
+    }
+
+    private func persistRemovalJournal(_ removals: [PendingSessionRemoval])
+        -> Result<Void, PersistenceFailure> {
+        guard removalJournalLoadError == nil else {
+            return .failure(PersistenceFailure(
+                message: "The pending removal journal could not be loaded and was not overwritten."))
+        }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        encoder.dateEncodingStrategy = .iso8601
+        do {
+            let data = try encoder.encode(RemovalJournal(removals: removals))
+            let files = files
+            try Self.writer.sync { try files.write(data, removalJournalURL) }
+            return .success(())
+        } catch {
+            let failure = PersistenceFailure(
+                message: PersistentFile.saveMessage(for: removalJournalURL, error: error))
+            saveError = failure.message
+            return .failure(failure)
+        }
+    }
+
+    private func loadRemovalJournal() {
+        let data: Data?
+        do {
+            data = try files.readIfPresent(removalJournalURL)
+        } catch {
+            removalJournalLoadError = PersistentFile.loadMessage(
+                for: removalJournalURL, error: error)
+            refreshLoadError()
+            return
+        }
+        guard let data else {
+            removalJournalLoadError = nil
+            pendingSessionRemovals = []
+            refreshLoadError()
+            return
+        }
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        do {
+            pendingSessionRemovals = try decoder.decode(RemovalJournal.self, from: data).removals
+            removalJournalLoadError = nil
+        } catch {
+            removalJournalLoadError = PersistentFile.decodeMessage(
+                for: removalJournalURL, error: error)
+        }
+        refreshLoadError()
+    }
+
+    private func refreshLoadError() {
+        loadError = removalJournalLoadError ?? indexLoadError
+    }
+
+    private func persistenceFailure(_ fallback: String) -> PersistenceFailure {
+        PersistenceFailure(message: saveError ?? fallback)
     }
 
     func load() {
-        guard let data = try? Data(contentsOf: storeURL), !data.isEmpty else { return }
+        let data: Data?
+        do {
+            data = try files.readIfPresent(storeURL)
+        } catch {
+            indexLoadError = PersistentFile.loadMessage(for: storeURL, error: error)
+            refreshLoadError()
+            return
+        }
+        guard let data else {
+            indexLoadError = nil
+            refreshLoadError()
+            return
+        }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        guard let saved = try? decoder.decode(Persisted.self, from: data) else { return }
+        let saved: Persisted
+        do {
+            saved = try decoder.decode(Persisted.self, from: data)
+        } catch {
+            indexLoadError = PersistentFile.decodeMessage(for: storeURL, error: error)
+            refreshLoadError()
+            return
+        }
+        indexLoadError = nil
+        refreshLoadError()
         projects = saved.projects
         workspaces = saved.workspaces ?? []
-        sessions = saved.sessions
+        let pendingIDs = Set(pendingSessionRemovals.map(\.id))
+        sessions = saved.sessions.filter { !pendingIDs.contains($0.id) }
         moveTranscriptsOutOfTheIndex()
         selectedProjectID = Preferences.selectedProjectID ?? saved.selectedProjectID ?? projects.first?.id
         if let id = Preferences.selectedSessionID ?? saved.selectedSessionID,
@@ -680,13 +1101,13 @@ final class ProjectStore {
         let inline = sessions.indices.filter { sessions[$0].transcriptLoaded }
         guard !inline.isEmpty else { return }
         for i in inline {
-            let root = workingDirectory(for: sessions[i]) ?? ""
-            sessions[i].summary = SessionSummary.of(sessions[i].messages, projectPath: root)
-            dirtyTranscripts.insert(sessions[i].id)
+            let sessionID = sessions[i].id
+            dirtyTranscripts.insert(sessionID)
+            transcriptRevisions[sessionID, default: 0] &+= 1
         }
-        indexDirty = true
+        markIndexDirty()
         save()
-        for i in inline {
+        for i in inline where !dirtyTranscripts.contains(sessions[i].id) {
             ToolPresentationCache.forget(sessions[i].messages.flatMap(\.tools).map(\.id))
             sessions[i].messages = []
             sessions[i].transcriptLoaded = false

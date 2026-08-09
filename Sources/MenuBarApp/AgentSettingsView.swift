@@ -18,21 +18,23 @@ final class ClaudeAgentInfo {
     private(set) var path: String?
     private(set) var version: String?
     private(set) var account: Account?
+    @ObservationIgnored private var versionTask: Task<Void, Never>?
 
     init() { refresh() }
 
     func refresh() {
+        versionTask?.cancel()
         path = ProcessManager.resolve("claude")
         account = Self.readAccount()
         version = nil
         guard let path else { return }
-        let info = self
         let searchPath = ProcessManager.searchPath
-        Task.detached {
+        versionTask = Task {
             // The CLI prints "2.1.220 (Claude Code)"; the number is the part worth keeping.
-            let version = cliVersion(at: path, searchPath: searchPath)?
+            let version = await cliVersion(at: path, searchPath: searchPath)?
                 .split(separator: " ").first.map(String.init)
-            await MainActor.run { info.version = version }
+            guard !Task.isCancelled else { return }
+            self.version = version
         }
     }
 
@@ -79,10 +81,14 @@ final class CodexAgentInfo {
     private(set) var usage: CodexUsage?
     private(set) var isRefreshingUsage = false
     private var refreshID = UUID()
+    @ObservationIgnored private var versionTask: Task<Void, Never>?
+    @ObservationIgnored private var usageTask: Task<Void, Never>?
 
     init() { refresh() }
 
     func refresh() {
+        versionTask?.cancel()
+        usageTask?.cancel()
         path = ProcessManager.resolve("codex")
         account = Self.readAccount()
         version = nil
@@ -90,27 +96,22 @@ final class CodexAgentInfo {
         isRefreshingUsage = false
         refreshID = UUID()
         guard let path else { return }
-        let info = self
         let searchPath = ProcessManager.searchPath
         let id = refreshID
-        Task.detached {
+        versionTask = Task {
             // The CLI prints "codex-cli 0.52.0"; the number is the part worth keeping.
-            let version = cliVersion(at: path, searchPath: searchPath)?
+            let version = await cliVersion(at: path, searchPath: searchPath)?
                 .split(separator: " ").last.map(String.init)
-            await MainActor.run {
-                guard info.refreshID == id else { return }
-                info.version = version
-            }
+            guard !Task.isCancelled, refreshID == id else { return }
+            self.version = version
         }
         guard account != nil else { return }
         isRefreshingUsage = true
-        Task.detached {
-            let usage = CodexUsageReader.read(at: path, searchPath: searchPath)
-            await MainActor.run {
-                guard info.refreshID == id else { return }
-                info.usage = usage
-                info.isRefreshingUsage = false
-            }
+        usageTask = Task {
+            let usage = await CodexUsageReader.read(at: path, searchPath: searchPath)
+            guard !Task.isCancelled, refreshID == id else { return }
+            self.usage = usage
+            self.isRefreshingUsage = false
         }
     }
 
@@ -161,23 +162,18 @@ final class CodexAgentInfo {
     }
 }
 
-// Runs "<cli> --version" and hands back the line it printed. Blocking, so it is called
-// off the main thread.
-private nonisolated func cliVersion(at path: String, searchPath: String) -> String? {
-    let process = Process()
-    process.executableURL = URL(fileURLWithPath: path)
-    process.arguments = ["--version"]
-    process.standardInput = FileHandle.nullDevice
-    process.standardError = FileHandle.nullDevice
+// Runs "<cli> --version" and hands back the line it printed.
+private nonisolated func cliVersion(at path: String, searchPath: String) async -> String? {
     var env = ProcessInfo.processInfo.environment
     env["PATH"] = searchPath
-    process.environment = env
-    let pipe = Pipe()
-    process.standardOutput = pipe
-    guard (try? process.run()) != nil else { return nil }
-    let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-    process.waitUntilExit()
-    let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let output = try? await CommandRunner.run(
+        executable: path,
+        arguments: ["--version"],
+        environment: env,
+        timeout: .seconds(5),
+        outputByteLimit: 65_536
+    ), output.succeeded else { return nil }
+    let trimmed = output.output.trimmingCharacters(in: .whitespacesAndNewlines)
     return trimmed.isEmpty ? nil : trimmed
 }
 
