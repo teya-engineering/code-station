@@ -662,11 +662,13 @@ struct SessionView: View {
         let override = CodexSandboxMode.valid(settings.codexSandboxMode)
         let appDefault = CodexSandboxMode.resolved(runner.defaults.codexSandboxMode)
         let selected = override ?? appDefault
-        return settingMenu(selected.title,
+        return settingMenu(selected.summary,
                            overridden: override != nil,
                            help: selected.detail,
                            defaultTitle: defaultTitle(appDefault.title),
                            options: CodexSandboxMode.allCases.map { (id: $0.rawValue, title: $0.title) },
+                           warning: selected == .fullAccess,
+                           warningOption: CodexSandboxMode.fullAccess.rawValue,
                            selection: Binding(get: { override?.rawValue },
                                               set: { value in
                                                   changeSettings { $0.codexSandboxMode = value }
@@ -681,6 +683,8 @@ struct SessionView: View {
     private func settingMenu(_ label: String, overridden: Bool, help: String,
                              defaultTitle: String,
                              options: [(id: String, title: String)],
+                             warning: Bool = false,
+                             warningOption: String? = nil,
                              selection: Binding<String?>) -> some View {
         HStack(spacing: 4) {
             Text(label)
@@ -688,7 +692,8 @@ struct SessionView: View {
             Image(systemName: "chevron.down")
                 .font(.system(size: 7, weight: .semibold))
         }
-        .foregroundStyle(overridden ? Theme.accent : Color.secondary)
+        .foregroundStyle(warning ? Theme.deletion
+                                 : overridden ? Theme.accent : Color.secondary)
         .fixedSize()
         .appMenu {
             var entries: [MenuEntry] = [
@@ -698,7 +703,12 @@ struct SessionView: View {
                 .separator,
             ]
             entries += options.map { option in
-                MenuEntry.item(option.title, checked: selection.wrappedValue == option.id) {
+                MenuEntry.item(option.title,
+                               kind: option.id == warningOption ? .destructive : .plain,
+                               checked: selection.wrappedValue == option.id,
+                               subtitle: option.id == warningOption
+                                   ? "No file, service, or network restrictions."
+                                   : nil) {
                     selection.wrappedValue = option.id
                 }
             }
