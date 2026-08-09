@@ -20,8 +20,8 @@ struct Attachment: Identifiable, Equatable {
 }
 
 enum Attachments {
-    // Clipboard images are copies of something the user already has elsewhere, and they
-    // only matter for as long as the conversation does, so they stay out of backups.
+    // Pasted files only matter for as long as the conversation does, so they stay out of
+    // backups and are removed after old conversations have had time to resume.
     static var folder: URL { AppPaths.directory("attachments", backedUp: false) }
 
     // What the clipboard holds, if it is worth attaching. Files win over images:
@@ -46,6 +46,13 @@ enum Attachments {
         urls.filter(\.isFileURL).map { Attachment(url: $0) }
     }
 
+    static func fromPastedText(_ text: String) -> Attachment? {
+        let name = "pasted-text-\(UUID().uuidString.prefix(8)).txt"
+        let url = folder.appendingPathComponent(name)
+        guard (try? text.write(to: url, atomically: true, encoding: .utf8)) != nil else { return nil }
+        return Attachment(url: url)
+    }
+
     // A clipboard image arrives as whatever format the app that copied it used, so it is
     // re-encoded as PNG under a name of our own.
     private static func write(_ image: NSImage) -> URL? {
@@ -57,7 +64,7 @@ enum Attachments {
         return url
     }
 
-    // A pasted image is referenced by path in a conversation that can be resumed later,
+    // A pasted file is referenced by path in a conversation that can be resumed later,
     // so it has to outlive the turn that sent it. A week is long enough for that and
     // short enough that the folder does not grow forever.
     static func pruneOldPastes(olderThan days: Int = 7) {

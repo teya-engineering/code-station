@@ -37,6 +37,7 @@ struct SessionView: View {
     @Environment(ProjectStore.self) private var store
     @Environment(SessionRunner.self) private var runner
     @Environment(TerminalStore.self) private var terminals
+    @Environment(DialogPresenter.self) private var dialogs
     let sessionID: UUID
 
     private enum Tab: Hashable { case chat, changes, explorer }
@@ -581,6 +582,7 @@ struct SessionView: View {
                               placeholder: busy ? "Queue what comes next…" : "Ask for a change",
                               isEnabled: !blocked,
                               onSubmit: send,
+                              onOversizedPaste: offerTextFile,
                               onRecallUp: {
                                   guard let last = runner.queued(sessionID).last else { return false }
                                   runner.recall(last.id, sessionID: sessionID)
@@ -957,6 +959,29 @@ struct SessionView: View {
             }
         }
         composerFocused = true
+    }
+
+    private func offerTextFile(_ text: String) {
+        let count = text.count.formatted()
+        let limit = ComposerPaste.characterLimit.formatted()
+        let message = "This paste has \(count) characters. Pastes are limited to \(limit) characters "
+            + "to keep the composer responsive. Would you like to upload it as a text file instead?"
+        dialogs.show(Dialog(
+            title: "Text is too long to paste",
+            message: message,
+            actions: [
+                .init(label: "Upload as file", kind: .primary) {
+                    guard let attachment = Attachments.fromPastedText(text) else {
+                        dialogs.show(Dialog(
+                            title: "Could not attach the text",
+                            message: "The temporary text file could not be created.",
+                            actions: [.init(label: "OK", kind: .cancel)]))
+                        return
+                    }
+                    attach([attachment])
+                },
+                .init(label: "Cancel", kind: .cancel)
+            ]))
     }
 
     private func send() {

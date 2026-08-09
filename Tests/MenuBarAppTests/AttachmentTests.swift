@@ -100,6 +100,22 @@ struct AttachmentTests {
         #expect(Attachments.fromDrop(dropped).map(\.name) == ["a.png"])
     }
 
+    @Test func writesPastedTextToDisk() throws {
+        let attachment = try #require(Attachments.fromPastedText("one\ntwo 💡"))
+        defer { try? FileManager.default.removeItem(at: attachment.url) }
+
+        #expect(attachment.name.hasPrefix("pasted-text-"))
+        #expect(attachment.url.pathExtension == "txt")
+        #expect(try String(contentsOf: attachment.url, encoding: .utf8) == "one\ntwo 💡")
+    }
+
+    @Test func onlyTreatsPastesAboveTheCharacterLimitAsTooLong() {
+        let allowed = String(repeating: "💡", count: ComposerPaste.characterLimit)
+
+        #expect(!ComposerPaste.isTooLong(allowed))
+        #expect(ComposerPaste.isTooLong(allowed + "💡"))
+    }
+
     // MARK: - What the CLI is told
 
     @Test func namesEveryAttachmentInThePrompt() {

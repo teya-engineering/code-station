@@ -12,6 +12,7 @@ struct ComposerField: View {
     let placeholder: String
     let isEnabled: Bool
     let onSubmit: () -> Void
+    let onOversizedPaste: (String) -> Void
     // Arrow-up in an empty box asks for the last prompt back, the way a shell recalls
     // history. Returns whether there was one to recall, so the key can fall through to
     // ordinary cursor movement when there was not.
@@ -32,6 +33,7 @@ struct ComposerField: View {
                  isEnabled: isEnabled,
                  font: Self.font,
                  onSubmit: onSubmit,
+                 onOversizedPaste: onOversizedPaste,
                  onRecallUp: onRecallUp,
                  onHeightChange: { height = $0 })
             .frame(height: min(max(height, line), line * CGFloat(maxLines)))
@@ -63,6 +65,7 @@ private struct TextArea: NSViewRepresentable {
     let isEnabled: Bool
     let font: NSFont
     let onSubmit: () -> Void
+    let onOversizedPaste: (String) -> Void
     let onRecallUp: (() -> Bool)?
     let onHeightChange: (CGFloat) -> Void
 
@@ -138,6 +141,13 @@ private struct TextArea: NSViewRepresentable {
             reportHeight(of: textView)
         }
 
+        func handleOversizedPaste(from pasteboard: NSPasteboard) -> Bool {
+            guard let text = pasteboard.string(forType: .string),
+                  ComposerPaste.isTooLong(text) else { return false }
+            parent.onOversizedPaste(text)
+            return true
+        }
+
         // Return sends and shift-return breaks the line. AppKit routes the shifted press
         // through the field-editor selector, but the plain one is checked for the modifier
         // too in case a key binding sends it here instead.
@@ -185,6 +195,11 @@ private struct TextArea: NSViewRepresentable {
     final class EditorView: NSTextView {
         weak var coordinator: Coordinator?
 
+        override func paste(_ sender: Any?) {
+            guard coordinator?.handleOversizedPaste(from: .general) != true else { return }
+            super.paste(sender)
+        }
+
         // Re-wrapping happens here, so this is the one place that knows the text moved to
         // a different number of lines because the window changed size.
         override func layout() {
@@ -204,5 +219,15 @@ private struct TextArea: NSViewRepresentable {
             if gave, window?.isKeyWindow == true { coordinator?.focusChanged(false) }
             return gave
         }
+    }
+}
+
+enum ComposerPaste {
+    // This is about 5,000 tokens for typical English or code. Larger content is easier
+    // to review as a file and can make AppKit lay out far more text than the prompt needs.
+    static let characterLimit = 20_000
+
+    static func isTooLong(_ text: String) -> Bool {
+        text.count > characterLimit
     }
 }
