@@ -14,6 +14,7 @@ enum MenuEntry {
 
     static func item(_ label: String,
                      kind: MenuItem.Kind = .plain,
+                     icon: String? = nil,
                      checked: Bool = false,
                      showsUpdate: Bool = false,
                      badge: String? = nil,
@@ -22,7 +23,7 @@ enum MenuEntry {
                      detail: String? = nil,
                      detailColour: Color? = nil,
                      action: @escaping () -> Void) -> MenuEntry {
-        .item(MenuItem(label: label, kind: kind, checked: checked,
+        .item(MenuItem(label: label, kind: kind, icon: icon, checked: checked,
                        showsUpdate: showsUpdate,
                        badge: badge, badgeTint: badgeTint, subtitle: subtitle,
                        detail: detail, detailColour: detailColour, handler: action))
@@ -44,6 +45,9 @@ struct MenuItem {
 
     let label: String
     var kind: Kind = .plain
+    // An optional leading symbol for menus whose entries create different kinds of thing.
+    // The host reserves the column for every row once one entry uses it.
+    var icon: String?
     // Marks the row that is currently in force, for menus that pick one of a set.
     var checked = false
     var showsUpdate = false
@@ -253,11 +257,17 @@ struct ContextMenuHost: View {
             if case .item(let item) = $0 { return item.checked }
             return false
         }
+        let hasIcons = presenter.entries.contains {
+            if case .item(let item) = $0 { return item.icon != nil }
+            return false
+        }
         return VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(presenter.entries.enumerated()), id: \.offset) { _, entry in
                 switch entry {
                 case .item(let item):
-                    MenuItemRow(item: item, checkColumn: hasChecks) { presenter.run(item) }
+                    MenuItemRow(item: item, checkColumn: hasChecks, iconColumn: hasIcons) {
+                        presenter.run(item)
+                    }
                 case .cards(let items):
                     MenuCardGrid(items: items) { presenter.run($0) }
                 case .separator:
@@ -372,6 +382,7 @@ private struct MenuCardItemView: View {
 private struct MenuItemRow: View {
     let item: MenuItem
     let checkColumn: Bool
+    let iconColumn: Bool
     let action: () -> Void
 
     @State private var hovering = false
@@ -384,6 +395,13 @@ private struct MenuItemRow: View {
                         .font(.system(size: 10, weight: .semibold))
                         .frame(width: 12)
                         .opacity(item.checked ? 1 : 0)
+                }
+                if iconColumn {
+                    Image(systemName: item.icon ?? "square")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Theme.accent)
+                        .frame(width: 18)
+                        .opacity(item.icon == nil ? 0 : 1)
                 }
                 if let badge = item.badge {
                     let tint = item.badgeTint ?? Color.secondary

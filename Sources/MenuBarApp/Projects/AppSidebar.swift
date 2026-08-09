@@ -958,11 +958,14 @@ struct AppSidebar: View {
 
     private func addMenu() -> [MenuEntry] {
         [
-            .item("Add project", subtitle: "Choose an existing folder.", action: addProject),
-            .item("Create workspace", subtitle: "Group two or more projects.") {
+            .item("Add project", icon: "folder.badge.plus",
+                  subtitle: "Choose an existing folder.", action: addProject),
+            .item("Create workspace", icon: "square.stack.3d.up.fill",
+                  subtitle: "Group two or more projects.") {
                 showingNewWorkspace = true
             },
-            .item("Ad-hoc task", subtitle: "Start in a new empty folder.") {
+            .item("Ad-hoc task", icon: "bolt.fill",
+                  subtitle: "Start in a new empty folder.") {
                 showingNewAdHocTask = true
             }
         ]
@@ -1259,7 +1262,7 @@ private struct ProjectHeaderRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            MonogramTile(name: project.name, badge: runningCount)
+            ProjectTile(project: project, badge: runningCount)
 
             if isRenaming {
                 TextField("Name", text: $draft)
@@ -1367,22 +1370,18 @@ private struct RowAction: View {
     }
 }
 
-// The project's initial, tinted from its name, with the number of sessions running in
-// it hanging off the corner.
-private struct MonogramTile: View {
-    let name: String
+// A project keeps its name-derived identity, while an ad-hoc task uses a dashed bolt so
+// its short-lived role stays visible wherever the row moves in the list.
+private struct ProjectTile: View {
+    let project: Project
     let badge: Int
 
     var body: some View {
-        let tint = Theme.monogram(for: name)
+        let tint = Theme.monogram(for: project.name)
         RoundedRectangle(cornerRadius: 8)
             .fill(tint.opacity(0.16))
             .frame(width: 30, height: 30)
-            .overlay(
-                Text(String(name.prefix(1)).uppercased())
-                    .font(.mono(12, .semibold))
-                    .foregroundStyle(tint)
-            )
+            .overlay { tileContent(tint: tint) }
             .overlay(alignment: .topTrailing) {
                 if badge > 0 {
                     Text("\(badge)")
@@ -1394,6 +1393,23 @@ private struct MonogramTile: View {
                         .offset(x: 5, y: -5)
                 }
             }
+            .accessibilityHidden(true)
+    }
+
+    @ViewBuilder private func tileContent(tint: Color) -> some View {
+        switch project.kind {
+        case .project:
+            Text(String(project.name.prefix(1)).uppercased())
+                .font(.mono(12, .semibold))
+                .foregroundStyle(tint)
+        case .adHoc:
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(tint.opacity(0.65),
+                        style: StrokeStyle(lineWidth: 1.2, dash: [3, 2]))
+            Image(systemName: "bolt.fill")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(tint)
+        }
     }
 }
 
