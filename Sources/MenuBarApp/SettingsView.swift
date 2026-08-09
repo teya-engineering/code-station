@@ -118,7 +118,6 @@ struct SettingsView: View {
     // The threshold only decides what gets offered up for review. Nothing acts on it on
     // its own, which is why the number can be moved freely without asking what it will do.
     private var oldSessions: some View {
-        @Bindable var settings = settings
         let days = settings.oldSessionDays
         let stale = OldSessions.olderThan(days, in: store.sessions).count
 
@@ -134,7 +133,25 @@ struct SettingsView: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     Spacer(minLength: 0)
-                    DayStepper(days: $settings.oldSessionDays)
+                    HStack(spacing: 8) {
+                        Text(dayTitle(days))
+                            .font(.system(size: 13, weight: .medium))
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal, 12)
+                    .frame(height: 34)
+                    .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
+                    .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
+                    .contentShape(Rectangle())
+                    .appMenu(matchWidth: true) {
+                        OldSessions.dayOptions.map { days in
+                            .item(dayTitle(days), checked: settings.oldSessionDays == days) {
+                                settings.oldSessionDays = days
+                            }
+                        }
+                    }
                 }
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -157,6 +174,10 @@ struct SettingsView: View {
                 }
             }
         }
+    }
+
+    private func dayTitle(_ days: Int) -> String {
+        "\(days) day\(days == 1 ? "" : "s")"
     }
 
     private var skillRefresh: some View {
@@ -285,43 +306,6 @@ struct SettingsView: View {
                 .foregroundStyle(Theme.accent)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-// A number small enough to nudge rather than type. The value sits between its two
-// buttons so the strip reads as one control rather than as a label with controls beside it.
-private struct DayStepper: View {
-    @Binding var days: Int
-
-    var body: some View {
-        HStack(spacing: 0) {
-            button("minus", by: -1, enabled: days > OldSessions.dayRange.lowerBound)
-            Divider().overlay(Theme.hairline).frame(height: 26)
-            Text("\(days)d")
-                .font(.system(size: 13, weight: .semibold))
-                .monospacedDigit()
-                .frame(width: 46)
-            Divider().overlay(Theme.hairline).frame(height: 26)
-            button("plus", by: 1, enabled: days < OldSessions.dayRange.upperBound)
-        }
-        .frame(height: 30)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.field))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
-    }
-
-    private func button(_ symbol: String, by step: Int, enabled: Bool) -> some View {
-        Button {
-            days = min(max(days + step, OldSessions.dayRange.lowerBound),
-                       OldSessions.dayRange.upperBound)
-        } label: {
-            Image(systemName: symbol)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(enabled ? AnyShapeStyle(Color.primary) : AnyShapeStyle(.tertiary))
-                .frame(width: 32, height: 30)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(!enabled)
     }
 }
 

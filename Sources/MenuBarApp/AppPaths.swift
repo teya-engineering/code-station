@@ -126,19 +126,14 @@ enum Preferences {
         }
     }
 
-    // How long a session has to sit untouched before the app offers to clear it. Stored
-    // rather than defaulted to zero: an unset key reads as 0 from UserDefaults, which
-    // would call every session old.
+    // How long a session has to sit untouched before the app offers to clear it.
     static var oldSessionDays: Int {
-        get {
-            let stored = store.integer(forKey: "oldSessionDays")
-            return OldSessions.dayRange.contains(stored) ? stored : 7
-        }
-        set {
-            store.set(min(max(newValue, OldSessions.dayRange.lowerBound),
-                          OldSessions.dayRange.upperBound),
-                      forKey: "oldSessionDays")
-        }
+        get { oldSessionDays(in: store) }
+        set { store.set(OldSessions.resolvedDays(newValue), forKey: "oldSessionDays") }
+    }
+
+    static func oldSessionDays(in store: UserDefaults) -> Int {
+        OldSessions.resolvedDays(store.integer(forKey: "oldSessionDays"))
     }
 
     static var skillsRefreshInterval: SkillsRefreshInterval {

@@ -4,9 +4,12 @@ import Foundation
 // ran in a worktree leave a checkout on disk as well. Nothing here ever deletes on its
 // own - it only works out what has gone quiet, so the app can offer to clear it.
 enum OldSessions {
-    // Anything below this would call a session old while it is still the one being worked
-    // on; anything above it stops being an offer worth making.
-    static let dayRange = 1...90
+    static let dayOptions = [1, 3, 7]
+    static let defaultDays = 3
+
+    static func resolvedDays(_ days: Int) -> Int {
+        dayOptions.contains(days) ? days : defaultDays
+    }
 
     static func olderThan(_ days: Int, in sessions: [ChatSession], now: Date = Date()) -> [ChatSession] {
         let cutoff = now.addingTimeInterval(-Double(days) * 86_400)

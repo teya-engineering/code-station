@@ -82,4 +82,20 @@ struct AppPathsTests {
             expandedWorkspace: true
         ])
     }
+
+    @Test func usesThreeDaysForMissingOrUnsupportedOldSessionChoices() throws {
+        let suite = "conductor-old-session-tests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        #expect(Preferences.oldSessionDays(in: defaults) == 3)
+
+        for days in OldSessions.dayOptions {
+            defaults.set(days, forKey: "oldSessionDays")
+            #expect(Preferences.oldSessionDays(in: defaults) == days)
+        }
+
+        defaults.set(2, forKey: "oldSessionDays")
+        #expect(Preferences.oldSessionDays(in: defaults) == 3)
+    }
 }

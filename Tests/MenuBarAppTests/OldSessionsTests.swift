@@ -36,6 +36,11 @@ struct OldSessionsTests {
         #expect(OldSessions.olderThan(7, in: [session(daysAgo: 7.01)], now: now).count == 1)
     }
 
+    @Test func oneDayMeansTwentyFourHours() {
+        #expect(OldSessions.olderThan(1, in: [session(daysAgo: 23.99 / 24)], now: now).isEmpty)
+        #expect(OldSessions.olderThan(1, in: [session(daysAgo: 24.01 / 24)], now: now).count == 1)
+    }
+
     // Only what costs nothing but history arrives ticked. A worktree is left alone until
     // git has answered, so a slow repository cannot leave a box ticked unread.
     @Test func ticksOnlyTheOutcomesThatLoseNothing() {
