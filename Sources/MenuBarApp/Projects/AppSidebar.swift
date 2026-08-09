@@ -872,15 +872,16 @@ struct AppSidebar: View {
                              showsUpdate: skills.updateCount > 0,
                              detail: "Claude + Codex", handler: onOpenSkills),
                 MenuCardItem(label: "Docker", icon: "shippingbox.fill",
-                             detail: dockerDetail?.text, detailColour: dockerDetail?.colour,
+                             detail: dockerDetail.text, detailColour: dockerDetail.colour,
                              handler: onOpenDocker),
                 MenuCardItem(label: "Postman", icon: "paperplane.fill",
                              detail: postmanAuth.active.envValue,
                              detailColour: postmanAuth.active.accent, handler: onOpenPostman),
                 MenuCardItem(label: "Local AI", icon: "cpu",
-                             detail: aiDetail?.text, detailColour: aiDetail?.colour,
+                             detail: aiDetail.text, detailColour: aiDetail.colour,
                              handler: onOpenAI),
                 MenuCardItem(label: "Troubleshoot", icon: "stethoscope",
+                             detail: "Agent diagnosis",
                              handler: onOpenTroubleshoot)
             ]),
             .separator,
@@ -888,17 +889,19 @@ struct AppSidebar: View {
         ]
     }
 
-    private var dockerDetail: (text: String, colour: Color?)? {
-        guard docker.hasLoaded, docker.failure == nil, !docker.containers.isEmpty else { return nil }
+    private var dockerDetail: (text: String, colour: Color?) {
+        guard docker.hasLoaded else { return ("checking…", nil) }
+        guard docker.failure == nil else { return ("unavailable", Theme.deletion) }
+        guard !docker.containers.isEmpty else { return ("none running", nil) }
         return ("\(docker.containers.count) running", Theme.addition)
     }
 
-    private var aiDetail: (text: String, colour: Color?)? {
+    private var aiDetail: (text: String, colour: Color?) {
         switch ai.state {
         case .running, .runningExternally: ("running", Theme.addition)
         case .starting: ("loading…", nil)
         case .failed: ("failed", Theme.deletion)
-        case .stopped: nil
+        case .stopped: ("not running", nil)
         }
     }
 
