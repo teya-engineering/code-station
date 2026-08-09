@@ -26,6 +26,7 @@ enum SessionOutcome: Equatable {
     // No worktree, or one that is no longer on disk: only the conversation goes.
     case historyOnly
     case checking
+    case checkFailed
     case worktreeRemoved
     // Uncommitted work in the worktree, which deleting would take with it.
     case wouldLoseWork(added: Int, removed: Int)
@@ -34,6 +35,7 @@ enum SessionOutcome: Equatable {
         switch self {
         case .historyOnly: "history only"
         case .checking: "checking…"
+        case .checkFailed: "check failed"
         case .worktreeRemoved: "worktree removed"
         case .wouldLoseWork: "would lose work"
         }
@@ -44,6 +46,10 @@ enum SessionOutcome: Equatable {
     // never leave a box ticked that the user did not read.
     var isSafeToPreselect: Bool {
         self == .historyOnly || self == .worktreeRemoved
+    }
+
+    var canSelect: Bool {
+        self != .checking && self != .checkFailed
     }
 
     var losesWork: Bool {

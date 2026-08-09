@@ -47,7 +47,16 @@ struct OldSessionsTests {
         #expect(SessionOutcome.historyOnly.isSafeToPreselect)
         #expect(SessionOutcome.worktreeRemoved.isSafeToPreselect)
         #expect(!SessionOutcome.checking.isSafeToPreselect)
+        #expect(!SessionOutcome.checkFailed.isSafeToPreselect)
         #expect(!SessionOutcome.wouldLoseWork(added: 64, removed: 0).isSafeToPreselect)
+    }
+
+    @Test func onlySelectsSessionsWhoseWorktreeCheckFinished() {
+        #expect(SessionOutcome.historyOnly.canSelect)
+        #expect(SessionOutcome.worktreeRemoved.canSelect)
+        #expect(SessionOutcome.wouldLoseWork(added: 1, removed: 0).canSelect)
+        #expect(!SessionOutcome.checking.canSelect)
+        #expect(!SessionOutcome.checkFailed.canSelect)
     }
 
     @Test func saysHowLongAgoTheLastTurnWas() {

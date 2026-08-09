@@ -12,6 +12,9 @@ struct OldSessionsView: View {
 
     @State private var rows: [Row] = []
     @State private var ticked: Set<UUID> = []
+    @State private var deletionProgress: DeletionProgress?
+
+    private static let inspectionCommandTimeout: TimeInterval = 10
 
     private var days: Int { appSettings.oldSessionDays }
 
@@ -21,6 +24,11 @@ struct OldSessionsView: View {
         var outcome: SessionOutcome
 
         var id: UUID { session.id }
+    }
+
+    private struct DeletionProgress {
+        let total: Int
+        var completed = 0
     }
 
     var body: some View {
@@ -35,6 +43,7 @@ struct OldSessionsView: View {
                                          outcome: row.outcome,
                                          hasWorktree: !worktreePaths(row.session).isEmpty,
                                          ticked: ticked.contains(row.id),
+                                         canToggle: row.outcome.canSelect && !isDeleting,
                                          toggle: { toggle(row) })
                     }
                     if losable > 0 { warning }
@@ -46,6 +55,7 @@ struct OldSessionsView: View {
         }
         .frame(width: 620)
         .background(Theme.background)
+        .interactiveDismissDisabled(isDeleting)
         .task { await load() }
     }
 
@@ -89,7 +99,10 @@ struct OldSessionsView: View {
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 12)
-                Button { dismiss() } label: {
+                Button {
+                    guard !isDeleting else { return }
+                    dismiss()
+                } label: {
                     Text("Cancel")
                         .font(.system(size: 13, weight: .semibold))
                         .padding(.horizontal, 18)
@@ -100,6 +113,7 @@ struct OldSessionsView: View {
                 }
                 .buttonStyle(.plain)
                 .keyboardShortcut(.cancelAction)
+                .disabled(isDeleting)
                 Button { confirmDelete() } label: {
                     Text(deleteLabel)
                         .font(.system(size: 13, weight: .semibold))
@@ -111,7 +125,7 @@ struct OldSessionsView: View {
                         .contentShape(RoundedRectangle(cornerRadius: 8))
                 }
                 .buttonStyle(.plain)
-                .disabled(ticked.isEmpty)
+                .disabled(ticked.isEmpty || isDeleting)
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
@@ -120,7 +134,16 @@ struct OldSessionsView: View {
     }
 
     private var deleteLabel: String {
-        ticked.isEmpty ? "Delete" : "Delete \(ticked.count) session\(ticked.count == 1 ? "" : "s")"
+        if let progress = deletionProgress {
+            return "Deleting \(progress.completed) of \(progress.total)…"
+        }
+        return ticked.isEmpty
+            ? "Delete"
+            : "Delete \(ticked.count) session\(ticked.count == 1 ? "" : "s")"
+    }
+
+    private var isDeleting: Bool {
+        deletionProgress != nil
     }
 
     private var losable: Int {
@@ -141,6 +164,7 @@ struct OldSessionsView: View {
             parts.append("⑂ " + label)
             switch row.outcome {
             case .checking: parts.append("checking…")
+            case .checkFailed: parts.append("check failed")
             case .wouldLoseWork(let added, let removed):
                 parts.append("+\(added) -\(removed) uncommitted")
             default: parts.append("clean")
@@ -169,15 +193,26 @@ struct OldSessionsView: View {
         for row in rows where row.outcome == .checking {
             var added = 0
             var removed = 0
+            var hasChanges = false
+            var inspectionFailed = false
             for path in worktreePaths(row.session) {
-                let snapshot = await GitInspector.snapshot(at: path)
-                guard snapshot.state == .ready else { continue }
+                guard !isDeleting else { return }
+                let snapshot = await GitInspector.snapshot(
+                    at: path, commandTimeout: Self.inspectionCommandTimeout)
+                guard !isDeleting else { return }
+                guard snapshot.state == .ready else {
+                    inspectionFailed = true
+                    break
+                }
+                hasChanges = hasChanges || !snapshot.files.isEmpty
                 added += snapshot.totalAdded
                 removed += snapshot.totalRemoved
             }
-            settle(row.id, on: added == 0 && removed == 0
-                   ? .worktreeRemoved
-                   : .wouldLoseWork(added: added, removed: removed))
+            settle(row.id, on: inspectionFailed
+                   ? .checkFailed
+                   : !hasChanges
+                       ? .worktreeRemoved
+                       : .wouldLoseWork(added: added, removed: removed))
         }
     }
 
@@ -201,6 +236,7 @@ struct OldSessionsView: View {
     // MARK: - Acting
 
     private func toggle(_ row: Row) {
+        guard row.outcome.canSelect, !isDeleting else { return }
         if ticked.contains(row.id) {
             ticked.remove(row.id)
         } else {
@@ -211,6 +247,7 @@ struct OldSessionsView: View {
     // The sheet is the question for everything that costs nothing but history. Ticking a
     // row that holds uncommitted work is the one choice worth asking about twice.
     private func confirmDelete() {
+        guard !isDeleting else { return }
         let chosen = rows.filter { ticked.contains($0.id) }
         let losing = chosen.filter { $0.outcome.losesWork }
         guard !losing.isEmpty else {
@@ -229,17 +266,35 @@ struct OldSessionsView: View {
     }
 
     private func delete(_ chosen: [Row]) {
+        guard deletionProgress == nil, !chosen.isEmpty else { return }
+        deletionProgress = DeletionProgress(total: chosen.count)
+        let batchStartedAt = Date()
+        SessionLog.note("old session deletion started count=\(chosen.count)")
         Task {
             var failures: [SessionLifecycle.Failure] = []
             for row in chosen {
-                if case .failure(let failure) = await SessionLifecycle.remove(
-                    row.session, from: store, runner: runner) {
+                let startedAt = Date()
+                SessionLog.note("deletion started", session: row.id)
+                let result = await SessionLifecycle.remove(
+                    row.session, from: store, runner: runner)
+                let elapsed = Int(max(0, Date().timeIntervalSince(startedAt)) * 1_000)
+                if case .failure(let failure) = result {
                     failures.append(failure)
+                    SessionLog.note(
+                        "deletion failed durationMs=\(elapsed) reason=\(failure.title)",
+                        session: row.id)
+                } else {
+                    SessionLog.note("deletion finished durationMs=\(elapsed)", session: row.id)
                 }
+                deletionProgress?.completed += 1
             }
+            let elapsed = Int(max(0, Date().timeIntervalSince(batchStartedAt)) * 1_000)
+            SessionLog.note(
+                "old session deletion finished count=\(chosen.count) failures=\(failures.count) durationMs=\(elapsed)")
             rows.removeAll { store.session($0.id) == nil }
             ticked = ticked.intersection(rows.map(\.id))
             guard failures.isEmpty else {
+                deletionProgress = nil
                 dialogs.show(Dialog(
                     title: failures.count == 1
                         ? failures[0].title
@@ -262,6 +317,7 @@ private struct SessionChoiceRow: View {
     let outcome: SessionOutcome
     let hasWorktree: Bool
     let ticked: Bool
+    let canToggle: Bool
     let toggle: () -> Void
 
     var body: some View {
@@ -320,6 +376,7 @@ private struct SessionChoiceRow: View {
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(border))
         .contentShape(Rectangle())
         .onTapGesture(perform: toggle)
+        .allowsHitTesting(canToggle)
     }
 
     // The cost of the row, said in colour as well as in words: nothing to lose reads as
@@ -327,6 +384,7 @@ private struct SessionChoiceRow: View {
     private var tint: Color {
         switch outcome {
         case .historyOnly, .checking: Color.secondary
+        case .checkFailed: Theme.deletion
         case .worktreeRemoved: Theme.secret
         case .wouldLoseWork: Theme.deletion
         }
@@ -335,6 +393,7 @@ private struct SessionChoiceRow: View {
     private var border: Color {
         switch outcome {
         case .historyOnly, .checking: Theme.border
+        case .checkFailed: Theme.deletion.opacity(0.45)
         case .worktreeRemoved: Theme.secret.opacity(0.35)
         case .wouldLoseWork: Theme.deletion.opacity(0.45)
         }

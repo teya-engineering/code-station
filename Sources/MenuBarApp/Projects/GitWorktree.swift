@@ -14,6 +14,7 @@ enum GitWorktree {
     }
 
     private static let folder = "worktrees"
+    private static let cleanupCommandTimeout: TimeInterval = 30
 
     // Reading where the checkouts go does not create the folder, so the new session sheet
     // can show the path it would use without leaving anything behind if it is cancelled.
@@ -101,8 +102,15 @@ enum GitWorktree {
         let tool = await GitInspector.tool()
         return await GitInspector.offMain {
             if let tool, let projectPath {
-                _ = GitInspector.run(tool, ["-C", projectPath, "worktree", "remove", "--force", worktreePath])
-                if let branch { _ = GitInspector.run(tool, ["-C", projectPath, "branch", "-d", branch]) }
+                _ = GitInspector.run(
+                    tool,
+                    ["-C", projectPath, "worktree", "remove", "--force", worktreePath],
+                    timeout: cleanupCommandTimeout)
+                if let branch {
+                    _ = GitInspector.run(
+                        tool, ["-C", projectPath, "branch", "-d", branch],
+                        timeout: cleanupCommandTimeout)
+                }
             }
             if FileManager.default.fileExists(atPath: worktreePath) {
                 do {
@@ -118,7 +126,9 @@ enum GitWorktree {
                 try? FileManager.default.removeItem(at: parent)
             }
             if let tool, let projectPath {
-                _ = GitInspector.run(tool, ["-C", projectPath, "worktree", "prune"])
+                _ = GitInspector.run(
+                    tool, ["-C", projectPath, "worktree", "prune"],
+                    timeout: cleanupCommandTimeout)
             }
             return .success(())
         }

@@ -116,18 +116,20 @@ enum GitInspector {
 
     // MARK: - Snapshot
 
-    static func snapshot(at path: String) async -> GitSnapshot {
+    static func snapshot(at path: String, commandTimeout: TimeInterval? = nil) async -> GitSnapshot {
         guard let tool = await tool() else { return .state(.gitMissing) }
         let url = URL(fileURLWithPath: path)
-        return await offMain { snapshot(tool: tool, url: url) }
+        return await offMain { snapshot(tool: tool, url: url, commandTimeout: commandTimeout) }
     }
 
-    private static func snapshot(tool: GitTool, url: URL) -> GitSnapshot {
+    private static func snapshot(tool: GitTool, url: URL,
+                                 commandTimeout: TimeInterval?) -> GitSnapshot {
         var isDirectory: ObjCBool = false
         let exists = FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
         guard exists && isDirectory.boolValue else { return .state(.missingFolder) }
 
-        let top = run(tool, ["rev-parse", "--show-toplevel"], in: url)
+        let top = run(tool, ["rev-parse", "--show-toplevel"], in: url,
+                      timeout: commandTimeout)
         guard top.ok else {
             // git says "not a git repository" for a plain folder, which is not an error.
             let message = top.errorText.lowercased()
@@ -139,11 +141,13 @@ enum GitInspector {
         snapshot.root = top.text.trimmingCharacters(in: .whitespacesAndNewlines)
         let root = URL(fileURLWithPath: snapshot.root)
 
-        let head = run(tool, ["rev-parse", "--abbrev-ref", "HEAD"], in: url)
+        let head = run(tool, ["rev-parse", "--abbrev-ref", "HEAD"], in: url,
+                       timeout: commandTimeout)
         if head.ok {
             let name = head.text.trimmingCharacters(in: .whitespacesAndNewlines)
             if name == "HEAD" {
-                let sha = run(tool, ["rev-parse", "--short", "HEAD"], in: url)
+                let sha = run(tool, ["rev-parse", "--short", "HEAD"], in: url,
+                              timeout: commandTimeout)
                 snapshot.branch = "detached at " + sha.text.trimmingCharacters(in: .whitespacesAndNewlines)
             } else {
                 snapshot.branch = name
@@ -152,23 +156,27 @@ enum GitInspector {
         } else {
             // No commits yet, so HEAD points at a branch that does not exist.
             snapshot.hasCommits = false
-            let symbolic = run(tool, ["symbolic-ref", "--short", "HEAD"], in: url)
+            let symbolic = run(tool, ["symbolic-ref", "--short", "HEAD"], in: url,
+                               timeout: commandTimeout)
             snapshot.branch = symbolic.ok
                 ? symbolic.text.trimmingCharacters(in: .whitespacesAndNewlines)
                 : "HEAD"
         }
 
         let refs = run(tool, ["for-each-ref", "refs/heads",
-                              "--format=%(refname:short)", "--sort=-committerdate"], in: url)
+                              "--format=%(refname:short)", "--sort=-committerdate"], in: url,
+                       timeout: commandTimeout)
         if refs.ok {
             snapshot.branches = refs.text.split(separator: "\n").map(String.init)
         }
 
-        let upstream = run(tool, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"], in: url)
+        let upstream = run(tool, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+                           in: url, timeout: commandTimeout)
         if upstream.ok {
             snapshot.upstream = upstream.text.trimmingCharacters(in: .whitespacesAndNewlines)
             // left counts commits only in the upstream, right the ones only here.
-            let drift = run(tool, ["rev-list", "--left-right", "--count", "@{u}...HEAD"], in: url)
+            let drift = run(tool, ["rev-list", "--left-right", "--count", "@{u}...HEAD"],
+                            in: url, timeout: commandTimeout)
             let counts = drift.text.split(separator: "\t").compactMap {
                 Int($0.trimmingCharacters(in: .whitespacesAndNewlines))
             }
@@ -180,7 +188,8 @@ enum GitInspector {
 
         // -uall lists untracked files one by one instead of collapsing whole directories,
         // which is what we need for per-file counts.
-        let status = run(tool, ["status", "--porcelain=v1", "-z", "-uall"], in: url)
+        let status = run(tool, ["status", "--porcelain=v1", "-z", "-uall"], in: url,
+                         timeout: commandTimeout)
         guard status.ok else { return .state(.failed(status.failureMessage)) }
 
         var files = parseStatus(status.text)
@@ -188,7 +197,7 @@ enum GitInspector {
         var counts: [String: (added: Int?, removed: Int?, binary: Bool)] = [:]
         for arguments in [["diff", "--numstat", "-z", "--no-ext-diff", "--no-textconv", "-M"],
                           ["diff", "--cached", "--numstat", "-z", "--no-ext-diff", "--no-textconv", "-M"]] {
-            let output = run(tool, arguments, in: url)
+            let output = run(tool, arguments, in: url, timeout: commandTimeout)
             guard output.ok else { continue }
             for entry in parseNumstat(output.text) {
                 let current = counts[entry.path] ?? (0, 0, false)
