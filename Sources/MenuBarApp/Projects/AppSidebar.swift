@@ -1459,12 +1459,6 @@ private struct SessionCard: View {
 
             ActivityLine(activity: activity)
 
-            // Only a running session gets a bar, and it is how full its context is: the
-            // one number that says how much room the session has left to keep going.
-            if busy {
-                Meter(fraction: session.usage?.contextFraction ?? 0, colour: Theme.dotOn, height: 3)
-            }
-
             if hasFooter {
                 HStack(spacing: 7) {
                     if added > 0 {
@@ -1476,15 +1470,6 @@ private struct SessionCard: View {
                         Text("-\(removed)")
                             .font(.mono(11, .medium))
                             .foregroundStyle(Theme.deletion)
-                    }
-                    Spacer(minLength: 6)
-                    if let usage = session.usage, usage.turns > 0 {
-                        // The cost stays out of the card: it reads as a bill, which on a
-                        // subscription it is not. The tooltip still carries it.
-                        Text("\(usage.turns) turn\(usage.turns == 1 ? "" : "s")")
-                            .font(.mono(10))
-                            .foregroundStyle(.tertiary)
-                            .lineLimit(1)
                     }
                 }
             }
@@ -1508,7 +1493,6 @@ private struct SessionCard: View {
             rows.append(Tooltip.Row(label: "Changes", value: "+\(added) -\(removed)"))
         }
         if let usage = session.usage, usage.turns > 0 {
-            rows.append(Tooltip.Row(label: "Turns", value: "\(usage.turns)"))
             rows.append(Tooltip.Row(label: "Spent", value: Money.short(usage.costUSD)))
         }
         if let context = session.usage?.contextFraction, context > 0 {
@@ -1535,7 +1519,7 @@ private struct SessionCard: View {
     }
 
     private var hasFooter: Bool {
-        added > 0 || removed > 0 || (session.usage?.turns ?? 0) > 0
+        added > 0 || removed > 0
     }
 
     // What the card is doing outranks selection, since a column of sessions is read for
