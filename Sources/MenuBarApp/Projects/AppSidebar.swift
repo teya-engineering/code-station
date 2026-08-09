@@ -41,7 +41,7 @@ struct AppSidebar: View {
     @State private var showingAllSessions: Set<UUID> = []
     @State private var filterText = ""
 
-    private static let sessionCap = 4
+    private static let sessionCap = 3
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
