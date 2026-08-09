@@ -722,8 +722,8 @@ struct SessionView: View {
             }
             Spacer(minLength: 8)
             if let pullRequest = session.pullRequest { pullRequestTag(pullRequest) }
-            if let usage, let fraction = usage.contextFraction(for: agent) {
-                contextMeter(usage, fraction: fraction)
+            if let fraction = usage?.contextFraction(for: agent) {
+                contextMeter(fraction: fraction)
             }
         }
     }
@@ -898,21 +898,26 @@ struct SessionView: View {
               : "Uncommitted work on this branch. Opens Changes.")
     }
 
-    private func contextMeter(_ usage: SessionUsage, fraction: Double) -> some View {
-        let tight = fraction > 0.85
+    private func contextMeter(fraction: Double) -> some View {
+        let percentage = Int((fraction * 100).rounded())
+        let colour = if percentage >= 85 {
+            Theme.deletion
+        } else if percentage >= 70 {
+            Theme.attention
+        } else {
+            Theme.dotOn
+        }
+
         return HStack(spacing: 10) {
             Text("Context")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
-            Meter(fraction: fraction, colour: tight ? Theme.deletion : Theme.accent, height: 5)
+            Meter(fraction: fraction, colour: colour, height: 5)
                 .frame(width: 120)
-            Text("\(Int((fraction * 100).rounded()))%")
+            Text("\(percentage)%")
                 .font(.system(size: 11, weight: .semibold))
                 .monospacedDigit()
-                .foregroundStyle(tight ? Theme.deletion : Color.primary)
-            Text("\(formattedTokens(usage.contextTokens)) / \(formattedTokens(usage.contextWindow))")
-                .font(.mono(11))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(colour)
         }
         .help("Context in use after the last turn.")
     }
