@@ -417,7 +417,7 @@ struct SessionView: View {
                                    loadEarlier: @escaping () -> Void) -> some View {
         VStack(alignment: .leading, spacing: 18) {
             if session.messages.isEmpty {
-                Text("Ask for a change. Claude Code runs in the project folder, so what it edits is your working tree.")
+                Text("Ask for a change. \(runner.agent.title) runs in the project folder, so what it edits is your working tree.")
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
                     .padding(.top, 8)
