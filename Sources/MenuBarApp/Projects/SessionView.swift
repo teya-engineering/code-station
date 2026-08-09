@@ -873,8 +873,7 @@ struct SessionView: View {
     }
 
     // The branch the working tree is on, which for a session without a worktree is the
-    // branch the agent is committing to. Uncommitted work is named alongside it: on a
-    // shared branch that is the difference between a safe turn and a mess.
+    // branch the agent is committing to.
     private func branchTag(_ repository: GitSnapshot) -> some View {
         Button { tab = .changes } label: {
             HStack(spacing: 5) {
@@ -884,11 +883,6 @@ struct SessionView: View {
                     .font(.mono(11, .medium))
                     .lineLimit(1)
                     .truncationMode(.middle)
-                if !repository.files.isEmpty {
-                    Text("\(repository.files.count) changed")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                }
             }
             .contentShape(Rectangle())
         }
