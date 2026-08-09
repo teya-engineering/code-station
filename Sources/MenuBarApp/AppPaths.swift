@@ -133,7 +133,10 @@ enum Preferences {
     }
 
     static func oldSessionDays(in store: UserDefaults) -> Int {
-        OldSessions.resolvedDays(store.integer(forKey: "oldSessionDays"))
+        guard store.object(forKey: "oldSessionDays") != nil else {
+            return OldSessions.defaultDays
+        }
+        return OldSessions.resolvedDays(store.integer(forKey: "oldSessionDays"))
     }
 
     static var skillsRefreshInterval: SkillsRefreshInterval {
