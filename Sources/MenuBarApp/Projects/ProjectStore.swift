@@ -238,7 +238,8 @@ final class ProjectStore {
         }
 
         let previousProjectID = selectedProjectID
-        let project = Project(name: trimmed, path: directory.standardizedFileURL.path)
+        let project = Project(name: trimmed, path: directory.standardizedFileURL.path,
+                              kind: .adHoc)
         projects.append(project)
         projects.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         selectedProjectID = project.id

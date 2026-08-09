@@ -3,24 +3,55 @@ import Foundation
 // A project is just a folder on disk. A session runs Claude Code either directly in
 // this directory or in a worktree of its own - see ChatSession.worktreePath.
 struct Project: Identifiable, Codable, Equatable {
+    enum Kind: String, Codable {
+        case project
+        case adHoc
+    }
+
     var id: UUID
     var name: String
     var path: String
+    var kind: Kind
 
     var url: URL { URL(fileURLWithPath: path) }
 
     // Shown in the sidebar under the project name.
     var collapsedPath: String { path.abbreviatedPath }
 
-    init(id: UUID = UUID(), name: String, path: String) {
+    init(id: UUID = UUID(), name: String, path: String, kind: Kind = .project) {
         self.id = id
         self.name = name
         self.path = path
+        self.kind = kind
     }
 
     // Folder name is a good enough default title.
     init(url: URL) {
         self.init(name: url.lastPathComponent, path: url.path)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, path, kind
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        path = try container.decode(String.self, forKey: .path)
+        kind = try container.decodeIfPresent(Kind.self, forKey: .kind)
+            ?? Self.legacyKind(for: path)
+    }
+
+    // Ad-hoc tasks created before the kind was stored can be identified by the private
+    // directory the app has always used for them. User-selected folders keep their normal
+    // project kind even when older index files do not contain this field.
+    private static func legacyKind(for path: String) -> Kind {
+        let parent = URL(fileURLWithPath: path).standardizedFileURL.deletingLastPathComponent()
+        let taskRoot = AppPaths.support
+            .appendingPathComponent("ad-hoc-tasks", isDirectory: true)
+            .standardizedFileURL
+        return parent == taskRoot ? .adHoc : .project
     }
 }
 
