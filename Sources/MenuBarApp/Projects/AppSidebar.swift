@@ -41,6 +41,7 @@ struct AppSidebar: View {
     @State private var showingAllSessions: Set<UUID> = []
     @State private var filterText = ""
     @State private var oldSessionSummary = OldSessionSummary()
+    @State private var hoveringHome = false
 
     private static let sessionCap = 3
     private static let oldSessionRefreshInterval: Duration = .seconds(3_600)
@@ -89,19 +90,32 @@ struct AppSidebar: View {
         let notices = sessionNotices
         return VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 8) {
-                if let logo = AppArt.logo {
-                    Image(nsImage: logo)
-                        .resizable()
-                        .interpolation(.high)
-                        .frame(width: 40, height: 40)
-                        // The art carries its own margin, so it is pulled back to sit on
-                        // the same left edge as the text below it.
-                        .padding(.leading, -6)
+                Button(action: store.selectHome) {
+                    HStack(spacing: 8) {
+                        if let logo = AppArt.logo {
+                            Image(nsImage: logo)
+                                .resizable()
+                                .interpolation(.high)
+                                .frame(width: 40, height: 40)
+                        }
+                        Text("Teya Conductor")
+                            .font(.serif(18, .semibold))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                    }
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 5)
+                    .background(RoundedRectangle(cornerRadius: 9)
+                        .fill(store.selection == .home || hoveringHome
+                              ? Theme.card : Color.clear))
+                    .overlay(RoundedRectangle(cornerRadius: 9)
+                        .stroke(store.selection == .home ? Theme.border : Color.clear))
+                    .contentShape(RoundedRectangle(cornerRadius: 9))
                 }
-                Text("Teya Conductor")
-                    .font(.serif(18, .semibold))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+                .buttonStyle(.plain)
+                .padding(.leading, -7)
+                .onHover { hoveringHome = $0 }
+                .appTooltip("Home")
                 Spacer(minLength: 8)
                 if !notices.isEmpty {
                     let active = notices.filter { $0.notice != .finished }.count
@@ -497,7 +511,7 @@ struct AppSidebar: View {
     private func isExpanded(_ project: Project) -> Bool {
         let selectedProjectID: UUID? = switch store.selection {
         case .session(let id): store.sidebarSession(id)?.projectID
-        case .workspace: nil
+        case .home, .workspace: nil
         case nil: store.selectedProjectID
         }
         return expansion[project.id] ?? (project.id == selectedProjectID)

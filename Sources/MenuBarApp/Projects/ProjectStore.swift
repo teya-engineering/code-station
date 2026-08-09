@@ -141,9 +141,16 @@ final class ProjectStore {
     var selectedProject: Project? {
         switch selection {
         case .session(let id): return session(id).flatMap { project($0.projectID) }
-        case .workspace: return nil
+        case .home, .workspace: return nil
         case nil: return selectedProjectID.flatMap(project)
         }
+    }
+
+    // Home sits above project navigation. The last project stays remembered so leaving
+    // Home takes the user back to the same working context instead of changing their place.
+    func selectHome() {
+        selection = .home
+        saveIndex()
     }
 
     // Choosing a project is different from opening a conversation. Keeping the two

@@ -112,6 +112,9 @@ struct RootView: View {
 
     @ViewBuilder private var detail: some View {
         switch store.selection {
+        case .home:
+            HomeView()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .session(let id):
             SessionView(sessionID: id)
                 .id(id)
@@ -126,7 +129,7 @@ struct RootView: View {
                     .id(project.id)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                WelcomeView()
+                HomeView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
@@ -157,26 +160,5 @@ private struct AttentionBanner: View {
         .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.deletion.opacity(0.45)))
         .shadow(color: Color.black.opacity(0.12), radius: 12, y: 4)
-    }
-}
-
-struct WelcomeView: View {
-    @Environment(ProjectStore.self) private var store
-
-    var body: some View {
-        VStack(spacing: 14) {
-            Image(systemName: "square.split.2x1")
-                .font(.system(size: 40))
-                .foregroundStyle(.tertiary)
-            Text(store.projects.isEmpty ? "Add a project to get started" : "Select a session")
-                .font(.serif(22))
-            if store.projects.isEmpty {
-                Text("A project is a folder on your Mac. Claude Code runs in that folder itself, so its changes land straight in your working tree.")
-                    .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: 380)
-            }
-        }
     }
 }
