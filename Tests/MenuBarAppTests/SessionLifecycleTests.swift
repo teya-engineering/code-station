@@ -167,14 +167,21 @@ struct SessionLifecycleTests {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 
         let executable = directory.appendingPathComponent("stubborn-agent")
+        let processGroupPIDFile = directory.appendingPathComponent("process-group.pid")
         let descendantPIDFile = directory.appendingPathComponent("descendant.pid")
+        // The watchdog bounds the fixture's lifetime when the test runner is killed
+        // before Swift can run its cleanup.
         try Data("""
         #!/bin/sh
         trap '' TERM
-        sleep 30 &
+        printf '%s' "$$" > "$(dirname "$0")/process-group.pid"
+        (
+            sleep 10
+            kill -KILL 0
+        ) &
         descendant=$!
         printf '%s' "$descendant" > "$(dirname "$0")/descendant.pid"
-        while :; do :; done
+        while :; do sleep 3600; done
         """.utf8).write(to: executable)
         try FileManager.default.setAttributes([.posixPermissions: 0o700],
                                               ofItemAtPath: executable.path)
@@ -187,12 +194,14 @@ struct SessionLifecycleTests {
         let runner = SessionRunner(paths: [.claudeCode: executable.path])
         runner.agent = .claudeCode
         runner.send("start", sessionID: session.id, store: store)
+        defer {
+            if let processGroup = readPID(in: processGroupPIDFile) {
+                CommandRunner.signalProcessGroup(processGroup, signal: SIGKILL)
+            }
+        }
 
         #expect(runner.state(session.id).isBusy)
         let descendantPID = try #require(await waitForPID(in: descendantPIDFile))
-        defer {
-            if processExists(descendantPID) { Darwin.kill(descendantPID, SIGKILL) }
-        }
         runner.stop(session.id, store: store)
         #expect(runner.state(session.id) == .stopping)
 
@@ -266,14 +275,16 @@ struct SessionLifecycleTests {
 
     private func waitForPID(in file: URL) async -> pid_t? {
         for _ in 0..<100 {
-            if let data = try? Data(contentsOf: file),
-               let text = String(data: data, encoding: .utf8),
-               let pid = pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines)) {
-                return pid
-            }
+            if let pid = readPID(in: file) { return pid }
             try? await Task.sleep(for: .milliseconds(10))
         }
         return nil
+    }
+
+    private func readPID(in file: URL) -> pid_t? {
+        guard let data = try? Data(contentsOf: file),
+              let text = String(data: data, encoding: .utf8) else { return nil }
+        return pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
     private func processExists(_ pid: pid_t) -> Bool {
