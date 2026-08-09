@@ -644,6 +644,7 @@ struct SessionView: View {
                     }
                     .buttonStyle(.plain)
                     .help(busy ? "Queue this for when the turn ends" : "Send (shift-return for a new line)")
+                    .transition(.opacity)
                 }
 
                 if state == .stopping {
@@ -675,6 +676,7 @@ struct SessionView: View {
                         .background(Circle().fill(Color.black.opacity(0.22)))
                 }
             }
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: canSend)
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 14)
