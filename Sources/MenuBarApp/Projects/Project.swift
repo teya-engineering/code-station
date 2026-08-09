@@ -430,6 +430,7 @@ enum SessionNotice: Int, Equatable {
 
 // What the left sidebar can have selected.
 enum SidebarSelection: Hashable {
+    case home
     case session(UUID)
     case workspace(UUID)
 }

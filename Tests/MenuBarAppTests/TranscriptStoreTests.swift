@@ -77,6 +77,18 @@ struct TranscriptStoreTests {
         #expect(!store.isTranscriptLoaded(session.id))
     }
 
+    @Test func selectingHomeClosesTheOpenSessionWithoutForgettingItsProject() {
+        let store = makeStore()
+        let project = project(in: store)
+        let session = store.newSession(in: project.id)
+
+        store.selectHome()
+
+        #expect(store.selection == .home)
+        #expect(store.selectedProjectID == project.id)
+        #expect(!store.isTranscriptLoaded(session.id))
+    }
+
     // Whatever streamed in last has to reach the disk before the messages are dropped,
     // debounce or no debounce.
     @Test func writesWhatIsPendingBeforeDroppingIt() {
