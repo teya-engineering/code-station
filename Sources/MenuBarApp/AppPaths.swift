@@ -80,6 +80,13 @@ enum Preferences {
         set { set(newValue, "selectedWorkspaceID") }
     }
 
+    // A missing entry keeps the sidebar's normal first-use behavior. Once a project or
+    // workspace has been opened or closed, its own choice survives every later launch.
+    static var sidebarExpansion: [UUID: Bool] {
+        get { sidebarExpansion(in: store) }
+        set { setSidebarExpansion(newValue, in: store) }
+    }
+
     // Which agent runs the sessions. Everything else about an agent lives in its own
     // config; this is only the app's choice between them.
     static var agent: AgentKind {
@@ -153,6 +160,26 @@ enum Preferences {
     static var projectSort: ProjectSort {
         get { store.string(forKey: "projectSort").flatMap(ProjectSort.init(rawValue:)) ?? .name }
         set { store.set(newValue.rawValue, forKey: "projectSort") }
+    }
+
+    static func sidebarExpansion(in store: UserDefaults) -> [UUID: Bool] {
+        let saved = store.dictionary(forKey: "sidebarExpansion") ?? [:]
+        return saved.reduce(into: [:]) { expansion, entry in
+            guard let id = UUID(uuidString: entry.key), let isExpanded = entry.value as? Bool else {
+                return
+            }
+            expansion[id] = isExpanded
+        }
+    }
+
+    static func setSidebarExpansion(_ expansion: [UUID: Bool], in store: UserDefaults) {
+        guard !expansion.isEmpty else {
+            store.removeObject(forKey: "sidebarExpansion")
+            return
+        }
+        store.set(Dictionary(uniqueKeysWithValues: expansion.map {
+            ($0.key.uuidString, $0.value)
+        }), forKey: "sidebarExpansion")
     }
 
     private static func text(_ key: String) -> String? {

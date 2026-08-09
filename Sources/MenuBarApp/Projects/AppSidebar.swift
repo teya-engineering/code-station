@@ -24,9 +24,9 @@ struct AppSidebar: View {
     @Environment(PostmanAuthStore.self) private var postmanAuth
     @Environment(AIService.self) private var ai
 
-    // A project is expanded by default while it is the selected one; anything the user
-    // clicks on the disclosure arrow is remembered here and wins over that default.
-    @State private var expansion: [UUID: Bool] = [:]
+    // A project is expanded by default while it is the selected one. Explicit choices
+    // win over that default and are restored when the app opens again.
+    @State private var expansion = Preferences.sidebarExpansion
     @State private var renamingID: UUID?
     @State private var choosingSessionKind: Project?
     @State private var choosingWorkspaceSession: ProjectWorkspace?
@@ -76,7 +76,7 @@ struct AppSidebar: View {
         }
         .sheet(isPresented: $showingNewWorkspace) {
             NewWorkspaceView { workspace in
-                expansion[workspace.id] = true
+                setExpanded(true, for: workspace.id)
                 choosingWorkspaceSession = workspace
             }
             .appOverlays()
@@ -308,7 +308,7 @@ struct AppSidebar: View {
 
     private func workspaceSection(_ workspace: ProjectWorkspace,
                                   sessions: [ChatSession]) -> some View {
-        let expanded = expansion[workspace.id] ?? true
+        let expanded = isExpanded(workspace)
         let running = sessions.filter { runner.state($0.id).isBusy }.count
         let projects = workspace.projectIDs.compactMap(store.project)
 
@@ -326,7 +326,7 @@ struct AppSidebar: View {
             .contentShape(Rectangle())
             .onTapGesture {
                 store.selectWorkspace(workspace.id)
-                expansion[workspace.id] = !expanded
+                setExpanded(!expanded, for: workspace.id)
                 if expanded { showingAllSessions.remove(workspace.id) }
             }
             .appContextMenu {
@@ -426,7 +426,7 @@ struct AppSidebar: View {
             .contentShape(Rectangle())
             .onTapGesture {
                 store.selectProject(project.id)
-                expansion[project.id] = !expanded
+                setExpanded(!expanded, for: project.id)
                 // Closing a project puts its list away, and putting it away includes the
                 // tail the user had unfolded: the next open starts back at the cap.
                 if expanded { showingAllSessions.remove(project.id) }
@@ -497,6 +497,15 @@ struct AppSidebar: View {
         expansion[project.id] ?? (project.id == store.selectedProject?.id)
     }
 
+    private func isExpanded(_ workspace: ProjectWorkspace) -> Bool {
+        expansion[workspace.id] ?? true
+    }
+
+    private func setExpanded(_ isExpanded: Bool, for id: UUID) {
+        expansion[id] = isExpanded
+        Preferences.sidebarExpansion = expansion
+    }
+
     // The cards a project actually draws: all of them once the user has asked to see
     // more, the newest few otherwise. Newest-first order means what is folded away is
     // the tail that matters least.
@@ -514,7 +523,7 @@ struct AppSidebar: View {
         for project in store.projects where isExpanded(project) {
             key[project.id] = visibleSessions(of: project, in: grouped[project.id] ?? []).count
         }
-        for workspace in store.workspaces where expansion[workspace.id] ?? true {
+        for workspace in store.workspaces where isExpanded(workspace) {
             key[workspace.id] = visibleWorkspaceSessions(
                 workspace, sessions: workspaceGroups[workspace.id] ?? []).count
         }
@@ -554,7 +563,7 @@ struct AppSidebar: View {
     private func startSession(_ choice: NewSessionChoice, in project: Project) {
         // A collapsed project keeps its new session hidden, and starting work in a project
         // is the clearest sign yet that it wants to be open.
-        expansion[project.id] = true
+        setExpanded(true, for: project.id)
         switch choice {
         case .worktree(let sessionID, let base, let agent):
             createWorktreeSession(in: project, id: sessionID, base: base, agent: agent)
@@ -574,7 +583,7 @@ struct AppSidebar: View {
     // repository fails, the ones already created are removed before the error is shown.
     private func startWorkspaceSession(_ choice: WorkspaceSessionChoice,
                                        in workspace: ProjectWorkspace) {
-        expansion[workspace.id] = true
+        setExpanded(true, for: workspace.id)
         Task {
             switch await SessionLifecycle.createWorkspaceSession(
                 choice, in: workspace, store: store) {
@@ -753,7 +762,7 @@ struct AppSidebar: View {
             }
         }
         let workspaceGroups = groupedWorkspaceSessions
-        for workspace in store.workspaces where expansion[workspace.id] ?? true {
+        for workspace in store.workspaces where isExpanded(workspace) {
             for session in visibleWorkspaceSessions(
                 workspace, sessions: workspaceGroups[workspace.id] ?? []) {
                 folders.formUnion(store.workingDirectories(for: session))
@@ -946,7 +955,7 @@ struct AppSidebar: View {
         // A folder that is already a project comes back as nil, and the store has
         // pointed itself at the existing one, so there is nothing to report.
         let added = store.addProject(at: url)
-        if let id = added?.id ?? store.selectedProjectID { expansion[id] = true }
+        if let id = added?.id ?? store.selectedProjectID { setExpanded(true, for: id) }
     }
 
     // Opening a folder on its own would just reveal it in Finder, so name the app.

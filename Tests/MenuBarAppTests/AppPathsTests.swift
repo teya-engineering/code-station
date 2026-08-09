@@ -64,4 +64,22 @@ struct AppPathsTests {
         #expect(AppPaths.support.path.hasSuffix(AppPaths.bundleID))
         #expect(AppPaths.support.path.contains("Application Support"))
     }
+
+    @Test func restoresEachSidebarItemExpansionState() throws {
+        let suite = "conductor-sidebar-tests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let collapsedProject = UUID()
+        let expandedWorkspace = UUID()
+
+        Preferences.setSidebarExpansion([
+            collapsedProject: false,
+            expandedWorkspace: true
+        ], in: defaults)
+
+        #expect(Preferences.sidebarExpansion(in: defaults) == [
+            collapsedProject: false,
+            expandedWorkspace: true
+        ])
+    }
 }
