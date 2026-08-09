@@ -273,12 +273,13 @@ struct AgentSettingsView: View {
     }
 
     private var codexPermissions: some View {
-        ChoiceBlock("PERMISSIONS") {
+        ChoiceBlock("PERMISSIONS", note: "Used by every Codex session unless that session has its own choice. Changes apply from its next turn.") {
             VStack(spacing: 4) {
                 ForEach(CodexSandboxMode.allCases, id: \.rawValue) { mode in
                     OptionRow(title: mode.title,
                               detail: mode.detail,
-                              selected: CodexSandboxMode.resolved(defaults.codexSandboxMode) == mode) {
+                              selected: CodexSandboxMode.resolved(defaults.codexSandboxMode) == mode,
+                              warning: mode == .fullAccess) {
                         change { $0.codexSandboxMode = mode.rawValue }
                     }
                 }
@@ -360,6 +361,7 @@ struct AgentSettingsView: View {
                     }
                 }
             }
+            codexPermissions
             accountUsage(windows: codex.usage?.windows ?? [],
                          checkedAt: codex.usage?.checkedAt,
                          isLoading: codex.isRefreshingUsage,
@@ -370,7 +372,6 @@ struct AgentSettingsView: View {
             Divider().overlay(Theme.hairline)
             model(for: .codex)
             effort(for: .codex)
-            codexPermissions
             Divider().overlay(Theme.hairline)
             configRow(title: "Codex config",
                       note: "The CLI's own configuration, at ~/.codex/config.toml. It belongs to Codex, so the app only points at it.",

@@ -53,16 +53,30 @@ struct OptionRow: View {
     let title: String
     let detail: String?
     let selected: Bool
+    var warning = false
     let choose: () -> Void
+
+    private var selectionColour: Color { warning ? Theme.deletion : Theme.accent }
+
+    private var selectedBackground: Color {
+        warning ? Theme.deletion.opacity(0.07) : Theme.field
+    }
 
     var body: some View {
         Button(action: choose) {
             HStack(spacing: 10) {
                 Image(systemName: selected ? "largecircle.fill.circle" : "circle")
                     .font(.system(size: 13))
-                    .foregroundStyle(selected ? Theme.accent : Color.secondary)
+                    .foregroundStyle(selected ? selectionColour : Color.secondary)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(title).font(.system(size: 13, weight: .medium))
+                    HStack(spacing: 6) {
+                        Text(title).font(.system(size: 13, weight: .medium))
+                        if warning {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.system(size: 10, weight: .semibold))
+                        }
+                    }
+                    .foregroundStyle(warning ? Theme.deletion : Color.primary)
                     if let detail {
                         Text(detail)
                             .font(.system(size: 12))
@@ -75,9 +89,10 @@ struct OptionRow: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 9)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 9).fill(selected ? Theme.field : Theme.card))
+            .background(RoundedRectangle(cornerRadius: 9)
+                .fill(selected ? selectedBackground : Theme.card))
             .overlay(RoundedRectangle(cornerRadius: 9)
-                .stroke(selected ? Theme.accent.opacity(0.35) : Theme.border))
+                .stroke(selected ? selectionColour.opacity(0.35) : Theme.border))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

@@ -61,8 +61,8 @@ struct SessionSettings: Codable, Equatable {
 }
 
 // Codex `exec` has no way to send a permission question back through the JSONL stream,
-// so the app offers the two execution modes it can apply consistently to new and resumed
-// turns. Full access is needed for local services such as a GPG agent.
+// so the app offers the access modes it can apply consistently to new and resumed turns.
+// Full access is needed for local services such as a GPG agent.
 enum CodexSandboxMode: String, CaseIterable {
     case workspaceWrite = "workspace-write"
     case approveForMe = "approve-for-me"
@@ -71,19 +71,26 @@ enum CodexSandboxMode: String, CaseIterable {
     var title: String {
         switch self {
         case .workspaceWrite: "Sandboxed"
-        case .approveForMe: "Approve for me"
+        case .approveForMe: "Sandboxed + auto-approve"
         case .fullAccess: "Full access"
+        }
+    }
+
+    var summary: String {
+        switch self {
+        case .approveForMe: "Sandboxed + auto"
+        default: title
         }
     }
 
     var detail: String {
         switch self {
         case .workspaceWrite:
-            "Can change this session's files. It cannot access local services such as your GPG agent."
+            "Can edit this session's files. Internet, GPG, and other services outside the workspace stay blocked."
         case .approveForMe:
-            "Keeps the sandbox and lets Codex automatically review permission requests."
+            "Keeps the sandbox. Codex can automatically approve a retry outside it when needed."
         case .fullAccess:
-            "Can access any file, local service, and the internet. Use only with projects you trust."
+            "Runs without file, local service, or network restrictions. Use only with projects you trust."
         }
     }
 
