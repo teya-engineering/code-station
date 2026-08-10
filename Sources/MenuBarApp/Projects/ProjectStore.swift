@@ -508,15 +508,12 @@ final class ProjectStore {
         }
     }
 
-    // What the next turn in this session runs with. The model becomes part of the
-    // conversation identity after its first prompt, while the other run controls can
-    // still change between turns.
+    // What the next turn in this session runs with. The agent stays fixed on the session,
+    // while the model and other run controls can change between turns.
     func setSettings(_ settings: SessionSettings, for sessionID: UUID) {
         guard let i = index(sessionID) else { return }
-        var updated = settings
-        if sessions[i].hasStarted { updated.model = sessions[i].settings?.model }
-        guard sessions[i].settings != updated else { return }
-        sessions[i].settings = updated
+        guard sessions[i].settings != settings else { return }
+        sessions[i].settings = settings
         saveIndex()
     }
 

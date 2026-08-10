@@ -354,8 +354,8 @@ struct ChatSession: Identifiable, Codable, Equatable {
     // When something last happened here, used for the sidebar's relative times.
     var lastActivity: Date { summary.lastMessageAt ?? createdAt }
 
-    // The first prompt pins the model. A resume id also proves an older session already
-    // started even if its transcript summary came from a version that did not save dates.
+    // A resume id proves an older session already started even if its transcript summary
+    // came from a version that did not save dates.
     var hasStarted: Bool {
         summary.lastMessageAt != nil || claudeSessionID != nil || codexSessionID != nil
     }

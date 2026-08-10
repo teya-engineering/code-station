@@ -265,8 +265,8 @@ final class SessionRunner {
                                       addDirectories: [String] = [], writableRoots: [String] = [],
                                       resume: String? = nil,
                                       mcpConfigPath: String? = nil) -> [String] {
-        // The model is copied into the session when it is created. Falling back to the
-        // current app default here would let an existing conversation silently change.
+        // The model belongs to the session and can be changed explicitly between turns.
+        // Falling back to the current app default would change it without the user asking.
         let model = ModelChoice.valid(settings.model, for: agent)
         let effort = EffortChoice.valid(settings.effort ?? defaults.effort, for: agent)
         let codexSandbox = CodexSandboxMode.resolved(settings.codexSandboxMode

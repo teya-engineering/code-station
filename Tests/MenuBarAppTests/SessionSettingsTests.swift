@@ -34,9 +34,9 @@ struct SessionSettingsTests {
         #expect(pair(arguments, after: "--resume") == "abc-123")
     }
 
-    // The model belongs to the session, while controls that do not define the
-    // conversation can still follow app defaults between turns.
-    @Test func keepsTheModelPinnedWhileOtherChoicesUseAppDefaults() {
+    // The model belongs to the session, while other controls can still follow app
+    // defaults between turns.
+    @Test func doesNotInheritTheAppDefaultModel() {
         let defaults = SessionSettings(model: "sonnet", effort: "low", permissionMode: "auto")
         let arguments = SessionRunner.arguments(settings: SessionSettings(), defaults: defaults)
         #expect(!arguments.contains("--model"))

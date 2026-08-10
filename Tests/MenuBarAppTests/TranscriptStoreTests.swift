@@ -43,7 +43,7 @@ struct TranscriptStoreTests {
         #expect(loaded.settings?.model == "gpt-5.6-terra")
     }
 
-    @Test func aStartedSessionKeepsItsModelWhileOtherRunControlsCanChange() throws {
+    @Test func aStartedSessionCanChangeItsModelWithoutChangingAgent() throws {
         let store = makeStore()
         let session = store.newSession(in: project(in: store).id,
                                        agent: .codex,
@@ -57,7 +57,8 @@ struct TranscriptStoreTests {
 
         let started = try #require(store.session(session.id))
         #expect(started.hasStarted)
-        #expect(started.settings?.model == "gpt-5.6-sol")
+        #expect(started.agent == .codex)
+        #expect(started.settings?.model == "gpt-5.6-terra")
         #expect(started.settings?.effort == "high")
     }
 

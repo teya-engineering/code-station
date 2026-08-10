@@ -38,9 +38,10 @@ enum AgentKind: String, CaseIterable, Codable, Sendable, Identifiable {
 // What a session runs the agent with, on top of the prompt itself. These are the same
 // choices the CLIs offer behind their model, effort and permission settings.
 //
-// The same type holds both layers. A session model is copied from the app default at
-// creation, and nil pins the CLI's own default. Nil for the other session controls keeps
-// following the app default. In the app defaults, nil leaves the flag off entirely.
+// The same type holds both layers. A session model starts as a copy of the app default
+// and can be changed between turns; nil uses the CLI's own default. Nil for the other
+// session controls keeps following the app default. In the app defaults, nil leaves the
+// flag off entirely.
 struct SessionSettings: Codable, Equatable {
     var model: String?
     var effort: String?

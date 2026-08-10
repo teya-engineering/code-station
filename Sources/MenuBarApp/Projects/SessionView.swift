@@ -763,7 +763,7 @@ struct SessionView: View {
     }
 
     // What the next turn will use, on the line the eye is already on when hitting send:
-    // the branch it edits, its pinned agent and model, the remaining run controls, and
+    // the branch it edits, its fixed agent, the model and remaining run controls, and
     // how full the window is.
     @ViewBuilder private func contextReadout(_ session: ChatSession) -> some View {
         let repository = stats?.state == .ready ? stats : nil
@@ -842,19 +842,15 @@ struct SessionView: View {
         let label = model.map { ModelChoice.title(of: $0) }
             ?? lastRan.map { ModelChoice.shortName(of: $0) }
             ?? "Default model"
-        if session.hasStarted {
-            pinnedSetting(label, help: "The model was pinned when this session started.", accent: true)
-        } else {
-            settingMenu(label,
-                        overridden: model != nil,
-                        help: "The model this session will use. It is pinned after the first prompt.",
-                        defaultTitle: "Use \(agent.title) default",
-                        options: ModelChoice.options(for: agent).compactMap { choice in
-                            choice.id.map { (id: $0, title: choice.title) }
-                        },
-                        selection: Binding(get: { model },
-                                           set: { id in changeSettings { $0.model = id } }))
-        }
+        settingMenu(label,
+                    overridden: model != nil,
+                    help: "The model this session will use for its next turn.",
+                    defaultTitle: "Use \(agent.title) default",
+                    options: ModelChoice.options(for: agent).compactMap { choice in
+                        choice.id.map { (id: $0, title: choice.title) }
+                    },
+                    selection: Binding(get: { model },
+                                       set: { id in changeSettings { $0.model = id } }))
     }
 
     private func effortMenu(agent: AgentKind) -> some View {
