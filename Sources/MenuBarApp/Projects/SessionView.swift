@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 // Long conversations stay fully available to the runner and persistence layer, but the
@@ -30,11 +31,84 @@ struct TranscriptWindow: Equatable {
     }
 }
 
-private struct TranscriptBottomOffsetKey: PreferenceKey {
-    static let defaultValue = CGFloat.greatestFiniteMagnitude
+// Content growth and a person scrolling up both move the transcript's bottom marker.
+// AppKit's live-scroll notifications separate those cases, so streaming can keep its
+// place without taking the scroll position back from someone reading an earlier line.
+private struct TranscriptScrollObserver: NSViewRepresentable {
+    let onPositionChange: (Bool) -> Void
 
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
+    func makeNSView(context: Context) -> TranscriptScrollObserverView {
+        let view = TranscriptScrollObserverView()
+        view.onPositionChange = onPositionChange
+        return view
+    }
+
+    func updateNSView(_ view: TranscriptScrollObserverView, context: Context) {
+        view.onPositionChange = onPositionChange
+        view.observeEnclosingScrollView()
+    }
+
+    static func dismantleNSView(_ view: TranscriptScrollObserverView, coordinator: ()) {
+        view.stopObserving()
+    }
+}
+
+@MainActor
+private final class TranscriptScrollObserverView: NSView {
+    var onPositionChange: ((Bool) -> Void)?
+    private weak var observedScrollView: NSScrollView?
+
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        observeEnclosingScrollView()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        observeEnclosingScrollView()
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    func observeEnclosingScrollView() {
+        guard observedScrollView !== enclosingScrollView else { return }
+        stopObserving()
+        guard let enclosingScrollView else { return }
+        observedScrollView = enclosingScrollView
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(didLiveScroll),
+            name: NSScrollView.didLiveScrollNotification,
+            object: enclosingScrollView)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(didLiveScroll),
+            name: NSScrollView.didEndLiveScrollNotification,
+            object: enclosingScrollView)
+    }
+
+    func stopObserving() {
+        guard let observedScrollView else { return }
+        NotificationCenter.default.removeObserver(
+            self, name: NSScrollView.didLiveScrollNotification, object: observedScrollView)
+        NotificationCenter.default.removeObserver(
+            self, name: NSScrollView.didEndLiveScrollNotification, object: observedScrollView)
+        self.observedScrollView = nil
+    }
+
+    @objc private func didLiveScroll() {
+        guard let scrollView = observedScrollView,
+              let documentView = scrollView.documentView else { return }
+        let visible = scrollView.documentVisibleRect
+        let document = scrollView.contentView.documentRect
+        guard document.height > visible.height + 1 else {
+            onPositionChange?(true)
+            return
+        }
+        let distance = documentView.isFlipped
+            ? document.maxY - visible.maxY
+            : visible.minY - document.minY
+        onPositionChange?(distance <= 1)
     }
 }
 
@@ -58,7 +132,6 @@ struct SessionView: View {
     @State private var selectedProjectID: UUID?
     @State private var transcriptWindow = TranscriptWindow()
     @State private var transcriptPinnedToBottom = true
-    @State private var transcriptViewportHeight: CGFloat = 0
 
     // Working tree totals for the header; refreshed as tools finish so the numbers
     // track the run rather than only its end.
@@ -67,7 +140,6 @@ struct SessionView: View {
     @State private var statsTask: Task<Void, Never>?
 
     private let bottomAnchor = "transcript-bottom"
-    private var transcriptCoordinateSpace: String { "transcript-scroll-\(sessionID)" }
     private var terminalScope: TerminalScope { .session(sessionID) }
 
     var body: some View {
@@ -381,6 +453,11 @@ struct SessionView: View {
                     // better use of the room than paragraphs do.
                     .frame(maxWidth: 960, alignment: .leading)
                     .frame(maxWidth: .infinity)
+                    .background {
+                        TranscriptScrollObserver { isAtBottom in
+                            transcriptPinnedToBottom = isAtBottom
+                        }
+                    }
                     // The soft landing for anything new: a fresh row fades in and the
                     // rows above it glide up rather than jumping. Keyed on the shape of
                     // the transcript, not its text, so it plays once per whole arrival
@@ -388,7 +465,6 @@ struct SessionView: View {
                     .animation(reduceMotion ? nil : .easeOut(duration: 0.2),
                                value: transcriptShape(session, state: state, textShape: textShape))
             }
-            .coordinateSpace(name: transcriptCoordinateSpace)
             // Opening a transcript starts at the end, where the conversation is.
             .defaultScrollAnchor(.bottom)
             // The pane changes height under a transcript that is already there: the
@@ -396,19 +472,11 @@ struct SessionView: View {
             // The end of the content moves with it, and the scroll view is left holding
             // the offset that used to reach it, so it has to be sent there again.
             .background(GeometryReader { geometry in
-                Color.clear.onChange(of: geometry.size.height, initial: true) { _, height in
-                    transcriptViewportHeight = height
+                Color.clear.onChange(of: geometry.size.height, initial: true) {
                     guard transcriptPinnedToBottom else { return }
                     Task { proxy.scrollTo(bottomAnchor, anchor: .bottom) }
                 }
             })
-            .onPreferenceChange(TranscriptBottomOffsetKey.self) { bottomOffset in
-                guard transcriptViewportHeight > 0 else { return }
-                let pinned = bottomOffset <= transcriptViewportHeight + 24
-                if pinned != transcriptPinnedToBottom {
-                    transcriptPinnedToBottom = pinned
-                }
-            }
             // Rows measure again after the first layout - an attachment, an image, text
             // that wraps differently once it has its real width - and the end of the
             // transcript moves with them. One nudge once that settles lands on it.
@@ -510,14 +578,7 @@ struct SessionView: View {
                 .transition(.fadeIn)
             }
 
-            Color.clear
-                .frame(height: 1)
-                .background(GeometryReader { geometry in
-                    Color.clear.preference(
-                        key: TranscriptBottomOffsetKey.self,
-                        value: geometry.frame(in: .named(transcriptCoordinateSpace)).maxY)
-                })
-                .id(bottomAnchor)
+            Color.clear.frame(height: 1).id(bottomAnchor)
         }
     }
 
