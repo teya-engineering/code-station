@@ -1048,6 +1048,7 @@ struct SessionView: View {
 // the only thing that separates a long build from a turn that will never come back.
 private struct WorkingRow: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(AppSettings.self) private var appSettings
 
     let runningTool: String?
     let since: Date
@@ -1075,7 +1076,11 @@ private struct WorkingRow: View {
             let quiet = context.date.timeIntervalSince(since)
             let word = waitingOnTasks ? "Waiting" : words.word(after: context.date.timeIntervalSince(started))
             HStack(spacing: 8) {
-                WorkingGlyph(animated: !reduceMotion)
+                if let image = appSettings.agentAvatar {
+                    AgentAvatarView(image: image, size: 20)
+                } else {
+                    WorkingGlyph(animated: !reduceMotion)
+                }
                 Text("\(word)…")
                     .font(.mono(12, .medium))
                     .foregroundStyle(.primary)
