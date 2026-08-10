@@ -158,22 +158,26 @@ private struct AppMenuButton: ViewModifier {
     @State private var anchor = MenuAnchor()
 
     func body(content: Content) -> some View {
-        content
-            .background(MenuAnchorView(anchor: anchor))
-            .contentShape(Rectangle())
-            .onTapGesture {
-                guard let placement = anchor.placement(edge: edge) else { return }
-                let generation = presenter.show(
-                    entries(),
-                    at: placement.origin,
-                    width: matchWidth ? placement.width : nil,
-                    trailingAnchor: placement.trailingEdge)
-                guard let refreshOnOpen else { return }
-                Task { @MainActor in
-                    await refreshOnOpen()
-                    presenter.replaceEntries(entries(), ifGeneration: generation)
-                }
-            }
+        Button(action: open) {
+            content
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(MenuAnchorView(anchor: anchor))
+    }
+
+    private func open() {
+        guard let placement = anchor.placement(edge: edge) else { return }
+        let generation = presenter.show(
+            entries(),
+            at: placement.origin,
+            width: matchWidth ? placement.width : nil,
+            trailingAnchor: placement.trailingEdge)
+        guard let refreshOnOpen else { return }
+        Task { @MainActor in
+            await refreshOnOpen()
+            presenter.replaceEntries(entries(), ifGeneration: generation)
+        }
     }
 }
 
