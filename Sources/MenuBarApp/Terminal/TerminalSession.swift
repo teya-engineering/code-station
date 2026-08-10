@@ -30,6 +30,7 @@ final class TerminalSession: Identifiable {
     @ObservationIgnored private var flushScheduled = false
     @ObservationIgnored private var busyPoll: Task<Void, Never>?
     @ObservationIgnored private var busyMonitoringEnabled = true
+    @ObservationIgnored private let onExit: ((TerminalSession) -> Void)?
 
     private static let shell: String = {
         // The login shell is what the user actually configured; fall back to zsh, the
@@ -38,9 +39,11 @@ final class TerminalSession: Identifiable {
         return FileManager.default.isExecutableFile(atPath: shell) ? shell : "/bin/zsh"
     }()
 
-    init(directory: String, name: String) {
+    init(directory: String, name: String,
+         onExit: ((TerminalSession) -> Void)? = nil) {
         self.directory = directory
         self.name = name
+        self.onExit = onExit
         surface = TerminalSurface(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
         surface.terminalDelegate = self
         surface.onClear = { [weak self] in self?.clear() }
@@ -172,6 +175,7 @@ final class TerminalSession: Identifiable {
         isRunning = false
         isBusy = false
         pty = nil
+        onExit?(self)
     }
 }
 
@@ -267,7 +271,9 @@ final class TerminalStore {
     @discardableResult
     func add(to scope: TerminalScope, directory: String) -> TerminalSession {
         let terminal = TerminalSession(directory: directory,
-                                       name: nextName(in: scope))
+                                       name: nextName(in: scope)) { [weak self] terminal in
+            self?.removeExited(terminal, from: scope)
+        }
         terminal.start()
         terminal.setBusyMonitoring(visibleDrawers.contains(scope))
         terminals[scope, default: []].append(terminal)
@@ -295,6 +301,18 @@ final class TerminalStore {
         terminals[scope]?.removeAll { $0.id == terminal.id }
         if selected[scope] == terminal.id {
             selected[scope] = terminals[scope]?.first?.id
+        }
+    }
+
+    private func removeExited(_ terminal: TerminalSession, from scope: TerminalScope) {
+        guard terminals[scope]?.contains(where: { $0.id == terminal.id }) == true else { return }
+        terminals[scope]?.removeAll { $0.id == terminal.id }
+        if selected[scope] == terminal.id {
+            selected[scope] = terminals[scope]?.first?.id
+        }
+        if terminals[scope]?.isEmpty == true {
+            open.remove(scope)
+            visibleDrawers.remove(scope)
         }
     }
 
