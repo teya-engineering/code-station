@@ -1137,8 +1137,9 @@ private struct WorkingRow: View {
         // the case it exists for.
         TimelineView(.periodic(from: .now, by: 1)) { context in
             let quiet = context.date.timeIntervalSince(since)
-            let word = waitingOnTasks ? "Waiting" : words.word(after: context.date.timeIntervalSince(started))
             let avatar = currentAvatar
+            let personality = avatar?.personality ?? .standard
+            let word = waitingOnTasks ? "Waiting" : words.word(after: context.date.timeIntervalSince(started))
             HStack(spacing: 8) {
                 if let avatar {
                     AgentAvatarView(image: avatar.image, size: 20)
@@ -1176,6 +1177,11 @@ private struct WorkingRow: View {
             .help(quiet >= Self.concerningAfter && !waitingOnTasks
                   ? "Claude Code has sent nothing for a while. The log in Settings says what it last did."
                   : "")
+            .onAppear { words = WorkingWords(personality: personality) }
+            .onChange(of: personality) { _, personality in
+                words = WorkingWords(personality: personality)
+                started = .now
+            }
         }
     }
 

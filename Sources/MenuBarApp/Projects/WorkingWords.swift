@@ -6,15 +6,7 @@ import SwiftUI
 struct WorkingWords {
     // Present participles only. The row reads "<word>…", so every one of these has to
     // sound like something still going on.
-    static let all = [
-        "Thinking", "Mulling", "Pondering", "Noodling", "Puzzling", "Ruminating",
-        "Musing", "Percolating", "Simmering", "Brewing", "Churning", "Cogitating",
-        "Deliberating", "Contemplating", "Untangling", "Distilling", "Marinating",
-        "Concocting", "Tinkering", "Whirring", "Computing", "Synthesising",
-        "Considering", "Reasoning", "Wrangling", "Spelunking", "Divining", "Sifting",
-        "Weighing", "Scheming", "Drafting", "Reckoning", "Sussing", "Chewing",
-        "Digging", "Hatching", "Gathering", "Threading", "Unpicking", "Rummaging"
-    ]
+    static let all = AgentPersonality.standard.workingWords
 
     // How long a word stays up: long enough to read, short enough that a row which has
     // stopped moving reads as stuck rather than slow.
@@ -26,6 +18,10 @@ struct WorkingWords {
     // the same opening word is not seen at the top of every turn.
     init(order: [String] = all.shuffled()) {
         self.order = order.isEmpty ? ["Working"] : order
+    }
+
+    init(personality: AgentPersonality) {
+        self.init(order: personality.workingWords.shuffled())
     }
 
     // Walking a shuffled list rather than picking at random each time: random picks

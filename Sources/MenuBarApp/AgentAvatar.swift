@@ -5,6 +5,7 @@ import SwiftUI
 struct AgentAvatar: Identifiable {
     let url: URL
     let image: NSImage
+    let personality: AgentPersonality
 
     var id: URL { url }
 }
@@ -24,12 +25,19 @@ enum AgentAvatarFile {
     }
 
     static func loadAll(from baseURL: URL) -> [AgentAvatar] {
-        avatarURLs(for: baseURL).compactMap { url in
-            load(from: url).map { AgentAvatar(url: url, image: $0) }
+        let personalities = loadPersonalities(from: baseURL)
+        return avatarURLs(for: baseURL).compactMap { url in
+            load(from: url).map {
+                AgentAvatar(url: url,
+                            image: $0,
+                            personality: personalities[url.lastPathComponent] ?? .standard)
+            }
         }
     }
 
-    static func importImages(from sourceURLs: [URL], to baseURL: URL) throws -> [AgentAvatar] {
+    static func importImages(from sourceURLs: [URL],
+                             to baseURL: URL,
+                             personality: AgentPersonality = .standard) throws -> [AgentAvatar] {
         let prepared = try sourceURLs.map { try prepareImage(from: $0) }
         guard !prepared.isEmpty else { return [] }
 
@@ -39,6 +47,10 @@ enum AgentAvatarFile {
         }.max() ?? 0) + 1
         let destinations = prepared.indices.map {
             avatarURL(index: nextIndex + $0, baseURL: baseURL)
+        }
+        var personalities = loadPersonalities(from: baseURL)
+        for destination in destinations {
+            personalities[destination.lastPathComponent] = personality
         }
 
         try files.createDirectory(
@@ -51,6 +63,7 @@ enum AgentAvatarFile {
                 try item.data.write(to: destination, options: .atomic)
                 written.append(destination)
             }
+            try savePersonalities(personalities, for: baseURL)
         } catch {
             for url in written {
                 try? files.removeItem(at: url)
@@ -59,18 +72,37 @@ enum AgentAvatarFile {
         }
 
         return zip(destinations, prepared).map {
-            AgentAvatar(url: $0.0, image: $0.1.image)
+            AgentAvatar(url: $0.0, image: $0.1.image, personality: personality)
         }
     }
 
-    static func remove(at url: URL) throws {
-        guard FileManager.default.fileExists(atPath: url.path) else { return }
-        try FileManager.default.removeItem(at: url)
+    static func setPersonality(_ personality: AgentPersonality,
+                               for avatarURL: URL,
+                               baseURL: URL) throws {
+        var personalities = loadPersonalities(from: baseURL)
+        personalities[avatarURL.lastPathComponent] = personality
+        try savePersonalities(personalities, for: baseURL)
+    }
+
+    static func remove(at url: URL, from baseURL: URL) throws {
+        let files = FileManager.default
+        if files.fileExists(atPath: url.path) {
+            try files.removeItem(at: url)
+        }
+        var personalities = loadPersonalities(from: baseURL)
+        personalities[url.lastPathComponent] = nil
+        try savePersonalities(personalities, for: baseURL)
     }
 
     static func removeAll(from baseURL: URL) throws {
         for url in avatarURLs(for: baseURL) {
-            try remove(at: url)
+            if FileManager.default.fileExists(atPath: url.path) {
+                try FileManager.default.removeItem(at: url)
+            }
+        }
+        let metadataURL = personalityURL(for: baseURL)
+        if FileManager.default.fileExists(atPath: metadataURL.path) {
+            try FileManager.default.removeItem(at: metadataURL)
         }
     }
 
@@ -132,11 +164,39 @@ enum AgentAvatarFile {
         let filename = "\(baseName)-\(index).\(baseURL.pathExtension)"
         return baseURL.deletingLastPathComponent().appendingPathComponent(filename)
     }
+
+    private static func loadPersonalities(from baseURL: URL) -> [String: AgentPersonality] {
+        guard let data = try? Data(contentsOf: personalityURL(for: baseURL)),
+              let personalities = try? JSONDecoder().decode(
+                  [String: AgentPersonality].self, from: data) else {
+            return [:]
+        }
+        return personalities
+    }
+
+    private static func savePersonalities(_ personalities: [String: AgentPersonality],
+                                          for baseURL: URL) throws {
+        let url = personalityURL(for: baseURL)
+        if personalities.isEmpty {
+            guard FileManager.default.fileExists(atPath: url.path) else { return }
+            try FileManager.default.removeItem(at: url)
+            return
+        }
+        let data = try JSONEncoder().encode(personalities)
+        try data.write(to: url, options: .atomic)
+    }
+
+    private static func personalityURL(for baseURL: URL) -> URL {
+        let baseName = baseURL.deletingPathExtension().lastPathComponent
+        return baseURL.deletingLastPathComponent()
+            .appendingPathComponent("\(baseName)-personalities.json")
+    }
 }
 
 enum AgentAvatarError: LocalizedError {
     case couldNotReadImage
     case couldNotEncodeImage
+    case missingPersonalityImage
 
     var errorDescription: String? {
         switch self {
@@ -144,6 +204,8 @@ enum AgentAvatarError: LocalizedError {
             "The selected file is not an image the app can read."
         case .couldNotEncodeImage:
             "The selected image could not be prepared for use."
+        case .missingPersonalityImage:
+            "The built-in personality image could not be found."
         }
     }
 }

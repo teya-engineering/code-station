@@ -15,6 +15,7 @@ enum MenuEntry {
     static func item(_ label: String,
                      kind: MenuItem.Kind = .plain,
                      icon: String? = nil,
+                     image: NSImage? = nil,
                      checked: Bool = false,
                      showsUpdate: Bool = false,
                      badge: String? = nil,
@@ -23,7 +24,7 @@ enum MenuEntry {
                      detail: String? = nil,
                      detailColour: Color? = nil,
                      action: @escaping () -> Void) -> MenuEntry {
-        .item(MenuItem(label: label, kind: kind, icon: icon, checked: checked,
+        .item(MenuItem(label: label, kind: kind, icon: icon, image: image, checked: checked,
                        showsUpdate: showsUpdate,
                        badge: badge, badgeTint: badgeTint, subtitle: subtitle,
                        detail: detail, detailColour: detailColour, handler: action))
@@ -48,6 +49,7 @@ struct MenuItem {
     // An optional leading symbol for menus whose entries create different kinds of thing.
     // The host reserves the column for every row once one entry uses it.
     var icon: String?
+    var image: NSImage?
     // Marks the row that is currently in force, for menus that pick one of a set.
     var checked = false
     var showsUpdate = false
@@ -276,7 +278,7 @@ struct ContextMenuHost: View {
             return false
         }
         let hasIcons = presenter.entries.contains {
-            if case .item(let item) = $0 { return item.icon != nil }
+            if case .item(let item) = $0 { return item.icon != nil || item.image != nil }
             return false
         }
         return VStack(alignment: .leading, spacing: 0) {
@@ -415,11 +417,19 @@ private struct MenuItemRow: View {
                         .opacity(item.checked ? 1 : 0)
                 }
                 if iconColumn {
-                    Image(systemName: item.icon ?? "square")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Theme.accent)
-                        .frame(width: 18)
-                        .opacity(item.icon == nil ? 0 : 1)
+                    if let image = item.image {
+                        Image(nsImage: image)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: 22, height: 22)
+                            .clipShape(Circle())
+                    } else {
+                        Image(systemName: item.icon ?? "square")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(Theme.accent)
+                            .frame(width: 22, height: 22)
+                            .opacity(item.icon == nil ? 0 : 1)
+                    }
                 }
                 if let badge = item.badge {
                     let tint = item.badgeTint ?? Color.secondary

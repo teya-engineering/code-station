@@ -43,7 +43,9 @@ struct AgentAvatarTests {
         let width = try #require(properties[kCGImagePropertyPixelWidth] as? Int)
         let height = try #require(properties[kCGImagePropertyPixelHeight] as? Int)
         #expect(max(width, height) <= AgentAvatarFile.maxPixelSize)
-        #expect(AppSettings(agentAvatarURL: destination).agentAvatars.count == 1)
+        let restored = AppSettings(agentAvatarURL: destination).agentAvatars
+        #expect(restored.count == 1)
+        #expect(restored.first?.personality == .standard)
     }
 
     @Test @MainActor func rejectsANonImageWithoutRemovingCurrentImages() throws {
@@ -125,6 +127,40 @@ struct AgentAvatarTests {
             "agent-avatar-3.png",
         ])
         #expect(FileManager.default.fileExists(atPath: second.url.path) == false)
+    }
+
+    @Test @MainActor func storesAndChangesThePersonalityWithTheImage() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("source.png")
+        let destination = root.appendingPathComponent("support/agent-avatar.png")
+        try pngData(width: 4, height: 4).write(to: source)
+        let settings = AppSettings(agentAvatarURL: destination)
+
+        try settings.importAgentAvatars(from: [source], personality: .sarcastic)
+
+        let sarcastic = try #require(settings.agentAvatars.first)
+        #expect(sarcastic.personality == .sarcastic)
+        #expect(AppSettings(agentAvatarURL: destination).agentAvatars.first?.personality == .sarcastic)
+
+        try settings.setPersonality(.dramatic, for: sarcastic)
+
+        #expect(settings.agentAvatars.first?.personality == .dramatic)
+        #expect(AppSettings(agentAvatarURL: destination).agentAvatars.first?.personality == .dramatic)
+    }
+
+    @Test @MainActor func addsEveryBuiltInPersonalityImage() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let destination = root.appendingPathComponent("agent-avatar.png")
+        let settings = AppSettings(agentAvatarURL: destination)
+
+        for personality in AgentPersonality.allCases {
+            try settings.addPersonalityAvatar(personality)
+        }
+
+        #expect(settings.agentAvatars.map(\.personality) == AgentPersonality.allCases)
+        #expect(AgentPersonality.allCases.allSatisfy { $0.previewImage != nil })
     }
 
     @Test @MainActor func rejectsAnInvalidBatchWithoutImportingItsValidImages() throws {

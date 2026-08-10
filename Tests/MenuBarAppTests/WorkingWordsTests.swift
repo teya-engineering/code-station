@@ -42,4 +42,25 @@ struct WorkingWordsTests {
     @Test func hasNothingToSayWithoutAnyWords() {
         #expect(WorkingWords(order: []).word(after: 0) == "Working")
     }
+
+    @Test func everyPersonalityCyclesOnlyThroughItsOwnPhrases() {
+        for personality in AgentPersonality.allCases {
+            let words = WorkingWords(personality: personality)
+            let seen = (0..<personality.workingWords.count).map {
+                words.word(after: Double($0) * WorkingWords.interval)
+            }
+
+            #expect(Set(seen) == Set(personality.workingWords))
+        }
+    }
+
+    @Test func personalitiesDoNotShareWorkingPhrases() {
+        let phraseSets = AgentPersonality.allCases.map { Set($0.workingWords) }
+
+        for first in phraseSets.indices {
+            for second in phraseSets.indices where first < second {
+                #expect(phraseSets[first].isDisjoint(with: phraseSets[second]))
+            }
+        }
+    }
 }
