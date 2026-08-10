@@ -170,6 +170,11 @@ enum Preferences {
         set { store.set(newValue.rawValue, forKey: "projectSort") }
     }
 
+    static var appearance: Appearance {
+        get { store.string(forKey: "appearance").flatMap(Appearance.init(rawValue:)) ?? .system }
+        set { store.set(newValue.rawValue, forKey: "appearance") }
+    }
+
     static func sidebarExpansion(in store: UserDefaults) -> [UUID: Bool] {
         let saved = store.dictionary(forKey: "sidebarExpansion") ?? [:]
         return saved.reduce(into: [:]) { expansion, entry in

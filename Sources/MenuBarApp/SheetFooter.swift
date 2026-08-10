@@ -41,7 +41,7 @@ struct SheetFooter<Leading: View>: View {
                             .foregroundStyle(.white)
                             .padding(.horizontal, 18)
                             .padding(.vertical, 7)
-                            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.accent))
+                            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.accentFill))
                             .contentShape(RoundedRectangle(cornerRadius: 8))
                     }
                     .buttonStyle(.plain)

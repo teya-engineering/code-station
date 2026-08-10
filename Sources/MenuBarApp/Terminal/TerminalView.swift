@@ -96,39 +96,67 @@ final class TerminalSurface: SwiftTerm.TerminalView {
         interceptAppKeys()
     }
 
-    // The ANSI palette redrawn in the app's colours, so a terminal does not look
-    // pasted in from somewhere else. The background is light, which is why "white"
-    // is dark: it is the readable text colour, not the paper.
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyTheme()
+    }
+
+    // SwiftTerm resolves its palette into renderer colours, so dynamic NSColors alone
+    // cannot follow an appearance change. Reinstalling the palette redraws existing
+    // scrollback as well as new output.
     private func applyTheme() {
-        nativeBackgroundColor = NSColor(red: 0.965, green: 0.961, blue: 0.945, alpha: 1)
-        nativeForegroundColor = NSColor(red: 0.15, green: 0.15, blue: 0.14, alpha: 1)
-        caretColor = NSColor(red: 0.20, green: 0.34, blue: 0.24, alpha: 1)
-        caretTextColor = NSColor(red: 0.965, green: 0.961, blue: 0.945, alpha: 1)
-        // SwiftTerm paints the selection opaquely, so a translucent colour comes out as
-        // its dark base instead of a tint over the paper. The blend is precomputed here:
-        // this is the accent green at ~22% over the background, as one solid colour.
-        selectedTextBackgroundColor = NSColor(red: 0.80, green: 0.82, blue: 0.79, alpha: 1)
-        // Selected text falls back to pure black otherwise, which reads as a black slab
-        // on the dark fill; keep it the same ink as the rest of the screen.
-        selectedTextForegroundColor = NSColor(red: 0.15, green: 0.15, blue: 0.14, alpha: 1)
-        installColors([
-            Self.ansi(0.20, 0.20, 0.19),  // black
-            Self.ansi(0.75, 0.28, 0.24),  // red, the diff deletion colour
-            Self.ansi(0.24, 0.47, 0.29),  // green, the diff addition colour
-            Self.ansi(0.72, 0.52, 0.20),  // yellow
-            Self.ansi(0.24, 0.38, 0.60),  // blue
-            Self.ansi(0.52, 0.30, 0.55),  // magenta
-            Self.ansi(0.20, 0.48, 0.51),  // cyan
-            Self.ansi(0.36, 0.36, 0.34),  // white
-            Self.ansi(0.55, 0.55, 0.52),  // bright black
-            Self.ansi(0.82, 0.36, 0.30),  // bright red
-            Self.ansi(0.33, 0.56, 0.36),  // bright green
-            Self.ansi(0.78, 0.60, 0.24),  // bright yellow
-            Self.ansi(0.32, 0.47, 0.70),  // bright blue
-            Self.ansi(0.62, 0.40, 0.64),  // bright magenta
-            Self.ansi(0.26, 0.57, 0.60),  // bright cyan
-            Self.ansi(0.15, 0.15, 0.14)   // bright white
-        ])
+        if Theme.isDark(effectiveAppearance) {
+            nativeBackgroundColor = NSColor(srgbRed: 0.082, green: 0.082, blue: 0.075, alpha: 1)
+            nativeForegroundColor = NSColor(srgbRed: 0.88, green: 0.87, blue: 0.84, alpha: 1)
+            caretColor = NSColor(srgbRed: 0.58, green: 0.76, blue: 0.60, alpha: 1)
+            caretTextColor = NSColor(srgbRed: 0.082, green: 0.082, blue: 0.075, alpha: 1)
+            selectedTextBackgroundColor = NSColor(srgbRed: 0.23, green: 0.30, blue: 0.24, alpha: 1)
+            selectedTextForegroundColor = NSColor(srgbRed: 0.94, green: 0.93, blue: 0.90, alpha: 1)
+            installColors([
+                Self.ansi(0.15, 0.15, 0.14),  // black
+                Self.ansi(0.86, 0.40, 0.35),  // red
+                Self.ansi(0.50, 0.72, 0.52),  // green
+                Self.ansi(0.88, 0.68, 0.35),  // yellow
+                Self.ansi(0.52, 0.65, 0.86),  // blue
+                Self.ansi(0.75, 0.55, 0.78),  // magenta
+                Self.ansi(0.43, 0.72, 0.74),  // cyan
+                Self.ansi(0.80, 0.80, 0.77),  // white
+                Self.ansi(0.45, 0.45, 0.42),  // bright black
+                Self.ansi(0.96, 0.63, 0.58),  // bright red
+                Self.ansi(0.60, 0.80, 0.61),  // bright green
+                Self.ansi(0.94, 0.77, 0.45),  // bright yellow
+                Self.ansi(0.62, 0.73, 0.93),  // bright blue
+                Self.ansi(0.84, 0.65, 0.86),  // bright magenta
+                Self.ansi(0.56, 0.80, 0.81),  // bright cyan
+                Self.ansi(0.94, 0.94, 0.91)   // bright white
+            ])
+        } else {
+            nativeBackgroundColor = NSColor(srgbRed: 0.965, green: 0.961, blue: 0.945, alpha: 1)
+            nativeForegroundColor = NSColor(srgbRed: 0.15, green: 0.15, blue: 0.14, alpha: 1)
+            caretColor = NSColor(srgbRed: 0.20, green: 0.34, blue: 0.24, alpha: 1)
+            caretTextColor = NSColor(srgbRed: 0.965, green: 0.961, blue: 0.945, alpha: 1)
+            selectedTextBackgroundColor = NSColor(srgbRed: 0.80, green: 0.82, blue: 0.79, alpha: 1)
+            selectedTextForegroundColor = NSColor(srgbRed: 0.15, green: 0.15, blue: 0.14, alpha: 1)
+            installColors([
+                Self.ansi(0.20, 0.20, 0.19),  // black
+                Self.ansi(0.75, 0.28, 0.24),  // red
+                Self.ansi(0.24, 0.47, 0.29),  // green
+                Self.ansi(0.72, 0.52, 0.20),  // yellow
+                Self.ansi(0.24, 0.38, 0.60),  // blue
+                Self.ansi(0.52, 0.30, 0.55),  // magenta
+                Self.ansi(0.20, 0.48, 0.51),  // cyan
+                Self.ansi(0.36, 0.36, 0.34),  // white
+                Self.ansi(0.55, 0.55, 0.52),  // bright black
+                Self.ansi(0.82, 0.36, 0.30),  // bright red
+                Self.ansi(0.33, 0.56, 0.36),  // bright green
+                Self.ansi(0.78, 0.60, 0.24),  // bright yellow
+                Self.ansi(0.32, 0.47, 0.70),  // bright blue
+                Self.ansi(0.62, 0.40, 0.64),  // bright magenta
+                Self.ansi(0.26, 0.57, 0.60),  // bright cyan
+                Self.ansi(0.15, 0.15, 0.14)   // bright white
+            ])
+        }
+        needsDisplay = true
     }
 
     private static func ansi(_ red: Double, _ green: Double, _ blue: Double) -> SwiftTerm.Color {

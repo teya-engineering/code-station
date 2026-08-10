@@ -324,7 +324,7 @@ private struct SessionChoiceRow: View {
         HStack(alignment: .top, spacing: 12) {
             Button(action: toggle) {
                 RoundedRectangle(cornerRadius: 6)
-                    .fill(ticked ? Theme.accent : Theme.card)
+                    .fill(ticked ? Theme.accentFill : Theme.card)
                     .frame(width: 22, height: 22)
                     .overlay(RoundedRectangle(cornerRadius: 6)
                         .stroke(ticked ? .clear : Theme.border, lineWidth: 1.5))

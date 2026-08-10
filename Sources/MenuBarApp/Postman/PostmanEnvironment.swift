@@ -29,10 +29,18 @@ enum ApiEnvironment: String, Codable, CaseIterable, Identifiable {
         template.replacingOccurrences(of: "{{env}}", with: envValue)
     }
 
-    // The deep accent for buttons, links and the selected segment.
+    // The foreground accent stays visible on adaptive surfaces.
     var accent: Color {
         switch self {
         case .staging: Theme.accent
+        case .production: Theme.deletion
+        }
+    }
+
+    // Filled controls need a deeper colour because their labels are white.
+    var accentFill: Color {
+        switch self {
+        case .staging: Theme.accentFill
         case .production: Theme.deletion
         }
     }

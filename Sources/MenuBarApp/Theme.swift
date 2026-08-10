@@ -2,12 +2,40 @@ import SwiftUI
 
 // Central palette and small style helpers so the whole UI reads as one system.
 enum Theme {
-    static let background = Color(red: 0.965, green: 0.961, blue: 0.945)
-    static let sidebar = Color(red: 0.949, green: 0.945, blue: 0.929)
-    static let card = Color.white
-    static let field = Color(red: 0.972, green: 0.969, blue: 0.957)
+    // Text falls through to SwiftUI's adaptive colours, so a surface that stays light in
+    // dark mode leaves white text on a white card. Values are Lemonade's neutral tokens.
+    static func isDark(_ appearance: NSAppearance) -> Bool {
+        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+    }
 
-    static let accent = Color(red: 0.20, green: 0.34, blue: 0.24)
+    static func adaptiveNSColor(light: NSColor,
+                                dark: NSColor) -> NSColor {
+        NSColor(name: nil) { isDark($0) ? dark : light }
+    }
+
+    static func adaptive(light: NSColor,
+                         dark: NSColor) -> Color {
+        Color(nsColor: adaptiveNSColor(light: light, dark: dark))
+    }
+
+    static let backgroundNSColor = adaptiveNSColor(
+        light: NSColor(srgbRed: 0.966, green: 0.961, blue: 0.954, alpha: 1),
+        dark: NSColor(srgbRed: 0.082, green: 0.082, blue: 0.075, alpha: 1))
+    static let background = Color(nsColor: backgroundNSColor)
+    static let sidebar = background
+    static let card = adaptive(
+        light: NSColor(srgbRed: 1, green: 1, blue: 1, alpha: 1),
+        dark: NSColor(srgbRed: 0.125, green: 0.122, blue: 0.114, alpha: 1))
+    static let field = adaptive(
+        light: NSColor(srgbRed: 0.372, green: 0.311, blue: 0.188, alpha: 0.05),
+        dark: NSColor(srgbRed: 1, green: 1, blue: 1, alpha: 0.05))
+
+    // Filled controls stay deep enough for white labels. The adaptive accent is used on
+    // surfaces, where the same deep green would not have enough contrast in dark mode.
+    static let accentFill = Color(red: 0.20, green: 0.34, blue: 0.24)
+    static let accent = adaptive(
+        light: NSColor(srgbRed: 0.20, green: 0.34, blue: 0.24, alpha: 1),
+        dark: NSColor(srgbRed: 0.58, green: 0.76, blue: 0.60, alpha: 1))
     static let dotOn = Color(red: 0.42, green: 0.60, blue: 0.43)
     static let dotOff = Color(red: 0.66, green: 0.66, blue: 0.63)
     static let secret = Color(red: 0.72, green: 0.52, blue: 0.20)
@@ -20,8 +48,12 @@ enum Theme {
     static let addition = Color(red: 0.24, green: 0.47, blue: 0.29)
     static let deletion = Color(red: 0.75, green: 0.28, blue: 0.24)
 
-    static let border = Color.black.opacity(0.08)
-    static let hairline = Color.black.opacity(0.06)
+    static let border = adaptive(
+        light: NSColor(srgbRed: 0.46, green: 0.42, blue: 0.34, alpha: 0.1),
+        dark: NSColor(srgbRed: 1, green: 1, blue: 1, alpha: 0.1))
+    static let hairline = adaptive(
+        light: NSColor(srgbRed: 0.46, green: 0.42, blue: 0.34, alpha: 0.06),
+        dark: NSColor(srgbRed: 1, green: 1, blue: 1, alpha: 0.06))
 
     // The band across the top of a pane or sheet. Every one of them is exactly this tall.
     // Grown from padding instead, each band ends up the height of whatever text it happens
@@ -64,7 +96,9 @@ enum Theme {
 
     // Drawn by AppKit around the focused terminal, so it is an NSColor rather than a
     // SwiftUI one.
-    static let focusRing = NSColor(red: 0.20, green: 0.34, blue: 0.24, alpha: 0.22)
+    static let focusRing = adaptiveNSColor(
+        light: NSColor(srgbRed: 0.20, green: 0.34, blue: 0.24, alpha: 0.22),
+        dark: NSColor(srgbRed: 0.58, green: 0.76, blue: 0.60, alpha: 0.32))
 }
 
 extension View {

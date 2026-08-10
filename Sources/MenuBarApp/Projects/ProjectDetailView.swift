@@ -127,7 +127,7 @@ struct ProjectDetailView: View {
             }
             .font(.system(size: 12, weight: .semibold))
             .foregroundStyle(.white)
-            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.accent))
+            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.accentFill))
             .contentShape(RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
@@ -251,7 +251,7 @@ struct ProjectDetailView: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(Theme.accent))
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Theme.accentFill))
                     .contentShape(RoundedRectangle(cornerRadius: 8))
             }
             .buttonStyle(.plain)

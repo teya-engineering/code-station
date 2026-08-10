@@ -57,7 +57,7 @@ struct ServerDetailView: View {
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 9)
                                 .background(RoundedRectangle(cornerRadius: 9)
-                                    .fill(state.isActive ? Theme.deletion : Theme.accent))
+                                    .fill(state.isActive ? Theme.deletion : Theme.accentFill))
                                 .contentShape(RoundedRectangle(cornerRadius: 9))
                         }
                         .buttonStyle(.plain)
@@ -172,7 +172,7 @@ struct ServerDetailView: View {
                         .padding(.horizontal, 14)
                         .padding(.vertical, 9)
                         .background(RoundedRectangle(cornerRadius: 9)
-                            .fill(registered ? Theme.deletion : Theme.accent))
+                            .fill(registered ? Theme.deletion : Theme.accentFill))
                         .contentShape(RoundedRectangle(cornerRadius: 9))
                 }
                 .buttonStyle(.plain)
@@ -277,7 +277,7 @@ struct ServerDetailView: View {
                         .padding(.horizontal, 14)
                         .padding(.vertical, 9)
                         .background(RoundedRectangle(cornerRadius: 9)
-                            .fill(registered ? Theme.deletion : Theme.accent))
+                            .fill(registered ? Theme.deletion : Theme.accentFill))
                         .contentShape(RoundedRectangle(cornerRadius: 9))
                 }
                 .buttonStyle(.plain)

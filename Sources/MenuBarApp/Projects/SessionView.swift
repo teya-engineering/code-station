@@ -704,7 +704,7 @@ struct SessionView: View {
                             .font(.system(size: 13, weight: .bold))
                             .foregroundStyle(.white)
                             .frame(width: 32, height: 32)
-                            .background(Circle().fill(busy ? Theme.accent : Color.black.opacity(0.88)))
+                            .background(Circle().fill(busy ? Theme.accentFill : Color.black.opacity(0.88)))
                     }
                     .buttonStyle(.plain)
                     .help(busy ? "Queue this for when the turn ends" : "Send (shift-return for a new line)")

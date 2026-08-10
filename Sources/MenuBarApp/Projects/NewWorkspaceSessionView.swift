@@ -217,7 +217,7 @@ struct NewWorkspaceSessionView: View {
                             .accessibilityLabel("Choose coding agent")
                     }
                     .foregroundStyle(.white)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(Theme.accent))
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Theme.accentFill))
                     .clipShape(RoundedRectangle(cornerRadius: 8))
                     .opacity(projectIDs.count >= 2 ? 1 : 0.45)
 

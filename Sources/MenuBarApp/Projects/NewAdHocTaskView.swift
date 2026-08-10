@@ -69,7 +69,7 @@ struct NewAdHocTaskView: View {
                         .foregroundStyle(.white)
                         .padding(.horizontal, 20)
                         .frame(height: 32)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.accent))
+                        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.accentFill))
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)

@@ -54,7 +54,7 @@ struct WorkspaceDetailView: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 13)
                     .frame(height: 32)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(Theme.accent))
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Theme.accentFill))
                     .contentShape(RoundedRectangle(cornerRadius: 8))
             }
             .buttonStyle(.plain)
@@ -265,7 +265,7 @@ struct WorkspaceDetailView: View {
                 .padding(.horizontal, 10)
                 .frame(height: 28)
                 .background(RoundedRectangle(cornerRadius: 7)
-                    .fill(selected ? Theme.accent : Theme.field))
+                    .fill(selected ? Theme.accentFill : Theme.field))
                 .overlay(RoundedRectangle(cornerRadius: 7)
                     .stroke(selected ? Color.clear : Theme.border))
                 .contentShape(Rectangle())

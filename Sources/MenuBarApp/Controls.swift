@@ -13,7 +13,7 @@ struct HeaderTabToggle<Selection: Hashable>: View {
             }
         }
         .padding(3)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color.black.opacity(0.05)))
+        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.field))
     }
 
     private func segment(_ option: (label: String, value: Selection)) -> some View {
@@ -26,7 +26,7 @@ struct HeaderTabToggle<Selection: Hashable>: View {
                 .padding(.vertical, 5)
                 .background(
                     RoundedRectangle(cornerRadius: 8)
-                        .fill(active ? Color.white : .clear)
+                        .fill(active ? Theme.card : .clear)
                         .shadow(color: .black.opacity(active ? 0.08 : 0), radius: 1, y: 0.5))
                 .contentShape(Rectangle())
         }
@@ -47,7 +47,7 @@ struct AppSwitchStyle: ToggleStyle {
             HStack(spacing: 12) {
                 configuration.label
                 Capsule()
-                    .fill(configuration.isOn ? Theme.accent : Theme.dotOff)
+                    .fill(configuration.isOn ? Theme.accentFill : Theme.dotOff)
                     .frame(width: 34, height: 20)
                     .overlay(alignment: configuration.isOn ? .trailing : .leading) {
                         Circle()
@@ -71,7 +71,7 @@ struct AppCheckboxStyle: ToggleStyle {
         } label: {
             HStack(alignment: .top, spacing: 8) {
                 RoundedRectangle(cornerRadius: 5)
-                    .fill(configuration.isOn ? Theme.accent : Theme.card)
+                    .fill(configuration.isOn ? Theme.accentFill : Theme.card)
                     .frame(width: 16, height: 16)
                     .overlay(RoundedRectangle(cornerRadius: 5)
                         .stroke(configuration.isOn ? .clear : Theme.border, lineWidth: 1.5))

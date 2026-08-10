@@ -460,7 +460,7 @@ struct ExplorerView: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 5)
-                    .background(Capsule().fill(Theme.accent))
+                    .background(Capsule().fill(Theme.accentFill))
                     .contentShape(Capsule())
             }
             .buttonStyle(.plain)

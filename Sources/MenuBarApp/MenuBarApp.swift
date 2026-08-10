@@ -41,6 +41,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
+        appSettings.appearance.apply()
         // Sessions hold a pipe open to a CLI they do not control the lifetime of. Writing
         // to one that has just exited raises SIGPIPE, which would take the app down with
         // it; ignored, the write fails as an error the runner can report instead.
@@ -95,7 +96,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             win.title = "Teya Conductor"
             win.titleVisibility = .hidden
             win.titlebarAppearsTransparent = true
-            win.backgroundColor = .white
+            win.backgroundColor = Theme.backgroundNSColor
             win.isReleasedWhenClosed = false
             win.contentMinSize = NSSize(width: 960, height: 640)
             win.center()

@@ -84,12 +84,8 @@ struct HomeView: View {
 
     private var hero: some View {
         HStack(alignment: .top, spacing: 22) {
-            if let logo = AppArt.logo {
-                Image(nsImage: logo)
-                    .resizable()
-                    .interpolation(.high)
-                    .frame(width: 84, height: 84)
-            }
+            AppMark()
+                .frame(width: 84, height: 84)
 
             VStack(alignment: .leading, spacing: 12) {
                 Text("Run the work. See the whole change.")
@@ -159,7 +155,7 @@ struct HomeView: View {
         .padding(.horizontal, 15)
         .frame(height: 36)
         .background(RoundedRectangle(cornerRadius: 9)
-            .fill(primary ? Theme.accent : Theme.card))
+            .fill(primary ? Theme.accentFill : Theme.card))
         .overlay(RoundedRectangle(cornerRadius: 9)
             .stroke(primary ? Color.clear : Theme.border))
         .contentShape(RoundedRectangle(cornerRadius: 9))

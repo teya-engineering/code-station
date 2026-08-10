@@ -320,10 +320,10 @@ private struct EnvironmentSegment: View {
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(selected ? Color.white : Color.secondary)
                 .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(RoundedRectangle(cornerRadius: 8)
-                .fill(selected ? env.accent : (hovering ? Color.black.opacity(0.04) : .clear)))
-            .contentShape(Rectangle())
+                .padding(.vertical, 6)
+                .background(RoundedRectangle(cornerRadius: 8)
+                    .fill(selected ? env.accentFill : (hovering ? Theme.field : .clear)))
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
@@ -609,7 +609,7 @@ private struct RequestDetail: View {
                     .padding(.horizontal, 20)
                     .padding(.vertical, 9)
                     .background(RoundedRectangle(cornerRadius: 9)
-                        .fill(running ? Theme.deletion : environment.accent))
+                        .fill(running ? Theme.deletion : environment.accentFill))
             }
             .buttonStyle(.plain)
             .disabled(!running && draft.url.isEmpty)
