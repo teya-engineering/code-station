@@ -83,4 +83,35 @@ struct TerminalSessionTests {
         session.clear()
         #expect(session.screenText().trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     }
+
+    @Test func exitingTheOnlyShellClosesTheDrawer() async throws {
+        let store = TerminalStore()
+        let scope = TerminalScope.session(UUID())
+        store.setOpen(true, for: scope, directory: FileManager.default.temporaryDirectory.path)
+
+        let session = try #require(store.selection(for: scope))
+        session.send("exit\r")
+
+        #expect(await waitUntil(seconds: 10) { store.sessions(for: scope).isEmpty })
+        #expect(!store.isOpen(scope))
+    }
+
+    @Test func exitingOneShellKeepsTheOtherShellOpen() async throws {
+        let store = TerminalStore()
+        let scope = TerminalScope.session(UUID())
+        let directory = FileManager.default.temporaryDirectory.path
+        store.setOpen(true, for: scope, directory: directory)
+
+        let first = try #require(store.selection(for: scope))
+        let second = store.add(to: scope, directory: directory)
+        first.send("exit\r")
+
+        #expect(await waitUntil(seconds: 10) {
+            store.sessions(for: scope).map(\.id) == [second.id]
+        })
+        #expect(store.isOpen(scope))
+        #expect(store.selection(for: scope)?.id == second.id)
+
+        store.close(second, in: scope)
+    }
 }
