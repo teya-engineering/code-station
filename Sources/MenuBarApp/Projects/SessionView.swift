@@ -1136,9 +1136,12 @@ private struct WorkingRow: View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             let quiet = context.date.timeIntervalSince(since)
             let word = waitingOnTasks ? "Waiting" : words.word(after: context.date.timeIntervalSince(started))
+            let avatar = currentAvatar(at: context.date)
             HStack(spacing: 8) {
-                if let image = appSettings.agentAvatar {
-                    AgentAvatarView(image: image, size: 20)
+                if let avatar {
+                    AgentAvatarView(image: avatar.image, size: 20)
+                        .id(avatar.id)
+                        .transition(.opacity)
                 } else {
                     WorkingGlyph(animated: !reduceMotion)
                 }
@@ -1167,10 +1170,20 @@ private struct WorkingRow: View {
                 Spacer(minLength: 0)
             }
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: word)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: avatar?.id)
             .help(quiet >= Self.concerningAfter && !waitingOnTasks
                   ? "Claude Code has sent nothing for a while. The log in Settings says what it last did."
                   : "")
         }
+    }
+
+    private func currentAvatar(at date: Date) -> AgentAvatar? {
+        guard let index = AgentAvatarRotation.index(
+            after: date.timeIntervalSince(started),
+            count: appSettings.agentAvatars.count) else {
+            return nil
+        }
+        return appSettings.agentAvatars[index]
     }
 
     private func elapsed(_ seconds: TimeInterval) -> String {

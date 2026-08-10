@@ -51,20 +51,29 @@ final class AppSettings {
         didSet { Preferences.projectSort = projectSort }
     }
 
-    private(set) var agentAvatar: NSImage?
+    private(set) var agentAvatars: [AgentAvatar]
+
+    var agentAvatar: NSImage? { agentAvatars.first?.image }
 
     init(agentAvatarURL: URL = AppPaths.supportFile("agent-avatar.png")) {
         self.agentAvatarURL = agentAvatarURL
-        agentAvatar = AgentAvatarFile.load(from: agentAvatarURL)
+        agentAvatars = AgentAvatarFile.loadAll(from: agentAvatarURL)
     }
 
-    func importAgentAvatar(from url: URL) throws {
-        agentAvatar = try AgentAvatarFile.importImage(from: url, to: agentAvatarURL)
+    func importAgentAvatars(from urls: [URL]) throws {
+        agentAvatars.append(contentsOf: try AgentAvatarFile.importImages(
+            from: urls,
+            to: agentAvatarURL))
     }
 
-    func removeAgentAvatar() throws {
-        try AgentAvatarFile.remove(at: agentAvatarURL)
-        agentAvatar = nil
+    func removeAgentAvatar(_ avatar: AgentAvatar) throws {
+        try AgentAvatarFile.remove(at: avatar.url)
+        agentAvatars.removeAll { $0.id == avatar.id }
+    }
+
+    func removeAgentAvatars() throws {
+        try AgentAvatarFile.removeAll(from: agentAvatarURL)
+        agentAvatars = []
     }
 }
 
@@ -284,57 +293,71 @@ struct SettingsView: View {
     }
 
     private var botImage: some View {
-        ChoiceBlock("BOT IMAGE") {
-            HStack(alignment: .center, spacing: 12) {
-                Group {
-                    if let image = settings.agentAvatar {
-                        AgentAvatarView(image: image, size: 44)
-                    } else {
-                        ZStack {
-                            Circle().fill(Theme.field)
-                            WorkingGlyph(animated: false)
+        ChoiceBlock("BOT IMAGES") {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .center, spacing: 12) {
+                    Group {
+                        if let image = settings.agentAvatar {
+                            AgentAvatarView(image: image, size: 44)
+                        } else {
+                            ZStack {
+                                Circle().fill(Theme.field)
+                                WorkingGlyph(animated: false)
+                            }
+                            .frame(width: 44, height: 44)
+                            .overlay(Circle().stroke(Theme.border))
+                            .accessibilityLabel("Animated working symbol")
                         }
-                        .frame(width: 44, height: 44)
-                        .overlay(Circle().stroke(Theme.border))
-                        .accessibilityLabel("Animated working symbol")
                     }
-                }
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Bot image")
-                        .font(.system(size: 13, weight: .semibold))
-                    Text("Show a face beside the bot's working status instead of the animated symbol.")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Bot images")
+                            .font(.system(size: 13, weight: .semibold))
+                        Text(botImageDescription)
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
 
-                Spacer(minLength: 0)
+                    Spacer(minLength: 0)
 
-                HStack(spacing: 10) {
-                    if settings.agentAvatar != nil {
-                        Button(action: removeBotImage) {
-                            Text("Remove")
+                    HStack(spacing: 10) {
+                        if !settings.agentAvatars.isEmpty {
+                            Button(action: removeBotImages) {
+                                Text("Remove all")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(Theme.accent)
+                                    .padding(.vertical, 8)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                        }
+
+                        Button(action: chooseBotImages) {
+                            Text(settings.agentAvatars.isEmpty ? "Choose images…" : "Add images…")
                                 .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(Theme.accent)
-                                .padding(.vertical, 8)
+                                .padding(.horizontal, 12)
+                                .frame(height: 34)
+                                .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
+                                .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                     }
-
-                    Button(action: chooseBotImage) {
-                        Text(settings.agentAvatar == nil ? "Choose image…" : "Replace…")
-                            .font(.system(size: 12, weight: .semibold))
-                            .padding(.horizontal, 12)
-                            .frame(height: 34)
-                            .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
-                            .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
+                    .fixedSize()
                 }
-                .fixedSize()
+
+                if !settings.agentAvatars.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 10) {
+                            ForEach(settings.agentAvatars) { avatar in
+                                botImageThumbnail(avatar)
+                            }
+                        }
+                        .padding(.top, 4)
+                        .padding(.trailing, 4)
+                    }
+                }
             }
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -343,26 +366,59 @@ struct SettingsView: View {
         }
     }
 
-    private func chooseBotImage() {
+    private var botImageDescription: String {
+        let count = settings.agentAvatars.count
+        guard count > 0 else {
+            return "Show images beside the bot's working status instead of the animated symbol."
+        }
+        return "\(count) image\(count == 1 ? "" : "s") selected. Multiple images cycle every three seconds."
+    }
+
+    private func botImageThumbnail(_ avatar: AgentAvatar) -> some View {
+        AgentAvatarView(image: avatar.image, size: 40)
+            .overlay(alignment: .topTrailing) {
+                Button { removeBotImage(avatar) } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 16, height: 16)
+                        .background(Circle().fill(Theme.deletion))
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .offset(x: 4, y: -4)
+                .accessibilityLabel("Remove bot image")
+            }
+    }
+
+    private func chooseBotImages() {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
-        panel.allowsMultipleSelection = false
+        panel.allowsMultipleSelection = true
         panel.allowedContentTypes = [.image]
-        panel.prompt = "Choose Image"
-        panel.message = "Pick the image to show while the bot is working."
-        guard panel.runModal() == .OK, let url = panel.url else { return }
+        panel.prompt = "Add Images"
+        panel.message = "Pick one or more images to cycle through while the bot is working."
+        guard panel.runModal() == .OK else { return }
 
         do {
-            try settings.importAgentAvatar(from: url)
+            try settings.importAgentAvatars(from: panel.urls)
         } catch {
             showBotImageFailure(error)
         }
     }
 
-    private func removeBotImage() {
+    private func removeBotImage(_ avatar: AgentAvatar) {
         do {
-            try settings.removeAgentAvatar()
+            try settings.removeAgentAvatar(avatar)
+        } catch {
+            showBotImageFailure(error)
+        }
+    }
+
+    private func removeBotImages() {
+        do {
+            try settings.removeAgentAvatars()
         } catch {
             showBotImageFailure(error)
         }
@@ -370,7 +426,7 @@ struct SettingsView: View {
 
     private func showBotImageFailure(_ error: Error) {
         dialogs.show(Dialog(
-            title: "Could not update the bot image",
+            title: "Could not update the bot images",
             message: error.localizedDescription,
             actions: [.init(label: "OK", kind: .cancel)]))
     }
