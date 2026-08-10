@@ -16,20 +16,10 @@ Teya Conductor is a macOS app for running Codex and Claude Code across local pro
 - Choose Codex or Claude Code for each session, along with its model, reasoning effort, and access settings.
 - Resume saved conversations after relaunching the app and review old sessions before removing them.
 
-### Everything needed around the conversation
-
-- Read streamed replies and follow tool activity while the agent works.
-- Answer questions and permission requests without switching to a terminal.
-- Attach files by dropping or pasting them into the composer.
-- Browse, preview, search, and edit files in the session checkout.
-- Review Git changes and diffs, switch branches, commit, pull, and push from the app.
-- Open a full terminal in the session directory, with multiple tabs that keep running while the drawer is closed.
-- See token use, context use, changed-line totals, background activity, and pull requests associated with a session.
-
 ### Built-in tools
 
 - Configure MCP servers and register them with Codex, Claude Code, or both.
-- Install and update agent skills from the Example Engineering marketplace.
+- Install and update agent skills from the Teya Engineering marketplace.
 - Save and send HTTP requests with environment variables, path and query parameters, headers, request bodies, and OAuth secrets and tokens stored in the macOS Keychain.
 - Inspect running Docker containers and stop them when needed.
 - Save, edit, run, and stop shell-command shortcuts while inspecting their output. A local Qwen model through `llama-server` is included by default.
@@ -43,8 +33,6 @@ Teya Conductor is a macOS app for running Codex and Claude Code across local pro
 - Xcode 16 or another Swift 6 toolchain
 - Git
 - At least one supported coding agent installed and signed in: `codex` or `claude`
-
-Docker, MCP server executables, and `llama-server` are optional. Their tools and shortcuts remain available in the app and show command failures in context when a dependency is not installed.
 
 ### Build the app
 
