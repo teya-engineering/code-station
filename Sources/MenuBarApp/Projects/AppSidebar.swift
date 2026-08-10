@@ -96,12 +96,8 @@ struct AppSidebar: View {
             HStack(spacing: 8) {
                 Button(action: store.selectHome) {
                     HStack(spacing: 8) {
-                        if let logo = AppArt.logo {
-                            Image(nsImage: logo)
-                                .resizable()
-                                .interpolation(.high)
-                                .frame(width: 40, height: 40)
-                        }
+                        AppMark()
+                            .frame(width: 40, height: 40)
                         Text("Teya Conductor")
                             .font(.serif(18, .semibold))
                             .lineLimit(1)
@@ -1175,7 +1171,7 @@ private struct SortChip: View {
                 .padding(.horizontal, 9)
                 .padding(.vertical, 5)
                 .background(RoundedRectangle(cornerRadius: 7)
-                    .fill(selected ? Theme.accent
+                    .fill(selected ? Theme.accentFill
                                    : hovering ? Theme.field : Color.black.opacity(0.04)))
                 .overlay(RoundedRectangle(cornerRadius: 7)
                     .stroke(selected ? Color.clear : Theme.border))

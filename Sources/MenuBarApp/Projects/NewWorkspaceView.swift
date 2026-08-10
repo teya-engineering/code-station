@@ -89,7 +89,7 @@ struct NewWorkspaceView: View {
         return HStack(spacing: 12) {
             Button { toggle(project.id) } label: {
                 RoundedRectangle(cornerRadius: 6)
-                    .fill(isSelected ? Theme.accent : Theme.card)
+                    .fill(isSelected ? Theme.accentFill : Theme.card)
                     .frame(width: 22, height: 22)
                     .overlay(RoundedRectangle(cornerRadius: 6)
                         .stroke(isSelected ? .clear : Theme.border, lineWidth: 1.5))
@@ -181,7 +181,7 @@ struct NewWorkspaceView: View {
                         .foregroundStyle(.white)
                         .padding(.horizontal, 20)
                         .frame(height: 32)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.accent))
+                        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.accentFill))
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)

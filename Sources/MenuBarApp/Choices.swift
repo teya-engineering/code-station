@@ -117,7 +117,7 @@ struct ChoicePill: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
                 .background(RoundedRectangle(cornerRadius: 8)
-                    .fill(selected ? Theme.accent : Theme.card))
+                    .fill(selected ? Theme.accentFill : Theme.card))
                 .overlay(RoundedRectangle(cornerRadius: 8)
                     .stroke(selected ? .clear : Theme.border))
                 .contentShape(Rectangle())

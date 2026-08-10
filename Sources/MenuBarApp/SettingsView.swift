@@ -53,6 +53,13 @@ final class AppSettings {
         didSet { Preferences.projectSort = projectSort }
     }
 
+    var appearance = Preferences.appearance {
+        didSet {
+            Preferences.appearance = appearance
+            appearance.apply()
+        }
+    }
+
     private(set) var agentAvatars: [AgentAvatar]
     private(set) var defaultAgentAvatarName: String
 
@@ -151,6 +158,7 @@ struct SettingsView: View {
                         skillRefresh
                         defaultAgent
                         botImage
+                        appearance
                         startAtLogin
                         log
                     case .agents:
@@ -275,6 +283,30 @@ struct SettingsView: View {
             .background(RoundedRectangle(cornerRadius: 9).fill(Theme.card))
             .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
         }
+    }
+
+    private var appearance: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Appearance")
+                    .font(.system(size: 13, weight: .semibold))
+                Text("Follow the system or pin the app to light or dark.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+            HStack(spacing: 4) {
+                ForEach(Appearance.allCases) { appearance in
+                    ChoicePill(title: appearance.label,
+                               selected: settings.appearance == appearance) {
+                        settings.appearance = appearance
+                    }
+                }
+            }
+            .fixedSize()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var startAtLogin: some View {

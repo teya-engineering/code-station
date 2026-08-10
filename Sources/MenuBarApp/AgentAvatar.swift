@@ -282,7 +282,7 @@ struct SessionBotPicker: View {
                     .font(.system(size: size * 0.22, weight: .bold))
                     .foregroundStyle(.white)
                     .frame(width: size * 0.4, height: size * 0.4)
-                    .background(Circle().fill(Theme.accent))
+                    .background(Circle().fill(Theme.accentFill))
                     .overlay(Circle().stroke(Theme.card, lineWidth: size * 0.05))
             }
             .contentShape(Circle())

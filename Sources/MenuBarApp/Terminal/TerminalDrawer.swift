@@ -122,7 +122,7 @@ struct TerminalDrawer: View {
             .padding(.vertical, 4)
             .background(
                 RoundedRectangle(cornerRadius: 7)
-                    .fill(selected ? Color.white : .clear)
+                    .fill(selected ? Theme.card : .clear)
                     .shadow(color: .black.opacity(selected ? 0.07 : 0), radius: 1, y: 0.5))
             .overlay(RoundedRectangle(cornerRadius: 7).stroke(selected ? Theme.border : .clear))
             .contentShape(Rectangle())
@@ -176,7 +176,7 @@ struct TerminalToggle: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 7)
             .background(RoundedRectangle(cornerRadius: 10)
-                .fill(isOpen ? Theme.accent : Color.white))
+                .fill(isOpen ? Theme.accentFill : Theme.card))
             .overlay(RoundedRectangle(cornerRadius: 10)
                 .stroke(isOpen ? .clear : Theme.border))
             .contentShape(Rectangle())

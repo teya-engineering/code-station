@@ -157,7 +157,7 @@ struct EnvironmentsView: View {
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
                     .background(RoundedRectangle(cornerRadius: 9)
-                        .fill(env == shown ? env.accent : Theme.field))
+                        .fill(env == shown ? env.accentFill : Theme.field))
                     .overlay(RoundedRectangle(cornerRadius: 9)
                         .stroke(env == shown ? .clear : Theme.border))
                     .contentShape(Rectangle())
@@ -290,7 +290,7 @@ struct EnvironmentTokenControls: View {
                         .foregroundStyle(.white)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 7)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(env.accent))
+                        .background(RoundedRectangle(cornerRadius: 8).fill(env.accentFill))
                 }
                 .buttonStyle(.plain)
             }
@@ -332,7 +332,7 @@ struct EnvironmentTokenControls: View {
                         .foregroundStyle(.white)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 7)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(env.accent))
+                        .background(RoundedRectangle(cornerRadius: 8).fill(env.accentFill))
                 }
                 .buttonStyle(.plain)
                 .disabled(pasted.isEmpty || auth.busy.contains(env))
