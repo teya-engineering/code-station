@@ -9,12 +9,10 @@ struct AgentAvatar: Identifiable {
     var id: URL { url }
 }
 
-enum AgentAvatarRotation {
-    static let interval: TimeInterval = 3
-
-    static func index(after elapsed: TimeInterval, count: Int) -> Int? {
+enum AgentAvatarSelection {
+    static func index(forTurn turn: Int, count: Int) -> Int? {
         guard count > 0 else { return nil }
-        return Int(max(0, elapsed) / interval) % count
+        return max(0, turn) % count
     }
 }
 

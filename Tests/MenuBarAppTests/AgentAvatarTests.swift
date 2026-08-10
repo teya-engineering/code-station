@@ -30,12 +30,12 @@ struct AgentAvatarTests {
         try pngData().write(to: source)
 
         let settings = AppSettings(agentAvatarURL: destination)
-        #expect(settings.agentAvatar == nil)
+        #expect(settings.agentAvatars.isEmpty)
 
         try settings.importAgentAvatars(from: [source])
         try FileManager.default.removeItem(at: source)
 
-        #expect(settings.agentAvatar != nil)
+        #expect(settings.agentAvatars.count == 1)
         #expect(FileManager.default.fileExists(atPath: destination.path))
         let imageSource = try #require(CGImageSourceCreateWithURL(destination as CFURL, nil))
         let properties = try #require(CGImageSourceCopyPropertiesAtIndex(
@@ -43,7 +43,7 @@ struct AgentAvatarTests {
         let width = try #require(properties[kCGImagePropertyPixelWidth] as? Int)
         let height = try #require(properties[kCGImagePropertyPixelHeight] as? Int)
         #expect(max(width, height) <= AgentAvatarFile.maxPixelSize)
-        #expect(AppSettings(agentAvatarURL: destination).agentAvatar != nil)
+        #expect(AppSettings(agentAvatarURL: destination).agentAvatars.count == 1)
     }
 
     @Test @MainActor func rejectsANonImageWithoutRemovingCurrentImages() throws {
@@ -62,7 +62,7 @@ struct AgentAvatarTests {
             try settings.importAgentAvatars(from: [invalid])
         }
         #expect(try Data(contentsOf: destination) == original)
-        #expect(settings.agentAvatar != nil)
+        #expect(settings.agentAvatars.count == 1)
     }
 
     @Test @MainActor func removesTheStoredImageAndReturnsToTheFallback() throws {
@@ -76,7 +76,7 @@ struct AgentAvatarTests {
 
         try settings.removeAgentAvatars()
 
-        #expect(settings.agentAvatar == nil)
+        #expect(settings.agentAvatars.isEmpty)
         #expect(FileManager.default.fileExists(atPath: destination.path) == false)
     }
 
@@ -145,12 +145,12 @@ struct AgentAvatarTests {
         #expect(FileManager.default.fileExists(atPath: destination.path) == false)
     }
 
-    @Test func cyclesThroughEveryImageAtTheConfiguredInterval() {
-        #expect(AgentAvatarRotation.index(after: 0, count: 3) == 0)
-        #expect(AgentAvatarRotation.index(after: 2.99, count: 3) == 0)
-        #expect(AgentAvatarRotation.index(after: 3, count: 3) == 1)
-        #expect(AgentAvatarRotation.index(after: 6, count: 3) == 2)
-        #expect(AgentAvatarRotation.index(after: 9, count: 3) == 0)
-        #expect(AgentAvatarRotation.index(after: 3, count: 0) == nil)
+    @Test func usesOneImagePerTurnAndCyclesAcrossTurns() {
+        #expect(AgentAvatarSelection.index(forTurn: 0, count: 3) == 0)
+        #expect(AgentAvatarSelection.index(forTurn: 1, count: 3) == 1)
+        #expect(AgentAvatarSelection.index(forTurn: 2, count: 3) == 2)
+        #expect(AgentAvatarSelection.index(forTurn: 3, count: 3) == 0)
+        #expect(AgentAvatarSelection.index(forTurn: -1, count: 3) == 0)
+        #expect(AgentAvatarSelection.index(forTurn: 3, count: 0) == nil)
     }
 }

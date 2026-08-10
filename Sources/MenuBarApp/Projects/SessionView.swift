@@ -558,6 +558,7 @@ struct SessionView: View {
             if showsThinking(state: state) {
                 WorkingRow(runningTool: runningTool(session, root: projectPath),
                            since: runner.lastActivity(sessionID) ?? Date(),
+                           avatarSequence: runner.avatarSequence(sessionID) ?? 0,
                            waitingOnTasks: state == .waiting)
                     .transition(.fadeIn)
             }
@@ -1113,6 +1114,7 @@ private struct WorkingRow: View {
 
     let runningTool: String?
     let since: Date
+    let avatarSequence: Int
     // The agent has answered and is being held open for a background task it started.
     // Silence is the expected thing here, not a worry.
     var waitingOnTasks = false
@@ -1136,7 +1138,7 @@ private struct WorkingRow: View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             let quiet = context.date.timeIntervalSince(since)
             let word = waitingOnTasks ? "Waiting" : words.word(after: context.date.timeIntervalSince(started))
-            let avatar = currentAvatar(at: context.date)
+            let avatar = currentAvatar
             HStack(spacing: 8) {
                 if let avatar {
                     AgentAvatarView(image: avatar.image, size: 20)
@@ -1177,10 +1179,9 @@ private struct WorkingRow: View {
         }
     }
 
-    private func currentAvatar(at date: Date) -> AgentAvatar? {
-        guard let index = AgentAvatarRotation.index(
-            after: date.timeIntervalSince(started),
-            count: appSettings.agentAvatars.count) else {
+    private var currentAvatar: AgentAvatar? {
+        guard let index = AgentAvatarSelection.index(
+            forTurn: avatarSequence, count: appSettings.agentAvatars.count) else {
             return nil
         }
         return appSettings.agentAvatars[index]

@@ -39,6 +39,7 @@ final class SessionRunner {
     private var states: [UUID: SessionState] = [:]
     private var runningTools: [UUID: [ToolUse]] = [:]
     private var turns: [UUID: Turn] = [:]
+    private var avatarSequences: [UUID: Int] = [:]
     // Everything the agent is waiting on, oldest first. Parallel tool calls can park more
     // than one at a time, and each is answered on its own.
     private var asked: [UUID: [PermissionRequest]] = [:]
@@ -84,6 +85,8 @@ final class SessionRunner {
     func state(_ sessionID: UUID) -> SessionState { states[sessionID] ?? .idle }
 
     func runningTool(_ sessionID: UUID) -> ToolUse? { runningTools[sessionID]?.last }
+
+    func avatarSequence(_ sessionID: UUID) -> Int? { turns[sessionID]?.avatarSequence }
 
     private func setState(_ state: SessionState, for sessionID: UUID) {
         guard states[sessionID] != state else { return }
@@ -242,8 +245,16 @@ final class SessionRunner {
         for message in next.transcriptMessages {
             store.append(message, to: sessionID)
         }
+        let avatarSequence = nextAvatarSequence(for: sessionID)
         launch(Self.prompt(next.prompt, with: next.attachments), attachments: next.attachments,
-               sessionID: sessionID, store: store, canRetryWithoutResume: true)
+               sessionID: sessionID, store: store, avatarSequence: avatarSequence,
+               canRetryWithoutResume: true)
+    }
+
+    private func nextAvatarSequence(for sessionID: UUID) -> Int {
+        let next = (avatarSequences[sessionID] ?? -1) + 1
+        avatarSequences[sessionID] = next
+        return next
     }
 
     // Everything the CLI is run with for one turn. The session's own choices win, the app
@@ -414,6 +425,7 @@ final class SessionRunner {
         asked[sessionID] = nil
         queues[sessionID] = nil
         drafts[sessionID] = nil
+        avatarSequences[sessionID] = nil
     }
 
     private func requestStop(_ sessionID: UUID, failure: String? = nil) {
@@ -439,7 +451,8 @@ final class SessionRunner {
     // MARK: - Running one turn
 
     private func launch(_ prompt: String, attachments: [Attachment], sessionID: UUID,
-                        store: ProjectStore, canRetryWithoutResume: Bool) {
+                        store: ProjectStore, avatarSequence: Int,
+                        canRetryWithoutResume: Bool) {
         // Read the session again rather than passing it in: a retry runs after the stored
         // claudeSessionID has been cleared, and must not try to resume anything.
         guard let session = store.session(sessionID) else { return }
@@ -466,7 +479,8 @@ final class SessionRunner {
         }) else {
             launch(prompt, attachments: attachments, sessionID: sessionID, store: store,
                    session: session, agent: agent, agentPath: agentPath,
-                   workingDirectories: workingDirectories, canRetryWithoutResume: canRetryWithoutResume)
+                   workingDirectories: workingDirectories, avatarSequence: avatarSequence,
+                   canRetryWithoutResume: canRetryWithoutResume)
             return
         }
         setState(.failed("\(missing) no longer exists."), for: sessionID)
@@ -475,6 +489,7 @@ final class SessionRunner {
     private func launch(_ prompt: String, attachments: [Attachment], sessionID: UUID,
                         store: ProjectStore, session: ChatSession,
                         agent: AgentKind, agentPath: String, workingDirectories: [String],
+                        avatarSequence: Int,
                         canRetryWithoutResume: Bool) {
         guard let workingDirectory = workingDirectories.first else { return }
 
@@ -562,6 +577,7 @@ final class SessionRunner {
         let turn = Turn(processGroup: processGroup, agent: agent, messageID: reply.id,
                         input: input, output: out, errorOutput: errors,
                         prompt: promptForAgent, attachments: attachments, resumed: resume != nil,
+                        avatarSequence: avatarSequence,
                         canRetryWithoutResume: canRetryWithoutResume, mcpConfigURL: mcpConfigURL)
         let token = turn.token
         let runner = self
@@ -947,6 +963,7 @@ final class SessionRunner {
         let reply = ChatMessage(role: .assistant)
         store.append(reply, to: sessionID)
         turn.messageID = reply.id
+        turn.avatarSequence = nextAvatarSequence(for: sessionID)
         turn.needsFreshReply = false
         turn.waitingOnTasks = false
         setState(.streaming, for: sessionID)
@@ -1068,7 +1085,8 @@ final class SessionRunner {
                             text: "The earlier conversation could not be resumed, so this reply starts a fresh one without the previous context."),
                 to: sessionID)
             launch(turn.prompt, attachments: turn.attachments, sessionID: sessionID,
-                   store: store, canRetryWithoutResume: false)
+                   store: store, avatarSequence: turn.avatarSequence,
+                   canRetryWithoutResume: false)
             return
         }
 
@@ -1103,6 +1121,7 @@ final class SessionRunner {
         private var inputOpen = true
         let prompt: String
         let attachments: [Attachment]
+        var avatarSequence: Int
         let resumed: Bool
         let canRetryWithoutResume: Bool
         let mcpConfigURL: URL?
@@ -1150,8 +1169,8 @@ final class SessionRunner {
 
         init(processGroup: pid_t, agent: AgentKind, messageID: UUID, input: Pipe,
              output: Pipe, errorOutput: Pipe, prompt: String,
-             attachments: [Attachment], resumed: Bool, canRetryWithoutResume: Bool,
-             mcpConfigURL: URL?) {
+             attachments: [Attachment], resumed: Bool, avatarSequence: Int,
+             canRetryWithoutResume: Bool, mcpConfigURL: URL?) {
             self.processGroup = processGroup
             self.agent = agent
             self.messageID = messageID
@@ -1160,6 +1179,7 @@ final class SessionRunner {
             self.errorOutput = errorOutput
             self.prompt = prompt
             self.attachments = attachments
+            self.avatarSequence = avatarSequence
             self.resumed = resumed
             self.canRetryWithoutResume = canRetryWithoutResume
             self.mcpConfigURL = mcpConfigURL

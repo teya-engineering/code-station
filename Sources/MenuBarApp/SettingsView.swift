@@ -53,8 +53,6 @@ final class AppSettings {
 
     private(set) var agentAvatars: [AgentAvatar]
 
-    var agentAvatar: NSImage? { agentAvatars.first?.image }
-
     init(agentAvatarURL: URL = AppPaths.supportFile("agent-avatar.png")) {
         self.agentAvatarURL = agentAvatarURL
         agentAvatars = AgentAvatarFile.loadAll(from: agentAvatarURL)
@@ -296,20 +294,6 @@ struct SettingsView: View {
         ChoiceBlock("BOT IMAGES") {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .center, spacing: 12) {
-                    Group {
-                        if let image = settings.agentAvatar {
-                            AgentAvatarView(image: image, size: 44)
-                        } else {
-                            ZStack {
-                                Circle().fill(Theme.field)
-                                WorkingGlyph(animated: false)
-                            }
-                            .frame(width: 44, height: 44)
-                            .overlay(Circle().stroke(Theme.border))
-                            .accessibilityLabel("Animated working symbol")
-                        }
-                    }
-
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Bot images")
                             .font(.system(size: 13, weight: .semibold))
@@ -371,7 +355,7 @@ struct SettingsView: View {
         guard count > 0 else {
             return "Show images beside the bot's working status instead of the animated symbol."
         }
-        return "\(count) image\(count == 1 ? "" : "s") selected. Multiple images cycle every three seconds."
+        return "\(count) image\(count == 1 ? "" : "s") selected. One image is used for each turn."
     }
 
     private func botImageThumbnail(_ avatar: AgentAvatar) -> some View {
@@ -398,7 +382,7 @@ struct SettingsView: View {
         panel.allowsMultipleSelection = true
         panel.allowedContentTypes = [.image]
         panel.prompt = "Add Images"
-        panel.message = "Pick one or more images to cycle through while the bot is working."
+        panel.message = "Pick one or more images to use across the bot's turns."
         guard panel.runModal() == .OK else { return }
 
         do {
