@@ -391,7 +391,8 @@ final class ProjectStore {
 
     @discardableResult
     func newSession(in workspaceID: UUID, id: UUID = UUID(),
-                    projects: [SessionProject], isTroubleshooting: Bool = false) -> ChatSession? {
+                    projects: [SessionProject], agentAvatarName: String? = nil,
+                    isTroubleshooting: Bool = false) -> ChatSession? {
         guard let workspace = workspace(workspaceID),
               projects.count >= 2,
               Set(projects.map(\.projectID)).count == projects.count,
@@ -403,6 +404,7 @@ final class ProjectStore {
         session.sessionProjects = projects
         session.worktreePath = projects.first?.worktreePath
         session.worktreeBranch = projects.first?.worktreeBranch
+        session.agentAvatarName = agentAvatarName
         session.isTroubleshooting = isTroubleshooting
         session.transcriptLoaded = true
         sessions.append(session)
@@ -434,11 +436,13 @@ final class ProjectStore {
     }
 
     func insertSession(in workspaceID: UUID, id: UUID = UUID(),
-                       projects: [SessionProject], isTroubleshooting: Bool = false)
+                       projects: [SessionProject], agentAvatarName: String? = nil,
+                       isTroubleshooting: Bool = false)
         -> Result<ChatSession, PersistenceFailure> {
         let previousSelection = selection
         let previousProjectID = selectedProjectID
         guard let session = newSession(in: workspaceID, id: id, projects: projects,
+                                       agentAvatarName: agentAvatarName,
                                        isTroubleshooting: isTroubleshooting) else {
             return .failure(PersistenceFailure(
                 message: "The workspace no longer has a valid lead project."))

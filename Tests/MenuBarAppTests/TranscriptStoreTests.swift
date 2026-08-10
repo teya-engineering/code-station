@@ -253,9 +253,11 @@ struct TranscriptStoreTests {
             projects: [
                 SessionProject(projectID: api.id, worktreePath: "/work/api", worktreeBranch: "conductor/1"),
                 SessionProject(projectID: web.id, worktreePath: nil, worktreeBranch: nil),
-            ]))
+            ],
+            agentAvatarName: AgentAvatarSelection.nonBotName))
 
         #expect(session.projectID == api.id)
+        #expect(session.agentAvatarName == AgentAvatarSelection.nonBotName)
         #expect(store.workingDirectories(for: session) == ["/work/api", web.path])
         #expect(store.gitMetadataDirectories(for: session) == [api.path + "/.git"])
         #expect(store.standaloneSessions(for: api.id).isEmpty)

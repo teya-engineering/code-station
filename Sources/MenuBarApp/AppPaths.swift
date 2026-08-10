@@ -94,6 +94,16 @@ enum Preferences {
         set { store.set(newValue.rawValue, forKey: "agent") }
     }
 
+    // The bot choice preselected for new sessions. Non-bot is stored as an explicit
+    // name so it stays distinct from sessions created before bot choices existed.
+    static func defaultAgentAvatarName(in store: UserDefaults) -> String? {
+        store.string(forKey: "defaultAgentAvatarName")
+    }
+
+    static func setDefaultAgentAvatarName(_ name: String, in store: UserDefaults) {
+        store.set(name, forKey: "defaultAgentAvatarName")
+    }
+
     // What a session runs with when it has not picked for itself. Defaults belong to the
     // agent that reads them, so one CLI's model and access choices cannot affect another.
     static func sessionDefaults(for agent: AgentKind) -> SessionSettings {

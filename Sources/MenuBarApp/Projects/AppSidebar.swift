@@ -612,7 +612,9 @@ struct AppSidebar: View {
     // worktrees to offer, so the session is just created.
     private func requestNewSession(in project: Project) {
         guard FileManager.default.fileExists(atPath: project.path + "/.git") else {
-            startSession(.folder(agent: runner.agent, agentAvatarName: nil), in: project)
+            startSession(.folder(agent: runner.agent,
+                                 agentAvatarName: appSettings.defaultAgentAvatarName),
+                         in: project)
             return
         }
         choosingSessionKind = project
@@ -1002,7 +1004,9 @@ struct AppSidebar: View {
     private func createAdHocTask(named name: String) {
         switch store.addAdHocTask(named: name) {
         case .success(let project):
-            startSession(.folder(agent: runner.agent, agentAvatarName: nil), in: project)
+            startSession(.folder(agent: runner.agent,
+                                 agentAvatarName: appSettings.defaultAgentAvatarName),
+                         in: project)
         case .failure(let failure):
             dialogs.show(Dialog(
                 title: "Could not create the ad-hoc task",

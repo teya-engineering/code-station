@@ -38,6 +38,8 @@ final class LoginItem {
 @Observable
 final class AppSettings {
     private let agentAvatarURL: URL
+    @ObservationIgnored private let preferences: UserDefaults
+    private var hasExplicitNonBotDefault: Bool
 
     var oldSessionDays = Preferences.oldSessionDays {
         didSet { Preferences.oldSessionDays = oldSessionDays }
@@ -52,17 +54,30 @@ final class AppSettings {
     }
 
     private(set) var agentAvatars: [AgentAvatar]
+    private(set) var defaultAgentAvatarName: String
 
-    init(agentAvatarURL: URL = AppPaths.supportFile("agent-avatar.png")) {
+    init(agentAvatarURL: URL = AppPaths.supportFile("agent-avatar.png"),
+         preferences: UserDefaults = .standard) {
         self.agentAvatarURL = agentAvatarURL
-        agentAvatars = AgentAvatarFile.loadAll(from: agentAvatarURL)
+        self.preferences = preferences
+        let avatars = AgentAvatarFile.loadAll(from: agentAvatarURL)
+        let preferredName = Preferences.defaultAgentAvatarName(in: preferences)
+        agentAvatars = avatars
+        defaultAgentAvatarName = AgentAvatarSelection.defaultName(
+            preferredName: preferredName,
+            availableNames: avatars.map { $0.url.lastPathComponent })
+        hasExplicitNonBotDefault = preferredName == AgentAvatarSelection.nonBotName
     }
 
     func importAgentAvatars(from urls: [URL], personality: AgentPersonality = .standard) throws {
+        let hadAvatars = !agentAvatars.isEmpty
         agentAvatars.append(contentsOf: try AgentAvatarFile.importImages(
             from: urls,
             to: agentAvatarURL,
             personality: personality))
+        if !hadAvatars, !hasExplicitNonBotDefault, let first = agentAvatars.first {
+            setDefaultAgentAvatarName(first.url.lastPathComponent)
+        }
     }
 
     func setPersonality(_ personality: AgentPersonality, for avatar: AgentAvatar) throws {
@@ -73,13 +88,39 @@ final class AppSettings {
     }
 
     func removeAgentAvatar(_ avatar: AgentAvatar) throws {
-        defer { agentAvatars = AgentAvatarFile.loadAll(from: agentAvatarURL) }
+        defer {
+            agentAvatars = AgentAvatarFile.loadAll(from: agentAvatarURL)
+            let resolvedDefault = AgentAvatarSelection.defaultName(
+                preferredName: defaultAgentAvatarName,
+                availableNames: agentAvatars.map { $0.url.lastPathComponent })
+            if resolvedDefault != defaultAgentAvatarName {
+                setDefaultAgentAvatarName(resolvedDefault)
+            }
+        }
         try AgentAvatarFile.remove(at: avatar.url, from: agentAvatarURL)
     }
 
     func removeAgentAvatars() throws {
-        defer { agentAvatars = AgentAvatarFile.loadAll(from: agentAvatarURL) }
+        defer {
+            agentAvatars = AgentAvatarFile.loadAll(from: agentAvatarURL)
+            let resolvedDefault = AgentAvatarSelection.defaultName(
+                preferredName: defaultAgentAvatarName,
+                availableNames: agentAvatars.map { $0.url.lastPathComponent })
+            if resolvedDefault != defaultAgentAvatarName {
+                setDefaultAgentAvatarName(resolvedDefault)
+            }
+        }
         try AgentAvatarFile.removeAll(from: agentAvatarURL)
+    }
+
+    func setDefaultAgentAvatarName(_ name: String) {
+        guard name == AgentAvatarSelection.nonBotName
+                || agentAvatars.contains(where: { $0.url.lastPathComponent == name }) else {
+            return
+        }
+        defaultAgentAvatarName = name
+        hasExplicitNonBotDefault = name == AgentAvatarSelection.nonBotName
+        Preferences.setDefaultAgentAvatarName(name, in: preferences)
     }
 }
 
@@ -315,16 +356,7 @@ struct SettingsView: View {
                     Spacer(minLength: 0)
 
                     HStack(spacing: 10) {
-                        if !settings.agentAvatars.isEmpty {
-                            Button(action: removeBotImages) {
-                                Text("Remove all")
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .foregroundStyle(Theme.accent)
-                                    .padding(.vertical, 8)
-                                    .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                        }
+                        defaultBotPicker
 
                         if settings.agentAvatars.count < AgentAvatarFile.maxCount {
                             Button(action: startBotDraft) {
@@ -371,10 +403,62 @@ struct SettingsView: View {
         guard count > 0 else {
             return "Add your own bots and give each one a personality for its working words. Up to \(AgentAvatarFile.maxCount) bots."
         }
-        guard count < AgentAvatarFile.maxCount else {
-            return "\(count) bots configured, the maximum. Pick one when starting each session."
+        let maximum = count == AgentAvatarFile.maxCount ? ", the maximum" : ""
+        return "\(count) bot\(count == 1 ? "" : "s") configured\(maximum). Choose the default for new sessions or override it when creating one."
+    }
+
+    private var defaultBot: AgentAvatar? {
+        settings.agentAvatars.first {
+            $0.url.lastPathComponent == settings.defaultAgentAvatarName
         }
-        return "\(count) bot\(count == 1 ? "" : "s") configured. Pick one when starting each session."
+    }
+
+    private var defaultBotPicker: some View {
+        HStack(spacing: 7) {
+            if let defaultBot {
+                AgentAvatarView(image: defaultBot.image, size: 18)
+            } else {
+                Image(systemName: "person.slash")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 18, height: 18)
+            }
+            Text("Default: \(defaultBot?.personality.title ?? "Non-bot")")
+                .font(.system(size: 12, weight: .semibold))
+            Image(systemName: "chevron.up.chevron.down")
+                .font(.system(size: 8, weight: .semibold))
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 34)
+        .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
+        .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
+        .contentShape(Rectangle())
+        .appMenu(matchWidth: true) { defaultBotMenu }
+        .accessibilityLabel("Default bot: \(defaultBot?.personality.title ?? "Non-bot")")
+    }
+
+    private var defaultBotMenu: [MenuEntry] {
+        var entries: [MenuEntry] = [
+            .item("Non-bot",
+                  icon: "person.slash",
+                  checked: settings.defaultAgentAvatarName == AgentAvatarSelection.nonBotName,
+                  subtitle: "Use the standard working indicator and voice.") {
+                settings.setDefaultAgentAvatarName(AgentAvatarSelection.nonBotName)
+            }
+        ]
+        if !settings.agentAvatars.isEmpty {
+            entries.append(.separator)
+        }
+        entries.append(contentsOf: settings.agentAvatars.map { avatar in
+            .item(avatar.personality.title,
+                  image: avatar.image,
+                  checked: settings.defaultAgentAvatarName == avatar.url.lastPathComponent,
+                  subtitle: avatar.personality.detail) {
+                settings.setDefaultAgentAvatarName(avatar.url.lastPathComponent)
+            }
+        })
+        return entries
     }
 
     private func botImageThumbnail(_ avatar: AgentAvatar) -> some View {
@@ -493,14 +577,6 @@ struct SettingsView: View {
     private func removeBotImage(_ avatar: AgentAvatar) {
         do {
             try settings.removeAgentAvatar(avatar)
-        } catch {
-            showBotImageFailure(error)
-        }
-    }
-
-    private func removeBotImages() {
-        do {
-            try settings.removeAgentAvatars()
         } catch {
             showBotImageFailure(error)
         }

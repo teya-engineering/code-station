@@ -9,6 +9,7 @@ struct ProjectDetailView: View {
     @Environment(ProjectStore.self) private var store
     @Environment(SessionRunner.self) private var runner
     @Environment(DialogPresenter.self) private var dialogs
+    @Environment(AppSettings.self) private var appSettings
     @Environment(WorkingTreeWatch.self) private var workingTrees
     @Environment(TerminalStore.self) private var terminals
 
@@ -268,7 +269,9 @@ struct ProjectDetailView: View {
     private func requestNewSession(in project: Project) {
         guard !store.isMissing(project) else { return }
         guard FileManager.default.fileExists(atPath: project.path + "/.git") else {
-            startSession(.folder(agent: runner.agent, agentAvatarName: nil), in: project)
+            startSession(.folder(agent: runner.agent,
+                                 agentAvatarName: appSettings.defaultAgentAvatarName),
+                         in: project)
             return
         }
         choosingSessionKind = project

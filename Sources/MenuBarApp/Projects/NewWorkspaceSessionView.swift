@@ -9,11 +9,13 @@ struct NewWorkspaceSessionView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(ProjectStore.self) private var store
     @Environment(SessionRunner.self) private var runner
+    @Environment(AppSettings.self) private var appSettings
 
     @State private var sessionID = UUID()
     @State private var projectIDs: [UUID]
     @State private var worktrees: Set<UUID>
     @State private var selectedAgent: AgentKind?
+    @State private var selectedAvatarName = AgentAvatarSelection.nonBotName
 
     init(workspace: ProjectWorkspace, onCreate: @escaping (WorkspaceSessionChoice) -> Void) {
         self.workspace = workspace
@@ -74,6 +76,7 @@ struct NewWorkspaceSessionView: View {
         }
         .frame(width: 680)
         .background(Theme.background)
+        .onAppear { selectedAvatarName = appSettings.defaultAgentAvatarName }
     }
 
     private func projectCard(_ project: Project, lead: Bool) -> some View {
@@ -186,6 +189,9 @@ struct NewWorkspaceSessionView: View {
                 .buttonStyle(.plain)
                 .keyboardShortcut(.cancelAction)
 
+                SessionBotPicker(avatars: appSettings.agentAvatars,
+                                 selectedName: $selectedAvatarName)
+
                 VStack(alignment: .trailing, spacing: 3) {
                     HStack(spacing: 0) {
                         Button(action: create) {
@@ -259,7 +265,8 @@ struct NewWorkspaceSessionView: View {
             return WorkspaceProjectChoice(projectID: id, useWorktree: useWorktree)
         }
         onCreate(WorkspaceSessionChoice(sessionID: sessionID, projects: choices,
-                                        agent: selectedAgent ?? runner.agent))
+                                        agent: selectedAgent ?? runner.agent,
+                                        agentAvatarName: selectedAvatarName))
         dismiss()
     }
 
@@ -278,6 +285,7 @@ struct WorkspaceSessionChoice: Equatable {
     var sessionID: UUID
     var projects: [WorkspaceProjectChoice]
     var agent: AgentKind
+    var agentAvatarName: String? = nil
 }
 
 struct WorkspaceProjectChoice: Equatable {

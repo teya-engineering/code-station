@@ -168,6 +168,67 @@ struct AgentAvatarTests {
         #expect(FileManager.default.fileExists(atPath: second.url.path) == false)
     }
 
+    @Test @MainActor func storesTheDefaultAndAllowsNonBot() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let suite = "agent-avatar-default-tests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let sources = try (1...2).map { index in
+            let url = root.appendingPathComponent("source-\(index).png")
+            try pngData(width: index * 10, height: index * 10).write(to: url)
+            return url
+        }
+        let destination = root.appendingPathComponent("agent-avatar.png")
+        let settings = AppSettings(agentAvatarURL: destination, preferences: defaults)
+
+        #expect(settings.defaultAgentAvatarName == AgentAvatarSelection.nonBotName)
+
+        try settings.importAgentAvatars(from: sources)
+        let secondName = try #require(settings.agentAvatars.last?.url.lastPathComponent)
+        #expect(settings.defaultAgentAvatarName == "agent-avatar.png")
+        #expect(AgentAvatarSelection.avatar(
+            named: AgentAvatarSelection.nonBotName,
+            forTurn: 0,
+            from: settings.agentAvatars) == nil)
+        #expect(AgentAvatarSelection.avatar(
+            named: nil,
+            forTurn: 1,
+            from: settings.agentAvatars)?.url.lastPathComponent == secondName)
+
+        settings.setDefaultAgentAvatarName(secondName)
+        #expect(AppSettings(agentAvatarURL: destination, preferences: defaults)
+            .defaultAgentAvatarName == secondName)
+
+        settings.setDefaultAgentAvatarName(AgentAvatarSelection.nonBotName)
+        #expect(AppSettings(agentAvatarURL: destination, preferences: defaults)
+            .defaultAgentAvatarName == AgentAvatarSelection.nonBotName)
+    }
+
+    @Test @MainActor func removingTheDefaultChoosesTheNextBot() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let suite = "agent-avatar-removal-tests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let sources = try (1...2).map { index in
+            let url = root.appendingPathComponent("source-\(index).png")
+            try pngData(width: index * 10, height: index * 10).write(to: url)
+            return url
+        }
+        let destination = root.appendingPathComponent("agent-avatar.png")
+        let settings = AppSettings(agentAvatarURL: destination, preferences: defaults)
+        try settings.importAgentAvatars(from: sources)
+        let first = try #require(settings.agentAvatars.first)
+
+        settings.setDefaultAgentAvatarName(first.url.lastPathComponent)
+        try settings.removeAgentAvatar(first)
+
+        #expect(settings.defaultAgentAvatarName == "agent-avatar-2.png")
+        #expect(AppSettings(agentAvatarURL: destination, preferences: defaults)
+            .defaultAgentAvatarName == "agent-avatar-2.png")
+    }
+
     @Test @MainActor func storesAndChangesThePersonalityWithTheImage() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -215,25 +276,32 @@ struct AgentAvatarTests {
         #expect(AgentAvatarSelection.index(forTurn: 3, count: 0) == nil)
     }
 
-    @Test func randomSelectionStaysWithinTheConfiguredBots() {
-        #expect(AgentAvatarSelection.randomIndex(count: 0) == nil)
-        for _ in 0..<100 {
-            let index = AgentAvatarSelection.randomIndex(count: 3)
-            #expect(index != nil && (0..<3).contains(index!))
-        }
+    @Test func resolvesSavedDefaultsAndKeepsNonBotExplicit() {
+        let names = ["agent-avatar.png", "agent-avatar-2.png"]
+
+        #expect(AgentAvatarSelection.defaultName(
+            preferredName: nil, availableNames: names) == "agent-avatar.png")
+        #expect(AgentAvatarSelection.defaultName(
+            preferredName: "agent-avatar-2.png", availableNames: names) == "agent-avatar-2.png")
+        #expect(AgentAvatarSelection.defaultName(
+            preferredName: "missing.png", availableNames: names) == "agent-avatar.png")
+        #expect(AgentAvatarSelection.defaultName(
+            preferredName: AgentAvatarSelection.nonBotName,
+            availableNames: names) == AgentAvatarSelection.nonBotName)
     }
 
-    @Test @MainActor func storesTheSelectedBotWithTheSession() throws {
+    @Test @MainActor func storesTheNonBotChoiceWithTheSession() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let index = root.appendingPathComponent("projects.json")
         let store = ProjectStore(storeURL: index)
         let project = try #require(store.addProject(at: root.appendingPathComponent("project")))
 
-        _ = store.newSession(in: project.id, agentAvatarName: "agent-avatar-2.png")
+        _ = store.newSession(in: project.id,
+                             agentAvatarName: AgentAvatarSelection.nonBotName)
         #expect(store.save())
 
         let restored = try #require(ProjectStore(storeURL: index).sessions.first)
-        #expect(restored.agentAvatarName == "agent-avatar-2.png")
+        #expect(restored.agentAvatarName == AgentAvatarSelection.nonBotName)
     }
 }

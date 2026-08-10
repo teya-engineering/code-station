@@ -114,7 +114,8 @@ enum SessionLifecycle {
         }
 
         switch store.insertSession(in: workspace.id, id: choice.sessionID,
-                                   projects: checkouts) {
+                                   projects: checkouts,
+                                   agentAvatarName: choice.agentAvatarName) {
         case .success(let session):
             return .success(session)
         case .failure(let failure):

@@ -1188,17 +1188,8 @@ private struct WorkingRow: View {
     }
 
     private var currentAvatar: AgentAvatar? {
-        if let avatarName,
-           let selected = appSettings.agentAvatars.first(where: {
-               $0.url.lastPathComponent == avatarName
-           }) {
-            return selected
-        }
-        guard let index = AgentAvatarSelection.index(
-            forTurn: avatarSequence, count: appSettings.agentAvatars.count) else {
-            return nil
-        }
-        return appSettings.agentAvatars[index]
+        AgentAvatarSelection.avatar(named: avatarName, forTurn: avatarSequence,
+                                    from: appSettings.agentAvatars)
     }
 
     private func elapsed(_ seconds: TimeInterval) -> String {

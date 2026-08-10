@@ -11,14 +11,33 @@ struct AgentAvatar: Identifiable {
 }
 
 enum AgentAvatarSelection {
-    static func randomIndex(count: Int) -> Int? {
-        guard count > 0 else { return nil }
-        return Int.random(in: 0..<count)
-    }
+    static let nonBotName = "non-bot"
 
     static func index(forTurn turn: Int, count: Int) -> Int? {
         guard count > 0 else { return nil }
         return max(0, turn) % count
+    }
+
+    static func defaultName(preferredName: String?, availableNames: [String]) -> String {
+        if preferredName == nonBotName {
+            return nonBotName
+        }
+        if let preferredName, availableNames.contains(preferredName) {
+            return preferredName
+        }
+        return availableNames.first ?? nonBotName
+    }
+
+    static func avatar(named name: String?, forTurn turn: Int,
+                       from avatars: [AgentAvatar]) -> AgentAvatar? {
+        guard name != nonBotName else { return nil }
+        if let name, let selected = avatars.first(where: {
+            $0.url.lastPathComponent == name
+        }) {
+            return selected
+        }
+        guard let index = index(forTurn: turn, count: avatars.count) else { return nil }
+        return avatars[index]
     }
 }
 
@@ -234,5 +253,71 @@ struct AgentAvatarView: View {
             .clipShape(Circle())
             .overlay(Circle().stroke(Theme.border))
             .accessibilityLabel("Bot")
+    }
+}
+
+struct SessionBotPicker: View {
+    let avatars: [AgentAvatar]
+    @Binding var selectedName: String
+
+    private var selectedAvatar: AgentAvatar? {
+        avatars.first { $0.url.lastPathComponent == selectedName }
+    }
+
+    private var title: String {
+        selectedAvatar?.personality.title ?? "Non-bot"
+    }
+
+    var body: some View {
+        selectedImage
+            .overlay(alignment: .bottomTrailing) {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 6.5, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 12, height: 12)
+                    .background(Circle().fill(Theme.accent))
+                    .overlay(Circle().stroke(Theme.card, lineWidth: 1.5))
+            }
+            .contentShape(Circle())
+            .appMenu(edge: .top) { menu }
+            .appTooltip("Choose bot: \(title)")
+            .accessibilityLabel("Choose bot, \(title) selected")
+    }
+
+    @ViewBuilder
+    private var selectedImage: some View {
+        if let selectedAvatar {
+            AgentAvatarView(image: selectedAvatar.image, size: 30)
+        } else {
+            Image(systemName: "person.slash")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 30, height: 30)
+                .background(Circle().fill(Theme.field))
+                .overlay(Circle().stroke(Theme.border))
+        }
+    }
+
+    private var menu: [MenuEntry] {
+        var entries: [MenuEntry] = [
+            .item("Non-bot",
+                  icon: "person.slash",
+                  checked: selectedName == AgentAvatarSelection.nonBotName,
+                  subtitle: "Use the standard working indicator and voice.") {
+                selectedName = AgentAvatarSelection.nonBotName
+            }
+        ]
+        if !avatars.isEmpty {
+            entries.append(.separator)
+        }
+        entries.append(contentsOf: avatars.map { avatar in
+            .item(avatar.personality.title,
+                  image: avatar.image,
+                  checked: selectedName == avatar.url.lastPathComponent,
+                  subtitle: avatar.personality.detail) {
+                selectedName = avatar.url.lastPathComponent
+            }
+        })
+        return entries
     }
 }

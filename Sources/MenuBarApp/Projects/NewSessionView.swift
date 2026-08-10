@@ -36,9 +36,10 @@ struct NewSessionView: View {
     // Leaving this unset is deliberate: the app-wide choice remains the default until
     // this one launch says otherwise, so cancelling the sheet cannot change it.
     @State private var selectedAgent: AgentKind?
-    // A new sheet makes a fresh random pick. The filename is saved with the session so
-    // the photo and its personality stay in force for every turn in that session.
-    @State private var selectedAvatarName: String?
+    // The filename is saved with the session so the photo and its personality stay in
+    // force for every turn. Non-bot has its own stored name so old sessions that had no
+    // selection can keep their original cycling behavior.
+    @State private var selectedAvatarName = AgentAvatarSelection.nonBotName
 
     private var planned: GitWorktree.Created {
         GitWorktree.plan(projectName: project.name, sessionID: sessionID)
@@ -147,9 +148,8 @@ struct NewSessionView: View {
                 }
                 .buttonStyle(.plain)
                 .keyboardShortcut(.cancelAction)
-                if let avatar = selectedAvatar {
-                    avatarPicker(avatar)
-                }
+                SessionBotPicker(avatars: appSettings.agentAvatars,
+                                 selectedName: $selectedAvatarName)
                 createButton
             }
             .padding(.horizontal, 20)
@@ -197,42 +197,8 @@ struct NewSessionView: View {
         selectedAgent.map { "Will use \($0.title)" } ?? "Uses default: \(runner.agent.title)"
     }
 
-    private var selectedAvatar: AgentAvatar? {
-        appSettings.agentAvatars.first { $0.url.lastPathComponent == selectedAvatarName }
-    }
-
-    private func avatarPicker(_ avatar: AgentAvatar) -> some View {
-        AgentAvatarView(image: avatar.image, size: 30)
-            .overlay(alignment: .bottomTrailing) {
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 6.5, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 12, height: 12)
-                    .background(Circle().fill(Theme.accent))
-                    .overlay(Circle().stroke(Theme.card, lineWidth: 1.5))
-            }
-            .contentShape(Circle())
-            .appMenu(edge: .top) { avatarMenu() }
-            .appTooltip("Choose bot: \(avatar.personality.title)")
-            .accessibilityLabel("Choose bot, \(avatar.personality.title) selected")
-    }
-
-    private func avatarMenu() -> [MenuEntry] {
-        appSettings.agentAvatars.map { avatar in
-            .item(avatar.personality.title,
-                  image: avatar.image,
-                  checked: selectedAvatarName == avatar.url.lastPathComponent,
-                  subtitle: avatar.personality.detail) {
-                selectedAvatarName = avatar.url.lastPathComponent
-            }
-        }
-    }
-
     private func selectInitialAvatar() {
-        guard selectedAvatarName == nil,
-              let index = AgentAvatarSelection.randomIndex(count: appSettings.agentAvatars.count)
-        else { return }
-        selectedAvatarName = appSettings.agentAvatars[index].url.lastPathComponent
+        selectedAvatarName = appSettings.defaultAgentAvatarName
     }
 
     private func agentMenu() -> [MenuEntry] {
