@@ -68,30 +68,10 @@ struct WorkspaceDetailView: View {
     private func content(_ workspace: ProjectWorkspace) -> some View {
         let projects = workspace.projectIDs.compactMap(store.project)
         let sessions = store.sessions(in: workspace.id)
-        let running = sessions.filter { runner.state($0.id).isBusy }.count
-        let worktreeDefaults = projects.filter {
-            workspace.worktreeProjectIDs.contains($0.id) && isGitRepository($0)
-        }.count
 
         return ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 if hasMissingProjects(workspace) { missingFolders(workspace) }
-
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 145), spacing: 12)],
-                          spacing: 12) {
-                    WorkspaceMetric(label: "PROJECTS", value: "\(projects.count)",
-                                    detail: "1 lead · \(max(0, projects.count - 1)) attached")
-                    WorkspaceMetric(label: "SESSIONS", value: "\(sessions.count)",
-                                    detail: running == 0 ? "None running" : "\(running) running",
-                                    tint: running > 0 ? Theme.addition : nil)
-                    WorkspaceMetric(label: "WORKTREE DEFAULTS", value: "\(worktreeDefaults)",
-                                    detail: "\(projects.count - worktreeDefaults) project folders")
-                    WorkspaceMetric(label: "TOTAL SPEND",
-                                    value: money(sessions.reduce(0) {
-                                        $0 + ($1.usage?.costUSD ?? 0)
-                                    }),
-                                    detail: "Across workspace sessions")
-                }
 
                 projectSection(workspace, projects: projects)
                 settingsSection(workspace)
@@ -508,8 +488,6 @@ struct WorkspaceDetailView: View {
         workspace.projectIDs.compactMap(store.project).contains(where: store.isMissing)
     }
 
-    private func money(_ amount: Double) -> String { String(format: "$%.2f", amount) }
-
     private func startSession(_ choice: WorkspaceSessionChoice,
                               in workspace: ProjectWorkspace) {
         Task {
@@ -527,32 +505,5 @@ struct WorkspaceDetailView: View {
                                    title: String = "Could not create the session") {
         dialogs.show(Dialog(title: title, message: message,
                             actions: [.init(label: "OK", kind: .cancel)]))
-    }
-}
-
-private struct WorkspaceMetric: View {
-    let label: String
-    let value: String
-    let detail: String
-    var tint: Color?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text(label)
-                .font(.mono(9.5, .semibold))
-                .kerning(0.55)
-                .foregroundStyle(.tertiary)
-            Text(value)
-                .font(.serif(22))
-                .foregroundStyle(tint ?? Color.primary)
-            Text(detail)
-                .font(.system(size: 11.5))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, minHeight: 91, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 11).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 11).stroke(Theme.border))
     }
 }

@@ -1,16 +1,8 @@
-import AppKit
 import SwiftUI
 
 // The product home gives the logo a stable destination and explains why the surrounding
-// tools belong together. Its main action stays useful after the first project is added.
+// tools belong together.
 struct HomeView: View {
-    @Environment(ProjectStore.self) private var store
-    @Environment(SessionRunner.self) private var runner
-    @Environment(DialogPresenter.self) private var dialogs
-    @Environment(AppSettings.self) private var appSettings
-
-    @State private var choosingSessionKind: Project?
-
     private let highlights = [
         HomeHighlight(
             icon: "arrow.triangle.branch",
@@ -62,12 +54,6 @@ struct HomeView: View {
             }
         }
         .background(Theme.background)
-        .sheet(item: $choosingSessionKind) { project in
-            NewSessionView(project: project) { choice in
-                startSession(choice, in: project)
-            }
-            .appOverlays()
-        }
     }
 
     private var header: some View {
@@ -97,69 +83,9 @@ struct HomeView: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: 650, alignment: .leading)
-
-                HStack(spacing: 10) {
-                    primaryAction
-                    if !store.projects.isEmpty {
-                        actionButton("Add a project", icon: "folder.badge.plus",
-                                     primary: false, action: addProject)
-                    }
-                }
-                .padding(.top, 4)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    @ViewBuilder private var primaryAction: some View {
-        if let session = latestSession {
-            actionButton("Continue latest session", icon: "arrow.right", primary: true) {
-                store.selectSession(session.id)
-            }
-        } else if store.projects.count == 1, let project = store.projects.first {
-            actionButton("Start a session", icon: "plus", primary: true) {
-                requestNewSession(in: project)
-            }
-        } else if !store.projects.isEmpty {
-            actionLabel("Start a session", icon: "chevron.down", primary: true)
-                .appMenu(matchWidth: true) {
-                    store.projects.map { project in
-                        .item(project.name, subtitle: project.collapsedPath) {
-                            requestNewSession(in: project)
-                        }
-                    }
-                }
-                .accessibilityLabel("Start a session")
-        } else {
-            actionButton("Add a project", icon: "folder.badge.plus",
-                         primary: true, action: addProject)
-        }
-    }
-
-    private func actionButton(_ title: String, icon: String, primary: Bool,
-                              action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            actionLabel(title, icon: icon, primary: primary)
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func actionLabel(_ title: String, icon: String, primary: Bool) -> some View {
-        HStack(spacing: 7) {
-            Text(title)
-            Image(systemName: icon)
-                .font(.system(size: 10, weight: .bold))
-        }
-        .font(.system(size: 13, weight: .semibold))
-        .foregroundStyle(primary ? Color.white : Theme.accent)
-        .padding(.horizontal, 15)
-        .frame(height: 36)
-        .background(RoundedRectangle(cornerRadius: 9)
-            .fill(primary ? Theme.accentFill : Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 9)
-            .stroke(primary ? Color.clear : Theme.border))
-        .contentShape(RoundedRectangle(cornerRadius: 9))
-        .subtleButtonGlow()
     }
 
     private func highlightCard(_ highlight: HomeHighlight) -> some View {
@@ -228,72 +154,6 @@ struct HomeView: View {
         .background(RoundedRectangle(cornerRadius: 7).fill(Theme.field))
     }
 
-    private var latestSession: ChatSession? {
-        store.sidebarSessions.max { left, right in
-            if left.lastActivity != right.lastActivity {
-                return left.lastActivity < right.lastActivity
-            }
-            return left.createdAt < right.createdAt
-        }
-    }
-
-    private func addProject() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        panel.prompt = "Add Project"
-        panel.message = "Pick the folder a coding agent should work in."
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-
-        let added = store.addProject(at: url)
-        if let id = added?.id ?? store.selectedProjectID {
-            store.selectProject(id)
-        }
-    }
-
-    private func requestNewSession(in project: Project) {
-        guard !store.isMissing(project) else { return }
-        guard FileManager.default.fileExists(atPath: project.path + "/.git") else {
-            startSession(.folder(agent: runner.agent,
-                                 model: runner.defaults.model,
-                                 agentAvatarName: appSettings.defaultAgentAvatarName),
-                         in: project)
-            return
-        }
-        choosingSessionKind = project
-    }
-
-    private func startSession(_ choice: NewSessionChoice, in project: Project) {
-        switch choice {
-        case .worktree(let sessionID, let base, let agent, let model, let agentAvatarName):
-            Task {
-                switch await SessionLifecycle.createWorktreeSession(
-                    in: project, id: sessionID, base: base,
-                    agent: agent, model: model,
-                    agentAvatarName: agentAvatarName, store: store) {
-                case .success:
-                    break
-                case .failure(let failure):
-                    show(failure)
-                }
-            }
-        case .folder(let agent, let model, let agentAvatarName):
-            switch store.insertSession(in: project.id, agent: agent, model: model,
-                                       agentAvatarName: agentAvatarName) {
-            case .success:
-                break
-            case .failure(let failure):
-                show(SessionLifecycle.Failure(
-                    title: "Could not create the session", message: failure.message))
-            }
-        }
-    }
-
-    private func show(_ failure: SessionLifecycle.Failure) {
-        dialogs.show(Dialog(title: failure.title, message: failure.message,
-                            actions: [.init(label: "OK", kind: .cancel)]))
-    }
 }
 
 private struct HomeHighlight: Identifiable {
