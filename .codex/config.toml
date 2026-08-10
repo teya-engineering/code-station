@@ -1,0 +1,15 @@
+default_permissions = "swift-dev"
+
+[permissions.swift-dev]
+description = "Swift development with GitHub dependency access."
+extends = ":workspace"
+
+[permissions.swift-dev.filesystem]
+"~/.cache/clang/ModuleCache" = "write"
+
+[permissions.swift-dev.network]
+enabled = true
+
+[permissions.swift-dev.network.domains]
+"**.github.com" = "allow"
+"**.githubusercontent.com" = "allow"

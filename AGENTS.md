@@ -14,6 +14,7 @@
 
 ## SwiftPM
 
-- Run SwiftPM commands with `--disable-sandbox`. Codex already provides the outer macOS sandbox.
-- Keep build, module, and package caches inside the worktree or `/private/tmp`.
-- Request sandbox escalation only when a command needs access outside those locations.
+- Run SwiftPM commands with `--disable-sandbox` and `--cache-path /private/tmp/teya-swiftpm-cache`. Codex already provides the outer macOS sandbox.
+- Keep build and module caches inside the worktree or `/private/tmp`.
+- SwiftPM dependency downloads require network access. If a dependency fetch is blocked, request network escalation immediately. Do not retry with a fresh cache inside the same sandbox.
+- Request filesystem escalation only when a command needs access outside the worktree or `/private/tmp`.
