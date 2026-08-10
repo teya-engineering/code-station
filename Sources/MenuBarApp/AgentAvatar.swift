@@ -223,6 +223,6 @@ struct AgentAvatarView: View {
             .frame(width: size, height: size)
             .clipShape(Circle())
             .overlay(Circle().stroke(Theme.border))
-            .accessibilityLabel("Bot photo")
+            .accessibilityLabel("Bot")
     }
 }

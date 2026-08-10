@@ -12,6 +12,10 @@ struct Dialog: Identifiable {
         let label: String
         var kind: Kind = .plain
         var handler: () -> Void = {}
+        // Asked each time the dialog draws, so a button can follow a choice made in the
+        // dialog's own content without the dialog being shown again. It comes last so a
+        // trailing closure still reads as the button's handler.
+        var isEnabled: () -> Bool = { true }
     }
 
     let id = UUID()
@@ -102,7 +106,8 @@ struct DialogHost: View {
     }
 
     private func button(_ action: Dialog.Action) -> some View {
-        Button {
+        let enabled = action.isEnabled()
+        return Button {
             presenter.run(action)
         } label: {
             Text(action.label)
@@ -114,9 +119,11 @@ struct DialogHost: View {
                 .overlay(RoundedRectangle(cornerRadius: 9)
                     .stroke(action.kind == .primary || action.kind == .destructive
                             ? .clear : Theme.border))
+                .opacity(enabled ? 1 : 0.4)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .disabled(!enabled)
         // Escape leaves; return takes the main action, the way a dialog is expected to
         // behave when the mouse is not involved. Only those two get a key, so a middle
         // choice never steals one.

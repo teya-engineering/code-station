@@ -96,8 +96,7 @@ struct SettingsView: View {
     @State private var reviewingOldSessions = false
     @State private var showingLog = false
     @State private var tab = SettingsTab.general
-    @State private var pendingBotImageURLs: [URL] = []
-    @State private var pendingPersonality = AgentPersonality.standard
+    @State private var botDraft = BotDraft()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -301,11 +300,11 @@ struct SettingsView: View {
     }
 
     private var botImage: some View {
-        ChoiceBlock("BOT PHOTOS") {
+        ChoiceBlock("BOTS") {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .center, spacing: 12) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Bot photos")
+                        Text("Bots")
                             .font(.system(size: 13, weight: .semibold))
                         Text(botImageDescription)
                             .font(.system(size: 12))
@@ -327,9 +326,9 @@ struct SettingsView: View {
                             .buttonStyle(.plain)
                         }
 
-                        Button(action: chooseBotImages) {
+                        Button(action: startBotDraft) {
                             HStack(spacing: 7) {
-                                Text(settings.agentAvatars.isEmpty ? "Add photo…" : "Add photos…")
+                                Text("Add bot…")
                                     .font(.system(size: 12, weight: .semibold))
                                 Image(systemName: "photo.badge.plus")
                                     .font(.system(size: 10, weight: .semibold))
@@ -368,7 +367,7 @@ struct SettingsView: View {
     private var botImageDescription: String {
         let count = settings.agentAvatars.count
         guard count > 0 else {
-            return "Add your own photos and give each bot a personality for its working words."
+            return "Add your own bots and give each one a personality for its working words."
         }
         return "\(count) bot\(count == 1 ? "" : "s") configured. Pick one when starting each session."
     }
@@ -404,7 +403,7 @@ struct SettingsView: View {
             }
             .buttonStyle(.plain)
             .offset(x: 4, y: -4)
-            .accessibilityLabel("Remove bot photo")
+            .accessibilityLabel("Remove bot")
         }
     }
 
@@ -419,55 +418,63 @@ struct SettingsView: View {
         }
     }
 
-    private func chooseBotImages() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = false
-        panel.canChooseFiles = true
-        panel.allowsMultipleSelection = true
-        panel.allowedContentTypes = [.image]
-        panel.prompt = "Add Photos"
-        panel.message = "Pick one or more photos. You will choose their personality next."
-        guard panel.runModal() == .OK else { return }
-
-        pendingBotImageURLs = panel.urls
-        pendingPersonality = .standard
-        choosePersonality()
+    // The whole bot is put together in one dialog, and the photo is chosen from inside it,
+    // so the file chooser never opens before the user has asked for a bot at all.
+    private func startBotDraft() {
+        botDraft.reset()
+        showBotDraft()
     }
 
-    private func choosePersonality() {
-        let selection = Binding(
-            get: { pendingPersonality },
-            set: { pendingPersonality = $0 })
+    private func showBotDraft() {
+        let draft = botDraft
         dialogs.show(Dialog(
-            title: "Pick a personality",
-            message: pendingBotImageURLs.count == 1
-                ? "The session's working messages will sound like this bot."
-                : "The session's working messages will sound like these bots.",
-            content: AnyView(PersonalityPicker(selection: selection)),
+            title: "Add a bot",
+            message: "Pick a photo and a personality. The session's working messages will sound like this bot.",
+            content: AnyView(BotDraftEditor(draft: draft, chooseImage: chooseBotImage)),
             actions: [
-                .init(label: pendingBotImageURLs.count == 1 ? "Add photo" : "Add photos",
+                .init(label: "Add bot",
                       kind: .primary,
-                      handler: importPendingBotImages),
-                .init(label: "Cancel", kind: .cancel, handler: clearPendingBotImages)
+                      handler: importBotDraft,
+                      isEnabled: { draft.image != nil }),
+                .init(label: "Cancel", kind: .cancel, handler: draft.reset)
             ],
-            onCancel: clearPendingBotImages,
+            onCancel: draft.reset,
             width: 460))
     }
 
-    private func importPendingBotImages() {
-        let urls = pendingBotImageURLs
-        let personality = pendingPersonality
-        clearPendingBotImages()
+    private func chooseBotImage() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.image]
+        panel.prompt = "Choose"
+        panel.message = "Pick a photo for this bot."
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        guard let image = AgentAvatarFile.load(from: url) else {
+            // The draft dialog is still open behind this, so its own button brings it back
+            // rather than dropping the half-made bot.
+            dialogs.show(Dialog(
+                title: "Could not read that photo",
+                message: AgentAvatarError.couldNotReadImage.localizedDescription,
+                actions: [.init(label: "OK", kind: .cancel, handler: showBotDraft)],
+                onCancel: showBotDraft))
+            return
+        }
+        botDraft.url = url
+        botDraft.image = image
+    }
+
+    private func importBotDraft() {
+        guard let url = botDraft.url else { return }
+        let personality = botDraft.personality
+        botDraft.reset()
         do {
-            try settings.importAgentAvatars(from: urls, personality: personality)
+            try settings.importAgentAvatars(from: [url], personality: personality)
         } catch {
             showBotImageFailure(error)
         }
-    }
-
-    private func clearPendingBotImages() {
-        pendingBotImageURLs = []
-        pendingPersonality = .standard
     }
 
     private func setPersonality(_ personality: AgentPersonality, for avatar: AgentAvatar) {
@@ -496,7 +503,7 @@ struct SettingsView: View {
 
     private func showBotImageFailure(_ error: Error) {
         dialogs.show(Dialog(
-            title: "Could not update the bot photos",
+            title: "Could not update the bots",
             message: error.localizedDescription,
             actions: [.init(label: "OK", kind: .cancel)]))
     }
@@ -524,6 +531,66 @@ struct SettingsView: View {
                 .foregroundStyle(Theme.accent)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+// The bot being put together in the add dialog. It is a reference type so the dialog's
+// own buttons can read the choices made in its content while it stays open.
+@MainActor
+@Observable
+final class BotDraft {
+    var url: URL?
+    var image: NSImage?
+    var personality = AgentPersonality.standard
+
+    func reset() {
+        url = nil
+        image = nil
+        personality = .standard
+    }
+}
+
+private struct BotDraftEditor: View {
+    @Bindable var draft: BotDraft
+    let chooseImage: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 12) {
+                if let image = draft.image {
+                    AgentAvatarView(image: image, size: 48)
+                } else {
+                    Circle()
+                        .fill(Theme.field)
+                        .frame(width: 48, height: 48)
+                        .overlay(Circle().stroke(Theme.border))
+                        .overlay(Image(systemName: "person.fill")
+                            .font(.system(size: 20))
+                            .foregroundStyle(.tertiary))
+                }
+
+                Button(action: chooseImage) {
+                    HStack(spacing: 7) {
+                        Text(draft.image == nil ? "Add a photo…" : "Change photo…")
+                            .font(.system(size: 12, weight: .semibold))
+                        Image(systemName: "photo.badge.plus")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal, 12)
+                    .frame(height: 34)
+                    .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
+                    .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                Spacer(minLength: 0)
+            }
+            .padding(.top, 4)
+
+            PersonalityPicker(selection: $draft.personality)
+        }
     }
 }
 
