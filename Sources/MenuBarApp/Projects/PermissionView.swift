@@ -71,49 +71,120 @@ private struct QuestionCard: View {
     // keeps the one label, and typed text replaces both.
     @State private var picked: [String: Set<String>] = [:]
     @State private var typed: [String: String] = [:]
+    @State private var currentQuestionIndex = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            ForEach(request.questions) { question in
-                VStack(alignment: .leading, spacing: 8) {
-                    if !question.header.isEmpty {
-                        Text(question.header.uppercased())
-                            .font(.system(size: 10, weight: .semibold))
-                            .kerning(0.6)
-                            .foregroundStyle(Theme.accent)
-                    }
-                    Text(question.text)
-                        .font(.system(size: 13, weight: .semibold))
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    ForEach(question.options) { option in
-                        optionRow(question: question, option: option)
-                    }
-
-                    // The CLI always offers a way out of the options it was given, so the
-                    // person is never cornered into an answer that does not fit.
-                    TextField("Something else…", text: binding(for: question))
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 12))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 7)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.field))
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
-                }
+            if request.questions.count > 1 {
+                questionTabs
             }
 
+            question(request.questions[currentQuestionIndex])
+
             HStack(spacing: 8) {
-                CardButton(title: "Send", prominent: true) { onAnswer(.answers(answers)) }
-                    .disabled(!isComplete)
-                    .opacity(isComplete ? 1 : 0.45)
-                Spacer(minLength: 0)
                 CardButton(title: "Skip") { onAnswer(.deny) }
+                Spacer(minLength: 0)
+                if currentQuestionIndex > 0 {
+                    CardButton(title: "Back") { showQuestion(at: currentQuestionIndex - 1) }
+                }
+                if isLastQuestion {
+                    CardButton(title: "Submit", prominent: true) { onAnswer(.answers(answers)) }
+                        .disabled(!isComplete)
+                        .opacity(isComplete ? 1 : 0.45)
+                } else {
+                    CardButton(title: "Next", prominent: true) {
+                        showQuestion(at: currentQuestionIndex + 1)
+                    }
+                    .disabled(!isCurrentQuestionComplete)
+                    .opacity(isCurrentQuestionComplete ? 1 : 0.45)
+                }
             }
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 12).fill(Theme.accent.opacity(0.06)))
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.accent.opacity(0.25)))
+    }
+
+    private var questionTabs: some View {
+        HStack(spacing: 4) {
+            ForEach(Array(request.questions.enumerated()), id: \.element.id) { index, question in
+                questionTab(question, at: index)
+            }
+        }
+        .padding(3)
+        .frame(maxWidth: .infinity)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.field))
+    }
+
+    private func questionTab(_ question: AgentQuestion, at index: Int) -> some View {
+        let active = index == currentQuestionIndex
+        let complete = !answer(for: question).isEmpty
+        return Button { showQuestion(at: index) } label: {
+            HStack(spacing: 6) {
+                if complete {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Theme.accent)
+                } else {
+                    Text("\(index + 1)")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(active ? Color.primary : Color.secondary)
+                }
+                Text(tabTitle(for: question, at: index))
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(active ? Color.primary : Color.secondary)
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity)
+            .background(RoundedRectangle(cornerRadius: 8)
+                .fill(active ? Theme.card : .clear)
+                .shadow(color: .black.opacity(active ? 0.08 : 0), radius: 1, y: 0.5))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Question \(index + 1): \(tabTitle(for: question, at: index))")
+        .accessibilityValue(complete ? "Answered" : "Not answered")
+    }
+
+    private func question(_ question: AgentQuestion) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if !question.header.isEmpty {
+                Text(question.header.uppercased())
+                    .font(.system(size: 10, weight: .semibold))
+                    .kerning(0.6)
+                    .foregroundStyle(Theme.accent)
+            }
+            Text(question.text)
+                .font(.system(size: 13, weight: .semibold))
+                .fixedSize(horizontal: false, vertical: true)
+
+            ForEach(question.options) { option in
+                optionRow(question: question, option: option)
+            }
+
+            // The CLI always offers a way out of the options it was given, so the
+            // person is never cornered into an answer that does not fit.
+            TextField("Something else…", text: binding(for: question))
+                .textFieldStyle(.plain)
+                .font(.system(size: 12))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Theme.field))
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
+        }
+    }
+
+    private func tabTitle(for question: AgentQuestion, at index: Int) -> String {
+        question.header.isEmpty ? "Question \(index + 1)" : question.header
+    }
+
+    private func showQuestion(at index: Int) {
+        withAnimation(.easeInOut(duration: 0.15)) {
+            currentQuestionIndex = index
+        }
     }
 
     private func optionRow(question: AgentQuestion, option: AgentQuestion.Option) -> some View {
@@ -176,6 +247,14 @@ private struct QuestionCard: View {
     // reads to the agent as a question that was skipped.
     private var isComplete: Bool {
         request.questions.allSatisfy { !answer(for: $0).isEmpty }
+    }
+
+    private var isCurrentQuestionComplete: Bool {
+        !answer(for: request.questions[currentQuestionIndex]).isEmpty
+    }
+
+    private var isLastQuestion: Bool {
+        currentQuestionIndex == request.questions.count - 1
     }
 
     private var answers: [String: String] {
