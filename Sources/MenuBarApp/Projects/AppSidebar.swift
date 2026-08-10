@@ -1490,9 +1490,15 @@ private struct SessionCard: View {
                     .overlay(alignment: .trailing) {
                         if hovering {
                             Button(action: onDelete) {
-                                Image(systemName: "trash")
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(.secondary)
+                                HStack(spacing: 3) {
+                                    Image(systemName: "trash")
+                                        .font(.system(size: 11))
+                                    Text("Delete")
+                                        .font(.system(size: 11, weight: .medium))
+                                }
+                                .foregroundStyle(.secondary)
+                                .fixedSize()
+                                .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
                             .appTooltip("Delete session")
