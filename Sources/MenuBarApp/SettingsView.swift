@@ -328,18 +328,13 @@ struct SettingsView: View {
 
                         if settings.agentAvatars.count < AgentAvatarFile.maxCount {
                             Button(action: startBotDraft) {
-                                HStack(spacing: 7) {
-                                    Text("Add bot…")
-                                        .font(.system(size: 12, weight: .semibold))
-                                    Image(systemName: "photo.badge.plus")
-                                        .font(.system(size: 10, weight: .semibold))
-                                        .foregroundStyle(.secondary)
-                                }
-                                .padding(.horizontal, 12)
-                                .frame(height: 34)
-                                .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
-                                .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
-                                .contentShape(Rectangle())
+                                Text("Add bot…")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .padding(.horizontal, 12)
+                                    .frame(height: 34)
+                                    .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
+                                    .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
+                                    .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
                         }
