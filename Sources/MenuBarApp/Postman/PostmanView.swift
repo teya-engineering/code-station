@@ -20,7 +20,6 @@ struct PostmanView: View {
             Rectangle().fill(environment.brightAccent).frame(height: 5)
             header
             Divider().overlay(Theme.hairline)
-            if environment == .production { productionBanner }
             HStack(spacing: 0) {
                 sidebar
                 Divider().overlay(Theme.hairline)
@@ -48,6 +47,18 @@ struct PostmanView: View {
             Text("\(store.requests.count) request\(store.requests.count == 1 ? "" : "s")")
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
+            if environment == .production {
+                Circle()
+                    .fill(Theme.deletion)
+                    .frame(width: 7, height: 7)
+                    .padding(.leading, 2)
+                Text("PRODUCTION")
+                    .font(.mono(11, .bold))
+                    .kerning(1)
+                    .foregroundStyle(Theme.deletion)
+                Text("Every send here hits live merchant data.")
+                    .font(.system(size: 12))
+            }
             Spacer()
             environmentSwitch
             Button("Environments") { showingEnvironments = true }
@@ -57,7 +68,7 @@ struct PostmanView: View {
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 10)
-        .background(Theme.card)
+        .background(environment == .production ? Theme.deletion.opacity(0.10) : Theme.card)
     }
 
     private var environmentSwitch: some View {
@@ -70,25 +81,6 @@ struct PostmanView: View {
         }
         .padding(3)
         .background(RoundedRectangle(cornerRadius: 10).fill(Color.black.opacity(0.05)))
-    }
-
-    private var productionBanner: some View {
-        HStack(spacing: 8) {
-            Circle().fill(Theme.deletion).frame(width: 7, height: 7)
-            Text("PRODUCTION")
-                .font(.mono(11, .bold))
-                .kerning(1)
-                .foregroundStyle(Theme.deletion)
-            Text("Every send here hits live merchant data.")
-                .font(.system(size: 12))
-            Spacer()
-        }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 8)
-        .background(Theme.deletion.opacity(0.10))
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(Theme.deletion.opacity(0.20)).frame(height: 1)
-        }
     }
 
     // MARK: - Sidebar
