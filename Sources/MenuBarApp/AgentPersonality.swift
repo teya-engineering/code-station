@@ -1,19 +1,17 @@
 enum AgentPersonality: String, CaseIterable, Codable, Sendable {
     case standard = "default"
     case sarcastic
-    case unhelpful
-    case enthusiastic
-    case dramatic
-    case zen
+    case cat
+    case sextou
+    case manager
 
     var title: String {
         switch self {
         case .standard: "Default"
         case .sarcastic: "Sarcastic"
-        case .unhelpful: "Unhelpful"
-        case .enthusiastic: "Enthusiastic"
-        case .dramatic: "Dramatic"
-        case .zen: "Zen"
+        case .cat: "Cat"
+        case .sextou: "Sextou"
+        case .manager: "Manager"
         }
     }
 
@@ -21,10 +19,9 @@ enum AgentPersonality: String, CaseIterable, Codable, Sendable {
         switch self {
         case .standard: "Helpful, thoughtful, and mostly normal."
         case .sarcastic: "Gets it done with a raised eyebrow."
-        case .unhelpful: "Looks busy and achieves the minimum."
-        case .enthusiastic: "Treats every task like a breakthrough."
-        case .dramatic: "Makes every build a fight for survival."
-        case .zen: "Finds calm in the stack trace."
+        case .cat: "It is a cat. It helps when it feels like it."
+        case .sextou: "Brazilian energy, gambiarra certified."
+        case .manager: "Files a ticket before every keystroke."
         }
     }
 
@@ -48,34 +45,28 @@ enum AgentPersonality: String, CaseIterable, Codable, Sendable {
                 "Acting surprised", "Reinventing your wheel", "Questioning your semicolons",
                 "Finding the obvious"
             ]
-        case .unhelpful:
+        case .cat:
             [
-                "Looking busy", "Avoiding the question", "Doing the bare minimum",
-                "Passing the buck", "Misplacing the answer", "Taking a very long shortcut",
-                "Ignoring the obvious", "Delegating to nobody", "Blaming the cache",
-                "Adding another meeting", "Searching under the sofa", "Making this your problem"
+                "Sitting on the keyboard", "Knocking bugs off the desk", "Chasing the cursor",
+                "Ignoring you on purpose", "Napping on the diff", "Batting at the stack trace",
+                "Kneading the codebase", "Staring at nothing", "Sharpening the claws",
+                "Demanding treats first", "Purring at the build", "Judging you silently"
             ]
-        case .enthusiastic:
+        case .sextou:
             [
-                "Absolutely crushing it", "Firing every neuron", "Having a breakthrough",
-                "Connecting all the dots", "Speed-running the problem",
-                "Trying everything at once", "Making it happen", "Overachieving wildly",
-                "Celebrating early", "Turning it up to eleven", "Charging ahead",
-                "Getting extremely ready"
+                "Sextou! Oh wait, still working", "Applying a little gambiarra",
+                "Finding the jeitinho", "Grabbing a cafezinho", "Bora, bora",
+                "Keeping it beleza", "Debugging com calma", "Counting days to sextou",
+                "Promising it works, confia", "Planning the churrasco",
+                "Shipping before carnaval", "Saying relaxa, it compiles"
             ]
-        case .dramatic:
+        case .manager:
             [
-                "Facing the abyss", "Questioning everything", "Summoning the courage",
-                "Entering the final act", "Bracing for impact", "Defying the compiler",
-                "Wrestling with destiny", "Gasping at the stack trace", "Plotting a comeback",
-                "Enduring the suspense", "Risking it all", "Making it theatrical"
-            ]
-        case .zen:
-            [
-                "Breathing", "Finding the path", "Letting it compile", "Consulting the void",
-                "Untangling gently", "Accepting the warnings", "Following the data",
-                "Sitting with the problem", "Reducing attachment", "Observing the stack",
-                "Seeking simple answers", "Becoming one with the build"
+                "Creating a ticket for this", "Estimating story points",
+                "Grooming the backlog", "Scheduling a quick sync", "Aligning stakeholders",
+                "Moving it to In Progress", "Blocking on approvals", "Drafting the RFC",
+                "Circulating for sign-off", "Adding it to the sprint",
+                "Escalating to myself", "Requesting a status update"
             ]
         }
     }

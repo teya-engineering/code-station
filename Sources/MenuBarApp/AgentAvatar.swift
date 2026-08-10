@@ -24,6 +24,7 @@ enum AgentAvatarSelection {
 
 enum AgentAvatarFile {
     static let maxPixelSize = 512
+    static let maxCount = 5
 
     static func load(from url: URL) -> NSImage? {
         NSImage(contentsOf: url)
@@ -46,8 +47,13 @@ enum AgentAvatarFile {
         let prepared = try sourceURLs.map { try prepareImage(from: $0) }
         guard !prepared.isEmpty else { return [] }
 
+        let existing = avatarURLs(for: baseURL)
+        guard existing.count + prepared.count <= maxCount else {
+            throw AgentAvatarError.tooManyAvatars
+        }
+
         let files = FileManager.default
-        let nextIndex = (avatarURLs(for: baseURL).compactMap {
+        let nextIndex = (existing.compactMap {
             avatarIndex(for: $0, baseURL: baseURL)
         }.max() ?? 0) + 1
         let destinations = prepared.indices.map {
@@ -172,11 +178,12 @@ enum AgentAvatarFile {
 
     private static func loadPersonalities(from baseURL: URL) -> [String: AgentPersonality] {
         guard let data = try? Data(contentsOf: personalityURL(for: baseURL)),
-              let personalities = try? JSONDecoder().decode(
-                  [String: AgentPersonality].self, from: data) else {
+              let stored = try? JSONDecoder().decode([String: String].self, from: data) else {
             return [:]
         }
-        return personalities
+        // Entries saved by builds with personalities that no longer exist fall back
+        // to the default instead of discarding everyone's assignments.
+        return stored.compactMapValues(AgentPersonality.init(rawValue:))
     }
 
     private static func savePersonalities(_ personalities: [String: AgentPersonality],
@@ -201,6 +208,7 @@ enum AgentAvatarFile {
 enum AgentAvatarError: LocalizedError {
     case couldNotReadImage
     case couldNotEncodeImage
+    case tooManyAvatars
 
     var errorDescription: String? {
         switch self {
@@ -208,6 +216,8 @@ enum AgentAvatarError: LocalizedError {
             "The selected file is not an image the app can read."
         case .couldNotEncodeImage:
             "The selected image could not be prepared for use."
+        case .tooManyAvatars:
+            "The app supports up to \(AgentAvatarFile.maxCount) bots. Remove one to add another."
         }
     }
 }

@@ -326,21 +326,23 @@ struct SettingsView: View {
                             .buttonStyle(.plain)
                         }
 
-                        Button(action: startBotDraft) {
-                            HStack(spacing: 7) {
-                                Text("Add bot…")
-                                    .font(.system(size: 12, weight: .semibold))
-                                Image(systemName: "photo.badge.plus")
-                                    .font(.system(size: 10, weight: .semibold))
-                                    .foregroundStyle(.secondary)
+                        if settings.agentAvatars.count < AgentAvatarFile.maxCount {
+                            Button(action: startBotDraft) {
+                                HStack(spacing: 7) {
+                                    Text("Add bot…")
+                                        .font(.system(size: 12, weight: .semibold))
+                                    Image(systemName: "photo.badge.plus")
+                                        .font(.system(size: 10, weight: .semibold))
+                                        .foregroundStyle(.secondary)
+                                }
+                                .padding(.horizontal, 12)
+                                .frame(height: 34)
+                                .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
+                                .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
+                                .contentShape(Rectangle())
                             }
-                            .padding(.horizontal, 12)
-                            .frame(height: 34)
-                            .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
-                            .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
-                            .contentShape(Rectangle())
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
                     }
                     .fixedSize()
                 }
@@ -367,7 +369,10 @@ struct SettingsView: View {
     private var botImageDescription: String {
         let count = settings.agentAvatars.count
         guard count > 0 else {
-            return "Add your own bots and give each one a personality for its working words."
+            return "Add your own bots and give each one a personality for its working words. Up to \(AgentAvatarFile.maxCount) bots."
+        }
+        guard count < AgentAvatarFile.maxCount else {
+            return "\(count) bots configured, the maximum. Pick one when starting each session."
         }
         return "\(count) bot\(count == 1 ? "" : "s") configured. Pick one when starting each session."
     }

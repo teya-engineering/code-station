@@ -107,6 +107,45 @@ struct AgentAvatarTests {
         ])
     }
 
+    @Test @MainActor func refusesToImportBeyondTheMaximumNumberOfBots() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sources = try (1...AgentAvatarFile.maxCount + 1).map { index in
+            let url = root.appendingPathComponent("source-\(index).png")
+            try pngData(width: 4, height: 4).write(to: url)
+            return url
+        }
+        let destination = root.appendingPathComponent("agent-avatar.png")
+        let settings = AppSettings(agentAvatarURL: destination)
+        try settings.importAgentAvatars(from: Array(sources.dropLast()))
+
+        #expect(throws: AgentAvatarError.self) {
+            try settings.importAgentAvatars(from: [sources[AgentAvatarFile.maxCount]])
+        }
+
+        #expect(settings.agentAvatars.count == AgentAvatarFile.maxCount)
+        #expect(AppSettings(agentAvatarURL: destination)
+            .agentAvatars.count == AgentAvatarFile.maxCount)
+    }
+
+    @Test @MainActor func rejectsABatchThatWouldExceedTheMaximumWithoutImportingAnyOfIt() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sources = try (1...AgentAvatarFile.maxCount + 1).map { index in
+            let url = root.appendingPathComponent("source-\(index).png")
+            try pngData(width: 4, height: 4).write(to: url)
+            return url
+        }
+        let destination = root.appendingPathComponent("agent-avatar.png")
+        let settings = AppSettings(agentAvatarURL: destination)
+
+        #expect(throws: AgentAvatarError.self) {
+            try settings.importAgentAvatars(from: sources)
+        }
+
+        #expect(settings.agentAvatars.isEmpty)
+    }
+
     @Test @MainActor func removesOneImageWithoutChangingTheOthers() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -143,10 +182,10 @@ struct AgentAvatarTests {
         #expect(sarcastic.personality == .sarcastic)
         #expect(AppSettings(agentAvatarURL: destination).agentAvatars.first?.personality == .sarcastic)
 
-        try settings.setPersonality(.dramatic, for: sarcastic)
+        try settings.setPersonality(.cat, for: sarcastic)
 
-        #expect(settings.agentAvatars.first?.personality == .dramatic)
-        #expect(AppSettings(agentAvatarURL: destination).agentAvatars.first?.personality == .dramatic)
+        #expect(settings.agentAvatars.first?.personality == .cat)
+        #expect(AppSettings(agentAvatarURL: destination).agentAvatars.first?.personality == .cat)
     }
 
     @Test @MainActor func rejectsAnInvalidBatchWithoutImportingItsValidImages() throws {
