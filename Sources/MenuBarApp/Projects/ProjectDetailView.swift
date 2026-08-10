@@ -216,7 +216,7 @@ struct ProjectDetailView: View {
             }
             .padding(20)
             .frame(maxWidth: 820, alignment: .leading)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .center)
         }
     }
 
