@@ -285,7 +285,8 @@ struct SessionBotPicker: View {
                     .background(Circle().fill(Theme.accentFill))
                     .overlay(Circle().stroke(Theme.card, lineWidth: size * 0.05))
             }
-            .contentShape(Circle())
+            .frame(width: max(size, 32), height: max(size, 32))
+            .contentShape(Rectangle())
             .appMenu(edge: .top) { menu }
             .appTooltip("Choose bot: \(title)")
             .accessibilityLabel("Choose bot, \(title) selected")

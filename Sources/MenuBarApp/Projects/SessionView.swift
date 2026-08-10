@@ -696,6 +696,11 @@ struct SessionView: View {
                                   guard let last = runner.queued(sessionID).last else { return false }
                                   runner.recall(last.id, sessionID: sessionID)
                                   return true
+                              },
+                              trailingAccessory: {
+                                  SessionBotPicker(avatars: appSettings.agentAvatars,
+                                                   selectedName: botSelection(for: session),
+                                                   size: 22)
                               })
 
                 if canSend {
@@ -757,19 +762,15 @@ struct SessionView: View {
     }
 
     // What the next turn will use, on the line the eye is already on when hitting send:
-    // the bot that marks its work, the branch it edits, the model, effort and permissions
-    // it runs with, and how full the window is. The bot and three run choices are pickers,
-    // so the session can be steered without leaving the composer. A run choice left on the
-    // app default keeps following Settings, including later changes there; an override
-    // holds for this conversation alone and is marked in the accent colour.
+    // the branch it edits, the model, effort and permissions it runs with, and how full
+    // the window is. A run choice left on the app default keeps following Settings,
+    // including later changes there; an override holds for this conversation alone and
+    // is marked in the accent colour.
     @ViewBuilder private func contextReadout(_ session: ChatSession) -> some View {
         let repository = stats?.state == .ready ? stats : nil
         let usage = session.usage
         let agent = runner.agent
         HStack(spacing: 10) {
-            SessionBotPicker(avatars: appSettings.agentAvatars,
-                             selectedName: botSelection(for: session),
-                             size: 22)
             if let repository { branchTag(repository) }
             if session.settings?.mcpServersEnabled == false {
                 Text("MCP off")
