@@ -1,8 +1,26 @@
 import Foundation
 
-// The order the sidebar reads its projects in. "Last used" comes from the sessions
-// rather than from the project: a project is only ever touched through a session, so
-// the newest session under it is the last time anyone worked there.
+enum SidebarItem: Identifiable {
+    case project(Project)
+    case workspace(ProjectWorkspace)
+
+    var id: UUID {
+        switch self {
+        case .project(let project): project.id
+        case .workspace(let workspace): workspace.id
+        }
+    }
+
+    var name: String {
+        switch self {
+        case .project(let project): project.name
+        case .workspace(let workspace): workspace.name
+        }
+    }
+}
+
+// "Last used" comes from the sessions rather than from the container: the newest
+// session shown under a project or workspace is the last time anyone worked there.
 enum ProjectSort: String, CaseIterable, Identifiable {
     case name
     case lastUsed
@@ -18,21 +36,20 @@ enum ProjectSort: String, CaseIterable, Identifiable {
 
     var hint: String {
         switch self {
-        case .name: "Sort projects by name"
-        case .lastUsed: "Sort projects by the newest session in each"
+        case .name: "Sort projects and workspaces by name"
+        case .lastUsed: "Sort projects and workspaces by their newest session"
         }
     }
 
-    func apply(to projects: [Project], sessions: [ChatSession]) -> [Project] {
+    func apply(to items: [SidebarItem], sessions: [ChatSession]) -> [SidebarItem] {
         switch self {
         case .name:
-            return projects.sorted(by: byName)
+            return items.sorted(by: byName)
         case .lastUsed:
             let latest = lastActivity(in: sessions)
-            return projects.sorted { a, b in
-                // A project with no sessions has never been used, so it falls below the
-                // ones that have. Equal times fall back to the name, so the list never
-                // wobbles between redraws.
+            return items.sorted { a, b in
+                // An item with no sessions has never been used, so it falls below the ones
+                // that have. Equal times fall back to the name, so the list never wobbles.
                 switch (latest[a.id], latest[b.id]) {
                 case let (left?, right?): return left == right ? byName(a, b) : left > right
                 case (_?, nil): return true
@@ -45,12 +62,13 @@ enum ProjectSort: String, CaseIterable, Identifiable {
 
     private func lastActivity(in sessions: [ChatSession]) -> [UUID: Date] {
         sessions.reduce(into: [:]) { latest, session in
-            let seen = latest[session.projectID] ?? .distantPast
-            if session.lastActivity > seen { latest[session.projectID] = session.lastActivity }
+            let containerID = session.workspaceID ?? session.projectID
+            let seen = latest[containerID] ?? .distantPast
+            if session.lastActivity > seen { latest[containerID] = session.lastActivity }
         }
     }
 
-    private func byName(_ a: Project, _ b: Project) -> Bool {
+    private func byName(_ a: SidebarItem, _ b: SidebarItem) -> Bool {
         a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
     }
 }

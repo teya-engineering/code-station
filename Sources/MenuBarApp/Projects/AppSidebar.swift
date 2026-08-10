@@ -253,7 +253,7 @@ struct AppSidebar: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 20)
                     .padding(.top, 16)
-            } else if orderedProjects.isEmpty && orderedWorkspaces.isEmpty {
+            } else if orderedItems.isEmpty {
                 Text("No project or workspace matches \"\(filterText.trimmingCharacters(in: .whitespaces))\".")
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
@@ -268,14 +268,17 @@ struct AppSidebar: View {
                 ScrollViewReader { scroller in
                     ScrollView {
                         VStack(alignment: .leading, spacing: 6) {
-                            ForEach(orderedWorkspaces) { workspace in
-                                workspaceSection(workspace,
-                                                 sessions: workspaceGroups[workspace.id] ?? [])
-                                    .id(workspace.id)
-                            }
-                            ForEach(orderedProjects) { project in
-                                projectSection(project, sessions: grouped[project.id] ?? [])
-                                    .id(project.id)
+                            ForEach(orderedItems) { item in
+                                switch item {
+                                case .project(let project):
+                                    projectSection(project, sessions: grouped[project.id] ?? [])
+                                        .id(project.id)
+                                case .workspace(let workspace):
+                                    workspaceSection(
+                                        workspace,
+                                        sessions: workspaceGroups[workspace.id] ?? [])
+                                        .id(workspace.id)
+                                }
                             }
                         }
                         .padding(.horizontal, 12)
@@ -300,24 +303,21 @@ struct AppSidebar: View {
         }
     }
 
-    private var orderedProjects: [Project] {
-        let ordered = appSettings.projectSort.apply(
-            to: store.projects, sessions: store.sidebarSessions)
+    private var orderedItems: [SidebarItem] {
+        let items = store.projects.map(SidebarItem.project)
+            + store.workspaces.map(SidebarItem.workspace)
+        let ordered = appSettings.projectSort.apply(to: items, sessions: store.sidebarSessions)
         let query = filterText.trimmingCharacters(in: .whitespaces)
         guard !query.isEmpty else { return ordered }
-        return ordered.filter { $0.name.localizedCaseInsensitiveContains(query) }
-    }
-
-    private var orderedWorkspaces: [ProjectWorkspace] {
-        let ordered = store.workspaces.sorted {
-            $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
-        }
-        let query = filterText.trimmingCharacters(in: .whitespaces)
-        guard !query.isEmpty else { return ordered }
-        return ordered.filter { workspace in
-            workspace.name.localizedCaseInsensitiveContains(query)
-                || workspace.projectIDs.compactMap(store.project)
-                    .contains { $0.name.localizedCaseInsensitiveContains(query) }
+        return ordered.filter { item in
+            switch item {
+            case .project:
+                return item.name.localizedCaseInsensitiveContains(query)
+            case .workspace(let workspace):
+                return item.name.localizedCaseInsensitiveContains(query)
+                    || workspace.projectIDs.compactMap(store.project)
+                        .contains { $0.name.localizedCaseInsensitiveContains(query) }
+            }
         }
     }
 
