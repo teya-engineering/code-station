@@ -309,9 +309,9 @@ struct SessionSummary: Codable, Equatable, Sendable {
     }
 }
 
-// A conversation with Claude Code in a project's directory. `claudeSessionID` is the
-// id Claude Code itself reports in its init event; it is what `--resume` needs, so it
-// is the one piece of state that must survive a restart of this app.
+// A conversation with one coding agent in a project's directory. The agent is chosen
+// when the session is created and stays with it, so every visible turn belongs to the
+// same underlying conversation.
 //
 // The conversation itself is kept in a file of its own rather than in this record, so
 // the app can hold every session it has ever had while only the open one costs anything.
@@ -320,9 +320,10 @@ struct ChatSession: Identifiable, Codable, Equatable {
     var projectID: UUID
     var title: String = "New session"
     var isTroubleshooting = false
+    var agent: AgentKind
+    // Resume ids written before agents were pinned are kept so those conversations can
+    // still be recovered. New sessions only fill the id belonging to their chosen agent.
     var claudeSessionID: String?
-    // Codex numbers its conversations separately, so a session keeps one id per agent
-    // and can carry on with either. What one agent said is invisible to the other.
     var codexSessionID: String?
     var createdAt: Date = Date()
     // Set when the session runs in its own git worktree instead of the project
@@ -353,6 +354,12 @@ struct ChatSession: Identifiable, Codable, Equatable {
     // When something last happened here, used for the sidebar's relative times.
     var lastActivity: Date { summary.lastMessageAt ?? createdAt }
 
+    // The first prompt pins the model. A resume id also proves an older session already
+    // started even if its transcript summary came from a version that did not save dates.
+    var hasStarted: Bool {
+        summary.lastMessageAt != nil || claudeSessionID != nil || codexSessionID != nil
+    }
+
     func agentSessionID(for agent: AgentKind) -> String? {
         switch agent {
         case .claudeCode: claudeSessionID
@@ -373,15 +380,17 @@ struct ChatSession: Identifiable, Codable, Equatable {
     // encodes to. It is still decoded: a file written before the split holds every
     // conversation inline, and that is what the store moves out on the first launch.
     private enum CodingKeys: String, CodingKey {
-        case id, projectID, title, isTroubleshooting, claudeSessionID, codexSessionID, createdAt
+        case id, projectID, title, isTroubleshooting, agent
+        case claudeSessionID, codexSessionID, createdAt
         case worktreePath, worktreeBranch
         case workspaceID, sessionProjects, settings, usage, agentAvatarName
         case pullRequest, summary, messages
     }
 
-    init(id: UUID = UUID(), projectID: UUID) {
+    init(id: UUID = UUID(), projectID: UUID, agent: AgentKind = .claudeCode) {
         self.id = id
         self.projectID = projectID
+        self.agent = agent
     }
 
     init(from decoder: any Decoder) throws {
@@ -405,6 +414,11 @@ struct ChatSession: Identifiable, Codable, Equatable {
         summary = try container.decodeIfPresent(SessionSummary.self, forKey: .summary) ?? SessionSummary()
         messages = try container.decodeIfPresent([ChatMessage].self, forKey: .messages) ?? []
         transcriptLoaded = !messages.isEmpty
+        agent = try container.decodeIfPresent(AgentKind.self, forKey: .agent)
+            ?? Self.inferredAgent(claudeSessionID: claudeSessionID,
+                                  codexSessionID: codexSessionID,
+                                  settings: settings,
+                                  usage: usage)
     }
 
     func encode(to encoder: any Encoder) throws {
@@ -413,6 +427,7 @@ struct ChatSession: Identifiable, Codable, Equatable {
         try container.encode(projectID, forKey: .projectID)
         try container.encode(title, forKey: .title)
         try container.encode(isTroubleshooting, forKey: .isTroubleshooting)
+        try container.encode(agent, forKey: .agent)
         try container.encodeIfPresent(claudeSessionID, forKey: .claudeSessionID)
         try container.encodeIfPresent(codexSessionID, forKey: .codexSessionID)
         try container.encode(createdAt, forKey: .createdAt)
@@ -425,6 +440,17 @@ struct ChatSession: Identifiable, Codable, Equatable {
         try container.encodeIfPresent(agentAvatarName, forKey: .agentAvatarName)
         try container.encodeIfPresent(pullRequest, forKey: .pullRequest)
         try container.encode(summary, forKey: .summary)
+    }
+
+    // Old sessions did not save their agent. Usage is the strongest signal for mixed
+    // histories, followed by a model choice and then the one resume id on the record.
+    private static func inferredAgent(claudeSessionID: String?, codexSessionID: String?,
+                                      settings: SessionSettings?, usage: SessionUsage?) -> AgentKind {
+        if let latest = usage?.latestAgent { return latest }
+        if ModelChoice.valid(settings?.model, for: .codex) != nil { return .codex }
+        if ModelChoice.valid(settings?.model, for: .claudeCode) != nil { return .claudeCode }
+        if codexSessionID != nil, claudeSessionID == nil { return .codex }
+        return .claudeCode
     }
 }
 

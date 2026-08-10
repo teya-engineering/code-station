@@ -241,22 +241,24 @@ struct NewSessionView: View {
     private func finish() {
         let base = baseOnRemote ? freshness?.remoteRef : nil
         let agent = selectedAgent ?? runner.agent
+        let model = runner.defaults(for: agent).model
         onCreate(useWorktree
-                 ? .worktree(sessionID, base: base, agent: agent,
+                 ? .worktree(sessionID, base: base, agent: agent, model: model,
                              agentAvatarName: selectedAvatarName)
-                 : .folder(agent: agent, agentAvatarName: selectedAvatarName))
+                 : .folder(agent: agent, model: model,
+                           agentAvatarName: selectedAvatarName))
         dismiss()
     }
 }
 
 // What the sheet came back with. The worktree case carries the id the session must be
 // created with, since the branch and folder shown were named after it, and the ref to
-// fork from when the user chose the remote tip over their own checkout. The agent is
-// applied only once the session exists. Any pull the user asked for has already run by
-// the time this arrives.
+// fork from when the user chose the remote tip over their own checkout. The agent and
+// model become part of the session record. Any requested pull has already run by then.
 enum NewSessionChoice: Equatable {
-    case worktree(UUID, base: String?, agent: AgentKind, agentAvatarName: String?)
-    case folder(agent: AgentKind, agentAvatarName: String?)
+    case worktree(UUID, base: String?, agent: AgentKind, model: String?,
+                  agentAvatarName: String?)
+    case folder(agent: AgentKind, model: String?, agentAvatarName: String?)
 }
 
 // Says when the checkout a session would fork from is not the default branch at its

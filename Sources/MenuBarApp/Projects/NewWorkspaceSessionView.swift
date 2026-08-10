@@ -258,6 +258,7 @@ struct NewWorkspaceSessionView: View {
     }
 
     private func create() {
+        let agent = selectedAgent ?? runner.agent
         let choices = projectIDs.map { id in
             let useWorktree = store.project(id).map {
                 worktrees.contains(id) && isGitRepository($0)
@@ -265,7 +266,8 @@ struct NewWorkspaceSessionView: View {
             return WorkspaceProjectChoice(projectID: id, useWorktree: useWorktree)
         }
         onCreate(WorkspaceSessionChoice(sessionID: sessionID, projects: choices,
-                                        agent: selectedAgent ?? runner.agent,
+                                        agent: agent,
+                                        model: runner.defaults(for: agent).model,
                                         agentAvatarName: selectedAvatarName))
         dismiss()
     }
@@ -285,6 +287,7 @@ struct WorkspaceSessionChoice: Equatable {
     var sessionID: UUID
     var projects: [WorkspaceProjectChoice]
     var agent: AgentKind
+    var model: String? = nil
     var agentAvatarName: String? = nil
 }
 

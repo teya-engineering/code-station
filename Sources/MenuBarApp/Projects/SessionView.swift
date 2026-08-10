@@ -397,8 +397,8 @@ struct SessionView: View {
             strip("Workspace folder not found at \(missing.abbreviatedPath). Move it back or recreate this session.")
         } else if let worktree = session.worktreePath, !FileManager.default.fileExists(atPath: worktree) {
             strip("Worktree not found at \(worktree.abbreviatedPath). It was removed outside the app; delete this session or recreate it.")
-        } else if !runner.available {
-            strip("\(runner.agent.title) CLI not found on PATH. Sessions cannot run until it is installed.")
+        } else if !runner.isAvailable(session.agent) {
+            strip("\(session.agent.title) CLI not found on PATH. Sessions cannot run until it is installed.")
         }
     }
 
@@ -513,7 +513,7 @@ struct SessionView: View {
                                    loadEarlier: @escaping () -> Void) -> some View {
         VStack(alignment: .leading, spacing: 18) {
             if session.messages.isEmpty {
-                Text("Ask for a change. \(runner.agent.title) runs in the project folder, so what it edits is your working tree.")
+                Text("Ask for a change. \(session.agent.title) runs in the project folder, so what it edits is your working tree.")
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
                     .padding(.top, 8)
@@ -673,7 +673,8 @@ struct SessionView: View {
 
     private func composer(session: ChatSession, project: Project) -> some View {
         let workingDirectory = session.worktreePath ?? project.path
-        let blocked = !FileManager.default.fileExists(atPath: workingDirectory) || !runner.available
+        let blocked = !FileManager.default.fileExists(atPath: workingDirectory)
+            || !runner.isAvailable(session.agent)
         let state = runner.state(sessionID)
         let busy = state.isBusy
         let canSend = !blocked && !runner.draft(sessionID).isEmpty
@@ -762,10 +763,8 @@ struct SessionView: View {
     }
 
     // What the next turn will use, on the line the eye is already on when hitting send:
-    // the branch it edits, the model, effort and permissions it runs with, and how full
-    // the window is. A run choice left on the app default keeps following Settings,
-    // including later changes there; an override holds for this conversation alone and
-    // is marked in the accent colour.
+    // the branch it edits, its pinned agent and model, the remaining run controls, and
+    // how full the window is.
     @ViewBuilder private func contextReadout(_ session: ChatSession) -> some View {
         let repository = stats?.state == .ready ? stats : nil
         // A worktree session knows its branch from creation, so the tag can draw on
@@ -774,7 +773,7 @@ struct SessionView: View {
             ?? session.worktreeBranch
             ?? session.sessionProjects?.compactMap(\.worktreeBranch).first
         let usage = session.usage
-        let agent = runner.agent
+        let agent = session.agent
         HStack(spacing: 10) {
             if let branch, !branch.isEmpty { branchTag(branch: branch, repository: repository) }
             if session.settings?.mcpServersEnabled == false {
@@ -786,12 +785,13 @@ struct SessionView: View {
                     .background(RoundedRectangle(cornerRadius: 7).fill(Theme.field))
                     .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.border))
             }
-            modelMenu(lastRan: usage?.model(for: agent))
-            effortMenu
+            pinnedSetting(agent.title, help: "This session always runs on \(agent.title).")
+            modelControl(session, lastRan: usage?.model(for: agent))
+            effortMenu(agent: agent)
             if agent == .claudeCode {
-                permissionsMenu
+                permissionsMenu(agent: agent)
             } else {
-                codexAccessMenu
+                codexAccessMenu(agent: agent)
             }
             Spacer(minLength: 8)
             if let pullRequest = session.pullRequest { pullRequestTag(pullRequest) }
@@ -822,9 +822,9 @@ struct SessionView: View {
 
     // MARK: - Run choices
 
-    // The session's overrides, and the app defaults they fall back to. The same choices
-    // the CLI hides behind /model, /effort and its permission modes, which cannot be
-    // typed at an agent that is driven over a pipe.
+    // The session's model and its overrides for controls that may still follow app
+    // defaults. These are the choices the CLIs hide behind their interactive commands,
+    // which cannot be typed at an agent driven over a pipe.
     private var sessionSettings: SessionSettings {
         store.session(sessionID)?.settings ?? SessionSettings()
     }
@@ -835,35 +835,32 @@ struct SessionView: View {
         store.setSettings(updated, for: sessionID)
     }
 
-    private func modelMenu(lastRan: String?) -> some View {
+    @ViewBuilder private func modelControl(_ session: ChatSession, lastRan: String?) -> some View {
         let settings = sessionSettings
-        let agent = runner.agent
-        // Choices made while the other agent was active mean nothing to this one, so
-        // they read as "nothing chosen" here the way the runner treats them.
-        let override = ModelChoice.valid(settings.model, for: agent)
-        let appDefault = ModelChoice.valid(runner.defaults.model, for: agent)
-        // The chip names what the next turn will run on: the override, else the app
-        // default, else whatever the CLI last reported it decided on its own.
-        let label = override.map { ModelChoice.title(of: $0) }
-            ?? appDefault.map { ModelChoice.title(of: $0) }
+        let agent = session.agent
+        let model = ModelChoice.valid(settings.model, for: agent)
+        let label = model.map { ModelChoice.title(of: $0) }
             ?? lastRan.map { ModelChoice.shortName(of: $0) }
             ?? "Default model"
-        return settingMenu(label,
-                           overridden: override != nil,
-                           help: "The model this session runs on. Applies from the next turn.",
-                           defaultTitle: defaultTitle(appDefault.map { ModelChoice.title(of: $0) }),
-                           options: ModelChoice.options(for: agent).compactMap { choice in
-                               choice.id.map { (id: $0, title: choice.title) }
-                           },
-                           selection: Binding(get: { override },
-                                              set: { id in changeSettings { $0.model = id } }))
+        if session.hasStarted {
+            pinnedSetting(label, help: "The model was pinned when this session started.", accent: true)
+        } else {
+            settingMenu(label,
+                        overridden: model != nil,
+                        help: "The model this session will use. It is pinned after the first prompt.",
+                        defaultTitle: "Use \(agent.title) default",
+                        options: ModelChoice.options(for: agent).compactMap { choice in
+                            choice.id.map { (id: $0, title: choice.title) }
+                        },
+                        selection: Binding(get: { model },
+                                           set: { id in changeSettings { $0.model = id } }))
+        }
     }
 
-    private var effortMenu: some View {
+    private func effortMenu(agent: AgentKind) -> some View {
         let settings = sessionSettings
-        let agent = runner.agent
         let override = EffortChoice.valid(settings.effort, for: agent)
-        let appDefault = EffortChoice.valid(runner.defaults.effort, for: agent)
+        let appDefault = EffortChoice.valid(runner.defaults(for: agent).effort, for: agent)
         let chosen = override ?? appDefault
         return settingMenu(chosen.map { "\(EffortChoice.summary(of: $0, agent: agent)) effort" } ?? "Default effort",
                            overridden: override != nil,
@@ -876,21 +873,22 @@ struct SessionView: View {
                                               set: { id in changeSettings { $0.effort = id } }))
     }
 
-    private var permissionsMenu: some View {
+    private func permissionsMenu(agent: AgentKind) -> some View {
         let settings = sessionSettings
-        return settingMenu(PermissionMode.shortTitle(of: settings.permissionMode ?? runner.defaults.permissionMode),
+        let defaults = runner.defaults(for: agent)
+        return settingMenu(PermissionMode.shortTitle(of: settings.permissionMode ?? defaults.permissionMode),
                            overridden: settings.permissionMode != nil,
                            help: "How much the agent asks before it acts.",
-                           defaultTitle: defaultTitle(PermissionMode.shortTitle(of: runner.defaults.permissionMode)),
+                           defaultTitle: defaultTitle(PermissionMode.shortTitle(of: defaults.permissionMode)),
                            options: PermissionMode.all.map { (id: $0.mode, title: $0.title) },
                            selection: Binding(get: { settings.permissionMode },
                                               set: { mode in changeSettings { $0.permissionMode = mode } }))
     }
 
-    private var codexAccessMenu: some View {
+    private func codexAccessMenu(agent: AgentKind) -> some View {
         let settings = sessionSettings
         let override = CodexSandboxMode.valid(settings.codexSandboxMode)
-        let appDefault = CodexSandboxMode.resolved(runner.defaults.codexSandboxMode)
+        let appDefault = CodexSandboxMode.resolved(runner.defaults(for: agent).codexSandboxMode)
         let selected = override ?? appDefault
         return settingMenu(selected.summary,
                            overridden: override != nil,
@@ -903,6 +901,15 @@ struct SessionView: View {
                                               set: { value in
                                                   changeSettings { $0.codexSandboxMode = value }
                                               }))
+    }
+
+    private func pinnedSetting(_ label: String, help: String,
+                               accent: Bool = false) -> some View {
+        Text(label)
+            .font(.system(size: 11, weight: accent ? .semibold : .regular))
+            .foregroundStyle(accent ? Theme.accent : Color.secondary)
+            .fixedSize()
+            .help(help)
     }
 
     // The first row of every menu, naming what following the default currently means.

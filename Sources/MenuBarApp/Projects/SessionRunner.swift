@@ -12,14 +12,13 @@ import Observation
 @MainActor
 @Observable
 final class SessionRunner {
-    // Which agent new turns run on. Turns already going finish on the agent they
-    // started with.
+    // Which agent new sessions use unless their creation screen chooses another one.
     var agent = Preferences.agent {
         didSet { Preferences.agent = agent }
     }
 
-    // What every session runs with unless it has picked something of its own. Each agent
-    // has its own defaults because their models and access controls do not overlap.
+    // Defaults for new sessions and for run controls that are allowed to follow app
+    // settings between turns. Each agent has its own because their choices do not overlap.
     private var defaultsByAgent: [AgentKind: SessionSettings]
 
     var defaults: SessionSettings {
@@ -258,16 +257,17 @@ final class SessionRunner {
     }
 
     // Everything the CLI is run with for one turn. The session's own choices win, the app
-    // defaults fill the gaps, and anything neither has chosen is left off entirely rather
-    // than sent as a guess, so the agent's own configuration keeps deciding it. A model
-    // or effort picked while the other agent was active would only be refused, so it
-    // counts as unchosen here.
+    // defaults fill the gaps for mutable run controls, and anything neither has chosen is
+    // left off rather than sent as a guess. A choice that does not belong to this agent
+    // would be refused, so it counts as unchosen here.
     nonisolated static func arguments(agent: AgentKind = .claudeCode,
                                       settings: SessionSettings, defaults: SessionSettings,
                                       addDirectories: [String] = [], writableRoots: [String] = [],
                                       resume: String? = nil,
                                       mcpConfigPath: String? = nil) -> [String] {
-        let model = ModelChoice.valid(settings.model ?? defaults.model, for: agent)
+        // The model is copied into the session when it is created. Falling back to the
+        // current app default here would let an existing conversation silently change.
+        let model = ModelChoice.valid(settings.model, for: agent)
         let effort = EffortChoice.valid(settings.effort ?? defaults.effort, for: agent)
         let codexSandbox = CodexSandboxMode.resolved(settings.codexSandboxMode
             ?? defaults.codexSandboxMode)
@@ -460,7 +460,7 @@ final class SessionRunner {
             setState(.failed("This session's project is no longer in the app."), for: sessionID)
             return
         }
-        let agent = agent
+        let agent = session.agent
         guard let agentPath = paths[agent] else {
             setState(.failed(
                 "Could not find \"\(agent.command)\" on PATH. Install the \(agent.title) CLI (\(agent.installHint)) and reopen the app."),

@@ -28,6 +28,56 @@ struct TranscriptStoreTests {
                 result: result)
     }
 
+    @Test func sessionsPersistTheirAgentAndInitialModel() throws {
+        let store = makeStore()
+        let session = store.newSession(in: project(in: store).id,
+                                       agent: .codex,
+                                       model: "gpt-5.6-terra")
+
+        #expect(session.agent == .codex)
+        #expect(session.settings?.model == "gpt-5.6-terra")
+        #expect(store.save())
+
+        let loaded = try #require(ProjectStore(storeURL: store.storeURL).session(session.id))
+        #expect(loaded.agent == .codex)
+        #expect(loaded.settings?.model == "gpt-5.6-terra")
+    }
+
+    @Test func aStartedSessionKeepsItsModelWhileOtherRunControlsCanChange() throws {
+        let store = makeStore()
+        let session = store.newSession(in: project(in: store).id,
+                                       agent: .codex,
+                                       model: "gpt-5.6-terra")
+        store.setSettings(SessionSettings(model: "gpt-5.6-sol"), for: session.id)
+        #expect(store.session(session.id)?.settings?.model == "gpt-5.6-sol")
+
+        store.append(ChatMessage(role: .user, text: "Start working"), to: session.id)
+        store.setSettings(SessionSettings(model: "gpt-5.6-terra", effort: "high"),
+                          for: session.id)
+
+        let started = try #require(store.session(session.id))
+        #expect(started.hasStarted)
+        #expect(started.settings?.model == "gpt-5.6-sol")
+        #expect(started.settings?.effort == "high")
+    }
+
+    @Test func sessionsWrittenBeforeAgentPinningRecoverCodexFromTheirResumeID() throws {
+        let projectID = UUID()
+        let sessionID = UUID()
+        let data = Data("""
+        {
+          "id": "\(sessionID.uuidString)",
+          "projectID": "\(projectID.uuidString)",
+          "codexSessionID": "thread-1"
+        }
+        """.utf8)
+
+        let session = try JSONDecoder().decode(ChatSession.self, from: data)
+
+        #expect(session.agent == .codex)
+        #expect(session.hasStarted)
+    }
+
     private func indexJSON(_ store: ProjectStore) -> String {
         (try? String(contentsOf: store.storeURL, encoding: .utf8)) ?? ""
     }

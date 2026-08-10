@@ -516,7 +516,7 @@ struct WorkspaceDetailView: View {
             switch await SessionLifecycle.createWorkspaceSession(
                 choice, in: workspace, store: store) {
             case .success:
-                runner.agent = choice.agent
+                break
             case .failure(let failure):
                 showCreationError(failure.message, title: failure.title)
             }

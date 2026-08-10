@@ -779,9 +779,15 @@ struct TroubleshootView: View {
                 }
                 sessionResult = store.insertSession(in: workspace.id,
                                                     projects: checkouts,
+                                                    agent: chosenAgent,
+                                                    model: runner.defaults(for: chosenAgent).model,
                                                     isTroubleshooting: true)
             } else {
-                sessionResult = store.insertSession(in: lead.id, isTroubleshooting: true)
+                sessionResult = store.insertSession(
+                    in: lead.id,
+                    agent: chosenAgent,
+                    model: runner.defaults(for: chosenAgent).model,
+                    isTroubleshooting: true)
             }
             let session: ChatSession
             switch sessionResult {
@@ -796,14 +802,13 @@ struct TroubleshootView: View {
                 return
             }
 
-            var settings = SessionSettings()
+            var settings = session.settings ?? SessionSettings()
             settings.mcpServersEnabled = enableMCPServers
             settings.allowedMCPServerNames = enableMCPServers && !managedServers.isEmpty
                 ? selectedServers.map(\.name)
                 : nil
             settings.disabledMCPServerNames = disabledServers.isEmpty ? nil : disabledServers
             store.setSettings(settings, for: session.id)
-            runner.agent = chosenAgent
 
             let request = TroubleshootRequest(
                 problem: problem,

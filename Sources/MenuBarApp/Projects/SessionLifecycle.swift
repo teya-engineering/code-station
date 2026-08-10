@@ -31,7 +31,8 @@ enum SessionLifecycle {
     }
 
     static func createWorktreeSession(in project: Project, id sessionID: UUID,
-                                      base: String?, agentAvatarName: String? = nil,
+                                      base: String?, agent: AgentKind = .claudeCode,
+                                      model: String? = nil, agentAvatarName: String? = nil,
                                       store: ProjectStore,
                                       worktrees: WorktreeOperations = .live) async
         -> Result<ChatSession, Failure> {
@@ -56,6 +57,8 @@ enum SessionLifecycle {
             switch store.insertSession(in: project.id, id: sessionID,
                                        worktreePath: created.path,
                                        worktreeBranch: created.branch,
+                                       agent: agent,
+                                       model: model,
                                        agentAvatarName: agentAvatarName) {
             case .success(let session):
                 return .success(session)
@@ -115,6 +118,8 @@ enum SessionLifecycle {
 
         switch store.insertSession(in: workspace.id, id: choice.sessionID,
                                    projects: checkouts,
+                                   agent: choice.agent,
+                                   model: choice.model,
                                    agentAvatarName: choice.agentAvatarName) {
         case .success(let session):
             return .success(session)

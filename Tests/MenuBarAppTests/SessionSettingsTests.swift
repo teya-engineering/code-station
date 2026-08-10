@@ -34,12 +34,12 @@ struct SessionSettingsTests {
         #expect(pair(arguments, after: "--resume") == "abc-123")
     }
 
-    // A session that has chosen nothing runs on the app settings, which is what the
-    // "use the default" rows promise.
-    @Test func fallsBackToTheAppDefaults() {
+    // The model belongs to the session, while controls that do not define the
+    // conversation can still follow app defaults between turns.
+    @Test func keepsTheModelPinnedWhileOtherChoicesUseAppDefaults() {
         let defaults = SessionSettings(model: "sonnet", effort: "low", permissionMode: "auto")
         let arguments = SessionRunner.arguments(settings: SessionSettings(), defaults: defaults)
-        #expect(pair(arguments, after: "--model") == "sonnet")
+        #expect(!arguments.contains("--model"))
         #expect(pair(arguments, after: "--effort") == "low")
         #expect(pair(arguments, after: "--permission-mode") == "auto")
     }

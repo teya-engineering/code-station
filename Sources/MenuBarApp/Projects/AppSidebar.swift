@@ -642,6 +642,7 @@ struct AppSidebar: View {
     private func requestNewSession(in project: Project) {
         guard FileManager.default.fileExists(atPath: project.path + "/.git") else {
             startSession(.folder(agent: runner.agent,
+                                 model: runner.defaults.model,
                                  agentAvatarName: appSettings.defaultAgentAvatarName),
                          in: project)
             return
@@ -654,13 +655,13 @@ struct AppSidebar: View {
         // is the clearest sign yet that it wants to be open.
         setExpanded(true, for: project.id)
         switch choice {
-        case .worktree(let sessionID, let base, let agent, let agentAvatarName):
+        case .worktree(let sessionID, let base, let agent, let model, let agentAvatarName):
             createWorktreeSession(in: project, id: sessionID, base: base, agent: agent,
-                                  agentAvatarName: agentAvatarName)
-        case .folder(let agent, let agentAvatarName):
-            switch store.insertSession(in: project.id, agentAvatarName: agentAvatarName) {
+                                  model: model, agentAvatarName: agentAvatarName)
+        case .folder(let agent, let model, let agentAvatarName):
+            switch store.insertSession(in: project.id, agent: agent, model: model,
+                                       agentAvatarName: agentAvatarName) {
             case .success(let session):
-                runner.agent = agent
                 sessionToReveal = session.id
             case .failure(let failure):
                 showLifecycleFailure(SessionLifecycle.Failure(
@@ -678,7 +679,6 @@ struct AppSidebar: View {
             switch await SessionLifecycle.createWorkspaceSession(
                 choice, in: workspace, store: store) {
             case .success:
-                runner.agent = choice.agent
                 sessionToReveal = choice.sessionID
             case .failure(let failure):
                 showLifecycleFailure(failure)
@@ -755,13 +755,13 @@ struct AppSidebar: View {
     // The session id is chosen up front so the worktree folder and branch can carry
     // it before the session exists, which is also what lets the sheet name both.
     private func createWorktreeSession(in project: Project, id sessionID: UUID, base: String?,
-                                       agent: AgentKind, agentAvatarName: String?) {
+                                       agent: AgentKind, model: String?, agentAvatarName: String?) {
         Task {
             switch await SessionLifecycle.createWorktreeSession(
                 in: project, id: sessionID, base: base,
+                agent: agent, model: model,
                 agentAvatarName: agentAvatarName, store: store) {
             case .success:
-                runner.agent = agent
                 sessionToReveal = sessionID
             case .failure(let failure):
                 showLifecycleFailure(failure)
@@ -1038,6 +1038,7 @@ struct AppSidebar: View {
         switch store.addAdHocTask(named: name) {
         case .success(let project):
             startSession(.folder(agent: runner.agent,
+                                 model: runner.defaults.model,
                                  agentAvatarName: appSettings.defaultAgentAvatarName),
                          in: project)
         case .failure(let failure):

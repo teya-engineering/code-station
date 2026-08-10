@@ -270,6 +270,7 @@ struct ProjectDetailView: View {
         guard !store.isMissing(project) else { return }
         guard FileManager.default.fileExists(atPath: project.path + "/.git") else {
             startSession(.folder(agent: runner.agent,
+                                 model: runner.defaults.model,
                                  agentAvatarName: appSettings.defaultAgentAvatarName),
                          in: project)
             return
@@ -279,13 +280,14 @@ struct ProjectDetailView: View {
 
     private func startSession(_ choice: NewSessionChoice, in project: Project) {
         switch choice {
-        case .worktree(let sessionID, let base, let agent, let agentAvatarName):
+        case .worktree(let sessionID, let base, let agent, let model, let agentAvatarName):
             createWorktreeSession(in: project, id: sessionID, base: base, agent: agent,
-                                  agentAvatarName: agentAvatarName)
-        case .folder(let agent, let agentAvatarName):
-            switch store.insertSession(in: project.id, agentAvatarName: agentAvatarName) {
+                                  model: model, agentAvatarName: agentAvatarName)
+        case .folder(let agent, let model, let agentAvatarName):
+            switch store.insertSession(in: project.id, agent: agent, model: model,
+                                       agentAvatarName: agentAvatarName) {
             case .success:
-                runner.agent = agent
+                break
             case .failure(let failure):
                 dialogs.show(Dialog(
                     title: "Could not create the session",
@@ -296,13 +298,14 @@ struct ProjectDetailView: View {
     }
 
     private func createWorktreeSession(in project: Project, id sessionID: UUID, base: String?,
-                                       agent: AgentKind, agentAvatarName: String?) {
+                                       agent: AgentKind, model: String?, agentAvatarName: String?) {
         Task {
             switch await SessionLifecycle.createWorktreeSession(
                 in: project, id: sessionID, base: base,
+                agent: agent, model: model,
                 agentAvatarName: agentAvatarName, store: store) {
             case .success:
-                runner.agent = agent
+                break
             case .failure(let failure):
                 dialogs.show(Dialog(
                     title: failure.title,

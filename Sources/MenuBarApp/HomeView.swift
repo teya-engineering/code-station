@@ -256,6 +256,7 @@ struct HomeView: View {
         guard !store.isMissing(project) else { return }
         guard FileManager.default.fileExists(atPath: project.path + "/.git") else {
             startSession(.folder(agent: runner.agent,
+                                 model: runner.defaults.model,
                                  agentAvatarName: appSettings.defaultAgentAvatarName),
                          in: project)
             return
@@ -265,21 +266,23 @@ struct HomeView: View {
 
     private func startSession(_ choice: NewSessionChoice, in project: Project) {
         switch choice {
-        case .worktree(let sessionID, let base, let agent, let agentAvatarName):
+        case .worktree(let sessionID, let base, let agent, let model, let agentAvatarName):
             Task {
                 switch await SessionLifecycle.createWorktreeSession(
                     in: project, id: sessionID, base: base,
+                    agent: agent, model: model,
                     agentAvatarName: agentAvatarName, store: store) {
                 case .success:
-                    runner.agent = agent
+                    break
                 case .failure(let failure):
                     show(failure)
                 }
             }
-        case .folder(let agent, let agentAvatarName):
-            switch store.insertSession(in: project.id, agentAvatarName: agentAvatarName) {
+        case .folder(let agent, let model, let agentAvatarName):
+            switch store.insertSession(in: project.id, agent: agent, model: model,
+                                       agentAvatarName: agentAvatarName) {
             case .success:
-                runner.agent = agent
+                break
             case .failure(let failure):
                 show(SessionLifecycle.Failure(
                     title: "Could not create the session", message: failure.message))

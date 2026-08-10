@@ -372,11 +372,13 @@ final class ProjectStore {
     @discardableResult
     func newSession(in projectID: UUID, id: UUID = UUID(),
                     worktreePath: String? = nil, worktreeBranch: String? = nil,
+                    agent: AgentKind = .claudeCode, model: String? = nil,
                     agentAvatarName: String? = nil,
                     isTroubleshooting: Bool = false) -> ChatSession {
-        var session = ChatSession(id: id, projectID: projectID)
+        var session = ChatSession(id: id, projectID: projectID, agent: agent)
         session.worktreePath = worktreePath
         session.worktreeBranch = worktreeBranch
+        session.settings = SessionSettings(model: ModelChoice.valid(model, for: agent))
         session.agentAvatarName = agentAvatarName
         session.isTroubleshooting = isTroubleshooting
         // Nothing has been said yet, and there is no file to go looking for.
@@ -391,7 +393,8 @@ final class ProjectStore {
 
     @discardableResult
     func newSession(in workspaceID: UUID, id: UUID = UUID(),
-                    projects: [SessionProject], agentAvatarName: String? = nil,
+                    projects: [SessionProject], agent: AgentKind = .claudeCode,
+                    model: String? = nil, agentAvatarName: String? = nil,
                     isTroubleshooting: Bool = false) -> ChatSession? {
         guard let workspace = workspace(workspaceID),
               projects.count >= 2,
@@ -399,11 +402,12 @@ final class ProjectStore {
               projects.first?.projectID == workspace.leadProjectID,
               projects.allSatisfy({ project($0.projectID) != nil }) else { return nil }
 
-        var session = ChatSession(id: id, projectID: workspace.leadProjectID)
+        var session = ChatSession(id: id, projectID: workspace.leadProjectID, agent: agent)
         session.workspaceID = workspaceID
         session.sessionProjects = projects
         session.worktreePath = projects.first?.worktreePath
         session.worktreeBranch = projects.first?.worktreeBranch
+        session.settings = SessionSettings(model: ModelChoice.valid(model, for: agent))
         session.agentAvatarName = agentAvatarName
         session.isTroubleshooting = isTroubleshooting
         session.transcriptLoaded = true
@@ -417,6 +421,7 @@ final class ProjectStore {
 
     func insertSession(in projectID: UUID, id: UUID = UUID(),
                        worktreePath: String? = nil, worktreeBranch: String? = nil,
+                       agent: AgentKind = .claudeCode, model: String? = nil,
                        agentAvatarName: String? = nil,
                        isTroubleshooting: Bool = false)
         -> Result<ChatSession, PersistenceFailure> {
@@ -425,6 +430,8 @@ final class ProjectStore {
         let session = newSession(in: projectID, id: id,
                                  worktreePath: worktreePath,
                                  worktreeBranch: worktreeBranch,
+                                 agent: agent,
+                                 model: model,
                                  agentAvatarName: agentAvatarName,
                                  isTroubleshooting: isTroubleshooting)
         guard save() else {
@@ -436,12 +443,14 @@ final class ProjectStore {
     }
 
     func insertSession(in workspaceID: UUID, id: UUID = UUID(),
-                       projects: [SessionProject], agentAvatarName: String? = nil,
+                       projects: [SessionProject], agent: AgentKind = .claudeCode,
+                       model: String? = nil, agentAvatarName: String? = nil,
                        isTroubleshooting: Bool = false)
         -> Result<ChatSession, PersistenceFailure> {
         let previousSelection = selection
         let previousProjectID = selectedProjectID
         guard let session = newSession(in: workspaceID, id: id, projects: projects,
+                                       agent: agent, model: model,
                                        agentAvatarName: agentAvatarName,
                                        isTroubleshooting: isTroubleshooting) else {
             return .failure(PersistenceFailure(
@@ -499,12 +508,15 @@ final class ProjectStore {
         }
     }
 
-    // What the next turn in this session runs with. A turn already in flight keeps the
-    // settings it started with, since its process is long past reading them.
+    // What the next turn in this session runs with. The model becomes part of the
+    // conversation identity after its first prompt, while the other run controls can
+    // still change between turns.
     func setSettings(_ settings: SessionSettings, for sessionID: UUID) {
         guard let i = index(sessionID) else { return }
-        guard sessions[i].settings != settings else { return }
-        sessions[i].settings = settings
+        var updated = settings
+        if sessions[i].hasStarted { updated.model = sessions[i].settings?.model }
+        guard sessions[i].settings != updated else { return }
+        sessions[i].settings = updated
         saveIndex()
     }
 
@@ -829,7 +841,7 @@ final class ProjectStore {
     }
 
     func setAgentSessionID(_ agentID: String, agent: AgentKind, for sessionID: UUID) {
-        guard let i = index(sessionID) else { return }
+        guard let i = index(sessionID), sessions[i].agent == agent else { return }
         guard sessions[i].agentSessionID(for: agent) != agentID else { return }
         switch agent {
         case .claudeCode: sessions[i].claudeSessionID = agentID

@@ -38,9 +38,9 @@ enum AgentKind: String, CaseIterable, Codable, Sendable, Identifiable {
 // What a session runs the agent with, on top of the prompt itself. These are the same
 // choices the CLIs offer behind their model, effort and permission settings.
 //
-// The same type holds both layers. As a session's settings, nil means "no override" and
-// the app default takes over; as the app defaults, nil means the flag is left off
-// entirely and Claude Code's own configuration decides.
+// The same type holds both layers. A session model is copied from the app default at
+// creation, and nil pins the CLI's own default. Nil for the other session controls keeps
+// following the app default. In the app defaults, nil leaves the flag off entirely.
 struct SessionSettings: Codable, Equatable {
     var model: String?
     var effort: String?
@@ -130,8 +130,8 @@ enum ModelChoice {
         }
     }
 
-    // An id picked while the other agent was active means nothing to this one, so it
-    // reads as "nothing chosen" instead of being sent and refused.
+    // An id that belongs to another agent can exist on an older mixed session. It reads
+    // as "nothing chosen" instead of being sent and refused.
     static func valid(_ id: String?, for agent: AgentKind) -> String? {
         guard let id, !id.isEmpty,
               options(for: agent).contains(where: { $0.id == id }) else { return nil }

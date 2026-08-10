@@ -209,7 +209,7 @@ struct AgentSettingsView: View {
     // MARK: - Agent tabs
 
     private var agentTabs: some View {
-        ChoiceBlock("AGENT", note: "Every session runs on this agent from its next turn. Each agent keeps a conversation history of its own, so a session switched over starts the other agent without the context so far.") {
+        ChoiceBlock("AGENT", note: "New sessions use this agent by default. A session keeps the agent and model it starts with for its whole conversation.") {
             HStack(spacing: 4) {
                 ForEach(AgentKind.allCases) { kind in
                     ChoicePill(title: kind.title, selected: runner.agent == kind) {

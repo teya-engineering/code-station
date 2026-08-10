@@ -29,12 +29,15 @@ struct SessionLifecycleTests {
 
         let result = await SessionLifecycle.createWorktreeSession(
             in: project, id: sessionID, base: "origin/main",
+            agent: .codex, model: "gpt-5.6-terra",
             agentAvatarName: "agent-avatar-2.png", store: store,
             worktrees: worktrees)
 
         let session = try result.get()
         #expect(session.id == sessionID)
         #expect(session.worktreePath == "/worktrees/project")
+        #expect(session.agent == .codex)
+        #expect(session.settings?.model == "gpt-5.6-terra")
         #expect(session.agentAvatarName == "agent-avatar-2.png")
         #expect(store.session(sessionID)?.worktreeBranch == "conductor/test")
     }
@@ -194,7 +197,8 @@ struct SessionLifecycleTests {
         let project = try #require(store.addProject(at: projectURL))
         let session = try store.insertSession(in: project.id).get()
         let runner = SessionRunner(paths: [.claudeCode: executable.path])
-        runner.agent = .claudeCode
+        // Changing the default after creation must not move this session to Codex.
+        runner.agent = .codex
         runner.send("start", sessionID: session.id, store: store)
         defer {
             if let processGroup = readPID(in: processGroupPIDFile) {
