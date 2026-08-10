@@ -103,6 +103,7 @@ struct AppSidebar: View {
                             .lineLimit(1)
                             .minimumScaleFactor(0.8)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 7)
                     .padding(.vertical, 5)
                     .background(RoundedRectangle(cornerRadius: 9)
@@ -116,7 +117,6 @@ struct AppSidebar: View {
                 .padding(.leading, -7)
                 .onHover { hoveringHome = $0 }
                 .appTooltip("Home")
-                Spacer(minLength: 8)
                 if !notices.isEmpty {
                     let active = notices.filter { $0.notice != .finished }.count
                     StatusPill(text: active > 0 ? "\(active) RUNNING" : "\(notices.count) FINISHED",
