@@ -5,7 +5,7 @@ import Security
 // one keychain item as a JSON dictionary: each item carries its own access prompt, so
 // one item means at most one prompt instead of one per secret.
 enum Keychain {
-    enum Account: String, CaseIterable {
+    enum Account: String, CaseIterable, Sendable {
         case stagingClientSecret = "postman.staging.client-secret"
         case stagingToken = "postman.staging.token"
         case productionClientSecret = "postman.production.client-secret"
@@ -24,26 +24,23 @@ enum Keychain {
         }
     }
 
-    static func string(_ account: Account) throws -> String? {
-        try values()[account.rawValue]
-    }
-
-    // An empty value removes the entry, so clearing a secret does not leave one behind.
-    static func set(_ value: String?, for account: Account) throws {
-        var all = try values()
-        if let value, !value.isEmpty {
-            all[account.rawValue] = value
-        } else {
-            all.removeValue(forKey: account.rawValue)
-        }
-        try write(all)
-    }
-
-    private static func values() throws -> [String: String] {
+    static func values() throws -> [Account: String] {
+        let rawValues: [String: String]
         if let data = try read(store) {
-            return try JSONDecoder().decode([String: String].self, from: data)
+            rawValues = try JSONDecoder().decode([String: String].self, from: data)
+        } else {
+            rawValues = try migrateLegacyItems()
         }
-        return try migrateLegacyItems()
+        return Account.allCases.reduce(into: [:]) { values, account in
+            values[account] = rawValues[account.rawValue]
+        }
+    }
+
+    static func replace(with values: [Account: String]) throws {
+        let rawValues = values.reduce(into: [String: String]()) { result, entry in
+            if !entry.value.isEmpty { result[entry.key.rawValue] = entry.value }
+        }
+        try write(rawValues)
     }
 
     // The secrets used to live in one keychain item each. Gather them into the combined
@@ -118,11 +115,11 @@ enum Keychain {
 }
 
 struct KeychainClient: Sendable {
-    var string: @Sendable (Keychain.Account) throws -> String?
-    var set: @Sendable (String?, Keychain.Account) throws -> Void
+    var read: @Sendable () throws -> [Keychain.Account: String]
+    var write: @Sendable ([Keychain.Account: String]) throws -> Void
 
     static let live = KeychainClient(
-        string: { try Keychain.string($0) },
-        set: { try Keychain.set($0, for: $1) }
+        read: { try Keychain.values() },
+        write: { try Keychain.replace(with: $0) }
     )
 }

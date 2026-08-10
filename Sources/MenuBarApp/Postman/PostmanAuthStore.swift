@@ -59,31 +59,29 @@ final class PostmanAuthStore {
         var staging = carried(saved?.staging)
         var production = carried(saved?.production)
         var tokens: [ApiEnvironment: OAuthToken] = [:]
-        var secrets: [ApiEnvironment: String] = [:]
-        var tokenJSON: [ApiEnvironment: String] = [:]
+        var keychainValues: [Keychain.Account: String] = [:]
 
         // The Keychain is the truth for the secrets and the tokens; the file never holds
         // either.
+        do {
+            keychainValues = try keychain.read()
+        } catch {
+            loadFailures.append(error.localizedDescription)
+        }
         for env in ApiEnvironment.allCases {
-            do {
-                if let secret = try keychain.string(env.secretAccount) {
-                    secrets[env] = secret
-                    if env == .staging { staging.clientSecret = secret }
-                    else { production.clientSecret = secret }
-                }
-            } catch {
-                loadFailures.append(error.localizedDescription)
+            if let secret = keychainValues[env.secretAccount] {
+                if env == .staging { staging.clientSecret = secret }
+                else { production.clientSecret = secret }
             }
 
-            do {
-                if let json = try keychain.string(env.tokenAccount) {
+            if let json = keychainValues[env.tokenAccount] {
+                do {
                     let token = try JSONDecoder.oauth.decode(OAuthToken.self,
                                                               from: Data(json.utf8))
-                    tokenJSON[env] = json
                     tokens[env] = token
+                } catch {
+                    loadFailures.append(error.localizedDescription)
                 }
-            } catch {
-                loadFailures.append(error.localizedDescription)
             }
         }
 
@@ -91,8 +89,7 @@ final class PostmanAuthStore {
         self.staging = staging
         self.production = production
         self.tokens = tokens
-        storedSecrets = secrets
-        storedTokenJSON = tokenJSON
+        storedKeychainValues = keychainValues
         loadError = loadFailures.isEmpty ? nil : loadFailures.joined(separator: "\n")
     }
 
@@ -397,8 +394,7 @@ final class PostmanAuthStore {
     private var saveTask: Task<Void, Never>?
     // What the Keychain holds right now, so a save can tell when writing it again would
     // only store the same value.
-    private var storedSecrets: [ApiEnvironment: String] = [:]
-    private var storedTokenJSON: [ApiEnvironment: String] = [:]
+    private var storedKeychainValues: [Keychain.Account: String] = [:]
 
     // Editing a settings field lands here once per keystroke, so those are coalesced
     // into one write the way the request store does it.
@@ -427,18 +423,11 @@ final class PostmanAuthStore {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         encoder.dateEncodingStrategy = .iso8601
 
-        var failures: [String] = []
+        var keychainValues = storedKeychainValues
+        var encodingFailures: [String] = []
         for env in ApiEnvironment.allCases {
             let secret = config(for: env).clientSecret
-            let value = secret.isEmpty ? nil : secret
-            if value != storedSecrets[env] {
-                do {
-                    try keychain.set(value, env.secretAccount)
-                    storedSecrets[env] = value
-                } catch {
-                    failures.append(error.localizedDescription)
-                }
-            }
+            keychainValues[env.secretAccount] = secret.isEmpty ? nil : secret
 
             let tokenJSON: String?
             do {
@@ -446,21 +435,24 @@ final class PostmanAuthStore {
                     String(decoding: try encoder.encode(token), as: UTF8.self)
                 }
             } catch {
-                failures.append("The \(env.rawValue) token could not be encoded: \(error.localizedDescription)")
+                encodingFailures.append(
+                    "The \(env.rawValue) token could not be encoded: \(error.localizedDescription)")
                 continue
             }
-            if tokenJSON != storedTokenJSON[env] {
-                do {
-                    try keychain.set(tokenJSON, env.tokenAccount)
-                    storedTokenJSON[env] = tokenJSON
-                } catch {
-                    failures.append(error.localizedDescription)
-                }
-            }
+            keychainValues[env.tokenAccount] = tokenJSON
         }
-        guard failures.isEmpty else {
-            saveError = failures.joined(separator: "\n")
+        guard encodingFailures.isEmpty else {
+            saveError = encodingFailures.joined(separator: "\n")
             return false
+        }
+        if keychainValues != storedKeychainValues {
+            do {
+                try keychain.write(keychainValues)
+                storedKeychainValues = keychainValues
+            } catch {
+                saveError = error.localizedDescription
+                return false
+            }
         }
 
         var onDisk = Persisted(active: active, staging: staging, production: production)

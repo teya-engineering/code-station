@@ -183,6 +183,43 @@ struct PersistenceSafetyTests {
         #expect(keychain.value(for: .stagingClientSecret) == "secret")
     }
 
+    @Test func readsTheCombinedKeychainItemOnce() throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let keychain = KeychainStub(values: [
+            .stagingClientSecret: "staging-secret",
+            .productionClientSecret: "production-secret"
+        ])
+
+        let store = PostmanAuthStore(
+            storeURL: directory.appendingPathComponent("postman-auth.json"),
+            keychain: keychain.client)
+
+        #expect(keychain.readAttempts == 1)
+        #expect(store.staging.clientSecret == "staging-secret")
+        #expect(store.production.clientSecret == "production-secret")
+    }
+
+    @Test func writesAllKeychainChangesTogether() throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let keychain = KeychainStub()
+        let store = PostmanAuthStore(
+            storeURL: directory.appendingPathComponent("postman-auth.json"),
+            keychain: keychain.client)
+        var staging = store.staging
+        staging.clientSecret = "staging-secret"
+        store.setConfig(staging, for: .staging)
+        var production = store.production
+        production.clientSecret = "production-secret"
+        store.setConfig(production, for: .production)
+
+        #expect(store.save())
+        #expect(keychain.writeAttempts == 1)
+        #expect(keychain.value(for: .stagingClientSecret) == "staging-secret")
+        #expect(keychain.value(for: .productionClientSecret) == "production-secret")
+    }
+
     @Test func queuedWriteCannotRecreateADeletedTranscript() async throws {
         let directory = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -328,7 +365,7 @@ private extension Result {
 
 private extension KeychainClient {
     static var empty: KeychainClient {
-        KeychainClient(string: { _ in nil }, set: { _, _ in })
+        KeychainClient(read: { [:] }, write: { _ in })
     }
 }
 
@@ -338,12 +375,17 @@ private final class KeychainStub: @unchecked Sendable {
     private let lock = NSLock()
     private var values: [Keychain.Account: String] = [:]
     private var failing = false
+    private var reads = 0
     private var attempts = 0
+
+    init(values: [Keychain.Account: String] = [:]) {
+        self.values = values
+    }
 
     var client: KeychainClient {
         KeychainClient(
-            string: { [self] account in value(for: account) },
-            set: { [self] value, account in try set(value, for: account) }
+            read: { [self] in read() },
+            write: { [self] values in try write(values) }
         )
     }
 
@@ -352,17 +394,25 @@ private final class KeychainStub: @unchecked Sendable {
         set { withLock { failing = newValue } }
     }
 
+    var readAttempts: Int { withLock { reads } }
     var writeAttempts: Int { withLock { attempts } }
 
     func value(for account: Keychain.Account) -> String? {
         withLock { values[account] }
     }
 
-    private func set(_ value: String?, for account: Keychain.Account) throws {
+    private func read() -> [Keychain.Account: String] {
+        withLock {
+            reads += 1
+            return values
+        }
+    }
+
+    private func write(_ values: [Keychain.Account: String]) throws {
         try withLock {
             attempts += 1
             if failing { throw WriteFailure() }
-            values[account] = value
+            self.values = values
         }
     }
 
