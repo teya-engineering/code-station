@@ -56,8 +56,6 @@ struct PostmanView: View {
                     .font(.mono(11, .bold))
                     .kerning(1)
                     .foregroundStyle(Theme.deletion)
-                Text("Every send here hits live merchant data.")
-                    .font(.system(size: 12))
             }
             Spacer()
             environmentSwitch
