@@ -6,13 +6,14 @@ import SwiftUI
 // the text scrolls out of view instead of the box growing. An NSTextView wraps to the
 // width it is actually given, grows with the text, and is also the only way to tell
 // return-to-send apart from shift-return-for-a-newline.
-struct ComposerField: View {
+struct ComposerField<TrailingAccessory: View>: View {
     @Binding var text: String
     @Binding var isFocused: Bool
     let placeholder: String
     let isEnabled: Bool
     let onSubmit: () -> Void
     let onOversizedPaste: (String) -> Void
+    let trailingAccessory: TrailingAccessory
     // Arrow-up in an empty box asks for the last prompt back, the way a shell recalls
     // history. Returns whether there was one to recall, so the key can fall through to
     // ordinary cursor movement when there was not.
@@ -21,17 +22,32 @@ struct ComposerField: View {
     // Past this the box stops growing and the text scrolls inside it, so a long prompt
     // can never push the transcript off the screen.
     private let maxLines = 10
-    private static let font = NSFont.systemFont(ofSize: 13)
 
     @State private var height: CGFloat = 0
 
+    init(text: Binding<String>, isFocused: Binding<Bool>, placeholder: String,
+         isEnabled: Bool, onSubmit: @escaping () -> Void,
+         onOversizedPaste: @escaping (String) -> Void,
+         onRecallUp: (() -> Bool)? = nil,
+         @ViewBuilder trailingAccessory: () -> TrailingAccessory) {
+        _text = text
+        _isFocused = isFocused
+        self.placeholder = placeholder
+        self.isEnabled = isEnabled
+        self.onSubmit = onSubmit
+        self.onOversizedPaste = onOversizedPaste
+        self.onRecallUp = onRecallUp
+        self.trailingAccessory = trailingAccessory()
+    }
+
     var body: some View {
-        let line = ceil(Self.font.lineHeightForComposer)
+        let font = NSFont.systemFont(ofSize: 13)
+        let line = ceil(font.lineHeightForComposer)
 
         TextArea(text: $text,
                  isFocused: $isFocused,
                  isEnabled: isEnabled,
-                 font: Self.font,
+                 font: font,
                  onSubmit: onSubmit,
                  onOversizedPaste: onOversizedPaste,
                  onRecallUp: onRecallUp,
@@ -45,11 +61,16 @@ struct ComposerField: View {
                         .allowsHitTesting(false)
                 }
             }
-            .padding(.horizontal, 12)
+            .padding(.leading, 12)
+            .padding(.trailing, 48)
             .padding(.vertical, 10)
             .background(RoundedRectangle(cornerRadius: 10).fill(isFocused ? Theme.card : Theme.field))
             .overlay(RoundedRectangle(cornerRadius: 10)
                 .stroke(isFocused ? Theme.accent : Theme.border, lineWidth: isFocused ? 1.5 : 1))
+            .overlay(alignment: .trailing) {
+                trailingAccessory
+                    .padding(.trailing, 6)
+            }
     }
 }
 
