@@ -1,5 +1,3 @@
-import AppKit
-
 enum AgentPersonality: String, CaseIterable, Codable, Sendable {
     case standard = "default"
     case sarcastic
@@ -79,25 +77,6 @@ enum AgentPersonality: String, CaseIterable, Codable, Sendable {
                 "Sitting with the problem", "Reducing attachment", "Observing the stack",
                 "Seeking simple answers", "Becoming one with the build"
             ]
-        }
-    }
-
-    var previewImage: NSImage? {
-        Bundle.module.image(forResource: resourceName)
-    }
-
-    var imageURL: URL? {
-        Bundle.module.url(forResource: resourceName, withExtension: "png")
-    }
-
-    private var resourceName: String {
-        switch self {
-        case .standard: "BotDefault"
-        case .sarcastic: "BotSarcastic"
-        case .unhelpful: "BotUnhelpful"
-        case .enthusiastic: "BotEnthusiastic"
-        case .dramatic: "BotDramatic"
-        case .zen: "BotZen"
         }
     }
 }

@@ -65,13 +65,6 @@ final class AppSettings {
             personality: personality))
     }
 
-    func addPersonalityAvatar(_ personality: AgentPersonality) throws {
-        guard let imageURL = personality.imageURL else {
-            throw AgentAvatarError.missingPersonalityImage
-        }
-        try importAgentAvatars(from: [imageURL], personality: personality)
-    }
-
     func setPersonality(_ personality: AgentPersonality, for avatar: AgentAvatar) throws {
         try AgentAvatarFile.setPersonality(personality, for: avatar.url, baseURL: agentAvatarURL)
         guard let index = agentAvatars.firstIndex(where: { $0.id == avatar.id }) else { return }
@@ -308,11 +301,11 @@ struct SettingsView: View {
     }
 
     private var botImage: some View {
-        ChoiceBlock("BOT IMAGES") {
+        ChoiceBlock("BOT PHOTOS") {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .center, spacing: 12) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Bot images")
+                        Text("Bot photos")
                             .font(.system(size: 13, weight: .semibold))
                         Text(botImageDescription)
                             .font(.system(size: 12))
@@ -334,20 +327,21 @@ struct SettingsView: View {
                             .buttonStyle(.plain)
                         }
 
-                        HStack(spacing: 7) {
-                            Text("Add bot…")
-                                .font(.system(size: 12, weight: .semibold))
-                            Image(systemName: "chevron.down")
-                                .font(.system(size: 9, weight: .semibold))
-                                .foregroundStyle(.secondary)
+                        Button(action: chooseBotImages) {
+                            HStack(spacing: 7) {
+                                Text(settings.agentAvatars.isEmpty ? "Add photo…" : "Add photos…")
+                                    .font(.system(size: 12, weight: .semibold))
+                                Image(systemName: "photo.badge.plus")
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(.horizontal, 12)
+                            .frame(height: 34)
+                            .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
+                            .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
+                            .contentShape(Rectangle())
                         }
-                        .padding(.horizontal, 12)
-                        .frame(height: 34)
-                        .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
-                        .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
-                        .contentShape(Rectangle())
-                        .accessibilityAddTraits(.isButton)
-                        .appMenu { addBotMenu }
+                        .buttonStyle(.plain)
                     }
                     .fixedSize()
                 }
@@ -374,7 +368,7 @@ struct SettingsView: View {
     private var botImageDescription: String {
         let count = settings.agentAvatars.count
         guard count > 0 else {
-            return "Add a built-in character or your own image. Its personality controls the working status."
+            return "Add your own photos and give each bot a personality for its working words."
         }
         return "\(count) bot\(count == 1 ? "" : "s") selected. One bot and its personality are used for each turn."
     }
@@ -410,46 +404,18 @@ struct SettingsView: View {
             }
             .buttonStyle(.plain)
             .offset(x: 4, y: -4)
-            .accessibilityLabel("Remove bot image")
+            .accessibilityLabel("Remove bot photo")
         }
-    }
-
-    private var addBotMenu: [MenuEntry] {
-        var entries = AgentPersonality.allCases.map { personality in
-            MenuEntry.item(
-                personality.title,
-                image: personality.previewImage,
-                subtitle: personality.detail) {
-                    addPersonalityBot(personality)
-                }
-        }
-        entries.append(.separator)
-        entries.append(.item(
-            "Use your own image…",
-            icon: "photo.badge.plus",
-            subtitle: "Pick an image, then give it a personality.") {
-                chooseBotImages()
-            })
-        return entries
     }
 
     private func personalityMenu(for avatar: AgentAvatar) -> [MenuEntry] {
         AgentPersonality.allCases.map { personality in
             .item(
                 personality.title,
-                image: personality.previewImage,
                 checked: avatar.personality == personality,
                 subtitle: personality.detail) {
                     setPersonality(personality, for: avatar)
                 }
-        }
-    }
-
-    private func addPersonalityBot(_ personality: AgentPersonality) {
-        do {
-            try settings.addPersonalityAvatar(personality)
-        } catch {
-            showBotImageFailure(error)
         }
     }
 
@@ -459,8 +425,8 @@ struct SettingsView: View {
         panel.canChooseFiles = true
         panel.allowsMultipleSelection = true
         panel.allowedContentTypes = [.image]
-        panel.prompt = "Add Images"
-        panel.message = "Pick one or more images. You will choose their personality next."
+        panel.prompt = "Add Photos"
+        panel.message = "Pick one or more photos. You will choose their personality next."
         guard panel.runModal() == .OK else { return }
 
         pendingBotImageURLs = panel.urls
@@ -479,7 +445,7 @@ struct SettingsView: View {
                 : "The session's working messages will sound like these bots.",
             content: AnyView(PersonalityPicker(selection: selection)),
             actions: [
-                .init(label: pendingBotImageURLs.count == 1 ? "Add image" : "Add images",
+                .init(label: pendingBotImageURLs.count == 1 ? "Add photo" : "Add photos",
                       kind: .primary,
                       handler: importPendingBotImages),
                 .init(label: "Cancel", kind: .cancel, handler: clearPendingBotImages)
@@ -530,7 +496,7 @@ struct SettingsView: View {
 
     private func showBotImageFailure(_ error: Error) {
         dialogs.show(Dialog(
-            title: "Could not update the bot images",
+            title: "Could not update the bot photos",
             message: error.localizedDescription,
             actions: [.init(label: "OK", kind: .cancel)]))
     }
@@ -574,9 +540,6 @@ private struct PersonalityPicker: View {
             ForEach(AgentPersonality.allCases, id: \.self) { personality in
                 Button { selection = personality } label: {
                     HStack(spacing: 9) {
-                        if let image = personality.previewImage {
-                            AgentAvatarView(image: image, size: 38)
-                        }
                         VStack(alignment: .leading, spacing: 2) {
                             Text(personality.title)
                                 .font(.system(size: 12, weight: .semibold))

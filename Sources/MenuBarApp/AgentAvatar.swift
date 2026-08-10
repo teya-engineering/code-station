@@ -196,7 +196,6 @@ enum AgentAvatarFile {
 enum AgentAvatarError: LocalizedError {
     case couldNotReadImage
     case couldNotEncodeImage
-    case missingPersonalityImage
 
     var errorDescription: String? {
         switch self {
@@ -204,8 +203,6 @@ enum AgentAvatarError: LocalizedError {
             "The selected file is not an image the app can read."
         case .couldNotEncodeImage:
             "The selected image could not be prepared for use."
-        case .missingPersonalityImage:
-            "The built-in personality image could not be found."
         }
     }
 }
@@ -221,6 +218,6 @@ struct AgentAvatarView: View {
             .frame(width: size, height: size)
             .clipShape(Circle())
             .overlay(Circle().stroke(Theme.border))
-            .accessibilityLabel("Bot image")
+            .accessibilityLabel("Bot photo")
     }
 }

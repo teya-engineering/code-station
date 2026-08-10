@@ -149,20 +149,6 @@ struct AgentAvatarTests {
         #expect(AppSettings(agentAvatarURL: destination).agentAvatars.first?.personality == .dramatic)
     }
 
-    @Test @MainActor func addsEveryBuiltInPersonalityImage() throws {
-        let root = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let destination = root.appendingPathComponent("agent-avatar.png")
-        let settings = AppSettings(agentAvatarURL: destination)
-
-        for personality in AgentPersonality.allCases {
-            try settings.addPersonalityAvatar(personality)
-        }
-
-        #expect(settings.agentAvatars.map(\.personality) == AgentPersonality.allCases)
-        #expect(AgentPersonality.allCases.allSatisfy { $0.previewImage != nil })
-    }
-
     @Test @MainActor func rejectsAnInvalidBatchWithoutImportingItsValidImages() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
