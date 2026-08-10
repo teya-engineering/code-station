@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 // Colours the chat shares with the rest of the app. They live here rather than in
@@ -34,6 +35,7 @@ struct MessageView: View, Equatable {
         switch message.role {
         case .user:
             userBubble
+                .transcriptCopyButton(for: message.text)
         case .assistant:
             assistantBody
         case .system:
@@ -42,9 +44,12 @@ struct MessageView: View, Equatable {
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
+                .padding(.trailing, 32)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .transcriptCopyButton(for: message.text)
         case .instructions:
             instructionBubble
+                .transcriptCopyButton(for: message.text)
         }
     }
 
@@ -65,7 +70,8 @@ struct MessageView: View, Equatable {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            .padding(.horizontal, 14)
+            .padding(.leading, 14)
+            .padding(.trailing, message.text.isEmpty ? 14 : 42)
             .padding(.vertical, 10)
             .background(RoundedRectangle(cornerRadius: 12).fill(Theme.accent.opacity(0.10)))
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.accent.opacity(0.22)))
@@ -80,7 +86,8 @@ struct MessageView: View, Equatable {
                 .textSelection(.enabled)
                 .multilineTextAlignment(.leading)
                 .fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, 14)
+                .padding(.leading, 14)
+                .padding(.trailing, 42)
                 .padding(.vertical, 10)
                 .background(RoundedRectangle(cornerRadius: 12).fill(Theme.secret.opacity(0.14)))
                 .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.secret.opacity(0.30)))
@@ -99,7 +106,13 @@ struct MessageView: View, Equatable {
                                   openChanges: openChanges)
                         .transition(.fadeIn)
                 case .prose(_, let text):
-                    prose(text)
+                    VStack(alignment: .leading, spacing: 12) {
+                        prose(text)
+                    }
+                    .padding(.trailing, 32)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .transcriptCopyButton(
+                        for: text.trimmingCharacters(in: .whitespacesAndNewlines))
                 }
             }
         }
@@ -118,6 +131,54 @@ struct MessageView: View, Equatable {
                 }
             }
         }
+    }
+}
+
+private struct TranscriptCopyButton: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var hovering = false
+    @State private var copied = false
+
+    let text: String
+
+    func body(content: Content) -> some View {
+        content
+            .overlay(alignment: .topTrailing) {
+                if hovering && !text.isEmpty {
+                    Button(action: copy) {
+                        Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(copied ? Theme.addition : Theme.accent)
+                            .frame(width: 24, height: 24)
+                            .background(RoundedRectangle(cornerRadius: 6).fill(Theme.card))
+                            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.border))
+                            .shadow(color: .black.opacity(0.08), radius: 2, y: 1)
+                            .contentShape(RoundedRectangle(cornerRadius: 6))
+                    }
+                    .buttonStyle(.plain)
+                    .padding(4)
+                    .appTooltip(copied ? "Copied" : "Copy text")
+                    .transition(.opacity)
+                }
+            }
+            .onHover { inside in
+                hovering = inside
+                if !inside { copied = false }
+            }
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: hovering)
+            .accessibilityAction(named: "Copy text", copy)
+    }
+
+    private func copy() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        copied = true
+    }
+}
+
+private extension View {
+    func transcriptCopyButton(for text: String) -> some View {
+        modifier(TranscriptCopyButton(text: text))
     }
 }
 
