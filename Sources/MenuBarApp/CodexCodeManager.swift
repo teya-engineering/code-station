@@ -141,6 +141,7 @@ final class CodexCodeManager {
 
             let output = Pipe()
             let errors = Pipe()
+            CommandRunner.closeOnExec(output, errors)
             process.standardOutput = output
             process.standardError = errors
             let outputReader = Task.detached {
@@ -232,6 +233,7 @@ final class CodexCodeManager {
         env["PATH"] = ProcessManager.searchPath
         process.environment = env
         let pipe = Pipe()
+        CommandRunner.closeOnExec(pipe)
         process.standardOutput = pipe
         process.standardError = pipe
         let reader = Task.detached {
@@ -290,6 +292,7 @@ final class CodexCodeManager {
         env["PATH"] = ProcessManager.searchPath
         process.environment = env
         let pipe = Pipe()
+        CommandRunner.closeOnExec(pipe)
         process.standardOutput = pipe
         process.standardError = pipe
         let reader = Task.detached {

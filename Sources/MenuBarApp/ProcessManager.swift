@@ -53,6 +53,7 @@ final class ProcessManager {
         process.environment = env
 
         let pipe = Pipe()
+        CommandRunner.closeOnExec(pipe)
         process.standardOutput = pipe
         process.standardError = pipe
         logs[server.id] = ""

@@ -539,6 +539,10 @@ final class SessionRunner {
         // argument starting with a dash would be.
         let input = Pipe()
         _ = fcntl(input.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
+        // A turn ends when this input pipe closes, so these are the descriptors a stray
+        // copy in some other process strands: the CLI would wait on a stream that still
+        // has a writer and the turn would never come back.
+        CommandRunner.closeOnExec(out, errors, input)
 
         let processGroup: pid_t
         do {

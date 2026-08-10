@@ -133,6 +133,7 @@ enum CommandRunner {
 
         let outputPipe = Pipe()
         let errorPipe = Pipe()
+        closeOnExec(outputPipe, errorPipe)
         let readHandles = [outputPipe.fileHandleForReading, errorPipe.fileHandleForReading]
         for handle in readHandles {
             let descriptor = handle.fileDescriptor
@@ -145,6 +146,7 @@ enum CommandRunner {
         let inputPipe: Pipe?
         if input != nil || outputLineHandler != nil {
             let pipe = Pipe()
+            closeOnExec(pipe)
             _ = fcntl(pipe.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
             inputPipe = pipe
         } else {
@@ -301,7 +303,12 @@ enum CommandRunner {
             }
         }
 
-        let flags = Int16(POSIX_SPAWN_SETPGROUP)
+        // Without CLOEXEC_DEFAULT a child inherits every descriptor the app has open, not
+        // just the three it is given. Two agent turns running at once is enough for the
+        // second one's process to end up holding the write end of the first one's stdin,
+        // and then closing that pipe here never reaches the first CLI: it waits on a
+        // stream that still has a writer, never exits, and its turn hangs for good.
+        let flags = Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_CLOEXEC_DEFAULT)
         guard posix_spawnattr_setflags(&attributes, flags) == 0,
               posix_spawnattr_setpgroup(&attributes, 0) == 0 else {
             throw RunError.launch("Could not isolate the child process group.")
@@ -369,6 +376,23 @@ enum CommandRunner {
 
     static func waitForExit(of processID: pid_t) -> Int32 {
         waitForExit(of: processID, controller: nil)
+    }
+
+    // Keeps a pipe out of the descriptor table of every process the app starts other than
+    // the one it was made for. The spawn below already refuses to hand anything else over,
+    // but a terminal tab is started by forkpty inside SwiftTerm, which copies the whole
+    // table and then execs a shell that lives as long as the tab does. One stray copy of a
+    // write end is enough to keep a pipe from ever reaching end of file, and then whoever
+    // is reading it waits for a close that cannot come. dup2 clears the mark, so the child
+    // a pipe was made for still receives it as one of its three streams.
+    static func closeOnExec(_ pipes: Pipe...) {
+        for pipe in pipes {
+            for handle in [pipe.fileHandleForReading, pipe.fileHandleForWriting] {
+                let flags = fcntl(handle.fileDescriptor, F_GETFD)
+                guard flags >= 0 else { continue }
+                _ = fcntl(handle.fileDescriptor, F_SETFD, flags | FD_CLOEXEC)
+            }
+        }
     }
 
     static func signalProcessGroup(_ processGroup: pid_t, signal: Int32) {

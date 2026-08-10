@@ -80,6 +80,33 @@ struct CommandRunnerTests {
         }
     }
 
+    // Every descriptor the app has open at the moment of the spawn is a candidate for
+    // being inherited, and the ones that matter are the other agent turns' pipes: a child
+    // holding one keeps it from ever reaching end of file, so the turn that owns it waits
+    // on a stream nobody will close and hangs for good.
+    @Test func doesNotHandUnrelatedDescriptorsToTheChild() async throws {
+        let stray = Pipe()
+        defer {
+            try? stray.fileHandleForReading.close()
+            try? stray.fileHandleForWriting.close()
+        }
+        // The rest of the suite is opening and closing descriptors the whole time, and a
+        // child numbers what it opens for itself from the bottom of the range. Parking the
+        // marker well clear of both leaves only one way for the child to be holding it.
+        let marker = fcntl(stray.fileHandleForWriting.fileDescriptor, F_DUPFD, 64)
+        try #require(marker >= 64)
+        defer { Darwin.close(marker) }
+
+        let output = try await CommandRunner.run(
+            executable: "/bin/sh",
+            arguments: ["-c", "ls /dev/fd"],
+            timeout: .seconds(5)
+        )
+
+        let inherited = output.output.split(whereSeparator: \.isNewline).map(String.init)
+        #expect(!inherited.contains("\(marker)"), "child holds \(inherited)")
+    }
+
     @Test func timeoutKillsADescendantThatInheritedThePipes() async throws {
         let pidFile = temporaryPIDFile()
         defer { try? FileManager.default.removeItem(at: pidFile) }
