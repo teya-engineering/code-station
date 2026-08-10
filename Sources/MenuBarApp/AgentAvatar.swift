@@ -11,6 +11,11 @@ struct AgentAvatar: Identifiable {
 }
 
 enum AgentAvatarSelection {
+    static func randomIndex(count: Int) -> Int? {
+        guard count > 0 else { return nil }
+        return Int.random(in: 0..<count)
+    }
+
     static func index(forTurn turn: Int, count: Int) -> Int? {
         guard count > 0 else { return nil }
         return max(0, turn) % count

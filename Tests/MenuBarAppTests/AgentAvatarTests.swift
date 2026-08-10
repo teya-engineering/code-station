@@ -167,12 +167,34 @@ struct AgentAvatarTests {
         #expect(FileManager.default.fileExists(atPath: destination.path) == false)
     }
 
-    @Test func usesOneImagePerTurnAndCyclesAcrossTurns() {
+    @Test func legacySessionsCycleAcrossBotsWhenNothingWasSelected() {
         #expect(AgentAvatarSelection.index(forTurn: 0, count: 3) == 0)
         #expect(AgentAvatarSelection.index(forTurn: 1, count: 3) == 1)
         #expect(AgentAvatarSelection.index(forTurn: 2, count: 3) == 2)
         #expect(AgentAvatarSelection.index(forTurn: 3, count: 3) == 0)
         #expect(AgentAvatarSelection.index(forTurn: -1, count: 3) == 0)
         #expect(AgentAvatarSelection.index(forTurn: 3, count: 0) == nil)
+    }
+
+    @Test func randomSelectionStaysWithinTheConfiguredBots() {
+        #expect(AgentAvatarSelection.randomIndex(count: 0) == nil)
+        for _ in 0..<100 {
+            let index = AgentAvatarSelection.randomIndex(count: 3)
+            #expect(index != nil && (0..<3).contains(index!))
+        }
+    }
+
+    @Test @MainActor func storesTheSelectedBotWithTheSession() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let index = root.appendingPathComponent("projects.json")
+        let store = ProjectStore(storeURL: index)
+        let project = try #require(store.addProject(at: root.appendingPathComponent("project")))
+
+        _ = store.newSession(in: project.id, agentAvatarName: "agent-avatar-2.png")
+        #expect(store.save())
+
+        let restored = try #require(ProjectStore(storeURL: index).sessions.first)
+        #expect(restored.agentAvatarName == "agent-avatar-2.png")
     }
 }

@@ -559,6 +559,7 @@ struct SessionView: View {
                 WorkingRow(runningTool: runningTool(session, root: projectPath),
                            since: runner.lastActivity(sessionID) ?? Date(),
                            avatarSequence: runner.avatarSequence(sessionID) ?? 0,
+                           avatarName: session.agentAvatarName,
                            waitingOnTasks: state == .waiting)
                     .transition(.fadeIn)
             }
@@ -1115,6 +1116,7 @@ private struct WorkingRow: View {
     let runningTool: String?
     let since: Date
     let avatarSequence: Int
+    let avatarName: String?
     // The agent has answered and is being held open for a background task it started.
     // Silence is the expected thing here, not a worry.
     var waitingOnTasks = false
@@ -1186,6 +1188,12 @@ private struct WorkingRow: View {
     }
 
     private var currentAvatar: AgentAvatar? {
+        if let avatarName,
+           let selected = appSettings.agentAvatars.first(where: {
+               $0.url.lastPathComponent == avatarName
+           }) {
+            return selected
+        }
         guard let index = AgentAvatarSelection.index(
             forTurn: avatarSequence, count: appSettings.agentAvatars.count) else {
             return nil

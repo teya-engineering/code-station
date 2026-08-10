@@ -28,12 +28,14 @@ struct SessionLifecycleTests {
             })
 
         let result = await SessionLifecycle.createWorktreeSession(
-            in: project, id: sessionID, base: "origin/main", store: store,
+            in: project, id: sessionID, base: "origin/main",
+            agentAvatarName: "agent-avatar-2.png", store: store,
             worktrees: worktrees)
 
         let session = try result.get()
         #expect(session.id == sessionID)
         #expect(session.worktreePath == "/worktrees/project")
+        #expect(session.agentAvatarName == "agent-avatar-2.png")
         #expect(store.session(sessionID)?.worktreeBranch == "conductor/test")
     }
 

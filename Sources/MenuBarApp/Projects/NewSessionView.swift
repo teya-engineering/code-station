@@ -11,6 +11,7 @@ struct NewSessionView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(DialogPresenter.self) private var dialogs
     @Environment(SessionRunner.self) private var runner
+    @Environment(AppSettings.self) private var appSettings
 
     // Picked up front so the branch and folder shown here are the ones the session is
     // created with, rather than a guess at what they will look like.
@@ -35,6 +36,9 @@ struct NewSessionView: View {
     // Leaving this unset is deliberate: the app-wide choice remains the default until
     // this one launch says otherwise, so cancelling the sheet cannot change it.
     @State private var selectedAgent: AgentKind?
+    // A new sheet makes a fresh random pick. The filename is saved with the session so
+    // the photo and its personality stay in force for every turn in that session.
+    @State private var selectedAvatarName: String?
 
     private var planned: GitWorktree.Created {
         GitWorktree.plan(projectName: project.name, sessionID: sessionID)
@@ -88,6 +92,7 @@ struct NewSessionView: View {
         .background(Theme.background)
         .disabled(pulling)
         .interactiveDismissDisabled(pulling)
+        .onAppear { selectInitialAvatar() }
         .task {
             let local = await GitFreshness.check(at: project.path, fetch: false)
             withAnimation(.easeOut(duration: 0.2)) { freshness = local }
@@ -142,6 +147,9 @@ struct NewSessionView: View {
                 }
                 .buttonStyle(.plain)
                 .keyboardShortcut(.cancelAction)
+                if let avatar = selectedAvatar {
+                    avatarPicker(avatar)
+                }
                 createButton
             }
             .padding(.horizontal, 20)
@@ -189,6 +197,44 @@ struct NewSessionView: View {
         selectedAgent.map { "Will use \($0.title)" } ?? "Uses default: \(runner.agent.title)"
     }
 
+    private var selectedAvatar: AgentAvatar? {
+        appSettings.agentAvatars.first { $0.url.lastPathComponent == selectedAvatarName }
+    }
+
+    private func avatarPicker(_ avatar: AgentAvatar) -> some View {
+        AgentAvatarView(image: avatar.image, size: 30)
+            .overlay(alignment: .bottomTrailing) {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 6.5, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 12, height: 12)
+                    .background(Circle().fill(Theme.accent))
+                    .overlay(Circle().stroke(Theme.card, lineWidth: 1.5))
+            }
+            .contentShape(Circle())
+            .appMenu(edge: .top) { avatarMenu() }
+            .appTooltip("Choose bot: \(avatar.personality.title)")
+            .accessibilityLabel("Choose bot, \(avatar.personality.title) selected")
+    }
+
+    private func avatarMenu() -> [MenuEntry] {
+        appSettings.agentAvatars.map { avatar in
+            .item(avatar.personality.title,
+                  image: avatar.image,
+                  checked: selectedAvatarName == avatar.url.lastPathComponent,
+                  subtitle: avatar.personality.detail) {
+                selectedAvatarName = avatar.url.lastPathComponent
+            }
+        }
+    }
+
+    private func selectInitialAvatar() {
+        guard selectedAvatarName == nil,
+              let index = AgentAvatarSelection.randomIndex(count: appSettings.agentAvatars.count)
+        else { return }
+        selectedAvatarName = appSettings.agentAvatars[index].url.lastPathComponent
+    }
+
     private func agentMenu() -> [MenuEntry] {
         AgentKind.allCases.map { agent in
             .item(agent.title,
@@ -229,7 +275,10 @@ struct NewSessionView: View {
     private func finish() {
         let base = baseOnRemote ? freshness?.remoteRef : nil
         let agent = selectedAgent ?? runner.agent
-        onCreate(useWorktree ? .worktree(sessionID, base: base, agent: agent) : .folder(agent: agent))
+        onCreate(useWorktree
+                 ? .worktree(sessionID, base: base, agent: agent,
+                             agentAvatarName: selectedAvatarName)
+                 : .folder(agent: agent, agentAvatarName: selectedAvatarName))
         dismiss()
     }
 }
@@ -240,8 +289,8 @@ struct NewSessionView: View {
 // applied only once the session exists. Any pull the user asked for has already run by
 // the time this arrives.
 enum NewSessionChoice: Equatable {
-    case worktree(UUID, base: String?, agent: AgentKind)
-    case folder(agent: AgentKind)
+    case worktree(UUID, base: String?, agent: AgentKind, agentAvatarName: String?)
+    case folder(agent: AgentKind, agentAvatarName: String?)
 }
 
 // Says when the checkout a session would fork from is not the default branch at its

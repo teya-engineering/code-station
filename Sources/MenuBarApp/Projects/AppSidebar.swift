@@ -612,7 +612,7 @@ struct AppSidebar: View {
     // worktrees to offer, so the session is just created.
     private func requestNewSession(in project: Project) {
         guard FileManager.default.fileExists(atPath: project.path + "/.git") else {
-            startSession(.folder(agent: runner.agent), in: project)
+            startSession(.folder(agent: runner.agent, agentAvatarName: nil), in: project)
             return
         }
         choosingSessionKind = project
@@ -623,10 +623,11 @@ struct AppSidebar: View {
         // is the clearest sign yet that it wants to be open.
         setExpanded(true, for: project.id)
         switch choice {
-        case .worktree(let sessionID, let base, let agent):
-            createWorktreeSession(in: project, id: sessionID, base: base, agent: agent)
-        case .folder(let agent):
-            switch store.insertSession(in: project.id) {
+        case .worktree(let sessionID, let base, let agent, let agentAvatarName):
+            createWorktreeSession(in: project, id: sessionID, base: base, agent: agent,
+                                  agentAvatarName: agentAvatarName)
+        case .folder(let agent, let agentAvatarName):
+            switch store.insertSession(in: project.id, agentAvatarName: agentAvatarName) {
             case .success(let session):
                 runner.agent = agent
                 sessionToReveal = session.id
@@ -723,10 +724,11 @@ struct AppSidebar: View {
     // The session id is chosen up front so the worktree folder and branch can carry
     // it before the session exists, which is also what lets the sheet name both.
     private func createWorktreeSession(in project: Project, id sessionID: UUID, base: String?,
-                                       agent: AgentKind) {
+                                       agent: AgentKind, agentAvatarName: String?) {
         Task {
             switch await SessionLifecycle.createWorktreeSession(
-                in: project, id: sessionID, base: base, store: store) {
+                in: project, id: sessionID, base: base,
+                agentAvatarName: agentAvatarName, store: store) {
             case .success:
                 runner.agent = agent
                 sessionToReveal = sessionID
@@ -1000,7 +1002,7 @@ struct AppSidebar: View {
     private func createAdHocTask(named name: String) {
         switch store.addAdHocTask(named: name) {
         case .success(let project):
-            startSession(.folder(agent: runner.agent), in: project)
+            startSession(.folder(agent: runner.agent, agentAvatarName: nil), in: project)
         case .failure(let failure):
             dialogs.show(Dialog(
                 title: "Could not create the ad-hoc task",

@@ -372,10 +372,12 @@ final class ProjectStore {
     @discardableResult
     func newSession(in projectID: UUID, id: UUID = UUID(),
                     worktreePath: String? = nil, worktreeBranch: String? = nil,
+                    agentAvatarName: String? = nil,
                     isTroubleshooting: Bool = false) -> ChatSession {
         var session = ChatSession(id: id, projectID: projectID)
         session.worktreePath = worktreePath
         session.worktreeBranch = worktreeBranch
+        session.agentAvatarName = agentAvatarName
         session.isTroubleshooting = isTroubleshooting
         // Nothing has been said yet, and there is no file to go looking for.
         session.transcriptLoaded = true
@@ -413,6 +415,7 @@ final class ProjectStore {
 
     func insertSession(in projectID: UUID, id: UUID = UUID(),
                        worktreePath: String? = nil, worktreeBranch: String? = nil,
+                       agentAvatarName: String? = nil,
                        isTroubleshooting: Bool = false)
         -> Result<ChatSession, PersistenceFailure> {
         let previousSelection = selection
@@ -420,6 +423,7 @@ final class ProjectStore {
         let session = newSession(in: projectID, id: id,
                                  worktreePath: worktreePath,
                                  worktreeBranch: worktreeBranch,
+                                 agentAvatarName: agentAvatarName,
                                  isTroubleshooting: isTroubleshooting)
         guard save() else {
             rollBackSessionInsertion(session.id, selection: previousSelection,

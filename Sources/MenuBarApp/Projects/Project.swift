@@ -337,6 +337,9 @@ struct ChatSession: Identifiable, Codable, Equatable {
     // read as "nothing chosen yet" and "nothing spent yet".
     var settings: SessionSettings?
     var usage: SessionUsage?
+    // The configured bot chosen when this session was created. The filename stays
+    // stable across launches while the image itself remains in app settings.
+    var agentAvatarName: String?
     // Set when the agent opens a pull request from this session.
     var pullRequest: PullRequest?
     var summary = SessionSummary()
@@ -372,7 +375,8 @@ struct ChatSession: Identifiable, Codable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case id, projectID, title, isTroubleshooting, claudeSessionID, codexSessionID, createdAt
         case worktreePath, worktreeBranch
-        case workspaceID, sessionProjects, settings, usage, pullRequest, summary, messages
+        case workspaceID, sessionProjects, settings, usage, agentAvatarName
+        case pullRequest, summary, messages
     }
 
     init(id: UUID = UUID(), projectID: UUID) {
@@ -396,6 +400,7 @@ struct ChatSession: Identifiable, Codable, Equatable {
         sessionProjects = try container.decodeIfPresent([SessionProject].self, forKey: .sessionProjects)
         settings = try container.decodeIfPresent(SessionSettings.self, forKey: .settings)
         usage = try container.decodeIfPresent(SessionUsage.self, forKey: .usage)
+        agentAvatarName = try container.decodeIfPresent(String.self, forKey: .agentAvatarName)
         pullRequest = try container.decodeIfPresent(PullRequest.self, forKey: .pullRequest)
         summary = try container.decodeIfPresent(SessionSummary.self, forKey: .summary) ?? SessionSummary()
         messages = try container.decodeIfPresent([ChatMessage].self, forKey: .messages) ?? []
@@ -417,6 +422,7 @@ struct ChatSession: Identifiable, Codable, Equatable {
         try container.encodeIfPresent(sessionProjects, forKey: .sessionProjects)
         try container.encodeIfPresent(settings, forKey: .settings)
         try container.encodeIfPresent(usage, forKey: .usage)
+        try container.encodeIfPresent(agentAvatarName, forKey: .agentAvatarName)
         try container.encodeIfPresent(pullRequest, forKey: .pullRequest)
         try container.encode(summary, forKey: .summary)
     }

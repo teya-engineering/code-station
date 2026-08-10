@@ -370,7 +370,7 @@ struct SettingsView: View {
         guard count > 0 else {
             return "Add your own photos and give each bot a personality for its working words."
         }
-        return "\(count) bot\(count == 1 ? "" : "s") selected. One bot and its personality are used for each turn."
+        return "\(count) bot\(count == 1 ? "" : "s") configured. Pick one when starting each session."
     }
 
     private func botImageThumbnail(_ avatar: AgentAvatar) -> some View {
