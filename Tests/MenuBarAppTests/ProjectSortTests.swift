@@ -83,6 +83,43 @@ struct ProjectSortTests {
         #expect(sorted.map(\.name) == ["recent project", "Scorecards", "older project"])
     }
 
+    // Grouping only rearranges what the sort has already decided, so the order inside a
+    // section has to be the order the items came in.
+    @Test func groupingByKindKeepsTheOrderInsideEachSection() {
+        let task = Project(name: "task", path: "/task", kind: .adHoc)
+        let alpha = Project(name: "alpha", path: "/a")
+        let beta = Project(name: "beta", path: "/b")
+        let workspace = ProjectWorkspace(name: "workspace", projectIDs: [alpha.id],
+                                         leadProjectID: alpha.id)
+        let items: [SidebarItem] = [.project(beta), .workspace(workspace), .project(task),
+                                    .project(alpha)]
+
+        let sections = ProjectGrouping.kind.sections(of: items)
+
+        #expect(sections.map(\.title) == ["Tasks", "Workspaces", "Projects"])
+        #expect(sections.map { $0.items.map(\.name) }
+                == [["task"], ["workspace"], ["beta", "alpha"]])
+    }
+
+    @Test func emptyKindsGetNoHeading() {
+        let alpha = Project(name: "alpha", path: "/a")
+
+        let sections = ProjectGrouping.kind.sections(of: [.project(alpha)])
+
+        #expect(sections.map(\.title) == ["Projects"])
+    }
+
+    @Test func flatGroupingIsOneUntitledSection() {
+        let alpha = Project(name: "alpha", path: "/a")
+        let task = Project(name: "task", path: "/task", kind: .adHoc)
+
+        let sections = ProjectGrouping.flat.sections(of: [.project(alpha), .project(task)])
+
+        #expect(sections.count == 1)
+        #expect(sections[0].title == nil)
+        #expect(sections[0].items.map(\.name) == ["alpha", "task"])
+    }
+
     @Test func workspaceSessionsDoNotCountAsStandaloneProjectUse() {
         let lead = Project(name: "lead", path: "/lead")
         let standalone = Project(name: "standalone", path: "/standalone")

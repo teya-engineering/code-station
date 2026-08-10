@@ -131,6 +131,7 @@ struct AppSidebar: View {
             .headerBand(Theme.sidebar)
 
             sortBar
+            groupBar
             filterBar
         }
     }
@@ -154,6 +155,27 @@ struct AppSidebar: View {
         }
         .padding(.horizontal, 20)
         .padding(.top, 12)
+        .padding(.bottom, 6)
+    }
+
+    // Sits under the sort because it reads the same way: both decide the shape of the
+    // list, and grouping only rearranges what the order has already decided.
+    private var groupBar: some View {
+        HStack(spacing: 6) {
+            Text("GROUP")
+                .font(.mono(9.5, .semibold))
+                .kerning(0.6)
+                .foregroundStyle(.tertiary)
+            Spacer(minLength: 8)
+            ForEach(ProjectGrouping.allCases) { option in
+                SortChip(title: option.label,
+                         hint: option.hint,
+                         selected: appSettings.projectGrouping == option) {
+                    appSettings.projectGrouping = option
+                }
+            }
+        }
+        .padding(.horizontal, 20)
         .padding(.bottom, 8)
     }
 
@@ -265,16 +287,22 @@ struct AppSidebar: View {
                 ScrollViewReader { scroller in
                     ScrollView {
                         VStack(alignment: .leading, spacing: 6) {
-                            ForEach(orderedItems) { item in
-                                switch item {
-                                case .project(let project):
-                                    projectSection(project, sessions: grouped[project.id] ?? [])
-                                        .id(project.id)
-                                case .workspace(let workspace):
-                                    workspaceSection(
-                                        workspace,
-                                        sessions: workspaceGroups[workspace.id] ?? [])
-                                        .id(workspace.id)
+                            ForEach(sections) { section in
+                                if let title = section.title {
+                                    SectionHeading(title: title, count: section.items.count)
+                                }
+                                ForEach(section.items) { item in
+                                    switch item {
+                                    case .project(let project):
+                                        projectSection(project,
+                                                       sessions: grouped[project.id] ?? [])
+                                            .id(project.id)
+                                    case .workspace(let workspace):
+                                        workspaceSection(
+                                            workspace,
+                                            sessions: workspaceGroups[workspace.id] ?? [])
+                                            .id(workspace.id)
+                                    }
                                 }
                             }
                         }
@@ -292,6 +320,7 @@ struct AppSidebar: View {
                                    value: sessionOrderKey(grouped,
                                                           workspaceGroups: workspaceGroups))
                         .animation(.easeOut(duration: 0.22), value: appSettings.projectSort)
+                        .animation(.easeOut(duration: 0.22), value: appSettings.projectGrouping)
                         .animation(.easeOut(duration: 0.22), value: filterText)
                     }
                     .task(id: sessionToReveal) { await reveal(with: scroller) }
@@ -299,6 +328,10 @@ struct AppSidebar: View {
                 }
             }
         }
+    }
+
+    private var sections: [SidebarSection] {
+        appSettings.projectGrouping.sections(of: orderedItems)
     }
 
     private var orderedItems: [SidebarItem] {
@@ -1180,6 +1213,31 @@ private struct SortChip: View {
         .buttonStyle(.plain)
         .appTooltip(hint)
         .onHover { hovering = $0 }
+    }
+}
+
+// The label over one run of the rail. It is a quiet line rather than a card, so the rows
+// under it stay the thing being read.
+private struct SectionHeading: View {
+    let title: String
+    let count: Int
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(title.uppercased())
+                .font(.mono(9.5, .semibold))
+                .kerning(0.6)
+                .foregroundStyle(.secondary)
+            Text("\(count)")
+                .font(.mono(9.5, .semibold))
+                .foregroundStyle(.tertiary)
+            Rectangle()
+                .fill(Theme.border)
+                .frame(height: 1)
+        }
+        .padding(.horizontal, 10)
+        .padding(.top, 10)
+        .padding(.bottom, 2)
     }
 }
 

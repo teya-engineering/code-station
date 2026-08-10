@@ -53,6 +53,10 @@ final class AppSettings {
         didSet { Preferences.projectSort = projectSort }
     }
 
+    var projectGrouping = Preferences.projectGrouping {
+        didSet { Preferences.projectGrouping = projectGrouping }
+    }
+
     var appearance = Preferences.appearance {
         didSet {
             Preferences.appearance = appearance

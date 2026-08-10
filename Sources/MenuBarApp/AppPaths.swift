@@ -170,6 +170,16 @@ enum Preferences {
         set { store.set(newValue.rawValue, forKey: "projectSort") }
     }
 
+    // Whether the sidebar splits into sections by kind. An unset key reads as the flat
+    // list the rail has always shown.
+    static var projectGrouping: ProjectGrouping {
+        get {
+            store.string(forKey: "projectGrouping")
+                .flatMap(ProjectGrouping.init(rawValue:)) ?? .flat
+        }
+        set { store.set(newValue.rawValue, forKey: "projectGrouping") }
+    }
+
     static var appearance: Appearance {
         get { store.string(forKey: "appearance").flatMap(Appearance.init(rawValue:)) ?? .system }
         set { store.set(newValue.rawValue, forKey: "appearance") }
