@@ -1075,7 +1075,7 @@ private struct WorkingRow: View {
             let quiet = context.date.timeIntervalSince(since)
             let word = waitingOnTasks ? "Waiting" : words.word(after: context.date.timeIntervalSince(started))
             HStack(spacing: 8) {
-                WorkingGlyph(date: context.date, animated: !reduceMotion)
+                WorkingGlyph(animated: !reduceMotion)
                 Text("\(word)…")
                     .font(.mono(12, .medium))
                     .foregroundStyle(.primary)
