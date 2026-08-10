@@ -831,7 +831,9 @@ struct AppSidebar: View {
                 .padding(.top, 16)
                 .padding(.bottom, 10)
 
-            ToolsButton(showsUpdate: skills.updateCount > 0, entries: toolsMenu)
+            ToolsButton(showsUpdate: skills.updateCount > 0,
+                        refreshOnOpen: { await docker.refresh() },
+                        entries: toolsMenu)
                 .padding(.horizontal, 16)
                 .padding(.bottom, runner.available ? 16 : 6)
 
@@ -887,9 +889,6 @@ struct AppSidebar: View {
     // the environment, whether the model server is up - so folding them away costs a
     // click but not the glance.
     private func toolsMenu() -> [MenuEntry] {
-        // The count docker shows is from its last look; asking again now means the menu
-        // is at most one open behind, without polling a CLI while the menu sits closed.
-        Task { await docker.refresh() }
         return [
             .cards([
                 MenuCardItem(label: "MCP servers", icon: "server.rack",
@@ -1097,6 +1096,7 @@ private struct AddButton: View {
 // width, so it reads as the button unfolding rather than a menu landing on the rail.
 private struct ToolsButton: View {
     let showsUpdate: Bool
+    let refreshOnOpen: () async -> Void
     let entries: () -> [MenuEntry]
 
     @State private var hovering = false
@@ -1117,7 +1117,8 @@ private struct ToolsButton: View {
         .background(RoundedRectangle(cornerRadius: 10).fill(hovering ? Theme.field : Theme.card))
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
         .subtleButtonGlow()
-        .appMenu(edge: .top, matchWidth: true, entries)
+        .appMenu(edge: .top, matchWidth: true,
+                 refreshOnOpen: refreshOnOpen, entries)
         .onHover { hovering = $0 }
     }
 }

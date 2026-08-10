@@ -83,13 +83,20 @@ final class MenuPresenter {
 
     var isOpen: Bool { !entries.isEmpty }
 
+    @discardableResult
     func show(_ entries: [MenuEntry], at point: CGPoint, width: CGFloat? = nil,
-              trailingAnchor: CGFloat? = nil) {
+              trailingAnchor: CGFloat? = nil) -> Int {
         self.entries = entries
         origin = point
         self.width = width.map { max($0, menuMinimumWidth) }
         self.trailingAnchor = trailingAnchor
         generation += 1
+        return generation
+    }
+
+    func replaceEntries(_ entries: [MenuEntry], ifGeneration generation: Int) {
+        guard isOpen, self.generation == generation else { return }
+        self.entries = entries
     }
 
     func dismiss() { entries = [] }
@@ -117,11 +124,14 @@ extension View {
     // Some controls are a menu button rather than a row with a menu behind it, so the
     // same menu opens from a plain click and hangs under the button. A button sitting
     // at the bottom of the window can anchor the menu to its top edge instead, and
-    // matching the width makes the menu read as the button unfolding.
+    // matching the width makes the menu read as the button unfolding. A refresh keeps
+    // slow external state current without delaying the menu opening.
     func appMenu(edge: VerticalEdge = .bottom,
                  matchWidth: Bool = false,
+                 refreshOnOpen: (() async -> Void)? = nil,
                  _ entries: @escaping () -> [MenuEntry]) -> some View {
-        modifier(AppMenuButton(edge: edge, matchWidth: matchWidth, entries: entries))
+        modifier(AppMenuButton(edge: edge, matchWidth: matchWidth,
+                               refreshOnOpen: refreshOnOpen, entries: entries))
     }
 }
 
@@ -140,6 +150,7 @@ private struct AppMenuButton: ViewModifier {
     @Environment(MenuPresenter.self) private var presenter
     let edge: VerticalEdge
     let matchWidth: Bool
+    let refreshOnOpen: (() async -> Void)?
     let entries: () -> [MenuEntry]
 
     @State private var anchor = MenuAnchor()
@@ -150,9 +161,16 @@ private struct AppMenuButton: ViewModifier {
             .contentShape(Rectangle())
             .onTapGesture {
                 guard let placement = anchor.placement(edge: edge) else { return }
-                presenter.show(entries(), at: placement.origin,
-                               width: matchWidth ? placement.width : nil,
-                               trailingAnchor: placement.trailingEdge)
+                let generation = presenter.show(
+                    entries(),
+                    at: placement.origin,
+                    width: matchWidth ? placement.width : nil,
+                    trailingAnchor: placement.trailingEdge)
+                guard let refreshOnOpen else { return }
+                Task { @MainActor in
+                    await refreshOnOpen()
+                    presenter.replaceEntries(entries(), ifGeneration: generation)
+                }
             }
     }
 }
