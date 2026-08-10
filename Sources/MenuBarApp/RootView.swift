@@ -20,6 +20,7 @@ struct RootView: View {
     @State private var showingTroubleshoot = false
     @State private var reviewingOldSessions = false
     @State private var sessionCleanupError: String?
+    @State private var dismissedAttention: Attention?
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -36,12 +37,17 @@ struct RootView: View {
                 Divider().overlay(Theme.hairline)
                 detail
             }
-            if let attention {
-                AttentionBanner(title: attention.title, message: attention.message)
+            if let attention, attention != dismissedAttention {
+                AttentionBanner(title: attention.title,
+                                message: attention.message,
+                                onDismiss: { dismissedAttention = attention })
                     .padding(.top, 12)
             }
         }
         .background(Theme.background)
+        .onChange(of: attention) { oldValue, newValue in
+            if oldValue != newValue { dismissedAttention = nil }
+        }
         .task { await resumePendingSessionRemovals() }
         .task(id: settings.skillsRefreshInterval) { await refreshSkillsAutomatically() }
         // Settings answers the shortcut every Mac app answers. The standard Settings
@@ -78,12 +84,12 @@ struct RootView: View {
             .first
     }
 
-    private var attention: (title: String, message: String)? {
+    private var attention: Attention? {
         if let persistenceError {
-            return ("Storage needs attention", persistenceError)
+            return Attention(title: "Storage needs attention", message: persistenceError)
         }
         if let sessionCleanupError {
-            return ("Session cleanup needs attention", sessionCleanupError)
+            return Attention(title: "Session cleanup needs attention", message: sessionCleanupError)
         }
         return nil
     }
@@ -136,9 +142,15 @@ struct RootView: View {
     }
 }
 
+private struct Attention: Equatable {
+    let title: String
+    let message: String
+}
+
 private struct AttentionBanner: View {
     let title: String
     let message: String
+    let onDismiss: () -> Void
 
     var body: some View {
         HStack(alignment: .top, spacing: 9) {
@@ -153,6 +165,19 @@ private struct AttentionBanner: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(4)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Button(action: onDismiss) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 22, height: 22)
+                    .background(Circle().fill(Theme.field))
+                    .overlay(Circle().stroke(Theme.border))
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .appTooltip("Dismiss")
+            .accessibilityLabel("Dismiss \(title)")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
