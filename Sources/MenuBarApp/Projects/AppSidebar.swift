@@ -130,21 +130,19 @@ struct AppSidebar: View {
             .padding(.horizontal, 20)
             .headerBand(Theme.sidebar)
 
-            sortBar
-            groupBar
+            arrangementBar
             filterBar
         }
     }
 
-    // The order decides what the whole rail under it means, so it sits above the list in
-    // the open rather than behind a menu.
-    private var sortBar: some View {
-        HStack(spacing: 6) {
-            Text("SORT")
-                .font(.mono(9.5, .semibold))
-                .kerning(0.6)
+    // The order and the grouping both decide the shape of the whole rail under them, so
+    // they share one line above the list in the open rather than hiding behind a menu.
+    private var arrangementBar: some View {
+        HStack(spacing: 5) {
+            Image(systemName: "arrow.up.arrow.down")
+                .font(.system(size: 9.5, weight: .semibold))
                 .foregroundStyle(.tertiary)
-            Spacer(minLength: 8)
+                .appTooltip("Order of the list")
             ForEach(ProjectSort.allCases) { option in
                 SortChip(title: option.label,
                          hint: option.hint,
@@ -152,21 +150,11 @@ struct AppSidebar: View {
                     appSettings.projectSort = option
                 }
             }
-        }
-        .padding(.horizontal, 20)
-        .padding(.top, 12)
-        .padding(.bottom, 6)
-    }
-
-    // Sits under the sort because it reads the same way: both decide the shape of the
-    // list, and grouping only rearranges what the order has already decided.
-    private var groupBar: some View {
-        HStack(spacing: 6) {
-            Text("GROUP")
-                .font(.mono(9.5, .semibold))
-                .kerning(0.6)
+            Spacer(minLength: 10)
+            Image(systemName: "rectangle.3.group")
+                .font(.system(size: 9.5, weight: .semibold))
                 .foregroundStyle(.tertiary)
-            Spacer(minLength: 8)
+                .appTooltip("Headings the list is split under")
             ForEach(ProjectGrouping.allCases) { option in
                 SortChip(title: option.label,
                          hint: option.hint,
@@ -176,6 +164,7 @@ struct AppSidebar: View {
             }
         }
         .padding(.horizontal, 20)
+        .padding(.top, 12)
         .padding(.bottom, 8)
     }
 
