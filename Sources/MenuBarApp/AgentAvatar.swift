@@ -259,6 +259,13 @@ struct AgentAvatarView: View {
 struct SessionBotPicker: View {
     let avatars: [AgentAvatar]
     @Binding var selectedName: String
+    let size: CGFloat
+
+    init(avatars: [AgentAvatar], selectedName: Binding<String>, size: CGFloat = 30) {
+        self.avatars = avatars
+        _selectedName = selectedName
+        self.size = size
+    }
 
     private var selectedAvatar: AgentAvatar? {
         avatars.first { $0.url.lastPathComponent == selectedName }
@@ -272,11 +279,11 @@ struct SessionBotPicker: View {
         selectedImage
             .overlay(alignment: .bottomTrailing) {
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 6.5, weight: .bold))
+                    .font(.system(size: size * 0.22, weight: .bold))
                     .foregroundStyle(.white)
-                    .frame(width: 12, height: 12)
+                    .frame(width: size * 0.4, height: size * 0.4)
                     .background(Circle().fill(Theme.accent))
-                    .overlay(Circle().stroke(Theme.card, lineWidth: 1.5))
+                    .overlay(Circle().stroke(Theme.card, lineWidth: size * 0.05))
             }
             .contentShape(Circle())
             .appMenu(edge: .top) { menu }
@@ -287,12 +294,12 @@ struct SessionBotPicker: View {
     @ViewBuilder
     private var selectedImage: some View {
         if let selectedAvatar {
-            AgentAvatarView(image: selectedAvatar.image, size: 30)
+            AgentAvatarView(image: selectedAvatar.image, size: size)
         } else {
             Image(systemName: "person.slash")
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: size * 0.43, weight: .semibold))
                 .foregroundStyle(.secondary)
-                .frame(width: 30, height: 30)
+                .frame(width: size, height: size)
                 .background(Circle().fill(Theme.field))
                 .overlay(Circle().stroke(Theme.border))
         }

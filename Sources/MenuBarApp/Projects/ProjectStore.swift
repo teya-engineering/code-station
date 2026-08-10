@@ -508,6 +508,12 @@ final class ProjectStore {
         saveIndex()
     }
 
+    func setAgentAvatarName(_ name: String?, for sessionID: UUID) {
+        guard let i = index(sessionID), sessions[i].agentAvatarName != name else { return }
+        sessions[i].agentAvatarName = name
+        saveIndex()
+    }
+
     func recordUsage(_ turn: TurnUsage, from agent: AgentKind, for sessionID: UUID) {
         guard let i = index(sessionID) else { return }
         var usage = sessions[i].usage ?? SessionUsage()
