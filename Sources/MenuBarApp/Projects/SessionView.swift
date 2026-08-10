@@ -768,10 +768,15 @@ struct SessionView: View {
     // is marked in the accent colour.
     @ViewBuilder private func contextReadout(_ session: ChatSession) -> some View {
         let repository = stats?.state == .ready ? stats : nil
+        // A worktree session knows its branch from creation, so the tag can draw on
+        // the first frame instead of waiting for git and shifting the row.
+        let branch = repository?.branch
+            ?? session.worktreeBranch
+            ?? session.sessionProjects?.compactMap(\.worktreeBranch).first
         let usage = session.usage
         let agent = runner.agent
         HStack(spacing: 10) {
-            if let repository { branchTag(repository) }
+            if let branch, !branch.isEmpty { branchTag(branch: branch, repository: repository) }
             if session.settings?.mcpServersEnabled == false {
                 Text("MCP off")
                     .font(.mono(10.5, .semibold))
@@ -960,13 +965,14 @@ struct SessionView: View {
     }
 
     // The branch the working tree is on, which for a session without a worktree is the
-    // branch the agent is committing to.
-    private func branchTag(_ repository: GitSnapshot) -> some View {
+    // branch the agent is committing to. The snapshot is nil until git has answered;
+    // only the help text depends on it.
+    private func branchTag(branch: String, repository: GitSnapshot?) -> some View {
         Button { tab = .changes } label: {
             HStack(spacing: 5) {
                 Image(systemName: "arrow.triangle.branch")
                     .font(.system(size: 10, weight: .semibold))
-                Text(repository.branch)
+                Text(branch)
                     .font(.mono(11, .medium))
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -974,9 +980,12 @@ struct SessionView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(repository.files.isEmpty
-              ? "The working tree is clean. Opens Changes."
-              : "Uncommitted work on this branch. Opens Changes.")
+        .help({
+            guard let repository else { return "Opens Changes." }
+            return repository.files.isEmpty
+                ? "The working tree is clean. Opens Changes."
+                : "Uncommitted work on this branch. Opens Changes."
+        }())
     }
 
     private func contextMeter(fraction: Double) -> some View {
