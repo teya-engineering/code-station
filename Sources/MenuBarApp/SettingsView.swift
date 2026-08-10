@@ -1,5 +1,6 @@
 import ServiceManagement
 import SwiftUI
+import UniformTypeIdentifiers
 
 // Whether macOS launches the app when the user logs in. The system owns this state, so
 // it is read back from the service rather than stored by us.
@@ -36,6 +37,8 @@ final class LoginItem {
 @MainActor
 @Observable
 final class AppSettings {
+    private let agentAvatarURL: URL
+
     var oldSessionDays = Preferences.oldSessionDays {
         didSet { Preferences.oldSessionDays = oldSessionDays }
     }
@@ -47,6 +50,22 @@ final class AppSettings {
     var projectSort = Preferences.projectSort {
         didSet { Preferences.projectSort = projectSort }
     }
+
+    private(set) var agentAvatar: NSImage?
+
+    init(agentAvatarURL: URL = AppPaths.supportFile("agent-avatar.png")) {
+        self.agentAvatarURL = agentAvatarURL
+        agentAvatar = AgentAvatarFile.load(from: agentAvatarURL)
+    }
+
+    func importAgentAvatar(from url: URL) throws {
+        agentAvatar = try AgentAvatarFile.importImage(from: url, to: agentAvatarURL)
+    }
+
+    func removeAgentAvatar() throws {
+        try AgentAvatarFile.remove(at: agentAvatarURL)
+        agentAvatar = nil
+    }
 }
 
 // Settings is a setup job rather than somewhere to sit, so it is a sheet over the
@@ -56,6 +75,7 @@ struct SettingsView: View {
     @Environment(ProjectStore.self) private var store
     @Environment(SessionRunner.self) private var runner
     @Environment(AppSettings.self) private var settings
+    @Environment(DialogPresenter.self) private var dialogs
     @Environment(\.dismiss) private var dismiss
 
     @State private var reviewingOldSessions = false
@@ -73,6 +93,7 @@ struct SettingsView: View {
                         oldSessions
                         skillRefresh
                         defaultAgent
+                        botImage
                         startAtLogin
                         log
                     case .agents:
@@ -260,6 +281,98 @@ struct SettingsView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var botImage: some View {
+        ChoiceBlock("BOT IMAGE") {
+            HStack(alignment: .center, spacing: 12) {
+                Group {
+                    if let image = settings.agentAvatar {
+                        AgentAvatarView(image: image, size: 44)
+                    } else {
+                        ZStack {
+                            Circle().fill(Theme.field)
+                            WorkingGlyph(animated: false)
+                        }
+                        .frame(width: 44, height: 44)
+                        .overlay(Circle().stroke(Theme.border))
+                        .accessibilityLabel("Animated working symbol")
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Bot image")
+                        .font(.system(size: 13, weight: .semibold))
+                    Text("Show a face beside the bot's working status instead of the animated symbol.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 0)
+
+                HStack(spacing: 10) {
+                    if settings.agentAvatar != nil {
+                        Button(action: removeBotImage) {
+                            Text("Remove")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(Theme.accent)
+                                .padding(.vertical, 8)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    Button(action: chooseBotImage) {
+                        Text(settings.agentAvatar == nil ? "Choose image…" : "Replace…")
+                            .font(.system(size: 12, weight: .semibold))
+                            .padding(.horizontal, 12)
+                            .frame(height: 34)
+                            .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
+                            .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+                .fixedSize()
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 9).fill(Theme.card))
+            .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
+        }
+    }
+
+    private func chooseBotImage() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.image]
+        panel.prompt = "Choose Image"
+        panel.message = "Pick the image to show while the bot is working."
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        do {
+            try settings.importAgentAvatar(from: url)
+        } catch {
+            showBotImageFailure(error)
+        }
+    }
+
+    private func removeBotImage() {
+        do {
+            try settings.removeAgentAvatar()
+        } catch {
+            showBotImageFailure(error)
+        }
+    }
+
+    private func showBotImageFailure(_ error: Error) {
+        dialogs.show(Dialog(
+            title: "Could not update the bot image",
+            message: error.localizedDescription,
+            actions: [.init(label: "OK", kind: .cancel)]))
     }
 
     // A turn that stops moving looks the same as one that is working, and the transcript
