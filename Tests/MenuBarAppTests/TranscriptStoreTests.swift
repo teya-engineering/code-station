@@ -136,6 +136,20 @@ struct TranscriptStoreTests {
         #expect(!sidebarSession.transcriptLoaded)
     }
 
+    @Test func askingInAnOlderSessionMovesItAheadOfNewerSessions() throws {
+        let store = makeStore()
+        let project = project(in: store)
+        let older = store.newSession(in: project.id)
+        let newer = store.newSession(in: project.id)
+        let sent = Date().addingTimeInterval(60)
+
+        store.append(ChatMessage(role: .user, text: "Make another change", date: sent),
+                     to: older.id)
+
+        #expect(store.standaloneSessions(for: project.id).map(\.id) == [older.id, newer.id])
+        #expect(try #require(store.sidebarSession(older.id)).lastActivity == sent)
+    }
+
     @Test func derivesSidebarSummaryAwayFromTheMainActor() async {
         let sent = Date(timeIntervalSince1970: 1_800_000_000)
         let messages = [ChatMessage(role: .assistant, text: "", tools: [edit()], date: sent)]

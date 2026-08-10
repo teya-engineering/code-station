@@ -288,6 +288,9 @@ struct AppSidebar: View {
                         // own height, or it opens onto a gap under the last card.
                         .animation(.easeOut(duration: 0.26),
                                    value: revealKey(grouped, workspaceGroups: workspaceGroups))
+                        .animation(.easeOut(duration: 0.22),
+                                   value: sessionOrderKey(grouped,
+                                                          workspaceGroups: workspaceGroups))
                         .animation(.easeOut(duration: 0.22), value: appSettings.projectSort)
                         .animation(.easeOut(duration: 0.22), value: filterText)
                     }
@@ -318,11 +321,12 @@ struct AppSidebar: View {
         }
     }
 
-    // Every session under its project, newest first - the order the cards are drawn in.
+    // Every session under its project, most recently active first - the order the cards
+    // are drawn in.
     private var groupedSessions: [UUID: [ChatSession]] {
         var groups = Dictionary(grouping: store.sidebarSessions.filter { $0.workspaceID == nil },
                                 by: \.projectID)
-        for key in groups.keys { groups[key]?.sort { $0.createdAt > $1.createdAt } }
+        for key in groups.keys { groups[key]?.sort { $0.lastActivity > $1.lastActivity } }
         return groups
     }
 
@@ -330,7 +334,9 @@ struct AppSidebar: View {
         let groups = Dictionary(grouping: store.sidebarSessions.compactMap { session in
             session.workspaceID.map { ($0, session) }
         }, by: \.0)
-        return groups.mapValues { rows in rows.map(\.1).sorted { $0.createdAt > $1.createdAt } }
+        return groups.mapValues { rows in
+            rows.map(\.1).sorted { $0.lastActivity > $1.lastActivity }
+        }
     }
 
     private func workspaceSection(_ workspace: ProjectWorkspace,
@@ -577,6 +583,12 @@ struct AppSidebar: View {
                 workspace, sessions: workspaceGroups[workspace.id] ?? []).count
         }
         return key
+    }
+
+    private func sessionOrderKey(_ grouped: [UUID: [ChatSession]],
+                                 workspaceGroups: [UUID: [ChatSession]]) -> [UUID] {
+        store.workspaces.flatMap { workspaceGroups[$0.id, default: []].map(\.id) }
+            + store.projects.flatMap { grouped[$0.id, default: []].map(\.id) }
     }
 
     // Brings a session opened away from the rail into view. It scrolls to the project or

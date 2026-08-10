@@ -126,11 +126,12 @@ final class ProjectStore {
 
     func standaloneSessions(for projectID: UUID) -> [ChatSession] {
         sessions.filter { $0.projectID == projectID && $0.workspaceID == nil }
-            .sorted { $0.createdAt > $1.createdAt }
+            .sorted { $0.lastActivity > $1.lastActivity }
     }
 
     func sessions(in workspaceID: UUID) -> [ChatSession] {
-        sessions.filter { $0.workspaceID == workspaceID }.sorted { $0.createdAt > $1.createdAt }
+        sessions.filter { $0.workspaceID == workspaceID }
+            .sorted { $0.lastActivity > $1.lastActivity }
     }
 
     var selectedSession: ChatSession? {
@@ -756,10 +757,12 @@ final class ProjectStore {
     func append(_ message: ChatMessage, to sessionID: UUID) {
         guard let i = index(sessionID) else { return }
         loadTranscript(i)
-        let previousTitle = sessions[i].title
         sessions[i].messages.append(message)
+        sessions[i].summary.lastMessageAt = message.date
         if message.role == .user { sessions[i].retitleIfNeeded(from: message.text) }
-        if sessions[i].title != previousTitle { publishSidebarSessions() }
+        // The sidebar has its own lightweight copy, so activity must be published here
+        // rather than waiting for the deferred transcript summary write.
+        publishSidebarSessions()
         transcriptChanged(i)
     }
 
