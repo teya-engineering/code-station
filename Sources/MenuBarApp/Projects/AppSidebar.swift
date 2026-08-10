@@ -35,6 +35,7 @@ struct AppSidebar: View {
     // A session opened away from its sidebar card and not brought into view yet. A card
     // clicked in the sidebar is already under the pointer, so it does not need this.
     @State private var sessionToReveal: UUID?
+    @State private var projectToReveal: UUID?
     @State private var sessionVisibility = SidebarSessionVisibility()
     @State private var filterText = ""
     @State private var oldSessionSummary = OldSessionSummary()
@@ -298,6 +299,7 @@ struct AppSidebar: View {
                         .animation(.easeOut(duration: 0.22), value: filterText)
                     }
                     .task(id: sessionToReveal) { await reveal(with: scroller) }
+                    .task(id: projectToReveal) { await revealProject(with: scroller) }
                 }
             }
         }
@@ -604,6 +606,15 @@ struct AppSidebar: View {
             scroller.scrollTo(session.workspaceID ?? session.projectID, anchor: .top)
         }
         sessionToReveal = nil
+    }
+
+    private func revealProject(with scroller: ScrollViewProxy) async {
+        guard let id = projectToReveal, store.project(id) != nil else { return }
+        await Task.yield()
+        withAnimation(.easeOut(duration: 0.26)) {
+            scroller.scrollTo(id, anchor: .top)
+        }
+        projectToReveal = nil
     }
 
     // MARK: - Creating and removing sessions
@@ -995,10 +1006,14 @@ struct AppSidebar: View {
         panel.message = "Pick the folder Claude Code should work in."
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
-        // A folder that is already a project comes back as nil, and the store has
-        // pointed itself at the existing one, so there is nothing to report.
         let added = store.addProject(at: url)
-        if let id = added?.id ?? store.selectedProjectID { setExpanded(true, for: id) }
+        guard let id = added?.id ?? store.selectedProjectID else { return }
+        setExpanded(true, for: id)
+
+        guard added == nil else { return }
+        filterText = ""
+        store.selectProject(id)
+        projectToReveal = id
     }
 
     private func createAdHocTask(named name: String) {
