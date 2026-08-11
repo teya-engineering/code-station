@@ -10,30 +10,35 @@ struct ActivitySpine: View {
     let nodes: [ToolNode]
     let projectPath: String
     let openChanges: () -> Void
-    // A top-level spine stays open for the whole turn. Individual calls can all finish
-    // before the agent has finished writing, so their result state cannot mark its end.
+    // Whether the turn this block belongs to is still going. A call interrupted mid-turn
+    // never hears back, so its own state cannot say it is over: the end of the turn is
+    // what folds a block whose calls will never report in.
     var isTurnActive = false
     // A nested spine already sits behind a row the reader opened, so it draws in full.
     var isFoldable = true
 
     @State private var expanded: Set<String> = []
     // Nil until the reader clicks: until then the block follows the work, open while its
-    // turn runs and folded once it ends.
+    // calls run and folded once the last one reports in.
     @State private var showsCalls: Bool?
 
-    // Having opened a row is asking for the block, so the fold that comes with the end of
-    // the turn does not take back what the reader unfolded while it ran.
+    // Having opened a row is asking for the block, so the fold that comes with the last
+    // result does not take back what the reader unfolded while the calls ran.
     private var showsRows: Bool {
         Self.rowsAreVisible(isFoldable: isFoldable,
                             userChoice: showsCalls,
-                            isTurnActive: isTurnActive,
+                            hasRunningCalls: hasRunningCalls,
                             hasExpandedRows: !expanded.isEmpty)
     }
 
+    private var hasRunningCalls: Bool {
+        isTurnActive && nodes.contains(where: \.hasRunning)
+    }
+
     nonisolated static func rowsAreVisible(isFoldable: Bool, userChoice: Bool?,
-                                            isTurnActive: Bool,
+                                            hasRunningCalls: Bool,
                                             hasExpandedRows: Bool) -> Bool {
-        !isFoldable || (userChoice ?? (isTurnActive || hasExpandedRows))
+        !isFoldable || (userChoice ?? (hasRunningCalls || hasExpandedRows))
     }
 
     var body: some View {
@@ -68,7 +73,7 @@ struct ActivitySpine: View {
                         .foregroundStyle(Theme.deletion)
                 }
                 Spacer(minLength: 8)
-                if isTurnActive && !showsRows {
+                if hasRunningCalls && !showsRows {
                     Text("running")
                         .font(.mono(10.5))
                         .foregroundStyle(.tertiary)

@@ -3,24 +3,31 @@ import Testing
 
 struct ActivitySpineTests {
 
-    @Test func keepsCompletedCallsVisibleUntilTheTurnEnds() {
+    @Test func staysOpenWhileACallIsStillRunning() {
         #expect(ActivitySpine.rowsAreVisible(isFoldable: true,
                                              userChoice: nil,
-                                             isTurnActive: true,
+                                             hasRunningCalls: true,
                                              hasExpandedRows: false))
     }
 
-    @Test func foldsCallsWhenTheTurnEnds() {
+    @Test func foldsOnceEveryCallHasReportedIn() {
         #expect(!ActivitySpine.rowsAreVisible(isFoldable: true,
                                               userChoice: nil,
-                                              isTurnActive: false,
+                                              hasRunningCalls: false,
                                               hasExpandedRows: false))
     }
 
-    @Test func keepsAReadersChoiceAcrossTheEndOfTheTurn() {
+    @Test func staysOpenWhileTheReaderHasARowExpanded() {
+        #expect(ActivitySpine.rowsAreVisible(isFoldable: true,
+                                             userChoice: nil,
+                                             hasRunningCalls: false,
+                                             hasExpandedRows: true))
+    }
+
+    @Test func keepsAReadersChoiceAfterTheCallsFinish() {
         #expect(ActivitySpine.rowsAreVisible(isFoldable: true,
                                              userChoice: true,
-                                             isTurnActive: false,
+                                             hasRunningCalls: false,
                                              hasExpandedRows: false))
     }
 }
