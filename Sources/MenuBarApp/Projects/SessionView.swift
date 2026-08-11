@@ -833,8 +833,8 @@ struct SessionView: View {
             }
             Spacer(minLength: 8)
             if let pullRequest = session.pullRequest { pullRequestTag(pullRequest) }
-            if let fraction = usage?.contextFraction(for: agent) {
-                contextMeter(fraction: fraction)
+            if let usage, let fraction = usage.contextFraction(for: agent) {
+                contextMeter(fraction: fraction, usage: usage, agent: agent)
             }
         }
     }
@@ -1029,28 +1029,70 @@ struct SessionView: View {
         }())
     }
 
-    private func contextMeter(fraction: Double) -> some View {
-        let percentage = Int((fraction * 100).rounded())
-        let colour = if percentage >= 85 {
-            Theme.deletion
-        } else if percentage >= 70 {
-            Theme.attention
-        } else {
-            Theme.dotOn
+    // The bar is the first thing to give up when the row runs out of room: it restates
+    // the number beside it, which is the part actually being read.
+    private func contextMeter(fraction: Double, usage: SessionUsage,
+                              agent: AgentKind) -> some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 10) {
+                contextLabel
+                Meter(fraction: fraction, colour: contextColour(fraction), height: 5)
+                    .frame(width: 110)
+                contextPercent(fraction)
+            }
+            HStack(spacing: 10) {
+                contextLabel
+                contextPercent(fraction)
+            }
         }
+        .appTooltip { usageTooltip(usage, agent: agent) }
+    }
 
-        return HStack(spacing: 10) {
-            Text("CONTEXT")
-                .font(.mono(10.5))
-                .kerning(0.6)
-                .foregroundStyle(.secondary)
-            Meter(fraction: fraction, colour: colour, height: 5)
-                .frame(width: 110)
-            Text("\(percentage)%")
-                .font(.mono(11, .semibold))
-                .foregroundStyle(colour)
+    private var contextLabel: some View {
+        Text("CONTEXT")
+            .font(.mono(10.5))
+            .kerning(0.6)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .fixedSize()
+    }
+
+    private func contextPercent(_ fraction: Double) -> some View {
+        Text("\(Int((fraction * 100).rounded()))%")
+            .font(.mono(11, .semibold))
+            .foregroundStyle(contextColour(fraction))
+            .lineLimit(1)
+            .fixedSize()
+    }
+
+    private func contextColour(_ fraction: Double) -> Color {
+        switch Int((fraction * 100).rounded()) {
+        case 85...: Theme.deletion
+        case 70...: Theme.attention
+        default: Theme.dotOn
         }
-        .help("Context in use after the last turn.")
+    }
+
+    // The percentage says how much room is left but not where it went, and the split is
+    // rarely what it looks like: cache reads run an order of magnitude ahead of the rest.
+    private func usageTooltip(_ usage: SessionUsage, agent: AgentKind) -> Tooltip {
+        var rows: [Tooltip.Row] = []
+        for (label, count) in [("Input", usage.inputTokens),
+                               ("Output", usage.outputTokens),
+                               ("Cache read", usage.cacheReadTokens),
+                               ("Cache write", usage.cacheWriteTokens)] where count > 0 {
+            rows.append(Tooltip.Row(label: label, value: formattedTokens(count)))
+        }
+        if usage.contextWindow > 0 {
+            rows.append(Tooltip.Row(
+                label: "Context",
+                value: "\(formattedTokens(usage.contextTokens)) of \(formattedTokens(usage.contextWindow))"))
+        }
+        let turns = usage.turns == 1 ? "1 turn" : "\(usage.turns) turns"
+        return Tooltip(title: "Session usage",
+                       subtitle: usage.model(for: agent).map { "\($0) · \(turns)" } ?? turns,
+                       note: "Context in use after the last turn.",
+                       rows: rows)
     }
 
     // Prompts typed ahead, above the composer where what happens next belongs. A queue that
