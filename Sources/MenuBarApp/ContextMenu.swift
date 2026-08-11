@@ -313,12 +313,15 @@ struct ContextMenuHost: View {
             menuContent(hasChecks: hasChecks, hasIcons: hasIcons)
                 .fixedSize(horizontal: false, vertical: true)
 
+            // Only the menu that has to scroll takes the height it was given. A frame
+            // grows to its maximum, so capping the whole card would draw every short
+            // menu as a window-tall panel with its rows floating in the middle of it.
             ScrollView {
                 menuContent(hasChecks: hasChecks, hasIcons: hasIcons)
             }
             .scrollIndicators(.visible)
+            .frame(height: maxHeight)
         }
-        .frame(maxHeight: maxHeight)
         .frame(minWidth: menuMinimumWidth, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 11).fill(Theme.card))
         .overlay(RoundedRectangle(cornerRadius: 11).stroke(Theme.border))
