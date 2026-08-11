@@ -182,6 +182,21 @@ struct CodexTests {
         #expect(arguments.contains("sandbox_mode=\"workspace-write\""))
     }
 
+    // Without this override the stream carries no reasoning items at all, and the
+    // transcript would never have thinking to show for a Codex turn.
+    @Test func codexIsAskedForItsReasoningSummaries() {
+        let arguments = SessionRunner.arguments(agent: .codex,
+                                                settings: SessionSettings(),
+                                                defaults: SessionSettings())
+        #expect(arguments.contains("model_reasoning_summary=\"detailed\""))
+
+        let resumed = SessionRunner.arguments(agent: .codex,
+                                              settings: SessionSettings(),
+                                              defaults: SessionSettings(),
+                                              resume: "thread-1")
+        #expect(resumed.contains("model_reasoning_summary=\"detailed\""))
+    }
+
     @Test func codexTakesItsOwnModelAndEffort() {
         let settings = SessionSettings(model: "gpt-5.6-terra", effort: "high")
         let arguments = SessionRunner.arguments(agent: .codex,
