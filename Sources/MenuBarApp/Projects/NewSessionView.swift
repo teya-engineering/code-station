@@ -21,9 +21,9 @@ struct NewSessionView: View {
     // passes: what the local refs already say, then the same read again after a fetch,
     // so the sheet is honest immediately and accurate a moment later.
     @State private var freshness: GitFreshness.Report?
-    // The fetch pass is still running. The sheet says so while it waits, so a warning
-    // that lands a few seconds in reads as the check finishing rather than appearing
-    // out of nowhere.
+    // The fetch pass is still running. Creating waits for it, so a session cannot start
+    // from an answer that was about to change, and so the warning a fetch turns up is
+    // seen before the choice is made rather than after.
     @State private var fetching = true
     // The user asked the worktree to fork from the remote tip instead of the checkout.
     @State private var baseOnRemote = false
@@ -41,6 +41,10 @@ struct NewSessionView: View {
     // selection can keep their original cycling behavior.
     @State private var selectedAvatarName = AgentAvatarSelection.nonBotName
 
+    // Comfortably past a fetch that is merely slow, so waiting this long means something
+    // is wrong rather than busy.
+    private static let longestWait: Duration = .seconds(12)
+
     private var planned: GitWorktree.Created {
         GitWorktree.plan(projectName: project.name, sessionID: sessionID)
     }
@@ -54,17 +58,6 @@ struct NewSessionView: View {
                     .padding(.horizontal, 20)
                     .padding(.bottom, 12)
                     .transition(.opacity)
-            } else if fetching {
-                HStack(spacing: 7) {
-                    ProgressView().controlSize(.small)
-                    Text("Fetching branch information…")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 20)
-                .padding(.bottom, 12)
-                .transition(.opacity)
             }
             VStack(spacing: 10) {
                 OptionCard(
@@ -103,6 +96,14 @@ struct NewSessionView: View {
                 fetching = false
             }
         }
+        // Only the fetch itself is bounded, and every git command in the app shares one
+        // queue, so the pass can take longer than the sheet should ever hold the button
+        // for. Past this the sheet gives up waiting rather than becoming a dead end; a
+        // report that lands afterwards is still shown.
+        .task {
+            try? await Task.sleep(for: Self.longestWait)
+            withAnimation(.easeOut(duration: 0.2)) { fetching = false }
+        }
     }
 
     private var header: some View {
@@ -126,6 +127,11 @@ struct NewSessionView: View {
                 if pulling {
                     ProgressView().controlSize(.small)
                     Text("Pulling \(freshness?.currentBranch ?? "the checkout") from origin…")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                } else if fetching {
+                    ProgressView().controlSize(.small)
+                    Text("Fetching branch information…")
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                 } else {
@@ -185,13 +191,19 @@ struct NewSessionView: View {
             .foregroundStyle(.white)
             .background(RoundedRectangle(cornerRadius: 8).fill(Theme.accentFill))
             .clipShape(RoundedRectangle(cornerRadius: 8))
-            .opacity(pulling ? 0.5 : 1)
+            .opacity(busy ? 0.5 : 1)
+            .disabled(busy)
 
             Text(agentNote)
                 .font(.system(size: 10.5))
                 .foregroundStyle(.secondary)
         }
     }
+
+    // Nothing can start while git still has the answer in hand: before the fetch lands
+    // the sheet cannot say what the session would fork from, and a pull is still moving
+    // the checkout it would fork from.
+    private var busy: Bool { fetching || pulling }
 
     private var agentNote: String {
         selectedAgent.map { "Will use \($0.title)" } ?? "Uses default: \(runner.agent.title)"
