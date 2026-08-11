@@ -21,13 +21,13 @@ enum TroubleshootEnvironment: String, CaseIterable, Identifiable {
         }
     }
 
+    // A server the site file does not know about is left in, since there is nothing to
+    // say which environment it belongs to.
     func includes(_ server: Server) -> Bool {
-        guard let (_, serverEnvironment) = Grafana.parts(from: server.name) else { return true }
-        let selectedEnvironment: DeployEnv = switch self {
-        case .dev: .dev
-        case .prod: .prd
+        guard let preset = SiteDefaults.current.grafanaPreset(named: server.name) else {
+            return true
         }
-        return serverEnvironment == selectedEnvironment || serverEnvironment == .shared
+        return preset.serves(rawValue)
     }
 }
 

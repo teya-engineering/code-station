@@ -120,8 +120,18 @@ enum SkillActionProgress: String, Equatable, Sendable {
 @MainActor
 @Observable
 final class SkillsManager {
-    nonisolated static let repositoryURL = "https://github.com/example/claude-plugins"
-    nonisolated static let marketplaceName = "example-engineering"
+    nonisolated static var repositoryURL: String { SiteDefaults.current.skills?.repository ?? "" }
+    nonisolated static var marketplaceName: String { SiteDefaults.current.skills?.marketplace ?? "" }
+
+    // What the marketplace is called on screen. A build with no marketplace still has to
+    // put something under the Skills heading.
+    nonisolated static var marketplaceLabel: String {
+        SiteDefaults.current.skills?.name ?? "No marketplace"
+    }
+
+    nonisolated static var isConfigured: Bool {
+        !repositoryURL.isEmpty && !marketplaceName.isEmpty
+    }
 
     private(set) var marketplace: SkillMarketplace?
     private(set) var installations: [SkillHost: [String: SkillInstallation]] = [:]
@@ -343,6 +353,11 @@ final class SkillsManager {
     }
 
     private nonisolated static func loadCatalogue(at cacheURL: URL) async -> CatalogueLoad {
+        guard isConfigured else {
+            return CatalogueLoad(marketplace: nil,
+                                 notice: "This build has no skills marketplace set up.",
+                                 didRefresh: false)
+        }
         let files = FileManager.default
         let manifest = cacheURL.appendingPathComponent(".claude-plugin/marketplace.json")
         let gitFolder = cacheURL.appendingPathComponent(".git")
@@ -454,6 +469,10 @@ final class SkillsManager {
     }
 
     private func prepareMarketplace(for host: SkillHost, action: Action) async -> CommandResult {
+        guard Self.isConfigured else {
+            return CommandResult(errorText: "This build has no skills marketplace set up.",
+                                 status: 1)
+        }
         actionProgress[action] = .checkingMarketplace
         let listed = await Self.run(host.command, host.marketplaceListArguments)
         guard listed.ok else { return listed }

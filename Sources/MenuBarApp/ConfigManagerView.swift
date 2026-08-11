@@ -163,8 +163,16 @@ struct ConfigManagerView: View {
                     .padding(.vertical, 12)
                     .background(RoundedRectangle(cornerRadius: 10).fill(Color.black.opacity(0.88)))
                     .appMenu {
-                        [.item("Add Grafana MCP server") { showingAddGrafana = true },
-                         .item("Add MCP server") { showingAddJSON = true }]
+                        // Without any instance to point at, the Grafana entry would only
+                        // lead to an empty sheet.
+                        var entries: [MenuEntry] = []
+                        if !SiteDefaults.current.grafanaPresets.isEmpty {
+                            entries.append(.item("Add Grafana MCP server") {
+                                showingAddGrafana = true
+                            })
+                        }
+                        entries.append(.item("Add MCP server") { showingAddJSON = true })
+                        return entries
                     }
 
                 HStack(spacing: 6) {
@@ -311,7 +319,7 @@ private struct ServerRow: View {
             }
             Spacer()
             if let environment = server.deployEnvironment {
-                Text(environment.rawValue)
+                Text(environment)
                     .font(.mono(11))
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 8)

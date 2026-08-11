@@ -4,13 +4,35 @@ struct AddServerView: View {
     @Environment(ConfigStore.self) private var store
     @Environment(\.dismiss) private var dismiss
 
-    @State private var scope: Scope = .platform
-    @State private var env: DeployEnv = .dev
+    @State private var scope: String = SiteDefaults.current.grafanaPresets.first?.scope ?? ""
+    @State private var env: String = SiteDefaults.current.grafanaPresets.first?.environment ?? ""
     @State private var token = ""
 
-    private var name: String { Grafana.name(scope, env) }
-    private var url: String { Grafana.url(scope, env) }
+    private var presets: [SiteDefaults.Grafana.Preset] { SiteDefaults.current.grafanaPresets }
+
+    // One pill per scope, in the order the site file lists them, and only the
+    // environments that scope actually has an instance in.
+    private var scopes: [String] {
+        presets.map(\.scope).reduce(into: []) { unique, scope in
+            if !unique.contains(scope) { unique.append(scope) }
+        }
+    }
+
+    private var environments: [String] {
+        presets.filter { $0.scope == scope }.map(\.environment)
+    }
+
+    private var preset: SiteDefaults.Grafana.Preset? {
+        presets.first { $0.scope == scope && $0.environment == env }
+    }
+
+    private var name: String { preset?.name ?? "" }
+    private var url: String { preset?.url ?? "" }
     private var exists: Bool { store.servers.contains { $0.name == name } }
+
+    private var incomplete: Bool {
+        preset == nil || token.trimmingCharacters(in: .whitespaces).isEmpty
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
@@ -19,8 +41,13 @@ struct AddServerView: View {
             VStack(alignment: .leading, spacing: 8) {
                 SectionLabel(text: "SCOPE")
                 HStack(spacing: 4) {
-                    ForEach(Scope.allCases) { choice in
-                        ChoicePill(title: choice.rawValue, selected: scope == choice) { scope = choice }
+                    ForEach(scopes, id: \.self) { choice in
+                        ChoicePill(title: choice, selected: scope == choice) {
+                            scope = choice
+                            // The environments differ per scope, so the one picked before
+                            // may not exist under the new scope.
+                            if !environments.contains(env) { env = environments.first ?? "" }
+                        }
                     }
                 }
             }
@@ -28,8 +55,8 @@ struct AddServerView: View {
             VStack(alignment: .leading, spacing: 8) {
                 SectionLabel(text: "ENVIRONMENT")
                 HStack(spacing: 4) {
-                    ForEach(DeployEnv.allCases) { choice in
-                        ChoicePill(title: choice.rawValue, selected: env == choice) { env = choice }
+                    ForEach(environments, id: \.self) { choice in
+                        ChoicePill(title: choice, selected: env == choice) { env = choice }
                     }
                 }
             }
@@ -75,7 +102,7 @@ struct AddServerView: View {
                 .buttonStyle(.plain)
                 .keyboardShortcut(.cancelAction)
                 Button {
-                    store.upsertGrafana(scope: scope, env: env, token: token)
+                    if let preset { store.upsertGrafana(preset: preset, token: token) }
                     dismiss()
                 } label: {
                     Text(exists ? "Replace" : "Add")
@@ -88,8 +115,8 @@ struct AddServerView: View {
                 }
                 .buttonStyle(.plain)
                 .keyboardShortcut(.defaultAction)
-                .disabled(token.trimmingCharacters(in: .whitespaces).isEmpty)
-                .opacity(token.trimmingCharacters(in: .whitespaces).isEmpty ? 0.4 : 1)
+                .disabled(incomplete)
+                .opacity(incomplete ? 0.4 : 1)
             }
         }
         .padding(28)

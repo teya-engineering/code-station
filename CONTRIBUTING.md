@@ -57,6 +57,18 @@ Add tests for behavior and business logic. Trivial view wiring, accessors, and f
 - The remaining files in `Sources/MenuBarApp` contain MCP, skills, Docker, local AI, settings, logging, and shared UI components.
 - `Tests/MenuBarAppTests` mirrors the main behaviors with unit and integration tests.
 
+## Site defaults
+
+Anything that belongs to one organisation rather than to the app lives in `Sources/MenuBarApp/Resources/site-defaults.json`: the identity provider the API environments sign in against, the saved requests a first run starts with, the Grafana instances offered in the Add server sheet, and the skills marketplace. `SiteDefaults` reads it from the first of these that exists:
+
+1. `$CONDUCTOR_SITE_DEFAULTS`
+2. `~/Library/Application Support/com.teya.conductor/site-defaults.json`
+3. `site-defaults.json` inside the app bundle
+
+So a checkout builds with working defaults, and you can point your own build somewhere else without changing tracked files. Every section is optional. With no file at all the app runs with blank API environments, no saved requests, no Grafana presets, and the Skills screen reporting that no marketplace is set up.
+
+Keep organisation-specific hostnames, client IDs, and repository URLs in that file rather than in Swift, so the code stays free of them.
+
 ## Runtime design
 
 `AppDelegate` is the composition root. It creates the observable stores and services once, injects them into the SwiftUI environment, and shuts down child processes and terminals when the app quits.
