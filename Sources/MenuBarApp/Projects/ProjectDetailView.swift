@@ -665,8 +665,7 @@ struct SessionRow: View {
             }
 
             HStack(spacing: 7) {
-                ActionButton(title: tone == .idle ? "Resume" : "Open",
-                             height: 30, size: 12, action: onOpen)
+                ActionButton(title: "Open", height: 30, size: 12, action: onOpen)
                 // Destructive actions live in the menu: a bare bin in a row is one
                 // mis-click from losing a conversation.
                 GlyphButton(icon: "ellipsis")
