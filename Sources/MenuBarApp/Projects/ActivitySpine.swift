@@ -1,68 +1,33 @@
 import SwiftUI
 
-// A round of tool calls collected into one block rather than listed one by one. The
-// label row says what the whole round amounted to, so a long run of reads can be folded
-// away without losing what it found. A row inside still expands in place - an edit shows
-// the diff it made, a call that started an agent shows everything that agent did, and
-// everything else shows its input and output.
+// Sequential tool calls share one block, but every call keeps its own visible row. A row
+// expands in place - an edit shows the diff it made, a call that started an agent shows
+// everything that agent did, and everything else shows its input and output.
 struct ActivitySpine: View {
     let nodes: [ToolNode]
     let projectPath: String
     let openChanges: () -> Void
 
-    // Long rounds arrive folded: past about five calls the list is longer than the answer
-    // it supports, and the summary above it says what happened anyway.
-    private static let foldAbove = 5
-
     @State private var expanded: Set<String> = []
-    @State private var collapsed: Bool?
-
-    // A round still being written to stays open however long it gets: folding itself away
-    // mid-stream would take the work off screen exactly while it is worth watching.
-    private var isCollapsed: Bool {
-        if let collapsed { return collapsed }
-        guard !nodes.contains(where: { $0.tool.isRunning }) else { return false }
-        return nodes.count > Self.foldAbove
-    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Button { collapsed = !isCollapsed } label: {
-                HStack(spacing: 8) {
-                    Text(summary)
-                        .font(.mono(9, .semibold))
-                        .kerning(1.1)
-                        .foregroundStyle(.secondary)
-                    Rectangle().fill(Theme.border).frame(height: 1)
-                    Text(isCollapsed ? "EXPAND" : "COLLAPSE")
-                        .font(.mono(9.5))
-                        .foregroundStyle(.tertiary)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-
-            if !isCollapsed {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(nodes, id: \.id) { node in
-                        SpineRow(
-                            node: node,
-                            presentation: ToolPresentationCache.presentation(
-                                for: node.tool, projectPath: projectPath),
-                            projectPath: projectPath,
-                            isExpanded: expanded.contains(node.id),
-                            onToggle: {
-                                if expanded.contains(node.id) {
-                                    expanded.remove(node.id)
-                                } else {
-                                    expanded.insert(node.id)
-                                }
-                            },
-                            openChanges: openChanges)
-                            .transition(.fadeIn)
-                    }
-                }
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(nodes, id: \.id) { node in
+                SpineRow(
+                    node: node,
+                    presentation: ToolPresentationCache.presentation(
+                        for: node.tool, projectPath: projectPath),
+                    projectPath: projectPath,
+                    isExpanded: expanded.contains(node.id),
+                    onToggle: {
+                        if expanded.contains(node.id) {
+                            expanded.remove(node.id)
+                        } else {
+                            expanded.insert(node.id)
+                        }
+                    },
+                    openChanges: openChanges)
+                    .transition(.fadeIn)
             }
         }
         .padding(.horizontal, 13)
@@ -70,37 +35,6 @@ struct ActivitySpine: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 11).fill(Theme.sunken))
         .animation(.easeInOut(duration: 0.12), value: expanded)
-        .animation(.easeInOut(duration: 0.12), value: isCollapsed)
-    }
-
-    // What the round amounted to, in the terms the rows themselves are counted in. This
-    // has to survive the fold, so it names the work rather than the calls alone: the
-    // edits it made, the lines it read, and anything that failed.
-    private var summary: String {
-        var calls = 0
-        var agents = 0
-        var edits = 0
-        var linesRead = 0
-        var failures = 0
-
-        for node in nodes {
-            calls += 1 + node.callCount
-            agents += (node.tool.startsAgents ? 1 : 0) + node.agentCount
-            let presentation = ToolPresentationCache.presentation(for: node.tool,
-                                                                  projectPath: projectPath)
-            if presentation.added != nil || presentation.removed != nil { edits += 1 }
-            if node.tool.isError { failures += 1 }
-            if presentation.notesResultLineCount, let result = node.tool.result, !result.isEmpty {
-                linesRead += result.components(separatedBy: "\n").count
-            }
-        }
-
-        var parts = ["\(calls) TOOL CALL\(calls == 1 ? "" : "S")"]
-        if agents > 0 { parts.append("\(agents) AGENT\(agents == 1 ? "" : "S")") }
-        if edits > 0 { parts.append("\(edits) EDIT\(edits == 1 ? "" : "S")") }
-        if linesRead > 0 { parts.append("\(linesRead) LINES READ") }
-        if failures > 0 { parts.append("\(failures) FAILED") }
-        return parts.joined(separator: " · ")
     }
 }
 
