@@ -228,10 +228,7 @@ struct ConfigManagerView: View {
         }
     }
 
-    private var collapsedPath: String {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        return store.configURL.path.replacingOccurrences(of: home, with: "~")
-    }
+    private var collapsedPath: String { store.configURL.path.abbreviatedPath }
 
     private func refreshIntegrations() {
         claude.refresh()

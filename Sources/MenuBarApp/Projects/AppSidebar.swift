@@ -83,16 +83,19 @@ struct AppSidebar: View {
     // MARK: - Heading
 
     private var heading: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            brandBar
-            needsYouCard
+        // Both rows read the same list, so it is worked out once for the pair rather than
+        // built and sorted twice on every redraw of the rail.
+        let notices = sessionNotices
+        return VStack(alignment: .leading, spacing: 0) {
+            brandBar(notices)
+            needsYouCard(notices)
             filterBar
             arrangementBar
         }
     }
 
-    private var brandBar: some View {
-        let running = sessionNotices.filter { $0.notice == .running }.count
+    private func brandBar(_ notices: [NoticedSession]) -> some View {
+        let running = notices.filter { $0.notice == .running }.count
         return HStack(spacing: 10) {
             Button(action: store.selectHome) {
                 HStack(spacing: 9) {
@@ -143,8 +146,8 @@ struct AppSidebar: View {
     // Permission prompts and turns that ended while the user was away are the only things
     // in the app that are waiting on a person, so they sit above the tree rather than
     // being found by opening the project they happen to belong to.
-    @ViewBuilder private var needsYouCard: some View {
-        let waiting = sessionNotices.filter { $0.notice != .running }
+    @ViewBuilder private func needsYouCard(_ notices: [NoticedSession]) -> some View {
+        let waiting = notices.filter { $0.notice != .running }
         if !waiting.isEmpty {
             VStack(alignment: .leading, spacing: 9) {
                 HStack(spacing: 7) {
@@ -482,7 +485,7 @@ struct AppSidebar: View {
             }
 
             if expanded, !sessions.isEmpty {
-                let visible = visibleWorkspaceSessions(workspace, sessions: sessions)
+                let visible = visibleSessions(sessions, in: workspace.id)
                 let tint = Theme.workspaceTint
                 SidebarRail(colour: tint.colour) {
                     ForEach(visible) { session in
@@ -528,12 +531,6 @@ struct AppSidebar: View {
                 .transition(.reveal)
             }
         }
-    }
-
-    private func visibleWorkspaceSessions(_ workspace: ProjectWorkspace,
-                                          sessions: [ChatSession]) -> [ChatSession] {
-        Array(sessions.prefix(sessionVisibility.visibleCount(
-            for: workspace.id, total: sessions.count)))
     }
 
     private func workspaceBranch(_ session: ChatSession) -> String? {
@@ -598,7 +595,7 @@ struct AppSidebar: View {
             // An expanded project with nothing under it draws no block at all: an empty one
             // still carries its padding, which reads as the row shifting on every click.
             if expanded, !sessions.isEmpty {
-                let visible = visibleSessions(of: project, in: sessions)
+                let visible = visibleSessions(sessions, in: project.id)
                 let tint = Theme.projectTint(for: project.name)
                 SidebarRail(colour: tint.colour) {
                     ForEach(visible) { session in
@@ -664,10 +661,10 @@ struct AppSidebar: View {
     }
 
     // New sessions extend an open list so they never displace work the user is watching.
-    // Closing the project resets the list to its newest four sessions.
-    private func visibleSessions(of project: Project, in sessions: [ChatSession]) -> [ChatSession] {
+    // Closing the project or workspace resets the list to its newest four sessions.
+    private func visibleSessions(_ sessions: [ChatSession], in containerID: UUID) -> [ChatSession] {
         Array(sessions.prefix(sessionVisibility.visibleCount(
-            for: project.id, total: sessions.count)))
+            for: containerID, total: sessions.count)))
     }
 
     private func preserveVisibleSessions(previous: [UUID], current: [UUID]) {
@@ -704,11 +701,11 @@ struct AppSidebar: View {
                            workspaceGroups: [UUID: [ChatSession]]) -> [UUID: Int] {
         var key: [UUID: Int] = [:]
         for project in store.projects where isExpanded(project) {
-            key[project.id] = visibleSessions(of: project, in: grouped[project.id] ?? []).count
+            key[project.id] = visibleSessions(grouped[project.id] ?? [], in: project.id).count
         }
         for workspace in store.workspaces where isExpanded(workspace) {
-            key[workspace.id] = visibleWorkspaceSessions(
-                workspace, sessions: workspaceGroups[workspace.id] ?? []).count
+            key[workspace.id] = visibleSessions(
+                workspaceGroups[workspace.id] ?? [], in: workspace.id).count
         }
         return key
     }
@@ -748,7 +745,7 @@ struct AppSidebar: View {
     // A git repository gets the folder-or-worktree choice; a plain folder has no
     // worktrees to offer, so the session is just created.
     private func requestNewSession(in project: Project) {
-        guard FileManager.default.fileExists(atPath: project.path + "/.git") else {
+        guard project.isGitRepository else {
             startSession(.folder(agent: runner.agent,
                                  model: runner.defaults.model,
                                  agentAvatarName: appSettings.defaultAgentAvatarName),
@@ -953,14 +950,14 @@ struct AppSidebar: View {
         var folders: Set<String> = []
         let grouped = groupedSessions
         for project in store.projects where isExpanded(project) {
-            for session in visibleSessions(of: project, in: grouped[project.id] ?? []) {
+            for session in visibleSessions(grouped[project.id] ?? [], in: project.id) {
                 folders.insert(folder(session, project: project))
             }
         }
         let workspaceGroups = groupedWorkspaceSessions
         for workspace in store.workspaces where isExpanded(workspace) {
-            for session in visibleWorkspaceSessions(
-                workspace, sessions: workspaceGroups[workspace.id] ?? []) {
+            for session in visibleSessions(
+                workspaceGroups[workspace.id] ?? [], in: workspace.id) {
                 folders.formUnion(store.workingDirectories(for: session))
             }
         }

@@ -200,7 +200,10 @@ extension AttributedString {
 }
 
 // Draws one parsed block in the transcript's type and palette.
-struct MarkdownBlockView: View {
+// A streaming reply is re-parsed on every flush, but only its last block is still growing.
+// Comparing the block lets SwiftUI leave the settled ones alone instead of rebuilding every
+// attributed string in the answer several times a second.
+struct MarkdownBlockView: View, Equatable {
     let block: MarkdownBlock
 
     var body: some View {

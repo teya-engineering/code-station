@@ -65,7 +65,7 @@ final class ClaudeCodeManager {
     // Pasteable shell command shown by "Copy command" (this one is quoted for a shell).
     func addCommand(for server: Server) -> String? {
         guard let args = addArgs(for: server) else { return nil }
-        return (["claude"] + args).map(quote).joined(separator: " ")
+        return (["claude"] + args).map(\.shellQuoted).joined(separator: " ")
     }
 
     func add(_ server: Server) {
@@ -209,12 +209,5 @@ final class ClaudeCodeManager {
             for name in names { busy.remove(name); errors[name] = error.localizedDescription }
             bulkBusy = false
         }
-    }
-
-    private func quote(_ string: String) -> String {
-        if !string.isEmpty, string.allSatisfy({ $0.isLetter || $0.isNumber || "-_=./:@".contains($0) }) {
-            return string
-        }
-        return "'" + string.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 }

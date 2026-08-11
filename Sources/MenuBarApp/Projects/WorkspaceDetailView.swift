@@ -230,7 +230,7 @@ struct WorkspaceDetailView: View {
     // the other is a menu away. A plain folder has no choice to offer, so it says so.
     @ViewBuilder private func checkoutControl(_ project: Project, workspace: ProjectWorkspace,
                                               height: CGFloat) -> some View {
-        if isGitRepository(project) {
+        if project.isGitRepository {
             let worktree = workspace.worktreeProjectIDs.contains(project.id)
             ActionButton(title: worktree ? "Worktree" : "Project folder",
                          tone: .sunken, height: height, size: 11.5, disclosure: true)
@@ -319,7 +319,7 @@ struct WorkspaceDetailView: View {
         VStack(alignment: .leading, spacing: 11) {
             SectionRule(title: "SESSIONS · \(sessions.count)") {
                 if !sessions.isEmpty {
-                    Text(tally(sessions))
+                    Text(sessions.map { tone($0) }.tally)
                         .font(.mono(10))
                         .kerning(0.6)
                         .foregroundStyle(.tertiary)
@@ -345,7 +345,8 @@ struct WorkspaceDetailView: View {
                         SessionRow(session: session,
                                    tone: tone(session),
                                    branch: nil,
-                                   activity: activity(session),
+                                   activity: SessionActivity.line(for: session, store: store,
+                                                                  runner: runner),
                                    detail: .repositories(repositories(session)),
                                    onOpen: { store.selectSession(session.id) },
                                    menu: { sessionMenu(session) })
@@ -368,35 +369,8 @@ struct WorkspaceDetailView: View {
         }
     }
 
-    private func tally(_ sessions: [ChatSession]) -> String {
-        let running = sessions.filter { tone($0) == .running }.count
-        let waiting = sessions.filter { tone($0) == .needsYou }.count
-        var parts: [String] = []
-        if running > 0 { parts.append("\(running) RUNNING") }
-        if waiting > 0 { parts.append("\(waiting) NEEDS YOU") }
-        let idle = sessions.count - running - waiting
-        if idle > 0 { parts.append("\(idle) IDLE") }
-        return parts.joined(separator: " · ")
-    }
-
     private func tone(_ session: ChatSession) -> SessionTone {
-        SessionTone(busy: runner.state(session.id).isBusy,
-                    needsInput: runner.question(session.id) != nil,
-                    finished: store.hasFinished(session.id))
-    }
-
-    private func activity(_ session: ChatSession) -> String {
-        if let question = runner.question(session.id) {
-            return question.isQuestion
-                ? "waiting on an answer · \(question.title)"
-                : "waiting on \(question.toolName) permission"
-        }
-        if runner.state(session.id).isBusy, let running = runner.runningTool(session.id) {
-            let root = store.workingDirectory(for: session) ?? ""
-            return ToolPresentationCache.presentation(for: running, projectPath: root).label
-        }
-        guard let last = session.summary.lastTool else { return "not started" }
-        return (store.hasFinished(session.id) ? "ended after " : "last: ") + last
+        SessionTone(session.id, store: store, runner: runner)
     }
 
     private func sessionMenu(_ session: ChatSession) -> [MenuEntry] {
@@ -451,7 +425,7 @@ struct WorkspaceDetailView: View {
     }
 
     private func worktreeSummary(_ workspace: ProjectWorkspace) -> String {
-        let repositories = workspace.projectIDs.compactMap(store.project).filter(isGitRepository)
+        let repositories = workspace.projectIDs.compactMap(store.project).filter(\.isGitRepository)
         let worktrees = repositories.filter { workspace.worktreeProjectIDs.contains($0.id) }
         if worktrees.isEmpty { return "project folders throughout" }
         if worktrees.count == repositories.count { return "worktree on every repository" }
@@ -520,10 +494,6 @@ struct WorkspaceDetailView: View {
 
     private func reveal(_ project: Project) {
         NSWorkspace.shared.activateFileViewerSelecting([project.url])
-    }
-
-    private func isGitRepository(_ project: Project) -> Bool {
-        FileManager.default.fileExists(atPath: project.path + "/.git")
     }
 
     private func hasMissingProjects(_ workspace: ProjectWorkspace) -> Bool {

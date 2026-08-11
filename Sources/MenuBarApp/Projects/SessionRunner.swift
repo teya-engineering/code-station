@@ -605,6 +605,15 @@ final class SessionRunner {
             return events
         }
 
+        // Stream reads arrive far faster than the UI needs them, so a read that changed
+        // something asks for one flush a beat later rather than redrawing on every chunk.
+        let scheduleFlush: @Sendable () -> Void = {
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(40))
+                runner.flush(stream, sessionID: sessionID, token: token, store: store)
+            }
+        }
+
         out.fileHandleForReading.readabilityHandler = { handle in
             let data = handle.availableData
             guard !data.isEmpty else {
@@ -612,10 +621,7 @@ final class SessionRunner {
                 SessionLog.note("stdout closed", session: sessionID)
                 let tail = buffer.flush().flatMap(parseLine)
                 if stream.append(events: tail, stdoutClosed: true) {
-                    Task { @MainActor in
-                        try? await Task.sleep(for: .milliseconds(40))
-                        runner.flush(stream, sessionID: sessionID, token: token, store: store)
-                    }
+                    scheduleFlush()
                 }
                 return
             }
@@ -623,10 +629,7 @@ final class SessionRunner {
             // Even a line that means nothing to the app proves the CLI is alive, so the
             // clock moves on the read rather than on the events it turned into.
             if stream.append(events: events, stdoutActivity: true) {
-                Task { @MainActor in
-                    try? await Task.sleep(for: .milliseconds(40))
-                    runner.flush(stream, sessionID: sessionID, token: token, store: store)
-                }
+                scheduleFlush()
             }
         }
 
@@ -636,20 +639,14 @@ final class SessionRunner {
                 handle.readabilityHandler = nil
                 SessionLog.note("stderr closed", session: sessionID)
                 if stream.append(stderrClosed: true) {
-                    Task { @MainActor in
-                        try? await Task.sleep(for: .milliseconds(40))
-                        runner.flush(stream, sessionID: sessionID, token: token, store: store)
-                    }
+                    scheduleFlush()
                 }
                 return
             }
             let chunk = String(decoding: data, as: UTF8.self)
             SessionLog.note("stderr bytes=\(data.count)", session: sessionID)
             if stream.append(stderr: chunk) {
-                Task { @MainActor in
-                    try? await Task.sleep(for: .milliseconds(40))
-                    runner.flush(stream, sessionID: sessionID, token: token, store: store)
-                }
+                scheduleFlush()
             }
         }
 

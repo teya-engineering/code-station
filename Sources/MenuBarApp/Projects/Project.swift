@@ -18,6 +18,12 @@ struct Project: Identifiable, Codable, Equatable {
     // Shown in the sidebar under the project name.
     var collapsedPath: String { path.abbreviatedPath }
 
+    // Only a git checkout can back a worktree session. `.git` is a directory in a normal
+    // clone and a file in a worktree or submodule, so test for either.
+    var isGitRepository: Bool {
+        FileManager.default.fileExists(atPath: path + "/.git")
+    }
+
     init(id: UUID = UUID(), name: String, path: String, kind: Kind = .project) {
         self.id = id
         self.name = name

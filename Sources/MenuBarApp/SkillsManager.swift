@@ -134,6 +134,9 @@ final class SkillsManager {
     }
 
     private(set) var marketplace: SkillMarketplace?
+    // Sorted when the catalogue arrives rather than on every read: the sidebar and the
+    // tools menu both reach for this while they draw, and the compare is not free.
+    private(set) var plugins: [SkillMarketplace.Plugin] = []
     private(set) var installations: [SkillHost: [String: SkillInstallation]] = [:]
     private(set) var hostFailures: [SkillHost: String] = [:]
     private(set) var actionFailures: [Action: String] = [:]
@@ -156,8 +159,9 @@ final class SkillsManager {
                 .appendingPathComponent(Self.marketplaceName, isDirectory: true)
     }
 
-    var plugins: [SkillMarketplace.Plugin] {
-        marketplace?.plugins.sorted {
+    private func setMarketplace(_ catalogue: SkillMarketplace?) {
+        marketplace = catalogue
+        plugins = catalogue?.plugins.sorted {
             $0.name.localizedStandardCompare($1.name) == .orderedAscending
         } ?? []
     }
@@ -229,7 +233,7 @@ final class SkillsManager {
 
         let (catalogue, claude, codex) = await (catalogueLoad, claudeLoad, codexLoad)
 
-        marketplace = catalogue.marketplace
+        setMarketplace(catalogue.marketplace)
         catalogueNotice = catalogue.notice
         if catalogue.didRefresh {
             Preferences.skillsLastRefresh = Date()
@@ -359,7 +363,7 @@ final class SkillsManager {
         async let codexLoad = Self.loadInstallations(for: .codex)
         let (claude, codex) = await (claudeLoad, codexLoad)
 
-        marketplace = catalogue.marketplace
+        setMarketplace(catalogue.marketplace)
         catalogueNotice = catalogue.notice
         apply(claude, to: .claude)
         apply(codex, to: .codex)

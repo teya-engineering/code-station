@@ -144,6 +144,7 @@ struct MessageView: View, Equatable {
             } else {
                 ForEach(MarkdownBlock.parse(segment.text)) { block in
                     MarkdownBlockView(block: block)
+                        .equatable()
                         .transition(.fadeIn)
                 }
             }

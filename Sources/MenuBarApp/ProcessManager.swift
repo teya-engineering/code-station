@@ -88,7 +88,6 @@ final class ProcessManager {
             return
         }
         process.terminationHandler = nil
-        (process.standardOutput as? Pipe)?.fileHandleForReading.readabilityHandler = nil
         process.terminate()
         cleanup(id)
         states[id] = .stopped
@@ -121,7 +120,11 @@ final class ProcessManager {
         states[id] = code == 0 ? .stopped : .failed("Exited with code \(code). See output below.")
     }
 
+    // Both exit paths land here, so the read handler is cleared here too: a server that
+    // exits on its own would otherwise keep its pipe, its dispatch source and the
+    // closure's reference to this manager alive for the rest of the app's life.
     private func cleanup(_ id: Server.ID) {
+        (processes[id]?.standardOutput as? Pipe)?.fileHandleForReading.readabilityHandler = nil
         processes[id] = nil
         ports[id] = nil
         endpoints[id] = nil
@@ -151,10 +154,22 @@ final class ProcessManager {
         return dirs
     }()
 
-    nonisolated static var searchPath: String { searchDirs.joined(separator: ":") }
+    nonisolated static let searchPath: String = searchDirs.joined(separator: ":")
 
+    // Resolving walks every search directory, and callers ask on hot paths - once per git
+    // command, once per plugin row while the Skills sheet redraws. A command that resolved
+    // once keeps its path, since the binary does not move while the app runs. A command
+    // that did not resolve is looked up again, so installing a CLI takes effect without a
+    // restart.
     nonisolated static func resolve(_ command: String) -> String? {
         guard !command.isEmpty else { return nil }
+        if let cached = resolved.value(for: command) { return cached }
+        let path = search(command)
+        if let path { resolved.store(path, for: command) }
+        return path
+    }
+
+    nonisolated private static func search(_ command: String) -> String? {
         if command.contains("/") {
             return FileManager.default.isExecutableFile(atPath: command) ? command : nil
         }
@@ -163,5 +178,25 @@ final class ProcessManager {
             if FileManager.default.isExecutableFile(atPath: path) { return path }
         }
         return nil
+    }
+
+    nonisolated private static let resolved = ResolvedCommands()
+}
+
+// Reached from any thread, so it carries its own lock rather than relying on the caller.
+private final class ResolvedCommands: @unchecked Sendable {
+    private let lock = NSLock()
+    private var paths: [String: String] = [:]
+
+    func value(for command: String) -> String? {
+        lock.lock()
+        defer { lock.unlock() }
+        return paths[command]
+    }
+
+    func store(_ path: String, for command: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        paths[command] = path
     }
 }

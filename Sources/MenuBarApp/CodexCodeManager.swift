@@ -81,7 +81,7 @@ final class CodexCodeManager {
 
     func addCommand(for server: Server) -> String? {
         guard let args = Self.addArguments(for: server, executable: resolvedCommand(server)) else { return nil }
-        return (["codex"] + args).map(quote).joined(separator: " ")
+        return (["codex"] + args).map(\.shellQuoted).joined(separator: " ")
     }
 
     func add(_ server: Server) {
@@ -320,13 +320,6 @@ final class CodexCodeManager {
             for name in names { busy.remove(name); errors[name] = error.localizedDescription }
             bulkBusy = false
         }
-    }
-
-    private func quote(_ string: String) -> String {
-        if !string.isEmpty, string.allSatisfy({ $0.isLetter || $0.isNumber || "-_=./:@".contains($0) }) {
-            return string
-        }
-        return "'" + string.replacingOccurrences(of: "'", with: "'\\\\''") + "'"
     }
 }
 

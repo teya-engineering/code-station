@@ -136,7 +136,6 @@ struct SessionView: View {
 
     // Working tree totals for the header; refreshed as tools finish so the numbers
     // track the run rather than only its end.
-    @State private var stats: GitSnapshot?
     @State private var workspaceStats: [String: GitSnapshot] = [:]
     @State private var statsTask: Task<Void, Never>?
 
@@ -262,9 +261,7 @@ struct SessionView: View {
 
     // "RUNNING", "NEEDS YOU · 3m", "IDLE · 2h": the state and how long it has been in it.
     private func stateChip(_ session: ChatSession) -> String {
-        let tone = SessionTone(busy: runner.state(sessionID).isBusy,
-                               needsInput: runner.question(sessionID) != nil,
-                               finished: store.hasFinished(sessionID))
+        let tone = SessionTone(sessionID, store: store, runner: runner)
         guard tone != .running else { return tone.word }
         return "\(tone.word) · \(RelativeTime.short(session.lastActivity))"
     }
@@ -367,10 +364,7 @@ struct SessionView: View {
                     snapshots[root] = snapshot
                 }
             }
-            if !Task.isCancelled {
-                workspaceStats = snapshots
-                stats = roots.first.flatMap { snapshots[$0] }
-            }
+            if !Task.isCancelled { workspaceStats = snapshots }
         }
     }
 
@@ -803,7 +797,10 @@ struct SessionView: View {
     // the branch it edits, its fixed agent, the model and remaining run controls, and
     // how full the window is.
     @ViewBuilder private func contextReadout(_ session: ChatSession) -> some View {
-        let repository = stats?.state == .ready ? stats : nil
+        // The lead checkout is the one the header speaks for, the same root the stats
+        // refresh puts first.
+        let lead = store.workingDirectories(for: session).first.flatMap { workspaceStats[$0] }
+        let repository = lead?.state == .ready ? lead : nil
         // A worktree session knows its branch from creation, so the tag can draw on
         // the first frame instead of waiting for git and shifting the row.
         let branch = repository?.branch

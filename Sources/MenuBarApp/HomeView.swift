@@ -224,28 +224,18 @@ struct HomeView: View {
             containerName: name,
             tint: workspace == nil ? Theme.projectTint(for: name) : Theme.workspaceTint,
             tone: SessionTone(busy: busy, needsInput: permission != nil, finished: finished),
-            activity: activity(session, busy: busy, finished: finished, permission: permission),
+            activity: SessionActivity.line(
+                permission: permission,
+                runningTool: busy ? runner.runningTool(session.id) : nil,
+                root: store.workingDirectory(for: session) ?? "",
+                lastTool: session.summary.lastTool,
+                finished: finished),
             location: location(session, checkouts: checkouts),
             // Nothing reports how far through a turn is, so how full the context window
             // has become is the honest stand-in: it is the one number that only ever grows
             // while a turn runs.
             progress: busy ? (session.usage?.contextFraction(for: session.agent) ?? 0.05) : nil,
             permission: permission)
-    }
-
-    private func activity(_ session: ChatSession, busy: Bool, finished: Bool,
-                          permission: PermissionRequest?) -> String {
-        if let permission {
-            return permission.isQuestion
-                ? "waiting on an answer · \(permission.title)"
-                : "waiting on \(permission.toolName) permission"
-        }
-        if busy, let running = runner.runningTool(session.id) {
-            let root = store.workingDirectory(for: session) ?? ""
-            return ToolPresentationCache.presentation(for: running, projectPath: root).label
-        }
-        guard let last = session.summary.lastTool else { return finished ? "finished" : "not started" }
-        return (finished ? "ended after " : "last: ") + last
     }
 
     private func location(_ session: ChatSession, checkouts: [SessionProject]) -> String {

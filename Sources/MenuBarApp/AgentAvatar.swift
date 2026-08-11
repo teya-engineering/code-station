@@ -76,7 +76,6 @@ enum AgentAvatarFile {
             throw AgentAvatarError.tooManyAvatars
         }
 
-        let files = FileManager.default
         let nextIndex = (existing.compactMap {
             avatarIndex(for: $0, baseURL: baseURL)
         }.max() ?? 0) + 1
@@ -88,20 +87,16 @@ enum AgentAvatarFile {
             personalities[destination.lastPathComponent] = personality
         }
 
-        try files.createDirectory(
-            at: baseURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true)
-
         var written: [URL] = []
         do {
             for (item, destination) in zip(prepared, destinations) {
-                try item.data.write(to: destination, options: .atomic)
+                try PersistentFile.write(item.data, to: destination)
                 written.append(destination)
             }
             try savePersonalities(personalities, for: baseURL)
         } catch {
             for url in written {
-                try? files.removeItem(at: url)
+                try? PersistentFile.removeIfPresent(url)
             }
             throw error
         }
@@ -127,7 +122,7 @@ enum AgentAvatarFile {
         var picture = avatar.image
         if AgentAvatarArt.isStock(at: avatar.url) {
             let data = try AgentAvatarArt.pngData(for: personality)
-            try data.write(to: avatar.url, options: .atomic)
+            try PersistentFile.write(data, to: avatar.url)
             picture = NSImage(data: data) ?? picture
         }
 
@@ -138,10 +133,7 @@ enum AgentAvatarFile {
     }
 
     static func remove(at url: URL, from baseURL: URL) throws {
-        let files = FileManager.default
-        if files.fileExists(atPath: url.path) {
-            try files.removeItem(at: url)
-        }
+        try PersistentFile.removeIfPresent(url)
         var personalities = loadPersonalities(from: baseURL)
         personalities[url.lastPathComponent] = nil
         try savePersonalities(personalities, for: baseURL)
@@ -149,14 +141,9 @@ enum AgentAvatarFile {
 
     static func removeAll(from baseURL: URL) throws {
         for url in avatarURLs(for: baseURL) {
-            if FileManager.default.fileExists(atPath: url.path) {
-                try FileManager.default.removeItem(at: url)
-            }
+            try PersistentFile.removeIfPresent(url)
         }
-        let metadataURL = personalityURL(for: baseURL)
-        if FileManager.default.fileExists(atPath: metadataURL.path) {
-            try FileManager.default.removeItem(at: metadataURL)
-        }
+        try PersistentFile.removeIfPresent(personalityURL(for: baseURL))
     }
 
     private static func prepareImage(from sourceURL: URL) throws -> (data: Data, image: NSImage) {
@@ -231,13 +218,11 @@ enum AgentAvatarFile {
     private static func savePersonalities(_ personalities: [String: AgentPersonality],
                                           for baseURL: URL) throws {
         let url = personalityURL(for: baseURL)
-        if personalities.isEmpty {
-            guard FileManager.default.fileExists(atPath: url.path) else { return }
-            try FileManager.default.removeItem(at: url)
+        guard !personalities.isEmpty else {
+            try PersistentFile.removeIfPresent(url)
             return
         }
-        let data = try JSONEncoder().encode(personalities)
-        try data.write(to: url, options: .atomic)
+        try PersistentFile.write(JSONEncoder().encode(personalities), to: url)
     }
 
     private static func personalityURL(for baseURL: URL) -> URL {

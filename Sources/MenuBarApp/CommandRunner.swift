@@ -570,3 +570,15 @@ private extension Duration {
         return TimeInterval(parts.seconds) + TimeInterval(parts.attoseconds) / 1e18
     }
 }
+
+extension String {
+    // Wraps the string so a shell reads it back as one argument. Plain words are left
+    // alone; anything else is single-quoted, and an embedded quote closes the run, adds
+    // an escaped quote, and opens a new one.
+    var shellQuoted: String {
+        if !isEmpty, allSatisfy({ $0.isLetter || $0.isNumber || "-_=./:@".contains($0) }) {
+            return self
+        }
+        return "'" + replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+}

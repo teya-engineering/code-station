@@ -179,14 +179,6 @@ struct OAuthToken: Codable, Equatable {
         guard expiresAt != nil else { return "Token has no expiry" }
         return isExpired ? "Token expired" : "Token valid for \(remainingText)"
     }
-
-    // A token outlives the session that fetched it, so how long it has left says nothing
-    // about when anyone last signed in.
-    var signedInText: String {
-        Date().timeIntervalSince(obtainedAt) < 60
-            ? "Signed in just now"
-            : "Signed in \(obtainedAt.formatted(.relative(presentation: .named)))"
-    }
 }
 
 // The provider's answer on the token endpoint, in both its shapes.

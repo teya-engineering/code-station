@@ -209,11 +209,10 @@ struct ProjectDetailView: View {
     }
 
     private func sessionList(_ project: Project, sessions: [ChatSession]) -> some View {
-        let running = sessions.filter { runner.state($0.id).isBusy }.count
-        return VStack(alignment: .leading, spacing: 11) {
+        VStack(alignment: .leading, spacing: 11) {
             SectionRule(title: "SESSIONS · \(sessions.count)") {
                 if !sessions.isEmpty {
-                    Text(tally(sessions, running: running))
+                    Text(sessions.map { tone($0) }.tally)
                         .font(.mono(10))
                         .kerning(0.6)
                         .foregroundStyle(.tertiary)
@@ -230,7 +229,8 @@ struct ProjectDetailView: View {
                         SessionRow(session: session,
                                    tone: tone(session),
                                    branch: branch(session, project: project),
-                                   activity: activity(session, project: project),
+                                   activity: SessionActivity.line(for: session, store: store,
+                                                                  runner: runner),
                                    detail: .location(location(session, project: project)),
                                    onOpen: { store.selectSession(session.id) },
                                    menu: { sessionMenu(session, project: project) })
@@ -238,16 +238,6 @@ struct ProjectDetailView: View {
                 }
             }
         }
-    }
-
-    private func tally(_ sessions: [ChatSession], running: Int) -> String {
-        let waiting = sessions.filter { tone($0) == .needsYou }.count
-        var parts: [String] = []
-        if running > 0 { parts.append("\(running) RUNNING") }
-        if waiting > 0 { parts.append("\(waiting) NEEDS YOU") }
-        let idle = sessions.count - running - waiting
-        if idle > 0 { parts.append("\(idle) IDLE") }
-        return parts.joined(separator: " · ")
     }
 
     private func defaults(_ project: Project) -> some View {
@@ -301,23 +291,7 @@ struct ProjectDetailView: View {
     // MARK: - Reading a session
 
     private func tone(_ session: ChatSession) -> SessionTone {
-        SessionTone(busy: runner.state(session.id).isBusy,
-                    needsInput: runner.question(session.id) != nil,
-                    finished: store.hasFinished(session.id))
-    }
-
-    private func activity(_ session: ChatSession, project: Project) -> String {
-        if let question = runner.question(session.id) {
-            return question.isQuestion
-                ? "waiting on an answer · \(question.title)"
-                : "waiting on \(question.toolName) permission"
-        }
-        if runner.state(session.id).isBusy, let running = runner.runningTool(session.id) {
-            let root = session.worktreePath ?? project.path
-            return ToolPresentationCache.presentation(for: running, projectPath: root).label
-        }
-        guard let last = session.summary.lastTool else { return "not started" }
-        return (store.hasFinished(session.id) ? "ended after " : "last: ") + last
+        SessionTone(session.id, store: store, runner: runner)
     }
 
     private func location(_ session: ChatSession, project: Project) -> String {
@@ -448,7 +422,7 @@ struct ProjectDetailView: View {
     // directly because there is no checkout choice to make.
     private func requestNewSession(in project: Project) {
         guard !store.isMissing(project) else { return }
-        guard FileManager.default.fileExists(atPath: project.path + "/.git") else {
+        guard project.isGitRepository else {
             startSession(.folder(agent: runner.agent,
                                  model: runner.defaults.model,
                                  agentAvatarName: appSettings.defaultAgentAvatarName),

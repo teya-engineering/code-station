@@ -109,29 +109,25 @@ final class AppSettings {
     }
 
     func removeAgentAvatar(_ avatar: AgentAvatar) throws {
-        defer {
-            agentAvatars = AgentAvatarFile.loadAll(from: agentAvatarURL)
-            let resolvedDefault = AgentAvatarSelection.defaultName(
-                preferredName: defaultAgentAvatarName,
-                availableNames: agentAvatars.map { $0.url.lastPathComponent })
-            if resolvedDefault != defaultAgentAvatarName {
-                setDefaultAgentAvatarName(resolvedDefault)
-            }
-        }
+        defer { reloadAgentAvatars() }
         try AgentAvatarFile.remove(at: avatar.url, from: agentAvatarURL)
     }
 
     func removeAgentAvatars() throws {
-        defer {
-            agentAvatars = AgentAvatarFile.loadAll(from: agentAvatarURL)
-            let resolvedDefault = AgentAvatarSelection.defaultName(
-                preferredName: defaultAgentAvatarName,
-                availableNames: agentAvatars.map { $0.url.lastPathComponent })
-            if resolvedDefault != defaultAgentAvatarName {
-                setDefaultAgentAvatarName(resolvedDefault)
-            }
-        }
+        defer { reloadAgentAvatars() }
         try AgentAvatarFile.removeAll(from: agentAvatarURL)
+    }
+
+    // Removing an avatar can take the chosen default with it, so the list and the default
+    // are read back together and the default falls to whatever is still there.
+    private func reloadAgentAvatars() {
+        agentAvatars = AgentAvatarFile.loadAll(from: agentAvatarURL)
+        let resolvedDefault = AgentAvatarSelection.defaultName(
+            preferredName: defaultAgentAvatarName,
+            availableNames: agentAvatars.map { $0.url.lastPathComponent })
+        if resolvedDefault != defaultAgentAvatarName {
+            setDefaultAgentAvatarName(resolvedDefault)
+        }
     }
 
     func setDefaultAgentAvatarName(_ name: String) {
@@ -827,9 +823,5 @@ enum PermissionMode {
     // What the mode is called where a sentence does not fit, like the composer bar.
     static func shortTitle(of mode: String?) -> String {
         all.first { $0.mode == mode }?.short ?? mode ?? "Accept edits"
-    }
-
-    static func explanation(of mode: String?) -> String {
-        all.first { $0.mode == mode }?.detail ?? ""
     }
 }

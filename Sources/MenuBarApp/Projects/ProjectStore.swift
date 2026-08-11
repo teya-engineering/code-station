@@ -305,7 +305,7 @@ final class ProjectStore {
 
         let ordered = [leadProjectID] + members.filter { $0 != leadProjectID }
         let worktreeProjectIDs = ordered.filter { id in
-            project(id).map { FileManager.default.fileExists(atPath: $0.path + "/.git") } ?? false
+            project(id)?.isGitRepository ?? false
         }
         let workspace = ProjectWorkspace(name: trimmed, projectIDs: ordered,
                                          leadProjectID: leadProjectID,
@@ -347,8 +347,7 @@ final class ProjectStore {
               let i = workspaces.firstIndex(where: { $0.id == id }),
               !workspaces[i].projectIDs.contains(projectID) else { return }
         workspaces[i].projectIDs.append(projectID)
-        if let project = project(projectID),
-           FileManager.default.fileExists(atPath: project.path + "/.git") {
+        if let project = project(projectID), project.isGitRepository {
             workspaces[i].worktreeProjectIDs.append(projectID)
         }
         saveIndex()

@@ -80,7 +80,7 @@ struct NewWorkspaceSessionView: View {
     }
 
     private func projectCard(_ project: Project, lead: Bool) -> some View {
-        let supportsWorktree = isGitRepository(project)
+        let supportsWorktree = project.isGitRepository
         let usesWorktree = supportsWorktree && worktrees.contains(project.id)
         let checkout = GitWorktree.plan(projectName: project.name, projectID: project.id,
                                         sessionID: sessionID)
@@ -241,7 +241,7 @@ struct NewWorkspaceSessionView: View {
         attachableProjects.map { project in
             .item(project.name, subtitle: project.collapsedPath) {
                 projectIDs.append(project.id)
-                if isGitRepository(project) { worktrees.insert(project.id) }
+                if project.isGitRepository { worktrees.insert(project.id) }
             }
         }
     }
@@ -261,7 +261,7 @@ struct NewWorkspaceSessionView: View {
         let agent = selectedAgent ?? runner.agent
         let choices = projectIDs.map { id in
             let useWorktree = store.project(id).map {
-                worktrees.contains(id) && isGitRepository($0)
+                worktrees.contains(id) && $0.isGitRepository
             } ?? false
             return WorkspaceProjectChoice(projectID: id, useWorktree: useWorktree)
         }
@@ -270,10 +270,6 @@ struct NewWorkspaceSessionView: View {
                                         model: runner.defaults(for: agent).model,
                                         agentAvatarName: selectedAvatarName))
         dismiss()
-    }
-
-    private func isGitRepository(_ project: Project) -> Bool {
-        FileManager.default.fileExists(atPath: project.path + "/.git")
     }
 
     private func projectColour(_ id: UUID) -> Color {
