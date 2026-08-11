@@ -240,15 +240,13 @@ struct AppSidebar: View {
 
     // The order and the grouping both decide the shape of the whole rail under them, so
     // they share one line above the list in the open rather than hiding behind a menu.
-    // What the rail holds is stated beside them, since the tree itself only ever shows
-    // the part of it that fits.
     private var arrangementBar: some View {
         HStack(spacing: 6) {
             HStack(spacing: 2) {
                 ForEach(ProjectSort.allCases) { option in
-                    SortChip(title: option.label,
-                             hint: option.hint,
-                             selected: appSettings.projectSort == option) {
+                    ArrangementChip(title: option.label,
+                                    hint: option.hint,
+                                    selected: appSettings.projectSort == option) {
                         appSettings.projectSort = option
                     }
                 }
@@ -258,36 +256,20 @@ struct AppSidebar: View {
 
             Spacer(minLength: 6)
 
-            Text(inventory)
-                .font(.mono(9.5))
-                .kerning(0.6)
-                .foregroundStyle(.tertiary)
-                .lineLimit(1)
-                .appMenu { groupingMenu }
-                .appTooltip("Headings the list is split under")
+            HStack(spacing: 2) {
+                ForEach(ProjectGrouping.allCases) { option in
+                    ArrangementChip(title: option.label,
+                                    hint: option.hint,
+                                    selected: appSettings.projectGrouping == option) {
+                        appSettings.projectGrouping = option
+                    }
+                }
+            }
+            .padding(2)
+            .background(RoundedRectangle(cornerRadius: 7).fill(Theme.field))
         }
         .padding(.horizontal, 14)
         .padding(.bottom, 10)
-    }
-
-    private var inventory: String {
-        let projects = store.projects.count
-        let workspaces = store.workspaces.count
-        var parts = ["\(projects) PROJECT\(projects == 1 ? "" : "S")"]
-        if workspaces > 0 {
-            parts.append("\(workspaces) WORKSPACE\(workspaces == 1 ? "" : "S")")
-        }
-        return parts.joined(separator: " · ")
-    }
-
-    private var groupingMenu: [MenuEntry] {
-        ProjectGrouping.allCases.map { option in
-            .item(option.label,
-                  checked: appSettings.projectGrouping == option,
-                  subtitle: option.hint) {
-                appSettings.projectGrouping = option
-            }
-        }
     }
 
     private struct NoticedSession {
@@ -1251,10 +1233,9 @@ private struct SettingsButton: View {
     }
 }
 
-// One of the orders the project list can be in. The two sit on a shared track and the
-// chosen one is lifted out of it, so which is on reads from the shape alone without
-// having to read the words.
-private struct SortChip: View {
+// Each pair sits on a shared track and the chosen option is lifted out of it, so which is
+// on reads from the shape alone without having to read the words.
+private struct ArrangementChip: View {
     let title: String
     let hint: String
     let selected: Bool

@@ -59,7 +59,7 @@ enum ProjectGrouping: String, CaseIterable, Identifiable {
     var label: String {
         switch self {
         case .flat: "None"
-        case .kind: "Type"
+        case .kind: "By Type"
         }
     }
 
