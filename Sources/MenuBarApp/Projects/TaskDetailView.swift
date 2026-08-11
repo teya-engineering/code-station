@@ -71,16 +71,6 @@ struct TaskDetailView: View {
                 }
                 .disabled(store.isMissing(task))
                 .opacity(store.isMissing(task) ? 0.4 : 1)
-
-                ActionButton(title: "Run task", tone: .green, size: 12,
-                             icon: "play.fill") {
-                    run(task)
-                }
-                .disabled(!runReady(task))
-                .opacity(runReady(task) ? 1 : 0.45)
-                .appTooltip(runBusy(task)
-                    ? "A run is still working in this folder."
-                    : "Start a fresh session with the saved prompt")
             }
             .fixedSize(horizontal: true, vertical: false)
             .layoutPriority(1)
@@ -103,23 +93,21 @@ struct TaskDetailView: View {
 
     private func details(_ task: Project) -> some View {
         let runs = store.standaloneSessions(for: task.id)
-        return ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
-                promptCard(task)
-                runList(task, runs: runs)
-                FooterStrip(title: "Runs as", detail: runDefaults) { EmptyView() }
+        return VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 22) {
+                    promptCard(task)
+                    runList(task, runs: runs)
+                }
+                .padding(24)
             }
-            .padding(24)
+            runBar(task)
         }
     }
 
     private func promptCard(_ task: Project) -> some View {
         VStack(alignment: .leading, spacing: 13) {
-            SectionRule(title: "PROMPT") {
-                InlineLink(title: "Reveal folder in Finder") {
-                    NSWorkspace.shared.activateFileViewerSelecting([task.url])
-                }
-            }
+            SectionRule(title: "PROMPT") { EmptyView() }
 
             TaskPromptEditor(prompt: $prompt, minHeight: 110)
 
@@ -196,15 +184,157 @@ struct TaskDetailView: View {
         ]
     }
 
-    // What a run starts with, read from the same defaults the run itself would use.
-    private var runDefaults: String {
-        let agent = runner.agent
-        let settings = runner.defaults(for: agent)
-        var parts = [agent.title]
-        if let model = ModelChoice.valid(settings.model, for: agent) {
-            parts.append(ModelChoice.title(of: model))
+    // MARK: - Run bar
+
+    // Where a run starts from: the choices every run of this task begins with, and the
+    // button itself. A choice left unset follows the app default, so each menu names
+    // what that default currently resolves to.
+    private func runBar(_ task: Project) -> some View {
+        VStack(spacing: 0) {
+            Divider().overlay(Theme.hairline)
+            HStack(spacing: 14) {
+                SessionBotPicker(avatars: appSettings.agentAvatars,
+                                 selectedName: botBinding(task), size: 26)
+                Text(runner.agent.title)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .fixedSize()
+                    .appTooltip("Runs on \(runner.agent.title), the agent chosen in Settings.")
+                modelMenu(task)
+                effortMenu(task)
+                if runner.agent == .claudeCode {
+                    permissionsMenu(task)
+                } else {
+                    codexAccessMenu(task)
+                }
+                Spacer(minLength: 12)
+                ActionButton(title: "Run task", tone: .green, icon: "play.fill") {
+                    run(task)
+                }
+                .disabled(!runReady(task))
+                .opacity(runReady(task) ? 1 : 0.45)
+                .appTooltip(runBusy(task)
+                    ? "A run is still working in this folder."
+                    : "Start a fresh session with the saved prompt")
+            }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 12)
+            .background(Theme.card)
         }
-        return parts.joined(separator: " · ")
+    }
+
+    private func botBinding(_ task: Project) -> Binding<String> {
+        Binding(get: { spec(task).agentAvatarName ?? appSettings.defaultAgentAvatarName },
+                set: { name in changeSpec(task) { $0.agentAvatarName = name } })
+    }
+
+    private func modelMenu(_ task: Project) -> some View {
+        let agent = runner.agent
+        let override = ModelChoice.valid(spec(task).model, for: agent)
+        let appDefault = ModelChoice.valid(runner.defaults(for: agent).model, for: agent)
+        return choiceMenu(override.map { ModelChoice.title(of: $0) } ?? "Default model",
+                          overridden: override != nil,
+                          help: "The model each run starts on.",
+                          defaultTitle: defaultTitle(appDefault.map { ModelChoice.title(of: $0) }),
+                          options: ModelChoice.options(for: agent).compactMap { choice in
+                              choice.id.map { (id: $0, title: choice.title) }
+                          },
+                          selection: Binding(get: { override },
+                                             set: { id in changeSpec(task) { $0.model = id } }))
+    }
+
+    private func effortMenu(_ task: Project) -> some View {
+        let agent = runner.agent
+        let override = EffortChoice.valid(spec(task).effort, for: agent)
+        let appDefault = EffortChoice.valid(runner.defaults(for: agent).effort, for: agent)
+        let chosen = override ?? appDefault
+        return choiceMenu(chosen.map { "\(EffortChoice.summary(of: $0, agent: agent)) effort" }
+                              ?? "Default effort",
+                          overridden: override != nil,
+                          help: "How long the model thinks before it answers.",
+                          defaultTitle: defaultTitle(appDefault.map {
+                              EffortChoice.summary(of: $0, agent: agent)
+                          }),
+                          options: EffortChoice.all(for: agent).compactMap { choice in
+                              choice.id.map { (id: $0, title: choice.title) }
+                          },
+                          selection: Binding(get: { override },
+                                             set: { id in changeSpec(task) { $0.effort = id } }))
+    }
+
+    private func permissionsMenu(_ task: Project) -> some View {
+        let agent = runner.agent
+        let override = spec(task).permissionMode
+        let defaults = runner.defaults(for: agent)
+        return choiceMenu(PermissionMode.shortTitle(of: override ?? defaults.permissionMode),
+                          overridden: override != nil,
+                          help: "How much the agent asks before it acts.",
+                          defaultTitle: defaultTitle(PermissionMode.shortTitle(of: defaults.permissionMode)),
+                          options: PermissionMode.all.map { (id: $0.mode, title: $0.title) },
+                          selection: Binding(get: { override },
+                                             set: { mode in
+                                                 changeSpec(task) { $0.permissionMode = mode }
+                                             }))
+    }
+
+    private func codexAccessMenu(_ task: Project) -> some View {
+        let agent = runner.agent
+        let override = CodexSandboxMode.valid(spec(task).codexSandboxMode)
+        let appDefault = CodexSandboxMode.resolved(runner.defaults(for: agent).codexSandboxMode)
+        let selected = override ?? appDefault
+        return choiceMenu(selected.summary,
+                          overridden: override != nil,
+                          help: selected.detail,
+                          defaultTitle: defaultTitle(appDefault.title),
+                          options: CodexSandboxMode.allCases.map { (id: $0.rawValue, title: $0.title) },
+                          warning: selected == .fullAccess,
+                          warningOption: CodexSandboxMode.fullAccess.rawValue,
+                          selection: Binding(get: { override?.rawValue },
+                                             set: { value in
+                                                 changeSpec(task) { $0.codexSandboxMode = value }
+                                             }))
+    }
+
+    // The first row of every menu, naming what following the default currently means.
+    private func defaultTitle(_ resolved: String?) -> String {
+        resolved.map { "Use the default (\($0))" } ?? "Use the default"
+    }
+
+    private func choiceMenu(_ label: String, overridden: Bool, help: String,
+                            defaultTitle: String,
+                            options: [(id: String, title: String)],
+                            warning: Bool = false,
+                            warningOption: String? = nil,
+                            selection: Binding<String?>) -> some View {
+        HStack(spacing: 4) {
+            Text(label)
+                .font(.system(size: 11, weight: overridden ? .semibold : .regular))
+            Image(systemName: "chevron.down")
+                .font(.system(size: 7, weight: .semibold))
+        }
+        .foregroundStyle(warning ? Theme.deletion
+                                 : overridden ? Theme.accent : Color.secondary)
+        .fixedSize()
+        .appMenu(edge: .top) {
+            var entries: [MenuEntry] = [
+                .item(defaultTitle, checked: selection.wrappedValue == nil) {
+                    selection.wrappedValue = nil
+                },
+                .separator,
+            ]
+            entries += options.map { option in
+                MenuEntry.item(option.title,
+                               kind: option.id == warningOption ? .destructive : .plain,
+                               checked: selection.wrappedValue == option.id,
+                               subtitle: option.id == warningOption
+                                   ? "No file, service, or network restrictions."
+                                   : nil) {
+                    selection.wrappedValue = option.id
+                }
+            }
+            return entries
+        }
+        .appTooltip(overridden ? "\(help) Overridden for this task." : help)
     }
 
     // MARK: - Reading and changing the task
@@ -221,7 +351,19 @@ struct TaskDetailView: View {
 
     private func savePrompt(_ task: Project) {
         guard promptLoaded else { return }
-        store.setTaskSpec(TaskSpec(prompt: prompt), for: task.id)
+        changeSpec(task) { $0.prompt = prompt }
+    }
+
+    private func spec(_ task: Project) -> TaskSpec {
+        store.project(task.id)?.task ?? TaskSpec(prompt: prompt)
+    }
+
+    // Edits keep everything else in the spec: the prompt and each run choice are saved
+    // through the same record.
+    private func changeSpec(_ task: Project, _ edit: (inout TaskSpec) -> Void) {
+        var updated = spec(task)
+        edit(&updated)
+        store.setTaskSpec(updated, for: task.id)
     }
 
     private func run(_ task: Project) {

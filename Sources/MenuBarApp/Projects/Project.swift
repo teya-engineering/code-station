@@ -1,9 +1,15 @@
 import Foundation
 
-// What a task does when it is run: the prompt handed to a fresh session. Only ad-hoc
-// projects carry one.
+// What a task does when it is run: the prompt handed to a fresh session, and the run
+// choices that session starts with. Nil choices follow the app defaults at run time.
+// Only ad-hoc projects carry one.
 struct TaskSpec: Codable, Equatable {
     var prompt: String
+    var agentAvatarName: String?
+    var model: String?
+    var effort: String?
+    var permissionMode: String?
+    var codexSandboxMode: String?
 }
 
 // A project is just a folder on disk. A session runs Claude Code either directly in
