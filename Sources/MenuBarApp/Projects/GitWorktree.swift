@@ -13,6 +13,14 @@ enum GitWorktree {
         let message: String
     }
 
+    struct Orphaned: Identifiable, Sendable, Equatable {
+        let path: String
+        let branch: String?
+        let allocatedBytes: Int64
+
+        var id: String { path }
+    }
+
     private static let folder = "worktrees"
     private static let cleanupCommandTimeout: TimeInterval = 30
 
@@ -65,6 +73,80 @@ enum GitWorktree {
                   planned: plan(projectName: projectName, projectID: projectID,
                                 sessionID: sessionID),
                   from: base)
+    }
+
+    // Git is the source of truth for which checkouts belong to a repository. Limiting
+    // the result to the app's worktree folder prevents a checkout made by the user from
+    // ever appearing as app cleanup, even when no session knows about it.
+    static func orphaned(projectPath: String, excluding activePaths: Set<String>) async
+        -> [Orphaned] {
+        guard let tool = await GitInspector.tool() else { return [] }
+        let base = baseDirectory.standardizedFileURL.path + "/"
+        let active = Set(activePaths.map {
+            URL(fileURLWithPath: $0).standardizedFileURL.path
+        })
+
+        return await GitInspector.offMain {
+            let output = GitInspector.run(
+                tool, ["-C", projectPath, "worktree", "list", "--porcelain", "-z"])
+            guard output.ok else { return [] }
+
+            return parseWorktreeList(output.text).compactMap { checkout in
+                let path = URL(fileURLWithPath: checkout.path).standardizedFileURL.path
+                guard path.hasPrefix(base), !active.contains(path),
+                      FileManager.default.fileExists(atPath: path) else { return nil }
+                return Orphaned(path: path,
+                                branch: checkout.branch,
+                                allocatedBytes: allocatedSize(of: path))
+            }
+            .sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
+        }
+    }
+
+    static func parseWorktreeList(_ output: String) -> [(path: String, branch: String?)] {
+        var worktrees: [(path: String, branch: String?)] = []
+        var path: String?
+        var branch: String?
+
+        func finish() {
+            guard let path else { return }
+            worktrees.append((path, branch))
+        }
+
+        for field in output.components(separatedBy: "\0") {
+            if field.isEmpty {
+                finish()
+                path = nil
+                branch = nil
+            } else if field.hasPrefix("worktree ") {
+                if path != nil { finish() }
+                path = String(field.dropFirst("worktree ".count))
+                branch = nil
+            } else if field.hasPrefix("branch refs/heads/") {
+                branch = String(field.dropFirst("branch refs/heads/".count))
+            }
+        }
+        if path != nil { finish() }
+        return worktrees
+    }
+
+    private static func allocatedSize(of path: String) -> Int64 {
+        let keys: [URLResourceKey] = [
+            .isRegularFileKey, .fileAllocatedSizeKey, .totalFileAllocatedSizeKey
+        ]
+        guard let files = FileManager.default.enumerator(
+            at: URL(fileURLWithPath: path),
+            includingPropertiesForKeys: keys,
+            options: []
+        ) else { return 0 }
+
+        var bytes: Int64 = 0
+        for case let file as URL in files {
+            guard let values = try? file.resourceValues(forKeys: Set(keys)),
+                  values.isRegularFile == true else { continue }
+            bytes += Int64(values.totalFileAllocatedSize ?? values.fileAllocatedSize ?? 0)
+        }
+        return bytes
     }
 
     private static func add(projectPath: String, planned: Created,

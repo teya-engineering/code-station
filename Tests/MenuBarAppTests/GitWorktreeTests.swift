@@ -36,4 +36,22 @@ struct GitWorktreeTests {
         #expect(plan.path.hasSuffix("/4f2ab8c1/Project-A-aabbccdd"))
         #expect(plan.branch == "conductor/4f2ab8c1")
     }
+
+    @Test func readsRegisteredWorktreePathsAndBranches() {
+        let output = [
+            "worktree /repo", "HEAD abc", "branch refs/heads/main", "",
+            "worktree /worktrees/one", "HEAD def", "branch refs/heads/conductor/one", "",
+            "worktree /worktrees/detached", "HEAD fed", "detached", ""
+        ].joined(separator: "\0")
+
+        let worktrees = GitWorktree.parseWorktreeList(output)
+
+        #expect(worktrees.count == 3)
+        #expect(worktrees[0].path == "/repo")
+        #expect(worktrees[0].branch == "main")
+        #expect(worktrees[1].path == "/worktrees/one")
+        #expect(worktrees[1].branch == "conductor/one")
+        #expect(worktrees[2].path == "/worktrees/detached")
+        #expect(worktrees[2].branch == nil)
+    }
 }
