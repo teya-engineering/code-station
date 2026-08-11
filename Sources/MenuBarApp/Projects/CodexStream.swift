@@ -68,6 +68,12 @@ extension StreamEvent {
             guard completed, let text = item["text"] as? String, !text.isEmpty else { return [] }
             return [.text(text)]
 
+        case "reasoning":
+            // Codex reports a summary of its reasoning between steps. Like a message,
+            // only the completed item carries the whole text.
+            guard completed, let text = item["text"] as? String, !text.isEmpty else { return [] }
+            return [.thinking(text)]
+
         case "command_execution":
             guard completed else {
                 return [.toolUse(ToolUse(id: id, name: "Bash",
@@ -105,7 +111,7 @@ extension StreamEvent {
                     .toolResult(id: id, output: "", isError: false)]
 
         default:
-            // Reasoning, todo lists and whatever Codex adds next are not worth a row.
+            // Todo lists and whatever Codex adds next are not worth a row.
             return []
         }
     }

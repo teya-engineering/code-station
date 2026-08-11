@@ -394,11 +394,26 @@ struct CodexTests {
         }
     }
 
-    @Test func reasoningAndUnknownItemsAreDropped() {
-        let reasoning = StreamEvent.parseCodex("""
-        {"type":"item.completed","item":{"id":"item_5","item_type":"reasoning","text":"thinking"}}
+    @Test func aCompletedReasoningItemBecomesThinking() {
+        let events = StreamEvent.parseCodex("""
+        {"type":"item.completed","item":{"id":"item_5","item_type":"reasoning","text":"weighing options"}}
         """)
-        #expect(reasoning.isEmpty)
+        guard case .thinking(let text)? = events.first else {
+            Issue.record("expected a thinking event, got \(events)")
+            return
+        }
+        #expect(text == "weighing options")
+        // The completed item carries the whole text again, so the started one is noise.
+        #expect(StreamEvent.parseCodex("""
+        {"type":"item.started","item":{"id":"item_5","item_type":"reasoning","text":"weighing"}}
+        """).isEmpty)
+    }
+
+    @Test func unknownItemsAreDropped() {
+        let todo = StreamEvent.parseCodex("""
+        {"type":"item.completed","item":{"id":"item_6","item_type":"todo_list","items":[]}}
+        """)
+        #expect(todo.isEmpty)
         #expect(StreamEvent.parseCodex("not json at all").isEmpty)
         #expect(StreamEvent.parseCodex(#"{"type":"turn.started"}"#).isEmpty)
     }

@@ -58,6 +58,37 @@ struct AgentActivityTests {
         #expect(text == "Downloading the floorplan.")
     }
 
+    @Test func keepsTheMainLoopsThinking() {
+        let line = """
+        {"type":"assistant","message":{"role":"assistant","content":\
+        [{"type":"thinking","thinking":"The bug is in the parser.","signature":"sig"},\
+        {"type":"text","text":"Found it."}]}}
+        """
+        let events = StreamEvent.parse(line)
+        guard case .thinking(let thought)? = events.first,
+              case .text(let text)? = events.last else {
+            Issue.record("expected thinking then text, got \(events)")
+            return
+        }
+        #expect(thought == "The bug is in the parser.")
+        #expect(text == "Found it.")
+    }
+
+    // An agent's thinking stays with the agent, and redacted thinking arrives encrypted,
+    // so neither has anything to show.
+    @Test func dropsThinkingTheConversationCannotShow() {
+        let agents = """
+        {"type":"assistant","parent_tool_use_id":"agent_1","message":{"role":"assistant",\
+        "content":[{"type":"thinking","thinking":"Reading the floorplan."}]}}
+        """
+        #expect(StreamEvent.parse(agents).isEmpty)
+        let redacted = """
+        {"type":"assistant","message":{"role":"assistant","content":\
+        [{"type":"redacted_thinking","data":"opaque-bytes"}]}}
+        """
+        #expect(StreamEvent.parse(redacted).isEmpty)
+    }
+
     // MARK: - Folding the turn into a tree
 
     @Test func hangsACallUnderTheAgentThatMadeIt() throws {

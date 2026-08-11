@@ -130,6 +130,9 @@ struct MessageView: View, Equatable {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .transcriptCopyButton(
                         for: text.trimmingCharacters(in: .whitespacesAndNewlines))
+                case .thinking(_, let text):
+                    ThinkingBlock(text: text)
+                        .transition(.fadeIn)
                 }
             }
         }
@@ -149,6 +152,56 @@ struct MessageView: View, Equatable {
                 }
             }
         }
+    }
+}
+
+// A stretch of the model's reasoning. It is an aside, not part of the answer, so it
+// folds down to one dim line and opens as dim italic text rather than as page prose.
+private struct ThinkingBlock: View {
+    let text: String
+    @State private var expanded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Button { expanded.toggle() } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .semibold))
+                        .rotationEffect(.degrees(expanded ? 90 : 0))
+                        .frame(width: 10)
+                    Text(expanded ? "Thought" : "Thought · \(firstLine)")
+                        .font(.system(size: 12))
+                        .italic()
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+                .foregroundStyle(.secondary)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .appTooltip(expanded ? "Hide thinking" : "Show thinking")
+
+            if expanded {
+                Text(text.trimmingCharacters(in: .whitespacesAndNewlines))
+                    .font(.system(size: 12))
+                    .italic()
+                    .foregroundStyle(.secondary)
+                    .lineSpacing(3)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.leading, 18)
+                    .transcriptCopyButton(for: text)
+            }
+        }
+        .padding(.trailing, 32)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .animation(.easeInOut(duration: 0.12), value: expanded)
+    }
+
+    private var firstLine: String {
+        text.split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .first { !$0.isEmpty } ?? ""
     }
 }
 
