@@ -1559,6 +1559,7 @@ private struct SessionCard: View {
     let onRename: (String) -> Void
     let onCancelRename: () -> Void
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var hovering = false
     @State private var draft = ""
     @FocusState private var focused: Bool
@@ -1630,6 +1631,9 @@ private struct SessionCard: View {
                         .lineLimit(1)
                         .truncationMode(.tail)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentTransition(.opacity)
+                        .animation(reduceMotion ? nil : .easeInOut(duration: 0.3),
+                                   value: session.title)
                 }
             }
 
