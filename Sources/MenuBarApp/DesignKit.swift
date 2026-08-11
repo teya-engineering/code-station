@@ -220,15 +220,20 @@ private struct ChangingName: ViewModifier {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    // Slow for an animation, and deliberately so: this runs once in a session's life,
+    // while the eye is still on the composer the name came from. Anything quicker is
+    // over before it is looked at, and reads as the name having always been there.
+    private static let duration = 0.7
+
     func body(content: Content) -> some View {
         ZStack(alignment: .leading) {
             content
                 .id(name)
                 .transition(.asymmetric(
-                    insertion: .opacity.combined(with: .offset(y: 7)),
-                    removal: .opacity.combined(with: .offset(y: -7))))
+                    insertion: .opacity.combined(with: .offset(y: 12)),
+                    removal: .opacity.combined(with: .offset(y: -12))))
         }
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.35), value: name)
+        .animation(reduceMotion ? nil : .easeInOut(duration: Self.duration), value: name)
     }
 }
 
