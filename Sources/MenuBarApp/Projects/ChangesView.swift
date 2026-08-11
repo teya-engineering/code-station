@@ -7,9 +7,6 @@ import SwiftUI
 // the header carries the little git a review ends in: switch branch, commit, pull, push.
 struct ChangesView: View {
     let root: String
-    // Set when the screen was opened by something that already knows a commit is the next
-    // step, so the message field is waiting rather than a click away.
-    var startCommitting = false
 
     @Environment(DialogPresenter.self) private var dialogs
 
@@ -37,11 +34,6 @@ struct ChangesView: View {
         }
         .background(Theme.background)
         .task(id: root) { await reload() }
-        .onAppear {
-            guard startCommitting else { return }
-            committing = true
-            commitFocused = true
-        }
     }
 
     // MARK: - Header

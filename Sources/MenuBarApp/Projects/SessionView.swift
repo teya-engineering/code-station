@@ -133,7 +133,6 @@ struct SessionView: View {
     @State private var selectedProjectID: UUID?
     @State private var transcriptWindow = TranscriptWindow()
     @State private var transcriptPinnedToBottom = true
-    @State private var openingToCommit = false
 
     // Working tree totals for the header; refreshed as tools finish so the numbers
     // track the run rather than only its end.
@@ -164,7 +163,7 @@ struct SessionView: View {
                     Divider().overlay(Theme.hairline)
                     composer(session: session, project: project)
                 case .changes:
-                    ChangesView(root: visibleDirectory, startCommitting: openingToCommit)
+                    ChangesView(root: visibleDirectory)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 case .explorer:
                     ExplorerView(root: visibleDirectory)
@@ -182,11 +181,6 @@ struct SessionView: View {
             .background(terminalShortcut(directory: workingDirectory))
             .onChange(of: terminalFocused) { _, focused in
                 if focused { composerFocused = false }
-            }
-            // Only the button that asked for it opens Changes on the commit field. Coming
-            // back to the tab by hand later is a review, not a commit.
-            .onChange(of: tab) { _, tab in
-                if tab != .changes { openingToCommit = false }
             }
             .task(id: sessionID) {
                 selectedProjectID = session.projectID
@@ -606,15 +600,13 @@ struct SessionView: View {
     // because that is where the decision is made, and only once the agent has stopped:
     // reviewing a tree that is still being written to is not a review.
     @ViewBuilder private func handoff(state: SessionState) -> some View {
-        let files = workspaceStats.values.filter { $0.state == .ready }
-            .reduce(0) { $0 + $1.files.count }
-        if files > 0, !state.isBusy, runner.question(sessionID) == nil {
+        let hasChanges = workspaceStats.values.contains {
+            $0.state == .ready && !$0.files.isEmpty
+        }
+        if hasChanges, !state.isBusy, runner.question(sessionID) == nil {
             HStack(spacing: 8) {
-                ActionButton(title: "Review \(files) file\(files == 1 ? "" : "s")") {
+                ActionButton(title: "Click here to review changes") {
                     openChanges()
-                }
-                ActionButton(title: "Commit…", tone: .outlined) {
-                    openChanges(toCommit: true)
                 }
                 Spacer(minLength: 0)
             }
@@ -622,8 +614,7 @@ struct SessionView: View {
         }
     }
 
-    private func openChanges(toCommit: Bool = false) {
-        openingToCommit = toCommit
+    private func openChanges() {
         tab = .changes
     }
 
