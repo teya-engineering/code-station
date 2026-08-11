@@ -1528,9 +1528,8 @@ private struct UncommittedMark: View {
     }
 }
 
-// A session as a compact card. The three rows are the same three the session shows on its
-// project and on Home - state, title, what it is doing and what it has changed - so a
-// session reads the same wherever it is met.
+// A session as a compact card. It carries the same state, title, activity and changes the
+// session shows on its project and on Home, so it reads the same wherever it is met.
 private struct SessionCard: View {
     let session: ChatSession
     let selected: Bool
@@ -1565,12 +1564,17 @@ private struct SessionCard: View {
                 }
                 if uncommitted { UncommittedMark() }
                 Spacer(minLength: 4)
-                // The timestamp hides in place rather than being taken out, and the button
-                // that replaces it is an overlay, so the card is one size whether or not
-                // the pointer is on it.
-                Text(RelativeTime.short(session.lastActivity))
-                    .font(.mono(9.5))
-                    .foregroundStyle(.tertiary)
+                // The trailing details hide in place rather than being taken out, and the
+                // button that replaces them is an overlay, so the card is one size whether
+                // or not the pointer is on it.
+                HStack(spacing: 6) {
+                    if added > 0 || removed > 0 {
+                        DiffPair(added: added, removed: removed, size: 10, spacing: 4)
+                    }
+                    Text(RelativeTime.short(session.lastActivity))
+                        .font(.mono(9.5))
+                        .foregroundStyle(.tertiary)
+                }
                     .opacity(hovering ? 0 : 1)
                     .overlay(alignment: .trailing) {
                         if hovering {
@@ -1602,13 +1606,7 @@ private struct SessionCard: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            HStack(spacing: 8) {
-                ActivityLine(activity: activity)
-                if added > 0 || removed > 0 {
-                    Spacer(minLength: 4)
-                    DiffPair(added: added, removed: removed, size: 10, spacing: 4)
-                }
-            }
+            ActivityLine(activity: activity)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
