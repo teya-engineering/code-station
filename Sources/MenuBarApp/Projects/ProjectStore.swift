@@ -516,6 +516,17 @@ final class ProjectStore {
         saveIndex()
     }
 
+    // A title the person typed is also what stops the first prompt from taking the title
+    // over, since that only ever replaces the untouched "New session".
+    func renameSession(_ sessionID: UUID, to title: String) {
+        guard let i = index(sessionID) else { return }
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, sessions[i].title != trimmed else { return }
+        sessions[i].title = trimmed
+        publishSidebarSessions()
+        saveIndex()
+    }
+
     func setAgentAvatarName(_ name: String?, for sessionID: UUID) {
         guard let i = index(sessionID), sessions[i].agentAvatarName != name else { return }
         sessions[i].agentAvatarName = name

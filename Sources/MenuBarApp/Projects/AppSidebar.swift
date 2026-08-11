@@ -508,14 +508,22 @@ struct AppSidebar: View {
                                             removed: session.summary.removed,
                                             branch: workspaceBranch(session),
                                             uncommitted: folders.contains(where: workingTrees.isDirty),
-                                            onDelete: { confirmRemoveSession(session) })
+                                            isRenaming: renamingID == session.id,
+                                            onDelete: { confirmRemoveSession(session) },
+                                            onRename: { name in
+                                                store.renameSession(session.id, to: name)
+                                                renamingID = nil
+                                            },
+                                            onCancelRename: { renamingID = nil })
                             }
                                 .contentShape(Rectangle())
                                 .onTapGesture { store.selectSession(session.id) }
                                 .appContextMenu {
-                                    [.item("Delete session", kind: .destructive) {
-                                        confirmRemoveSession(session)
-                                    }]
+                                    [.item("Rename…") { renamingID = session.id },
+                                     .separator,
+                                     .item("Delete session", kind: .destructive) {
+                                         confirmRemoveSession(session)
+                                     }]
                                 }
                         }
                     }
@@ -616,16 +624,24 @@ struct AppSidebar: View {
                                         removed: session.summary.removed,
                                         branch: branch(session, project: project),
                                         uncommitted: workingTrees.isDirty(folder(session, project: project)),
-                                        onDelete: { confirmRemoveSession(session) })
+                                        isRenaming: renamingID == session.id,
+                                        onDelete: { confirmRemoveSession(session) },
+                                        onRename: { name in
+                                            store.renameSession(session.id, to: name)
+                                            renamingID = nil
+                                        },
+                                        onCancelRename: { renamingID = nil })
                         }
                             .contentShape(Rectangle())
                             .onTapGesture {
                                 store.selectSession(session.id)
                             }
                             .appContextMenu {
-                                [.item("Delete session", kind: .destructive) {
-                                    confirmRemoveSession(session)
-                                }]
+                                [.item("Rename…") { renamingID = session.id },
+                                 .separator,
+                                 .item("Delete session", kind: .destructive) {
+                                     confirmRemoveSession(session)
+                                 }]
                             }
                     }
                     let hidden = sessions.count - visible.count
@@ -1538,9 +1554,14 @@ private struct SessionCard: View {
     let removed: Int
     let branch: String?
     let uncommitted: Bool
+    let isRenaming: Bool
     let onDelete: () -> Void
+    let onRename: (String) -> Void
+    let onCancelRename: () -> Void
 
     @State private var hovering = false
+    @State private var draft = ""
+    @FocusState private var focused: Bool
 
     private var tone: SessionTone {
         SessionTone(busy: busy, needsInput: needsInput, finished: finished)
@@ -1596,11 +1617,20 @@ private struct SessionCard: View {
                 if session.isTroubleshooting {
                     MonoChip(text: "TROUBLESHOOT", size: 8.5, tint: Theme.secret)
                 }
-                Text(session.title)
-                    .font(.system(size: 12.5, weight: .semibold))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                if isRenaming {
+                    TextField("Name", text: $draft)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .focused($focused)
+                        .onSubmit { onRename(draft) }
+                        .onExitCommand(perform: onCancelRename)
+                } else {
+                    Text(session.title)
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
 
             ActivityLine(activity: activity)
@@ -1613,6 +1643,11 @@ private struct SessionCard: View {
         .animation(.easeOut(duration: 0.25), value: [busy, finished])
         .appTooltip { tooltip }
         .onHover { hovering = $0 }
+        .onChange(of: isRenaming, initial: true) { _, renaming in
+            guard renaming else { return }
+            draft = session.title
+            focused = true
+        }
     }
 
     // The hint carries the branch and full path because the compact card leaves both out.
