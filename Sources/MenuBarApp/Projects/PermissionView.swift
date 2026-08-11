@@ -82,17 +82,21 @@ private struct QuestionCard: View {
             question(request.questions[currentQuestionIndex])
 
             HStack(spacing: 8) {
-                CardButton(title: "Skip") { onAnswer(.deny) }
+                CardButton(title: "Skip", tint: Theme.accent) { onAnswer(.deny) }
                 Spacer(minLength: 0)
                 if currentQuestionIndex > 0 {
-                    CardButton(title: "Back") { showQuestion(at: currentQuestionIndex - 1) }
+                    CardButton(title: "Back", tint: Theme.accent) {
+                        showQuestion(at: currentQuestionIndex - 1)
+                    }
                 }
                 if isLastQuestion {
-                    CardButton(title: "Submit", prominent: true) { onAnswer(.answers(answers)) }
-                        .disabled(!isComplete)
-                        .opacity(isComplete ? 1 : 0.45)
+                    CardButton(title: "Submit", tint: Theme.accent, prominent: true) {
+                        onAnswer(.answers(answers))
+                    }
+                    .disabled(!isComplete)
+                    .opacity(isComplete ? 1 : 0.45)
                 } else {
-                    CardButton(title: "Next", prominent: true) {
+                    CardButton(title: "Next", tint: Theme.accent, prominent: true) {
                         showQuestion(at: currentQuestionIndex + 1)
                     }
                     .disabled(!isCurrentQuestionComplete)
@@ -279,8 +283,12 @@ private struct QuestionCard: View {
     }
 }
 
+// A button on a tinted card, so its pills are cut from the tint rather than the plain card
+// and border used on the page. The label is Theme.card because the tint is read against it,
+// which makes it the inverse of the fill in either theme.
 private struct CardButton: View {
     let title: String
+    var tint: Color = ChatColor.warningText
     var prominent = false
     let action: () -> Void
 
@@ -288,13 +296,13 @@ private struct CardButton: View {
         Button(action: action) {
             Text(title)
                 .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(prominent ? Color.white : Color.primary)
+                .foregroundStyle(prominent ? Theme.card : Color.primary)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
                 .background(RoundedRectangle(cornerRadius: 8)
-                    .fill(prominent ? Color.black.opacity(0.88) : Theme.card))
+                    .fill(prominent ? tint : tint.opacity(0.18)))
                 .overlay(RoundedRectangle(cornerRadius: 8)
-                    .stroke(prominent ? .clear : Theme.border))
+                    .stroke(prominent ? .clear : tint.opacity(0.6)))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

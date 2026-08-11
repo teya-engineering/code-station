@@ -184,7 +184,7 @@ private struct SpineRow: View {
         ScrollView {
             Text(text)
                 .font(.mono(11))
-                .foregroundStyle(tinted ? Theme.deletion : .primary)
+                .foregroundStyle(tinted ? ChatColor.warningText : .primary)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(10)
