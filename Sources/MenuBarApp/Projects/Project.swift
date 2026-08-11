@@ -164,7 +164,18 @@ struct ToolNode: Identifiable {
     // Every call inside this one, however deep.
     var callCount: Int { children.reduce(children.count) { $0 + $1.callCount } }
 
-    var agentCount: Int { children.filter(\.tool.startsAgents).count }
+    // Every call inside this one that stood up an agent, counted as deep as calls are.
+    var agentCount: Int {
+        children.reduce(0) { $0 + ($1.tool.startsAgents ? 1 : 0) + $1.agentCount }
+    }
+
+    // Read by the folded block, which has to flag a failure it is otherwise hiding.
+    var hasError: Bool { tool.isError || children.contains(where: \.hasError) }
+
+    // Also read by the folded block, which stays open while there is work to watch. An
+    // agent sent to the background hands back its own result at once and keeps going, so
+    // the only calls still in flight can be its children.
+    var hasRunning: Bool { tool.isRunning || children.contains(where: \.hasRunning) }
 
     // The newest call anywhere inside this one: what the agents are doing right now.
     var newestDescendant: ToolNode? {

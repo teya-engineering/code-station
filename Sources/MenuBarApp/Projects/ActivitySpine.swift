@@ -3,14 +3,86 @@ import SwiftUI
 // Sequential tool calls share one block, but every call keeps its own visible row. A row
 // expands in place - an edit shows the diff it made, a call that started an agent shows
 // everything that agent did, and everything else shows its input and output.
+//
+// The block itself folds down to a single summary line, so a finished turn reads as what
+// Claude said rather than as a page of the work behind it.
 struct ActivitySpine: View {
     let nodes: [ToolNode]
     let projectPath: String
     let openChanges: () -> Void
+    // A nested spine already sits behind a row the reader opened, so it draws in full.
+    var isFoldable = true
 
     @State private var expanded: Set<String> = []
+    // Nil until the reader clicks: until then the block follows the work, open while its
+    // calls run and folded once they are done.
+    @State private var showsCalls: Bool?
+
+    private var isRunning: Bool { nodes.contains(where: \.hasRunning) }
+
+    // Having opened a row is asking for the block, so the fold that comes with the end of
+    // the turn does not take back what the reader unfolded while it ran.
+    private var showsRows: Bool {
+        !isFoldable || (showsCalls ?? (isRunning || !expanded.isEmpty))
+    }
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if isFoldable { header }
+            if showsRows { rows }
+        }
+        .padding(.horizontal, 13)
+        .padding(.vertical, showsRows ? 11 : 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 11).fill(Theme.sunken))
+        .animation(.easeInOut(duration: 0.12), value: expanded)
+        .animation(.easeInOut(duration: 0.12), value: showsRows)
+    }
+
+    private var header: some View {
+        Button { showsCalls = !showsRows } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .rotationEffect(.degrees(showsRows ? 90 : 0))
+                    .frame(width: 10)
+                Text(summary)
+                    .font(.mono(11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                if nodes.contains(where: \.hasError) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(Theme.deletion)
+                }
+                Spacer(minLength: 8)
+                if isRunning && !showsRows {
+                    Text("running")
+                        .font(.mono(10.5))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .padding(.bottom, showsRows ? 7 : 0)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .appTooltip(showsRows ? "Hide tool calls" : "Show tool calls")
+    }
+
+    // Enough of what ran to say whether the block is worth opening, without opening it.
+    private var summary: String {
+        let calls = nodes.reduce(nodes.count) { $0 + $1.callCount }
+        let agents = nodes.reduce(0) { $0 + ($1.tool.startsAgents ? 1 : 0) + $1.agentCount }
+        var verbs: [String] = []
+        for node in nodes where !verbs.contains(node.tool.name) { verbs.append(node.tool.name) }
+        let named = verbs.prefix(3).joined(separator: ", ")
+        return workDone(calls: calls, agents: agents) + " · " + named
+            + (verbs.count > 3 ? "…" : "")
+    }
+
+    private var rows: some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(nodes, id: \.id) { node in
                 SpineRow(
@@ -30,12 +102,16 @@ struct ActivitySpine: View {
                     .transition(.fadeIn)
             }
         }
-        .padding(.horizontal, 13)
-        .padding(.vertical, 11)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 11).fill(Theme.sunken))
-        .animation(.easeInOut(duration: 0.12), value: expanded)
     }
+}
+
+// How much ran, said the same way wherever it is said: on a folded block, and on the row
+// of a call that handed its work on. Agents are counted apart from calls, since a
+// fan-out's size is the team it put to work.
+private func workDone(calls: Int, agents: Int) -> String {
+    let work = "\(calls) call" + (calls == 1 ? "" : "s")
+    guard agents > 0 else { return work }
+    return "\(agents) agent" + (agents == 1 ? "" : "s") + " · " + work
 }
 
 private struct SpineRow: View {
@@ -106,7 +182,7 @@ private struct SpineRow: View {
         if !node.children.isEmpty {
             HStack(spacing: 6) {
                 if tool.isError { failed }
-                Text(workDone)
+                Text(workDone(calls: node.callCount, agents: node.agentCount))
                     .font(.mono(10.5))
                     .foregroundStyle(.tertiary)
             }
@@ -131,16 +207,6 @@ private struct SpineRow: View {
         Image(systemName: "exclamationmark.triangle.fill")
             .font(.system(size: 11))
             .foregroundStyle(Theme.deletion)
-    }
-
-    // How much ran inside this call. Agents are counted separately from calls where the
-    // work was handed on again, since a workflow's size is the team it put to work.
-    private var workDone: String {
-        let calls = node.callCount
-        let agents = node.agentCount
-        let work = "\(calls) call" + (calls == 1 ? "" : "s")
-        guard agents > 0 else { return work }
-        return "\(agents) agent" + (agents == 1 ? "" : "s") + " · " + work
     }
 
     @ViewBuilder private var detail: some View {
@@ -168,7 +234,8 @@ private struct SpineRow: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 2)
             }
-            ActivitySpine(nodes: node.children, projectPath: projectPath, openChanges: openChanges)
+            ActivitySpine(nodes: node.children, projectPath: projectPath,
+                          openChanges: openChanges, isFoldable: false)
             if let result = tool.result, !result.isEmpty {
                 outputBox(result, tinted: tool.isError)
             }
