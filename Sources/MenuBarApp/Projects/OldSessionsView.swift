@@ -95,7 +95,7 @@ struct OldSessionsView: View {
         VStack(spacing: 0) {
             Divider().overlay(Theme.hairline)
             HStack(spacing: 10) {
-                Text("Folders on disk are untouched.")
+                Text("Original project folders stay on disk. Session worktrees are removed.")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 12)
