@@ -1293,18 +1293,31 @@ private struct SectionHeading: View {
 
 // The block of session cards under an open project or workspace. The line is quiet enough
 // to group the cards, while the dots make each session's place in that group explicit.
+private struct SessionRailMarkerKey: PreferenceKey {
+    static let defaultValue: [Anchor<CGPoint>] = []
+
+    static func reduce(value: inout [Anchor<CGPoint>],
+                       nextValue: () -> [Anchor<CGPoint>]) {
+        value.append(contentsOf: nextValue())
+    }
+}
+
 private struct SessionRail<Content: View>: View {
     let tint: Theme.ProjectTint
     @ViewBuilder let content: Content
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) { content }
-            .background(alignment: .leading) {
-                Rectangle()
-                    .fill(tint.colour.opacity(0.42))
-                    .frame(width: 1.5)
-                    .padding(.leading, 5.25)
-                    .accessibilityHidden(true)
+            .backgroundPreferenceValue(SessionRailMarkerKey.self) { markers in
+                GeometryReader { proxy in
+                    if let lastMarker = markers.last {
+                        Rectangle()
+                            .fill(tint.colour.opacity(0.42))
+                            .frame(width: 1.5, height: proxy[lastMarker].y)
+                            .offset(x: 5.25)
+                            .accessibilityHidden(true)
+                    }
+                }
             }
         .padding(.leading, 20)
         .padding(.top, 5)
@@ -1326,6 +1339,9 @@ private struct SessionRailRow<Content: View>: View {
                 if showsMarker {
                     Circle()
                         .fill(selected ? tint.ink : tint.colour.opacity(0.72))
+                        .anchorPreference(key: SessionRailMarkerKey.self, value: .center) {
+                            [$0]
+                        }
                 }
             }
             .frame(width: 12, height: 8)
