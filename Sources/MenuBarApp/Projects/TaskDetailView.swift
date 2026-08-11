@@ -195,14 +195,10 @@ struct TaskDetailView: View {
             HStack(spacing: 14) {
                 SessionBotPicker(avatars: appSettings.agentAvatars,
                                  selectedName: botBinding(task), size: 26)
-                Text(runner.agent.title)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .fixedSize()
-                    .appTooltip("Runs on \(runner.agent.title), the agent chosen in Settings.")
+                agentMenu(task)
                 modelMenu(task)
                 effortMenu(task)
-                if runner.agent == .claudeCode {
+                if runAgent(task) == .claudeCode {
                     permissionsMenu(task)
                 } else {
                     codexAccessMenu(task)
@@ -228,8 +224,30 @@ struct TaskDetailView: View {
                 set: { name in changeSpec(task) { $0.agentAvatarName = name } })
     }
 
+    // The agent a run of this task starts on. Changing it swaps the menus beside it to
+    // that agent's choices; an override saved for the other agent reads as unset until
+    // the task is switched back.
+    private func runAgent(_ task: Project) -> AgentKind {
+        spec(task).agent ?? runner.agent
+    }
+
+    private func agentMenu(_ task: Project) -> some View {
+        let override = spec(task).agent
+        return choiceMenu((override ?? runner.agent).title,
+                          overridden: override != nil,
+                          help: "The coding agent each run starts on.",
+                          defaultTitle: defaultTitle(runner.agent.title),
+                          options: AgentKind.allCases.map { (id: $0.rawValue, title: $0.title) },
+                          selection: Binding(get: { override?.rawValue },
+                                             set: { value in
+                                                 changeSpec(task) {
+                                                     $0.agent = value.flatMap(AgentKind.init(rawValue:))
+                                                 }
+                                             }))
+    }
+
     private func modelMenu(_ task: Project) -> some View {
-        let agent = runner.agent
+        let agent = runAgent(task)
         let override = ModelChoice.valid(spec(task).model, for: agent)
         let appDefault = ModelChoice.valid(runner.defaults(for: agent).model, for: agent)
         return choiceMenu(override.map { ModelChoice.title(of: $0) } ?? "Default model",
@@ -244,7 +262,7 @@ struct TaskDetailView: View {
     }
 
     private func effortMenu(_ task: Project) -> some View {
-        let agent = runner.agent
+        let agent = runAgent(task)
         let override = EffortChoice.valid(spec(task).effort, for: agent)
         let appDefault = EffortChoice.valid(runner.defaults(for: agent).effort, for: agent)
         let chosen = override ?? appDefault
@@ -263,7 +281,7 @@ struct TaskDetailView: View {
     }
 
     private func permissionsMenu(_ task: Project) -> some View {
-        let agent = runner.agent
+        let agent = runAgent(task)
         let override = spec(task).permissionMode
         let defaults = runner.defaults(for: agent)
         return choiceMenu(PermissionMode.shortTitle(of: override ?? defaults.permissionMode),
@@ -278,7 +296,7 @@ struct TaskDetailView: View {
     }
 
     private func codexAccessMenu(_ task: Project) -> some View {
-        let agent = runner.agent
+        let agent = runAgent(task)
         let override = CodexSandboxMode.valid(spec(task).codexSandboxMode)
         let appDefault = CodexSandboxMode.resolved(runner.defaults(for: agent).codexSandboxMode)
         let selected = override ?? appDefault

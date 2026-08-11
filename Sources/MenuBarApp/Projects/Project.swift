@@ -5,6 +5,7 @@ import Foundation
 // Only ad-hoc projects carry one.
 struct TaskSpec: Codable, Equatable {
     var prompt: String
+    var agent: AgentKind?
     var agentAvatarName: String?
     var model: String?
     var effort: String?

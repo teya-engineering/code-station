@@ -120,6 +120,27 @@ struct TaskTests {
         #expect(transcript.contains { $0.role == .user && $0.text == "Do the thing." })
     }
 
+    @Test func runningATaskUsesItsOwnAgentOverTheAppDefault() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("conductor-task-tests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = ProjectStore(storeURL: root.appendingPathComponent("projects.json"))
+        let task = try store.addTask(named: "Sweep", prompt: "Do the thing.",
+                                     in: root.appendingPathComponent("tasks")).get()
+        let runner = SessionRunner(paths: [:])
+        runner.agent = .claudeCode
+
+        store.setTaskSpec(TaskSpec(prompt: "Do the thing.", agent: .codex), for: task.id)
+        let overridden = try TaskRun.run(try #require(store.project(task.id)), store: store,
+                                         runner: runner, agentAvatarName: nil).get()
+        #expect(overridden.agent == .codex)
+
+        store.setTaskSpec(TaskSpec(prompt: "Do the thing."), for: task.id)
+        let following = try TaskRun.run(try #require(store.project(task.id)), store: store,
+                                        runner: runner, agentAvatarName: nil).get()
+        #expect(following.agent == .claudeCode)
+    }
+
     @Test func deletingATaskRemovesItsFolderFromDisk() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("conductor-task-tests-\(UUID().uuidString)")

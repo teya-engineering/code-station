@@ -9,8 +9,8 @@ enum TaskRun {
     @discardableResult
     static func run(_ task: Project, store: ProjectStore, runner: SessionRunner,
                     agentAvatarName: String?) -> Result<ChatSession, PersistenceFailure> {
-        let agent = runner.agent
         let spec = task.task
+        let agent = spec?.agent ?? runner.agent
         let model = ModelChoice.valid(spec?.model, for: agent)
             ?? runner.defaults(for: agent).model
         let session = store.insertSession(in: task.id, agent: agent,
