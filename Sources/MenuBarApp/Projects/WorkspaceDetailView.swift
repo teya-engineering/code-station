@@ -272,12 +272,20 @@ struct WorkspaceDetailView: View {
     }
 
     private func addMenu(_ workspace: ProjectWorkspace) -> [MenuEntry] {
-        var entries: [MenuEntry] = attachableProjects(workspace).map { project in
-            .item(project.name, icon: "folder", subtitle: project.collapsedPath) {
+        let projects = attachableProjects(workspace)
+        let projectItems = projects.map { project in
+            MenuItem(label: project.name, icon: "folder", subtitle: project.collapsedPath) {
                 store.addProject(project.id, toWorkspace: workspace.id)
             }
         }
-        if !entries.isEmpty { entries.append(.separator) }
+
+        var entries: [MenuEntry] = []
+        if !projectItems.isEmpty {
+            entries.append(.searchable(projectItems,
+                                       prompt: "Filter projects by name or path",
+                                       noResults: "No project matches this filter."))
+            entries.append(.separator)
+        }
         entries.append(.item("Attach a folder…", icon: "folder.badge.plus") {
             addFolder(to: workspace)
         })

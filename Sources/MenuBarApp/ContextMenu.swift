@@ -9,6 +9,7 @@ private let menuMinimumWidth: CGFloat = 170
 // rows as the rest of the window, the way the in-app dialog does.
 enum MenuEntry {
     case item(MenuItem)
+    case searchable(SearchableMenuItems)
     case cards([MenuCardItem])
     case separator
 
@@ -29,6 +30,19 @@ enum MenuEntry {
                        badge: badge, badgeTint: badgeTint, subtitle: subtitle,
                        detail: detail, detailColour: detailColour, handler: action))
     }
+
+    static func searchable(_ items: [MenuItem],
+                           prompt: String,
+                           noResults: String) -> MenuEntry {
+        .searchable(SearchableMenuItems(items: items, prompt: prompt,
+                                        noResults: noResults))
+    }
+}
+
+struct SearchableMenuItems {
+    let items: [MenuItem]
+    let prompt: String
+    let noResults: String
 }
 
 struct MenuCardItem {
@@ -65,6 +79,13 @@ struct MenuItem {
     var detail: String?
     var detailColour: Color?
     var handler: () -> Void = {}
+
+    func matches(_ filter: String) -> Bool {
+        let query = filter.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return true }
+        return label.localizedCaseInsensitiveContains(query)
+            || subtitle?.localizedCaseInsensitiveContains(query) == true
+    }
 }
 
 // Holds whatever menu is open, along with the point it was asked for. It lives at the
@@ -236,11 +257,12 @@ struct ContextMenuHost: View {
                         .contentShape(Rectangle())
                         .onTapGesture { presenter.dismiss() }
 
-                    card
+                    card(maxHeight: max(0, geometry.size.height - 16))
                         // A menu opened to a fixed width keeps it; anything else takes
                         // the width its own rows ask for.
-                        .fixedSize(horizontal: presenter.width == nil, vertical: true)
+                        .fixedSize(horizontal: presenter.width == nil, vertical: false)
                         .frame(width: presenter.width)
+                        .id(presenter.generation)
                         // The measurement carries the menu it was taken for, so two
                         // menus that happen to be the same size still each report one,
                         // and a report that arrives late cannot pass itself off as a
@@ -274,24 +296,47 @@ struct ContextMenuHost: View {
         }
     }
 
-    private var card: some View {
+    private func card(maxHeight: CGFloat) -> some View {
         // Rows only make room for a checkmark when the menu has one, so a plain menu is
         // not indented for a mark that never appears.
-        let hasChecks = presenter.entries.contains {
-            if case .item(let item) = $0 { return item.checked }
-            return false
+        let items = presenter.entries.flatMap { entry -> [MenuItem] in
+            switch entry {
+            case .item(let item): [item]
+            case .searchable(let searchable): searchable.items
+            case .cards, .separator: []
+            }
         }
-        let hasIcons = presenter.entries.contains {
-            if case .item(let item) = $0 { return item.icon != nil || item.image != nil }
-            return false
+        let hasChecks = items.contains(where: \.checked)
+        let hasIcons = items.contains { $0.icon != nil || $0.image != nil }
+
+        return ViewThatFits(in: .vertical) {
+            menuContent(hasChecks: hasChecks, hasIcons: hasIcons)
+                .fixedSize(horizontal: false, vertical: true)
+
+            ScrollView {
+                menuContent(hasChecks: hasChecks, hasIcons: hasIcons)
+            }
+            .scrollIndicators(.visible)
         }
-        return VStack(alignment: .leading, spacing: 0) {
+        .frame(maxHeight: maxHeight)
+        .frame(minWidth: menuMinimumWidth, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 11).fill(Theme.card))
+        .overlay(RoundedRectangle(cornerRadius: 11).stroke(Theme.border))
+        .shadow(color: .black.opacity(0.16), radius: 18, y: 6)
+    }
+
+    private func menuContent(hasChecks: Bool, hasIcons: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(presenter.entries.enumerated()), id: \.offset) { _, entry in
                 switch entry {
                 case .item(let item):
                     MenuItemRow(item: item, checkColumn: hasChecks, iconColumn: hasIcons) {
                         presenter.run(item)
                     }
+                case .searchable(let searchable):
+                    SearchableMenuItemsView(searchable: searchable,
+                                            checkColumn: hasChecks,
+                                            iconColumn: hasIcons)
                 case .cards(let items):
                     MenuCardGrid(items: items) { presenter.run($0) }
                 case .separator:
@@ -303,10 +348,6 @@ struct ContextMenuHost: View {
             }
         }
         .padding(.vertical, 6)
-        .frame(minWidth: menuMinimumWidth, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 11).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 11).stroke(Theme.border))
-        .shadow(color: .black.opacity(0.16), radius: 18, y: 6)
     }
 
     // A menu near an edge stays attached to its control when it has one. A right-click
@@ -323,6 +364,69 @@ struct ContextMenuHost: View {
             ? presenter.origin.y - size.height
             : presenter.origin.y
         return max(8, min(flipped, bounds.height - size.height - 8))
+    }
+}
+
+private struct SearchableMenuItemsView: View {
+    let searchable: SearchableMenuItems
+    let checkColumn: Bool
+    let iconColumn: Bool
+
+    @Environment(MenuPresenter.self) private var presenter
+    @State private var filter = ""
+    @FocusState private var filterFocused: Bool
+
+    private var items: [MenuItem] {
+        searchable.items.filter { $0.matches(filter) }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 7) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 10.5, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+                TextField(searchable.prompt, text: $filter)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12.5))
+                    .focused($filterFocused)
+                if !filter.isEmpty {
+                    Button { filter = "" } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.tertiary)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.field))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+
+            if items.isEmpty {
+                Text(searchable.noResults)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+            } else {
+                ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                    MenuItemRow(item: item,
+                                checkColumn: checkColumn,
+                                iconColumn: iconColumn) {
+                        presenter.run(item)
+                    }
+                }
+            }
+        }
+        .task {
+            await Task.yield()
+            filterFocused = true
+        }
     }
 }
 

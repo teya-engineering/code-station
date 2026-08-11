@@ -3,6 +3,16 @@ import Testing
 
 @MainActor
 struct ContextMenuTests {
+    @Test func menuItemsMatchFiltersByNameOrSubtitle() {
+        let item = MenuItem(label: "merchant-account",
+                            subtitle: "~/Development/payments/merchant-account")
+
+        #expect(item.matches("MERCHANT"))
+        #expect(item.matches("payments"))
+        #expect(item.matches("  "))
+        #expect(!item.matches("checkout"))
+    }
+
     @Test func refreshesTheCurrentMenuWithoutReplacingANewerMenu() {
         let presenter = MenuPresenter()
         let firstGeneration = presenter.show([
