@@ -516,7 +516,7 @@ struct AppSidebar: View {
                     }
                     let hidden = sessions.count - visible.count
                     if hidden > 0 {
-                        SessionRailRow(tint: tint, showsMarker: false) {
+                        SessionRailRow(tint: tint) {
                             SeeMoreCard(title: "See \(hidden) more…") {
                                 sessionVisibility.showAll(workspace.id)
                             }
@@ -629,7 +629,7 @@ struct AppSidebar: View {
                     }
                     let hidden = sessions.count - visible.count
                     if hidden > 0 {
-                        SessionRailRow(tint: tint, showsMarker: false) {
+                        SessionRailRow(tint: tint) {
                             SeeMoreCard(title: "See \(hidden) more…") {
                                 sessionVisibility.showAll(project.id)
                             }
@@ -1325,24 +1325,21 @@ private struct SessionRail<Content: View>: View {
     }
 }
 
-// A dot sits on the rail beside the status line of each session. The selected dot uses
-// the project's darker ink so the rail and the card describe the same selection.
+// A dot sits on the rail beside each row. A selected session uses the project's darker
+// ink so the rail and the card describe the same selection.
 private struct SessionRailRow<Content: View>: View {
     let tint: Theme.ProjectTint
-    var showsMarker = true
     var selected = false
     @ViewBuilder let content: Content
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             ZStack {
-                if showsMarker {
-                    Circle()
-                        .fill(selected ? tint.ink : tint.colour.opacity(0.72))
-                        .anchorPreference(key: SessionRailMarkerKey.self, value: .center) {
-                            [$0]
-                        }
-                }
+                Circle()
+                    .fill(selected ? tint.ink : tint.colour.opacity(0.72))
+                    .anchorPreference(key: SessionRailMarkerKey.self, value: .center) {
+                        [$0]
+                    }
             }
             .frame(width: 12, height: 8)
             .padding(.top, 10)
