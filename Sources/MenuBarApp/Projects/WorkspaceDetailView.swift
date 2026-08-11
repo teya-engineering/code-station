@@ -336,6 +336,7 @@ struct WorkspaceDetailView: View {
                     ForEach(sessions) { session in
                         SessionRow(session: session,
                                    tone: tone(session),
+                                   branch: nil,
                                    activity: activity(session),
                                    detail: .repositories(repositories(session)),
                                    onOpen: { store.selectSession(session.id) },

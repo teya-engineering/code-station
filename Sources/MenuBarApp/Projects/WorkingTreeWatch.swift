@@ -16,18 +16,22 @@ final class WorkingTreeWatch {
     // walking every visible repository while still noticing terminal commits promptly.
     static let interval: Duration = .seconds(30)
 
-    typealias Inspector = @Sendable (String) async -> Bool
+    typealias Inspector = @Sendable (String) async -> Int
 
-    private var dirty: [String: Bool] = [:]
+    private var uncommittedFiles: [String: Int] = [:]
     @ObservationIgnored private var running: Set<String> = []
     @ObservationIgnored private let inspect: Inspector
 
-    init(inspect: @escaping Inspector = { await GitInspector.isDirty(at: $0) }) {
+    init(inspect: @escaping Inspector = { await GitInspector.uncommittedFileCount(at: $0) }) {
         self.inspect = inspect
     }
 
     func isDirty(_ path: String) -> Bool {
-        dirty[Self.normalized(path)] ?? false
+        uncommittedFileCount(at: path) > 0
+    }
+
+    func uncommittedFileCount(at path: String) -> Int {
+        uncommittedFiles[Self.normalized(path)] ?? 0
     }
 
     func refresh(_ paths: some Collection<String>) {
@@ -42,10 +46,10 @@ final class WorkingTreeWatch {
             for path in pending {
                 let result = await inspect(path)
                 running.remove(path)
-                if result {
-                    if dirty[path] != true { dirty[path] = true }
-                } else if dirty[path] != nil {
-                    dirty.removeValue(forKey: path)
+                if result > 0 {
+                    if uncommittedFiles[path] != result { uncommittedFiles[path] = result }
+                } else if uncommittedFiles[path] != nil {
+                    uncommittedFiles.removeValue(forKey: path)
                 }
             }
         }

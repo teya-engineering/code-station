@@ -6,7 +6,7 @@ import Testing
 struct WorkingTreeWatchTests {
     @Test func doesNotQueueASecondInspectionWhileOneIsRunning() async throws {
         let folder = try TemporaryFolder()
-        let inspections = InspectionCount(result: true, delay: .milliseconds(100))
+        let inspections = InspectionCount(result: 3, delay: .milliseconds(100))
         let watch = WorkingTreeWatch { path in
             await inspections.inspect(path)
         }
@@ -15,6 +15,7 @@ struct WorkingTreeWatchTests {
         watch.refresh([folder.path])
         try await eventually { await inspections.value == 1 && watch.isDirty(folder.path) }
         #expect(watch.isDirty(folder.path))
+        #expect(watch.uncommittedFileCount(at: folder.path) == 3)
 
         watch.refresh([folder.path])
         try await eventually { await inspections.value == 2 }
@@ -88,15 +89,15 @@ struct WorkingTreeWatchTests {
 
     private actor InspectionCount {
         private(set) var value = 0
-        let result: Bool
+        let result: Int
         let delay: Duration
 
-        init(result: Bool, delay: Duration = .zero) {
+        init(result: Int, delay: Duration = .zero) {
             self.result = result
             self.delay = delay
         }
 
-        func inspect(_ path: String) async -> Bool {
+        func inspect(_ path: String) async -> Int {
             value += 1
             try? await Task.sleep(for: delay)
             return result
@@ -106,8 +107,8 @@ struct WorkingTreeWatchTests {
     private actor RepositoryInspections {
         private(set) var value = 0
 
-        func inspect(_ path: String) async -> Bool {
-            let result = await GitInspector.isDirty(at: path)
+        func inspect(_ path: String) async -> Int {
+            let result = await GitInspector.uncommittedFileCount(at: path)
             value += 1
             return result
         }

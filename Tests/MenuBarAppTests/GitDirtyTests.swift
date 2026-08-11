@@ -26,6 +26,18 @@ struct GitDirtyTests {
         #expect(await GitInspector.isDirty(at: repo.path) == true)
     }
 
+    @Test func countsEveryUncommittedFile() async throws {
+        let repo = try Repo()
+        try repo.write("README.md", "changed")
+        try repo.write("notes.txt", "scratch")
+        try FileManager.default.createDirectory(
+            at: repo.url.appendingPathComponent("nested"),
+            withIntermediateDirectories: true)
+        try repo.write("nested/todo.txt", "later")
+
+        #expect(await GitInspector.uncommittedFileCount(at: repo.path) == 3)
+    }
+
     // Every project folder is asked, whether or not it is a repository at all.
     @Test func saysNoForAPlainFolder() async throws {
         let folder = FileManager.default.temporaryDirectory

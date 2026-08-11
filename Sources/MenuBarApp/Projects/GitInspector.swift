@@ -245,20 +245,23 @@ enum GitInspector {
         return snapshot
     }
 
-    // Whether the folder holds anything git does not have yet, and nothing else about it.
-    // The sidebar asks this for every folder it draws, so it takes the cheapest status
-    // git can give: untracked directories stay collapsed, since one entry is enough to
-    // answer yes. A folder that is not a repository answers no.
-    static func isDirty(at path: String) async -> Bool {
-        guard let tool = await tool() else { return false }
+    // How many files hold work git does not have yet. A folder that is not a repository
+    // answers zero. The count is shared by the project screen and the sidebar monitor so
+    // one inspection can support both the exact location line and the smaller safety mark.
+    static func uncommittedFileCount(at path: String) async -> Int {
+        guard let tool = await tool() else { return 0 }
         let url = URL(fileURLWithPath: path)
         return await offMain {
             var isDirectory: ObjCBool = false
             let exists = FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
-            guard exists && isDirectory.boolValue else { return false }
-            let status = run(tool, ["status", "--porcelain=v1", "-z"], in: url)
-            return status.ok && !status.text.isEmpty
+            guard exists && isDirectory.boolValue else { return 0 }
+            let status = run(tool, ["status", "--porcelain=v1", "-z", "-uall"], in: url)
+            return status.ok ? parseStatus(status.text).count : 0
         }
+    }
+
+    static func isDirty(at path: String) async -> Bool {
+        await uncommittedFileCount(at: path) > 0
     }
 
     // MARK: - Per-file diff

@@ -20,6 +20,8 @@ struct ProjectDetailView: View {
     @State private var choosingSessionKind: Project?
     @State private var terminalFocused = false
     @State private var git: GitSnapshot?
+    @State private var orphanedWorktrees: [GitWorktree.Orphaned] = []
+    @State private var pruningOrphans = false
 
     private var terminalScope: TerminalScope { .project(projectID) }
 
@@ -42,6 +44,7 @@ struct ProjectDetailView: View {
             .task(id: store.standaloneSessions(for: projectID).map(\.summary)) {
                 git = await GitInspector.snapshot(at: project.path)
             }
+            .task(id: orphanRefreshID(project)) { await refreshWorktrees(for: project) }
             .sheet(item: $choosingSessionKind) { project in
                 NewSessionView(project: project) { choice in
                     startSession(choice, in: project)
@@ -128,13 +131,7 @@ struct ProjectDetailView: View {
             .sorted { $0.lastActivity > $1.lastActivity }
         return ScrollView {
             VStack(alignment: .leading, spacing: 22) {
-                HStack(alignment: .top, spacing: 14) {
-                    repository(project)
-                        .frame(maxWidth: .infinity)
-                    worktrees(project)
-                        .frame(maxWidth: .infinity)
-                }
-
+                repository(project)
                 sessionList(project, sessions: available)
                 defaults(project)
             }
@@ -211,65 +208,6 @@ struct ProjectDetailView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func worktrees(_ project: Project) -> some View {
-        let checkouts = worktreeSessions(project)
-        return VStack(alignment: .leading, spacing: 11) {
-            SectionRule(title: "WORKTREES · \(checkouts.count)") {
-                if !checkouts.isEmpty {
-                    InlineLink(title: "Prune all") { confirmPruneAll(checkouts) }
-                }
-            }
-
-            if checkouts.isEmpty {
-                Text("Every session works in the project folder.")
-                    .font(.system(size: 12.5))
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
-                ForEach(checkouts) { session in
-                    worktreeRow(session)
-                }
-            }
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.border))
-    }
-
-    private func worktreeRow(_ session: ChatSession) -> some View {
-        let busy = runner.state(session.id).isBusy
-        let dirty = session.worktreePath.map(workingTrees.isDirty) ?? false
-        return HStack(spacing: 10) {
-            if busy {
-                RunningDot()
-            } else {
-                Circle().fill(Theme.dotOff).frame(width: 6, height: 6)
-            }
-            VStack(alignment: .leading, spacing: 2) {
-                Text(session.worktreeBranch ?? "detached")
-                    .font(.mono(11.5, .semibold))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Text(dirty ? "\(session.title) · uncommitted work" : session.title)
-                    .font(.mono(10))
-                    .foregroundStyle(dirty ? Theme.attentionText : Color.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            ActionButton(title: "Remove", tone: .outlined, height: 26, size: 11.5) {
-                confirmRemove(session)
-            }
-            .disabled(busy)
-            .opacity(busy ? 0.4 : 1)
-        }
-        .padding(.horizontal, 11)
-        .padding(.vertical, 9)
-        .background(RoundedRectangle(cornerRadius: 9).fill(Theme.sunken))
-    }
-
     private func sessionList(_ project: Project, sessions: [ChatSession]) -> some View {
         let running = sessions.filter { runner.state($0.id).isBusy }.count
         return VStack(alignment: .leading, spacing: 11) {
@@ -282,6 +220,8 @@ struct ProjectDetailView: View {
                 }
             }
 
+            if !orphanedWorktrees.isEmpty { orphanedStrip(project) }
+
             if sessions.isEmpty {
                 emptySessions(project)
             } else {
@@ -289,6 +229,7 @@ struct ProjectDetailView: View {
                     ForEach(sessions) { session in
                         SessionRow(session: session,
                                    tone: tone(session),
+                                   branch: branch(session, project: project),
                                    activity: activity(session, project: project),
                                    detail: .location(location(session, project: project)),
                                    onOpen: { store.selectSession(session.id) },
@@ -380,19 +321,14 @@ struct ProjectDetailView: View {
     }
 
     private func location(_ session: ChatSession, project: Project) -> String {
-        guard let worktree = session.worktreePath else {
-            let branch = GitHead.branch(at: project.path)
-            let dirty = workingTrees.isDirty(project.path)
-            return ["project folder", branch, dirty ? "uncommitted work" : nil]
-                .compactMap { $0 }.joined(separator: " · ")
-        }
-        return worktree.abbreviatedPath
+        let path = session.worktreePath ?? project.path
+        let count = workingTrees.uncommittedFileCount(at: path)
+        let state = count == 0 ? "clean" : "\(count) uncommitted"
+        return "\(path.abbreviatedPath) · \(state)"
     }
 
-    private func worktreeSessions(_ project: Project) -> [ChatSession] {
-        store.standaloneSessions(for: project.id)
-            .filter { $0.worktreePath != nil }
-            .sorted { $0.lastActivity > $1.lastActivity }
+    private func branch(_ session: ChatSession, project: Project) -> String? {
+        session.worktreeBranch ?? GitHead.branch(at: project.path)
     }
 
     private func sessionMenu(_ session: ChatSession, project: Project) -> [MenuEntry] {
@@ -403,8 +339,71 @@ struct ProjectDetailView: View {
                     [URL(fileURLWithPath: session.worktreePath ?? project.path)])
             },
             .separator,
-            .item("Delete session", kind: .destructive) { confirmRemove(session) }
+            .item(session.worktreePath == nil ? "Delete session" : "Remove worktree",
+                  kind: .destructive) { confirmRemove(session) }
         ]
+    }
+
+    // A worktree is represented by its session everywhere else. The only separate rows
+    // are registered app checkouts which no session points at any more.
+    private func orphanedStrip(_ project: Project) -> some View {
+        let count = orphanedWorktrees.count
+        return HStack(spacing: 11) {
+            Text("ORPHANED")
+                .font(.mono(9.5, .semibold))
+                .kerning(1.1)
+                .foregroundStyle(Theme.attentionText)
+            Text("\(count) worktree\(count == 1 ? "" : "s") with no session")
+                .font(.system(size: 12.5, weight: .semibold))
+                .fixedSize()
+            Text(orphanedSummary)
+                .font(.mono(10.5))
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer(minLength: 8)
+            ActionButton(title: pruningOrphans ? "Pruning…" : "Prune all",
+                         tone: .outlined, height: 28, size: 11.5) {
+                confirmPruneOrphans(project)
+            }
+            .disabled(pruningOrphans)
+            .opacity(pruningOrphans ? 0.55 : 1)
+        }
+        .padding(.horizontal, 13)
+        .padding(.vertical, 9)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.attention.opacity(0.08)))
+        .overlay(RoundedRectangle(cornerRadius: 10)
+            .stroke(Theme.attention.opacity(0.35), lineWidth: 1.2))
+    }
+
+    private var orphanedSummary: String {
+        var parts = orphanedWorktrees.compactMap(\.branch)
+        let bytes = orphanedWorktrees.reduce(Int64(0)) { $0 + $1.allocatedBytes }
+        if bytes > 0 { parts.append(bytes.formatted(.byteCount(style: .file))) }
+        return parts.joined(separator: " · ")
+    }
+
+    private func activeWorktreePaths(for project: Project) -> Set<String> {
+        Set(store.sessions.flatMap { session in
+            store.checkoutProjects(for: session).compactMap { checkout in
+                checkout.projectID == project.id ? checkout.worktreePath : nil
+            }
+        })
+    }
+
+    private func orphanRefreshID(_ project: Project) -> [String] {
+        let active = activeWorktreePaths(for: project)
+        let pending = store.pendingSessionRemovals.flatMap(\.worktrees)
+            .filter { $0.projectPath == project.path }
+            .map { "pending:" + $0.path }
+        return (Array(active) + pending).sorted()
+    }
+
+    private func refreshWorktrees(for project: Project) async {
+        let active = activeWorktreePaths(for: project)
+        workingTrees.refresh(active.union([project.path]))
+        orphanedWorktrees = await GitWorktree.orphaned(
+            projectPath: project.path, excluding: active)
     }
 
     // MARK: - Terminal
@@ -499,15 +498,17 @@ struct ProjectDetailView: View {
     private func confirmRemove(_ session: ChatSession) {
         let worktree = session.worktreePath
         dialogs.show(Dialog(
-            title: "Delete \"\(session.title)\"?",
+            title: worktree == nil
+                ? "Delete \"\(session.title)\"?"
+                : "Remove the worktree for \"\(session.title)\"?",
             message: worktree.map { path in
                 let changes = workingTrees.isDirty(path)
                     ? "Its worktree at \(path.abbreviatedPath) has uncommitted changes, and they are lost with it."
                     : "Its worktree at \(path.abbreviatedPath) goes with it, along with anything uncommitted there."
-                return changes + " The branch is kept if it has unmerged commits."
+                return changes + " The session goes with the worktree. The branch is kept if it has unmerged commits."
             } ?? "Its conversation history is removed from the app.",
             actions: [
-                .init(label: worktree == nil ? "Delete session" : "Delete session and worktree",
+                .init(label: worktree == nil ? "Delete session" : "Remove worktree and session",
                       kind: .destructive) {
                     remove([session])
                 },
@@ -515,27 +516,40 @@ struct ProjectDetailView: View {
             ]))
     }
 
-    // Pruning takes the sessions behind the worktrees, not just the folders: a worktree
-    // removed on its own would leave its conversation pointing at nothing.
-    private func confirmPruneAll(_ sessions: [ChatSession]) {
-        let idle = sessions.filter { !runner.state($0.id).isBusy }
-        guard !idle.isEmpty else { return }
-        let dirty = idle.filter { $0.worktreePath.map(workingTrees.isDirty) ?? false }.count
-        let running = sessions.count - idle.count
-        var message = "Their sessions go with them. Branches are kept where they have unmerged commits."
-        if dirty > 0 {
-            message += " \(dirty) of them \(dirty == 1 ? "has" : "have") uncommitted changes that will be lost."
-        }
-        if running > 0 {
-            message += " The \(running) still running stay\(running == 1 ? "s" : "")."
-        }
+    private func confirmPruneOrphans(_ project: Project) {
+        let count = orphanedWorktrees.count
+        guard count > 0 else { return }
         dialogs.show(Dialog(
-            title: "Remove \(idle.count) worktree\(idle.count == 1 ? "" : "s")?",
-            message: message,
+            title: "Prune \(count) orphaned worktree\(count == 1 ? "" : "s")?",
+            message: "These checkouts have no session. Any uncommitted changes in them will be lost. Branches are kept when they have unmerged commits.",
             actions: [
-                .init(label: "Remove worktrees", kind: .destructive) { remove(idle) },
+                .init(label: "Prune all", kind: .destructive) { pruneOrphans(project) },
                 .init(label: "Cancel", kind: .cancel)
             ]))
+    }
+
+    private func pruneOrphans(_ project: Project) {
+        let orphans = orphanedWorktrees
+        pruningOrphans = true
+        Task {
+            var messages: [String] = []
+            for orphan in orphans {
+                if case .failure(let failure) = await GitWorktree.remove(
+                    worktreePath: orphan.path,
+                    projectPath: project.path,
+                    branch: orphan.branch) {
+                    messages.append(failure.message)
+                }
+            }
+            messages += await SessionLifecycle.resumePendingRemovals(in: store).map(\.message)
+            await refreshWorktrees(for: project)
+            pruningOrphans = false
+            guard !messages.isEmpty else { return }
+            dialogs.show(Dialog(
+                title: "Could not prune some worktrees",
+                message: messages.joined(separator: "\n"),
+                actions: [.init(label: "OK", kind: .cancel)]))
+        }
     }
 
     private func remove(_ sessions: [ChatSession]) {
@@ -579,6 +593,7 @@ struct SessionRow: View {
 
     let session: ChatSession
     let tone: SessionTone
+    let branch: String?
     let activity: String
     let detail: Detail
     let onOpen: () -> Void
@@ -595,8 +610,12 @@ struct SessionRow: View {
                         .font(.mono(9, .semibold))
                         .kerning(0.9)
                         .foregroundStyle(tone.colour)
-                    if session.worktreePath != nil {
-                        MonoChip(text: "WORKTREE", size: 8.5)
+                    if let branch {
+                        Text(branch)
+                            .font(.mono(9.5))
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
                     }
                 }
                 Text(session.title)
