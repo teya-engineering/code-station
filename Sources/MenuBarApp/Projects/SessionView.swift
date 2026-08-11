@@ -554,6 +554,9 @@ struct SessionView: View {
             ForEach(messages) { message in
                 MessageView(message: message,
                             projectPath: projectPath,
+                            isTurnActive: state.isBusy
+                                && message.role == .assistant
+                                && message.id == session.messages.last?.id,
                             openChanges: { openChanges() })
                     // Every message is on screen now, and a streaming turn rewrites
                     // the last one many times a second. Without this, each of those

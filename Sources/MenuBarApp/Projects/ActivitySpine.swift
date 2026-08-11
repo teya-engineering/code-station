@@ -10,20 +10,30 @@ struct ActivitySpine: View {
     let nodes: [ToolNode]
     let projectPath: String
     let openChanges: () -> Void
+    // A top-level spine stays open for the whole turn. Individual calls can all finish
+    // before the agent has finished writing, so their result state cannot mark its end.
+    var isTurnActive = false
     // A nested spine already sits behind a row the reader opened, so it draws in full.
     var isFoldable = true
 
     @State private var expanded: Set<String> = []
     // Nil until the reader clicks: until then the block follows the work, open while its
-    // calls run and folded once they are done.
+    // turn runs and folded once it ends.
     @State private var showsCalls: Bool?
-
-    private var isRunning: Bool { nodes.contains(where: \.hasRunning) }
 
     // Having opened a row is asking for the block, so the fold that comes with the end of
     // the turn does not take back what the reader unfolded while it ran.
     private var showsRows: Bool {
-        !isFoldable || (showsCalls ?? (isRunning || !expanded.isEmpty))
+        Self.rowsAreVisible(isFoldable: isFoldable,
+                            userChoice: showsCalls,
+                            isTurnActive: isTurnActive,
+                            hasExpandedRows: !expanded.isEmpty)
+    }
+
+    nonisolated static func rowsAreVisible(isFoldable: Bool, userChoice: Bool?,
+                                            isTurnActive: Bool,
+                                            hasExpandedRows: Bool) -> Bool {
+        !isFoldable || (userChoice ?? (isTurnActive || hasExpandedRows))
     }
 
     var body: some View {
@@ -58,7 +68,7 @@ struct ActivitySpine: View {
                         .foregroundStyle(Theme.deletion)
                 }
                 Spacer(minLength: 8)
-                if isRunning && !showsRows {
+                if isTurnActive && !showsRows {
                     Text("running")
                         .font(.mono(10.5))
                         .foregroundStyle(.tertiary)

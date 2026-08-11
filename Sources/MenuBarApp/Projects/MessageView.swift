@@ -28,6 +28,7 @@ extension AnyTransition {
 struct MessageView: View, Equatable {
     let message: ChatMessage
     let projectPath: String
+    let isTurnActive: Bool
     let openChanges: () -> Void
 
     // What the message is made of, and nothing else. The callback is left out on purpose:
@@ -35,6 +36,7 @@ struct MessageView: View, Equatable {
     // changed and the transcript would redraw whole while a turn streams.
     nonisolated static func == (a: MessageView, b: MessageView) -> Bool {
         a.message == b.message && a.projectPath == b.projectPath
+            && a.isTurnActive == b.isTurnActive
     }
 
     var body: some View {
@@ -117,7 +119,8 @@ struct MessageView: View, Equatable {
                 case .tools(_, let nodes):
                     ActivitySpine(nodes: nodes,
                                   projectPath: projectPath,
-                                  openChanges: openChanges)
+                                  openChanges: openChanges,
+                                  isTurnActive: isTurnActive)
                         .transition(.fadeIn)
                 case .prose(_, let text):
                     VStack(alignment: .leading, spacing: 12) {
