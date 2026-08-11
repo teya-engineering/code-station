@@ -146,9 +146,7 @@ struct RootView: View {
     }
 
     private var home: some View {
-        HomeView(skills: skills,
-                 tools: tools,
-                 onReviewOldSessions: { reviewingOldSessions = true })
+        HomeView(onReviewOldSessions: { reviewingOldSessions = true })
     }
 }
 
