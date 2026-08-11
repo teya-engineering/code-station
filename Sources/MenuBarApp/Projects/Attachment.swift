@@ -154,19 +154,29 @@ extension View {
 // else shows an icon and its name. `onRemove` is what makes it a composer chip rather
 // than a record of what was sent.
 struct AttachmentChip: View {
+    @Environment(DialogPresenter.self) private var dialogs
+
     let url: URL
     var onRemove: (() -> Void)?
 
-    @State private var preview: Image?
+    @State private var thumbnail: Thumbnail?
 
     var body: some View {
         HStack(spacing: 6) {
-            if let preview {
-                preview
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(width: 22, height: 22)
-                    .clipShape(RoundedRectangle(cornerRadius: 4))
+            if let thumbnail {
+                Button {
+                    showPreview(aspectRatio: thumbnail.aspectRatio)
+                } label: {
+                    Image(decorative: thumbnail.image, scale: 1)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: 22, height: 22)
+                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                        .contentShape(RoundedRectangle(cornerRadius: 4))
+                }
+                .buttonStyle(.plain)
+                .help("View full image")
+                .accessibilityLabel("View \(url.lastPathComponent)")
             } else {
                 Image(systemName: missing ? "questionmark.square.dashed" : "doc")
                     .font(.system(size: 12))
@@ -202,23 +212,98 @@ struct AttachmentChip: View {
                 Self.thumbnail(url)
             }.value
             guard !Task.isCancelled else { return }
-            preview = thumbnail.map { Image(decorative: $0.image, scale: 1) }
+            self.thumbnail = thumbnail
         }
     }
 
     private var missing: Bool { !FileManager.default.fileExists(atPath: url.path) }
+
+    private func showPreview(aspectRatio: CGFloat) {
+        dialogs.show(Dialog(
+            title: url.lastPathComponent,
+            content: AnyView(AttachmentImagePreview(url: url, aspectRatio: aspectRatio)),
+            actions: [.init(label: "Close", kind: .cancel)],
+            width: 760))
+    }
 
     // Screenshots are large, so the chip decodes a small copy instead of the whole image.
     private nonisolated static func thumbnail(_ url: URL) -> Thumbnail? {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
               let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
                   kCGImageSourceCreateThumbnailFromImageAlways: true,
+                  kCGImageSourceCreateThumbnailWithTransform: true,
                   kCGImageSourceThumbnailMaxPixelSize: 96,
               ] as CFDictionary) else { return nil }
         return Thumbnail(image: image)
     }
 
     private struct Thumbnail: @unchecked Sendable {
+        let image: CGImage
+
+        var aspectRatio: CGFloat { CGFloat(image.width) / CGFloat(image.height) }
+    }
+}
+
+private struct AttachmentImagePreview: View {
+    let url: URL
+    let aspectRatio: CGFloat
+
+    @State private var image: PreviewImage?
+    @State private var failed = false
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 8).fill(Theme.sunken)
+
+            if let image {
+                Image(decorative: image.image, scale: 1)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+            } else if failed {
+                VStack(spacing: 8) {
+                    Image(systemName: "photo.badge.exclamationmark")
+                        .font(.system(size: 24, weight: .light))
+                    Text("This image could not be loaded.")
+                        .font(.system(size: 13))
+                }
+                .foregroundStyle(.secondary)
+            } else {
+                Image(systemName: "photo")
+                    .font(.system(size: 24, weight: .light))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: previewHeight)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
+        .task(id: url) {
+            let loaded = await Task.detached(priority: .userInitiated) {
+                Self.load(url)
+            }.value
+            guard !Task.isCancelled else { return }
+            image = loaded
+            failed = loaded == nil
+        }
+    }
+
+    private var previewHeight: CGFloat {
+        min(480, max(180, 720 / aspectRatio))
+    }
+
+    // The popup is at most 720 points wide. A 1,440-pixel copy remains sharp on a Retina
+    // display without decoding a large screenshot at its full size just to scale it down.
+    private nonisolated static func load(_ url: URL) -> PreviewImage? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                  kCGImageSourceCreateThumbnailFromImageAlways: true,
+                  kCGImageSourceCreateThumbnailWithTransform: true,
+                  kCGImageSourceThumbnailMaxPixelSize: 1_440,
+              ] as CFDictionary) else { return nil }
+        return PreviewImage(image: image)
+    }
+
+    private struct PreviewImage: @unchecked Sendable {
         let image: CGImage
     }
 }
