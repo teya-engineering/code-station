@@ -982,10 +982,9 @@ struct AppSidebar: View {
             if oldSessionSummary.sessions > 0 { oldSessionsStrip(oldSessionSummary) }
 
             HStack(spacing: 8) {
-                ActionButton(title: "New session", height: 38, size: 13,
-                             shortcut: "⌘N", fills: true)
+                ActionButton(title: "Add", height: 38, size: 13, fills: true)
                     .appMenu(edge: .top, matchWidth: true, addMenu)
-                    .accessibilityLabel("New session, project, workspace, or ad-hoc task")
+                    .accessibilityLabel("Add a project, workspace, or ad-hoc task")
 
                 SettingsButton(showsUpdate: skills.updateCount > 0)
                     .toolsMenu(tools, skills: skills, edge: .top)
@@ -1053,14 +1052,7 @@ struct AppSidebar: View {
     // MARK: - Actions
 
     private func addMenu() -> [MenuEntry] {
-        var entries: [MenuEntry] = []
-        if let container = selectedContainer {
-            entries.append(.item("New session", icon: "plus",
-                                 subtitle: "In \(container.name).",
-                                 detail: "⌘N") { startSessionInSelection() })
-            entries.append(.separator)
-        }
-        entries += [
+        return [
             .item("Add project", icon: "folder.badge.plus",
                   subtitle: "Choose an existing folder.", action: addProject),
             .item("Create workspace", icon: "square.stack.3d.up.fill",
@@ -1072,7 +1064,6 @@ struct AppSidebar: View {
                 showingNewAdHocTask = true
             }
         ]
-        return entries
     }
 
     // The shortcuts the whole window answers. They live on the sidebar because everything
@@ -1102,13 +1093,6 @@ struct AppSidebar: View {
     private enum Container {
         case project(Project)
         case workspace(ProjectWorkspace)
-
-        var name: String {
-            switch self {
-            case .project(let project): project.name
-            case .workspace(let workspace): workspace.name
-            }
-        }
     }
 
     private var selectedContainer: Container? {
@@ -1832,4 +1816,3 @@ private extension SessionNotice {
 private enum Money {
     static func short(_ amount: Double) -> String { String(format: "$%.2f", amount) }
 }
-
