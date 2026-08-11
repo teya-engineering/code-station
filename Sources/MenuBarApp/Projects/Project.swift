@@ -1,5 +1,12 @@
 import Foundation
 
+// What a task does when it is run: the prompt handed to a fresh session, and whether
+// the task is meant to be run once or again and again. Only ad-hoc projects carry one.
+struct TaskSpec: Codable, Equatable {
+    var prompt: String
+    var repeats: Bool
+}
+
 // A project is just a folder on disk. A session runs Claude Code either directly in
 // this directory or in a worktree of its own - see ChatSession.worktreePath.
 struct Project: Identifiable, Codable, Equatable {
@@ -12,6 +19,9 @@ struct Project: Identifiable, Codable, Equatable {
     var name: String
     var path: String
     var kind: Kind
+    // The saved prompt behind a task. Nil on normal projects, and on tasks created
+    // before prompts existed, which read as an empty one-off.
+    var task: TaskSpec?
 
     var url: URL { URL(fileURLWithPath: path) }
 
@@ -24,11 +34,13 @@ struct Project: Identifiable, Codable, Equatable {
         FileManager.default.fileExists(atPath: path + "/.git")
     }
 
-    init(id: UUID = UUID(), name: String, path: String, kind: Kind = .project) {
+    init(id: UUID = UUID(), name: String, path: String, kind: Kind = .project,
+         task: TaskSpec? = nil) {
         self.id = id
         self.name = name
         self.path = path
         self.kind = kind
+        self.task = task
     }
 
     // Folder name is a good enough default title.
@@ -37,7 +49,7 @@ struct Project: Identifiable, Codable, Equatable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, path, kind
+        case id, name, path, kind, task
     }
 
     init(from decoder: any Decoder) throws {
@@ -47,6 +59,7 @@ struct Project: Identifiable, Codable, Equatable {
         path = try container.decode(String.self, forKey: .path)
         kind = try container.decodeIfPresent(Kind.self, forKey: .kind)
             ?? Self.legacyKind(for: path)
+        task = try container.decodeIfPresent(TaskSpec.self, forKey: .task)
     }
 
     // Ad-hoc tasks created before the kind was stored can be identified by the private

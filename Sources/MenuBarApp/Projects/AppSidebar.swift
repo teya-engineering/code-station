@@ -21,7 +21,7 @@ struct AppSidebar: View {
     @State private var choosingSessionKind: Project?
     @State private var choosingWorkspaceSession: ProjectWorkspace?
     @State private var showingNewWorkspace = false
-    @State private var showingNewAdHocTask = false
+    @State private var showingNewTask = false
     // A session opened away from its sidebar card and not brought into view yet. A card
     // clicked in the sidebar is already under the pointer, so it does not need this.
     @State private var sessionToReveal: UUID?
@@ -74,8 +74,8 @@ struct AppSidebar: View {
             }
             .appOverlays()
         }
-        .sheet(isPresented: $showingNewAdHocTask) {
-            NewAdHocTaskView(onCreate: createAdHocTask)
+        .sheet(isPresented: $showingNewTask) {
+            NewTaskView(onCreate: createTask)
                 .appOverlays()
         }
     }
@@ -570,8 +570,11 @@ struct AppSidebar: View {
                 finishedCount: store.finishedCount(in: project.id),
                 cost: sessions.reduce(0) { $0 + ($1.usage?.costUSD ?? 0) },
                 clearableCount: sessions.count - running,
+                canRunTask: TaskRun.canRun(repeats: project.task?.repeats ?? false,
+                                           hasRun: !sessions.isEmpty) && running == 0,
                 isRenaming: renamingID == project.id,
                 onNewSession: { requestNewSession(in: project) },
+                onRunTask: { runTask(project) },
                 onClearSessions: { confirmClearSessions(in: project) },
                 onRename: { name in
                     store.renameProject(project.id, to: name)
@@ -587,18 +590,7 @@ struct AppSidebar: View {
                 // tail the user had unfolded: the next open starts back at the cap.
                 if expanded { sessionVisibility.reset(project.id) }
             }
-            .appContextMenu {
-                [.item("Rename…") { renamingID = project.id },
-                 .item("New session") { requestNewSession(in: project) },
-                 .separator,
-                 .item("Reveal in Finder") {
-                     NSWorkspace.shared.activateFileViewerSelecting([project.url])
-                 },
-                 .item("Open in Terminal") { openInTerminal(project) },
-                 .separator,
-                 .item("Clear idle sessions", kind: .destructive) { confirmClearSessions(in: project) },
-                 .item("Remove project", kind: .destructive) { confirmRemoveProject(project) }]
-            }
+            .appContextMenu { headerMenu(project) }
 
             // An expanded project with nothing under it draws no block at all: an empty one
             // still carries its padding, which reads as the row shifting on every click.
@@ -656,6 +648,33 @@ struct AppSidebar: View {
                 .transition(.reveal)
             }
         }
+    }
+
+    // Tasks and projects share the row but not its menu: a task is run rather than
+    // started, and deleting it takes its app-owned folder along.
+    private func headerMenu(_ project: Project) -> [MenuEntry] {
+        if project.kind == .adHoc {
+            return [.item("Run task") { runTask(project) },
+                    .item("Rename…") { renamingID = project.id },
+                    .separator,
+                    .item("Reveal in Finder") {
+                        NSWorkspace.shared.activateFileViewerSelecting([project.url])
+                    },
+                    .item("Open in Terminal") { openInTerminal(project) },
+                    .separator,
+                    .item("Clear idle runs", kind: .destructive) { confirmClearSessions(in: project) },
+                    .item("Delete task", kind: .destructive) { confirmRemoveProject(project) }]
+        }
+        return [.item("Rename…") { renamingID = project.id },
+                .item("New session") { requestNewSession(in: project) },
+                .separator,
+                .item("Reveal in Finder") {
+                    NSWorkspace.shared.activateFileViewerSelecting([project.url])
+                },
+                .item("Open in Terminal") { openInTerminal(project) },
+                .separator,
+                .item("Clear idle sessions", kind: .destructive) { confirmClearSessions(in: project) },
+                .item("Remove project", kind: .destructive) { confirmRemoveProject(project) }]
     }
 
     private func isExpanded(_ project: Project) -> Bool {
@@ -864,11 +883,17 @@ struct AppSidebar: View {
     private func confirmRemoveProject(_ project: Project) {
         let affected = sessions(using: project.id)
         let count = affected.count
+        // A task's folder belongs to the app, so it goes with the task. A project's
+        // folder was chosen by the user and always stays.
+        let isTask = project.kind == .adHoc
         dialogs.show(Dialog(
-            title: "Remove \(project.name)?",
-            message: "This drops \(count) session\(count == 1 ? "" : "s") that use it and removes their worktrees. It is also removed from every workspace. The folder itself stays on disk.",
+            title: isTask ? "Delete \(project.name)?" : "Remove \(project.name)?",
+            message: isTask
+                ? "This drops its \(count) run\(count == 1 ? "" : "s") and deletes the task's folder, including any files the runs left in it."
+                : "This drops \(count) session\(count == 1 ? "" : "s") that use it and removes their worktrees. It is also removed from every workspace. The folder itself stays on disk.",
             actions: [
-                .init(label: "Remove project", kind: .destructive) { removeProject(project) },
+                .init(label: isTask ? "Delete task" : "Remove project",
+                      kind: .destructive) { removeProject(project) },
                 .init(label: "Cancel", kind: .cancel)
             ]))
     }
@@ -995,7 +1020,7 @@ struct AppSidebar: View {
             HStack(spacing: 8) {
                 ActionButton(title: "Add", height: 38, size: 13, fills: true)
                     .appMenu(edge: .top, matchWidth: true, addMenu)
-                    .accessibilityLabel("Add a project, workspace, or ad-hoc task")
+                    .accessibilityLabel("Add a project, workspace, or task")
 
                 SettingsButton(showsUpdate: skills.updateCount > 0)
                     .toolsMenu(tools, skills: skills, edge: .top)
@@ -1070,9 +1095,9 @@ struct AppSidebar: View {
                   subtitle: "Group two or more projects.") {
                 showingNewWorkspace = true
             },
-            .item("Ad-hoc task", icon: "bolt.fill",
-                  subtitle: "Start in a new empty folder.") {
-                showingNewAdHocTask = true
+            .item("New task", icon: "bolt.fill",
+                  subtitle: "A saved prompt you can run any time.") {
+                showingNewTask = true
             }
         ]
     }
@@ -1126,7 +1151,12 @@ struct AppSidebar: View {
     private func startSessionInSelection() {
         switch selectedContainer {
         case .project(let project):
-            requestNewSession(in: project)
+            // New work in a task means another run of its prompt, not an empty session.
+            if project.kind == .adHoc {
+                runTask(project)
+            } else {
+                requestNewSession(in: project)
+            }
         case .workspace(let workspace):
             choosingWorkspaceSession = workspace
         case nil:
@@ -1154,18 +1184,33 @@ struct AppSidebar: View {
         projectToReveal = id
     }
 
-    private func createAdHocTask(named name: String) {
-        switch store.addAdHocTask(named: name) {
+    // Creating a task lands on its screen rather than in a session: the task is the
+    // thing that was made, and running it is its own click - unless it was asked for.
+    private func createTask(_ draft: NewTaskDraft) {
+        switch store.addTask(named: draft.name, prompt: draft.prompt, repeats: draft.repeats) {
         case .success(let project):
-            startSession(.folder(agent: runner.agent,
-                                 model: runner.defaults.model,
-                                 agentAvatarName: appSettings.defaultAgentAvatarName),
-                         in: project)
+            setExpanded(true, for: project.id)
+            filterText = ""
+            store.selectProject(project.id)
+            projectToReveal = project.id
+            if draft.runNow { runTask(project) }
         case .failure(let failure):
             dialogs.show(Dialog(
-                title: "Could not create the ad-hoc task",
+                title: "Could not create the task",
                 message: failure.message,
                 actions: [.init(label: "OK", kind: .cancel)]))
+        }
+    }
+
+    private func runTask(_ project: Project) {
+        setExpanded(true, for: project.id)
+        switch TaskRun.run(project, store: store, runner: runner,
+                           agentAvatarName: appSettings.defaultAgentAvatarName) {
+        case .success(let session):
+            sessionToReveal = session.id
+        case .failure(let failure):
+            showLifecycleFailure(SessionLifecycle.Failure(
+                title: "Could not run the task", message: failure.message))
         }
     }
 
@@ -1399,8 +1444,10 @@ private struct ProjectHeaderRow: View {
     let finishedCount: Int
     let cost: Double
     let clearableCount: Int
+    let canRunTask: Bool
     let isRenaming: Bool
     let onNewSession: () -> Void
+    let onRunTask: () -> Void
     let onClearSessions: () -> Void
     let onRename: (String) -> Void
     let onCancelRename: () -> Void
@@ -1408,6 +1455,8 @@ private struct ProjectHeaderRow: View {
     @State private var draft = ""
     @State private var hovering = false
     @FocusState private var focused: Bool
+
+    private var isTask: Bool { project.kind == .adHoc }
 
     var body: some View {
         TreeRow(selected: selected, isExpanded: isExpanded, hovering: hovering) {
@@ -1444,6 +1493,11 @@ private struct ProjectHeaderRow: View {
                 // since the pointer is here for the buttons.
                 ZStack(alignment: .trailing) {
                     HStack(spacing: 6) {
+                        if isTask, project.task?.repeats == true {
+                            Image(systemName: "repeat")
+                                .font(.system(size: 8.5, weight: .semibold))
+                                .foregroundStyle(.tertiary)
+                        }
                         if runningCount > 0 { RunningDot() }
                         Text("\(sessionCount)")
                             .font(.mono(10))
@@ -1460,8 +1514,17 @@ private struct ProjectHeaderRow: View {
                                 RowAction(icon: "trash", title: "Delete", action: onClearSessions)
                                     .appTooltip("Clear \(clearableCount) idle session\(clearableCount == 1 ? "" : "s")")
                             }
-                            RowAction(icon: "plus", title: "New", action: onNewSession)
-                                .appTooltip("New session")
+                            // A task is run with its saved prompt rather than opened
+                            // empty, and a spent one-off has nothing left to offer here.
+                            if isTask {
+                                if canRunTask {
+                                    RowAction(icon: "play.fill", title: "Run", action: onRunTask)
+                                        .appTooltip("Run the task's saved prompt in a fresh session")
+                                }
+                            } else {
+                                RowAction(icon: "plus", title: "New", action: onNewSession)
+                                    .appTooltip("New session")
+                            }
                         }
                         .fixedSize()
                     }
@@ -1481,7 +1544,7 @@ private struct ProjectHeaderRow: View {
     // The path is the only thing that tells two projects of the same name apart, so it
     // leads the hint. The counts under it are the ones the row itself no longer carries.
     private var tooltip: Tooltip {
-        var rows = [Tooltip.Row(label: "Sessions", value: "\(sessionCount)")]
+        var rows = [Tooltip.Row(label: isTask ? "Runs" : "Sessions", value: "\(sessionCount)")]
         if runningCount > 0 {
             rows.append(Tooltip.Row(label: "Running", value: "\(runningCount)"))
         }
@@ -1491,10 +1554,25 @@ private struct ProjectHeaderRow: View {
         if cost > 0 {
             rows.append(Tooltip.Row(label: "Spent", value: Money.short(cost)))
         }
+        if isTask {
+            rows.append(Tooltip.Row(label: "Mode",
+                                    value: project.task?.repeats == true ? "Repeatable" : "One-off"))
+        }
         return Tooltip(title: project.name,
-                       subtitle: project.collapsedPath,
-                       note: isMissing ? "This folder is no longer on disk." : nil,
+                       subtitle: isTask ? nil : project.collapsedPath,
+                       note: isMissing ? "This folder is no longer on disk." : promptNote,
                        rows: rows)
+    }
+
+    // The saved prompt is what the Run button would send, so it belongs in the hint. One
+    // line of it is enough to recognise the task by.
+    private var promptNote: String? {
+        guard isTask else { return nil }
+        let line = (project.task?.prompt ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(separator: "\n").first.map(String.init) ?? ""
+        guard !line.isEmpty else { return nil }
+        return line.count > 120 ? String(line.prefix(120)) + "…" : line
     }
 }
 

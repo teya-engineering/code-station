@@ -133,9 +133,7 @@ struct ProjectDetailView: View {
             .sorted { $0.lastActivity > $1.lastActivity }
         return ScrollView {
             VStack(alignment: .leading, spacing: 22) {
-                // An ad-hoc task is a plain folder the app made, so there is no
-                // repository to report on.
-                if project.kind != .adHoc { repository(project) }
+                repository(project)
                 sessionList(project, sessions: available)
                 defaults(project)
             }

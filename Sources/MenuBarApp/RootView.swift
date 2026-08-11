@@ -135,9 +135,17 @@ struct RootView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         case nil:
             if let project = store.selectedProject {
-                ProjectDetailView(projectID: project.id)
-                    .id(project.id)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // A task's folder is an implementation detail; what it needs on screen is
+                // its prompt and its runs rather than a repository dashboard.
+                if project.kind == .adHoc {
+                    TaskDetailView(projectID: project.id)
+                        .id(project.id)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ProjectDetailView(projectID: project.id)
+                        .id(project.id)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
             } else {
                 home
                     .frame(maxWidth: .infinity, maxHeight: .infinity)

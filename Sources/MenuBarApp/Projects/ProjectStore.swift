@@ -220,13 +220,13 @@ final class ProjectStore {
     }
 
     @discardableResult
-    func addAdHocTask(named name: String,
-                      in root: URL = AppPaths.support
-                        .appendingPathComponent("ad-hoc-tasks", isDirectory: true))
+    func addTask(named name: String, prompt: String, repeats: Bool,
+                 in root: URL = AppPaths.support
+                    .appendingPathComponent("ad-hoc-tasks", isDirectory: true))
         -> Result<Project, PersistenceFailure> {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
-            return .failure(PersistenceFailure(message: "Enter a name for the ad-hoc task."))
+            return .failure(PersistenceFailure(message: "Enter a name for the task."))
         }
 
         let directory = root.appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -239,8 +239,10 @@ final class ProjectStore {
         }
 
         let previousProjectID = selectedProjectID
+        let spec = TaskSpec(prompt: prompt.trimmingCharacters(in: .whitespacesAndNewlines),
+                            repeats: repeats)
         let project = Project(name: trimmed, path: directory.standardizedFileURL.path,
-                              kind: .adHoc)
+                              kind: .adHoc, task: spec)
         projects.append(project)
         projects.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         selectedProjectID = project.id
@@ -251,9 +253,17 @@ final class ProjectStore {
             Preferences.selectedProjectID = previousProjectID
             markIndexDirty()
             try? FileManager.default.removeItem(at: directory)
-            return .failure(persistenceFailure("The ad-hoc task could not be saved."))
+            return .failure(persistenceFailure("The task could not be saved."))
         }
         return .success(project)
+    }
+
+    // The prompt and mode can be reworked between runs; the folder and sessions stay.
+    func setTaskSpec(_ spec: TaskSpec, for projectID: UUID) {
+        guard let i = projects.firstIndex(where: { $0.id == projectID }),
+              projects[i].kind == .adHoc, projects[i].task != spec else { return }
+        projects[i].task = spec
+        saveIndex()
     }
 
     func removeProject(_ id: UUID) {
@@ -261,7 +271,13 @@ final class ProjectStore {
             session.projectID == id
                 || session.sessionProjects?.contains(where: { $0.projectID == id }) == true
         }.map(\.id))
+        let removed = project(id)
         projects.removeAll { $0.id == id }
+        // A task's folder was created by the app inside its own support directory, so
+        // deleting the task takes the folder with it. A user-chosen folder always stays.
+        if let removed, removed.kind == .adHoc {
+            try? FileManager.default.removeItem(at: removed.url)
+        }
         for sessionID in affected {
             if case .failure(let failure) = removeSession(sessionID) {
                 saveError = failure.message
