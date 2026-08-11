@@ -139,6 +139,7 @@ struct MarkdownBlock: Identifiable, Equatable {
 
     private static let bullets = ["•", "◦", "▪"]
 
+
     private static func listItem(_ line: String) -> MarkdownListItem? {
         let indent = line.prefix(while: { $0 == " " }).count
         let depth = min(indent / 2, bullets.count - 1)
@@ -178,6 +179,10 @@ struct MarkdownTable: Equatable {
 }
 
 struct MarkdownListItem: Equatable {
+    // The markers that carry no meaning of their own, so the view can draw a shape
+    // instead. A number or a tick box says something the shape would lose.
+    static let plainBullets: Set<String> = ["•", "◦", "▪"]
+
     let depth: Int
     let marker: String
     let text: String
@@ -217,15 +222,14 @@ struct MarkdownBlockView: View {
         case .table(let table):
             MarkdownTableView(table: table)
         case .list(let items):
-            VStack(alignment: .leading, spacing: 5) {
+            VStack(alignment: .leading, spacing: 7) {
                 ForEach(Array(items.enumerated()), id: \.offset) { _, item in
-                    HStack(alignment: .firstTextBaseline, spacing: 7) {
-                        Text(item.marker)
-                            .font(.system(size: 13))
-                            .foregroundStyle(.secondary)
+                    HStack(alignment: .firstTextBaseline, spacing: 9) {
+                        marker(item)
                             .frame(minWidth: 14, alignment: .trailing)
                         Text(.inlineMarkdown(item.text))
-                            .font(.system(size: 13))
+                            .font(.system(size: 13.5))
+                            .lineSpacing(2)
                             .textSelection(.enabled)
                             .multilineTextAlignment(.leading)
                             .fixedSize(horizontal: false, vertical: true)
@@ -252,6 +256,22 @@ struct MarkdownBlockView: View {
             Rectangle()
                 .fill(Theme.hairline)
                 .frame(height: 1)
+        }
+    }
+
+    // A plain bullet is a small green disc rather than a glyph, so a list of findings
+    // reads as part of the app instead of as typed punctuation. Numbers and tick boxes
+    // still say what they say, so those keep their marker.
+    @ViewBuilder private func marker(_ item: MarkdownListItem) -> some View {
+        if MarkdownListItem.plainBullets.contains(item.marker) {
+            Circle()
+                .fill(Theme.dotOn)
+                .frame(width: 5, height: 5)
+                .offset(y: -3)
+        } else {
+            Text(item.marker)
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
         }
     }
 

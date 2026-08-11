@@ -14,6 +14,11 @@ struct HeaderTabToggle<Selection: Hashable>: View {
         }
         .padding(3)
         .background(RoundedRectangle(cornerRadius: 10).fill(Theme.field))
+        // A header row hands out its width between its children, so without this the
+        // control is offered less than its labels need and every one of them wraps onto
+        // two lines. It is a fixed set of short words: it should hold its size and let
+        // the title beside it give way instead.
+        .fixedSize(horizontal: true, vertical: false)
     }
 
     private func segment(_ option: (label: String, value: Selection)) -> some View {
@@ -21,6 +26,8 @@ struct HeaderTabToggle<Selection: Hashable>: View {
         return Button { selection = option.value } label: {
             Text(option.label)
                 .font(.system(size: 12, weight: .semibold))
+                .lineLimit(1)
+                .fixedSize()
                 .foregroundStyle(active ? Color.primary : Color.secondary)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 5)
@@ -98,23 +105,3 @@ extension ToggleStyle where Self == AppCheckboxStyle {
     static var appCheckbox: AppCheckboxStyle { AppCheckboxStyle() }
 }
 
-private struct SubtleButtonGlow: ViewModifier {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var hovering = false
-
-    func body(content: Content) -> some View {
-        content
-            .shadow(
-                color: Theme.accent.opacity(hovering ? 0.26 : 0),
-                radius: hovering ? 10 : 1
-            )
-            .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: hovering)
-            .onHover { hovering = $0 }
-    }
-}
-
-extension View {
-    func subtleButtonGlow() -> some View {
-        modifier(SubtleButtonGlow())
-    }
-}

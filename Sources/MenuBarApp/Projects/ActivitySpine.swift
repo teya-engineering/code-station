@@ -1,38 +1,105 @@
 import SwiftUI
 
-// A turn's tool calls drawn as one activity spine: a dot per call joined by a thin
-// line, one row each. A row expands in place - an edit shows the diff it made, a call
-// that started an agent shows everything that agent did, and everything else shows its
-// input and output.
+// A round of tool calls collected into one block rather than listed one by one. The
+// label row says what the whole round amounted to, so a long run of reads can be folded
+// away without losing what it found. A row inside still expands in place - an edit shows
+// the diff it made, a call that started an agent shows everything that agent did, and
+// everything else shows its input and output.
 struct ActivitySpine: View {
     let nodes: [ToolNode]
     let projectPath: String
     let openChanges: () -> Void
 
+    // Long rounds arrive folded: past about five calls the list is longer than the answer
+    // it supports, and the summary above it says what happened anyway.
+    private static let foldAbove = 5
+
     @State private var expanded: Set<String> = []
+    @State private var collapsed: Bool?
+
+    // A round still being written to stays open however long it gets: folding itself away
+    // mid-stream would take the work off screen exactly while it is worth watching.
+    private var isCollapsed: Bool {
+        if let collapsed { return collapsed }
+        guard !nodes.contains(where: { $0.tool.isRunning }) else { return false }
+        return nodes.count > Self.foldAbove
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(nodes.enumerated()), id: \.element.id) { index, node in
-                SpineRow(
-                    node: node,
-                    presentation: ToolPresentationCache.presentation(for: node.tool, projectPath: projectPath),
-                    projectPath: projectPath,
-                    isFirst: index == 0,
-                    isLast: index == nodes.count - 1,
-                    isExpanded: expanded.contains(node.id),
-                    onToggle: {
-                        if expanded.contains(node.id) {
-                            expanded.remove(node.id)
-                        } else {
-                            expanded.insert(node.id)
-                        }
-                    },
-                    openChanges: openChanges)
-                    .transition(.fadeIn)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Text(summary)
+                    .font(.mono(9, .semibold))
+                    .kerning(1.1)
+                    .foregroundStyle(.secondary)
+                Rectangle().fill(Theme.border).frame(height: 1)
+                Button { collapsed = !isCollapsed } label: {
+                    Text(isCollapsed ? "EXPAND" : "COLLAPSE")
+                        .font(.mono(9.5))
+                        .foregroundStyle(.tertiary)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+
+            if !isCollapsed {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(nodes, id: \.id) { node in
+                        SpineRow(
+                            node: node,
+                            presentation: ToolPresentationCache.presentation(
+                                for: node.tool, projectPath: projectPath),
+                            projectPath: projectPath,
+                            isExpanded: expanded.contains(node.id),
+                            onToggle: {
+                                if expanded.contains(node.id) {
+                                    expanded.remove(node.id)
+                                } else {
+                                    expanded.insert(node.id)
+                                }
+                            },
+                            openChanges: openChanges)
+                            .transition(.fadeIn)
+                    }
+                }
             }
         }
+        .padding(.horizontal, 13)
+        .padding(.vertical, 11)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 11).fill(Theme.sunken))
         .animation(.easeInOut(duration: 0.12), value: expanded)
+        .animation(.easeInOut(duration: 0.12), value: isCollapsed)
+    }
+
+    // What the round amounted to, in the terms the rows themselves are counted in. This
+    // has to survive the fold, so it names the work rather than the calls alone: the
+    // edits it made, the lines it read, and anything that failed.
+    private var summary: String {
+        var calls = 0
+        var agents = 0
+        var edits = 0
+        var linesRead = 0
+        var failures = 0
+
+        for node in nodes {
+            calls += 1 + node.callCount
+            agents += (node.tool.startsAgents ? 1 : 0) + node.agentCount
+            let presentation = ToolPresentationCache.presentation(for: node.tool,
+                                                                  projectPath: projectPath)
+            if presentation.added != nil || presentation.removed != nil { edits += 1 }
+            if node.tool.isError { failures += 1 }
+            if presentation.notesResultLineCount, let result = node.tool.result, !result.isEmpty {
+                linesRead += result.components(separatedBy: "\n").count
+            }
+        }
+
+        var parts = ["\(calls) TOOL CALL\(calls == 1 ? "" : "S")"]
+        if agents > 0 { parts.append("\(agents) AGENT\(agents == 1 ? "" : "S")") }
+        if edits > 0 { parts.append("\(edits) EDIT\(edits == 1 ? "" : "S")") }
+        if linesRead > 0 { parts.append("\(linesRead) LINES READ") }
+        if failures > 0 { parts.append("\(failures) FAILED") }
+        return parts.joined(separator: " · ")
     }
 }
 
@@ -40,8 +107,6 @@ private struct SpineRow: View {
     let node: ToolNode
     let presentation: ToolPresentation
     let projectPath: String
-    let isFirst: Bool
-    let isLast: Bool
     let isExpanded: Bool
     let onToggle: () -> Void
     let openChanges: () -> Void
@@ -52,29 +117,29 @@ private struct SpineRow: View {
         VStack(alignment: .leading, spacing: 0) {
             Button(action: onToggle) {
                 row
-                    .padding(.vertical, 5)
+                    .padding(.vertical, 4)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
 
             if isExpanded {
-                detail.padding(.bottom, 10)
+                detail.padding(.bottom, 8)
             }
         }
-        .padding(.leading, 24)
         .frame(maxWidth: .infinity, alignment: .leading)
-        // The spine is a background so it takes the height of the row it belongs to; as
-        // a sibling it would have nothing to stretch against.
-        .background(alignment: .topLeading) { spine }
     }
 
+    // The verb sits in a column of its own so a run of calls reads down the left edge as
+    // a list of what was done, with the targets lining up beside it.
     private var row: some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 10) {
                 Text(presentation.verb)
-                    .font(.mono(12, .semibold))
+                    .font(.mono(11.5, .semibold))
+                    .lineLimit(1)
+                    .frame(width: 38, alignment: .leading)
                 Text(presentation.argument)
-                    .font(.mono(12))
+                    .font(.mono(11.5))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -89,6 +154,7 @@ private struct SpineRow: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
+                    .padding(.leading, 48)
             }
         }
     }
@@ -106,27 +172,23 @@ private struct SpineRow: View {
             HStack(spacing: 6) {
                 if tool.isError { failed }
                 Text(workDone)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
+                    .font(.mono(10.5))
+                    .foregroundStyle(.tertiary)
             }
         } else if tool.isRunning {
             Text("running")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
+                .font(.mono(10.5))
+                .foregroundStyle(.tertiary)
         } else if tool.isError {
             failed
         } else if let added = presentation.added, let removed = presentation.removed {
-            HStack(spacing: 5) {
-                Text("+\(added)").foregroundStyle(Theme.addition)
-                Text("-\(removed)").foregroundStyle(Theme.deletion)
-            }
-            .font(.mono(11, .medium))
+            DiffPair(added: added, removed: removed, size: 10.5)
         } else if presentation.notesResultLineCount, let result = tool.result {
             // A command that printed nothing is worth saying out loud: without it the row
             // is indistinguishable from one whose output is simply collapsed.
             Text(result.isEmpty ? "no output" : "\(lineCount(result)) lines")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
+                .font(.mono(10.5))
+                .foregroundStyle(.tertiary)
         }
     }
 
@@ -144,39 +206,6 @@ private struct SpineRow: View {
         let work = "\(calls) call" + (calls == 1 ? "" : "s")
         guard agents > 0 else { return work }
         return "\(agents) agent" + (agents == 1 ? "" : "s") + " · " + work
-    }
-
-    // The three parts are layered at fixed offsets rather than stacked. A shape with no
-    // height of its own takes exactly the height the row offers, so the tail reaches the
-    // bottom without ever asking the row how tall it is - and the row is what sizes the
-    // spine in the first place, so asking back would make the two sizes depend on each
-    // other.
-    private var spine: some View {
-        ZStack(alignment: .top) {
-            Rectangle()
-                .fill(isLast ? Color.clear : Theme.border)
-                .frame(width: 1.5)
-                .padding(.top, dotTop + dotSize)
-            Rectangle()
-                .fill(isFirst ? Color.clear : Theme.border)
-                .frame(width: 1.5, height: dotTop)
-            Circle()
-                .fill(dotColor)
-                .frame(width: dotSize, height: dotSize)
-                .padding(.top, dotTop)
-        }
-        .frame(width: 12)
-    }
-
-    // Where the dot sits in the row, measured from the top. It lines up with the middle
-    // of the row's first line of text.
-    private let dotTop: CGFloat = 9
-    private let dotSize: CGFloat = 7
-
-    private var dotColor: Color {
-        if tool.isRunning { return Theme.dotOn }
-        if tool.isError { return Theme.deletion }
-        return Theme.dotOff
     }
 
     @ViewBuilder private var detail: some View {

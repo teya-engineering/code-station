@@ -1,23 +1,33 @@
 import AppKit
 import SwiftUI
 
-// A workspace is both a saved group and the starting point for future sessions. This
-// pane keeps its current activity beside the defaults that shape the next session.
+// One multi-project conversation. The structure carries the meaning: the lead project is
+// the working directory and the others are indented under it, so nothing has to say in
+// words which folder the agent will actually run in.
 struct WorkspaceDetailView: View {
     let workspaceID: UUID
 
     @Environment(ProjectStore.self) private var store
     @Environment(SessionRunner.self) private var runner
     @Environment(DialogPresenter.self) private var dialogs
+    @Environment(TerminalStore.self) private var terminals
 
     @State private var draftName = ""
     @State private var creatingSession: ProjectWorkspace?
+    @State private var terminalFocused = false
+
+    private var terminalScope: TerminalScope { .project(workspaceID) }
 
     var body: some View {
         if let workspace = store.workspace(workspaceID) {
             VStack(spacing: 0) {
                 header(workspace)
                 content(workspace)
+                if terminals.isOpen(terminalScope), let lead = store.project(workspace.leadProjectID) {
+                    TerminalDrawer(scope: terminalScope,
+                                   directory: lead.path,
+                                   focusTerminal: $terminalFocused)
+                }
             }
             .background(Theme.background)
             .task(id: workspace.id) { draftName = workspace.name }
@@ -34,314 +44,276 @@ struct WorkspaceDetailView: View {
         }
     }
 
+    // MARK: - Header
+
     private func header(_ workspace: ProjectWorkspace) -> some View {
-        HStack(alignment: .center, spacing: 16) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(workspace.name)
-                    .font(.serif(22))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Text("Multi-project workspace")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.secondary)
-            }
+        HStack(spacing: 12) {
+            ProjectDot(tint: Theme.workspaceTint)
 
-            Spacer(minLength: 16)
+            // The name is edited where it is read, so renaming is not a separate block
+            // further down the screen with a button of its own.
+            TextField("Workspace name", text: $draftName)
+                .textFieldStyle(.plain)
+                .font(.serif(20, .semibold))
+                .fixedSize()
+                .onSubmit { saveName(workspace) }
+                .padding(.horizontal, 9)
+                .padding(.vertical, 4)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Theme.field))
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
+                .overlay(alignment: .trailing) {
+                    Image(systemName: "pencil")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                        .padding(.trailing, 7)
+                        .allowsHitTesting(false)
+                }
+                .appTooltip("Rename this workspace")
 
-            Button { creatingSession = workspace } label: {
-                Label("New session", systemImage: "plus")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 13)
-                    .frame(height: 32)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(Theme.accentFill))
-                    .contentShape(RoundedRectangle(cornerRadius: 8))
+            MonoChip(text: "WORKSPACE · \(workspace.projectIDs.count) PROJECTS",
+                     size: 10, tint: Theme.workspaceTint.ink)
+
+            Spacer(minLength: 12)
+
+            HStack(spacing: 12) {
+                TerminalToggle(isOpen: terminals.isOpen(terminalScope)) {
+                    toggleTerminal(workspace)
+                }
+                .disabled(hasMissingProjects(workspace))
+                .opacity(hasMissingProjects(workspace) ? 0.4 : 1)
+
+                ActionButton(title: "New session", tone: .green, size: 12) {
+                    creatingSession = workspace
+                }
+                .disabled(hasMissingProjects(workspace))
+                .opacity(hasMissingProjects(workspace) ? 0.45 : 1)
             }
-            .buttonStyle(.plain)
-            .disabled(hasMissingProjects(workspace))
-            .opacity(hasMissingProjects(workspace) ? 0.45 : 1)
+            .fixedSize(horizontal: true, vertical: false)
+            .layoutPriority(1)
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, 24)
         .headerBand()
     }
 
+    // MARK: - Body
+
     private func content(_ workspace: ProjectWorkspace) -> some View {
-        let projects = workspace.projectIDs.compactMap(store.project)
         let sessions = store.sessions(in: workspace.id)
+            .sorted { $0.lastActivity > $1.lastActivity }
 
         return ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: 22) {
                 if hasMissingProjects(workspace) { missingFolders(workspace) }
-
-                projectSection(workspace, projects: projects)
-                settingsSection(workspace)
-                recentSessions(workspace, sessions: sessions)
+                projects(workspace)
+                sessionList(workspace, sessions: sessions)
+                defaults(workspace)
             }
-            .padding(20)
-            .frame(maxWidth: 940, alignment: .leading)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(24)
         }
     }
 
-    private func projectSection(_ workspace: ProjectWorkspace,
-                                projects: [Project]) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("Projects")
-                    .font(.serif(18))
-                Text("\(projects.count)")
-                    .font(.mono(11, .semibold))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 3)
-                    .background(RoundedRectangle(cornerRadius: 5)
-                        .fill(Color.black.opacity(0.05)))
-                Spacer()
-                Text("Defaults can be changed again before each session starts.")
+    private func projects(_ workspace: ProjectWorkspace) -> some View {
+        let lead = store.project(workspace.leadProjectID)
+        let attached = workspace.projectIDs
+            .filter { $0 != workspace.leadProjectID }
+            .compactMap(store.project)
+
+        return VStack(alignment: .leading, spacing: 11) {
+            SectionRule(title: "PROJECTS") {
+                Text("The lead project is the working directory. Defaults can still be changed per session.")
                     .font(.system(size: 11.5))
                     .foregroundStyle(.tertiary)
+                    .lineLimit(1)
             }
 
-            LazyVStack(spacing: 10) {
-                ForEach(projects) { project in
-                    projectCard(project, workspace: workspace)
-                }
-            }
-        }
-    }
+            VStack(alignment: .leading, spacing: 14) {
+                if let lead { leadRow(lead, workspace: workspace) }
 
-    private func projectCard(_ project: Project, workspace: ProjectWorkspace) -> some View {
-        let lead = project.id == workspace.leadProjectID
-        let missing = store.isMissing(project)
-        let git = isGitRepository(project)
-        let worktree = git && workspace.worktreeProjectIDs.contains(project.id)
-
-        return VStack(alignment: .leading, spacing: 13) {
-            HStack(alignment: .center, spacing: 12) {
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Theme.monogram(for: project.name).opacity(0.16))
-                    .frame(width: 38, height: 38)
-                    .overlay(
-                        Text(String(project.name.prefix(1)).uppercased())
-                            .font(.serif(16, .semibold))
-                            .foregroundStyle(Theme.monogram(for: project.name)))
-
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 7) {
-                        Text(project.name)
-                            .font(.system(size: 14, weight: .semibold))
-                            .lineLimit(1)
-                        if lead { projectBadge("LEAD", tint: Theme.accent) }
-                        if missing { projectBadge("MISSING", tint: Theme.deletion) }
-                    }
-                    Text(project.path)
-                        .font(.mono(11))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .textSelection(.enabled)
-                }
-
-                Spacer(minLength: 12)
-
-                if !missing {
-                    Button { reveal(project) } label: {
-                        Label("Reveal", systemImage: "folder")
-                            .font(.system(size: 11.5, weight: .semibold))
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 10)
-                            .frame(height: 28)
-                            .background(RoundedRectangle(cornerRadius: 7).fill(Theme.field))
-                            .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.border))
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-
-            HStack(spacing: 10) {
-                Label(missing ? "Folder unavailable" : git ? "Git repository" : "Plain folder",
-                      systemImage: missing ? "exclamationmark.triangle.fill"
-                          : git ? "arrow.triangle.branch" : "folder")
-                    .font(.mono(10.5, .medium))
-                    .foregroundStyle(missing ? Theme.deletion : Color.secondary)
-
-                Spacer(minLength: 12)
-
-                if !lead {
-                    Button {
-                        store.setLeadProject(project.id, inWorkspace: workspace.id)
-                    } label: {
-                        Text("Make lead")
-                            .font(.system(size: 11.5, weight: .semibold))
-                            .foregroundStyle(Theme.accent)
-                            .padding(.horizontal, 10)
-                            .frame(height: 28)
-                            .background(RoundedRectangle(cornerRadius: 7).fill(Theme.card))
-                            .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.border))
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                if git {
-                    checkoutButton("Worktree", selected: worktree) {
-                        store.setUsesWorktree(true, for: project.id,
-                                              inWorkspace: workspace.id)
-                    }
-                    checkoutButton("Project folder", selected: !worktree) {
-                        store.setUsesWorktree(false, for: project.id,
-                                              inWorkspace: workspace.id)
-                    }
-                } else if !missing {
-                    Text("Uses project folder")
-                        .font(.system(size: 11.5, weight: .medium))
-                        .foregroundStyle(.secondary)
-                }
-
-                Button {
-                    store.removeProject(project.id, fromWorkspace: workspace.id)
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 28, height: 28)
-                        .background(RoundedRectangle(cornerRadius: 7).fill(Theme.card))
-                        .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.border))
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .disabled(workspace.projectIDs.count <= 2)
-                .opacity(workspace.projectIDs.count <= 2 ? 0.35 : 1)
-                .appTooltip(workspace.projectIDs.count <= 2
-                            ? "A workspace needs at least two projects"
-                            : "Remove from workspace")
-            }
-        }
-        .padding(14)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 12)
-            .stroke(lead ? Theme.accent.opacity(0.55) : Theme.border,
-                    lineWidth: lead ? 1.5 : 1))
-    }
-
-    private func projectBadge(_ text: String, tint: Color) -> some View {
-        Text(text)
-            .font(.mono(9, .semibold))
-            .kerning(0.5)
-            .foregroundStyle(tint)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(RoundedRectangle(cornerRadius: 5).fill(tint.opacity(0.1)))
-    }
-
-    private func checkoutButton(_ title: String, selected: Bool,
-                                action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(.system(size: 11.5, weight: .semibold))
-                .foregroundStyle(selected ? AnyShapeStyle(Color.white)
-                                           : AnyShapeStyle(Color.secondary))
-                .padding(.horizontal, 10)
-                .frame(height: 28)
-                .background(RoundedRectangle(cornerRadius: 7)
-                    .fill(selected ? Theme.accentFill : Theme.field))
-                .overlay(RoundedRectangle(cornerRadius: 7)
-                    .stroke(selected ? Color.clear : Theme.border))
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func settingsSection(_ workspace: ProjectWorkspace) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Workspace settings")
-                .font(.serif(18))
-
-            HStack(spacing: 10) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("NAME")
-                        .font(.mono(10, .semibold))
-                        .kerning(0.6)
+                VStack(alignment: .leading, spacing: 9) {
+                    Text("ATTACHED TO THE SAME CONVERSATION")
+                        .font(.mono(9, .semibold))
+                        .kerning(1.2)
                         .foregroundStyle(.tertiary)
-                    TextField("Workspace name", text: $draftName)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 13.5, weight: .semibold))
-                        .onSubmit { saveName(workspace) }
-                }
-                .padding(.horizontal, 13)
-                .frame(height: 52)
-                .frame(maxWidth: .infinity)
-                .background(RoundedRectangle(cornerRadius: 10).fill(Theme.field))
-                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
-
-                Button { saveName(workspace) } label: {
-                    Text("Save name")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(nameCanBeSaved(workspace) ? Theme.accent : Color.secondary)
-                        .padding(.horizontal, 13)
-                        .frame(height: 34)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.card))
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .disabled(!nameCanBeSaved(workspace))
-            }
-
-            HStack(spacing: 10) {
-                Text("The lead project is the working directory. Other projects are attached to the same conversation.")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 12)
-
-                if !attachableProjects(workspace).isEmpty {
-                    HStack(spacing: 6) {
-                        Image(systemName: "plus")
-                            .font(.system(size: 10, weight: .bold))
-                        Text("Add project")
-                            .font(.system(size: 12, weight: .semibold))
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 8, weight: .bold))
+                    ForEach(attached) { project in
+                        attachedRow(project, workspace: workspace)
                     }
-                    .foregroundStyle(Theme.accent)
-                    .padding(.horizontal, 12)
-                    .frame(height: 32)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(Theme.card))
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
-                    .contentShape(Rectangle())
-                    .appMenu { attachMenu(workspace) }
+                    addProjectRow(workspace)
                 }
-
-                Button { addFolder(to: workspace) } label: {
-                    Text("Add folder…")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(Theme.accent)
-                        .padding(.horizontal, 12)
-                        .frame(height: 32)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.card))
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
-                        .contentShape(Rectangle())
+                .padding(.leading, 18)
+                .overlay(alignment: .leading) {
+                    Rectangle().fill(Theme.border).frame(width: 1.5)
                 }
-                .buttonStyle(.plain)
+                .padding(.leading, 17)
             }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 12).fill(Theme.card))
+            .overlay(RoundedRectangle(cornerRadius: 12)
+                .stroke(Theme.accent.opacity(0.45), lineWidth: 1.4))
         }
-        .padding(16)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color.black.opacity(0.025)))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.border))
     }
 
-    @ViewBuilder private func recentSessions(_ workspace: ProjectWorkspace,
-                                             sessions: [ChatSession]) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("Recent sessions")
-                    .font(.serif(18))
-                Spacer()
-                if sessions.count > 5 {
-                    Text("Showing the latest 5 of \(sessions.count)")
-                        .font(.system(size: 11.5))
+    private func leadRow(_ project: Project, workspace: ProjectWorkspace) -> some View {
+        HStack(spacing: 13) {
+            ProjectTileView(name: project.name,
+                            tint: Theme.projectTint(for: project.name),
+                            side: 36)
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 8) {
+                    Text(project.name)
+                        .font(.system(size: 15, weight: .semibold))
+                        .lineLimit(1)
+                    MonoChip(text: "LEAD · WORKING DIRECTORY", size: 9, tint: Theme.accent)
+                    if store.isMissing(project) {
+                        MonoChip(text: "MISSING", size: 9, tint: Theme.deletion)
+                    }
+                }
+                Text(summary(project, workspace: workspace))
+                    .font(.mono(10.5))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+
+            Spacer(minLength: 12)
+
+            checkoutControl(project, workspace: workspace, height: 30)
+            GlyphButton(icon: "ellipsis")
+                .appMenu { projectMenu(project, workspace: workspace, isLead: true) }
+        }
+    }
+
+    private func attachedRow(_ project: Project, workspace: ProjectWorkspace) -> some View {
+        HStack(spacing: 13) {
+            ProjectTileView(name: project.name,
+                            tint: Theme.projectTint(for: project.name),
+                            side: 30)
+
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 7) {
+                    Text(project.name)
+                        .font(.system(size: 13.5, weight: .semibold))
+                        .lineLimit(1)
+                    if store.isMissing(project) {
+                        MonoChip(text: "MISSING", size: 9, tint: Theme.deletion)
+                    }
+                }
+                Text(summary(project, workspace: workspace))
+                    .font(.mono(10.5))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+
+            Spacer(minLength: 12)
+
+            checkoutControl(project, workspace: workspace, height: 28)
+            InlineLink(title: "Make lead", size: 11.5) {
+                store.setLeadProject(project.id, inWorkspace: workspace.id)
+            }
+            GlyphButton(icon: "xmark", side: 28) {
+                store.removeProject(project.id, fromWorkspace: workspace.id)
+            }
+            .disabled(workspace.projectIDs.count <= 2)
+            .opacity(workspace.projectIDs.count <= 2 ? 0.35 : 1)
+            .appTooltip(workspace.projectIDs.count <= 2
+                        ? "A workspace needs at least two projects"
+                        : "Remove from workspace")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 11)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.sunken))
+    }
+
+    // One control rather than two competing buttons: the current mode is the label, and
+    // the other is a menu away. A plain folder has no choice to offer, so it says so.
+    @ViewBuilder private func checkoutControl(_ project: Project, workspace: ProjectWorkspace,
+                                              height: CGFloat) -> some View {
+        if isGitRepository(project) {
+            let worktree = workspace.worktreeProjectIDs.contains(project.id)
+            ActionButton(title: worktree ? "Worktree" : "Project folder",
+                         tone: .sunken, height: height, size: 11.5, disclosure: true)
+                .appMenu {
+                    [.item("Worktree", checked: worktree,
+                           subtitle: "A checkout of its own for each session.") {
+                        store.setUsesWorktree(true, for: project.id, inWorkspace: workspace.id)
+                    },
+                     .item("Project folder", checked: !worktree,
+                           subtitle: "Work directly in the folder as it is checked out.") {
+                        store.setUsesWorktree(false, for: project.id, inWorkspace: workspace.id)
+                    }]
+                }
+        } else {
+            Text("Project folder")
+                .font(.system(size: 11.5, weight: .semibold))
+                .foregroundStyle(.tertiary)
+                .frame(height: height)
+                .appTooltip("Not a git repository, so there are no worktrees to make.")
+        }
+    }
+
+    private func addProjectRow(_ workspace: ProjectWorkspace) -> some View {
+        HStack(spacing: 8) {
+            Text("+ Add project")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Theme.accent)
+            Text("from your projects, or attach a folder…")
+                .font(.mono(10.5))
+                .foregroundStyle(.tertiary)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .overlay(RoundedRectangle(cornerRadius: 10)
+            .stroke(Theme.border, lineWidth: 1.2))
+        .contentShape(RoundedRectangle(cornerRadius: 10))
+        .appMenu { addMenu(workspace) }
+    }
+
+    private func addMenu(_ workspace: ProjectWorkspace) -> [MenuEntry] {
+        var entries: [MenuEntry] = attachableProjects(workspace).map { project in
+            .item(project.name, icon: "folder", subtitle: project.collapsedPath) {
+                store.addProject(project.id, toWorkspace: workspace.id)
+            }
+        }
+        if !entries.isEmpty { entries.append(.separator) }
+        entries.append(.item("Attach a folder…", icon: "folder.badge.plus") {
+            addFolder(to: workspace)
+        })
+        return entries
+    }
+
+    private func projectMenu(_ project: Project, workspace: ProjectWorkspace,
+                             isLead: Bool) -> [MenuEntry] {
+        var entries: [MenuEntry] = [
+            .item("Open project") { store.selectProject(project.id) },
+            .item("Reveal in Finder") { reveal(project) }
+        ]
+        if !isLead {
+            entries.append(.item("Make lead") {
+                store.setLeadProject(project.id, inWorkspace: workspace.id)
+            })
+        }
+        if workspace.projectIDs.count > 2 {
+            entries.append(.separator)
+            entries.append(.item("Remove from workspace", kind: .destructive) {
+                store.removeProject(project.id, fromWorkspace: workspace.id)
+            })
+        }
+        return entries
+    }
+
+    // MARK: - Sessions
+
+    private func sessionList(_ workspace: ProjectWorkspace,
+                             sessions: [ChatSession]) -> some View {
+        VStack(alignment: .leading, spacing: 11) {
+            SectionRule(title: "SESSIONS · \(sessions.count)") {
+                if !sessions.isEmpty {
+                    Text(tally(sessions))
+                        .font(.mono(10))
+                        .kerning(0.6)
                         .foregroundStyle(.tertiary)
                 }
             }
@@ -350,79 +322,149 @@ struct WorkspaceDetailView: View {
                 VStack(alignment: .leading, spacing: 7) {
                     Text("No sessions yet")
                         .font(.system(size: 14, weight: .semibold))
-                    Text("The checkout defaults above will be preselected for the first session.")
+                    Text("The checkout choices above are what the first session will start with.")
                         .font(.system(size: 12.5))
                         .foregroundStyle(.secondary)
                 }
                 .padding(16)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(RoundedRectangle(cornerRadius: 11).fill(Theme.card))
+                .background(RoundedRectangle(cornerRadius: 11).fill(Theme.sunken))
                 .overlay(RoundedRectangle(cornerRadius: 11)
                     .stroke(Theme.border, style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
             } else {
-                LazyVStack(spacing: 8) {
-                    ForEach(sessions.prefix(5)) { session in
-                        sessionRow(session)
+                LazyVStack(spacing: 9) {
+                    ForEach(sessions) { session in
+                        SessionRow(session: session,
+                                   tone: tone(session),
+                                   activity: activity(session),
+                                   detail: .repositories(repositories(session)),
+                                   onOpen: { store.selectSession(session.id) },
+                                   menu: { sessionMenu(session) })
                     }
                 }
             }
         }
     }
 
-    private func sessionRow(_ session: ChatSession) -> some View {
-        let busy = runner.state(session.id).isBusy
-        let checkouts = store.checkoutProjects(for: session)
-        let worktrees = checkouts.filter { $0.worktreePath != nil }.count
-
-        return HStack(spacing: 12) {
-            Circle()
-                .fill(busy ? Theme.dotOn : Theme.dotOff)
-                .frame(width: 8, height: 8)
-
-            VStack(alignment: .leading, spacing: 5) {
-                Text(session.title)
-                    .font(.system(size: 13.5, weight: .semibold))
-                    .lineLimit(1)
-                HStack(spacing: 7) {
-                    Text(busy ? "Running" : "Idle")
-                    Text("·")
-                    Text(worktrees == 0
-                         ? "Project folders"
-                         : "\(worktrees) of \(checkouts.count) worktrees")
-                    Text("·")
-                    Text(session.lastActivity.formatted(date: .abbreviated, time: .shortened))
-                }
-                .font(.mono(10.5))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-            }
-
-            Spacer(minLength: 12)
-
-            if session.summary.added > 0 || session.summary.removed > 0 {
-                HStack(spacing: 5) {
-                    Text("+\(session.summary.added)").foregroundStyle(Theme.addition)
-                    Text("−\(session.summary.removed)").foregroundStyle(Theme.deletion)
-                }
-                .font(.mono(10.5, .semibold))
-            }
-
-            Button { store.selectSession(session.id) } label: {
-                Text(busy ? "Open" : "Resume")
-                    .font(.system(size: 11.5, weight: .semibold))
-                    .foregroundStyle(Theme.accent)
-                    .padding(.horizontal, 11)
-                    .frame(height: 28)
-                    .background(RoundedRectangle(cornerRadius: 7).fill(Theme.card))
-                    .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.border))
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
+    // One chip per repository, saying which mode that repository was opened in, because a
+    // workspace session can mix worktrees and plain folders in the same conversation.
+    private func repositories(_ session: ChatSession) -> [SessionRow.Repository] {
+        store.checkoutProjects(for: session).compactMap { checkout in
+            guard let project = store.project(checkout.projectID) else { return nil }
+            let short = project.name.split(separator: " ").first.map(String.init) ?? project.name
+            return SessionRow.Repository(
+                id: project.id,
+                label: "\(short.lowercased()) · \(checkout.worktreePath == nil ? "folder" : "worktree")",
+                tint: Theme.projectTint(for: project.name))
         }
-        .padding(.horizontal, 14)
-        .frame(minHeight: 58)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
+    }
+
+    private func tally(_ sessions: [ChatSession]) -> String {
+        let running = sessions.filter { tone($0) == .running }.count
+        let waiting = sessions.filter { tone($0) == .needsYou }.count
+        var parts: [String] = []
+        if running > 0 { parts.append("\(running) RUNNING") }
+        if waiting > 0 { parts.append("\(waiting) NEEDS YOU") }
+        let idle = sessions.count - running - waiting
+        if idle > 0 { parts.append("\(idle) IDLE") }
+        return parts.joined(separator: " · ")
+    }
+
+    private func tone(_ session: ChatSession) -> SessionTone {
+        SessionTone(busy: runner.state(session.id).isBusy,
+                    needsInput: runner.question(session.id) != nil,
+                    finished: store.hasFinished(session.id))
+    }
+
+    private func activity(_ session: ChatSession) -> String {
+        if let question = runner.question(session.id) {
+            return question.isQuestion
+                ? "waiting on an answer · \(question.title)"
+                : "waiting on \(question.toolName) permission"
+        }
+        if runner.state(session.id).isBusy, let running = runner.runningTool(session.id) {
+            let root = store.workingDirectory(for: session) ?? ""
+            return ToolPresentationCache.presentation(for: running, projectPath: root).label
+        }
+        guard let last = session.summary.lastTool else { return "not started" }
+        return (store.hasFinished(session.id) ? "ended after " : "last: ") + last
+    }
+
+    private func sessionMenu(_ session: ChatSession) -> [MenuEntry] {
+        [
+            .item("Open session") { store.selectSession(session.id) },
+            .separator,
+            .item("Delete session", kind: .destructive) { confirmRemove(session) }
+        ]
+    }
+
+    private func confirmRemove(_ session: ChatSession) {
+        let worktrees = store.checkoutProjects(for: session).compactMap(\.worktreePath)
+        dialogs.show(Dialog(
+            title: "Delete \"\(session.title)\"?",
+            message: worktrees.isEmpty
+                ? "Its conversation history is removed from the app."
+                : "Its \(worktrees.count) worktree\(worktrees.count == 1 ? "" : "s") go with it, along with anything uncommitted there.",
+            actions: [
+                .init(label: worktrees.isEmpty ? "Delete session" : "Delete session and worktrees",
+                      kind: .destructive) {
+                    Task {
+                        if case .failure(let failure) = await SessionLifecycle.remove(
+                            session, from: store, runner: runner) {
+                            showCreationError(failure.message, title: failure.title)
+                        }
+                    }
+                },
+                .init(label: "Cancel", kind: .cancel)
+            ]))
+    }
+
+    // MARK: - Footer
+
+    private func defaults(_ workspace: ProjectWorkspace) -> some View {
+        FooterStrip(title: "Workspace defaults", detail: defaultsSummary(workspace)) {
+            InlineLink(title: "Change →", size: 12.5) { creatingSession = workspace }
+        }
+    }
+
+    private func defaultsSummary(_ workspace: ProjectWorkspace) -> String {
+        let agent = runner.agent
+        let settings = runner.defaults(for: agent)
+        var parts = [agent.title]
+        if let model = ModelChoice.valid(settings.model, for: agent) {
+            parts.append(ModelChoice.title(of: model))
+        }
+        if let effort = EffortChoice.valid(settings.effort, for: agent) {
+            parts.append("\(EffortChoice.summary(of: effort, agent: agent)) effort")
+        }
+        parts.append(worktreeSummary(workspace))
+        return parts.joined(separator: " · ")
+    }
+
+    private func worktreeSummary(_ workspace: ProjectWorkspace) -> String {
+        let repositories = workspace.projectIDs.compactMap(store.project).filter(isGitRepository)
+        let worktrees = repositories.filter { workspace.worktreeProjectIDs.contains($0.id) }
+        if worktrees.isEmpty { return "project folders throughout" }
+        if worktrees.count == repositories.count { return "worktree on every repository" }
+        if worktrees.count == 1, worktrees[0].id == workspace.leadProjectID {
+            return "worktree on the lead project only"
+        }
+        return "worktree on \(worktrees.count) of \(repositories.count) repositories"
+    }
+
+    // MARK: - Helpers
+
+    private func summary(_ project: Project, workspace: ProjectWorkspace) -> String {
+        var parts = [project.collapsedPath]
+        if let branch = GitHead.branch(at: project.path) { parts.append(branch) }
+        return parts.joined(separator: " · ")
+    }
+
+    private func toggleTerminal(_ workspace: ProjectWorkspace) {
+        guard let lead = store.project(workspace.leadProjectID) else { return }
+        let opening = !terminals.isOpen(terminalScope)
+        terminals.setOpen(opening, for: terminalScope, directory: lead.path)
+        terminalFocused = opening
     }
 
     private func missingFolders(_ workspace: ProjectWorkspace) -> some View {
@@ -439,27 +481,18 @@ struct WorkspaceDetailView: View {
         .background(RoundedRectangle(cornerRadius: 10).fill(ChatColor.warningBackground))
     }
 
-    private func nameCanBeSaved(_ workspace: ProjectWorkspace) -> Bool {
-        let name = draftName.trimmingCharacters(in: .whitespacesAndNewlines)
-        return !name.isEmpty && name != workspace.name
-    }
-
     private func saveName(_ workspace: ProjectWorkspace) {
-        guard nameCanBeSaved(workspace) else { return }
-        store.renameWorkspace(workspace.id, to: draftName)
+        let name = draftName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, name != workspace.name else {
+            draftName = workspace.name
+            return
+        }
+        store.renameWorkspace(workspace.id, to: name)
         draftName = store.workspace(workspace.id)?.name ?? draftName
     }
 
     private func attachableProjects(_ workspace: ProjectWorkspace) -> [Project] {
         store.projects.filter { !workspace.projectIDs.contains($0.id) }
-    }
-
-    private func attachMenu(_ workspace: ProjectWorkspace) -> [MenuEntry] {
-        attachableProjects(workspace).map { project in
-            .item(project.name, subtitle: project.collapsedPath) {
-                store.addProject(project.id, toWorkspace: workspace.id)
-            }
-        }
     }
 
     private func addFolder(to workspace: ProjectWorkspace) {

@@ -64,17 +64,25 @@ struct MessageView: View, Equatable {
                 }
                 if !message.text.isEmpty {
                     Text(message.text)
-                        .font(.system(size: 13))
+                        .font(.system(size: 13.5))
+                        .lineSpacing(3)
                         .textSelection(.enabled)
                         .multilineTextAlignment(.leading)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            .padding(.leading, 14)
-            .padding(.trailing, message.text.isEmpty ? 14 : 42)
-            .padding(.vertical, 10)
-            .background(RoundedRectangle(cornerRadius: 12).fill(Theme.accent.opacity(0.10)))
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.accent.opacity(0.22)))
+            .padding(.leading, 15)
+            .padding(.trailing, message.text.isEmpty ? 15 : 42)
+            .padding(.vertical, 11)
+            .frame(maxWidth: 600, alignment: .leading)
+            // The corner nearest the writer is squared off, so the bubble points back at
+            // the side of the page it came from.
+            .background(UnevenRoundedRectangle(topLeadingRadius: 12, bottomLeadingRadius: 12,
+                                               bottomTrailingRadius: 4, topTrailingRadius: 12)
+                .fill(Theme.userMessage))
+            .overlay(UnevenRoundedRectangle(topLeadingRadius: 12, bottomLeadingRadius: 12,
+                                            bottomTrailingRadius: 4, topTrailingRadius: 12)
+                .stroke(Theme.userMessageRing))
         }
     }
 

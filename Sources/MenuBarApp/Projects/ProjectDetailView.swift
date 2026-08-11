@@ -1,8 +1,9 @@
 import AppKit
 import SwiftUI
 
-// The project keeps its folder, conversations and folder-level tools together without
-// opening a conversation until the user asks.
+// The state of one repository and the sessions running in it: what git thinks of the
+// folder, which worktrees are still checked out, and every conversation that has touched
+// it. Opening a session is the point where its transcript takes over the pane.
 struct ProjectDetailView: View {
     let projectID: UUID
 
@@ -18,6 +19,7 @@ struct ProjectDetailView: View {
     @State private var tab: Tab = .sessions
     @State private var choosingSessionKind: Project?
     @State private var terminalFocused = false
+    @State private var git: GitSnapshot?
 
     private var terminalScope: TerminalScope { .project(projectID) }
 
@@ -35,6 +37,11 @@ struct ProjectDetailView: View {
             }
             .background(Theme.background)
             .background(terminalShortcut(project))
+            .task(id: project.path) { git = await GitInspector.snapshot(at: project.path) }
+            // A session ending is the moment the folder is most likely to have moved on.
+            .task(id: store.standaloneSessions(for: projectID).map(\.summary)) {
+                git = await GitInspector.snapshot(at: project.path)
+            }
             .sheet(item: $choosingSessionKind) { project in
                 NewSessionView(project: project) { choice in
                     startSession(choice, in: project)
@@ -48,91 +55,57 @@ struct ProjectDetailView: View {
         }
     }
 
+    // MARK: - Header
+
     private func header(_ project: Project) -> some View {
-        HStack(alignment: .center, spacing: 16) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(project.name)
-                    .font(.serif(22))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Text("Project overview")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.secondary)
-            }
+        HStack(spacing: 12) {
+            ProjectDot(tint: Theme.projectTint(for: project.name))
+            Text(project.name)
+                .font(.serif(20, .semibold))
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Text(project.collapsedPath)
+                .font(.mono(10.5))
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
+                .layoutPriority(-1)
+            if let summary = gitChip { MonoChip(text: summary) }
 
-            Spacer(minLength: 16)
+            Spacer(minLength: 12)
 
-            ViewThatFits(in: .horizontal) {
-                headerControls(project, compactActions: false)
-                headerControls(project, compactActions: true)
+            // Held at their natural width so a long project name is what gives way,
+            // rather than the controls shrinking until their labels wrap.
+            HStack(spacing: 12) {
+                HeaderTabToggle(selection: $tab,
+                                options: [("Sessions", .sessions),
+                                          ("Changes", .changes),
+                                          ("Explorer", .explorer)])
+                TerminalToggle(isOpen: terminals.isOpen(terminalScope)) {
+                    toggleTerminal(directory: project.path)
+                }
+                .disabled(store.isMissing(project))
+                .opacity(store.isMissing(project) ? 0.4 : 1)
+
+                ActionButton(title: "New session", tone: .green, size: 12) {
+                    requestNewSession(in: project)
+                }
+                .disabled(store.isMissing(project))
+                .opacity(store.isMissing(project) ? 0.45 : 1)
             }
+            .fixedSize(horizontal: true, vertical: false)
             .layoutPriority(1)
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, 24)
         .headerBand()
     }
 
-    private func headerControls(_ project: Project, compactActions: Bool) -> some View {
-        HStack(spacing: compactActions ? 10 : 12) {
-            HeaderTabToggle(selection: $tab,
-                            options: [("Sessions", .sessions),
-                                      ("Changes", .changes),
-                                      ("Explorer", .explorer)])
-
-            TerminalToggle(isOpen: terminals.isOpen(terminalScope)) {
-                toggleTerminal(directory: project.path)
-            }
-            .disabled(store.isMissing(project))
-            .opacity(store.isMissing(project) ? 0.4 : 1)
-
-            revealButton(project, compact: compactActions)
-            newSessionButton(project, compact: compactActions)
-        }
-        .fixedSize(horizontal: true, vertical: false)
-    }
-
-    private func revealButton(_ project: Project, compact: Bool) -> some View {
-        Button { reveal(project) } label: {
-            Group {
-                if compact {
-                    Image(systemName: "folder")
-                        .frame(width: 32, height: 32)
-                } else {
-                    Label("Reveal in Finder", systemImage: "folder")
-                        .padding(.horizontal, 13)
-                        .frame(height: 32)
-                }
-            }
-            .font(.system(size: 12, weight: .semibold))
-            .foregroundStyle(.primary)
-            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
-            .contentShape(RoundedRectangle(cornerRadius: 8))
-        }
-        .buttonStyle(.plain)
-        .help("Reveal in Finder")
-    }
-
-    private func newSessionButton(_ project: Project, compact: Bool) -> some View {
-        Button { requestNewSession(in: project) } label: {
-            Group {
-                if compact {
-                    Image(systemName: "plus")
-                        .frame(width: 32, height: 32)
-                } else {
-                    Label("New session", systemImage: "plus")
-                        .padding(.horizontal, 13)
-                        .frame(height: 32)
-                }
-            }
-            .font(.system(size: 12, weight: .semibold))
-            .foregroundStyle(.white)
-            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.accentFill))
-            .contentShape(RoundedRectangle(cornerRadius: 8))
-        }
-        .buttonStyle(.plain)
-        .disabled(store.isMissing(project))
-        .help("New session")
+    // "main · 3 dirty": the two things about a repository worth carrying in a header.
+    private var gitChip: String? {
+        guard let git, git.state == .ready, !git.branch.isEmpty else { return nil }
+        let dirty = git.files.count
+        return dirty == 0 ? "\(git.branch) · clean" : "\(git.branch) · \(dirty) dirty"
     }
 
     @ViewBuilder private func content(_ project: Project) -> some View {
@@ -147,6 +120,294 @@ struct ProjectDetailView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
+
+    // MARK: - Sessions tab
+
+    private func sessions(_ project: Project) -> some View {
+        let available = store.standaloneSessions(for: project.id)
+            .sorted { $0.lastActivity > $1.lastActivity }
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 22) {
+                HStack(alignment: .top, spacing: 14) {
+                    repository(project)
+                        .frame(maxWidth: .infinity)
+                    worktrees(project)
+                        .frame(maxWidth: .infinity)
+                }
+
+                sessionList(project, sessions: available)
+                defaults(project)
+            }
+            .padding(24)
+        }
+    }
+
+    private func repository(_ project: Project) -> some View {
+        VStack(alignment: .leading, spacing: 13) {
+            SectionRule(title: "REPOSITORY") {
+                InlineLink(title: "Reveal in Finder") { reveal(project) }
+            }
+
+            if let git, git.state == .ready {
+                HStack(alignment: .top, spacing: 24) {
+                    figure("BRANCH", value: git.branch.isEmpty ? "—" : git.branch)
+                    figure("AHEAD / BEHIND", value: "\(git.ahead) / \(git.behind)")
+                    figure("UNCOMMITTED",
+                           value: git.files.isEmpty ? "clean" : "\(git.files.count) files",
+                           tone: git.files.isEmpty ? nil : Theme.attentionText)
+                    lastCommit(git)
+                }
+            } else {
+                Text(gitUnavailable)
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Theme.card))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.border))
+    }
+
+    private var gitUnavailable: String {
+        switch git?.state {
+        case .notARepo: "This folder is not a git repository, so there is nothing to track."
+        case .gitMissing: "git was not found on PATH."
+        case .missingFolder: "The folder is no longer on disk."
+        case .failed(let message): message
+        case .ready, nil: "Reading the repository…"
+        }
+    }
+
+    private func figure(_ label: String, value: String, tone: Color? = nil) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label)
+                .font(.mono(9.5))
+                .kerning(1.1)
+                .foregroundStyle(.tertiary)
+            Text(value)
+                .font(.mono(13, .semibold))
+                .foregroundStyle(tone ?? Color.primary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private func lastCommit(_ git: GitSnapshot) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("LAST COMMIT")
+                .font(.mono(9.5))
+                .kerning(1.1)
+                .foregroundStyle(.tertiary)
+            Text(git.lastCommitSubject.map { subject in
+                git.lastCommitDate.map { "\(RelativeTime.short($0)) ago · \(subject)" } ?? subject
+            } ?? "nothing committed yet")
+                .font(.system(size: 12.5, weight: .medium))
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func worktrees(_ project: Project) -> some View {
+        let checkouts = worktreeSessions(project)
+        return VStack(alignment: .leading, spacing: 11) {
+            SectionRule(title: "WORKTREES · \(checkouts.count)") {
+                if !checkouts.isEmpty {
+                    InlineLink(title: "Prune all") { confirmPruneAll(checkouts) }
+                }
+            }
+
+            if checkouts.isEmpty {
+                Text("Every session works in the project folder.")
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                ForEach(checkouts) { session in
+                    worktreeRow(session)
+                }
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Theme.card))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.border))
+    }
+
+    private func worktreeRow(_ session: ChatSession) -> some View {
+        let busy = runner.state(session.id).isBusy
+        let dirty = session.worktreePath.map(workingTrees.isDirty) ?? false
+        return HStack(spacing: 10) {
+            if busy {
+                RunningDot()
+            } else {
+                Circle().fill(Theme.dotOff).frame(width: 6, height: 6)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(session.worktreeBranch ?? "detached")
+                    .font(.mono(11.5, .semibold))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text(dirty ? "\(session.title) · uncommitted work" : session.title)
+                    .font(.mono(10))
+                    .foregroundStyle(dirty ? Theme.attentionText : Color.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            ActionButton(title: "Remove", tone: .outlined, height: 26, size: 11.5) {
+                confirmRemove(session)
+            }
+            .disabled(busy)
+            .opacity(busy ? 0.4 : 1)
+        }
+        .padding(.horizontal, 11)
+        .padding(.vertical, 9)
+        .background(RoundedRectangle(cornerRadius: 9).fill(Theme.sunken))
+    }
+
+    private func sessionList(_ project: Project, sessions: [ChatSession]) -> some View {
+        let running = sessions.filter { runner.state($0.id).isBusy }.count
+        return VStack(alignment: .leading, spacing: 11) {
+            SectionRule(title: "SESSIONS · \(sessions.count)") {
+                if !sessions.isEmpty {
+                    Text(tally(sessions, running: running))
+                        .font(.mono(10))
+                        .kerning(0.6)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+
+            if sessions.isEmpty {
+                emptySessions(project)
+            } else {
+                LazyVStack(spacing: 9) {
+                    ForEach(sessions) { session in
+                        SessionRow(session: session,
+                                   tone: tone(session),
+                                   activity: activity(session, project: project),
+                                   detail: .location(location(session, project: project)),
+                                   onOpen: { store.selectSession(session.id) },
+                                   menu: { sessionMenu(session, project: project) })
+                    }
+                }
+            }
+        }
+    }
+
+    private func tally(_ sessions: [ChatSession], running: Int) -> String {
+        let waiting = sessions.filter { tone($0) == .needsYou }.count
+        var parts: [String] = []
+        if running > 0 { parts.append("\(running) RUNNING") }
+        if waiting > 0 { parts.append("\(waiting) NEEDS YOU") }
+        let idle = sessions.count - running - waiting
+        if idle > 0 { parts.append("\(idle) IDLE") }
+        return parts.joined(separator: " · ")
+    }
+
+    private func defaults(_ project: Project) -> some View {
+        FooterStrip(title: "Session defaults", detail: defaultsSummary) {
+            InlineLink(title: "Change →", size: 12.5) {
+                requestNewSession(in: project)
+            }
+        }
+    }
+
+    // What the next session will start with, read from the app defaults the new-session
+    // sheet would preselect.
+    private var defaultsSummary: String {
+        let agent = runner.agent
+        let settings = runner.defaults(for: agent)
+        var parts = [agent.title]
+        if let model = ModelChoice.valid(settings.model, for: agent) {
+            parts.append(ModelChoice.title(of: model))
+        }
+        if let effort = EffortChoice.valid(settings.effort, for: agent) {
+            parts.append("\(EffortChoice.summary(of: effort, agent: agent)) effort")
+        }
+        if agent == .codex {
+            parts.append(CodexSandboxMode.resolved(settings.codexSandboxMode).summary.lowercased())
+        } else {
+            parts.append(PermissionMode.shortTitle(of: settings.permissionMode).lowercased())
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    private func emptySessions(_ project: Project) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("No sessions yet")
+                .font(.system(size: 14, weight: .semibold))
+            Text("Start a session when you are ready to work in this project.")
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+            ActionButton(title: "Start a new session", tone: .green) {
+                requestNewSession(in: project)
+            }
+            .disabled(store.isMissing(project))
+            .padding(.top, 2)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 11).fill(Theme.sunken))
+        .overlay(RoundedRectangle(cornerRadius: 11)
+            .stroke(Theme.border, style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
+    }
+
+    // MARK: - Reading a session
+
+    private func tone(_ session: ChatSession) -> SessionTone {
+        SessionTone(busy: runner.state(session.id).isBusy,
+                    needsInput: runner.question(session.id) != nil,
+                    finished: store.hasFinished(session.id))
+    }
+
+    private func activity(_ session: ChatSession, project: Project) -> String {
+        if let question = runner.question(session.id) {
+            return question.isQuestion
+                ? "waiting on an answer · \(question.title)"
+                : "waiting on \(question.toolName) permission"
+        }
+        if runner.state(session.id).isBusy, let running = runner.runningTool(session.id) {
+            let root = session.worktreePath ?? project.path
+            return ToolPresentationCache.presentation(for: running, projectPath: root).label
+        }
+        guard let last = session.summary.lastTool else { return "not started" }
+        return (store.hasFinished(session.id) ? "ended after " : "last: ") + last
+    }
+
+    private func location(_ session: ChatSession, project: Project) -> String {
+        guard let worktree = session.worktreePath else {
+            let branch = GitHead.branch(at: project.path)
+            let dirty = workingTrees.isDirty(project.path)
+            return ["project folder", branch, dirty ? "uncommitted work" : nil]
+                .compactMap { $0 }.joined(separator: " · ")
+        }
+        return worktree.abbreviatedPath
+    }
+
+    private func worktreeSessions(_ project: Project) -> [ChatSession] {
+        store.standaloneSessions(for: project.id)
+            .filter { $0.worktreePath != nil }
+            .sorted { $0.lastActivity > $1.lastActivity }
+    }
+
+    private func sessionMenu(_ session: ChatSession, project: Project) -> [MenuEntry] {
+        [
+            .item("Open session") { store.selectSession(session.id) },
+            .item("Reveal in Finder") {
+                NSWorkspace.shared.activateFileViewerSelecting(
+                    [URL(fileURLWithPath: session.worktreePath ?? project.path)])
+            },
+            .separator,
+            .item("Delete session", kind: .destructive) { confirmRemove(session) }
+        ]
+    }
+
+    // MARK: - Terminal
 
     private func terminalShortcut(_ project: Project) -> some View {
         Button("") {
@@ -177,92 +438,12 @@ struct ProjectDetailView: View {
         }
         .font(.system(size: 12, weight: .medium))
         .foregroundStyle(ChatColor.warningText)
-        .padding(.horizontal, 20)
+        .padding(.horizontal, 24)
         .padding(.vertical, 10)
         .background(ChatColor.warningBackground)
     }
 
-    private func sessions(_ project: Project) -> some View {
-        let available = store.standaloneSessions(for: project.id)
-        return ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                folder(project)
-
-                HStack(alignment: .firstTextBaseline) {
-                    Text("Sessions")
-                        .font(.serif(18))
-                    Text("\(available.count)")
-                        .font(.mono(11, .semibold))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background(RoundedRectangle(cornerRadius: 5)
-                            .fill(Color.black.opacity(0.05)))
-                    Spacer()
-                }
-
-                if available.isEmpty {
-                    emptySessions(project)
-                } else {
-                    LazyVStack(spacing: 10) {
-                        ForEach(available) { session in
-                            ProjectSessionRow(session: session,
-                                              isBusy: runner.state(session.id).isBusy,
-                                              onOpen: { store.selectSession(session.id) },
-                                              onDelete: { confirmRemove(session) })
-                        }
-                    }
-                }
-            }
-            .padding(20)
-            .frame(maxWidth: 820, alignment: .leading)
-            .frame(maxWidth: .infinity, alignment: .center)
-        }
-    }
-
-    private func folder(_ project: Project) -> some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text("PROJECT FOLDER")
-                .font(.mono(10, .semibold))
-                .kerning(0.6)
-                .foregroundStyle(.tertiary)
-            Text(project.path)
-                .font(.mono(13))
-                .textSelection(.enabled)
-                .lineLimit(2)
-                .truncationMode(.middle)
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 11).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 11).stroke(Theme.border))
-    }
-
-    private func emptySessions(_ project: Project) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("No sessions yet")
-                .font(.system(size: 14, weight: .semibold))
-            Text("Start a session when you are ready to work in this project.")
-                .font(.system(size: 13))
-                .foregroundStyle(.secondary)
-            Button { requestNewSession(in: project) } label: {
-                Text("Start a new session")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(Theme.accentFill))
-                    .contentShape(RoundedRectangle(cornerRadius: 8))
-            }
-            .buttonStyle(.plain)
-            .disabled(store.isMissing(project))
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 11).fill(Color.black.opacity(0.025)))
-        .overlay(RoundedRectangle(cornerRadius: 11)
-            .stroke(Theme.border, style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
-    }
+    // MARK: - Creating and removing
 
     // A git repository gets the folder-or-worktree choice; a plain folder can start
     // directly because there is no checkout choice to make.
@@ -328,18 +509,50 @@ struct ProjectDetailView: View {
             actions: [
                 .init(label: worktree == nil ? "Delete session" : "Delete session and worktree",
                       kind: .destructive) {
-                    Task {
-                        if case .failure(let failure) = await SessionLifecycle.remove(
-                            session, from: store, runner: runner) {
-                            dialogs.show(Dialog(
-                                title: failure.title,
-                                message: failure.message,
-                                actions: [.init(label: "OK", kind: .cancel)]))
-                        }
-                    }
+                    remove([session])
                 },
                 .init(label: "Cancel", kind: .cancel)
             ]))
+    }
+
+    // Pruning takes the sessions behind the worktrees, not just the folders: a worktree
+    // removed on its own would leave its conversation pointing at nothing.
+    private func confirmPruneAll(_ sessions: [ChatSession]) {
+        let idle = sessions.filter { !runner.state($0.id).isBusy }
+        guard !idle.isEmpty else { return }
+        let dirty = idle.filter { $0.worktreePath.map(workingTrees.isDirty) ?? false }.count
+        let running = sessions.count - idle.count
+        var message = "Their sessions go with them. Branches are kept where they have unmerged commits."
+        if dirty > 0 {
+            message += " \(dirty) of them \(dirty == 1 ? "has" : "have") uncommitted changes that will be lost."
+        }
+        if running > 0 {
+            message += " The \(running) still running stay\(running == 1 ? "s" : "")."
+        }
+        dialogs.show(Dialog(
+            title: "Remove \(idle.count) worktree\(idle.count == 1 ? "" : "s")?",
+            message: message,
+            actions: [
+                .init(label: "Remove worktrees", kind: .destructive) { remove(idle) },
+                .init(label: "Cancel", kind: .cancel)
+            ]))
+    }
+
+    private func remove(_ sessions: [ChatSession]) {
+        Task {
+            var failures: [SessionLifecycle.Failure] = []
+            for session in sessions {
+                if case .failure(let failure) = await SessionLifecycle.remove(
+                    session, from: store, runner: runner) {
+                    failures.append(failure)
+                }
+            }
+            guard !failures.isEmpty else { return }
+            dialogs.show(Dialog(
+                title: failures.count == 1 ? failures[0].title : "Could not delete some sessions",
+                message: failures.map(\.message).joined(separator: "\n"),
+                actions: [.init(label: "OK", kind: .cancel)]))
+        }
     }
 
     private func reveal(_ project: Project) {
@@ -347,71 +560,109 @@ struct ProjectDetailView: View {
     }
 }
 
-// Sessions are deliberately a short summary here. Opening one is the point where its
-// full transcript, files and terminal take over the detail pane.
-private struct ProjectSessionRow: View {
+// One session as a row. Project and Workspace share it, so the two screens cannot drift
+// apart on what a session is: state and title on the left, what it is doing and where in
+// the middle, its diff and last activity on the right, and one way in.
+struct SessionRow: View {
+    // Where the session's files live. A single project says it in one line; a workspace
+    // has one chip per repository, so mixed checkout modes are visible at a glance.
+    enum Detail {
+        case location(String)
+        case repositories([Repository])
+    }
+
+    struct Repository: Identifiable {
+        let id: UUID
+        let label: String
+        let tint: Theme.ProjectTint
+    }
+
     let session: ChatSession
-    let isBusy: Bool
+    let tone: SessionTone
+    let activity: String
+    let detail: Detail
     let onOpen: () -> Void
-    let onDelete: () -> Void
+    let menu: () -> [MenuEntry]
+
+    @State private var hovering = false
 
     var body: some View {
-        ZStack(alignment: .trailing) {
-            Button(action: onOpen) {
-                HStack(alignment: .center, spacing: 14) {
-                    Circle()
-                        .fill(isBusy ? Theme.dotOn : Theme.dotOff)
-                        .frame(width: 8, height: 8)
+        HStack(spacing: 16) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 7) {
+                    StateLight(tone: tone)
+                    Text(tone.word)
+                        .font(.mono(9, .semibold))
+                        .kerning(0.9)
+                        .foregroundStyle(tone.colour)
+                    if session.worktreePath != nil {
+                        MonoChip(text: "WORKTREE", size: 8.5)
+                    }
+                }
+                Text(session.title)
+                    .font(.system(size: 14, weight: .semibold))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            .frame(width: 320, alignment: .leading)
 
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text(session.title)
-                            .font(.system(size: 14, weight: .semibold))
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-
-                        HStack(spacing: 7) {
-                            StatusPill(text: isBusy ? "Running" : "Idle", running: isBusy)
-                            if let branch = session.worktreeBranch {
-                                Label(branch, systemImage: "arrow.triangle.branch")
-                                    .labelStyle(.titleAndIcon)
-                                    .font(.mono(10.5))
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
-                            } else {
-                                Text("Project folder")
-                                    .font(.mono(10.5))
+            VStack(alignment: .leading, spacing: 6) {
+                Text(activity)
+                    .font(.mono(11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                switch detail {
+                case .location(let text):
+                    Text(text)
+                        .font(.mono(10.5))
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                case .repositories(let repositories):
+                    HStack(spacing: 7) {
+                        ForEach(repositories) { repository in
+                            HStack(spacing: 5) {
+                                ProjectDot(tint: repository.tint, size: 5)
+                                Text(repository.label)
+                                    .font(.mono(10))
                                     .foregroundStyle(.secondary)
                             }
-                            Text("Last active \(session.lastActivity.formatted(date: .abbreviated, time: .shortened))")
-                                .font(.mono(10.5))
-                                .foregroundStyle(.tertiary)
-                                .lineLimit(1)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 2)
+                            .background(RoundedRectangle(cornerRadius: 5).fill(Theme.field))
                         }
                     }
-
-                    Spacer(minLength: 56)
                 }
-                .padding(14)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(RoundedRectangle(cornerRadius: 11).fill(Theme.card))
-                .overlay(RoundedRectangle(cornerRadius: 11).stroke(Theme.border))
-                .contentShape(RoundedRectangle(cornerRadius: 11))
             }
-            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, alignment: .leading)
 
-            Button(action: onDelete) {
-                Image(systemName: "trash")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(Theme.deletion)
-                    .frame(width: 30, height: 30)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(Theme.card))
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
-                    .contentShape(RoundedRectangle(cornerRadius: 8))
+            VStack(alignment: .trailing, spacing: 6) {
+                DiffPair(added: session.summary.added,
+                         removed: session.summary.removed, size: 11.5, spacing: 6)
+                Text(RelativeTime.stamp(session.lastActivity))
+                    .font(.mono(10.5))
+                    .foregroundStyle(.tertiary)
             }
-            .buttonStyle(.plain)
-            .appTooltip("Delete session")
-            .padding(.trailing, 14)
+
+            HStack(spacing: 7) {
+                ActionButton(title: tone == .idle ? "Resume" : "Open",
+                             height: 30, size: 12, action: onOpen)
+                // Destructive actions live in the menu: a bare bin in a row is one
+                // mis-click from losing a conversation.
+                GlyphButton(icon: "ellipsis")
+                    .appMenu(menu)
+            }
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .background(RoundedRectangle(cornerRadius: 12)
+            .fill(hovering ? Theme.field : Theme.card))
+        .overlay(RoundedRectangle(cornerRadius: 12)
+            .stroke(tone.ring, lineWidth: tone.ringWidth))
+        .contentShape(RoundedRectangle(cornerRadius: 12))
+        .onTapGesture(perform: onOpen)
+        .animation(.easeOut(duration: 0.12), value: hovering)
+        .onHover { hovering = $0 }
     }
 }

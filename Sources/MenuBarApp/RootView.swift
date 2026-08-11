@@ -26,13 +26,7 @@ struct RootView: View {
         ZStack(alignment: .top) {
             HStack(spacing: 0) {
                 AppSidebar(skills: skills,
-                           onConfigureServers: { configuringServers = true },
-                           onOpenSkills: { showingSkills = true },
-                           onOpenDocker: { showingDocker = true },
-                           onOpenSettings: { showingSettings = true },
-                           onOpenPostman: { showingPostman = true },
-                           onOpenShortcuts: { showingShortcuts = true },
-                           onOpenTroubleshoot: { showingTroubleshoot = true },
+                           tools: tools,
                            onReviewOldSessions: { reviewingOldSessions = true })
                 Divider().overlay(Theme.hairline)
                 detail
@@ -72,6 +66,16 @@ struct RootView: View {
             TroubleshootView(skills: skills).appOverlays()
         }
         .sheet(isPresented: $reviewingOldSessions) { OldSessionsView().appOverlays() }
+    }
+
+    private var tools: ToolsMenuActions {
+        ToolsMenuActions(configureServers: { configuringServers = true },
+                         openSkills: { showingSkills = true },
+                         openDocker: { showingDocker = true },
+                         openPostman: { showingPostman = true },
+                         openShortcuts: { showingShortcuts = true },
+                         openTroubleshoot: { showingTroubleshoot = true },
+                         openSettings: { showingSettings = true })
     }
 
     private var persistenceError: String? {
@@ -119,7 +123,7 @@ struct RootView: View {
     @ViewBuilder private var detail: some View {
         switch store.selection {
         case .home:
-            HomeView()
+            home
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .session(let id):
             SessionView(sessionID: id)
@@ -135,10 +139,16 @@ struct RootView: View {
                     .id(project.id)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                HomeView()
+                home
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+    }
+
+    private var home: some View {
+        HomeView(skills: skills,
+                 tools: tools,
+                 onReviewOldSessions: { reviewingOldSessions = true })
     }
 }
 

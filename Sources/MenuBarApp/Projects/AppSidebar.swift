@@ -5,13 +5,7 @@ import SwiftUI
 // pinned button that opens the app's tools and settings.
 struct AppSidebar: View {
     let skills: SkillsManager
-    let onConfigureServers: () -> Void
-    let onOpenSkills: () -> Void
-    let onOpenDocker: () -> Void
-    let onOpenSettings: () -> Void
-    let onOpenPostman: () -> Void
-    let onOpenShortcuts: () -> Void
-    let onOpenTroubleshoot: () -> Void
+    let tools: ToolsMenuActions
     let onReviewOldSessions: () -> Void
 
     @Environment(ProjectStore.self) private var store
@@ -19,10 +13,6 @@ struct AppSidebar: View {
     @Environment(DialogPresenter.self) private var dialogs
     @Environment(AppSettings.self) private var appSettings
     @Environment(WorkingTreeWatch.self) private var workingTrees
-    @Environment(ConfigStore.self) private var configs
-    @Environment(DockerService.self) private var docker
-    @Environment(PostmanAuthStore.self) private var postmanAuth
-    @Environment(ShortcutStore.self) private var shortcuts
 
     // A project is expanded by default while it is the selected one. Explicit choices
     // win over that default and are restored when the app opens again.
@@ -40,6 +30,7 @@ struct AppSidebar: View {
     @State private var filterText = ""
     @State private var oldSessionSummary = OldSessionSummary()
     @State private var hoveringHome = false
+    @FocusState private var filterFocused: Bool
 
     private static let oldSessionRefreshInterval: Duration = .seconds(3_600)
 
@@ -55,8 +46,9 @@ struct AppSidebar: View {
             Spacer(minLength: 0)
             bottomBar
         }
-        .frame(width: 330)
+        .frame(width: 318)
         .background(Theme.sidebar)
+        .background(keyboardShortcuts)
         .task { await watchWorkingTrees() }
         .task(id: oldSessionDays) { await refreshOldSessionsHourly() }
         .onChange(of: store.sidebarSessions.count) { _, _ in refreshOldSessions() }
@@ -91,94 +83,141 @@ struct AppSidebar: View {
     // MARK: - Heading
 
     private var heading: some View {
-        let notices = sessionNotices
-        return VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 8) {
-                Button(action: store.selectHome) {
-                    HStack(spacing: 8) {
-                        AppMark()
-                            .frame(width: 40, height: 40)
-                        Text("Teya Conductor")
-                            .font(.serif(18, .semibold))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.8)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 5)
-                    .background(RoundedRectangle(cornerRadius: 9)
-                        .fill(store.selection == .home || hoveringHome
-                              ? Theme.card : Color.clear))
-                    .overlay(RoundedRectangle(cornerRadius: 9)
-                        .stroke(store.selection == .home ? Theme.border : Color.clear))
-                    .contentShape(RoundedRectangle(cornerRadius: 9))
-                }
-                .buttonStyle(.plain)
-                .padding(.leading, -7)
-                .onHover { hoveringHome = $0 }
-                .appTooltip("Home")
-                if !notices.isEmpty {
-                    let active = notices.filter { $0.notice != .finished }.count
-                    StatusPill(text: active > 0 ? "\(active) RUNNING" : "\(notices.count) FINISHED",
-                               running: active > 0,
-                               tint: active > 0 ? nil : Theme.attention,
-                               disclosure: true)
-                        .appMenu { sessionNoticeMenu }
-                        .appTooltip("Show active and unread sessions")
-                }
-            }
-            .padding(.horizontal, 20)
-            .headerBand(Theme.sidebar)
-
-            arrangementBar
+        VStack(alignment: .leading, spacing: 0) {
+            brandBar
+            needsYouCard
             filterBar
+            arrangementBar
         }
     }
 
-    // The order and the grouping both decide the shape of the whole rail under them, so
-    // they share one line above the list in the open rather than hiding behind a menu.
-    private var arrangementBar: some View {
-        HStack(spacing: 5) {
-            Image(systemName: "arrow.up.arrow.down")
-                .font(.system(size: 9.5, weight: .semibold))
-                .foregroundStyle(.tertiary)
-                .appTooltip("Order of the list")
-            ForEach(ProjectSort.allCases) { option in
-                SortChip(title: option.label,
-                         hint: option.hint,
-                         selected: appSettings.projectSort == option) {
-                    appSettings.projectSort = option
+    private var brandBar: some View {
+        let running = sessionNotices.filter { $0.notice == .running }.count
+        return HStack(spacing: 10) {
+            Button(action: store.selectHome) {
+                HStack(spacing: 9) {
+                    AppMark()
+                        .frame(width: 26, height: 26)
+                    Text("Teya Conductor")
+                        .font(.serif(19, .semibold))
+                        .kerning(-0.2)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
                 }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 4)
+                .background(RoundedRectangle(cornerRadius: 8)
+                    .fill(store.selection == .home || hoveringHome ? Theme.card : Color.clear))
+                .overlay(RoundedRectangle(cornerRadius: 8)
+                    .stroke(store.selection == .home ? Theme.border : Color.clear, lineWidth: 1.3))
+                .contentShape(RoundedRectangle(cornerRadius: 8))
             }
-            Spacer(minLength: 10)
-            Image(systemName: "rectangle.3.group")
-                .font(.system(size: 9.5, weight: .semibold))
-                .foregroundStyle(.tertiary)
-                .appTooltip("Headings the list is split under")
-            ForEach(ProjectGrouping.allCases) { option in
-                SortChip(title: option.label,
-                         hint: option.hint,
-                         selected: appSettings.projectGrouping == option) {
-                    appSettings.projectGrouping = option
+            .buttonStyle(.plain)
+            .padding(.leading, -6)
+            .onHover { hoveringHome = $0 }
+            .appTooltip("Home")
+
+            Spacer(minLength: 4)
+
+            // The count of what is running, which is the one number worth carrying at the
+            // very top: it is the reason to look at the rail at all.
+            if running > 0 {
+                HStack(spacing: 5) {
+                    RunningDot()
+                    Text("\(running)")
+                        .font(.mono(9.5, .semibold))
+                        .kerning(0.7)
+                        .foregroundStyle(Theme.accent)
                 }
+                .padding(.horizontal, 7)
+                .padding(.vertical, 4)
+                .background(RoundedRectangle(cornerRadius: 6).fill(Theme.accent.opacity(0.1)))
+                .appMenu { sessionNoticeMenu }
+                .appTooltip("Show active and unread sessions")
             }
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 12)
-        .padding(.bottom, 8)
+        .padding(.horizontal, 14)
+        .headerBand(Theme.sidebar)
+    }
+
+    // Permission prompts and turns that ended while the user was away are the only things
+    // in the app that are waiting on a person, so they sit above the tree rather than
+    // being found by opening the project they happen to belong to.
+    @ViewBuilder private var needsYouCard: some View {
+        let waiting = sessionNotices.filter { $0.notice != .running }
+        if !waiting.isEmpty {
+            VStack(alignment: .leading, spacing: 9) {
+                HStack(spacing: 7) {
+                    Circle().fill(Theme.attention).frame(width: 6, height: 6)
+                    Text("NEEDS YOU · \(waiting.count)")
+                        .font(.mono(9.5, .semibold))
+                        .kerning(1.1)
+                        .foregroundStyle(Theme.attentionText)
+                    Spacer(minLength: 6)
+                    Text("⌘⇧A")
+                        .font(.mono(9.5))
+                        .foregroundStyle(.tertiary)
+                }
+
+                VStack(alignment: .leading, spacing: 7) {
+                    ForEach(waiting.prefix(3), id: \.session.id) { noticed in
+                        needsYouRow(noticed)
+                    }
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 11)
+            .background(RoundedRectangle(cornerRadius: 11).fill(Theme.card))
+            .overlay(RoundedRectangle(cornerRadius: 11)
+                .stroke(Theme.attention.opacity(0.45), lineWidth: 1.3))
+            .padding(.horizontal, 14)
+            .padding(.bottom, 12)
+        }
+    }
+
+    private func needsYouRow(_ noticed: NoticedSession) -> some View {
+        // Answering means the pending prompt; reviewing means the files a finished turn
+        // left behind, so the two land on different tabs of the same session.
+        let answering = noticed.notice == .needsInput
+        return HStack(spacing: 9) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(noticed.session.title)
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Text(noticed.reason)
+                    .font(.mono(10))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            ActionButton(title: answering ? "Answer" : "Review",
+                         height: 24, size: 11.5) {
+                openNoticedSession(noticed.session)
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { openNoticedSession(noticed.session) }
     }
 
     // Narrows the list to projects whose name contains what is typed. It filters rather
     // than searches: the rail keeps its order and simply drops the rows that do not match.
     private var filterBar: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 7) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 11, weight: .semibold))
+                .font(.system(size: 10.5, weight: .semibold))
                 .foregroundStyle(.tertiary)
-            TextField("Filter projects", text: $filterText)
+            TextField("Filter projects and sessions", text: $filterText)
                 .textFieldStyle(.plain)
                 .font(.system(size: 12.5))
-            if !filterText.isEmpty {
+                .focused($filterFocused)
+            if filterText.isEmpty {
+                Text("⌘F")
+                    .font(.mono(9.5))
+                    .foregroundStyle(.tertiary)
+            } else {
                 Button {
                     filterText = ""
                 } label: {
@@ -191,32 +230,107 @@ struct AppSidebar: View {
                 .appTooltip("Clear filter")
             }
         }
-        .padding(.horizontal, 9)
-        .padding(.vertical, 6)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.field))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
-        .padding(.horizontal, 20)
-        .padding(.bottom, 12)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
+        .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
+        .padding(.horizontal, 14)
+        .padding(.bottom, 10)
+    }
+
+    // The order and the grouping both decide the shape of the whole rail under them, so
+    // they share one line above the list in the open rather than hiding behind a menu.
+    // What the rail holds is stated beside them, since the tree itself only ever shows
+    // the part of it that fits.
+    private var arrangementBar: some View {
+        HStack(spacing: 6) {
+            HStack(spacing: 2) {
+                ForEach(ProjectSort.allCases) { option in
+                    SortChip(title: option.label,
+                             hint: option.hint,
+                             selected: appSettings.projectSort == option) {
+                        appSettings.projectSort = option
+                    }
+                }
+            }
+            .padding(2)
+            .background(RoundedRectangle(cornerRadius: 7).fill(Theme.field))
+
+            Spacer(minLength: 6)
+
+            Text(inventory)
+                .font(.mono(9.5))
+                .kerning(0.6)
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+                .appMenu { groupingMenu }
+                .appTooltip("Headings the list is split under")
+        }
+        .padding(.horizontal, 14)
+        .padding(.bottom, 10)
+    }
+
+    private var inventory: String {
+        let projects = store.projects.count
+        let workspaces = store.workspaces.count
+        var parts = ["\(projects) PROJECT\(projects == 1 ? "" : "S")"]
+        if workspaces > 0 {
+            parts.append("\(workspaces) WORKSPACE\(workspaces == 1 ? "" : "S")")
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    private var groupingMenu: [MenuEntry] {
+        ProjectGrouping.allCases.map { option in
+            .item(option.label,
+                  checked: appSettings.projectGrouping == option,
+                  subtitle: option.hint) {
+                appSettings.projectGrouping = option
+            }
+        }
     }
 
     private struct NoticedSession {
         let session: ChatSession
         let project: Project
         let notice: SessionNotice
+        // Why this one is here, in the few words that fit under its title: the tool that
+        // is asking, or what the finished turn left behind.
+        let reason: String
     }
 
     private var sessionNotices: [NoticedSession] {
         store.sidebarSessions.compactMap { session in
-            guard let project = store.project(session.projectID),
-                  let notice = SessionNotice(
-                    isBusy: runner.state(session.id).isBusy,
-                    needsInput: runner.question(session.id) != nil,
-                    finishedUnseen: store.hasFinished(session.id)) else { return nil }
-            return NoticedSession(session: session, project: project, notice: notice)
+            guard let project = store.project(session.projectID) else { return nil }
+            let question = runner.question(session.id)
+            guard let notice = SessionNotice(
+                isBusy: runner.state(session.id).isBusy,
+                needsInput: question != nil,
+                finishedUnseen: store.hasFinished(session.id)) else { return nil }
+            return NoticedSession(session: session, project: project, notice: notice,
+                                  reason: reason(notice, question: question, session: session))
         }
         .sorted {
             if $0.notice != $1.notice { return $0.notice.rawValue < $1.notice.rawValue }
             return $0.session.lastActivity > $1.session.lastActivity
+        }
+    }
+
+    private func reason(_ notice: SessionNotice, question: PermissionRequest?,
+                        session: ChatSession) -> String {
+        switch notice {
+        case .needsInput:
+            guard let question else { return "waiting on an answer" }
+            return question.isQuestion
+                ? "question · \(question.title.lowercased())"
+                : "permission · \(question.toolName.lowercased())"
+        case .running:
+            return session.summary.lastTool ?? "running"
+        case .finished:
+            let files = session.summary.added + session.summary.removed
+            return files > 0
+                ? "finished while away · +\(session.summary.added) −\(session.summary.removed)"
+                : "finished while away"
         }
     }
 
@@ -275,10 +389,10 @@ struct AppSidebar: View {
                 let workspaceGroups = groupedWorkspaceSessions
                 ScrollViewReader { scroller in
                     ScrollView {
-                        VStack(alignment: .leading, spacing: 6) {
+                        VStack(alignment: .leading, spacing: 1) {
                             ForEach(sections) { section in
                                 if let title = section.title {
-                                    SectionHeading(title: title, count: section.items.count)
+                                    SectionHeading(title: title)
                                 }
                                 ForEach(section.items) { item in
                                     switch item {
@@ -295,8 +409,7 @@ struct AppSidebar: View {
                                 }
                             }
                         }
-                        .padding(.horizontal, 12)
-                        .padding(.top, 10)
+                        .padding(.horizontal, 10)
                         .padding(.bottom, 8)
                         // Keyed on what decides whether a session block is on screen, so the
                         // reveal plays wherever the change came from: a click on the project
@@ -388,7 +501,7 @@ struct AppSidebar: View {
 
             if expanded, !sessions.isEmpty {
                 let visible = visibleWorkspaceSessions(workspace, sessions: sessions)
-                VStack(alignment: .leading, spacing: 6) {
+                SessionRail(tint: Theme.workspaceTint) {
                     ForEach(visible) { session in
                         if let lead = store.project(session.projectID) {
                             let busy = runner.state(session.id).isBusy
@@ -397,6 +510,7 @@ struct AppSidebar: View {
                             SessionCard(session: session,
                                         selected: isSelected(session),
                                         busy: busy,
+                                        needsInput: runner.question(session.id) != nil,
                                         finished: finished,
                                         activity: activitySummary(session, project: lead,
                                                                   busy: busy, finished: finished),
@@ -421,8 +535,6 @@ struct AppSidebar: View {
                         }
                     }
                 }
-                .padding(.leading, 14)
-                .padding(.top, 6)
                 .transition(.reveal)
             }
         }
@@ -455,6 +567,7 @@ struct AppSidebar: View {
         return VStack(alignment: .leading, spacing: 0) {
             ProjectHeaderRow(
                 project: project,
+                selected: store.selection == nil && store.selectedProjectID == project.id,
                 isExpanded: expanded,
                 isMissing: store.isMissing(project),
                 sessionCount: sessions.count,
@@ -496,13 +609,14 @@ struct AppSidebar: View {
             // still carries its padding, which reads as the row shifting on every click.
             if expanded, !sessions.isEmpty {
                 let visible = visibleSessions(of: project, in: sessions)
-                VStack(alignment: .leading, spacing: 6) {
+                SessionRail(tint: Theme.projectTint(for: project.name)) {
                     ForEach(visible) { session in
                         let busy = runner.state(session.id).isBusy
                         let finished = store.hasFinished(session.id)
                         SessionCard(session: session,
                                     selected: isSelected(session),
                                     busy: busy,
+                                    needsInput: runner.question(session.id) != nil,
                                     finished: finished,
                                     activity: activitySummary(session, project: project,
                                                               busy: busy, finished: finished),
@@ -528,10 +642,6 @@ struct AppSidebar: View {
                         }
                     }
                 }
-                // Sessions sit inset from their project row, so the nesting is visible
-                // without a line or a marker to draw it.
-                .padding(.leading, 14)
-                .padding(.top, 6)
                 .transition(.reveal)
             }
         }
@@ -868,112 +978,54 @@ struct AppSidebar: View {
     // MARK: - Bottom bar
 
     private var bottomBar: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 8) {
             if oldSessionSummary.sessions > 0 { oldSessionsStrip(oldSessionSummary) }
 
-            AddButton(entries: addMenu)
-                .padding(.horizontal, 16)
-                .padding(.top, 16)
-                .padding(.bottom, 10)
+            HStack(spacing: 8) {
+                ActionButton(title: "New session", height: 38, size: 13,
+                             shortcut: "⌘N", fills: true)
+                    .appMenu(edge: .top, matchWidth: true, addMenu)
+                    .accessibilityLabel("New session, project, workspace, or ad-hoc task")
 
-            ToolsButton(showsUpdate: skills.updateCount > 0,
-                        refreshOnOpen: { await docker.refresh() },
-                        entries: toolsMenu)
-                .padding(.horizontal, 16)
-                .padding(.bottom, runner.available ? 16 : 6)
+                SettingsButton(showsUpdate: skills.updateCount > 0)
+                    .toolsMenu(tools, skills: skills, edge: .top)
+            }
 
             if !runner.available {
                 Text("\(runner.agent.title) was not found on PATH.")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 12)
             }
         }
+        .padding(.horizontal, 14)
+        .padding(.top, 12)
+        .padding(.bottom, 14)
     }
 
     // Sessions pile up quietly, and the worktrees behind them take real disk. The strip
     // says how much has gone stale and hands it to a screen that explains what clearing
     // each one would cost; it never offers to do anything on its own.
     private func oldSessionsStrip(_ summary: OldSessionSummary) -> some View {
-        return HStack(spacing: 10) {
+        HStack(spacing: 8) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("\(summary.sessions) session\(summary.sessions == 1 ? "" : "s") older than \(oldSessionDays) day\(oldSessionDays == 1 ? "" : "s")")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 12, weight: .semibold))
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
                 if summary.worktrees > 0 {
                     Text(summary.worktrees == 1 ? "one worktree remains"
                                                 : "\(summary.worktrees) worktrees remain")
-                        .font(.mono(11))
-                        .foregroundStyle(.tertiary)
+                        .font(.mono(10))
+                        .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
             }
             Spacer(minLength: 8)
-            Button(action: onReviewOldSessions) {
-                Text("Review")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Theme.accent)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(Theme.card))
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
+            InlineLink(title: "Review", action: onReviewOldSessions)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(RoundedRectangle(cornerRadius: 11).fill(Color.black.opacity(0.035)))
-        .padding(.horizontal, 16)
-        .padding(.top, 12)
-    }
-
-    // The setup and utility screens are folded behind one button so the rail
-    // belongs to the projects. Each card carries its state under the name - the count,
-    // the environment, whether the model server is up - so folding them away costs a
-    // click but not the glance.
-    private func toolsMenu() -> [MenuEntry] {
-        return [
-            .cards([
-                MenuCardItem(label: "MCP servers", icon: "server.rack",
-                             detail: "\(configs.servers.count)", handler: onConfigureServers),
-                MenuCardItem(label: "Skills", icon: "sparkles",
-                             showsUpdate: skills.updateCount > 0,
-                             detail: "Claude + Codex", handler: onOpenSkills),
-                MenuCardItem(label: "Docker", icon: "shippingbox.fill",
-                             detail: dockerDetail.text, detailColour: dockerDetail.colour,
-                             handler: onOpenDocker),
-                MenuCardItem(label: "Postman", icon: "paperplane.fill",
-                             detail: postmanAuth.active.envValue,
-                             detailColour: postmanAuth.active.accent, handler: onOpenPostman),
-                MenuCardItem(label: "Shortcuts", icon: "bolt.fill",
-                             detail: shortcutsDetail.text, detailColour: shortcutsDetail.colour,
-                             handler: onOpenShortcuts),
-                MenuCardItem(label: "Troubleshoot", icon: "stethoscope",
-                             detail: "Agent diagnosis",
-                             handler: onOpenTroubleshoot)
-            ]),
-            .separator,
-            .item("Settings", detail: "⌘,", action: onOpenSettings)
-        ]
-    }
-
-    private var dockerDetail: (text: String, colour: Color?) {
-        guard docker.hasLoaded else { return ("checking…", nil) }
-        guard docker.failure == nil else { return ("unavailable", Theme.deletion) }
-        guard !docker.containers.isEmpty else { return ("none running", nil) }
-        return ("\(docker.containers.count) running", Theme.addition)
-    }
-
-    private var shortcutsDetail: (text: String, colour: Color?) {
-        if shortcuts.runningCount > 0 {
-            return ("\(shortcuts.runningCount) running", Theme.addition)
-        }
-        if shortcuts.failureCount > 0 {
-            return ("\(shortcuts.failureCount) failed", Theme.deletion)
-        }
-        return ("\(shortcuts.shortcuts.count) saved", nil)
+        .padding(.horizontal, 11)
+        .padding(.vertical, 9)
+        .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
     }
 
     private var oldSessionDays: Int { appSettings.oldSessionDays }
@@ -1001,7 +1053,14 @@ struct AppSidebar: View {
     // MARK: - Actions
 
     private func addMenu() -> [MenuEntry] {
-        [
+        var entries: [MenuEntry] = []
+        if let container = selectedContainer {
+            entries.append(.item("New session", icon: "plus",
+                                 subtitle: "In \(container.name).",
+                                 detail: "⌘N") { startSessionInSelection() })
+            entries.append(.separator)
+        }
+        entries += [
             .item("Add project", icon: "folder.badge.plus",
                   subtitle: "Choose an existing folder.", action: addProject),
             .item("Create workspace", icon: "square.stack.3d.up.fill",
@@ -1013,6 +1072,72 @@ struct AppSidebar: View {
                 showingNewAdHocTask = true
             }
         ]
+        return entries
+    }
+
+    // The shortcuts the whole window answers. They live on the sidebar because everything
+    // they reach - the filter field, the first item waiting on a person, the project a new
+    // session would start in - is here.
+    private var keyboardShortcuts: some View {
+        ZStack {
+            Button("") { startSessionInSelection() }
+                .keyboardShortcut("n", modifiers: .command)
+            Button("") { filterFocused = true }
+                .keyboardShortcut("f", modifiers: .command)
+            Button("") { jumpToFirstNeedingAttention() }
+                .keyboardShortcut("a", modifiers: [.command, .shift])
+        }
+        .buttonStyle(.plain)
+        .opacity(0)
+    }
+
+    private func jumpToFirstNeedingAttention() {
+        guard let first = sessionNotices.first(where: { $0.notice != .running })
+            ?? sessionNotices.first else { return }
+        openNoticedSession(first.session)
+    }
+
+    // Whatever a new session would belong to right now: the selected project or
+    // workspace, or the one holding the session on screen.
+    private enum Container {
+        case project(Project)
+        case workspace(ProjectWorkspace)
+
+        var name: String {
+            switch self {
+            case .project(let project): project.name
+            case .workspace(let workspace): workspace.name
+            }
+        }
+    }
+
+    private var selectedContainer: Container? {
+        switch store.selection {
+        case .workspace(let id):
+            return store.workspace(id).map(Container.workspace)
+        case .session(let id):
+            guard let session = store.sidebarSession(id) else { return nil }
+            if let workspaceID = session.workspaceID, let workspace = store.workspace(workspaceID) {
+                return .workspace(workspace)
+            }
+            return store.project(session.projectID).map(Container.project)
+        case .home:
+            return nil
+        case nil:
+            return store.selectedProject.map(Container.project)
+        }
+    }
+
+    private func startSessionInSelection() {
+        switch selectedContainer {
+        case .project(let project):
+            requestNewSession(in: project)
+        case .workspace(let workspace):
+            choosingWorkspaceSession = workspace
+        case nil:
+            // Nothing is selected, so there is no folder to start in yet.
+            addProject()
+        }
     }
 
     private func addProject() {
@@ -1118,91 +1243,53 @@ private struct RevealLayout: Layout, Animatable {
 
 // MARK: - Rows
 
-// New project containers share one entry point. Its menu opens above at the same width,
-// like the tools control below it, so the choices stay close to the project list.
-private struct AddButton: View {
-    let entries: () -> [MenuEntry]
-
-    @State private var hovering = false
-
-    var body: some View {
-        HStack(spacing: 7) {
-            Text("+ New")
-                .font(.system(size: 13, weight: .semibold))
-            Image(systemName: "chevron.down")
-                .font(.system(size: 9, weight: .semibold))
-        }
-        .foregroundStyle(.white)
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 11)
-        .background(RoundedRectangle(cornerRadius: 10)
-            .fill(Color.black.opacity(hovering ? 0.78 : 0.88)))
-        .subtleButtonGlow()
-        .appMenu(edge: .top, matchWidth: true, entries)
-        .onHover { hovering = $0 }
-        .accessibilityLabel("New project, workspace, or ad-hoc task")
-    }
-}
-
-// The one pinned button under the project list. Its menu opens above it at the same
-// width, so it reads as the button unfolding rather than a menu landing on the rail.
-private struct ToolsButton: View {
+// The square that closes the footer row. Everything the app can be set up with lives
+// behind it, so the rail beside it belongs entirely to the projects.
+private struct SettingsButton: View {
     let showsUpdate: Bool
-    let refreshOnOpen: () async -> Void
-    let entries: () -> [MenuEntry]
 
     @State private var hovering = false
 
     var body: some View {
-        HStack(spacing: 6) {
-            Text("Tools and settings")
-                .font(.system(size: 13, weight: .semibold))
-            if showsUpdate {
-                UpdateIndicator()
+        Image(systemName: "gearshape")
+            .font(.system(size: 14, weight: .medium))
+            .foregroundStyle(.secondary)
+            .frame(width: 38, height: 38)
+            .background(RoundedRectangle(cornerRadius: 9).fill(hovering ? Theme.field : Theme.card))
+            .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
+            .overlay(alignment: .topTrailing) {
+                if showsUpdate { UpdateIndicator().offset(x: 3, y: -3) }
             }
-            Image(systemName: "chevron.down")
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 10)
-        .background(RoundedRectangle(cornerRadius: 10).fill(hovering ? Theme.field : Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
-        .subtleButtonGlow()
-        .appMenu(edge: .top, matchWidth: true,
-                 refreshOnOpen: refreshOnOpen, entries)
-        .onHover { hovering = $0 }
+            .contentShape(RoundedRectangle(cornerRadius: 9))
+            .appTooltip("Tools and settings")
+            .onHover { hovering = $0 }
+            .accessibilityLabel("Tools and settings")
     }
 }
 
-// One of the orders the project list can be in. The chosen one is filled rather than
-// outlined, so which is on reads from the shape alone without having to read the words.
+// One of the orders the project list can be in. The two sit on a shared track and the
+// chosen one is lifted out of it, so which is on reads from the shape alone without
+// having to read the words.
 private struct SortChip: View {
     let title: String
     let hint: String
     let selected: Bool
     let action: () -> Void
 
-    @State private var hovering = false
-
     var body: some View {
         Button(action: action) {
             Text(title.uppercased())
                 .font(.mono(9.5, .semibold))
-                .kerning(0.5)
-                .foregroundStyle(selected ? AnyShapeStyle(Color.white) : AnyShapeStyle(.secondary))
+                .kerning(0.6)
+                .foregroundStyle(selected ? AnyShapeStyle(Color.primary) : AnyShapeStyle(.secondary))
                 .padding(.horizontal, 9)
                 .padding(.vertical, 5)
-                .background(RoundedRectangle(cornerRadius: 7)
-                    .fill(selected ? Theme.accentFill
-                                   : hovering ? Theme.field : Color.black.opacity(0.04)))
-                .overlay(RoundedRectangle(cornerRadius: 7)
-                    .stroke(selected ? Color.clear : Theme.border))
+                .background(RoundedRectangle(cornerRadius: 5)
+                    .fill(selected ? Theme.card : Color.clear))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .appTooltip(hint)
-        .onHover { hovering = $0 }
     }
 }
 
@@ -1210,24 +1297,41 @@ private struct SortChip: View {
 // under it stay the thing being read.
 private struct SectionHeading: View {
     let title: String
-    let count: Int
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 7) {
             Text(title.uppercased())
-                .font(.mono(9.5, .semibold))
-                .kerning(0.6)
+                .font(.mono(9, .semibold))
+                .kerning(1.2)
                 .foregroundStyle(.secondary)
-            Text("\(count)")
-                .font(.mono(9.5, .semibold))
-                .foregroundStyle(.tertiary)
             Rectangle()
                 .fill(Theme.border)
                 .frame(height: 1)
         }
-        .padding(.horizontal, 10)
-        .padding(.top, 10)
-        .padding(.bottom, 2)
+        .padding(.horizontal, 8)
+        .padding(.top, 9)
+        .padding(.bottom, 3)
+    }
+}
+
+// The block of session cards under an open project or workspace. The line down its left
+// is the container's own colour, so a card two levels into a scrolling rail still says
+// which project it belongs to.
+private struct SessionRail<Content: View>: View {
+    let tint: Theme.ProjectTint
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Rectangle()
+                .fill(tint.colour)
+                .frame(width: 1.5)
+            VStack(alignment: .leading, spacing: 5) { content }
+                .padding(.leading, 20)
+        }
+        .padding(.leading, 20)
+        .padding(.top, 5)
+        .padding(.bottom, 4)
     }
 }
 
@@ -1246,37 +1350,24 @@ private struct WorkspaceHeaderRow: View {
     @State private var hovering = false
 
     var body: some View {
-        HStack(spacing: 10) {
-            HStack(spacing: 2) {
-                RoundedRectangle(cornerRadius: 3)
-                    .fill(Theme.accent)
-                    .frame(width: 10, height: 17)
-                RoundedRectangle(cornerRadius: 3)
-                    .fill(Theme.secret)
-                    .frame(width: 10, height: 17)
-            }
-            .frame(width: 28, height: 28)
-            .background(RoundedRectangle(cornerRadius: 7).fill(Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.border))
+        TreeRow(selected: selected, isExpanded: isExpanded, hovering: hovering) {
+            ProjectTileView(name: workspace.name, tint: Theme.workspaceTint)
 
             HStack(spacing: 5) {
                 Text(workspace.name)
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: 13.5, weight: .semibold))
                     .lineLimit(1)
                 if finishedCount > 0 { FinishedDot() }
             }
 
-            Spacer(minLength: 8)
+            Spacer(minLength: 6)
 
             ZStack(alignment: .trailing) {
                 HStack(spacing: 6) {
-                    Text("\(projects.count) PROJECTS")
-                        .font(.mono(9.5, .semibold))
-                        .foregroundStyle(.tertiary)
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.tertiary)
-                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    if runningCount > 0 { RunningDot() }
+                    Text("\(projects.count) projects")
+                        .font(.mono(10))
+                        .foregroundStyle(.secondary)
                 }
                 .opacity(hovering ? 0 : 1)
 
@@ -1285,25 +1376,7 @@ private struct WorkspaceHeaderRow: View {
                         .appTooltip("New multi-project session")
                 }
             }
-            .frame(minWidth: 72, alignment: .trailing)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(RoundedRectangle(cornerRadius: 10)
-            .fill(selected ? Theme.accent.opacity(0.13)
-                           : isExpanded ? Theme.accent.opacity(0.08)
-                           : hovering ? Color.black.opacity(0.03) : .clear))
-        .overlay(RoundedRectangle(cornerRadius: 10)
-            .stroke(selected ? Theme.accent.opacity(0.22) : .clear))
-        .overlay(alignment: .topTrailing) {
-            if runningCount > 0 {
-                Text("\(runningCount)")
-                    .font(.mono(9, .semibold))
-                    .foregroundStyle(.white)
-                    .frame(minWidth: 16, minHeight: 16)
-                    .background(Circle().fill(Theme.dotOn))
-                    .offset(x: 3, y: -3)
-            }
+            .frame(minWidth: 62, alignment: .trailing)
         }
         .appTooltip {
             Tooltip(
@@ -1316,11 +1389,36 @@ private struct WorkspaceHeaderRow: View {
     }
 }
 
+// The shape both container rows wear. Selection is white with a ring; being merely open
+// is the quieter fill, so an expanded project does not compete with the selected one.
+private struct TreeRow<Content: View>: View {
+    let selected: Bool
+    let isExpanded: Bool
+    let hovering: Bool
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        HStack(spacing: 9) { content }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .background(RoundedRectangle(cornerRadius: 9).fill(fill))
+            .overlay(RoundedRectangle(cornerRadius: 9)
+                .stroke(selected ? Color.primary.opacity(0.28) : .clear, lineWidth: 1.3))
+    }
+
+    private var fill: Color {
+        if selected { return Theme.card }
+        if isExpanded { return Theme.field }
+        return hovering ? Theme.sunken : .clear
+    }
+}
+
 // One line per project: who it is, and the way in. The sessions themselves carry the
 // detail, so the row stays a heading rather than competing with the cards under it, and
 // its numbers live in the hint where they cost the line no room.
 private struct ProjectHeaderRow: View {
     let project: Project
+    let selected: Bool
     let isExpanded: Bool
     let isMissing: Bool
     let sessionCount: Int
@@ -1339,13 +1437,15 @@ private struct ProjectHeaderRow: View {
     @FocusState private var focused: Bool
 
     var body: some View {
-        HStack(spacing: 10) {
-            ProjectTile(project: project, badge: runningCount)
+        TreeRow(selected: selected, isExpanded: isExpanded, hovering: hovering) {
+            ProjectTileView(name: project.name,
+                            tint: Theme.projectTint(for: project.name),
+                            dashed: project.kind == .adHoc)
 
             if isRenaming {
                 TextField("Name", text: $draft)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: 13.5, weight: .semibold))
                     .focused($focused)
                     .onSubmit { onRename(draft) }
                     .onExitCommand(perform: onCancelRename)
@@ -1357,24 +1457,27 @@ private struct ProjectHeaderRow: View {
                             .foregroundStyle(.secondary)
                     }
                     Text(project.name)
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(.system(size: 13.5, weight: .semibold))
                         .lineLimit(1)
                         .truncationMode(.tail)
                     if finishedCount > 0 { FinishedDot() }
                 }
-                Spacer(minLength: 8)
+                Spacer(minLength: 6)
 
-                // The chevron says which way the row goes; under the pointer it gives way
-                // to the two things you come to a project row to do. The buttons carry
-                // their word beside the glyph, so they take more room than the chevron
-                // did: the name gives way while the pointer is on the row, which costs
-                // nothing to read since the pointer is here for the buttons.
+                // The count says what the row holds; under the pointer it gives way to the
+                // two things you come to a project row to do. The buttons carry their word
+                // beside the glyph, so they take more room than the count did: the name
+                // gives way while the pointer is on the row, which costs nothing to read
+                // since the pointer is here for the buttons.
                 ZStack(alignment: .trailing) {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.tertiary)
-                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                        .opacity(hovering ? 0 : isExpanded ? 0 : 1)
+                    HStack(spacing: 6) {
+                        if runningCount > 0 { RunningDot() }
+                        Text("\(sessionCount)")
+                            .font(.mono(10))
+                            .foregroundStyle(.secondary)
+                    }
+                    .opacity(hovering ? 0 : 1)
+
                     if hovering {
                         HStack(spacing: 10) {
                             // A running session is doing work nobody asked to throw away,
@@ -1390,13 +1493,9 @@ private struct ProjectHeaderRow: View {
                         .fixedSize()
                     }
                 }
-                .frame(minWidth: 35, alignment: .trailing)
+                .frame(minWidth: 30, alignment: .trailing)
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(RoundedRectangle(cornerRadius: 10)
-            .fill(isExpanded ? Color.black.opacity(0.05) : hovering ? Color.black.opacity(0.03) : .clear))
         .appTooltip { tooltip }
         .onHover { hovering = $0 }
         .onChange(of: isRenaming, initial: true) { _, renaming in
@@ -1448,49 +1547,6 @@ private struct RowAction: View {
     }
 }
 
-// A project keeps its name-derived identity, while an ad-hoc task uses a dashed bolt so
-// its short-lived role stays visible wherever the row moves in the list.
-private struct ProjectTile: View {
-    let project: Project
-    let badge: Int
-
-    var body: some View {
-        let tint = Theme.monogram(for: project.name)
-        RoundedRectangle(cornerRadius: 8)
-            .fill(tint.opacity(0.16))
-            .frame(width: 30, height: 30)
-            .overlay { tileContent(tint: tint) }
-            .overlay(alignment: .topTrailing) {
-                if badge > 0 {
-                    Text("\(badge)")
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(.white)
-                        .frame(width: 15, height: 15)
-                        .background(Circle().fill(Theme.dotOn))
-                        .overlay(Circle().stroke(Theme.sidebar, lineWidth: 1.5))
-                        .offset(x: 5, y: -5)
-                }
-            }
-            .accessibilityHidden(true)
-    }
-
-    @ViewBuilder private func tileContent(tint: Color) -> some View {
-        switch project.kind {
-        case .project:
-            Text(String(project.name.prefix(1)).uppercased())
-                .font(.mono(12, .semibold))
-                .foregroundStyle(tint)
-        case .adHoc:
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(tint.opacity(0.65),
-                        style: StrokeStyle(lineWidth: 1.2, dash: [3, 2]))
-            Image(systemName: "bolt.fill")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(tint)
-        }
-    }
-}
-
 // A turn ended in a session that was not on screen. It stays until that session is
 // opened, which is the only thing that counts as having read it.
 private struct FinishedDot: View {
@@ -1512,12 +1568,14 @@ private struct UncommittedMark: View {
     }
 }
 
-// A session as a compact card: state at the top, what it is doing in the middle, and
-// small change or usage totals at the bottom when they exist.
+// A session as a compact card. The three rows are the same three the session shows on its
+// project and on Home - state, title, what it is doing and what it has changed - so a
+// session reads the same wherever it is met.
 private struct SessionCard: View {
     let session: ChatSession
     let selected: Bool
     let busy: Bool
+    let needsInput: Bool
     let finished: Bool
     let activity: String?
     let added: Int
@@ -1528,26 +1586,30 @@ private struct SessionCard: View {
 
     @State private var hovering = false
 
+    private var tone: SessionTone {
+        SessionTone(busy: busy, needsInput: needsInput, finished: finished)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 6) {
-                StateDot(colour: stateColour)
-                Text(stateWord)
-                    .font(.mono(9.5, .semibold))
-                    .kerning(0.6)
-                    .foregroundStyle(stateColour)
+                StateLight(tone: tone)
+                Text(tone.word)
+                    .font(.mono(9, .semibold))
+                    .kerning(0.9)
+                    .foregroundStyle(tone.colour)
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
                 if session.worktreePath != nil {
-                    StatusPill(text: "WT", running: false)
+                    MonoChip(text: "WT", size: 8.5)
                 }
                 if uncommitted { UncommittedMark() }
-                Spacer(minLength: 6)
+                Spacer(minLength: 4)
                 // The timestamp hides in place rather than being taken out, and the button
                 // that replaces it is an overlay, so the card is one size whether or not
                 // the pointer is on it.
                 Text(RelativeTime.short(session.lastActivity))
-                    .font(.mono(10))
+                    .font(.mono(9.5))
                     .foregroundStyle(.tertiary)
                     .opacity(hovering ? 0 : 1)
                     .overlay(alignment: .trailing) {
@@ -1571,8 +1633,7 @@ private struct SessionCard: View {
 
             HStack(spacing: 6) {
                 if session.isTroubleshooting {
-                    StatusPill(text: "Troubleshoot", running: false, tint: Theme.secret)
-                        .fixedSize()
+                    MonoChip(text: "TROUBLESHOOT", size: 8.5, tint: Theme.secret)
                 }
                 Text(session.title)
                     .font(.system(size: 12.5, weight: .semibold))
@@ -1581,27 +1642,19 @@ private struct SessionCard: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            ActivityLine(activity: activity)
-
-            if hasFooter {
-                HStack(spacing: 7) {
-                    if added > 0 {
-                        Text("+\(added)")
-                            .font(.mono(11, .medium))
-                            .foregroundStyle(Theme.addition)
-                    }
-                    if removed > 0 {
-                        Text("-\(removed)")
-                            .font(.mono(11, .medium))
-                            .foregroundStyle(Theme.deletion)
-                    }
+            HStack(spacing: 8) {
+                ActivityLine(activity: activity)
+                if added > 0 || removed > 0 {
+                    Spacer(minLength: 4)
+                    DiffPair(added: added, removed: removed, size: 10, spacing: 4)
                 }
             }
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 7)
-        .background(RoundedRectangle(cornerRadius: 10).fill(cardFill))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(cardStroke, lineWidth: bordered ? 1.5 : 1))
+        .padding(.vertical, 8)
+        .background(RoundedRectangle(cornerRadius: 9).fill(cardFill))
+        .overlay(RoundedRectangle(cornerRadius: 9)
+            .stroke(cardStroke, lineWidth: selected ? 1.4 : 1.2))
         .animation(.easeOut(duration: 0.25), value: [busy, finished])
         .appTooltip { tooltip }
         .onHover { hovering = $0 }
@@ -1609,7 +1662,7 @@ private struct SessionCard: View {
 
     // The hint carries the branch and full path because the compact card leaves both out.
     private var tooltip: Tooltip {
-        var rows = [Tooltip.Row(label: "State", value: stateWord)]
+        var rows = [Tooltip.Row(label: "State", value: tone.word.capitalized)]
         if let branch {
             rows.append(Tooltip.Row(label: "Branch", value: branch))
         }
@@ -1642,39 +1695,17 @@ private struct SessionCard: View {
         return session.worktreePath == nil ? nil : "Runs in its own git worktree."
     }
 
-    private var hasFooter: Bool {
-        added > 0 || removed > 0
-    }
-
-    // What the card is doing outranks selection, since a column of sessions is read for
-    // its state first.
-    private var stateWord: String {
-        if busy { return "Running" }
-        if finished { return "Finished while away" }
-        return "Idle"
-    }
-
-    private var stateColour: Color {
-        if busy { return Theme.accent }
-        if finished { return Theme.attention }
-        return Color.secondary
-    }
-
-    private var bordered: Bool { busy || finished || selected }
-
     // White is what being open looks like, so only the selected card gets it - two white
     // cards in the rail read as two open sessions. A card that is doing something says so
-    // through its border, its state light and its word, which no other card has.
+    // through its ring, its state light and its word, which no other card has.
     private var cardFill: Color {
         if selected { return Theme.card }
-        return hovering ? Color.black.opacity(0.05) : Color.black.opacity(0.035)
+        return hovering ? Theme.field : Theme.sunken
     }
 
     private var cardStroke: Color {
-        if busy { return Theme.accent }
-        if finished { return Theme.attention.opacity(0.7) }
-        if selected { return Color.black.opacity(0.30) }
-        return .clear
+        if selected { return Color.primary.opacity(0.3) }
+        return tone == .idle ? .clear : tone.ring
     }
 }
 
@@ -1705,18 +1736,6 @@ private struct SeeMoreCard: View {
     }
 }
 
-// The state light at the top of a session card. The colour and adjacent state word carry
-// the live state without keeping the whole sidebar in a display-rate animation loop.
-private struct StateDot: View {
-    let colour: Color
-
-    var body: some View {
-        Circle()
-            .fill(colour)
-            .frame(width: 7, height: 7)
-    }
-}
-
 // What the session is doing right now, under its title. Most tool calls finish in a
 // few milliseconds, so the line holds for a moment before it gives way: long enough
 // to read, and only ever replaced by the next call rather than by an empty gap.
@@ -1731,8 +1750,8 @@ private struct ActivityLine: View {
     var body: some View {
         Group {
             if let shown {
-                Text("↳ \(shown)")
-                    .font(.mono(11))
+                Text(shown)
+                    .font(.mono(10))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -1814,16 +1833,3 @@ private enum Money {
     static func short(_ amount: Double) -> String { String(format: "$%.2f", amount) }
 }
 
-// "2m", "3h", "2d": short enough to sit at the end of a narrow row.
-private enum RelativeTime {
-    static func short(_ date: Date) -> String {
-        let seconds = max(0, Date().timeIntervalSince(date))
-        switch seconds {
-        case ..<60: return "now"
-        case ..<3_600: return "\(Int(seconds / 60))m"
-        case ..<86_400: return "\(Int(seconds / 3_600))h"
-        case ..<604_800: return "\(Int(seconds / 86_400))d"
-        default: return "\(Int(seconds / 604_800))w"
-        }
-    }
-}

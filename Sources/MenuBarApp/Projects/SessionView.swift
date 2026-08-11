@@ -133,6 +133,7 @@ struct SessionView: View {
     @State private var selectedProjectID: UUID?
     @State private var transcriptWindow = TranscriptWindow()
     @State private var transcriptPinnedToBottom = true
+    @State private var openingToCommit = false
 
     // Working tree totals for the header; refreshed as tools finish so the numbers
     // track the run rather than only its end.
@@ -163,7 +164,7 @@ struct SessionView: View {
                     Divider().overlay(Theme.hairline)
                     composer(session: session, project: project)
                 case .changes:
-                    ChangesView(root: visibleDirectory)
+                    ChangesView(root: visibleDirectory, startCommitting: openingToCommit)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 case .explorer:
                     ExplorerView(root: visibleDirectory)
@@ -181,6 +182,11 @@ struct SessionView: View {
             .background(terminalShortcut(directory: workingDirectory))
             .onChange(of: terminalFocused) { _, focused in
                 if focused { composerFocused = false }
+            }
+            // Only the button that asked for it opens Changes on the commit field. Coming
+            // back to the tab by hand later is a review, not a commit.
+            .onChange(of: tab) { _, tab in
+                if tab != .changes { openingToCommit = false }
             }
             .task(id: sessionID) {
                 selectedProjectID = session.projectID
@@ -207,36 +213,34 @@ struct SessionView: View {
 
     // MARK: - Header
 
+    // The same pattern every screen uses: colour dot, where you are, what this is, how it
+    // is doing, then the actions right-aligned. The path has moved out of it - the
+    // composer already names the branch, and the diff summary is the thing worth carrying
+    // up here instead.
     private func header(session: ChatSession, project: Project) -> some View {
-        HStack(alignment: .center, spacing: 16) {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 8) {
-                    if session.isTroubleshooting {
-                        StatusPill(text: "Troubleshoot", running: false, tint: Theme.secret)
-                            .fixedSize()
-                    }
-                    Text(session.title)
-                        .font(.serif(22, .semibold))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
+        let workspace = session.workspaceID.flatMap(store.workspace)
+        let container = workspace?.name ?? project.name
+        return HStack(spacing: 14) {
+            HStack(spacing: 7) {
+                ProjectDot(tint: workspace == nil ? Theme.projectTint(for: container)
+                                                  : Theme.workspaceTint)
+                Text(container)
+                    .font(.mono(11))
+                    .kerning(0.5)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .layoutPriority(-1)
+                Text("/")
+                    .font(.mono(11))
+                    .foregroundStyle(.tertiary)
+                if session.isTroubleshooting {
+                    MonoChip(text: "TROUBLESHOOT", size: 9, tint: Theme.secret)
                 }
-                HStack(spacing: 8) {
-                    Text(session.workspaceID.flatMap(store.workspace)?.name ?? project.name)
-                        .font(.system(size: 12, weight: .medium))
-                        .lineLimit(1)
-                    // A worktree path is long and mostly noise, so it is held short here;
-                    // the full path is a hover away. The branch is not repeated either,
-                    // since the composer's footer already names it.
-                    Text(store.checkoutProjects(for: session).count == 1
-                         ? (session.worktreePath ?? project.path).abbreviatedPath
-                         : "\(store.checkoutProjects(for: session).count) projects")
-                        .font(.mono(11))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .frame(maxWidth: 260, alignment: .leading)
-                        .help((session.worktreePath ?? project.path).abbreviatedPath)
-                }
+                Text(session.title)
+                    .font(.serif(20, .semibold))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                MonoChip(text: stateChip(session), size: 9)
             }
 
             Spacer(minLength: 12)
@@ -244,7 +248,7 @@ struct SessionView: View {
             // A row splits its width between the children rather than handing each one what
             // it asks for, so the controls can be offered less than their labels need and the
             // words wrap. Holding them at their natural width makes the title give way first.
-            HStack(spacing: 16) {
+            HStack(spacing: 8) {
                 diffStats
                 HeaderTabToggle(selection: $tab,
                                 options: [("Chat", .chat),
@@ -259,6 +263,15 @@ struct SessionView: View {
         }
         .padding(.horizontal, 20)
         .headerBand()
+    }
+
+    // "RUNNING", "NEEDS YOU · 3m", "IDLE · 2h": the state and how long it has been in it.
+    private func stateChip(_ session: ChatSession) -> String {
+        let tone = SessionTone(busy: runner.state(sessionID).isBusy,
+                               needsInput: runner.question(sessionID) != nil,
+                               finished: store.hasFinished(sessionID))
+        guard tone != .running else { return tone.word }
+        return "\(tone.word) · \(RelativeTime.short(session.lastActivity))"
     }
 
     private func workspaceProjectBar(_ session: ChatSession) -> some View {
@@ -307,8 +320,9 @@ struct SessionView: View {
         .overlay(alignment: .bottom) { Divider().overlay(Theme.hairline) }
     }
 
-    // "+38 -6 in 3 files": what the working tree looks like right now. Clicking it
-    // opens the full diff.
+    // What the working tree looks like right now, promoted out of the body and into the
+    // header: it is the answer to "what has this session actually done". Clicking it opens
+    // the full diff.
     @ViewBuilder private var diffStats: some View {
         let snapshots = workspaceStats.values.filter { $0.state == .ready }
         let added = snapshots.reduce(0) { $0 + $1.totalAdded }
@@ -316,15 +330,16 @@ struct SessionView: View {
         let files = snapshots.reduce(0) { $0 + $1.files.count }
         if files > 0 {
             Button { tab = .changes } label: {
-                HStack(spacing: 6) {
-                    Text("+\(added)").foregroundStyle(Theme.addition)
-                    Text("-\(removed)").foregroundStyle(Theme.deletion)
-                    Text("in \(files) file\(files == 1 ? "" : "s")")
-                        .font(.system(size: 12))
+                HStack(spacing: 8) {
+                    DiffPair(added: added, removed: removed, size: 11.5)
+                    Text("\(files) file\(files == 1 ? "" : "s")")
+                        .font(.system(size: 11.5))
                         .foregroundStyle(.secondary)
                 }
-                .font(.mono(12, .semibold))
-                .contentShape(Rectangle())
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Theme.field))
+                .contentShape(RoundedRectangle(cornerRadius: 8))
             }
             .buttonStyle(.plain)
             .help("Open Changes")
@@ -544,7 +559,7 @@ struct SessionView: View {
             ForEach(messages) { message in
                 MessageView(message: message,
                             projectPath: projectPath,
-                            openChanges: { tab = .changes })
+                            openChanges: { openChanges() })
                     // Every message is on screen now, and a streaming turn rewrites
                     // the last one many times a second. Without this, each of those
                     // redraws every message in the transcript, parsing its markdown
@@ -552,6 +567,8 @@ struct SessionView: View {
                     .equatable()
                     .transition(.fadeIn)
             }
+
+            handoff(state: state)
 
             pendingQuestion
                 .transition(.fadeIn)
@@ -583,6 +600,31 @@ struct SessionView: View {
 
             Color.clear.frame(height: 1).id(bottomAnchor)
         }
+    }
+
+    // What to do with what the turn left behind. It sits at the end of the conversation
+    // because that is where the decision is made, and only once the agent has stopped:
+    // reviewing a tree that is still being written to is not a review.
+    @ViewBuilder private func handoff(state: SessionState) -> some View {
+        let files = workspaceStats.values.filter { $0.state == .ready }
+            .reduce(0) { $0 + $1.files.count }
+        if files > 0, !state.isBusy, runner.question(sessionID) == nil {
+            HStack(spacing: 8) {
+                ActionButton(title: "Review \(files) file\(files == 1 ? "" : "s")") {
+                    openChanges()
+                }
+                ActionButton(title: "Commit…", tone: .outlined) {
+                    openChanges(toCommit: true)
+                }
+                Spacer(minLength: 0)
+            }
+            .transition(.fadeIn)
+        }
+    }
+
+    private func openChanges(toCommit: Bool = false) {
+        openingToCommit = toCommit
+        tab = .changes
     }
 
     // Whatever the agent is waiting on sits under the transcript, where the next thing to
@@ -775,7 +817,12 @@ struct SessionView: View {
         let usage = session.usage
         let agent = session.agent
         HStack(spacing: 10) {
-            if let branch, !branch.isEmpty { branchTag(branch: branch, repository: repository) }
+            if let branch, !branch.isEmpty {
+                branchTag(branch: branch, repository: repository)
+                Rectangle()
+                    .fill(Theme.border)
+                    .frame(width: 1, height: 12)
+            }
             if session.settings?.mcpServersEnabled == false {
                 Text("MCP off")
                     .font(.mono(10.5, .semibold))
@@ -1002,14 +1049,14 @@ struct SessionView: View {
         }
 
         return HStack(spacing: 10) {
-            Text("Context")
-                .font(.system(size: 11))
+            Text("CONTEXT")
+                .font(.mono(10.5))
+                .kerning(0.6)
                 .foregroundStyle(.secondary)
             Meter(fraction: fraction, colour: colour, height: 5)
-                .frame(width: 120)
+                .frame(width: 110)
             Text("\(percentage)%")
-                .font(.system(size: 11, weight: .semibold))
-                .monospacedDigit()
+                .font(.mono(11, .semibold))
                 .foregroundStyle(colour)
         }
         .help("Context in use after the last turn.")

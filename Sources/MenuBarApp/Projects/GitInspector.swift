@@ -67,6 +67,10 @@ struct GitSnapshot: Sendable, Equatable {
     var upstream: String?
     var ahead: Int = 0
     var behind: Int = 0
+    // The subject of the newest commit and when it landed, which is what says whether the
+    // folder has been worked in recently or only read.
+    var lastCommitSubject: String?
+    var lastCommitDate: Date?
     var files: [GitChange] = []
 
     var totalAdded: Int { files.compactMap(\.added).reduce(0, +) }
@@ -168,6 +172,19 @@ enum GitInspector {
                        timeout: commandTimeout)
         if refs.ok {
             snapshot.branches = refs.text.split(separator: "\n").map(String.init)
+        }
+
+        if snapshot.hasCommits {
+            // Unix time and the subject on one line, split on a tab the subject cannot
+            // contain because git strips it out of the first line.
+            let last = run(tool, ["log", "-1", "--format=%ct\t%s"], in: url,
+                           timeout: commandTimeout)
+            let parts = last.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                .split(separator: "\t", maxSplits: 1)
+            if last.ok, parts.count == 2, let seconds = TimeInterval(parts[0]) {
+                snapshot.lastCommitDate = Date(timeIntervalSince1970: seconds)
+                snapshot.lastCommitSubject = String(parts[1])
+            }
         }
 
         let upstream = run(tool, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
