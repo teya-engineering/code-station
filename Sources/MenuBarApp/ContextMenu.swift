@@ -101,6 +101,7 @@ final class MenuPresenter {
     // Lets a menu wider than its control stay attached to the control's trailing edge.
     // A right-click menu has no control edge and still flips to the left of the click.
     private(set) var trailingAnchor: CGFloat?
+    private(set) var verticalAttachment: MenuVerticalAttachment = .point
     // Changes on every open so the host can drop the size it measured for the last menu.
     private(set) var generation = 0
 
@@ -108,11 +109,13 @@ final class MenuPresenter {
 
     @discardableResult
     func show(_ entries: [MenuEntry], at point: CGPoint, width: CGFloat? = nil,
-              trailingAnchor: CGFloat? = nil) -> Int {
+              trailingAnchor: CGFloat? = nil,
+              verticalAttachment: MenuVerticalAttachment = .point) -> Int {
         self.entries = entries
         origin = point
         self.width = width.map { max($0, menuMinimumWidth) }
         self.trailingAnchor = trailingAnchor
+        self.verticalAttachment = verticalAttachment
         generation += 1
         return generation
     }
@@ -193,7 +196,8 @@ private struct AppMenuButton: ViewModifier {
             entries(),
             at: placement.origin,
             width: matchWidth ? placement.width : nil,
-            trailingAnchor: placement.trailingEdge)
+            trailingAnchor: placement.trailingEdge,
+            verticalAttachment: .control(edge: edge, oppositeY: placement.oppositeY))
         guard let refreshOnOpen else { return }
         Task { @MainActor in
             await refreshOnOpen()
@@ -202,22 +206,43 @@ private struct AppMenuButton: ViewModifier {
     }
 }
 
-// A menu hangs off the button that opened it: from its bottom left, or from its top left
-// for a button at the foot of the window, where the host's edge flip then lands the menu
-// above the button. It is measured the same way a right-click is, so both kinds of menu
-// land in the same coordinate space.
+enum MenuVerticalAttachment {
+    case point
+    case control(edge: VerticalEdge, oppositeY: CGFloat)
+
+    func y(originY: CGFloat, menuHeight: CGFloat, boundsHeight: CGFloat) -> CGFloat {
+        let inset: CGFloat = 8
+        let lowerEdge = boundsHeight - inset
+        let proposed: CGFloat
+        switch self {
+        case .point:
+            proposed = originY + menuHeight > lowerEdge ? originY - menuHeight : originY
+        case .control(edge: .top, let oppositeY):
+            let above = originY - menuHeight
+            proposed = above >= inset ? above : oppositeY
+        case .control(edge: .bottom, let oppositeY):
+            proposed = originY + menuHeight <= lowerEdge ? originY : oppositeY - menuHeight
+        }
+        return max(inset, min(proposed, boundsHeight - menuHeight - inset))
+    }
+}
+
+// A menu hangs off the requested edge of the button that opened it. Both button edges
+// are kept so the host can use the other side when the menu does not fit.
 @MainActor
 private final class MenuAnchor {
     weak var view: NSView?
 
     func placement(edge: VerticalEdge) -> (origin: CGPoint, width: CGFloat,
-                                            trailingEdge: CGFloat)? {
+                                            trailingEdge: CGFloat,
+                                            oppositeY: CGFloat)? {
         guard let view, let content = view.window?.contentView else { return nil }
         let frame = view.convert(view.bounds, to: content)
         let top = content.isFlipped ? frame.minY : content.bounds.height - frame.maxY
         let bottom = content.isFlipped ? frame.maxY : content.bounds.height - frame.minY
         let y = edge == .bottom ? bottom + 4 : top - 4
-        return (CGPoint(x: frame.minX, y: y), frame.width, frame.maxX)
+        let oppositeY = edge == .bottom ? top - 4 : bottom + 4
+        return (CGPoint(x: frame.minX, y: y), frame.width, frame.maxX, oppositeY)
     }
 }
 
@@ -363,10 +388,9 @@ struct ContextMenuHost: View {
     }
 
     private func y(in bounds: CGSize) -> CGFloat {
-        let flipped = presenter.origin.y + size.height > bounds.height - 8
-            ? presenter.origin.y - size.height
-            : presenter.origin.y
-        return max(8, min(flipped, bounds.height - size.height - 8))
+        presenter.verticalAttachment.y(originY: presenter.origin.y,
+                                       menuHeight: size.height,
+                                       boundsHeight: bounds.height)
     }
 }
 

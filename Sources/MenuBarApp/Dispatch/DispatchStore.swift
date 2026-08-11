@@ -4,7 +4,7 @@ import Observation
 // The saved requests, kept as one JSON file next to the projects store.
 @MainActor
 @Observable
-final class PostmanStore {
+final class DispatchStore {
     static let minimumResponseHeight: CGFloat = 120
 
     private(set) var requests: [SavedRequest] = []
@@ -23,11 +23,21 @@ final class PostmanStore {
     var selected: SavedRequest? { requests.first { $0.id == selectedID } }
 
     init(storeURL: URL? = nil) {
-        self.storeURL = storeURL
-            ?? ProcessInfo.processInfo.environment["CONDUCTOR_POSTMAN_STORE"]
-                .map { URL(fileURLWithPath: $0) }
-            ?? AppPaths.supportFile("postman.json", movedFrom: AppPaths.legacy("postman.json"))
+        self.storeURL = storeURL ?? Self.defaultStoreURL()
         load()
+    }
+
+    private static func defaultStoreURL() -> URL {
+        let environment = ProcessInfo.processInfo.environment
+        if let path = environment["CONDUCTOR_DISPATCH_STORE"]
+            ?? environment["CONDUCTOR_POSTMAN_STORE"] {
+            return URL(fileURLWithPath: path)
+        }
+        return AppPaths.supportFile("dispatch.json", moving: [
+            AppPaths.support.appendingPathComponent("postman.json"),
+            AppPaths.legacy("dispatch.json"),
+            AppPaths.legacy("postman.json")
+        ])
     }
 
     // MARK: - Editing
@@ -240,5 +250,5 @@ final class PostmanStore {
 
     // An empty screen gives you nothing to copy, so a first run starts with whatever
     // calls the site file lists.
-    private static var examples: [SavedRequest] { SiteDefaults.current.postmanRequests }
+    private static var examples: [SavedRequest] { SiteDefaults.current.dispatchRequests }
 }

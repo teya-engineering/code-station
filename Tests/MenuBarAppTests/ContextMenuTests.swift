@@ -47,4 +47,16 @@ struct ContextMenuTests {
         #expect(items.first?.label == "Other")
         #expect(items.first?.detail == "open")
     }
+
+    @Test func topEdgeMenuOpensAboveItsControl() {
+        let attachment = MenuVerticalAttachment.control(edge: .top, oppositeY: 544)
+
+        #expect(attachment.y(originY: 500, menuHeight: 80, boundsHeight: 660) == 420)
+    }
+
+    @Test func topEdgeMenuUsesTheOtherSideWhenThereIsNoRoomAbove() {
+        let attachment = MenuVerticalAttachment.control(edge: .top, oppositeY: 84)
+
+        #expect(attachment.y(originY: 40, menuHeight: 80, boundsHeight: 660) == 84)
+    }
 }

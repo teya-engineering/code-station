@@ -16,7 +16,7 @@ struct SiteDefaultsTests {
     @Test func readsEverySection() throws {
         let url = try file("""
         {
-          "postman": {
+          "dispatch": {
             "oauth": {
               "grant": "clientCredentials",
               "authURL": "https://id.example/authorize",
@@ -44,15 +44,15 @@ struct SiteDefaultsTests {
         let defaults = SiteDefaults.load([url])
 
         #expect(defaults.loadFailure == nil)
-        #expect(defaults.postmanOAuth.grant == .clientCredentials)
-        #expect(defaults.postmanOAuth.tokenURL == "https://id.example/token")
-        #expect(defaults.postmanOAuth.clientID == "abc")
+        #expect(defaults.dispatchOAuth.grant == .clientCredentials)
+        #expect(defaults.dispatchOAuth.tokenURL == "https://id.example/token")
+        #expect(defaults.dispatchOAuth.clientID == "abc")
         // Anything the file leaves out keeps the app's own default.
-        #expect(defaults.postmanOAuth.callbackURL == "http://127.0.0.1:8234/callback")
+        #expect(defaults.dispatchOAuth.callbackURL == "http://127.0.0.1:8234/callback")
 
-        #expect(defaults.postmanRequests.count == 1)
-        #expect(defaults.postmanRequests[0].name == "List things")
-        #expect(defaults.postmanRequests[0].method == .post)
+        #expect(defaults.dispatchRequests.count == 1)
+        #expect(defaults.dispatchRequests[0].name == "List things")
+        #expect(defaults.dispatchRequests[0].method == .post)
 
         #expect(defaults.grafanaPresets.count == 1)
         #expect(defaults.grafanaPresets[0].name == "grafana-platform-dev")
@@ -64,10 +64,26 @@ struct SiteDefaultsTests {
         let defaults = SiteDefaults.load([missing])
 
         #expect(defaults.loadFailure == nil)
-        #expect(defaults.postmanRequests.isEmpty)
+        #expect(defaults.dispatchRequests.isEmpty)
         #expect(defaults.grafanaPresets.isEmpty)
         #expect(defaults.skills == nil)
-        #expect(defaults.postmanOAuth == OAuthConfig())
+        #expect(defaults.dispatchOAuth == OAuthConfig())
+    }
+
+    @Test func readsThePreviousHTTPClientSection() throws {
+        let url = try file("""
+        {
+          "postman": {
+            "requests": [
+              { "name": "Existing request", "url": "https://api.example/existing" }
+            ]
+          }
+        }
+        """)
+
+        let defaults = SiteDefaults.load([url])
+
+        #expect(defaults.dispatchRequests.map(\.name) == ["Existing request"])
     }
 
     @Test func aBrokenFileIsReportedRatherThanIgnored() throws {

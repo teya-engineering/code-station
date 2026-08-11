@@ -42,7 +42,7 @@ Run a focused test while iterating:
 swift test --disable-sandbox --filter GitActionsTests
 ```
 
-Tests live in `Tests/MenuBarAppTests`. They cover session and transcript behavior, CLI stream parsing, Git and worktree operations, terminal and PTY integration, file browsing, Postman and OAuth flows, skills, settings, persistence, and UI-facing presentation logic.
+Tests live in `Tests/MenuBarAppTests`. They cover session and transcript behavior, CLI stream parsing, Git and worktree operations, terminal and PTY integration, file browsing, Dispatch and OAuth flows, skills, settings, persistence, and UI-facing presentation logic.
 
 Add tests for behavior and business logic. Trivial view wiring, accessors, and framework behavior do not need dedicated tests.
 
@@ -53,7 +53,7 @@ Add tests for behavior and business logic. Trivial view wiring, accessors, and f
 - `Sources/MenuBarApp/RootView.swift` owns the top-level navigation and tool sheets.
 - `Sources/MenuBarApp/Projects` contains projects, workspaces, sessions, Git support, the chat UI, the file explorer, and transcript persistence.
 - `Sources/MenuBarApp/Terminal` contains the PTY-backed terminal and SwiftTerm integration.
-- `Sources/MenuBarApp/Postman` contains saved HTTP requests, environments, OAuth, and response handling.
+- `Sources/MenuBarApp/Dispatch` contains saved HTTP requests, environments, OAuth, and response handling.
 - The remaining files in `Sources/MenuBarApp` contain MCP, skills, Docker, local AI, settings, logging, and shared UI components.
 - `Tests/MenuBarAppTests` mirrors the main behaviors with unit and integration tests.
 

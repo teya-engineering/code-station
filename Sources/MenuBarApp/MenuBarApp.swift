@@ -33,9 +33,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let loginItem = LoginItem()
     private let appSettings = AppSettings()
     private let docker = DockerService()
-    private let postman = PostmanStore()
-    private let postmanRunner = PostmanRunner()
-    private let postmanAuth = PostmanAuthStore()
+    private let dispatch = DispatchStore()
+    private let dispatchRunner = DispatchRunner()
+    private let dispatchAuth = DispatchAuthStore()
     private let shortcuts = ShortcutStore()
     private var window: NSWindow?
 
@@ -81,9 +81,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     .environment(loginItem)
                     .environment(appSettings)
                     .environment(docker)
-                    .environment(postman)
-                    .environment(postmanRunner)
-                    .environment(postmanAuth)
+                    .environment(dispatch)
+                    .environment(dispatchRunner)
+                    .environment(dispatchAuth)
                     .environment(shortcuts))
             // Let the window own its size instead of shrinking to the view's ideal size.
             hosting.sizingOptions = []
@@ -112,8 +112,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         runner.stopAll()
         terminals.stopEverything()
         projects.save()
-        postman.save()
-        postmanAuth.save()
+        dispatch.save()
+        dispatchAuth.save()
         store.flushPendingSave()
     }
 }

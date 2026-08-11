@@ -22,6 +22,16 @@ enum AppPaths {
         return url
     }
 
+    static func supportFile(_ name: String, moving candidates: [URL]) -> URL {
+        let url = support.appendingPathComponent(name)
+        move(candidates, to: url)
+        return url
+    }
+
+    static func move(_ candidates: [URL], to url: URL) {
+        for candidate in candidates { move(candidate, to: url) }
+    }
+
     static func move(_ legacy: URL, to url: URL) {
         let files = FileManager.default
         guard files.fileExists(atPath: legacy.path), !files.fileExists(atPath: url.path) else { return }

@@ -7,7 +7,7 @@ import Observation
 // the other side's token, so flipping back does not mean signing in again.
 @MainActor
 @Observable
-final class PostmanAuthStore {
+final class DispatchAuthStore {
     var active: ApiEnvironment { didSet { if active != oldValue { scheduleSave() } } }
     var staging: OAuthConfig { didSet { if staging != oldValue { scheduleSave() } } }
     var production: OAuthConfig { didSet { if production != oldValue { scheduleSave() } } }
@@ -32,11 +32,7 @@ final class PostmanAuthStore {
     }
 
     init(storeURL: URL? = nil, keychain: KeychainClient = .live) {
-        self.storeURL = storeURL
-            ?? ProcessInfo.processInfo.environment["CONDUCTOR_POSTMAN_AUTH"]
-                .map { URL(fileURLWithPath: $0) }
-            ?? AppPaths.supportFile("postman-auth.json",
-                                    movedFrom: AppPaths.legacy("postman-auth.json"))
+        self.storeURL = storeURL ?? Self.defaultStoreURL()
         self.keychain = keychain
 
         var loadFailures: [String] = []
@@ -53,8 +49,8 @@ final class PostmanAuthStore {
 
         // A first run starts from whatever provider the site file names, so nobody has to
         // type the same identity provider into both environments before signing in.
-        var staging = saved?.staging ?? SiteDefaults.current.postmanOAuth
-        var production = saved?.production ?? SiteDefaults.current.postmanOAuth
+        var staging = saved?.staging ?? SiteDefaults.current.dispatchOAuth
+        var production = saved?.production ?? SiteDefaults.current.dispatchOAuth
         var tokens: [ApiEnvironment: OAuthToken] = [:]
         var keychainValues: [Keychain.Account: String] = [:]
 
@@ -88,6 +84,19 @@ final class PostmanAuthStore {
         self.tokens = tokens
         storedKeychainValues = keychainValues
         loadError = loadFailures.isEmpty ? nil : loadFailures.joined(separator: "\n")
+    }
+
+    private static func defaultStoreURL() -> URL {
+        let environment = ProcessInfo.processInfo.environment
+        if let path = environment["CONDUCTOR_DISPATCH_AUTH"]
+            ?? environment["CONDUCTOR_POSTMAN_AUTH"] {
+            return URL(fileURLWithPath: path)
+        }
+        return AppPaths.supportFile("dispatch-auth.json", moving: [
+            AppPaths.support.appendingPathComponent("postman-auth.json"),
+            AppPaths.legacy("dispatch-auth.json"),
+            AppPaths.legacy("postman-auth.json")
+        ])
     }
 
     func config(for env: ApiEnvironment) -> OAuthConfig {

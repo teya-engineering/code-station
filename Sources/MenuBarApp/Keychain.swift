@@ -6,13 +6,14 @@ import Security
 // one item means at most one prompt instead of one per secret.
 enum Keychain {
     enum Account: String, CaseIterable, Sendable {
-        case stagingClientSecret = "postman.staging.client-secret"
-        case stagingToken = "postman.staging.token"
-        case productionClientSecret = "postman.production.client-secret"
-        case productionToken = "postman.production.token"
+        case stagingClientSecret = "dispatch.staging.client-secret"
+        case stagingToken = "dispatch.staging.token"
+        case productionClientSecret = "dispatch.production.client-secret"
+        case productionToken = "dispatch.production.token"
     }
 
-    private static let store = "postman.secrets"
+    private static let store = "dispatch.secrets"
+    private static let legacyStore = "postman.secrets"
 
     struct Failure: LocalizedError {
         let operation: String
@@ -27,7 +28,8 @@ enum Keychain {
     static func values() throws -> [Account: String] {
         let rawValues: [String: String]
         if let data = try read(store) {
-            rawValues = try JSONDecoder().decode([String: String].self, from: data)
+            rawValues = normalizedValues(
+                try JSONDecoder().decode([String: String].self, from: data))
         } else {
             rawValues = try migrateLegacyItems()
         }
@@ -43,25 +45,53 @@ enum Keychain {
         try write(rawValues)
     }
 
-    // The secrets used to live in one keychain item each. Gather them into the combined
-    // item and delete the originals, so an old install carries over without leftovers.
+    // Earlier releases used a different feature name, and older ones kept each value in
+    // its own item. Gather every shape into the current combined item before cleanup.
     private static func migrateLegacyItems() throws -> [String: String] {
-        var gathered: [String: String] = [:]
+        var gathered = try read(legacyStore).map {
+            normalizedValues(try JSONDecoder().decode([String: String].self, from: $0))
+        } ?? [:]
         for account in Account.allCases {
-            if let data = try read(account.rawValue),
-               let value = String(data: data, encoding: .utf8), !value.isEmpty {
-                gathered[account.rawValue] = value
+            let names = [account.rawValue, legacyName(for: account)]
+            for name in names where gathered[account.rawValue] == nil {
+                if let data = try read(name),
+                   let value = String(data: data, encoding: .utf8), !value.isEmpty {
+                    gathered[account.rawValue] = value
+                }
             }
         }
         guard !gathered.isEmpty else { return gathered }
         try write(gathered)
-        for account in Account.allCases {
-            let status = SecItemDelete(query(account.rawValue) as CFDictionary)
-            guard status == errSecSuccess || status == errSecItemNotFound else {
-                throw Failure(operation: "remove an old item", status: status)
-            }
+        let oldItems = [legacyStore] + Account.allCases.flatMap {
+            [$0.rawValue, legacyName(for: $0)]
+        }
+        for item in oldItems {
+            try delete(item)
         }
         return gathered
+    }
+
+    static func normalizedValues(_ values: [String: String]) -> [String: String] {
+        Account.allCases.reduce(into: [:]) { result, account in
+            result[account.rawValue] = values[account.rawValue]
+                ?? values[legacyName(for: account)]
+        }
+    }
+
+    private static func legacyName(for account: Account) -> String {
+        switch account {
+        case .stagingClientSecret: "postman.staging.client-secret"
+        case .stagingToken: "postman.staging.token"
+        case .productionClientSecret: "postman.production.client-secret"
+        case .productionToken: "postman.production.token"
+        }
+    }
+
+    private static func delete(_ account: String) throws {
+        let status = SecItemDelete(query(account) as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else {
+            throw Failure(operation: "remove an old item", status: status)
+        }
     }
 
     private static func read(_ account: String) throws -> Data? {

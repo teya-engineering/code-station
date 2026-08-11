@@ -6,8 +6,8 @@ import SwiftUI
 struct RootView: View {
     @Environment(ConfigStore.self) private var configs
     @Environment(ProjectStore.self) private var store
-    @Environment(PostmanStore.self) private var postman
-    @Environment(PostmanAuthStore.self) private var postmanAuth
+    @Environment(DispatchStore.self) private var dispatch
+    @Environment(DispatchAuthStore.self) private var dispatchAuth
     @Environment(AppSettings.self) private var settings
     @Environment(ShortcutStore.self) private var shortcuts
     @State private var skills = SkillsManager()
@@ -15,7 +15,7 @@ struct RootView: View {
     @State private var showingSkills = false
     @State private var showingDocker = false
     @State private var showingSettings = false
-    @State private var showingPostman = false
+    @State private var showingDispatch = false
     @State private var showingShortcuts = false
     @State private var showingTroubleshoot = false
     @State private var reviewingOldSessions = false
@@ -60,7 +60,7 @@ struct RootView: View {
         .sheet(isPresented: $showingSkills) { SkillsView(manager: skills).appOverlays() }
         .sheet(isPresented: $showingDocker) { DockerView().appOverlays() }
         .sheet(isPresented: $showingSettings) { SettingsView().appOverlays() }
-        .sheet(isPresented: $showingPostman) { PostmanView().appOverlays() }
+        .sheet(isPresented: $showingDispatch) { DispatchView().appOverlays() }
         .sheet(isPresented: $showingShortcuts) { ShortcutsView().appOverlays() }
         .sheet(isPresented: $showingTroubleshoot) {
             TroubleshootView(skills: skills).appOverlays()
@@ -72,7 +72,7 @@ struct RootView: View {
         ToolsMenuActions(configureServers: { configuringServers = true },
                          openSkills: { showingSkills = true },
                          openDocker: { showingDocker = true },
-                         openPostman: { showingPostman = true },
+                         openDispatch: { showingDispatch = true },
                          openShortcuts: { showingShortcuts = true },
                          openTroubleshoot: { showingTroubleshoot = true },
                          openSettings: { showingSettings = true })
@@ -81,8 +81,8 @@ struct RootView: View {
     private var persistenceError: String? {
         [configs.loadError, configs.saveError,
          store.loadError, store.transcriptLoadErrors.values.first, store.saveError,
-         postman.loadError, postman.saveError,
-         postmanAuth.loadError, postmanAuth.saveError,
+         dispatch.loadError, dispatch.saveError,
+         dispatchAuth.loadError, dispatchAuth.saveError,
          shortcuts.loadError, shortcuts.saveError]
             .compactMap { $0 }
             .first

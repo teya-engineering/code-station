@@ -108,15 +108,15 @@ struct PersistenceSafetyTests {
         #expect(ProjectStore(storeURL: index).projects.count == 1)
     }
 
-    @Test func postmanDecodeFailureDoesNotOverwriteTheFile() throws {
+    @Test func dispatchDecodeFailureDoesNotOverwriteTheFile() throws {
         let directory = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let file = directory.appendingPathComponent("postman.json")
+        let file = directory.appendingPathComponent("dispatch.json")
         let malformed = Data("not request json".utf8)
         try malformed.write(to: file)
 
-        let store = PostmanStore(storeURL: file)
+        let store = DispatchStore(storeURL: file)
         #expect(store.loadError != nil)
 
         store.add(SavedRequest(name: "Must stay in memory"))
@@ -125,11 +125,11 @@ struct PersistenceSafetyTests {
         #expect(try Data(contentsOf: file) == malformed)
     }
 
-    @Test func postmanWriteFailureIsReportedAndCanBeRetried() throws {
+    @Test func dispatchWriteFailureIsReportedAndCanBeRetried() throws {
         let directory = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
-        let file = directory.appendingPathComponent("postman.json")
-        let store = PostmanStore(storeURL: file)
+        let file = directory.appendingPathComponent("dispatch.json")
+        let store = DispatchStore(storeURL: file)
 
         try Data("a file where a directory should be".utf8).write(to: directory)
         store.add(SavedRequest(name: "Retained request"))
@@ -141,18 +141,18 @@ struct PersistenceSafetyTests {
 
         #expect(store.save())
         #expect(store.saveError == nil)
-        #expect(PostmanStore(storeURL: file).requests.contains { $0.name == "Retained request" })
+        #expect(DispatchStore(storeURL: file).requests.contains { $0.name == "Retained request" })
     }
 
     @Test func oauthDecodeFailureDoesNotOverwriteTheFile() throws {
         let directory = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let file = directory.appendingPathComponent("postman-auth.json")
+        let file = directory.appendingPathComponent("dispatch-auth.json")
         let malformed = Data("not oauth json".utf8)
         try malformed.write(to: file)
 
-        let store = PostmanAuthStore(storeURL: file, keychain: .empty)
+        let store = DispatchAuthStore(storeURL: file, keychain: .empty)
         #expect(store.loadError != nil)
 
         var staging = store.staging
@@ -168,8 +168,8 @@ struct PersistenceSafetyTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         let keychain = KeychainStub()
         keychain.shouldFailWrites = true
-        let store = PostmanAuthStore(
-            storeURL: directory.appendingPathComponent("postman-auth.json"),
+        let store = DispatchAuthStore(
+            storeURL: directory.appendingPathComponent("dispatch-auth.json"),
             keychain: keychain.client)
         var staging = store.staging
         staging.clientSecret = "secret"
@@ -195,8 +195,8 @@ struct PersistenceSafetyTests {
             .productionClientSecret: "production-secret"
         ])
 
-        let store = PostmanAuthStore(
-            storeURL: directory.appendingPathComponent("postman-auth.json"),
+        let store = DispatchAuthStore(
+            storeURL: directory.appendingPathComponent("dispatch-auth.json"),
             keychain: keychain.client)
 
         #expect(keychain.readAttempts == 1)
@@ -204,12 +204,23 @@ struct PersistenceSafetyTests {
         #expect(store.production.clientSecret == "production-secret")
     }
 
+    @Test func mapsPreviousKeychainAccountsToDispatch() {
+        let values = Keychain.normalizedValues([
+            "postman.staging.client-secret": "staging-secret",
+            "postman.production.token": "production-token"
+        ])
+
+        #expect(values["dispatch.staging.client-secret"] == "staging-secret")
+        #expect(values["dispatch.production.token"] == "production-token")
+        #expect(values["postman.staging.client-secret"] == nil)
+    }
+
     @Test func writesAllKeychainChangesTogether() throws {
         let directory = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let keychain = KeychainStub()
-        let store = PostmanAuthStore(
-            storeURL: directory.appendingPathComponent("postman-auth.json"),
+        let store = DispatchAuthStore(
+            storeURL: directory.appendingPathComponent("dispatch-auth.json"),
             keychain: keychain.client)
         var staging = store.staging
         staging.clientSecret = "staging-secret"

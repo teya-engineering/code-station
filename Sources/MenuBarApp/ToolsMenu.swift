@@ -11,7 +11,7 @@ struct ToolsMenuActions {
     let configureServers: () -> Void
     let openSkills: () -> Void
     let openDocker: () -> Void
-    let openPostman: () -> Void
+    let openDispatch: () -> Void
     let openShortcuts: () -> Void
     let openTroubleshoot: () -> Void
     let openSettings: () -> Void
@@ -32,7 +32,7 @@ private struct ToolsMenuModifier: ViewModifier {
 
     @Environment(ConfigStore.self) private var configs
     @Environment(DockerService.self) private var docker
-    @Environment(PostmanAuthStore.self) private var postmanAuth
+    @Environment(DispatchAuthStore.self) private var dispatchAuth
     @Environment(ShortcutStore.self) private var shortcuts
 
     func body(content: Content) -> some View {
@@ -51,10 +51,10 @@ private struct ToolsMenuModifier: ViewModifier {
                 MenuCardItem(label: "Docker", icon: "shippingbox.fill",
                              detail: dockerDetail.text, detailColour: dockerDetail.colour,
                              handler: actions.openDocker),
-                MenuCardItem(label: "Postman", icon: "paperplane.fill",
-                             detail: postmanAuth.active.envValue,
-                             detailColour: postmanAuth.active.accent,
-                             handler: actions.openPostman),
+                MenuCardItem(label: "Dispatch", icon: "paperplane.fill",
+                             detail: dispatchAuth.active.envValue,
+                             detailColour: dispatchAuth.active.accent,
+                             handler: actions.openDispatch),
                 MenuCardItem(label: "Shortcuts", icon: "bolt.fill",
                              detail: shortcutsDetail.text, detailColour: shortcutsDetail.colour,
                              handler: actions.openShortcuts),

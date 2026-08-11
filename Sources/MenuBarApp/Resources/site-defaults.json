@@ -1,5 +1,5 @@
 {
-  "postman": {
+  "dispatch": {
     "oauth": {
       "grant": "authorizationCodePKCE",
       "authURL": "https://id.example.com/oauth/v2/authorize",

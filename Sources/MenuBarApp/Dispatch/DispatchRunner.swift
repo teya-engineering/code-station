@@ -7,7 +7,7 @@ import Observation
 // server returns far more data than expected.
 @MainActor
 @Observable
-final class PostmanRunner {
+final class DispatchRunner {
     struct Key: Hashable {
         let request: UUID
         let environment: ApiEnvironment

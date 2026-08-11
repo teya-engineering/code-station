@@ -4,9 +4,9 @@ import SwiftUI
 // the left, the one being edited and its answer on the right. Two environments share the
 // one request list; the active one picks the credentials, the {{env}} value and the
 // colour of the chrome, so where a send lands is legible at a glance.
-struct PostmanView: View {
-    @Environment(PostmanStore.self) private var store
-    @Environment(PostmanAuthStore.self) private var auth
+struct DispatchView: View {
+    @Environment(DispatchStore.self) private var store
+    @Environment(DispatchAuthStore.self) private var auth
     @Environment(DialogPresenter.self) private var dialogs
     @Environment(\.dismiss) private var dismiss
 
@@ -43,7 +43,7 @@ struct PostmanView: View {
 
     private var header: some View {
         HStack(spacing: 10) {
-            Text("Postman").font(.serif(16))
+            Text("Dispatch").font(.serif(16))
             Text("\(store.requests.count) request\(store.requests.count == 1 ? "" : "s")")
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
@@ -113,7 +113,8 @@ struct PostmanView: View {
 
     private func folderSection(_ folder: RequestFolder) -> some View {
         let expanded = store.isExpanded(folder.id)
-        return VStack(alignment: .leading, spacing: 4) {
+        let requests = store.requests(in: folder.id)
+        return VStack(alignment: .leading, spacing: 0) {
             FolderRow(folder: folder,
                       expanded: expanded,
                       requestCount: store.requestCount(in: folder.id),
@@ -135,19 +136,24 @@ struct PostmanView: View {
                     folderContextMenu(for: folder)
                 }
 
-            if expanded {
-                ForEach(store.requests(in: folder.id)) { request in
-                    requestRow(request, indentation: 16)
+            if expanded, !requests.isEmpty {
+                SidebarRail(colour: environment.brightAccent) {
+                    ForEach(requests) { request in
+                        SidebarRailRow(colour: environment.brightAccent,
+                                       selectedColour: environment.accent,
+                                       selected: request.id == store.selectedID) {
+                            requestRow(request)
+                        }
+                    }
                 }
             }
         }
     }
 
-    private func requestRow(_ request: SavedRequest, indentation: CGFloat = 0) -> some View {
+    private func requestRow(_ request: SavedRequest) -> some View {
         RequestRow(request: request,
                    selected: request.id == store.selectedID,
-                   accent: environment.accent,
-                   indentation: indentation)
+                   accent: environment.accent)
             .contentShape(Rectangle())
             .onTapGesture { store.selectedID = request.id }
             .appContextMenu { requestContextMenu(for: request) }
@@ -322,7 +328,7 @@ private struct EnvironmentSegment: View {
 
 // The same question whether the delete starts from the sidebar or from the editor.
 @MainActor
-private func deleteDialog(for request: SavedRequest, store: PostmanStore) -> Dialog {
+private func deleteDialog(for request: SavedRequest, store: DispatchStore) -> Dialog {
     Dialog(
         title: "Delete \"\(request.name.isEmpty ? "Untitled" : request.name)\"?",
         message: "The request and everything set up on it are gone for good.",
@@ -333,7 +339,7 @@ private func deleteDialog(for request: SavedRequest, store: PostmanStore) -> Dia
 }
 
 @MainActor
-private func deleteFolderDialog(for folder: RequestFolder, store: PostmanStore) -> Dialog {
+private func deleteFolderDialog(for folder: RequestFolder, store: DispatchStore) -> Dialog {
     let count = store.requestCount(in: folder.id)
     let requests = "\(count) request\(count == 1 ? "" : "s")"
     return Dialog(
@@ -448,7 +454,6 @@ private struct RequestRow: View {
     let request: SavedRequest
     let selected: Bool
     let accent: Color
-    var indentation: CGFloat = 0
 
     @State private var hovering = false
 
@@ -461,7 +466,7 @@ private struct RequestRow: View {
                 .truncationMode(.middle)
             Spacer(minLength: 0)
         }
-        .padding(.leading, 10 + indentation)
+        .padding(.leading, 10)
         .padding(.trailing, 10)
         .padding(.vertical, 8)
         .background(RoundedRectangle(cornerRadius: 8)
@@ -503,9 +508,9 @@ private struct RequestDetail: View {
     @State private var draft: SavedRequest
     @State private var tab = Tab.queryParams
 
-    @Environment(PostmanStore.self) private var store
-    @Environment(PostmanRunner.self) private var runner
-    @Environment(PostmanAuthStore.self) private var auth
+    @Environment(DispatchStore.self) private var store
+    @Environment(DispatchRunner.self) private var runner
+    @Environment(DispatchAuthStore.self) private var auth
     @Environment(DialogPresenter.self) private var dialogs
 
     private enum Tab: String, CaseIterable, Identifiable {
@@ -960,7 +965,7 @@ private struct ResponsePane: View {
     let result: HTTPResult?
     let running: Bool
 
-    @Environment(PostmanStore.self) private var store
+    @Environment(DispatchStore.self) private var store
 
     @State private var showingHeaders = false
     // Height while a drag is in flight; the store keeps it once the drag ends.
@@ -1033,7 +1038,7 @@ private struct ResponsePane: View {
                 .onChanged { value in
                     let start = dragStartHeight ?? height
                     dragStartHeight = start
-                    dragHeight = max(PostmanStore.minimumResponseHeight, start - value.translation.height)
+                    dragHeight = max(DispatchStore.minimumResponseHeight, start - value.translation.height)
                 }
                 .onEnded { _ in
                     if let dragHeight { store.responseHeight = dragHeight }

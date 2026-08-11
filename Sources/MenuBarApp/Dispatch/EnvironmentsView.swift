@@ -3,11 +3,11 @@ import SwiftUI
 // The OAuth setup that differs between the two environments. The requests are shared;
 // this sheet holds what a send in each environment signs in with.
 struct EnvironmentsView: View {
-    @Environment(PostmanAuthStore.self) private var auth
+    @Environment(DispatchAuthStore.self) private var auth
     @Environment(\.dismiss) private var dismiss
 
     // Nil until a tab is clicked, so the sheet opens on whichever environment the
-    // Postman sheet behind it is using.
+    // Dispatch sheet behind it is using.
     @State private var selected: ApiEnvironment?
     private var shown: ApiEnvironment { selected ?? auth.active }
 
@@ -129,7 +129,7 @@ struct EnvironmentsView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Environments").font(.serif(16))
-            Text("Two sets of credentials, one set of requests. The switch at the top of Postman picks which one a send uses.")
+            Text("Two sets of credentials, one set of requests. The switch at the top of Dispatch picks which one a send uses.")
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -239,7 +239,7 @@ struct EnvironmentTokenControls: View {
     // uses what is on screen, not what was last saved.
     var beforeAuthenticate: (() -> Void)?
 
-    @Environment(PostmanAuthStore.self) private var auth
+    @Environment(DispatchAuthStore.self) private var auth
 
     @State private var pasted = ""
 

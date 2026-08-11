@@ -88,7 +88,7 @@ struct OAuthConfig: Codable, Equatable {
     }
 
     // A callback on this machine can be caught by listening for it. Anything else, such as
-    // a provider that only allows Postman's own callback, ends up in someone else's page,
+    // a provider that only allows a callback owned by another client, ends up on a page
     // so the code has to be carried back by hand.
     var usesLoopback: Bool {
         guard let host = URLComponents(string: callbackURL)?.host else { return false }

@@ -15,7 +15,7 @@ import Foundation
 // So a checkout ships working defaults, and anyone can override them for their own
 // machine without rebuilding.
 struct SiteDefaults: Decodable, Sendable {
-    var postman: Postman? = nil
+    var dispatch: DispatchConfig? = nil
     var grafana: Grafana? = nil
     var skills: Skills? = nil
 
@@ -23,9 +23,31 @@ struct SiteDefaults: Decodable, Sendable {
     // in it does not look the same as having no file.
     var loadFailure: String? = nil
 
-    private enum CodingKeys: String, CodingKey { case postman, grafana, skills }
+    private enum CodingKeys: String, CodingKey {
+        case dispatch, grafana, skills
+        case legacyHTTPClient = "postman"
+    }
 
-    struct Postman: Decodable, Sendable {
+    init(dispatch: DispatchConfig? = nil,
+         grafana: Grafana? = nil,
+         skills: Skills? = nil,
+         loadFailure: String? = nil) {
+        self.dispatch = dispatch
+        self.grafana = grafana
+        self.skills = skills
+        self.loadFailure = loadFailure
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        let dispatch = try values.decodeIfPresent(DispatchConfig.self, forKey: .dispatch)
+        let legacy = try values.decodeIfPresent(DispatchConfig.self, forKey: .legacyHTTPClient)
+        self.dispatch = dispatch ?? legacy
+        grafana = try values.decodeIfPresent(Grafana.self, forKey: .grafana)
+        skills = try values.decodeIfPresent(Skills.self, forKey: .skills)
+    }
+
+    struct DispatchConfig: Decodable, Sendable {
         var oauth: OAuth?
         var requests: [Request]?
 
@@ -126,8 +148,8 @@ extension SiteDefaults {
 
     // The provider both API environments start from. Everything else about the setup,
     // including the callback, keeps the app's own defaults.
-    var postmanOAuth: OAuthConfig {
-        guard let oauth = postman?.oauth else { return OAuthConfig() }
+    var dispatchOAuth: OAuthConfig {
+        guard let oauth = dispatch?.oauth else { return OAuthConfig() }
         var config = OAuthConfig()
         if let grant = oauth.grant { config.grant = grant }
         if let authURL = oauth.authURL { config.authURL = authURL }
@@ -138,8 +160,8 @@ extension SiteDefaults {
         return config
     }
 
-    var postmanRequests: [SavedRequest] {
-        (postman?.requests ?? []).map {
+    var dispatchRequests: [SavedRequest] {
+        (dispatch?.requests ?? []).map {
             SavedRequest(name: $0.name, method: $0.method ?? .get, url: $0.url)
         }
     }

@@ -58,6 +58,24 @@ struct AppPathsTests {
         #expect(FileManager.default.fileExists(atPath: destination.path) == false)
     }
 
+    @Test func movesTheFirstExistingCandidate() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let first = root.appendingPathComponent("missing.json")
+        let second = root.appendingPathComponent("previous-name.json")
+        let third = root.appendingPathComponent("older-location.json")
+        let destination = root.appendingPathComponent("current-name.json")
+        try Data("previous".utf8).write(to: second)
+        try Data("older".utf8).write(to: third)
+
+        AppPaths.move([first, second, third], to: destination)
+
+        #expect(try String(contentsOf: destination, encoding: .utf8) == "previous")
+        #expect(FileManager.default.fileExists(atPath: second.path) == false)
+        #expect(FileManager.default.fileExists(atPath: third.path))
+    }
+
     // The app runs from the build folder in development, where there is no bundle to ask.
     @Test func alwaysHasAnIdentifierToFileUnder() {
         #expect(AppPaths.bundleID.isEmpty == false)

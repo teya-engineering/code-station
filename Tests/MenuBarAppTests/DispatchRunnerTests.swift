@@ -3,11 +3,11 @@ import Testing
 @testable import MenuBarApp
 
 @Suite(.serialized)
-struct PostmanRunnerTests {
+struct DispatchRunnerTests {
     @MainActor
     @Test func truncatesResponsesAtTheConfiguredLimit() async throws {
         StubURLProtocol.prepare(body: Data(repeating: 97, count: 100), chunkSize: 20)
-        let runner = PostmanRunner(maxResponseBytes: 32,
+        let runner = DispatchRunner(maxResponseBytes: 32,
                                    maxRetainedResultBytes: 128,
                                    sessionConfiguration: stubConfiguration())
         let request = SavedRequest(name: "large", url: "https://example.test/large")
@@ -24,7 +24,7 @@ struct PostmanRunnerTests {
     @MainActor
     @Test func evictsOldResultsWhenTheRetainedBudgetIsFull() async {
         StubURLProtocol.prepare(body: Data(repeating: 97, count: 8))
-        let runner = PostmanRunner(maxResponseBytes: 8,
+        let runner = DispatchRunner(maxResponseBytes: 8,
                                    maxRetainedResultBytes: 56,
                                    sessionConfiguration: stubConfiguration())
         let requests = (0..<3).map {
@@ -43,7 +43,7 @@ struct PostmanRunnerTests {
     @MainActor
     @Test func cancellationEndsTheRequestAndReportsWhatHappened() async throws {
         StubURLProtocol.prepare(body: Data("late".utf8), delay: 10)
-        let runner = PostmanRunner(maxResponseBytes: 32,
+        let runner = DispatchRunner(maxResponseBytes: 32,
                                    maxRetainedResultBytes: 64,
                                    sessionConfiguration: stubConfiguration())
         let request = SavedRequest(name: "slow", url: "https://example.test/slow")

@@ -6,13 +6,13 @@ struct SavedRequestFolderTests {
 
     @Test @MainActor func migratesAFlatRequestListIntoDefault() throws {
         let file = FileManager.default.temporaryDirectory
-            .appendingPathComponent("postman-\(UUID().uuidString).json")
+            .appendingPathComponent("dispatch-\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: file) }
 
         let oldRequest = SavedRequest(name: "Existing", url: "https://example.test")
         try JSONEncoder().encode([oldRequest]).write(to: file)
 
-        let store = PostmanStore(storeURL: file)
+        let store = DispatchStore(storeURL: file)
 
         #expect(store.folders == [.default])
         #expect(store.requests[0].id == oldRequest.id)
@@ -22,11 +22,11 @@ struct SavedRequestFolderTests {
 
     @Test @MainActor func persistsFoldersAndKeepsRequestsWhenAFolderIsRemoved() throws {
         let file = FileManager.default.temporaryDirectory
-            .appendingPathComponent("postman-\(UUID().uuidString).json")
+            .appendingPathComponent("dispatch-\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: file) }
         try JSONEncoder().encode(SavedRequestCollection()).write(to: file)
 
-        let store = PostmanStore(storeURL: file)
+        let store = DispatchStore(storeURL: file)
         let request = store.add(SavedRequest(name: "Create payment"))
         let folder = store.addFolder(named: "Payments")
         store.move(request.id, to: folder.id)
@@ -45,7 +45,7 @@ struct SavedRequestFolderTests {
 
     @Test @MainActor func newAndUnknownRequestsUseDefault() throws {
         let file = FileManager.default.temporaryDirectory
-            .appendingPathComponent("postman-\(UUID().uuidString).json")
+            .appendingPathComponent("dispatch-\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: file) }
 
         let unknownFolderID = UUID()
@@ -53,7 +53,7 @@ struct SavedRequestFolderTests {
             requests: [SavedRequest(name: "Unknown folder", folderID: unknownFolderID)])
         try JSONEncoder().encode(saved).write(to: file)
 
-        let store = PostmanStore(storeURL: file)
+        let store = DispatchStore(storeURL: file)
         let newRequest = store.add()
 
         #expect(store.folders == [.default])
@@ -64,11 +64,11 @@ struct SavedRequestFolderTests {
 
     @Test @MainActor func defaultFolderCannotBeRenamedOrRemoved() throws {
         let file = FileManager.default.temporaryDirectory
-            .appendingPathComponent("postman-\(UUID().uuidString).json")
+            .appendingPathComponent("dispatch-\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: file) }
         try JSONEncoder().encode(SavedRequestCollection()).write(to: file)
 
-        let store = PostmanStore(storeURL: file)
+        let store = DispatchStore(storeURL: file)
         let request = store.add()
 
         store.renameFolder(RequestFolder.defaultID, to: "Other")
@@ -81,11 +81,11 @@ struct SavedRequestFolderTests {
 
     @Test @MainActor func deletingTheSelectedRequestLeavesTheDetailEmpty() throws {
         let file = FileManager.default.temporaryDirectory
-            .appendingPathComponent("postman-\(UUID().uuidString).json")
+            .appendingPathComponent("dispatch-\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: file) }
         try JSONEncoder().encode(SavedRequestCollection()).write(to: file)
 
-        let store = PostmanStore(storeURL: file)
+        let store = DispatchStore(storeURL: file)
         let first = store.add(SavedRequest(name: "First"))
         store.add(SavedRequest(name: "Second"))
         store.selectedID = first.id

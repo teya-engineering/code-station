@@ -238,6 +238,66 @@ extension SectionRule where Trailing == EmptyView {
     }
 }
 
+// The connector under an expanded sidebar row stops at its last child. Each marker is
+// anchored to its row so mixed row heights keep the line and dots aligned.
+private struct SidebarRailMarkerKey: PreferenceKey {
+    static let defaultValue: [Anchor<CGPoint>] = []
+
+    static func reduce(value: inout [Anchor<CGPoint>],
+                       nextValue: () -> [Anchor<CGPoint>]) {
+        value.append(contentsOf: nextValue())
+    }
+}
+
+struct SidebarRail<Content: View>: View {
+    let colour: Color
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) { content }
+            .backgroundPreferenceValue(SidebarRailMarkerKey.self) { markers in
+                GeometryReader { proxy in
+                    if let lastMarker = markers.last {
+                        Rectangle()
+                            .fill(colour.opacity(0.42))
+                            .frame(width: 1.5, height: proxy[lastMarker].y)
+                            .offset(x: 5.25)
+                            .accessibilityHidden(true)
+                    }
+                }
+            }
+            .padding(.leading, 20)
+            .padding(.top, 5)
+            .padding(.bottom, 4)
+    }
+}
+
+struct SidebarRailRow<Content: View>: View {
+    let colour: Color
+    var selectedColour: Color? = nil
+    var selected = false
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            ZStack {
+                Circle()
+                    .fill(selected ? selectedColour ?? colour : colour.opacity(0.72))
+                    .anchorPreference(key: SidebarRailMarkerKey.self, value: .center) {
+                        [$0]
+                    }
+            }
+            .frame(width: 12, height: 8)
+            .padding(.top, 10)
+            .accessibilityHidden(true)
+
+            content
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
 // The strip that closes a screen: what the defaults are, or what has gone stale, and the
 // one link that leads to the screen where it can be changed.
 struct FooterStrip<Trailing: View>: View {

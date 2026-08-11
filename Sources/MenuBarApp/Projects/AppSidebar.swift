@@ -484,14 +484,16 @@ struct AppSidebar: View {
             if expanded, !sessions.isEmpty {
                 let visible = visibleWorkspaceSessions(workspace, sessions: sessions)
                 let tint = Theme.workspaceTint
-                SessionRail(tint: tint) {
+                SidebarRail(colour: tint.colour) {
                     ForEach(visible) { session in
                         if let lead = store.project(session.projectID) {
                             let busy = runner.state(session.id).isBusy
                             let finished = store.hasFinished(session.id)
                             let folders = store.workingDirectories(for: session)
                             let selected = isSelected(session)
-                            SessionRailRow(tint: tint, selected: selected) {
+                            SidebarRailRow(colour: tint.colour,
+                                           selectedColour: tint.ink,
+                                           selected: selected) {
                                 SessionCard(session: session,
                                             selected: selected,
                                             busy: busy,
@@ -516,7 +518,7 @@ struct AppSidebar: View {
                     }
                     let hidden = sessions.count - visible.count
                     if hidden > 0 {
-                        SessionRailRow(tint: tint) {
+                        SidebarRailRow(colour: tint.colour) {
                             SeeMoreCard(title: "See \(hidden) more…") {
                                 sessionVisibility.showAll(workspace.id)
                             }
@@ -598,12 +600,14 @@ struct AppSidebar: View {
             if expanded, !sessions.isEmpty {
                 let visible = visibleSessions(of: project, in: sessions)
                 let tint = Theme.projectTint(for: project.name)
-                SessionRail(tint: tint) {
+                SidebarRail(colour: tint.colour) {
                     ForEach(visible) { session in
                         let busy = runner.state(session.id).isBusy
                         let finished = store.hasFinished(session.id)
                         let selected = isSelected(session)
-                        SessionRailRow(tint: tint, selected: selected) {
+                        SidebarRailRow(colour: tint.colour,
+                                       selectedColour: tint.ink,
+                                       selected: selected) {
                             SessionCard(session: session,
                                         selected: selected,
                                         busy: busy,
@@ -629,7 +633,7 @@ struct AppSidebar: View {
                     }
                     let hidden = sessions.count - visible.count
                     if hidden > 0 {
-                        SessionRailRow(tint: tint) {
+                        SidebarRailRow(colour: tint.colour) {
                             SeeMoreCard(title: "See \(hidden) more…") {
                                 sessionVisibility.showAll(project.id)
                             }
@@ -1288,67 +1292,6 @@ private struct SectionHeading: View {
         .padding(.horizontal, 8)
         .padding(.top, 9)
         .padding(.bottom, 3)
-    }
-}
-
-// The block of session cards under an open project or workspace. The line is quiet enough
-// to group the cards, while the dots make each session's place in that group explicit.
-private struct SessionRailMarkerKey: PreferenceKey {
-    static let defaultValue: [Anchor<CGPoint>] = []
-
-    static func reduce(value: inout [Anchor<CGPoint>],
-                       nextValue: () -> [Anchor<CGPoint>]) {
-        value.append(contentsOf: nextValue())
-    }
-}
-
-private struct SessionRail<Content: View>: View {
-    let tint: Theme.ProjectTint
-    @ViewBuilder let content: Content
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 5) { content }
-            .backgroundPreferenceValue(SessionRailMarkerKey.self) { markers in
-                GeometryReader { proxy in
-                    if let lastMarker = markers.last {
-                        Rectangle()
-                            .fill(tint.colour.opacity(0.42))
-                            .frame(width: 1.5, height: proxy[lastMarker].y)
-                            .offset(x: 5.25)
-                            .accessibilityHidden(true)
-                    }
-                }
-            }
-        .padding(.leading, 20)
-        .padding(.top, 5)
-        .padding(.bottom, 4)
-    }
-}
-
-// A dot sits on the rail beside each row. A selected session uses the project's darker
-// ink so the rail and the card describe the same selection.
-private struct SessionRailRow<Content: View>: View {
-    let tint: Theme.ProjectTint
-    var selected = false
-    @ViewBuilder let content: Content
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            ZStack {
-                Circle()
-                    .fill(selected ? tint.ink : tint.colour.opacity(0.72))
-                    .anchorPreference(key: SessionRailMarkerKey.self, value: .center) {
-                        [$0]
-                    }
-            }
-            .frame(width: 12, height: 8)
-            .padding(.top, 10)
-            .accessibilityHidden(true)
-
-            content
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
