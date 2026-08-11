@@ -139,6 +139,7 @@ final class SkillsManager {
     private(set) var actionFailures: [Action: String] = [:]
     private var actionProgress: [Action: SkillActionProgress] = [:]
     private(set) var isRefreshing = false
+    private(set) var isUpdatingAll = false
     private(set) var hasLoaded = false
     private(set) var catalogueNotice: String?
 
@@ -166,6 +167,14 @@ final class SkillsManager {
             for host in SkillHost.allCases where isOutdated(plugin, on: host) { count += 1 }
         }
     }
+
+    var installedPluginCount: Int {
+        plugins.count { plugin in
+            SkillHost.allCases.contains { installation(of: plugin, on: $0) != nil }
+        }
+    }
+
+    var lastRefresh: Date? { Preferences.skillsLastRefresh }
 
     func isAvailable(_ host: SkillHost) -> Bool {
         ProcessManager.resolve(host.command) != nil
@@ -302,6 +311,21 @@ final class SkillsManager {
             await refreshInstallations(for: host)
         } else {
             actionFailures[action] = result.failureMessage
+        }
+    }
+
+    func updateAll() async {
+        guard !isUpdatingAll, !isRefreshing else { return }
+        let updates = SkillHost.allCases.flatMap { host in
+            plugins.filter { isOutdated($0, on: host) }.map { ($0, host) }
+        }
+        guard !updates.isEmpty else { return }
+
+        isUpdatingAll = true
+        defer { isUpdatingAll = false }
+
+        for (plugin, host) in updates {
+            await update(plugin, on: host)
         }
     }
 
