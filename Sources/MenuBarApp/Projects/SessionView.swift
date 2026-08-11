@@ -134,11 +134,6 @@ struct SessionView: View {
     @State private var selectedProjectID: UUID?
     @State private var transcriptWindow = TranscriptWindow()
     @State private var transcriptPinnedToBottom = true
-    // Holds the session being renamed rather than a flag, so a draft can only ever be
-    // saved onto the session it was typed for.
-    @State private var renamingSessionID: UUID?
-    @State private var titleDraft = ""
-    @FocusState private var titleFieldFocused: Bool
 
     // Working tree totals for the header live in the shared cache and are refreshed
     // as tools finish, so the numbers track the run rather than only its end and are
@@ -236,17 +231,11 @@ struct SessionView: View {
                 if session.isTroubleshooting {
                     MonoChip(text: "TROUBLESHOOT", size: 9, tint: Theme.secret)
                 }
-                if renamingSessionID == session.id {
-                    titleField
-                } else {
-                    Text(session.title)
-                        .font(.serif(20, .semibold))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .changingName(session.title)
-                        .onTapGesture(count: 2) { beginRename(session) }
-                    renameButton(session)
-                }
+                Text(session.title)
+                    .font(.serif(20, .semibold))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .changingName(session.title)
                 MonoChip(text: stateChip(session), size: 9)
             }
 
@@ -270,53 +259,6 @@ struct SessionView: View {
         }
         .padding(.horizontal, 20)
         .headerBand()
-    }
-
-    // The title is the one thing in the header that belongs to the person rather than to
-    // the run, so it is editable in place: the field wears the title's own type and sits
-    // where the title sat, and the rest of the header holds still around it.
-    private var titleField: some View {
-        TextField("Session name", text: $titleDraft)
-            .textFieldStyle(.plain)
-            .font(.serif(20, .semibold))
-            .focused($titleFieldFocused)
-            .frame(minWidth: 180, idealWidth: 320, maxWidth: 420)
-            .padding(.horizontal, 8)
-            .frame(height: 30)
-            .background(RoundedRectangle(cornerRadius: 7).fill(Theme.field))
-            .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.border))
-            .onSubmit(commitRename)
-            .onExitCommand { renamingSessionID = nil }
-            // Clicking away is a commit rather than a discard: the words are typed, and
-            // losing them to a stray click is the worse surprise.
-            .onChange(of: titleFieldFocused) { _, focused in
-                if !focused { commitRename() }
-            }
-    }
-
-    private func renameButton(_ session: ChatSession) -> some View {
-        Button { beginRename(session) } label: {
-            Image(systemName: "pencil")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .frame(width: 20, height: 20)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .appTooltip("Rename session")
-        .accessibilityLabel("Rename session")
-    }
-
-    private func beginRename(_ session: ChatSession) {
-        titleDraft = session.title
-        renamingSessionID = session.id
-        titleFieldFocused = true
-    }
-
-    private func commitRename() {
-        guard let renaming = renamingSessionID else { return }
-        renamingSessionID = nil
-        store.renameSession(renaming, to: titleDraft)
     }
 
     // "RUNNING", "NEEDS YOU · 3m", "IDLE · 2h": the state and how long it has been in it.
