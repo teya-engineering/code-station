@@ -483,24 +483,28 @@ struct AppSidebar: View {
 
             if expanded, !sessions.isEmpty {
                 let visible = visibleWorkspaceSessions(workspace, sessions: sessions)
-                SessionRail(tint: Theme.workspaceTint) {
+                let tint = Theme.workspaceTint
+                SessionRail(tint: tint) {
                     ForEach(visible) { session in
                         if let lead = store.project(session.projectID) {
                             let busy = runner.state(session.id).isBusy
                             let finished = store.hasFinished(session.id)
                             let folders = store.workingDirectories(for: session)
-                            SessionCard(session: session,
-                                        selected: isSelected(session),
-                                        busy: busy,
-                                        needsInput: runner.question(session.id) != nil,
-                                        finished: finished,
-                                        activity: activitySummary(session, project: lead,
-                                                                  busy: busy, finished: finished),
-                                        added: session.summary.added,
-                                        removed: session.summary.removed,
-                                        branch: workspaceBranch(session),
-                                        uncommitted: folders.contains(where: workingTrees.isDirty),
-                                        onDelete: { confirmRemoveSession(session) })
+                            let selected = isSelected(session)
+                            SessionRailRow(tint: tint, selected: selected) {
+                                SessionCard(session: session,
+                                            selected: selected,
+                                            busy: busy,
+                                            needsInput: runner.question(session.id) != nil,
+                                            finished: finished,
+                                            activity: activitySummary(session, project: lead,
+                                                                      busy: busy, finished: finished),
+                                            added: session.summary.added,
+                                            removed: session.summary.removed,
+                                            branch: workspaceBranch(session),
+                                            uncommitted: folders.contains(where: workingTrees.isDirty),
+                                            onDelete: { confirmRemoveSession(session) })
+                            }
                                 .contentShape(Rectangle())
                                 .onTapGesture { store.selectSession(session.id) }
                                 .appContextMenu {
@@ -512,8 +516,10 @@ struct AppSidebar: View {
                     }
                     let hidden = sessions.count - visible.count
                     if hidden > 0 {
-                        SeeMoreCard(title: "See \(hidden) more…") {
-                            sessionVisibility.showAll(workspace.id)
+                        SessionRailRow(tint: tint, showsMarker: false) {
+                            SeeMoreCard(title: "See \(hidden) more…") {
+                                sessionVisibility.showAll(workspace.id)
+                            }
                         }
                     }
                 }
@@ -591,22 +597,26 @@ struct AppSidebar: View {
             // still carries its padding, which reads as the row shifting on every click.
             if expanded, !sessions.isEmpty {
                 let visible = visibleSessions(of: project, in: sessions)
-                SessionRail(tint: Theme.projectTint(for: project.name)) {
+                let tint = Theme.projectTint(for: project.name)
+                SessionRail(tint: tint) {
                     ForEach(visible) { session in
                         let busy = runner.state(session.id).isBusy
                         let finished = store.hasFinished(session.id)
-                        SessionCard(session: session,
-                                    selected: isSelected(session),
-                                    busy: busy,
-                                    needsInput: runner.question(session.id) != nil,
-                                    finished: finished,
-                                    activity: activitySummary(session, project: project,
-                                                              busy: busy, finished: finished),
-                                    added: session.summary.added,
-                                    removed: session.summary.removed,
-                                    branch: branch(session, project: project),
-                                    uncommitted: workingTrees.isDirty(folder(session, project: project)),
-                                    onDelete: { confirmRemoveSession(session) })
+                        let selected = isSelected(session)
+                        SessionRailRow(tint: tint, selected: selected) {
+                            SessionCard(session: session,
+                                        selected: selected,
+                                        busy: busy,
+                                        needsInput: runner.question(session.id) != nil,
+                                        finished: finished,
+                                        activity: activitySummary(session, project: project,
+                                                                  busy: busy, finished: finished),
+                                        added: session.summary.added,
+                                        removed: session.summary.removed,
+                                        branch: branch(session, project: project),
+                                        uncommitted: workingTrees.isDirty(folder(session, project: project)),
+                                        onDelete: { confirmRemoveSession(session) })
+                        }
                             .contentShape(Rectangle())
                             .onTapGesture {
                                 store.selectSession(session.id)
@@ -619,8 +629,10 @@ struct AppSidebar: View {
                     }
                     let hidden = sessions.count - visible.count
                     if hidden > 0 {
-                        SeeMoreCard(title: "See \(hidden) more…") {
-                            sessionVisibility.showAll(project.id)
+                        SessionRailRow(tint: tint, showsMarker: false) {
+                            SeeMoreCard(title: "See \(hidden) more…") {
+                                sessionVisibility.showAll(project.id)
+                            }
                         }
                     }
                 }
@@ -1279,24 +1291,51 @@ private struct SectionHeading: View {
     }
 }
 
-// The block of session cards under an open project or workspace. The line down its left
-// is the container's own colour, so a card two levels into a scrolling rail still says
-// which project it belongs to.
+// The block of session cards under an open project or workspace. The line is quiet enough
+// to group the cards, while the dots make each session's place in that group explicit.
 private struct SessionRail<Content: View>: View {
     let tint: Theme.ProjectTint
     @ViewBuilder let content: Content
 
     var body: some View {
-        HStack(spacing: 0) {
-            Rectangle()
-                .fill(tint.colour)
-                .frame(width: 1.5)
-            VStack(alignment: .leading, spacing: 5) { content }
-                .padding(.leading, 20)
-        }
+        VStack(alignment: .leading, spacing: 5) { content }
+            .background(alignment: .leading) {
+                Rectangle()
+                    .fill(tint.colour.opacity(0.42))
+                    .frame(width: 1.5)
+                    .padding(.leading, 5.25)
+                    .accessibilityHidden(true)
+            }
         .padding(.leading, 20)
         .padding(.top, 5)
         .padding(.bottom, 4)
+    }
+}
+
+// A dot sits on the rail beside the status line of each session. The selected dot uses
+// the project's darker ink so the rail and the card describe the same selection.
+private struct SessionRailRow<Content: View>: View {
+    let tint: Theme.ProjectTint
+    var showsMarker = true
+    var selected = false
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            ZStack {
+                if showsMarker {
+                    Circle()
+                        .fill(selected ? tint.ink : tint.colour.opacity(0.72))
+                }
+            }
+            .frame(width: 12, height: 8)
+            .padding(.top, 10)
+            .accessibilityHidden(true)
+
+            content
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
