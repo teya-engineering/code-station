@@ -1,11 +1,9 @@
 import SwiftUI
 
-// Everything a new task needs before it exists: what to call it, what it runs, and
-// whether it is meant to run once or over and over.
+// Everything a new task needs before it exists: what to call it and what it runs.
 struct NewTaskDraft {
     let name: String
     let prompt: String
-    let repeats: Bool
     let runNow: Bool
 }
 
@@ -18,7 +16,6 @@ struct NewTaskView: View {
 
     @State private var name = ""
     @State private var prompt = ""
-    @State private var repeats = true
     @FocusState private var nameFocused: Bool
 
     var body: some View {
@@ -34,7 +31,6 @@ struct NewTaskView: View {
 
                 nameField
                 promptField
-                modePicker
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(20)
@@ -70,21 +66,6 @@ struct NewTaskView: View {
                 .kerning(0.6)
                 .foregroundStyle(.tertiary)
             TaskPromptEditor(prompt: $prompt, minHeight: 96)
-        }
-    }
-
-    private var modePicker: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                ChoicePill(title: "Repeatable", selected: repeats) { repeats = true }
-                ChoicePill(title: "One-off", selected: !repeats) { repeats = false }
-            }
-            Text(repeats
-                 ? "The task keeps its Run button, and every run is a session of its own."
-                 : "The task runs once. After the first run the button retires, though the run history stays.")
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -153,7 +134,7 @@ struct NewTaskView: View {
 
     private func create(runNow: Bool) {
         guard canCreate, !runNow || canRun else { return }
-        onCreate(NewTaskDraft(name: name, prompt: prompt, repeats: repeats, runNow: runNow))
+        onCreate(NewTaskDraft(name: name, prompt: prompt, runNow: runNow))
         dismiss()
     }
 }

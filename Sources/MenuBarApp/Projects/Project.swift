@@ -1,10 +1,9 @@
 import Foundation
 
-// What a task does when it is run: the prompt handed to a fresh session, and whether
-// the task is meant to be run once or again and again. Only ad-hoc projects carry one.
+// What a task does when it is run: the prompt handed to a fresh session. Only ad-hoc
+// projects carry one.
 struct TaskSpec: Codable, Equatable {
     var prompt: String
-    var repeats: Bool
 }
 
 // A project is just a folder on disk. A session runs Claude Code either directly in
@@ -20,7 +19,7 @@ struct Project: Identifiable, Codable, Equatable {
     var path: String
     var kind: Kind
     // The saved prompt behind a task. Nil on normal projects, and on tasks created
-    // before prompts existed, which read as an empty one-off.
+    // before prompts existed, which read as an empty prompt.
     var task: TaskSpec?
 
     var url: URL { URL(fileURLWithPath: path) }

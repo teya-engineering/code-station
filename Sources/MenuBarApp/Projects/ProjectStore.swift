@@ -220,7 +220,7 @@ final class ProjectStore {
     }
 
     @discardableResult
-    func addTask(named name: String, prompt: String, repeats: Bool,
+    func addTask(named name: String, prompt: String,
                  in root: URL = AppPaths.support
                     .appendingPathComponent("ad-hoc-tasks", isDirectory: true))
         -> Result<Project, PersistenceFailure> {
@@ -239,8 +239,7 @@ final class ProjectStore {
         }
 
         let previousProjectID = selectedProjectID
-        let spec = TaskSpec(prompt: prompt.trimmingCharacters(in: .whitespacesAndNewlines),
-                            repeats: repeats)
+        let spec = TaskSpec(prompt: prompt.trimmingCharacters(in: .whitespacesAndNewlines))
         let project = Project(name: trimmed, path: directory.standardizedFileURL.path,
                               kind: .adHoc, task: spec)
         projects.append(project)
@@ -258,7 +257,7 @@ final class ProjectStore {
         return .success(project)
     }
 
-    // The prompt and mode can be reworked between runs; the folder and sessions stay.
+    // The prompt can be reworked between runs; the folder and sessions stay.
     func setTaskSpec(_ spec: TaskSpec, for projectID: UUID) {
         guard let i = projects.firstIndex(where: { $0.id == projectID }),
               projects[i].kind == .adHoc, projects[i].task != spec else { return }

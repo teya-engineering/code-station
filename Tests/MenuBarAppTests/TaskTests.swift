@@ -14,12 +14,11 @@ struct TaskTests {
 
         let project = try store.addTask(named: "  Release notes  ",
                                         prompt: "  Draft the release notes.  ",
-                                        repeats: true,
                                         in: tasksURL).get()
 
         #expect(project.name == "Release notes")
         #expect(project.kind == .adHoc)
-        #expect(project.task == TaskSpec(prompt: "Draft the release notes.", repeats: true))
+        #expect(project.task == TaskSpec(prompt: "Draft the release notes."))
         #expect(project.url.deletingLastPathComponent() == tasksURL)
         #expect(try FileManager.default.contentsOfDirectory(atPath: project.path).isEmpty)
         #expect(store.selectedProjectID == project.id)
@@ -32,7 +31,7 @@ struct TaskTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let store = ProjectStore(storeURL: root.appendingPathComponent("projects.json"))
 
-        let result = store.addTask(named: " \n ", prompt: "Do something", repeats: false,
+        let result = store.addTask(named: " \n ", prompt: "Do something",
                                    in: root.appendingPathComponent("tasks"))
 
         if case .success = result {
@@ -73,16 +72,16 @@ struct TaskTests {
         #expect(project.task == nil)
     }
 
-    @Test func reworksThePromptAndModeBetweenRuns() throws {
+    @Test func reworksThePromptBetweenRuns() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("conductor-task-tests-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }
         let storeURL = root.appendingPathComponent("projects.json")
         let store = ProjectStore(storeURL: storeURL)
-        let project = try store.addTask(named: "Sweep", prompt: "First idea", repeats: false,
+        let project = try store.addTask(named: "Sweep", prompt: "First idea",
                                         in: root.appendingPathComponent("tasks")).get()
 
-        let reworked = TaskSpec(prompt: "Second idea", repeats: true)
+        let reworked = TaskSpec(prompt: "Second idea")
         store.setTaskSpec(reworked, for: project.id)
 
         #expect(store.project(project.id)?.task == reworked)
@@ -98,16 +97,9 @@ struct TaskTests {
         let store = ProjectStore(storeURL: root.appendingPathComponent("projects.json"))
         let project = try #require(store.addProject(at: root.appendingPathComponent("repo")))
 
-        store.setTaskSpec(TaskSpec(prompt: "Not a task", repeats: true), for: project.id)
+        store.setTaskSpec(TaskSpec(prompt: "Not a task"), for: project.id)
 
         #expect(store.project(project.id)?.task == nil)
-    }
-
-    @Test func aOneOffRetiresAfterItsFirstRunWhileARepeatableDoesNot() {
-        #expect(TaskRun.canRun(repeats: false, hasRun: false))
-        #expect(!TaskRun.canRun(repeats: false, hasRun: true))
-        #expect(TaskRun.canRun(repeats: true, hasRun: false))
-        #expect(TaskRun.canRun(repeats: true, hasRun: true))
     }
 
     @Test func runningATaskStartsASessionWithTheSavedPrompt() throws {
@@ -115,7 +107,7 @@ struct TaskTests {
             .appendingPathComponent("conductor-task-tests-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }
         let store = ProjectStore(storeURL: root.appendingPathComponent("projects.json"))
-        let task = try store.addTask(named: "Sweep", prompt: "Do the thing.", repeats: true,
+        let task = try store.addTask(named: "Sweep", prompt: "Do the thing.",
                                      in: root.appendingPathComponent("tasks")).get()
         // No executables: the run records its prompt but no process can start.
         let runner = SessionRunner(paths: [:])
@@ -126,7 +118,6 @@ struct TaskTests {
         #expect(session.projectID == task.id)
         let transcript = store.transcript(of: session.id)
         #expect(transcript.contains { $0.role == .user && $0.text == "Do the thing." })
-        #expect(TaskRun.hasRun(task, store: store))
     }
 
     @Test func deletingATaskRemovesItsFolderFromDisk() throws {
@@ -134,7 +125,7 @@ struct TaskTests {
             .appendingPathComponent("conductor-task-tests-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }
         let store = ProjectStore(storeURL: root.appendingPathComponent("projects.json"))
-        let task = try store.addTask(named: "Sweep", prompt: "Do the thing.", repeats: false,
+        let task = try store.addTask(named: "Sweep", prompt: "Do the thing.",
                                      in: root.appendingPathComponent("tasks")).get()
         #expect(FileManager.default.fileExists(atPath: task.path))
 

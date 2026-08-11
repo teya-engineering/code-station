@@ -570,8 +570,7 @@ struct AppSidebar: View {
                 finishedCount: store.finishedCount(in: project.id),
                 cost: sessions.reduce(0) { $0 + ($1.usage?.costUSD ?? 0) },
                 clearableCount: sessions.count - running,
-                canRunTask: TaskRun.canRun(repeats: project.task?.repeats ?? false,
-                                           hasRun: !sessions.isEmpty) && running == 0,
+                canRunTask: running == 0,
                 isRenaming: renamingID == project.id,
                 onNewSession: { requestNewSession(in: project) },
                 onRunTask: { runTask(project) },
@@ -1187,7 +1186,7 @@ struct AppSidebar: View {
     // Creating a task lands on its screen rather than in a session: the task is the
     // thing that was made, and running it is its own click - unless it was asked for.
     private func createTask(_ draft: NewTaskDraft) {
-        switch store.addTask(named: draft.name, prompt: draft.prompt, repeats: draft.repeats) {
+        switch store.addTask(named: draft.name, prompt: draft.prompt) {
         case .success(let project):
             setExpanded(true, for: project.id)
             filterText = ""
@@ -1493,11 +1492,6 @@ private struct ProjectHeaderRow: View {
                 // since the pointer is here for the buttons.
                 ZStack(alignment: .trailing) {
                     HStack(spacing: 6) {
-                        if isTask, project.task?.repeats == true {
-                            Image(systemName: "repeat")
-                                .font(.system(size: 8.5, weight: .semibold))
-                                .foregroundStyle(.tertiary)
-                        }
                         if runningCount > 0 { RunningDot() }
                         Text("\(sessionCount)")
                             .font(.mono(10))
@@ -1515,7 +1509,8 @@ private struct ProjectHeaderRow: View {
                                     .appTooltip("Clear \(clearableCount) idle session\(clearableCount == 1 ? "" : "s")")
                             }
                             // A task is run with its saved prompt rather than opened
-                            // empty, and a spent one-off has nothing left to offer here.
+                            // empty. The button waits while a run is still working in
+                            // the task's folder.
                             if isTask {
                                 if canRunTask {
                                     RowAction(icon: "play.fill", title: "Run", action: onRunTask)
@@ -1553,10 +1548,6 @@ private struct ProjectHeaderRow: View {
         }
         if cost > 0 {
             rows.append(Tooltip.Row(label: "Spent", value: Money.short(cost)))
-        }
-        if isTask {
-            rows.append(Tooltip.Row(label: "Mode",
-                                    value: project.task?.repeats == true ? "Repeatable" : "One-off"))
         }
         return Tooltip(title: project.name,
                        subtitle: isTask ? nil : project.collapsedPath,

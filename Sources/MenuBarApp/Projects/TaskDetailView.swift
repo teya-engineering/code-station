@@ -1,9 +1,9 @@
 import AppKit
 import SwiftUI
 
-// One task: the prompt it runs, whether it runs once or repeatedly, and every run it has
-// had. A run is an ordinary session in the task's folder, so opening one takes over the
-// pane the same way any session does.
+// One task: the prompt it runs and every run it has had. A run is an ordinary session
+// in the task's folder, so opening one takes over the pane the same way any session
+// does.
 struct TaskDetailView: View {
     let projectID: UUID
 
@@ -59,7 +59,6 @@ struct TaskDetailView: View {
                 .font(.serif(20, .semibold))
                 .lineLimit(1)
                 .truncationMode(.tail)
-            MonoChip(text: repeats(task) ? "REPEATABLE" : "ONE-OFF")
 
             Spacer(minLength: 12)
 
@@ -73,17 +72,15 @@ struct TaskDetailView: View {
                 .disabled(store.isMissing(task))
                 .opacity(store.isMissing(task) ? 0.4 : 1)
 
-                if TaskRun.canRun(task, store: store) {
-                    ActionButton(title: "Run task", tone: .green, size: 12,
-                                 icon: "play.fill") {
-                        run(task)
-                    }
-                    .disabled(!runReady(task))
-                    .opacity(runReady(task) ? 1 : 0.45)
-                    .appTooltip(runBusy(task)
-                        ? "A run is still working in this folder."
-                        : "Start a fresh session with the saved prompt")
+                ActionButton(title: "Run task", tone: .green, size: 12,
+                             icon: "play.fill") {
+                    run(task)
                 }
+                .disabled(!runReady(task))
+                .opacity(runReady(task) ? 1 : 0.45)
+                .appTooltip(runBusy(task)
+                    ? "A run is still working in this folder."
+                    : "Start a fresh session with the saved prompt")
             }
             .fixedSize(horizontal: true, vertical: false)
             .layoutPriority(1)
@@ -109,7 +106,6 @@ struct TaskDetailView: View {
         return ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 promptCard(task)
-                if !repeats(task), !runs.isEmpty { alreadyRan(task) }
                 runList(task, runs: runs)
                 FooterStrip(title: "Runs as", detail: runDefaults) { EmptyView() }
             }
@@ -127,45 +123,15 @@ struct TaskDetailView: View {
 
             TaskPromptEditor(prompt: $prompt, minHeight: 110)
 
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 8) {
-                    ChoicePill(title: "Repeatable", selected: repeats(task)) {
-                        setRepeats(true, for: task)
-                    }
-                    ChoicePill(title: "One-off", selected: !repeats(task)) {
-                        setRepeats(false, for: task)
-                    }
-                }
-                Text(repeats(task)
-                     ? "Run it as often as you like. Every run starts a fresh session with this prompt."
-                     : "Meant to run once. After the first run the Run button retires; the history below stays.")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            Text("Run it as often as you like. Every run starts a fresh session with this prompt.")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 12).fill(Theme.card))
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.border))
-    }
-
-    // The retired button explains itself rather than disappearing without a word, and
-    // keeps a quiet way to run once more for the times "one-off" turned out to be twice.
-    private func alreadyRan(_ task: Project) -> some View {
-        HStack(spacing: 11) {
-            Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 13))
-                .foregroundStyle(Theme.accent)
-            Text("This one-off task has run.")
-                .font(.system(size: 12.5, weight: .semibold))
-            Spacer(minLength: 8)
-            InlineLink(title: "Run again") { run(task) }
-        }
-        .padding(.horizontal, 13)
-        .padding(.vertical, 10)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.sunken))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
     }
 
     private func runList(_ task: Project, runs: [ChatSession]) -> some View {
@@ -243,8 +209,6 @@ struct TaskDetailView: View {
 
     // MARK: - Reading and changing the task
 
-    private func repeats(_ task: Project) -> Bool { task.task?.repeats ?? false }
-
     // Two runs in the same folder would edit the same files under each other, so the
     // button waits for the previous run to finish.
     private func runBusy(_ task: Project) -> Bool {
@@ -257,11 +221,7 @@ struct TaskDetailView: View {
 
     private func savePrompt(_ task: Project) {
         guard promptLoaded else { return }
-        store.setTaskSpec(TaskSpec(prompt: prompt, repeats: repeats(task)), for: task.id)
-    }
-
-    private func setRepeats(_ repeats: Bool, for task: Project) {
-        store.setTaskSpec(TaskSpec(prompt: prompt, repeats: repeats), for: task.id)
+        store.setTaskSpec(TaskSpec(prompt: prompt), for: task.id)
     }
 
     private func run(_ task: Project) {
