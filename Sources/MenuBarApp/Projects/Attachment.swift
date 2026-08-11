@@ -175,7 +175,7 @@ struct AttachmentChip: View {
                         .contentShape(RoundedRectangle(cornerRadius: 4))
                 }
                 .buttonStyle(.plain)
-                .help("View full image")
+                .appTooltip("View full image")
                 .accessibilityLabel("View \(url.lastPathComponent)")
             } else {
                 Image(systemName: missing ? "questionmark.square.dashed" : "doc")
@@ -184,11 +184,15 @@ struct AttachmentChip: View {
                     .frame(width: 22, height: 22)
             }
 
+            // The name is what gets truncated, so it is also what answers where the file
+            // came from. The hint sits on the name rather than on the whole pill, so it
+            // does not fight the buttons on either side of it for the pointer.
             Text(url.lastPathComponent)
                 .font(.system(size: 11, weight: .medium))
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .foregroundStyle(missing ? Color.secondary : Color.primary)
+                .appTooltip { Tooltip(title: url.lastPathComponent, subtitle: url.path) }
 
             if let onRemove {
                 Button(action: onRemove) {
@@ -197,7 +201,7 @@ struct AttachmentChip: View {
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
-                .help("Remove")
+                .appTooltip("Remove")
             }
         }
         .padding(.leading, 5)
@@ -206,7 +210,6 @@ struct AttachmentChip: View {
         .background(RoundedRectangle(cornerRadius: 8).fill(Theme.card))
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
         .frame(maxWidth: 220)
-        .help(url.path)
         .task(id: url) {
             let thumbnail = await Task.detached(priority: .utility) {
                 Self.thumbnail(url)

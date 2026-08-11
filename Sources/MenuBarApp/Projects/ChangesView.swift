@@ -101,7 +101,7 @@ struct ChangesView: View {
             .buttonStyle(.plain)
             .foregroundStyle(Theme.accent)
             .disabled(busy)
-            .help("Refresh")
+            .appTooltip("Refresh")
         }
         .padding(.horizontal, 20)
         .headerBand(height: Theme.subHeaderHeight)
@@ -119,7 +119,7 @@ struct ChangesView: View {
         }
         .foregroundStyle(.primary)
         .appMenu { branchMenu(snapshot) }
-        .help("Switch branch")
+        .appTooltip("Switch branch")
     }
 
     private func branchMenu(_ snapshot: GitSnapshot) -> [MenuEntry] {
@@ -553,6 +553,6 @@ private struct StatusChip: View {
             .foregroundStyle(color)
             .frame(width: 18, height: 18)
             .background(RoundedRectangle(cornerRadius: 5).fill(color.opacity(0.16)))
-            .help(kind.label)
+            .appTooltip(kind.label)
     }
 }

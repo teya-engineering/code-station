@@ -56,7 +56,7 @@ struct TerminalDrawer: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help("New shell")
+            .appTooltip("New shell")
 
             Spacer(minLength: 12)
 
@@ -182,6 +182,6 @@ struct TerminalToggle: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(isOpen ? "Hide the terminal (^`)" : "Show the terminal (^`)")
+        .appTooltip(isOpen ? "Hide the terminal (^`)" : "Show the terminal (^`)")
     }
 }

@@ -21,9 +21,19 @@ struct Tooltip {
     var note: String?
     var rows: [Row] = []
 
-    // A hint that is only a few words needs no card around it, so it is drawn as a
-    // single line that hugs its text instead of the fixed-width panel.
-    var isCompact: Bool { subtitle == nil && note == nil && rows.isEmpty }
+    // A hint that is only words needs no panel around it, so it is drawn as a plain line
+    // instead.
+    var isPlain: Bool { subtitle == nil && note == nil && rows.isEmpty }
+
+    // A whole sentence on one line would run off the side of the window, so past a few
+    // words it wraps inside a fixed width rather than hugging its text.
+    var wraps: Bool { title.count > 44 }
+
+    // Some hints only have something to say part of the time. Asking for an empty one
+    // shows nothing rather than a blank card.
+    var isEmpty: Bool {
+        title.isEmpty && subtitle == nil && note == nil && rows.isEmpty
+    }
 }
 
 // Holds whatever hint is up, along with the row it belongs to. It lives at the top of
@@ -116,7 +126,9 @@ private struct AppTooltip: ViewModifier {
                 pending = Task {
                     try? await Task.sleep(for: Self.delay)
                     guard !Task.isCancelled, let frame = anchor.frame() else { return }
-                    presenter.show(tooltip(), from: frame, owner: id)
+                    let tooltip = tooltip()
+                    guard !tooltip.isEmpty else { return }
+                    presenter.show(tooltip, from: frame, owner: id)
                 }
             }
             .onDisappear {
@@ -205,10 +217,11 @@ struct TooltipHost: View {
     }
 
     @ViewBuilder private func card(_ tooltip: Tooltip) -> some View {
-        if tooltip.isCompact {
+        if tooltip.isPlain {
             Text(tooltip.title)
                 .font(.system(size: 12))
-                .fixedSize()
+                .fixedSize(horizontal: !tooltip.wraps, vertical: true)
+                .frame(maxWidth: tooltip.wraps ? Self.width : nil, alignment: .leading)
                 .padding(.horizontal, 9)
                 .padding(.vertical, 5)
                 .background(RoundedRectangle(cornerRadius: 8).fill(Theme.card))

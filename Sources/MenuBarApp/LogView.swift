@@ -43,7 +43,7 @@ struct LogView: View {
             Toggle("Follow", isOn: $follow)
                 .toggleStyle(.appSwitch)
                 .font(.system(size: 12))
-                .help("Stay at the newest line as it is written")
+                .appTooltip("Stay at the newest line as it is written")
         }
         .padding(.horizontal, 20)
         .headerBand()

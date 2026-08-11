@@ -56,7 +56,7 @@ struct DockerView: View {
                     .contentShape(RoundedRectangle(cornerRadius: 8))
             }
             .buttonStyle(.plain)
-            .help("Refresh all Docker resources")
+            .appTooltip("Refresh all Docker resources")
         }
         .padding(.horizontal, 20)
         .headerBand()
@@ -235,7 +235,7 @@ struct DockerView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(stopping)
-                .help("Stop every running container in this compose project")
+                .appTooltip("Stop every running container in this compose project")
             }
         }
         .padding(.horizontal, 2)
@@ -521,7 +521,7 @@ private struct DockerDeleteButton: View {
         }
         .buttonStyle(.plain)
         .disabled(deleting)
-        .help("Delete this Docker \(resource)")
+        .appTooltip("Delete this Docker \(resource)")
     }
 }
 

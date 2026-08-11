@@ -392,7 +392,7 @@ struct SessionView: View {
                 .contentShape(RoundedRectangle(cornerRadius: 8))
             }
             .buttonStyle(.plain)
-            .help("Open Changes")
+            .appTooltip("Open Changes")
         }
     }
 
@@ -802,7 +802,8 @@ struct SessionView: View {
                             .background(Circle().fill(busy ? Theme.accentFill : Color.black.opacity(0.88)))
                     }
                     .buttonStyle(.plain)
-                    .help(busy ? "Queue this for when the turn ends" : "Send (shift-return for a new line)")
+                    .appTooltip(busy ? "Queue this for when the turn ends"
+                                     : "Send (shift-return for a new line)")
                     .transition(.opacity)
                 }
 
@@ -812,7 +813,7 @@ struct SessionView: View {
                         .foregroundStyle(.secondary)
                         .frame(width: 32, height: 32)
                         .background(Circle().fill(Theme.field))
-                        .help("Stopping this turn")
+                        .appTooltip("Stopping this turn")
                 } else if busy {
                     Button {
                         runner.stop(sessionID, store: store)
@@ -824,7 +825,7 @@ struct SessionView: View {
                             .background(Circle().fill(Theme.deletion))
                     }
                     .buttonStyle(.plain)
-                    .help("Stop this turn")
+                    .appTooltip("Stop this turn")
                 } else if !canSend {
                     // The button keeps its place so the field does not change width as
                     // soon as there is something to send.
@@ -1002,7 +1003,7 @@ struct SessionView: View {
             .font(.system(size: 11, weight: accent ? .semibold : .regular))
             .foregroundStyle(accent ? Theme.accent : Color.secondary)
             .fixedSize()
-            .help(help)
+            .appTooltip(help)
     }
 
     // The first row of every menu, naming what following the default currently means.
@@ -1044,7 +1045,7 @@ struct SessionView: View {
             }
             return entries
         }
-        .help(overridden ? "\(help) Overridden for this session." : help)
+        .appTooltip(overridden ? "\(help) Overridden for this session." : help)
     }
 
     // Where the work went. It appears the moment the agent opens one, and it is the only
@@ -1061,12 +1062,16 @@ struct SessionView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(pullRequest.url)
+        .appTooltip {
+            Tooltip(title: "Pull request #\(pullRequest.number)",
+                    subtitle: pullRequest.url,
+                    note: "Opens in the browser.")
+        }
     }
 
     // The branch the working tree is on, which for a session without a worktree is the
     // branch the agent is committing to. The snapshot is nil until git has answered;
-    // only the help text depends on it.
+    // only the hint depends on it.
     private func branchTag(branch: String, repository: GitSnapshot?) -> some View {
         Button { tab = .changes } label: {
             HStack(spacing: 5) {
@@ -1080,12 +1085,12 @@ struct SessionView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help({
-            guard let repository else { return "Opens Changes." }
-            return repository.files.isEmpty
-                ? "The working tree is clean. Opens Changes."
-                : "Uncommitted work on this branch. Opens Changes."
-        }())
+        .appTooltip {
+            guard let repository else { return Tooltip(title: "Opens Changes.") }
+            return Tooltip(title: repository.files.isEmpty
+                           ? "The working tree is clean. Opens Changes."
+                           : "Uncommitted work on this branch. Opens Changes.")
+        }
     }
 
     // The bar is the first thing to give up when the row runs out of room: it restates
@@ -1195,7 +1200,7 @@ struct SessionView: View {
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
-                        .help("Take it back into the composer to rework")
+                        .appTooltip("Take it back into the composer to rework")
                         Button {
                             runner.unqueue(item.id, sessionID: sessionID)
                         } label: {
@@ -1206,7 +1211,7 @@ struct SessionView: View {
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
-                        .help("Remove from the queue")
+                        .appTooltip("Remove from the queue")
                     }
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
@@ -1351,9 +1356,13 @@ private struct WorkingRow: View {
             }
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: word)
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: avatar?.id)
-            .help(quiet >= Self.concerningAfter && !waitingOnTasks
-                  ? "Claude Code has sent nothing for a while. The log in Settings says what it last did."
-                  : "")
+            // Only worth a hint once the silence is long enough to worry about; the
+            // empty one shows nothing.
+            .appTooltip {
+                guard quiet >= Self.concerningAfter, !waitingOnTasks else { return Tooltip(title: "") }
+                return Tooltip(title: "Claude Code has sent nothing for a while.",
+                               note: "The log in Settings says what it last did.")
+            }
             .onAppear { words = WorkingWords(personality: personality) }
             .onChange(of: personality) { _, personality in
                 words = WorkingWords(personality: personality)

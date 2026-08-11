@@ -63,7 +63,7 @@ struct ConfigManagerView: View {
                     .font(.system(size: 15, weight: .medium))
             }
             .buttonStyle(.plain)
-            .help("Reload from disk")
+            .appTooltip("Reload from disk")
 
             HStack(spacing: 6) {
                 Text("MCP Servers")

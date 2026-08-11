@@ -82,7 +82,7 @@ struct ExplorerView: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(Theme.accent)
-            .help("Refresh")
+            .appTooltip("Refresh")
         }
         .padding(.horizontal, 20)
         .headerBand(height: Theme.subHeaderHeight)
@@ -402,7 +402,7 @@ struct ExplorerView: View {
         }
         .buttonStyle(.plain)
         .disabled(disabled)
-        .help(help)
+        .appTooltip(help)
         .accessibilityLabel(help)
     }
 
