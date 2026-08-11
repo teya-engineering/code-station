@@ -519,6 +519,7 @@ struct SessionView: View {
                 scrollToBottom(proxy, animated: old.lines != new.lines)
             }
             .onChange(of: session.messages.last?.tools.count ?? 0) { scrollToBottom(proxy, animated: true) }
+            .onChange(of: session.messages.last?.thinking?.count ?? 0) { scrollToBottom(proxy, animated: true) }
             .onChange(of: state) { scrollToBottom(proxy, animated: true) }
             .onChange(of: runner.question(sessionID)?.id) { scrollToBottom(proxy, animated: true) }
         }
@@ -684,6 +685,7 @@ struct SessionView: View {
     private struct TranscriptShape: Equatable {
         let messages: Int
         let tools: Int
+        let thoughts: Int
         let lines: Int
         let state: SessionState
         let question: String?
@@ -698,6 +700,7 @@ struct SessionView: View {
                                  textShape: StreamingTextShape) -> TranscriptShape {
         TranscriptShape(messages: session.messages.count,
                         tools: session.messages.last?.tools.count ?? 0,
+                        thoughts: session.messages.last?.thinking?.count ?? 0,
                         lines: textShape.lines,
                         state: state,
                         question: runner.question(sessionID)?.id)

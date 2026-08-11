@@ -208,16 +208,30 @@ struct ToolNode: Identifiable {
     }
 }
 
-// A run of the turn laid out in the order it happened: some text Claude wrote, or the
-// calls it made at that point. Calls that started at the same point ran as one round,
-// so they stay together and are drawn as a single spine.
+// One stretch of the model's reasoning, kept apart from what it said out loud. The
+// offsets record where in the turn it happened, the same way a tool call carries its
+// text offset, so the turn can be read back in the order it ran.
+struct ThinkingSegment: Identifiable, Codable, Equatable, Sendable {
+    var id: UUID = UUID()
+    var text: String
+    // How much of the turn's text had been written when this arrived.
+    var textOffset = 0
+    // How many calls the turn had made when this arrived. Text alone cannot place a
+    // thought between two rounds of calls that spoke no words between them.
+    var toolOffset = 0
+}
+
+// A run of the turn laid out in the order it happened: some text Claude wrote, a stretch
+// of thinking, or the calls it made at that point. Calls that started at the same point
+// ran as one round, so they stay together and are drawn as a single spine.
 enum MessageBlock: Identifiable {
     case prose(id: Int, text: String)
+    case thinking(id: Int, text: String)
     case tools(id: Int, [ToolNode])
 
     var id: Int {
         switch self {
-        case .prose(let id, _), .tools(let id, _): return id
+        case .prose(let id, _), .thinking(let id, _), .tools(let id, _): return id
         }
     }
 }
@@ -231,11 +245,15 @@ struct ChatMessage: Identifiable, Codable, Equatable, Sendable {
     // Paths of the files sent with a user turn. Optional so conversations written before
     // the app could take attachments still decode.
     var attachments: [String]?
+    // The model's reasoning, in the order it happened. Optional so conversations written
+    // before the app kept thinking still decode.
+    var thinking: [ThinkingSegment]?
 
     var isEmpty: Bool {
         text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && tools.isEmpty
             && (attachments?.isEmpty ?? true)
+            && (thinking?.isEmpty ?? true)
     }
 
     // The turn's calls read as a tree: a call an agent made hangs under the call that
@@ -264,42 +282,63 @@ struct ChatMessage: Identifiable, Codable, Equatable, Sendable {
         return roots.map(node)
     }
 
-    // The turn put back together in the order it came in. The stream gives text and
-    // calls as separate events and the app stores them apart, so this is what stops a
+    // The turn put back together in the order it came in. The stream gives text, thinking
+    // and calls as separate events and the app stores them apart, so this is what stops a
     // call the model made after speaking from being drawn above what it said.
     var blocks: [MessageBlock] {
         var blocks: [MessageBlock] = []
-        // Where in the text the last block ended. Calls arrive in order, so this only
-        // ever moves forwards - which is what lets the walk stay linear: the index
-        // advances from where it is instead of being measured from the start each time.
+        // Where in the text the last block ended. Calls and thoughts arrive in order, so
+        // this only ever moves forwards - which is what lets the walk stay linear: the
+        // index advances from where it is instead of being measured from the start.
         var cursor = 0
         var cursorIndex = text.startIndex
         let length = text.count
-        var round: [ToolNode] = []
 
-        func closeRound() {
-            guard let first = round.first?.tool else { return }
-            let end = min(max(first.textOffset ?? 0, cursor), length)
-            if end > cursor {
-                let endIndex = text.index(cursorIndex, offsetBy: end - cursor)
-                blocks.append(.prose(id: blocks.count, text: String(text[cursorIndex..<endIndex])))
-                cursor = end
-                cursorIndex = endIndex
-            }
-            blocks.append(.tools(id: blocks.count, round))
-            round = []
+        func emitProse(upTo offset: Int) {
+            let end = min(max(offset, cursor), length)
+            guard end > cursor else { return }
+            let endIndex = text.index(cursorIndex, offsetBy: end - cursor)
+            blocks.append(.prose(id: blocks.count, text: String(text[cursorIndex..<endIndex])))
+            cursor = end
+            cursorIndex = endIndex
         }
 
         // Only the calls the main loop made set the shape of the turn. What ran inside
         // an agent is drawn under the call that started it, wherever that call sits.
+        // Calls that started at the same point ran as one round.
+        var rounds: [[ToolNode]] = []
         for node in toolTree {
-            if let previous = round.first?.tool,
-               (previous.textOffset ?? 0) != (node.tool.textOffset ?? 0) {
-                closeRound()
+            if let previous = rounds.last?.first?.tool,
+               (previous.textOffset ?? 0) == (node.tool.textOffset ?? 0) {
+                rounds[rounds.count - 1].append(node)
+            } else {
+                rounds.append([node])
             }
-            round.append(node)
         }
-        closeRound()
+
+        // Both lists are already in the order they happened, so this is a plain merge.
+        // A thought that arrived before a round's first call goes ahead of the round.
+        var thoughts = ArraySlice(thinking ?? [])
+        func emitThoughts(beforeText textOffset: Int, tool toolOrder: Int) {
+            while let thought = thoughts.first,
+                  thought.textOffset < textOffset
+                    || (thought.textOffset == textOffset && thought.toolOffset <= toolOrder) {
+                emitProse(upTo: thought.textOffset)
+                blocks.append(.thinking(id: blocks.count, text: thought.text))
+                thoughts.removeFirst()
+            }
+        }
+
+        for round in rounds {
+            guard let first = round.first else { continue }
+            emitThoughts(beforeText: first.tool.textOffset ?? 0, tool: first.order)
+            emitProse(upTo: first.tool.textOffset ?? 0)
+            blocks.append(.tools(id: blocks.count, round))
+        }
+        for thought in thoughts {
+            emitProse(upTo: thought.textOffset)
+            blocks.append(.thinking(id: blocks.count, text: thought.text))
+        }
 
         if cursor < length {
             blocks.append(.prose(id: blocks.count, text: String(text[cursorIndex...])))

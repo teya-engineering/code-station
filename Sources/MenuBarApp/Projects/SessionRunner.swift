@@ -818,6 +818,18 @@ final class SessionRunner {
                     message.text += text
                 }
 
+            case .thinking(let text):
+                setState(.streaming, for: sessionID)
+                freshReply(turn, sessionID: sessionID, store: store)
+                store.updateMessage(turn.messageID, in: sessionID) { message in
+                    // Stamped the same way a tool call is: only the message being built
+                    // knows how far the turn had come when the thought arrived.
+                    var thought = ThinkingSegment(text: text)
+                    thought.textOffset = message.text.count
+                    thought.toolOffset = message.tools.count
+                    message.thinking = (message.thinking ?? []) + [thought]
+                }
+
             case .agentText(let parentID, let text):
                 setState(.streaming, for: sessionID)
                 store.updateMessage(turn.messageID, in: sessionID) { message in

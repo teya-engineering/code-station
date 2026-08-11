@@ -1,11 +1,14 @@
 import Foundation
 
 // One meaningful thing the Claude Code CLI said on its stdout stream. The CLI emits far
-// more than this (rate limits, token counters, session state, thinking blocks) and adds
-// new kinds over time, so anything unrecognised is dropped instead of failing the turn.
+// more than this (rate limits, token counters, session state) and adds new kinds over
+// time, so anything unrecognised is dropped instead of failing the turn.
 enum StreamEvent: Sendable {
     case initialized(claudeSessionID: String)
     case text(String)
+    // What the model worked out to itself before answering. It is part of the turn but
+    // not of the answer, so it is kept apart from the text.
+    case thinking(String)
     // Something an agent said while working, named by the call that started it. It is
     // not part of the conversation - the agent reports back through its result - so it
     // is only worth the one line that says the agent is still going.
@@ -45,6 +48,8 @@ extension StreamEvent {
             "initialized"
         case .text(let text):
             "text bytes=\(text.utf8.count)"
+        case .thinking(let text):
+            "thinking bytes=\(text.utf8.count)"
         case .agentText(let parentID, let text):
             "agent text parent=\(parentID) bytes=\(text.utf8.count)"
         case .toolUse(let tool):
@@ -213,6 +218,12 @@ extension StreamEvent {
             guard let text = block["text"] as? String, !text.isEmpty else { return nil }
             guard let parentID else { return .text(text) }
             return .agentText(parentID: parentID, text: text)
+        case "thinking":
+            // An agent's thinking stays with the agent: only its report comes back to
+            // the conversation. Redacted thinking arrives encrypted and is not shown.
+            guard parentID == nil, let text = block["thinking"] as? String,
+                  !text.isEmpty else { return nil }
+            return .thinking(text)
         case "tool_use":
             guard let id = block["id"] as? String, let name = block["name"] as? String else { return nil }
             return .toolUse(ToolUse(id: id, name: name, input: pretty(block["input"]),
