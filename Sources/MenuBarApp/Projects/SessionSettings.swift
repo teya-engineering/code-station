@@ -257,10 +257,13 @@ struct SessionUsage: Codable, Equatable {
         if let model = turn.model { self.model = model }
     }
 
-    mutating func noteContext(_ tokens: Int, from agent: AgentKind) {
+    mutating func noteContext(_ tokens: Int, contextWindow: Int?, model: String?,
+                              from agent: AgentKind) {
         guard tokens > 0 else { return }
         beginReport(from: agent)
         contextTokens = tokens
+        if let contextWindow, contextWindow > 0 { self.contextWindow = contextWindow }
+        if let model, !model.isEmpty { self.model = model }
     }
 
     func model(for agent: AgentKind) -> String? {

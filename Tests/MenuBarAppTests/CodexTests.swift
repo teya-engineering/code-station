@@ -320,6 +320,37 @@ struct CodexTests {
         }
     }
 
+    @Test func readsTheLatestContextFromACodexRollout() async throws {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("codex-context-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let folder = home.appendingPathComponent("sessions/2026/08/11", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let threadID = "019ff016-7f30-7330-a72a-eea8f3984538"
+        let rollout = folder.appendingPathComponent("rollout-2026-08-11T10-10-34-\(threadID).jsonl")
+        let contents = """
+        {"type":"turn_context","payload":{"model":"gpt-5.6-terra"}}
+        {"type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":18000},"model_context_window":258400}}}
+        not json
+        {"type":"turn_context","payload":{"model":"gpt-5.6-sol"}}
+        {"type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":20970},"model_context_window":258400}}}
+        """
+        try Data(contents.utf8).write(to: rollout)
+
+        let snapshot = await CodexContextReader(codexHome: home).read(threadID: threadID)
+
+        #expect(snapshot == CodexContextSnapshot(inputTokens: 20_970,
+                                                 contextWindow: 258_400,
+                                                 model: "gpt-5.6-sol"))
+    }
+
+    @Test func codexHomeHonoursTheCLIEnvironment() {
+        let configured = CodexContextReader.defaultHome(environment: [
+            "CODEX_HOME": "/tmp/another-codex-home",
+        ])
+        #expect(configured.path == "/tmp/another-codex-home")
+    }
+
     @Test func codexReadsCurrentAccountUsage() {
         let checkedAt = Date(timeIntervalSince1970: 1_786_202_880)
         let usage = CodexUsage(response: [

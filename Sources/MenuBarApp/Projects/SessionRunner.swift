@@ -53,6 +53,7 @@ final class SessionRunner {
 
     @ObservationIgnored private let paths: [AgentKind: String]
     @ObservationIgnored private let configs: ConfigStore?
+    @ObservationIgnored private let codexContextReader = CodexContextReader()
 
     // How Claude Code says it no longer holds the conversation we asked to resume.
     private static let lostConversation = "No conversation found with session ID"
@@ -86,6 +87,12 @@ final class SessionRunner {
     func runningTool(_ sessionID: UUID) -> ToolUse? { runningTools[sessionID]?.last }
 
     func avatarSequence(_ sessionID: UUID) -> Int? { turns[sessionID]?.avatarSequence }
+
+    func refreshContext(_ sessionID: UUID, store: ProjectStore) {
+        guard let session = store.session(sessionID), session.agent == .codex,
+              let threadID = session.codexSessionID else { return }
+        refreshCodexContext(threadID: threadID, sessionID: sessionID, store: store)
+    }
 
     private func setState(_ state: SessionState, for sessionID: UUID) {
         guard states[sessionID] != state else { return }
@@ -801,6 +808,7 @@ final class SessionRunner {
             case .initialized(let claudeSessionID):
                 // Saved right away, before the turn can fail: this id is what resuming
                 // needs, so losing it would strand the conversation.
+                turn.agentSessionID = claudeSessionID
                 store.setAgentSessionID(claudeSessionID, agent: turn.agent, for: sessionID)
 
             case .text(let text):
@@ -878,9 +886,15 @@ final class SessionRunner {
                 store.recordUsage(Self.grown(totals, since: turn.recordedUsage),
                                   from: turn.agent, for: sessionID)
                 turn.recordedUsage = totals
+                if turn.agent == .codex,
+                   let threadID = turn.agentSessionID
+                    ?? store.session(sessionID)?.agentSessionID(for: .codex) {
+                    refreshCodexContext(threadID: threadID, sessionID: sessionID, store: store)
+                }
 
             case .context(let tokens):
-                store.recordContext(tokens, from: turn.agent, for: sessionID)
+                store.recordContext(tokens, contextWindow: nil, model: nil,
+                                    from: turn.agent, for: sessionID)
 
             case .backgroundTasks(let ids):
                 turn.pendingTasks = Set(ids)
@@ -927,6 +941,17 @@ final class SessionRunner {
         }
         if batch.stderrClosed {
             pipeClosed(sessionID, token: token, stdout: false, store: store)
+        }
+    }
+
+    private func refreshCodexContext(threadID: String, sessionID: UUID, store: ProjectStore) {
+        Task { [codexContextReader] in
+            guard let snapshot = await codexContextReader.read(threadID: threadID),
+                  store.session(sessionID)?.codexSessionID == threadID else { return }
+            store.recordContext(snapshot.inputTokens,
+                                contextWindow: snapshot.contextWindow,
+                                model: snapshot.model,
+                                from: .codex, for: sessionID)
         }
     }
 
@@ -1129,6 +1154,7 @@ final class SessionRunner {
         let resumed: Bool
         let canRetryWithoutResume: Bool
         let mcpConfigURL: URL?
+        var agentSessionID: String?
         var stderr = ""
         var failure: String?
         var stopRequested = false

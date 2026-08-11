@@ -185,6 +185,7 @@ struct SessionView: View {
             .task(id: sessionID) {
                 selectedProjectID = session.projectID
                 refreshStats(workingDirectories)
+                runner.refreshContext(sessionID, store: store)
                 store.findPullRequest(in: sessionID)
             }
             .onChange(of: completedToolCount) {

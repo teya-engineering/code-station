@@ -199,11 +199,11 @@ struct SessionSettingsTests {
         usage.add(TurnUsage(costUSD: 0.1, inputTokens: 10, outputTokens: 5,
                             cacheReadTokens: 100, cacheWriteTokens: 20,
                             contextWindow: 200_000, model: "claude-sonnet-5"), from: .claudeCode)
-        usage.noteContext(130, from: .claudeCode)
+        usage.noteContext(130, contextWindow: nil, model: nil, from: .claudeCode)
         usage.add(TurnUsage(costUSD: 0.2, inputTokens: 4, outputTokens: 7,
                             cacheReadTokens: 400, cacheWriteTokens: 0,
                             contextWindow: 200_000, model: "claude-sonnet-5"), from: .claudeCode)
-        usage.noteContext(404, from: .claudeCode)
+        usage.noteContext(404, contextWindow: nil, model: nil, from: .claudeCode)
 
         #expect(usage.turns == 2)
         #expect(abs(usage.costUSD - 0.3) < 0.0001)
@@ -225,12 +225,24 @@ struct SessionSettingsTests {
     @Test func keepsTheLastModelAndContextWithTheAgentThatReportedThem() {
         var usage = SessionUsage()
         usage.add(TurnUsage(contextWindow: 1_000_000, model: "claude-fable-5"), from: .claudeCode)
-        usage.noteContext(190_700, from: .claudeCode)
+        usage.noteContext(190_700, contextWindow: nil, model: nil, from: .claudeCode)
 
         #expect(usage.model(for: .claudeCode) == "claude-fable-5")
         #expect(usage.model(for: .codex) == nil)
         #expect(abs((usage.contextFraction(for: .claudeCode) ?? 0) - 0.1907) < 0.000001)
         #expect(usage.contextFraction(for: .codex) == nil)
+    }
+
+    @Test func aContextSnapshotCanSupplyTheModelWindow() {
+        var usage = SessionUsage()
+        usage.add(TurnUsage(inputTokens: 3_000, outputTokens: 200), from: .codex)
+        usage.noteContext(20_970, contextWindow: 258_400,
+                          model: "gpt-5.6-sol", from: .codex)
+
+        #expect(usage.contextTokens == 20_970)
+        #expect(usage.contextWindow == 258_400)
+        #expect(usage.model(for: .codex) == "gpt-5.6-sol")
+        #expect(abs((usage.contextFraction(for: .codex) ?? 0) - 20_970.0 / 258_400.0) < 0.000001)
     }
 
     // MARK: - Reading the context off a message

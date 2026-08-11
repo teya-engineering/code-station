@@ -532,10 +532,11 @@ final class ProjectStore {
         scheduleIndexSave()
     }
 
-    func recordContext(_ tokens: Int, from agent: AgentKind, for sessionID: UUID) {
+    func recordContext(_ tokens: Int, contextWindow: Int?, model: String?,
+                       from agent: AgentKind, for sessionID: UUID) {
         guard let i = index(sessionID) else { return }
         var usage = sessions[i].usage ?? SessionUsage()
-        usage.noteContext(tokens, from: agent)
+        usage.noteContext(tokens, contextWindow: contextWindow, model: model, from: agent)
         sessions[i].usage = usage
         publishSidebarSessions()
         scheduleIndexSave()
