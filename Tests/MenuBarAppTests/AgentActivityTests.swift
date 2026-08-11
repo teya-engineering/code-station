@@ -79,6 +79,42 @@ struct AgentActivityTests {
         #expect(tree[0].agentCount == 2)
     }
 
+    // An agent that hands its work on again is still one more agent at work, so it is
+    // counted as deep as the calls it made are.
+    @Test func countsAnAgentThatAnotherAgentStarted() throws {
+        let tree = message([call("w", name: "Workflow"),
+                            call("a1", name: "Agent", parent: "w"),
+                            call("a2", name: "Agent", parent: "a1"),
+                            call("b", parent: "a2")]).toolTree
+
+        #expect(tree[0].agentCount == 2)
+    }
+
+    // An agent sent to the background reports its own result at once and keeps working,
+    // so a call still in flight can sit under one that has already finished.
+    @Test func seesWorkStillRunningUnderAFinishedCall() throws {
+        let tree = message([call("a", name: "Agent", result: "started"),
+                            call("b", parent: "a", result: nil)]).toolTree
+
+        #expect(tree[0].tool.isRunning == false)
+        #expect(tree[0].hasRunning)
+    }
+
+    @Test func reportsNothingRunningOnceEveryCallIsBack() throws {
+        let tree = message([call("a", name: "Agent"), call("b", parent: "a")]).toolTree
+
+        #expect(!tree[0].hasRunning)
+    }
+
+    // A failure deep inside a fan-out is the one thing a folded block has to say out loud.
+    @Test func seesAFailureAnywhereInsideAFanOut() throws {
+        var failed = call("b", parent: "a")
+        failed.isError = true
+        let tree = message([call("a", name: "Agent"), failed]).toolTree
+
+        #expect(tree[0].hasError)
+    }
+
     // A call whose parent is missing is still work that happened, so it is drawn where it
     // can be seen rather than dropped with the agent that owned it.
     @Test func keepsACallWhoseAgentIsMissing() {
