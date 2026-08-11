@@ -81,21 +81,31 @@ final class AppSettings {
     }
 
     func importAgentAvatars(from urls: [URL], personality: AgentPersonality = .standard) throws {
-        let hadAvatars = !agentAvatars.isEmpty
-        agentAvatars.append(contentsOf: try AgentAvatarFile.importImages(
+        add(try AgentAvatarFile.importImages(
             from: urls,
             to: agentAvatarURL,
             personality: personality))
+    }
+
+    func addStockAgentAvatar(personality: AgentPersonality) throws {
+        add(try AgentAvatarFile.addStockPicture(
+            personality: personality,
+            to: agentAvatarURL))
+    }
+
+    private func add(_ avatars: [AgentAvatar]) {
+        let hadAvatars = !agentAvatars.isEmpty
+        agentAvatars.append(contentsOf: avatars)
         if !hadAvatars, !hasExplicitNonBotDefault, let first = agentAvatars.first {
             setDefaultAgentAvatarName(first.url.lastPathComponent)
         }
     }
 
     func setPersonality(_ personality: AgentPersonality, for avatar: AgentAvatar) throws {
-        try AgentAvatarFile.setPersonality(personality, for: avatar.url, baseURL: agentAvatarURL)
+        let updated = try AgentAvatarFile.setPersonality(
+            personality, for: avatar, baseURL: agentAvatarURL)
         guard let index = agentAvatars.firstIndex(where: { $0.id == avatar.id }) else { return }
-        agentAvatars[index] = AgentAvatar(
-            url: avatar.url, image: avatar.image, personality: personality)
+        agentAvatars[index] = updated
     }
 
     func removeAgentAvatar(_ avatar: AgentAvatar) throws {
@@ -432,7 +442,7 @@ struct SettingsView: View {
     private var botImageDescription: String {
         let count = settings.agentAvatars.count
         guard count > 0 else {
-            return "Add your own bots and give each one a personality for its working words. Up to \(AgentAvatarFile.maxCount) bots."
+            return "Add bots and give each one a personality for its working words. A bot with no photo gets the picture that comes with its personality. Up to \(AgentAvatarFile.maxCount) bots."
         }
         let maximum = count == AgentAvatarFile.maxCount ? ", the maximum" : ""
         return "\(count) bot\(count == 1 ? "" : "s") configured\(maximum). Choose the default for new sessions or override it when creating one."
@@ -442,6 +452,13 @@ struct SettingsView: View {
         settings.agentAvatars.first {
             $0.url.lastPathComponent == settings.defaultAgentAvatarName
         }
+    }
+
+    // Non-bot is what the app falls back to with nothing to choose from, so until there is a
+    // bot the picker says so rather than naming a choice nobody made.
+    private var defaultBotTitle: String {
+        if let defaultBot { return defaultBot.personality.title }
+        return settings.agentAvatars.isEmpty ? "none yet" : "Non-bot"
     }
 
     private var defaultBotPicker: some View {
@@ -454,7 +471,7 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
                     .frame(width: 18, height: 18)
             }
-            Text("Default: \(defaultBot?.personality.title ?? "Non-bot")")
+            Text("Default: \(defaultBotTitle)")
                 .font(.system(size: 12, weight: .semibold))
             Image(systemName: "chevron.up.chevron.down")
                 .font(.system(size: 8, weight: .semibold))
@@ -466,7 +483,7 @@ struct SettingsView: View {
         .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
         .contentShape(Rectangle())
         .appMenu(matchWidth: true) { defaultBotMenu }
-        .accessibilityLabel("Default bot: \(defaultBot?.personality.title ?? "Non-bot")")
+        .accessibilityLabel("Default bot: \(defaultBotTitle)")
     }
 
     private var defaultBotMenu: [MenuEntry] {
@@ -549,13 +566,10 @@ struct SettingsView: View {
         let draft = botDraft
         dialogs.show(Dialog(
             title: "Add a bot",
-            message: "Pick a photo and a personality. The session's working messages will sound like this bot.",
+            message: "Pick a personality, and a photo if you have one. The session's working messages will sound like this bot.",
             content: AnyView(BotDraftEditor(draft: draft, chooseImage: chooseBotImage)),
             actions: [
-                .init(label: "Add bot",
-                      kind: .primary,
-                      handler: importBotDraft,
-                      isEnabled: { draft.image != nil }),
+                .init(label: "Add bot", kind: .primary, handler: importBotDraft),
                 .init(label: "Cancel", kind: .cancel, handler: draft.reset)
             ],
             onCancel: draft.reset,
@@ -587,11 +601,15 @@ struct SettingsView: View {
     }
 
     private func importBotDraft() {
-        guard let url = botDraft.url else { return }
+        let url = botDraft.url
         let personality = botDraft.personality
         botDraft.reset()
         do {
-            try settings.importAgentAvatars(from: [url], personality: personality)
+            if let url {
+                try settings.importAgentAvatars(from: [url], personality: personality)
+            } else {
+                try settings.addStockAgentAvatar(personality: personality)
+            }
         } catch {
             showBotImageFailure(error)
         }
@@ -669,17 +687,9 @@ private struct BotDraftEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 12) {
-                if let image = draft.image {
-                    AgentAvatarView(image: image, size: 48)
-                } else {
-                    Circle()
-                        .fill(Theme.field)
-                        .frame(width: 48, height: 48)
-                        .overlay(Circle().stroke(Theme.border))
-                        .overlay(Image(systemName: "person.fill")
-                            .font(.system(size: 20))
-                            .foregroundStyle(.tertiary))
-                }
+                AgentAvatarView(
+                    image: draft.image ?? AgentAvatarArt.image(for: draft.personality),
+                    size: 48)
 
                 Button(action: chooseImage) {
                     HStack(spacing: 7) {
@@ -719,6 +729,9 @@ private struct PersonalityPicker: View {
             ForEach(AgentPersonality.allCases, id: \.self) { personality in
                 Button { selection = personality } label: {
                     HStack(spacing: 9) {
+                        AgentAvatarView(
+                            image: AgentAvatarArt.image(for: personality),
+                            size: 26)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(personality.title)
                                 .font(.system(size: 12, weight: .semibold))

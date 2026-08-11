@@ -267,6 +267,46 @@ struct AgentAvatarTests {
         #expect(FileManager.default.fileExists(atPath: destination.path) == false)
     }
 
+    @Test @MainActor func addsABotWithoutAPhotoAndGivesItThePersonalitysPicture() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let destination = root.appendingPathComponent("support/agent-avatar.png")
+        let settings = AppSettings(agentAvatarURL: destination)
+
+        try settings.addStockAgentAvatar(personality: .cat)
+
+        #expect(settings.agentAvatars.first?.personality == .cat)
+        #expect(try Data(contentsOf: destination) == AgentAvatarArt.pngData(for: .cat))
+        #expect(AppSettings(agentAvatarURL: destination).agentAvatars.first?.personality == .cat)
+    }
+
+    // The picture follows the personality, but only for the ones the app supplied: a photo is
+    // the user's and has to survive the same change.
+    @Test @MainActor func swapsAStockPictureWhenThePersonalityChangesAndLeavesPhotosAlone() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("source.png")
+        let destination = root.appendingPathComponent("agent-avatar.png")
+        try pngData(width: 4, height: 4).write(to: source)
+        let settings = AppSettings(agentAvatarURL: destination)
+        try settings.addStockAgentAvatar(personality: .cat)
+        try settings.importAgentAvatars(from: [source], personality: .cat)
+        let photo = try #require(settings.agentAvatars.last)
+        let photoBytes = try Data(contentsOf: photo.url)
+
+        try settings.setPersonality(.manager, for: try #require(settings.agentAvatars.first))
+        try settings.setPersonality(.manager, for: photo)
+
+        #expect(try Data(contentsOf: destination) == AgentAvatarArt.pngData(for: .manager))
+        #expect(try Data(contentsOf: photo.url) == photoBytes)
+    }
+
+    // A personality shipped without a picture of its own would leave a bot with no face.
+    @Test func shipsADifferentPictureForEveryPersonality() throws {
+        let pictures = try AgentPersonality.allCases.map { try AgentAvatarArt.pngData(for: $0) }
+        #expect(Set(pictures).count == AgentPersonality.allCases.count)
+    }
+
     @Test func legacySessionsCycleAcrossBotsWhenNothingWasSelected() {
         #expect(AgentAvatarSelection.index(forTurn: 0, count: 3) == 0)
         #expect(AgentAvatarSelection.index(forTurn: 1, count: 3) == 1)

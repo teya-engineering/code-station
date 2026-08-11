@@ -65,7 +65,12 @@ enum AgentAvatarFile {
                              personality: AgentPersonality = .standard) throws -> [AgentAvatar] {
         let prepared = try sourceURLs.map { try prepareImage(from: $0) }
         guard !prepared.isEmpty else { return [] }
+        return try store(prepared, to: baseURL, personality: personality)
+    }
 
+    private static func store(_ prepared: [(data: Data, image: NSImage)],
+                              to baseURL: URL,
+                              personality: AgentPersonality) throws -> [AgentAvatar] {
         let existing = avatarURLs(for: baseURL)
         guard existing.count + prepared.count <= maxCount else {
             throw AgentAvatarError.tooManyAvatars
@@ -106,12 +111,30 @@ enum AgentAvatarFile {
         }
     }
 
+    static func addStockPicture(personality: AgentPersonality,
+                                to baseURL: URL) throws -> [AgentAvatar] {
+        let data = try AgentAvatarArt.pngData(for: personality)
+        guard let image = NSImage(data: data) else {
+            throw AgentAvatarError.couldNotReadImage
+        }
+        return try store([(data, image)], to: baseURL, personality: personality)
+    }
+
     static func setPersonality(_ personality: AgentPersonality,
-                               for avatarURL: URL,
-                               baseURL: URL) throws {
+                               for avatar: AgentAvatar,
+                               baseURL: URL) throws -> AgentAvatar {
+        // Ours is the personality made visible; a photo is the user's and stays.
+        var picture = avatar.image
+        if AgentAvatarArt.isStock(at: avatar.url) {
+            let data = try AgentAvatarArt.pngData(for: personality)
+            try data.write(to: avatar.url, options: .atomic)
+            picture = NSImage(data: data) ?? picture
+        }
+
         var personalities = loadPersonalities(from: baseURL)
-        personalities[avatarURL.lastPathComponent] = personality
+        personalities[avatar.url.lastPathComponent] = personality
         try savePersonalities(personalities, for: baseURL)
+        return AgentAvatar(url: avatar.url, image: picture, personality: personality)
     }
 
     static func remove(at url: URL, from baseURL: URL) throws {
@@ -224,9 +247,44 @@ enum AgentAvatarFile {
     }
 }
 
+// The picture a bot gets when no photo is chosen: `Resources/avatar-<personality>.png`.
+enum AgentAvatarArt {
+    private static let pictures: [AgentPersonality: Data] = Dictionary(
+        uniqueKeysWithValues: AgentPersonality.allCases.compactMap { personality in
+            Bundle.module
+                .url(forResource: "avatar-\(personality.rawValue)", withExtension: "png")
+                .flatMap { try? Data(contentsOf: $0) }
+                .map { (personality, $0) }
+        })
+
+    static func pngData(for personality: AgentPersonality) throws -> Data {
+        guard let data = pictures[personality] else {
+            throw AgentAvatarError.missingArtwork
+        }
+        return data
+    }
+
+    // Asking the picture itself saves recording which bots are ours, and costs one whose
+    // artwork a later release replaces: it keeps the old face.
+    static func isStock(at url: URL) -> Bool {
+        guard let data = try? Data(contentsOf: url) else { return false }
+        return pictures.values.contains(data)
+    }
+
+    // Decoded once: the settings rows ask for the same five on every redraw.
+    @MainActor private static let images: [AgentPersonality: NSImage] =
+        pictures.compactMapValues(NSImage.init(data:))
+
+    @MainActor
+    static func image(for personality: AgentPersonality) -> NSImage {
+        images[personality] ?? NSImage(size: NSSize(width: 1, height: 1))
+    }
+}
+
 enum AgentAvatarError: LocalizedError {
     case couldNotReadImage
     case couldNotEncodeImage
+    case missingArtwork
     case tooManyAvatars
 
     var errorDescription: String? {
@@ -235,6 +293,8 @@ enum AgentAvatarError: LocalizedError {
             "The selected file is not an image the app can read."
         case .couldNotEncodeImage:
             "The selected image could not be prepared for use."
+        case .missingArtwork:
+            "The picture for this personality is missing from the app."
         case .tooManyAvatars:
             "The app supports up to \(AgentAvatarFile.maxCount) bots. Remove one to add another."
         }
