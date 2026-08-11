@@ -51,13 +51,10 @@ final class PostmanAuthStore {
             loadFailures.append(PersistentFile.loadMessage(for: self.storeURL, error: error))
         }
 
-        // An environment left empty starts from the defaults rather than from nothing.
-        func carried(_ config: OAuthConfig?) -> OAuthConfig {
-            if let config, !(config.tokenURL.isEmpty && config.clientID.isEmpty) { return config }
-            return .teya
-        }
-        var staging = carried(saved?.staging)
-        var production = carried(saved?.production)
+        // A first run starts from whatever provider the site file names, so nobody has to
+        // type the same identity provider into both environments before signing in.
+        var staging = saved?.staging ?? SiteDefaults.current.postmanOAuth
+        var production = saved?.production ?? SiteDefaults.current.postmanOAuth
         var tokens: [ApiEnvironment: OAuthToken] = [:]
         var keychainValues: [Keychain.Account: String] = [:]
 
@@ -485,17 +482,5 @@ private extension JSONDecoder {
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         decoder.dateDecodingStrategy = .iso8601
         return decoder
-    }
-}
-
-extension OAuthConfig {
-    // The orders collection's identity provider, so both environments have
-    // somewhere to sign in against without being typed out first.
-    static var teya: OAuthConfig {
-        OAuthConfig(grant: .authorizationCodePKCE,
-                    authURL: "https://id.example.com/oauth/v2/authorize",
-                    tokenURL: "https://id.example.com/oauth/v2/token",
-                    clientID: "00000000-0000-0000-0000-000000000000",
-                    scope: "okta")
     }
 }

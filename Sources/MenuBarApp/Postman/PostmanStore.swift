@@ -238,14 +238,7 @@ final class PostmanStore {
         return folderID
     }
 
-    // An empty screen gives you nothing to copy, so a first run starts with the
-    // orders dead letter endpoints already filled in.
-    private static var examples: [SavedRequest] {
-        let base = "https://api.{{env}}.example.com/orders-service/v1/internal/dlt"
-        return [
-            SavedRequest(name: "Fetch DLT messages from cache", method: .get, url: base + "/messages"),
-            SavedRequest(name: "Start the DLT message consumer", method: .put, url: base + "/start"),
-            SavedRequest(name: "Stop the DLT consumer", method: .post, url: base + "/stop")
-        ]
-    }
+    // An empty screen gives you nothing to copy, so a first run starts with whatever
+    // calls the site file lists.
+    private static var examples: [SavedRequest] { SiteDefaults.current.postmanRequests }
 }

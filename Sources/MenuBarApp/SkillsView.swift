@@ -39,7 +39,7 @@ struct SkillsView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text("Skills").font(.system(size: 16, weight: .semibold))
-                Text("Example Engineering marketplace")
+                Text("\(SkillsManager.marketplaceLabel) marketplace")
                     .font(.system(size: 11.5))
                     .foregroundStyle(.secondary)
             }
@@ -61,7 +61,7 @@ struct SkillsView: View {
         if !manager.hasLoaded && manager.plugins.isEmpty {
             PaneMessage(icon: "shippingbox",
                         title: "Fetching skills",
-                        detail: "Reading the Example marketplace and both agent installations.")
+                        detail: "Reading the marketplace and both agent installations.")
         } else if manager.plugins.isEmpty {
             PaneMessage(icon: "exclamationmark.triangle",
                         title: "Skills could not be loaded",

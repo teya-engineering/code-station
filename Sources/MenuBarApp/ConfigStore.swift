@@ -183,10 +183,10 @@ final class ConfigStore {
 
     // MARK: - Mutations
 
-    func upsertGrafana(scope: Scope, env: DeployEnv, token: String) {
-        let name = Grafana.name(scope, env)
+    func upsertGrafana(preset: SiteDefaults.Grafana.Preset, token: String) {
+        let name = preset.name
         let vars = [
-            EnvVar(key: Grafana.urlKey, value: Grafana.url(scope, env)),
+            EnvVar(key: Grafana.urlKey, value: preset.url),
             EnvVar(key: Grafana.tokenKey, value: token),
         ]
         if let i = servers.firstIndex(where: { $0.name == name }) {

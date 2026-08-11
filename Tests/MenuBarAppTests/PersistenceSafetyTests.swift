@@ -15,7 +15,9 @@ struct PersistenceSafetyTests {
         let store = ConfigStore(configURL: file)
         #expect(store.loadError != nil)
 
-        store.upsertGrafana(scope: .platform, env: .dev, token: "must stay in memory")
+        store.upsertGrafana(preset: .init(scope: "platform", environment: "dev",
+                                          url: "https://grafana.example"),
+                            token: "must stay in memory")
 
         #expect(store.saveError != nil)
         #expect(try Data(contentsOf: file) == malformed)
@@ -29,7 +31,9 @@ struct PersistenceSafetyTests {
         failures.failWrites(to: file)
         let store = ConfigStore(configURL: file, files: failures.client)
 
-        store.upsertGrafana(scope: .platform, env: .dev, token: "token")
+        store.upsertGrafana(preset: .init(scope: "platform", environment: "dev",
+                                          url: "https://grafana.example"),
+                            token: "token")
 
         #expect(store.saveError != nil)
         #expect(!FileManager.default.fileExists(atPath: file.path))
