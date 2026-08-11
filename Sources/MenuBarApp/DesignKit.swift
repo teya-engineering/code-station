@@ -202,6 +202,36 @@ enum RelativeTime {
     }
 }
 
+// A name that gets replaced rather than edited, most often the moment a session's first
+// prompt takes "New session" over. Swapping the words in place is easy to miss, so the
+// old ones leave upward while the new ones rise into their spot, and the line widens into
+// them so whatever sits after the name slides across rather than jumping.
+//
+// The words are stacked rather than laid out in a row: one of them is always on its way
+// out, and a row would hold a slot open for it and show both names side by side.
+extension View {
+    func changingName(_ name: String) -> some View {
+        modifier(ChangingName(name: name))
+    }
+}
+
+private struct ChangingName: ViewModifier {
+    let name: String
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        ZStack(alignment: .leading) {
+            content
+                .id(name)
+                .transition(.asymmetric(
+                    insertion: .opacity.combined(with: .offset(y: 7)),
+                    removal: .opacity.combined(with: .offset(y: -7))))
+        }
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.35), value: name)
+    }
+}
+
 // MARK: - Structure
 
 // The label over a section: mono capitals, a hairline taking the rest of the width, and

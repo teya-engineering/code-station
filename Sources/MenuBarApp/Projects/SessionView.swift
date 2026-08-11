@@ -238,16 +238,11 @@ struct SessionView: View {
                 if renamingSessionID == session.id {
                     titleField
                 } else {
-                    // The first prompt takes "New session" over while the person is still
-                    // looking at the header, so the two titles cross-fade and the row
-                    // widens into the new one instead of jumping to it.
                     Text(session.title)
                         .font(.serif(20, .semibold))
                         .lineLimit(1)
                         .truncationMode(.tail)
-                        .contentTransition(.opacity)
-                        .animation(reduceMotion ? nil : .easeInOut(duration: 0.3),
-                                   value: session.title)
+                        .changingName(session.title)
                         .onTapGesture(count: 2) { beginRename(session) }
                     renameButton(session)
                 }
