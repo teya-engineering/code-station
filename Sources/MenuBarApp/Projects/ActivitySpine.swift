@@ -27,20 +27,21 @@ struct ActivitySpine: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Text(summary)
-                    .font(.mono(9, .semibold))
-                    .kerning(1.1)
-                    .foregroundStyle(.secondary)
-                Rectangle().fill(Theme.border).frame(height: 1)
-                Button { collapsed = !isCollapsed } label: {
+            Button { collapsed = !isCollapsed } label: {
+                HStack(spacing: 8) {
+                    Text(summary)
+                        .font(.mono(9, .semibold))
+                        .kerning(1.1)
+                        .foregroundStyle(.secondary)
+                    Rectangle().fill(Theme.border).frame(height: 1)
                     Text(isCollapsed ? "EXPAND" : "COLLAPSE")
                         .font(.mono(9.5))
                         .foregroundStyle(.tertiary)
-                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
 
             if !isCollapsed {
                 VStack(alignment: .leading, spacing: 0) {
