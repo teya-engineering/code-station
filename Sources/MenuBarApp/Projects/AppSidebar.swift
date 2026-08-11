@@ -52,9 +52,6 @@ struct AppSidebar: View {
         .task { await watchWorkingTrees() }
         .task(id: oldSessionDays) { await refreshOldSessionsHourly() }
         .onChange(of: store.sidebarSessions.count) { _, _ in refreshOldSessions() }
-        .onChange(of: store.sidebarSessions.map(\.id)) { previous, current in
-            preserveVisibleSessions(previous: previous, current: current)
-        }
         .sheet(item: $choosingSessionKind) { project in
             NewSessionView(project: project) { choice in
                 startSession(choice, in: project)
@@ -694,39 +691,11 @@ struct AppSidebar: View {
         Preferences.sidebarExpansion = expansion
     }
 
-    // New sessions extend an open list so they never displace work the user is watching.
-    // Closing the project or workspace resets the list to its newest four sessions.
+    // A list stays capped at its newest four sessions unless the user unfolded it with
+    // see-more, so a new session pushes the last visible one below the fold.
     private func visibleSessions(_ sessions: [ChatSession], in containerID: UUID) -> [ChatSession] {
         Array(sessions.prefix(sessionVisibility.visibleCount(
             for: containerID, total: sessions.count)))
-    }
-
-    private func preserveVisibleSessions(previous: [UUID], current: [UUID]) {
-        let addedIDs = Set(current).subtracting(previous)
-        guard !addedIDs.isEmpty else { return }
-
-        let currentSessions = Dictionary(grouping: store.sidebarSessions) {
-            $0.workspaceID ?? $0.projectID
-        }
-        let additions = Dictionary(grouping: store.sidebarSessions.filter {
-            addedIDs.contains($0.id)
-        }) {
-            $0.workspaceID ?? $0.projectID
-        }
-
-        for (containerID, added) in additions where isExpanded(containerID) {
-            let currentCount = currentSessions[containerID]?.count ?? added.count
-            sessionVisibility.preserveVisibleSessions(
-                added: added.count,
-                previousTotal: currentCount - added.count,
-                in: containerID)
-        }
-    }
-
-    private func isExpanded(_ containerID: UUID) -> Bool {
-        if let workspace = store.workspace(containerID) { return isExpanded(workspace) }
-        if let project = store.project(containerID) { return isExpanded(project) }
-        return false
     }
 
     // Keyed on the cards that are drawn rather than the sessions that exist, so the
