@@ -9,6 +9,7 @@ struct ChangesView: View {
     let root: String
 
     @Environment(DialogPresenter.self) private var dialogs
+    @Environment(GitStatsCache.self) private var gitStats
 
     @State private var snapshot: GitSnapshot?
     @State private var loading = false
@@ -33,7 +34,12 @@ struct ChangesView: View {
             content
         }
         .background(Theme.background)
-        .task(id: root) { await reload() }
+        // The screen opens on the last snapshot taken of this tree while a fresh one
+        // is fetched, so the file list is there at first glance instead of after git.
+        .task(id: root) {
+            if snapshot == nil { snapshot = gitStats.snapshot(at: root) }
+            await reload()
+        }
     }
 
     // MARK: - Header
@@ -480,9 +486,12 @@ struct ChangesView: View {
 
     private func reload() async {
         loading = true
-        let fresh = await GitInspector.snapshot(at: root)
+        let fresh = await GitInspector.snapshot(at: root, lane: .interactive)
         guard !Task.isCancelled else { return }
         snapshot = fresh
+        // The session header shows the same tree, so a commit or pull made here
+        // updates its numbers too rather than waiting for the next run to end.
+        gitStats.store(fresh, at: root)
         loading = false
 
         // Keep the open file open across a refresh, but only if it still has changes.

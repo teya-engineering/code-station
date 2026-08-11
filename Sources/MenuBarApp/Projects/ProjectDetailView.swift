@@ -39,10 +39,12 @@ struct ProjectDetailView: View {
             }
             .background(Theme.background)
             .background(terminalShortcut(project))
-            .task(id: project.path) { git = await GitInspector.snapshot(at: project.path) }
+            .task(id: project.path) {
+                git = await GitInspector.snapshot(at: project.path, lane: .interactive)
+            }
             // A session ending is the moment the folder is most likely to have moved on.
             .task(id: store.standaloneSessions(for: projectID).map(\.summary)) {
-                git = await GitInspector.snapshot(at: project.path)
+                git = await GitInspector.snapshot(at: project.path, lane: .interactive)
             }
             .task(id: orphanRefreshID(project)) { await refreshWorktrees(for: project) }
             .sheet(item: $choosingSessionKind) { project in

@@ -121,6 +121,7 @@ struct SessionView: View {
     @Environment(TerminalStore.self) private var terminals
     @Environment(DialogPresenter.self) private var dialogs
     @Environment(AppSettings.self) private var appSettings
+    @Environment(GitStatsCache.self) private var gitStats
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let sessionID: UUID
 
@@ -139,9 +140,9 @@ struct SessionView: View {
     @State private var titleDraft = ""
     @FocusState private var titleFieldFocused: Bool
 
-    // Working tree totals for the header; refreshed as tools finish so the numbers
-    // track the run rather than only its end.
-    @State private var workspaceStats: [String: GitSnapshot] = [:]
+    // Working tree totals for the header live in the shared cache and are refreshed
+    // as tools finish, so the numbers track the run rather than only its end and are
+    // already there the next time this session opens.
     @State private var statsTask: Task<Void, Never>?
 
     private let bottomAnchor = "transcript-bottom"
@@ -255,7 +256,7 @@ struct SessionView: View {
             // it asks for, so the controls can be offered less than their labels need and the
             // words wrap. Holding them at their natural width makes the title give way first.
             HStack(spacing: 8) {
-                diffStats
+                diffStats(session)
                 HeaderTabToggle(selection: $tab,
                                 options: [("Chat", .chat),
                                           ("Changes", .changes),
@@ -331,7 +332,7 @@ struct SessionView: View {
                 ForEach(store.checkoutProjects(for: session)) { checkout in
                     if let project = store.project(checkout.projectID) {
                         let root = checkout.worktreePath ?? project.path
-                        let snapshot = workspaceStats[root]
+                        let snapshot = gitStats.snapshot(at: root)
                         let selected = selectedProjectID == project.id
                         Button { selectedProjectID = project.id } label: {
                             HStack(spacing: 7) {
@@ -374,27 +375,46 @@ struct SessionView: View {
     // What the working tree looks like right now, promoted out of the body and into the
     // header: it is the answer to "what has this session actually done". Clicking it opens
     // the full diff.
-    @ViewBuilder private var diffStats: some View {
-        let snapshots = workspaceStats.values.filter { $0.state == .ready }
-        let added = snapshots.reduce(0) { $0 + $1.totalAdded }
-        let removed = snapshots.reduce(0) { $0 + $1.totalRemoved }
-        let files = snapshots.reduce(0) { $0 + $1.files.count }
-        if files > 0 {
-            Button { tab = .changes } label: {
-                HStack(spacing: 8) {
-                    DiffPair(added: added, removed: removed, size: 11.5)
+    //
+    // Until git has answered for this tree, the pill wears the transcript's own running
+    // total - the same numbers the session's sidebar row shows - so the header arrives
+    // whole instead of growing a pill a few seconds in. That total has no file count and
+    // can disagree with the tree (it keeps counting across commits and repeat edits),
+    // so it is only a stand-in until the first snapshot lands and corrects it.
+    @ViewBuilder private func diffStats(_ session: ChatSession) -> some View {
+        let snapshots = store.workingDirectories(for: session).compactMap { gitStats.snapshot(at: $0) }
+        if snapshots.isEmpty {
+            if session.summary.added > 0 || session.summary.removed > 0 {
+                statsPill {
+                    DiffPair(added: session.summary.added, removed: session.summary.removed,
+                             size: 11.5)
+                }
+            }
+        } else {
+            let files = snapshots.reduce(0) { $0 + $1.files.count }
+            if files > 0 {
+                statsPill {
+                    DiffPair(added: snapshots.reduce(0) { $0 + $1.totalAdded },
+                             removed: snapshots.reduce(0) { $0 + $1.totalRemoved },
+                             size: 11.5)
                     Text("\(files) file\(files == 1 ? "" : "s")")
                         .font(.system(size: 11.5))
                         .foregroundStyle(.secondary)
                 }
+            }
+        }
+    }
+
+    private func statsPill(@ViewBuilder content: () -> some View) -> some View {
+        Button { tab = .changes } label: {
+            HStack(spacing: 8, content: content)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 5)
                 .background(RoundedRectangle(cornerRadius: 8).fill(Theme.field))
                 .contentShape(RoundedRectangle(cornerRadius: 8))
-            }
-            .buttonStyle(.plain)
-            .appTooltip("Open Changes")
         }
+        .buttonStyle(.plain)
+        .appTooltip("Open Changes")
     }
 
     // Completed tool calls in the turn that is streaming right now. Each one may have
@@ -414,16 +434,16 @@ struct SessionView: View {
                     return
                 }
             }
-            var snapshots: [String: GitSnapshot] = [:]
+            // Each tree's answer lands in the cache as it arrives rather than all at
+            // once, so a workspace with one slow repository still updates the rest.
             await withTaskGroup(of: (String, GitSnapshot).self) { group in
                 for root in roots {
-                    group.addTask { (root, await GitInspector.snapshot(at: root)) }
+                    group.addTask { (root, await GitInspector.snapshot(at: root, lane: .interactive)) }
                 }
                 for await (root, snapshot) in group {
-                    snapshots[root] = snapshot
+                    if !Task.isCancelled { gitStats.store(snapshot, at: root) }
                 }
             }
-            if !Task.isCancelled { workspaceStats = snapshots }
         }
     }
 
@@ -657,9 +677,11 @@ struct SessionView: View {
     // because that is where the decision is made, and only once the agent has stopped:
     // reviewing a tree that is still being written to is not a review.
     @ViewBuilder private func handoff(state: SessionState) -> some View {
-        let hasChanges = workspaceStats.values.contains {
-            $0.state == .ready && !$0.files.isEmpty
-        }
+        let hasChanges = store.session(sessionID).map { session in
+            store.workingDirectories(for: session)
+                .compactMap { gitStats.snapshot(at: $0) }
+                .contains { !$0.files.isEmpty }
+        } ?? false
         if hasChanges, !state.isBusy, runner.question(sessionID) == nil {
             HStack(spacing: 8) {
                 ActionButton(title: "Click here to review changes") {
@@ -858,9 +880,10 @@ struct SessionView: View {
     // how full the window is.
     @ViewBuilder private func contextReadout(_ session: ChatSession) -> some View {
         // The lead checkout is the one the header speaks for, the same root the stats
-        // refresh puts first.
-        let lead = store.workingDirectories(for: session).first.flatMap { workspaceStats[$0] }
-        let repository = lead?.state == .ready ? lead : nil
+        // refresh puts first. The cache only ever holds snapshots of a readable
+        // repository, so having one is the same as the repository being ready.
+        let repository = store.workingDirectories(for: session).first
+            .flatMap { gitStats.snapshot(at: $0) }
         // A worktree session knows its branch from creation, so the tag can draw on
         // the first frame instead of waiting for git and shifting the row.
         let branch = repository?.branch

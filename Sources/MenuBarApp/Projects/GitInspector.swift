@@ -111,19 +111,31 @@ enum GitInspector {
     private static let lineCharacterLimit = 2000
     private static let outputByteLimit = 8 << 20
     private static let untrackedByteLimit = 4 << 20
-    // Git commands use blocking process and pipe calls. A serial queue keeps those calls
+    // Git commands use blocking process and pipe calls. Serial queues keep those calls
     // from exhausting the shared dispatch pool when many folders need inspection.
-    private static let queue = DispatchQueue(
+    //
+    // There are two: reads a person is watching for must not wait behind the periodic
+    // sweep over every repository in the sidebar. Both lanes only read, and
+    // GIT_OPTIONAL_LOCKS=0 means two lanes in the same repository cannot fight over
+    // the index, so running them side by side is safe.
+    enum Lane: Sendable { case interactive, background }
+
+    private static let backgroundQueue = DispatchQueue(
         label: "com.teya.conductor.git",
+        qos: .userInitiated
+    )
+    private static let interactiveQueue = DispatchQueue(
+        label: "com.teya.conductor.git.interactive",
         qos: .userInitiated
     )
 
     // MARK: - Snapshot
 
-    static func snapshot(at path: String, commandTimeout: TimeInterval? = nil) async -> GitSnapshot {
+    static func snapshot(at path: String, commandTimeout: TimeInterval? = nil,
+                         lane: Lane = .background) async -> GitSnapshot {
         guard let tool = await tool() else { return .state(.gitMissing) }
         let url = URL(fileURLWithPath: path)
-        return await offMain { snapshot(tool: tool, url: url, commandTimeout: commandTimeout) }
+        return await offMain(lane: lane) { snapshot(tool: tool, url: url, commandTimeout: commandTimeout) }
     }
 
     private static func snapshot(tool: GitTool, url: URL,
@@ -270,7 +282,9 @@ enum GitInspector {
         guard let tool = await tool() else {
             return FileDiff(note: "Could not find git on PATH.")
         }
-        return await offMain { diff(tool: tool, change: change, root: root, limit: limit) }
+        // Always the fast lane: a per-file diff only ever loads because someone just
+        // clicked the file and is looking at an empty pane until it arrives.
+        return await offMain(lane: .interactive) { diff(tool: tool, change: change, root: root, limit: limit) }
     }
 
     private static func diff(tool: GitTool, change: GitChange, root: String, limit: Int) -> FileDiff {
@@ -589,10 +603,12 @@ enum GitInspector {
         return result
     }
 
-    // Git is slow enough on a big repo to be felt, so it runs on one serial background
+    // Git is slow enough on a big repo to be felt, so it runs on a serial background
     // queue rather than the main thread or an unbounded number of shared workers.
-    static func offMain<T: Sendable>(_ work: @escaping @Sendable () -> T) async -> T {
+    static func offMain<T: Sendable>(lane: Lane = .background,
+                                     _ work: @escaping @Sendable () -> T) async -> T {
         await withCheckedContinuation { continuation in
+            let queue = lane == .interactive ? interactiveQueue : backgroundQueue
             queue.async {
                 continuation.resume(returning: work())
             }
