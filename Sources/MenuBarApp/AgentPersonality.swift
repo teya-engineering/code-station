@@ -3,6 +3,7 @@ enum AgentPersonality: String, CaseIterable, Codable, Sendable {
     case sarcastic
     case cat
     case sextou
+    case british
     case manager
 
     var title: String {
@@ -11,6 +12,7 @@ enum AgentPersonality: String, CaseIterable, Codable, Sendable {
         case .sarcastic: "Sarcastic"
         case .cat: "Cat"
         case .sextou: "Sextou"
+        case .british: "British"
         case .manager: "Manager"
         }
     }
@@ -21,6 +23,7 @@ enum AgentPersonality: String, CaseIterable, Codable, Sendable {
         case .sarcastic: "Gets it done with a raised eyebrow."
         case .cat: "It is a cat. It helps when it feels like it."
         case .sextou: "Brazilian energy, gambiarra certified."
+        case .british: "Puts the kettle on before anything else."
         case .manager: "Files a ticket before every keystroke."
         }
     }
@@ -59,6 +62,13 @@ enum AgentPersonality: String, CaseIterable, Codable, Sendable {
                 "Keeping it beleza", "Debugging com calma", "Counting days to sextou",
                 "Promising it works, confia", "Planning the churrasco",
                 "Shipping before carnaval", "Saying relaxa, it compiles"
+            ]
+        case .british:
+            [
+                "Putting the kettle on", "Having a brew first", "Saying ta very much",
+                "Queuing politely", "Apologising to the compiler", "Calling it a right faff",
+                "Dunking a biscuit", "Muttering bloody hell", "Sorting it out, innit",
+                "Blaming the weather", "Proper gutted about this", "Cheers, love, one sec"
             ]
         case .manager:
             [
