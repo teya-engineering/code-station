@@ -82,7 +82,6 @@ struct MessageView: View, Equatable {
             .padding(.leading, 15)
             .padding(.trailing, message.text.isEmpty ? 15 : 42)
             .padding(.vertical, 11)
-            .frame(maxWidth: 600, alignment: .leading)
             // The corner nearest the writer is squared off, so the bubble points back at
             // the side of the page it came from.
             .background(UnevenRoundedRectangle(topLeadingRadius: 12, bottomLeadingRadius: 12,
@@ -91,6 +90,9 @@ struct MessageView: View, Equatable {
             .overlay(UnevenRoundedRectangle(topLeadingRadius: 12, bottomLeadingRadius: 12,
                                             bottomTrailingRadius: 4, topTrailingRadius: 12)
                 .stroke(Theme.userMessageRing))
+            // The cap sits outside the background so it only limits how far long text
+            // can wrap; the bubble itself hugs the text instead of filling the cap.
+            .frame(maxWidth: 600, alignment: .trailing)
         }
     }
 
