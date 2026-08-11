@@ -5,17 +5,11 @@ import SwiftUI
 // pitch - the case for the app is only made once, on the empty state, when there is no
 // status to report yet.
 struct HomeView: View {
-    let skills: SkillsManager
-    let tools: ToolsMenuActions
     let onReviewOldSessions: () -> Void
 
     @Environment(ProjectStore.self) private var store
     @Environment(SessionRunner.self) private var runner
     @Environment(AppSettings.self) private var appSettings
-    @Environment(DialogPresenter.self) private var dialogs
-
-    @State private var choosingSessionKind: Project?
-    @State private var choosingWorkspaceSession: ProjectWorkspace?
 
     // Recomputed once per redraw and handed down, because every section below counts over
     // the same list of sessions.
@@ -40,18 +34,6 @@ struct HomeView: View {
             }
         }
         .background(Theme.background)
-        .sheet(item: $choosingSessionKind) { project in
-            NewSessionView(project: project) { choice in
-                start(choice, in: project)
-            }
-            .appOverlays()
-        }
-        .sheet(item: $choosingWorkspaceSession) { workspace in
-            NewWorkspaceSessionView(workspace: workspace) { choice in
-                startWorkspace(choice, in: workspace)
-            }
-            .appOverlays()
-        }
     }
 
     // MARK: - Header
@@ -71,36 +53,9 @@ struct HomeView: View {
                 .foregroundStyle(.tertiary)
 
             Spacer(minLength: 12)
-
-            ActionButton(title: "Tools and settings", tone: .outlined, size: 12)
-                .toolsMenu(tools, skills: skills)
-            // Home belongs to no project, so the button asks which one before it starts
-            // rather than guessing at the most recent.
-            ActionButton(title: "New session", tone: .green, size: 12, shortcut: "⌘N")
-                .appMenu { containerMenu }
         }
         .padding(.horizontal, 24)
         .headerBand()
-    }
-
-    private var containerMenu: [MenuEntry] {
-        var entries: [MenuEntry] = store.projects.map { project in
-            .item(project.name, icon: "folder", subtitle: project.collapsedPath) {
-                store.selectProject(project.id)
-                requestSession(in: project)
-            }
-        }
-        if !store.workspaces.isEmpty {
-            entries.append(.separator)
-            entries += store.workspaces.map { workspace in
-                .item(workspace.name, icon: "square.stack.3d.up.fill",
-                      subtitle: "\(workspace.projectIDs.count) projects") {
-                    store.selectWorkspace(workspace.id)
-                    choosingWorkspaceSession = workspace
-                }
-            }
-        }
-        return entries
     }
 
     // MARK: - Status
@@ -297,56 +252,6 @@ struct HomeView: View {
         if checkouts.count > 1 { return "\(checkouts.count) projects" }
         if session.worktreePath != nil { return session.worktreeBranch ?? "worktree" }
         return "project folder"
-    }
-
-    // MARK: - Starting work
-
-    // A git repository gets the folder-or-worktree choice; a plain folder has no
-    // worktrees to offer, so the session is just created.
-    private func requestSession(in project: Project) {
-        guard !store.isMissing(project) else { return }
-        guard FileManager.default.fileExists(atPath: project.path + "/.git") else {
-            start(.folder(agent: runner.agent,
-                          model: runner.defaults.model,
-                          agentAvatarName: appSettings.defaultAgentAvatarName),
-                  in: project)
-            return
-        }
-        choosingSessionKind = project
-    }
-
-    private func start(_ choice: NewSessionChoice, in project: Project) {
-        switch choice {
-        case .worktree(let sessionID, let base, let agent, let model, let agentAvatarName):
-            Task {
-                if case .failure(let failure) = await SessionLifecycle.createWorktreeSession(
-                    in: project, id: sessionID, base: base, agent: agent, model: model,
-                    agentAvatarName: agentAvatarName, store: store) {
-                    report(failure)
-                }
-            }
-        case .folder(let agent, let model, let agentAvatarName):
-            if case .failure(let failure) = store.insertSession(
-                in: project.id, agent: agent, model: model, agentAvatarName: agentAvatarName) {
-                report(SessionLifecycle.Failure(title: "Could not create the session",
-                                                message: failure.message))
-            }
-        }
-    }
-
-    private func startWorkspace(_ choice: WorkspaceSessionChoice,
-                                in workspace: ProjectWorkspace) {
-        Task {
-            if case .failure(let failure) = await SessionLifecycle.createWorkspaceSession(
-                choice, in: workspace, store: store) {
-                report(failure)
-            }
-        }
-    }
-
-    private func report(_ failure: SessionLifecycle.Failure) {
-        dialogs.show(Dialog(title: failure.title, message: failure.message,
-                            actions: [.init(label: "OK", kind: .cancel)]))
     }
 }
 
