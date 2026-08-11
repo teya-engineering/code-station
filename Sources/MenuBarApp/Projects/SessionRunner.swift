@@ -311,6 +311,10 @@ final class SessionRunner {
             var arguments = ["exec"]
             if let resume, !resume.isEmpty { arguments += ["resume", resume] }
             arguments += ["--json", "--skip-git-repo-check"]
+            // Codex only puts reasoning items on the stream when summaries are asked
+            // for; its exec default leaves them out and the transcript would show no
+            // thinking at all.
+            arguments += ["-c", "model_reasoning_summary=\"detailed\""]
             switch codexSandbox {
             case .workspaceWrite, .approveForMe:
                 arguments += ["-c", "sandbox_mode=\"workspace-write\""]
