@@ -93,15 +93,15 @@ struct TaskDetailView: View {
 
     private func details(_ task: Project) -> some View {
         let runs = store.standaloneSessions(for: task.id)
-        return VStack(spacing: 0) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 22) {
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 22) {
+                VStack(alignment: .leading, spacing: 12) {
                     promptCard(task)
-                    runList(task, runs: runs)
+                    runBar(task)
                 }
-                .padding(24)
+                runList(task, runs: runs)
             }
-            runBar(task)
+            .padding(24)
         }
     }
 
@@ -159,12 +159,6 @@ struct TaskDetailView: View {
             Text("Running the task starts a session in its folder and sends the prompt for you.")
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
-            ActionButton(title: "Run task", tone: .green, icon: "play.fill") {
-                run(task)
-            }
-            .disabled(!runReady(task))
-            .opacity(runReady(task) ? 1 : 0.45)
-            .padding(.top, 2)
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -190,33 +184,28 @@ struct TaskDetailView: View {
     // button itself. A choice left unset follows the app default, so each menu names
     // what that default currently resolves to.
     private func runBar(_ task: Project) -> some View {
-        VStack(spacing: 0) {
-            Divider().overlay(Theme.hairline)
-            HStack(spacing: 14) {
-                SessionBotPicker(avatars: appSettings.agentAvatars,
-                                 selectedName: botBinding(task), size: 26)
-                agentMenu(task)
-                modelMenu(task)
-                effortMenu(task)
-                if runAgent(task) == .claudeCode {
-                    permissionsMenu(task)
-                } else {
-                    codexAccessMenu(task)
-                }
-                Spacer(minLength: 12)
-                ActionButton(title: "Run task", tone: .green, icon: "play.fill") {
-                    run(task)
-                }
-                .disabled(!runReady(task))
-                .opacity(runReady(task) ? 1 : 0.45)
-                .appTooltip(runBusy(task)
-                    ? "A run is still working in this folder."
-                    : "Start a fresh session with the saved prompt")
+        HStack(spacing: 14) {
+            SessionBotPicker(avatars: appSettings.agentAvatars,
+                             selectedName: botBinding(task), size: 26)
+            agentMenu(task)
+            modelMenu(task)
+            effortMenu(task)
+            if runAgent(task) == .claudeCode {
+                permissionsMenu(task)
+            } else {
+                codexAccessMenu(task)
             }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 12)
-            .background(Theme.card)
+            Spacer(minLength: 12)
+            ActionButton(title: "Run task", tone: .green, icon: "play.fill") {
+                run(task)
+            }
+            .disabled(!runReady(task))
+            .opacity(runReady(task) ? 1 : 0.45)
+            .appTooltip(runBusy(task)
+                ? "A run is still working in this folder."
+                : "Start a fresh session with the saved prompt")
         }
+        .padding(.horizontal, 4)
     }
 
     private func botBinding(_ task: Project) -> Binding<String> {
@@ -333,7 +322,7 @@ struct TaskDetailView: View {
         .foregroundStyle(warning ? Theme.deletion
                                  : overridden ? Theme.accent : Color.secondary)
         .fixedSize()
-        .appMenu(edge: .top) {
+        .appMenu {
             var entries: [MenuEntry] = [
                 .item(defaultTitle, checked: selection.wrappedValue == nil) {
                     selection.wrappedValue = nil
