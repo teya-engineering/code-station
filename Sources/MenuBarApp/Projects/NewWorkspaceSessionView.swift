@@ -1,12 +1,16 @@
 import SwiftUI
 
 // Chooses how each repository in a workspace is opened for one session. Every workspace
-// member starts attached, while extra projects can be added to this session alone.
+// member starts attached, while extra projects can be added to this session alone. Each
+// repository is checked against the default branch and its remote, the same way the
+// single-project sheet does it, so a checkout that is stale or dirty says so on its card
+// before the session forks from it.
 struct NewWorkspaceSessionView: View {
     let workspace: ProjectWorkspace
     let onCreate: (WorkspaceSessionChoice) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(DialogPresenter.self) private var dialogs
     @Environment(ProjectStore.self) private var store
     @Environment(SessionRunner.self) private var runner
     @Environment(AppSettings.self) private var appSettings
@@ -16,6 +20,26 @@ struct NewWorkspaceSessionView: View {
     @State private var worktrees: Set<UUID>
     @State private var selectedAgent: AgentKind?
     @State private var selectedAvatarName = AgentAvatarSelection.nonBotName
+    // One report per repository, arriving in two passes: what the local refs already
+    // say, then the same read again after a fetch, so the cards are honest immediately
+    // and accurate a moment later.
+    @State private var freshness: [UUID: GitFreshness.Report] = [:]
+    // The projects whose worktree should fork from the remote tip instead of the checkout.
+    @State private var baseOnRemote: Set<UUID> = []
+    // The projects whose checkout should be fast-forward pulled before the session starts.
+    @State private var pullFirst: Set<UUID> = []
+    // Fetch passes still running. Creating waits for them, so a warning a fetch turns up
+    // is seen before the choice is made rather than after.
+    @State private var activeFetches = 0
+    // Every git command in the app shares one queue, so a workspace of slow remotes can
+    // hold the fetch passes longer than the sheet should ever hold the button. Past the
+    // longest wait the sheet gives up waiting; reports that land afterwards still show.
+    @State private var gaveUpWaiting = false
+    // A requested pull is running. The sheet stays up and quiet until it finishes, since
+    // a click anywhere while git works could only start the same work twice.
+    @State private var pulling = false
+
+    private static let longestWait: Duration = .seconds(12)
 
     init(workspace: ProjectWorkspace, onCreate: @escaping (WorkspaceSessionChoice) -> Void) {
         self.workspace = workspace
@@ -76,7 +100,38 @@ struct NewWorkspaceSessionView: View {
         }
         .frame(width: 680)
         .background(Theme.background)
+        .disabled(pulling)
+        .interactiveDismissDisabled(pulling)
         .onAppear { selectedAvatarName = appSettings.defaultAgentAvatarName }
+        .task { await check(gitProjects) }
+        .task {
+            try? await Task.sleep(for: Self.longestWait)
+            withAnimation(.easeOut(duration: 0.2)) { gaveUpWaiting = true }
+        }
+    }
+
+    private var gitProjects: [Project] {
+        projectIDs.compactMap { store.project($0) }.filter(\.isGitRepository)
+    }
+
+    // The repositories are read together rather than one after another so the sheet's
+    // wait is the slowest repository, not the sum of them.
+    private func check(_ projects: [Project]) async {
+        activeFetches += 1
+        defer { activeFetches -= 1 }
+        for fetch in [false, true] {
+            await withTaskGroup(of: (UUID, GitFreshness.Report?).self) { group in
+                for project in projects {
+                    group.addTask { [id = project.id, path = project.path] in
+                        (id, await GitFreshness.check(at: path, fetch: fetch))
+                    }
+                }
+                for await (id, report) in group {
+                    guard let report else { continue }
+                    withAnimation(.easeOut(duration: 0.2)) { freshness[id] = report }
+                }
+            }
+        }
     }
 
     private func projectCard(_ project: Project, lead: Bool) -> some View {
@@ -142,11 +197,28 @@ struct NewWorkspaceSessionView: View {
                     .font(.system(size: 11.5))
                     .foregroundStyle(.secondary)
             }
+
+            if let report = freshness[project.id],
+               report.isStale || (usesWorktree && report.dirty) {
+                FreshnessNotice(report: report, forWorktree: usesWorktree,
+                                baseOnRemote: membership(project.id, of: $baseOnRemote),
+                                pullFirst: membership(project.id, of: $pullFirst))
+                    .transition(.opacity)
+            }
         }
         .padding(14)
         .background(RoundedRectangle(cornerRadius: 12).fill(Theme.card))
         .overlay(RoundedRectangle(cornerRadius: 12)
             .stroke(lead ? Theme.accent : Theme.border, lineWidth: lead ? 1.5 : 1))
+    }
+
+    // The notice's checkboxes act on one project's membership of a set, presented as the
+    // Bool binding the shared notice expects.
+    private func membership(_ id: UUID, of set: Binding<Set<UUID>>) -> Binding<Bool> {
+        Binding(get: { set.wrappedValue.contains(id) },
+                set: { chosen in
+                    if chosen { set.wrappedValue.insert(id) } else { set.wrappedValue.remove(id) }
+                })
     }
 
     private func modeButton(_ title: String, selected: Bool, enabled: Bool,
@@ -173,9 +245,21 @@ struct NewWorkspaceSessionView: View {
         VStack(spacing: 0) {
             Divider().overlay(Theme.hairline)
             HStack(alignment: .top, spacing: 12) {
-                Text("Deleting the session removes all of its worktrees together.")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
+                if pulling {
+                    ProgressView().controlSize(.small)
+                    Text("Pulling checkouts from origin…")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                } else if fetching {
+                    ProgressView().controlSize(.small)
+                    Text("Fetching branch information…")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("Deleting the session removes all of its worktrees together.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
                 Spacer(minLength: 12)
                 Button { dismiss() } label: {
                     Text("Cancel")
@@ -185,6 +269,7 @@ struct NewWorkspaceSessionView: View {
                         .background(RoundedRectangle(cornerRadius: 8).fill(Theme.card))
                         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
                         .contentShape(Rectangle())
+                        .opacity(pulling ? 0.5 : 1)
                 }
                 .buttonStyle(.plain)
                 .keyboardShortcut(.cancelAction)
@@ -203,7 +288,7 @@ struct NewWorkspaceSessionView: View {
                         }
                         .buttonStyle(.plain)
                         .keyboardShortcut(.defaultAction)
-                        .disabled(projectIDs.count < 2)
+                        .disabled(projectIDs.count < 2 || busy)
 
                         Rectangle()
                             .fill(.white.opacity(0.35))
@@ -219,7 +304,7 @@ struct NewWorkspaceSessionView: View {
                     .foregroundStyle(.white)
                     .background(RoundedRectangle(cornerRadius: 8).fill(Theme.accentFill))
                     .clipShape(RoundedRectangle(cornerRadius: 8))
-                    .opacity(projectIDs.count >= 2 ? 1 : 0.45)
+                    .opacity(projectIDs.count >= 2 && !busy ? 1 : 0.45)
 
                     Text(selectedAgent.map { "Will use \($0.title)" }
                          ?? "Uses default: \(runner.agent.title)")
@@ -241,7 +326,10 @@ struct NewWorkspaceSessionView: View {
         attachableProjects.map { project in
             .item(project.name, subtitle: project.collapsedPath) {
                 projectIDs.append(project.id)
-                if project.isGitRepository { worktrees.insert(project.id) }
+                if project.isGitRepository {
+                    worktrees.insert(project.id)
+                    Task { await check([project]) }
+                }
             }
         }
     }
@@ -255,15 +343,56 @@ struct NewWorkspaceSessionView: View {
     private func detach(_ id: UUID) {
         projectIDs.removeAll { $0 == id }
         worktrees.remove(id)
+        baseOnRemote.remove(id)
+        pullFirst.remove(id)
     }
 
+    private var fetching: Bool { activeFetches > 0 && !gaveUpWaiting }
+
+    // Nothing can start while git still has an answer in hand: before the fetches land
+    // the sheet cannot say what each checkout would fork from, and a pull is still
+    // moving one of them.
+    private var busy: Bool { fetching || pulling }
+
+    // The pulls the user asked for run here, while the sheet is still up, one checkout
+    // after another. On failure the session is not created - the user asked to start
+    // from the latest commits, and quietly starting from stale ones instead would betray
+    // that - so the sheet stays for another try or a cancel.
     private func create() {
+        let pulls = projectIDs.compactMap { id -> Project? in
+            guard pullFirst.contains(id),
+                  freshness[id]?.canFastForward == true else { return nil }
+            return store.project(id)
+        }
+        guard !pulls.isEmpty else {
+            finish()
+            return
+        }
+        pulling = true
+        Task {
+            for project in pulls {
+                if let error = await GitActions.fastForwardPull(at: project.path) {
+                    pulling = false
+                    dialogs.show(Dialog(
+                        title: "Could not update \(project.name)",
+                        message: error,
+                        actions: [.init(label: "OK", kind: .cancel)]))
+                    return
+                }
+            }
+            finish()
+        }
+    }
+
+    private func finish() {
         let agent = selectedAgent ?? runner.agent
-        let choices = projectIDs.map { id in
+        let choices = projectIDs.map { id -> WorkspaceProjectChoice in
             let useWorktree = store.project(id).map {
                 worktrees.contains(id) && $0.isGitRepository
             } ?? false
-            return WorkspaceProjectChoice(projectID: id, useWorktree: useWorktree)
+            let base = useWorktree && baseOnRemote.contains(id)
+                ? freshness[id]?.remoteRef : nil
+            return WorkspaceProjectChoice(projectID: id, useWorktree: useWorktree, base: base)
         }
         onCreate(WorkspaceSessionChoice(sessionID: sessionID, projects: choices,
                                         agent: agent,
@@ -290,4 +419,7 @@ struct WorkspaceSessionChoice: Equatable {
 struct WorkspaceProjectChoice: Equatable {
     var projectID: UUID
     var useWorktree: Bool
+    // The ref this project's worktree forks from; without one it forks from whatever
+    // the project folder has checked out.
+    var base: String? = nil
 }

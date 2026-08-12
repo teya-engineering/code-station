@@ -3,7 +3,7 @@ import Foundation
 struct WorktreeOperations: Sendable {
     let addProject: @Sendable (String, String, UUID, String?) async
         -> Result<GitWorktree.Created, GitWorktree.Failure>
-    let addWorkspaceProject: @Sendable (String, String, UUID, UUID) async
+    let addWorkspaceProject: @Sendable (String, String, UUID, UUID, String?) async
         -> Result<GitWorktree.Created, GitWorktree.Failure>
     let remove: @Sendable (String, String?, String?) async
         -> Result<Void, GitWorktree.Failure>
@@ -13,9 +13,9 @@ struct WorktreeOperations: Sendable {
             await GitWorktree.add(projectPath: path, projectName: name,
                                   sessionID: sessionID, from: base)
         },
-        addWorkspaceProject: { path, name, projectID, sessionID in
+        addWorkspaceProject: { path, name, projectID, sessionID, base in
             await GitWorktree.add(projectPath: path, projectName: name,
-                                  projectID: projectID, sessionID: sessionID)
+                                  projectID: projectID, sessionID: sessionID, from: base)
         },
         remove: { worktree, project, branch in
             await GitWorktree.remove(worktreePath: worktree,
@@ -94,7 +94,7 @@ enum SessionLifecycle {
             }
 
             switch await worktrees.addWorkspaceProject(
-                project.path, project.name, project.id, choice.sessionID) {
+                project.path, project.name, project.id, choice.sessionID, selected.base) {
             case .success(let worktree):
                 checkouts.append(SessionProject(projectID: project.id,
                                                 worktreePath: worktree.path,

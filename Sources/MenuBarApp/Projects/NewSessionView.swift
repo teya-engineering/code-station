@@ -277,8 +277,9 @@ enum NewSessionChoice: Equatable {
 // latest revision, and offers the fixes the sheet can apply itself: a worktree can fork
 // from the remote tip without touching the user's checkout, and a clean checkout on the
 // default branch can be pulled up to date first. Anything else - a dirty folder, a
-// different branch - only warns; sorting that out is the user's to do.
-private struct FreshnessNotice: View {
+// different branch - only warns; sorting that out is the user's to do. Both new-session
+// sheets show it: the single-project one once, the workspace one per repository.
+struct FreshnessNotice: View {
     let report: GitFreshness.Report
     let forWorktree: Bool
     @Binding var baseOnRemote: Bool
