@@ -56,7 +56,7 @@ struct TaskDetailView: View {
                             tint: Theme.projectTint(for: task.name),
                             dashed: true)
             Text(task.name)
-                .font(.serif(20, .semibold))
+                .font(.serif(17, .semibold))
                 .lineLimit(1)
                 .truncationMode(.tail)
 

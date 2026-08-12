@@ -12,7 +12,6 @@ struct WorkspaceDetailView: View {
     @Environment(DialogPresenter.self) private var dialogs
     @Environment(TerminalStore.self) private var terminals
 
-    @State private var draftName = ""
     @State private var creatingSession: ProjectWorkspace?
     @State private var terminalFocused = false
     // How each repository's checkout relates to the default branch and its remote, so
@@ -34,7 +33,6 @@ struct WorkspaceDetailView: View {
                 }
             }
             .background(Theme.background)
-            .task(id: workspace.id) { draftName = workspace.name }
             .task(id: workspace.projectIDs) { await checkFreshness(workspace) }
             .sheet(item: $creatingSession) { workspace in
                 NewWorkspaceSessionView(workspace: workspace) { choice in
@@ -55,25 +53,11 @@ struct WorkspaceDetailView: View {
         HStack(spacing: 12) {
             ProjectDot(tint: Theme.workspaceTint)
 
-            // The name is edited where it is read, so renaming is not a separate block
-            // further down the screen with a button of its own.
-            TextField("Workspace name", text: $draftName)
-                .textFieldStyle(.plain)
-                .font(.serif(20, .semibold))
-                .fixedSize()
-                .onSubmit { saveName(workspace) }
-                .padding(.horizontal, 9)
-                .padding(.vertical, 4)
-                .background(RoundedRectangle(cornerRadius: 8).fill(Theme.field))
-                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
-                .overlay(alignment: .trailing) {
-                    Image(systemName: "pencil")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.tertiary)
-                        .padding(.trailing, 7)
-                        .allowsHitTesting(false)
-                }
-                .appTooltip("Rename this workspace")
+            // The title only reads the name. Renaming lives in the sidebar row's
+            // context menu, the same place projects and sessions are renamed.
+            Text(workspace.name)
+                .font(.serif(17, .semibold))
+                .lineLimit(1)
 
             MonoChip(text: "WORKSPACE · \(workspace.projectIDs.count) PROJECTS",
                      size: 10, tint: Theme.workspaceTint.ink)
@@ -500,16 +484,6 @@ struct WorkspaceDetailView: View {
         .foregroundStyle(ChatColor.warningText)
         .padding(12)
         .background(RoundedRectangle(cornerRadius: 10).fill(ChatColor.warningBackground))
-    }
-
-    private func saveName(_ workspace: ProjectWorkspace) {
-        let name = draftName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty, name != workspace.name else {
-            draftName = workspace.name
-            return
-        }
-        store.renameWorkspace(workspace.id, to: name)
-        draftName = store.workspace(workspace.id)?.name ?? draftName
     }
 
     private func attachableProjects(_ workspace: ProjectWorkspace) -> [Project] {

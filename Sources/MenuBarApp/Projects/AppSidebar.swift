@@ -469,7 +469,13 @@ struct AppSidebar: View {
                 sessionCount: sessions.count,
                 runningCount: running,
                 finishedCount: store.finishedCount(inWorkspace: workspace.id),
-                onNewSession: { choosingWorkspaceSession = workspace }
+                isRenaming: renamingID == workspace.id,
+                onNewSession: { choosingWorkspaceSession = workspace },
+                onRename: { name in
+                    store.renameWorkspace(workspace.id, to: name)
+                    renamingID = nil
+                },
+                onCancelRename: { renamingID = nil }
             )
             .contentShape(Rectangle())
             .onTapGesture {
@@ -478,7 +484,9 @@ struct AppSidebar: View {
                 if expanded { sessionVisibility.reset(workspace.id) }
             }
             .appContextMenu {
-                [.item("New session") { choosingWorkspaceSession = workspace }]
+                [.item("Rename…") { renamingID = workspace.id },
+                 .separator,
+                 .item("New session") { choosingWorkspaceSession = workspace }]
             }
 
             if expanded, !sessions.isEmpty {
@@ -1331,38 +1339,52 @@ private struct WorkspaceHeaderRow: View {
     let sessionCount: Int
     let runningCount: Int
     let finishedCount: Int
+    let isRenaming: Bool
     let onNewSession: () -> Void
+    let onRename: (String) -> Void
+    let onCancelRename: () -> Void
 
+    @State private var draft = ""
     @State private var hovering = false
+    @FocusState private var focused: Bool
 
     var body: some View {
         TreeRow(selected: selected, isExpanded: isExpanded, hovering: hovering) {
             ProjectTileView(name: workspace.name, tint: Theme.workspaceTint)
 
-            HStack(spacing: 5) {
-                Text(workspace.name)
+            if isRenaming {
+                TextField("Name", text: $draft)
+                    .textFieldStyle(.plain)
                     .font(.system(size: 13.5, weight: .semibold))
-                    .lineLimit(1)
-                if finishedCount > 0 { FinishedDot() }
-            }
-
-            Spacer(minLength: 6)
-
-            ZStack(alignment: .trailing) {
-                HStack(spacing: 6) {
-                    if runningCount > 0 { RunningDot() }
-                    Text("\(projects.count) projects")
-                        .font(.mono(10))
-                        .foregroundStyle(.secondary)
+                    .focused($focused)
+                    .onSubmit { onRename(draft) }
+                    .onExitCommand(perform: onCancelRename)
+            } else {
+                HStack(spacing: 5) {
+                    Text(workspace.name)
+                        .font(.system(size: 13.5, weight: .semibold))
+                        .lineLimit(1)
+                    if finishedCount > 0 { FinishedDot() }
                 }
-                .opacity(hovering ? 0 : 1)
 
-                if hovering {
-                    RowAction(icon: "plus", title: "New", action: onNewSession)
-                        .appTooltip("New multi-project session")
+                Spacer(minLength: 6)
+
+                ZStack(alignment: .trailing) {
+                    HStack(spacing: 6) {
+                        if runningCount > 0 { RunningDot() }
+                        Text("\(projects.count) projects")
+                            .font(.mono(10))
+                            .foregroundStyle(.secondary)
+                    }
+                    .opacity(hovering ? 0 : 1)
+
+                    if hovering {
+                        RowAction(icon: "plus", title: "New", action: onNewSession)
+                            .appTooltip("New multi-project session")
+                    }
                 }
+                .frame(minWidth: 62, alignment: .trailing)
             }
-            .frame(minWidth: 62, alignment: .trailing)
         }
         .appTooltip {
             Tooltip(
@@ -1372,6 +1394,11 @@ private struct WorkspaceHeaderRow: View {
                        Tooltip.Row(label: "Projects", value: "\(projects.count)")])
         }
         .onHover { hovering = $0 }
+        .onChange(of: isRenaming, initial: true) { _, renaming in
+            guard renaming else { return }
+            draft = workspace.name
+            focused = true
+        }
     }
 }
 

@@ -44,7 +44,7 @@ struct HomeView: View {
                 .fill(Theme.brand)
                 .frame(width: 8, height: 8)
             Text("Home")
-                .font(.serif(20, .semibold))
+                .font(.serif(17, .semibold))
             Text(Date().formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
                     .uppercased()
                  + " · " + Date().formatted(date: .omitted, time: .shortened))

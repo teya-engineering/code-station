@@ -66,7 +66,7 @@ struct ProjectDetailView: View {
         HStack(spacing: 12) {
             ProjectDot(tint: Theme.projectTint(for: project.name))
             Text(project.name)
-                .font(.serif(20, .semibold))
+                .font(.serif(17, .semibold))
                 .lineLimit(1)
                 .truncationMode(.tail)
             Text(project.collapsedPath)

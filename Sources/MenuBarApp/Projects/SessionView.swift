@@ -219,12 +219,14 @@ struct SessionView: View {
             HStack(spacing: 7) {
                 ProjectDot(tint: workspace == nil ? Theme.projectTint(for: container)
                                                   : Theme.workspaceTint)
+                // The place the session lives is never cut short: when the row runs out
+                // of room, the session title is what gives way.
                 Text(container)
                     .font(.mono(11))
                     .kerning(0.5)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-                    .layoutPriority(-1)
+                    .fixedSize()
                 Text("/")
                     .font(.mono(11))
                     .foregroundStyle(.tertiary)
@@ -232,7 +234,7 @@ struct SessionView: View {
                     MonoChip(text: "TROUBLESHOOT", size: 9, tint: Theme.secret)
                 }
                 Text(session.title)
-                    .font(.serif(20, .semibold))
+                    .font(.serif(17, .semibold))
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .changingName(session.title)
