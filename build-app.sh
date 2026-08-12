@@ -6,6 +6,10 @@ CONFIG="${1:-release}"
 APP_NAME="Teya Conductor"
 BUNDLE_ID="com.teya.conductor"
 
+# The organisation settings folded into the bundle. Teya builds pass teya-defaults.json;
+# anyone else points this at their own file, and a build with none is left unconfigured.
+SITE_DEFAULTS="${SITE_DEFAULTS:-site-defaults.json}"
+
 swift build -c "$CONFIG"
 BIN="$(swift build -c "$CONFIG" --show-bin-path)/MenuBarApp"
 
@@ -17,6 +21,13 @@ cp "$BIN" "$APP/Contents/MacOS/MenuBarApp"
 # SwiftPM keeps target resources in their own bundle next to the binary; Bundle.module
 # finds it again once it sits in the app's Resources folder.
 cp -R "$(dirname "$BIN")/MenuBarApp_MenuBarApp.bundle" "$APP/Contents/Resources/"
+
+# A bundle carrying settings is an app that is already set up for whoever it is handed
+# to. The app looks for one fixed name, so whichever file was chosen arrives under it.
+if [ -f "$SITE_DEFAULTS" ]; then
+    cp "$SITE_DEFAULTS" \
+        "$APP/Contents/Resources/MenuBarApp_MenuBarApp.bundle/site-defaults.json"
+fi
 
 # Regenerate the icon if it is missing, so a fresh clone still gets a Dock icon.
 [ -f Resources/AppIcon.icns ] || swift make-icon.swift

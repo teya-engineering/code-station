@@ -56,6 +56,57 @@ swift run --disable-sandbox
 
 The app bundle is recommended for regular use and is required for the Start at Login setting.
 
+## Site configuration
+
+A few features point at things that belong to your organisation rather than to the app: the identity provider your APIs sign in against, the calls worth starting from, your Grafana instances, and the skills marketplace your agents install from. None of that is in the code. It is all data, in a settings file the app reads at startup.
+
+Every section is optional, and so is the file itself. Without it the app runs with blank API environments, no saved requests, no Grafana presets, and the Skills screen reporting that no marketplace is set up. Everything else works as normal.
+
+Two settings files are kept here:
+
+- `site-defaults.example.json` is a blank-slate example. Copy it and fill in your own values.
+- `teya-defaults.json` is Teya's own setup, which is what Teya builds of this app use.
+
+### Set it up
+
+Copy the example, then edit it:
+
+```bash
+cp site-defaults.example.json site-defaults.json
+```
+
+The app reads the first of these that exists:
+
+1. The path in `$CONDUCTOR_SITE_DEFAULTS`
+2. `~/Library/Application Support/com.teya.conductor/site-defaults.json`
+3. `site-defaults.json` inside the app bundle
+
+Put your file in the second one for everyday use. `site-defaults.json` in the repository root is ignored by Git, so working settings never end up in a commit.
+
+### Build a configured app
+
+`./build-app.sh` folds a settings file into the bundle it builds, which is the third location above. That gives you an app that is already set up, ready to hand to your team. It uses `site-defaults.json` unless you name another file:
+
+```bash
+./build-app.sh                                    # your own settings, or none
+SITE_DEFAULTS=teya-defaults.json ./build-app.sh   # a Teya build
+```
+
+A `swift run` development build has no bundle to fold a file into, so use one of the first two locations instead.
+
+### What goes in it
+
+| Field | What it does |
+| --- | --- |
+| `dispatch.oauth` | The identity provider both API environments sign in against. `grant` is `authorizationCodePKCE` or `clientCredentials`. `authURL`, `tokenURL`, `clientID`, `scope`, and `callbackURL` are the usual OAuth values. Anything you leave out keeps the app's own default. |
+| `dispatch.requests` | The saved requests a first run starts with, each a `name`, a `method`, and a `url`. `{{env}}` in a URL becomes `dev` or `prd` depending on the environment the request is sent from. |
+| `grafana.presets` | The instances offered in the Add server sheet. A preset is a `scope`, an `environment`, and a `url`. The agents know each one as `grafana-<scope>-<environment>`. `serves` lists which troubleshooting environments (`dev`, `prod`) offer it, and a preset that lists none is offered for all of them. |
+| `skills` | The marketplace the Skills screen installs from: its `name` on screen, its `marketplace` name as the agent CLIs know it, and the `repository` it is cloned from. |
+
+The client secret and the OAuth tokens are yours rather than your organisation's, so they are never part of this file. They stay in the macOS Keychain.
+
+If the file cannot be read, the app starts with everything empty and writes the reason to its standard error, so a typo does not look the same as having no file at all.
+
 ## Get started
 
 1. Open Teya Conductor and add a project folder.

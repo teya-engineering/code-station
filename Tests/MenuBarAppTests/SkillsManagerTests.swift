@@ -55,7 +55,8 @@ struct SkillsManagerTests {
         ]
         """
 
-        let installed = SkillsManager.installedPlugins(from: output, for: .claude)
+        let installed = SkillsManager.installedPlugins(from: output, for: .claude,
+                                                       marketplace: "example-engineering")
 
         #expect(installed == [
             "backend-specialist": SkillInstallation(version: "1.8.0", enabled: true)
@@ -80,7 +81,8 @@ struct SkillsManagerTests {
         }
         """
 
-        let installed = SkillsManager.installedPlugins(from: output, for: .codex)
+        let installed = SkillsManager.installedPlugins(from: output, for: .codex,
+                                                       marketplace: "example-engineering")
 
         #expect(installed == [
             "backend-specialist": SkillInstallation(version: "1.9.1", enabled: false)

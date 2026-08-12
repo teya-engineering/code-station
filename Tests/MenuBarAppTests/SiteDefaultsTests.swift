@@ -132,12 +132,29 @@ struct SiteDefaultsTests {
         #expect(edge.serves("prod"))
     }
 
-    // A typo here would only show up as an app that quietly starts with nothing set up.
-    @Test func theFileShippedWithTheAppParses() throws {
-        let url = try #require(SiteDefaults.bundledURL)
-        let defaults = SiteDefaults.load([url])
+    // The settings files kept in the repository. A typo in one would only show up much
+    // later, as a build that quietly starts with nothing set up, so both are read here.
+    // The example is what anyone new copies and edits; the Teya file is what Teya builds
+    // are handed to `build-app.sh`.
+    @Test(arguments: ["site-defaults.example.json", "teya-defaults.json"])
+    func aTrackedSettingsFileParses(_ name: String) {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let defaults = SiteDefaults.load([root.appendingPathComponent(name)])
 
         #expect(defaults.loadFailure == nil)
+        #expect(!defaults.dispatchOAuth.clientID.isEmpty)
+        #expect(!defaults.dispatchRequests.isEmpty)
+        #expect(!defaults.grafanaPresets.isEmpty)
+        #expect(defaults.skills != nil)
+    }
+
+    // No settings are compiled in, so a plain checkout builds an app with no file to fall
+    // back on. A build only carries one because `build-app.sh` was given one to fold in.
+    @Test func noFileIsShippedWithTheBuild() {
+        #expect(SiteDefaults.bundledURL == nil)
     }
 
     @Test func serverNamesAreReadBackWithoutTheSiteFile() {

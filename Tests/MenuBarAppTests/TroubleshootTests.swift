@@ -73,6 +73,14 @@ struct TroubleshootTests {
     }
 
     @Test func environmentKeepsSharedAndUnscopedServers() {
+        let defaults = SiteDefaults(grafana: .init(presets: [
+            .init(scope: "platform", environment: "dev",
+                  url: "https://grafana.example", serves: ["dev"]),
+            .init(scope: "platform", environment: "prd",
+                  url: "https://grafana.example", serves: ["prod"]),
+            .init(scope: "shared", environment: "shared",
+                  url: "https://grafana.example", serves: ["dev", "prod"]),
+        ]))
         let servers = [
             server("grafana-platform-dev"),
             server("grafana-platform-prd"),
@@ -80,12 +88,23 @@ struct TroubleshootTests {
             server("node_repl"),
         ]
 
-        #expect(servers.filter(TroubleshootEnvironment.dev.includes).map(\.name) == [
-            "grafana-platform-dev", "grafana-shared-shared", "node_repl",
-        ])
-        #expect(servers.filter(TroubleshootEnvironment.prod.includes).map(\.name) == [
-            "grafana-platform-prd", "grafana-shared-shared", "node_repl",
-        ])
+        #expect(servers.filter { TroubleshootEnvironment.dev.includes($0, in: defaults) }
+            .map(\.name) == [
+                "grafana-platform-dev", "grafana-shared-shared", "node_repl",
+            ])
+        #expect(servers.filter { TroubleshootEnvironment.prod.includes($0, in: defaults) }
+            .map(\.name) == [
+                "grafana-platform-prd", "grafana-shared-shared", "node_repl",
+            ])
+    }
+
+    // With no site file there is nothing saying which environment a server belongs to,
+    // so filtering must not quietly drop every one of them.
+    @Test func everyServerSurvivesWithoutASiteFile() {
+        let servers = [server("grafana-platform-dev"), server("node_repl")]
+
+        #expect(servers.filter { TroubleshootEnvironment.prod.includes($0, in: SiteDefaults()) }
+            .map(\.name) == ["grafana-platform-dev", "node_repl"])
     }
 
     @Test func claudeUsesTheFilteredMCPConfiguration() {

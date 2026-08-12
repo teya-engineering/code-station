@@ -23,8 +23,8 @@ enum TroubleshootEnvironment: String, CaseIterable, Identifiable {
 
     // A server the site file does not know about is left in, since there is nothing to
     // say which environment it belongs to.
-    func includes(_ server: Server) -> Bool {
-        guard let preset = SiteDefaults.current.grafanaPreset(named: server.name) else {
+    func includes(_ server: Server, in defaults: SiteDefaults = .current) -> Bool {
+        guard let preset = defaults.grafanaPreset(named: server.name) else {
             return true
         }
         return preset.serves(rawValue)
@@ -504,7 +504,7 @@ struct TroubleshootView: View {
     }
 
     private var environmentMCPServers: [Server] {
-        configs.servers.filter(environment.includes)
+        configs.servers.filter { environment.includes($0) }
     }
 
     private var mcpConfigurationState: MCPConfigurationState {
@@ -753,7 +753,7 @@ struct TroubleshootView: View {
 
         Task {
             let managedServers = configs.servers
-            let selectedServers = managedServers.filter(chosenEnvironment.includes)
+            let selectedServers = managedServers.filter { chosenEnvironment.includes($0) }
             var disabledServers: [String] = []
             if chosenAgent == .codex, !enableMCPServers || !managedServers.isEmpty {
                 do {

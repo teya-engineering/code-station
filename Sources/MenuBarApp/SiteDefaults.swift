@@ -3,8 +3,8 @@ import Foundation
 // The parts of the app that belong to one organisation rather than to the app itself:
 // the identity provider its APIs sign in against, the calls worth starting from, its
 // Grafana instances, and the skills marketplace its agents install from. Keeping them in
-// a file rather than in code means another team can point the same build somewhere else,
-// and a build with no file at all still runs with every one of them empty.
+// a file rather than in code means each team points the same build at its own setup, and
+// a build with no file at all still runs with every one of them empty.
 //
 // The file is read from the first of these that exists:
 //
@@ -12,8 +12,9 @@ import Foundation
 //   2. <application support>/site-defaults.json
 //   3. site-defaults.json inside the app bundle
 //
-// So a checkout ships working defaults, and anyone can override them for their own
-// machine without rebuilding.
+// None of it is compiled in. `site-defaults.example.json` shows the shape and
+// `teya-defaults.json` holds Teya's own setup; the build script folds whichever one it is
+// given into the bundle, so a team can hand out an app that is already set up.
 struct SiteDefaults: Decodable, Sendable {
     var dispatch: DispatchConfig? = nil
     var grafana: Grafana? = nil

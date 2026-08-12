@@ -34,5 +34,8 @@ Icon?
 # Worktrees the app creates at runtime
 .conductor/
 
+# Your own organisation's settings, folded into the bundle by build-app.sh
+/site-defaults.json
+
 # Local Claude Code settings
 .claude/settings.local.json

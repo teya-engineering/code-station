@@ -59,15 +59,15 @@ Add tests for behavior and business logic. Trivial view wiring, accessors, and f
 
 ## Site defaults
 
-Anything that belongs to one organisation rather than to the app lives in `Sources/MenuBarApp/Resources/site-defaults.json`: the identity provider the API environments sign in against, the saved requests a first run starts with, the Grafana instances offered in the Add server sheet, and the skills marketplace. `SiteDefaults` reads it from the first of these that exists:
+Anything that belongs to one organisation rather than to the app lives in `site-defaults.json`: the identity provider the API environments sign in against, the saved requests a first run starts with, the Grafana instances offered in the Add server sheet, and the skills marketplace. `SiteDefaults` reads it from the first of these that exists:
 
 1. `$CONDUCTOR_SITE_DEFAULTS`
 2. `~/Library/Application Support/com.teya.conductor/site-defaults.json`
 3. `site-defaults.json` inside the app bundle
 
-So a checkout builds with working defaults, and you can point your own build somewhere else without changing tracked files. Every section is optional. With no file at all the app runs with blank API environments, no saved requests, no Grafana presets, and the Skills screen reporting that no marketplace is set up.
+Nothing is compiled in, so a plain checkout builds an app with all of it empty. Two settings files are tracked: `site-defaults.example.json` is a blank-slate example to copy, and `teya-defaults.json` holds Teya's own setup. [README.md](README.md#site-configuration) covers each field. `build-app.sh` folds one of them into the bundle it builds, chosen with `SITE_DEFAULTS` and defaulting to an untracked `site-defaults.json`, which is how a configured app gets handed to a team. Every section is optional.
 
-Keep organisation-specific hostnames, client IDs, and repository URLs in that file rather than in Swift, so the code stays free of them.
+Keep organisation-specific hostnames, client IDs, and repository URLs in that file rather than in Swift, so the code stays free of them. Tests should pass in whatever settings they need rather than reading `SiteDefaults.current`, so they pass on a checkout that has no site file.
 
 ## Runtime design
 
