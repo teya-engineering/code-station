@@ -15,6 +15,10 @@ struct WorkspaceDetailView: View {
     @State private var draftName = ""
     @State private var creatingSession: ProjectWorkspace?
     @State private var terminalFocused = false
+    // How each repository's checkout relates to the default branch and its remote, so
+    // the rows can say which projects are on main and up to date. Filled in two passes:
+    // the local refs first, then the same read again after a fetch.
+    @State private var freshness: [UUID: GitFreshness.Report] = [:]
 
     private var terminalScope: TerminalScope { .project(workspaceID) }
 
@@ -31,6 +35,7 @@ struct WorkspaceDetailView: View {
             }
             .background(Theme.background)
             .task(id: workspace.id) { draftName = workspace.name }
+            .task(id: workspace.projectIDs) { await checkFreshness(workspace) }
             .sheet(item: $creatingSession) { workspace in
                 NewWorkspaceSessionView(workspace: workspace) { choice in
                     startSession(choice, in: workspace)
@@ -168,6 +173,7 @@ struct WorkspaceDetailView: View {
                     if store.isMissing(project) {
                         MonoChip(text: "MISSING", size: 9, tint: Theme.deletion)
                     }
+                    freshnessChip(project)
                 }
                 Text(summary(project, workspace: workspace))
                     .font(.mono(10.5))
@@ -198,6 +204,7 @@ struct WorkspaceDetailView: View {
                     if store.isMissing(project) {
                         MonoChip(text: "MISSING", size: 9, tint: Theme.deletion)
                     }
+                    freshnessChip(project)
                 }
                 Text(summary(project, workspace: workspace))
                     .font(.mono(10.5))
@@ -224,6 +231,37 @@ struct WorkspaceDetailView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 11)
         .background(RoundedRectangle(cornerRadius: 10).fill(Theme.sunken))
+    }
+
+    // Answers "is this project on main and up to date?" at a glance, next to the name.
+    // Nothing shows until the first report lands, so a repository never wears a verdict
+    // that is really just "still reading". The tooltip carries the full sentence.
+    @ViewBuilder private func freshnessChip(_ project: Project) -> some View {
+        if let report = freshness[project.id] {
+            Group {
+                if !report.onDefaultBranch, let expected = report.defaultBranch {
+                    MonoChip(text: "NOT ON \(expected.uppercased())", size: 9,
+                             tint: Theme.attention)
+                } else if report.behind > 0 {
+                    MonoChip(text: "\(report.behind) BEHIND", size: 9, tint: Theme.attention)
+                } else {
+                    MonoChip(text: "UP TO DATE", size: 9, tint: Theme.addition)
+                }
+            }
+            .appTooltip(report.explanation)
+            .transition(.opacity)
+        }
+    }
+
+    private func checkFreshness(_ workspace: ProjectWorkspace) async {
+        let repositories = workspace.projectIDs.compactMap(store.project)
+            .filter(\.isGitRepository)
+            .map { (id: $0.id, path: $0.path) }
+        for fetch in [false, true] {
+            await GitFreshness.checkAll(repositories, fetch: fetch) { id, report in
+                withAnimation(.easeOut(duration: 0.2)) { freshness[id] = report }
+            }
+        }
     }
 
     // One control rather than two competing buttons: the current mode is the label, and

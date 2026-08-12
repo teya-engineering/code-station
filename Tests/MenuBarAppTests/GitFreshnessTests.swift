@@ -99,6 +99,29 @@ struct GitFreshnessTests {
         #expect(await GitFreshness.check(at: folder.path, fetch: false) == nil)
     }
 
+    // The one-line caption the workspace rows show in a tooltip. It has to read as a
+    // warning when something is off and as reassurance when nothing is.
+    @Test func explainsItselfInPlainSentences() {
+        let fine = GitFreshness.Report(currentBranch: "main", defaultBranch: "main",
+                                       remoteRef: "origin/main")
+        #expect(fine.explanation == "The checkout is main at its latest revision.")
+
+        let behind = GitFreshness.Report(currentBranch: "main", defaultBranch: "main",
+                                         remoteRef: "origin/main", behind: 3)
+        #expect(behind.explanation == "main is 3 commits behind origin/main.")
+
+        let elsewhere = GitFreshness.Report(currentBranch: "feature", defaultBranch: "main",
+                                            remoteRef: "origin/main", behind: 1)
+        #expect(elsewhere.explanation
+                == "The checkout is on feature, not main. It is 1 commit behind origin/main.")
+
+        let unreachable = GitFreshness.Report(currentBranch: "main", defaultBranch: "main",
+                                              remoteRef: "origin/main",
+                                              fetchAttempted: true, fetched: false)
+        #expect(unreachable.explanation
+                == "The checkout is main at its latest revision. Origin could not be reached, so this may be out of date.")
+    }
+
     // MARK: - Fixtures
 
     // A repository with one commit in it, thrown away with the test.

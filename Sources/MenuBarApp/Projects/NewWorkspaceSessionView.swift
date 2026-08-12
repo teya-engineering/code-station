@@ -114,22 +114,13 @@ struct NewWorkspaceSessionView: View {
         projectIDs.compactMap { store.project($0) }.filter(\.isGitRepository)
     }
 
-    // The repositories are read together rather than one after another so the sheet's
-    // wait is the slowest repository, not the sum of them.
     private func check(_ projects: [Project]) async {
         activeFetches += 1
         defer { activeFetches -= 1 }
+        let repositories = projects.map { (id: $0.id, path: $0.path) }
         for fetch in [false, true] {
-            await withTaskGroup(of: (UUID, GitFreshness.Report?).self) { group in
-                for project in projects {
-                    group.addTask { [id = project.id, path = project.path] in
-                        (id, await GitFreshness.check(at: path, fetch: fetch))
-                    }
-                }
-                for await (id, report) in group {
-                    guard let report else { continue }
-                    withAnimation(.easeOut(duration: 0.2)) { freshness[id] = report }
-                }
+            await GitFreshness.checkAll(repositories, fetch: fetch) { id, report in
+                withAnimation(.easeOut(duration: 0.2)) { freshness[id] = report }
             }
         }
     }
