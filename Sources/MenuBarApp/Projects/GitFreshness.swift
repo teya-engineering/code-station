@@ -66,25 +66,45 @@ enum GitFreshness {
     // does not hold the sheet's answer hostage.
     private static let fetchTimeout: TimeInterval = 8
 
+    // A check can spend seconds waiting on the network, so it runs on its own concurrent
+    // queue rather than the shared serial git lane, which a fetch would otherwise block
+    // for every other read. The queue does not bound its own width: `checkAll` caps how
+    // many checks it submits at once, and a lone `check` adds at most one more.
+    private static let queue = DispatchQueue(label: "com.teya.conductor.git.freshness",
+                                             qos: .userInitiated, attributes: .concurrent)
+
+    // Each in-flight check holds a thread while git blocks on the network, so only a
+    // few run side by side. More would gain little: they share one connection and disk.
+    private static let maxConcurrentChecks = 3
+
     // nil when there is nothing to compare: no git, no repository, or no commits yet.
     static func check(at path: String, fetch: Bool) async -> Report? {
         guard let tool = await GitInspector.tool() else { return nil }
         let url = URL(fileURLWithPath: path)
-        return await GitInspector.offMain { inspect(tool: tool, url: url, fetch: fetch) }
+        return await withCheckedContinuation { continuation in
+            queue.async {
+                continuation.resume(returning: inspect(tool: tool, url: url, fetch: fetch))
+            }
+        }
     }
 
-    // Reads several repositories side by side, so the wait is the slowest of them rather
-    // than the sum. Each report lands through the callback as soon as it is ready; the
-    // screens showing many repositories fill in one row at a time instead of all at once.
+    // Reads a few repositories side by side, so the wait is closer to the slowest of
+    // them than the sum. Each report lands through the callback as soon as it is ready;
+    // the screens showing many repositories fill in one row at a time instead of all
+    // at once.
     static func checkAll(_ repositories: [(id: UUID, path: String)], fetch: Bool,
                          onReport: @escaping @MainActor (UUID, Report) -> Void) async {
         await withTaskGroup(of: (UUID, Report?).self) { group in
-            for repository in repositories {
+            var pending = repositories.makeIterator()
+            let addNext = { (group: inout TaskGroup<(UUID, Report?)>) in
+                guard let repository = pending.next() else { return }
                 group.addTask { [id = repository.id, path = repository.path] in
                     (id, await check(at: path, fetch: fetch))
                 }
             }
+            for _ in 0..<maxConcurrentChecks { addNext(&group) }
             for await (id, report) in group {
+                addNext(&group)
                 guard let report else { continue }
                 await onReport(id, report)
             }
