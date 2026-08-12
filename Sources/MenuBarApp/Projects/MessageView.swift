@@ -207,51 +207,85 @@ private struct ThinkingBlock: View {
     }
 }
 
+// The transcript's copy affordance, shared by whole messages and by single code blocks.
+// It only exists while the pointer is over its owner, so the tick it shows after a copy
+// clears itself when the pointer leaves.
+private struct CopyPill: View {
+    let text: String
+    let tooltip: String
+
+    @State private var copied = false
+
+    var body: some View {
+        Button {
+            Self.copy(text)
+            copied = true
+        } label: {
+            Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(copied ? Theme.addition : Theme.accent)
+                .frame(width: 24, height: 24)
+                .background(RoundedRectangle(cornerRadius: 6).fill(Theme.card))
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.border))
+                .shadow(color: .black.opacity(0.08), radius: 2, y: 1)
+                .contentShape(RoundedRectangle(cornerRadius: 6))
+        }
+        .buttonStyle(.plain)
+        .appTooltip(copied ? "Copied" : tooltip)
+    }
+
+    static func copy(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+}
+
+// Copy buttons nest: a message's pill wraps prose that can hold code blocks with pills
+// of their own. Hovering a code block also counts as hovering the message, so without
+// coordination two identical pills would sit side by side. Each button reports its hover
+// up through this key and any enclosing button stands down, leaving the one pill whose
+// reach matches what the pointer is over.
+private struct DescendantCopyHoverKey: PreferenceKey {
+    static let defaultValue = false
+    static func reduce(value: inout Bool, nextValue: () -> Bool) {
+        value = value || nextValue()
+    }
+}
+
 private struct TranscriptCopyButton: ViewModifier {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var hovering = false
-    @State private var copied = false
+    @State private var descendantHovering = false
 
     let text: String
+    let tooltip: String
+    let inset: CGFloat
 
     func body(content: Content) -> some View {
         content
+            // Read before our own flag is merged in below, so this sees descendants
+            // only and a pill never hides itself.
+            .onPreferenceChange(DescendantCopyHoverKey.self) { descendantHovering = $0 }
             .overlay(alignment: .topTrailing) {
-                if hovering && !text.isEmpty {
-                    Button(action: copy) {
-                        Image(systemName: copied ? "checkmark" : "doc.on.doc")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(copied ? Theme.addition : Theme.accent)
-                            .frame(width: 24, height: 24)
-                            .background(RoundedRectangle(cornerRadius: 6).fill(Theme.card))
-                            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.border))
-                            .shadow(color: .black.opacity(0.08), radius: 2, y: 1)
-                            .contentShape(RoundedRectangle(cornerRadius: 6))
-                    }
-                    .buttonStyle(.plain)
-                    .padding(4)
-                    .appTooltip(copied ? "Copied" : "Copy text")
-                    .transition(.opacity)
+                if hovering && !descendantHovering && !text.isEmpty {
+                    CopyPill(text: text, tooltip: tooltip)
+                        .padding(inset)
+                        .transition(.opacity)
                 }
             }
-            .onHover { inside in
-                hovering = inside
-                if !inside { copied = false }
-            }
+            .onHover { hovering = $0 }
             .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: hovering)
-            .accessibilityAction(named: "Copy text", copy)
-    }
-
-    private func copy() {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
-        copied = true
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: descendantHovering)
+            .accessibilityAction(named: tooltip) { CopyPill.copy(text) }
+            .transformPreference(DescendantCopyHoverKey.self) { $0 = $0 || hovering }
     }
 }
 
 private extension View {
-    func transcriptCopyButton(for text: String) -> some View {
-        modifier(TranscriptCopyButton(text: text))
+    func transcriptCopyButton(for text: String,
+                              tooltip: String = "Copy text",
+                              inset: CGFloat = 4) -> some View {
+        modifier(TranscriptCopyButton(text: text, tooltip: tooltip, inset: inset))
     }
 }
 
@@ -311,12 +345,15 @@ private struct CodeBlock: View {
                 Text(segment.text)
                     .font(.mono(12))
                     .textSelection(.enabled)
-                    .padding(.trailing, 4)
+                    // Keeps lines that fit clear of the copy button. A longer line still
+                    // scrolls under it, where the pill's solid fill keeps it readable.
+                    .padding(.trailing, 32)
             }
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 10).fill(Theme.field))
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
+        .transcriptCopyButton(for: segment.text, tooltip: "Copy code", inset: 6)
     }
 }
