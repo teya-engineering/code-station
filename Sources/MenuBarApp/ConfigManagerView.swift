@@ -11,6 +11,7 @@ struct ConfigManagerView: View {
     @State private var showingAddGrafana = false
     @State private var showingAddJSON = false
     @State private var grafanaExpanded = true
+    @State private var filter = ""
 
     var body: some View {
         VStack(spacing: 0) {
@@ -98,7 +99,22 @@ struct ConfigManagerView: View {
             }
             .padding(.horizontal, 20)
             .padding(.top, 18)
-            .padding(.bottom, 14)
+            .padding(.bottom, 12)
+
+            HStack(spacing: 7) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                TextField("Filter servers", text: $filter)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12.5))
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
+            .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
+            .padding(.horizontal, 16)
+            .padding(.bottom, 12)
 
             ScrollView {
                 VStack(spacing: 4) {
@@ -114,7 +130,26 @@ struct ConfigManagerView: View {
                             ForEach(grafanaServers) { row(for: $0) }
                         }
                     }
+                    if !otherServers.isEmpty, store.servers.contains(where: \.isGrafana) {
+                        HStack {
+                            Text("OTHER")
+                                .font(.system(size: 11, weight: .semibold))
+                                .kerning(0.6)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.top, 10)
+                        .padding(.bottom, 2)
+                    }
                     ForEach(otherServers) { row(for: $0) }
+                    if grafanaServers.isEmpty && otherServers.isEmpty && !filter.isEmpty {
+                        Text("No servers match.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(12)
+                    }
                 }
                 .padding(.horizontal, 12)
             }
@@ -208,8 +243,13 @@ struct ConfigManagerView: View {
         .background(Theme.sidebar)
     }
 
-    private var grafanaServers: [Server] { store.servers.filter(\.isGrafana) }
-    private var otherServers: [Server] { store.servers.filter { !$0.isGrafana } }
+    private func matches(_ server: Server) -> Bool {
+        let query = filter.trimmingCharacters(in: .whitespaces)
+        return query.isEmpty || server.name.localizedCaseInsensitiveContains(query)
+    }
+
+    private var grafanaServers: [Server] { store.servers.filter { $0.isGrafana && matches($0) } }
+    private var otherServers: [Server] { store.servers.filter { !$0.isGrafana && matches($0) } }
 
     private func row(for server: Server) -> some View {
         ServerRow(server: server,
