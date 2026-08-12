@@ -171,16 +171,15 @@ struct TaskDetailView: View {
 
     // Where a run starts from, at the foot of the prompt it will send. Only the agent
     // stays on show, because it decides what the other choices mean; those live behind
-    // one Options menu, and a choice only earns a spot in the row when it strays from
-    // the app default or needs a warning kept visible.
+    // one Options menu, and a choice only earns a spot in the row when it needs a
+    // warning kept visible.
     private func runBar(_ task: Project) -> some View {
         let choices = runChoices(task)
         return HStack(spacing: 14) {
             SessionBotPicker(avatars: appSettings.agentAvatars,
                              selectedName: botBinding(task), size: 26)
             choiceMenu(agentChoice(task))
-            ForEach(choices.filter { $0.overridden || $0.warning },
-                    id: \.badge) { choice in
+            ForEach(choices.filter(\.warning), id: \.badge) { choice in
                 choiceMenu(choice)
             }
             optionsMenu(choices)
@@ -342,24 +341,28 @@ struct TaskDetailView: View {
     }
 
     // Every remaining choice in one place, each group's rows wearing a chip that names
-    // the group.
+    // the group. The control takes the accent when any choice inside strays from the
+    // app default, so an override stays visible without a pill of its own.
     private func optionsMenu(_ choices: [RunChoice]) -> some View {
-        HStack(spacing: 4) {
+        let overridden = choices.contains(where: \.overridden)
+        return HStack(spacing: 4) {
             Image(systemName: "slider.horizontal.3")
                 .font(.system(size: 9, weight: .semibold))
             Text("Options")
-                .font(.system(size: 11))
+                .font(.system(size: 11, weight: overridden ? .semibold : .regular))
             Image(systemName: "chevron.down")
                 .font(.system(size: 7, weight: .semibold))
         }
-        .foregroundStyle(.secondary)
+        .foregroundStyle(overridden ? Theme.accent : Color.secondary)
         .fixedSize()
         .appMenu {
             choices.enumerated().flatMap { index, choice -> [MenuEntry] in
                 (index == 0 ? [] : [.separator]) + menuEntries(choice, badged: true)
             }
         }
-        .appTooltip("The model, effort, and access choices each run starts with.")
+        .appTooltip(overridden
+            ? "The model, effort, and access choices each run starts with. Some are overridden for this task."
+            : "The model, effort, and access choices each run starts with.")
     }
 
     // The rows of one choice: the default first, naming what it resolves to, then each
