@@ -157,6 +157,7 @@ struct ServerDetailView: View {
                 claudeCard(server)
                 codexCard(server)
             }
+            .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -584,7 +585,7 @@ private struct AgentCard: View {
             }
         }
         .padding(16)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(RoundedRectangle(cornerRadius: 12).fill(Theme.card))
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.border))
     }
