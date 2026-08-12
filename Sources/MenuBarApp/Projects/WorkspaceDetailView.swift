@@ -18,6 +18,9 @@ struct WorkspaceDetailView: View {
     // the rows can say which projects are on main and up to date. Filled in two passes:
     // the local refs first, then the same read again after a fetch.
     @State private var freshness: [UUID: GitFreshness.Report] = [:]
+    // The repositories a requested fix - a branch switch, a pull - is still moving.
+    // Their chips show the work instead of a verdict that is about to change.
+    @State private var updating: Set<UUID> = []
 
     private var terminalScope: TerminalScope { .project(workspaceID) }
 
@@ -220,20 +223,77 @@ struct WorkspaceDetailView: View {
     // Answers "is this project on main and up to date?" at a glance, next to the name.
     // Nothing shows until the first report lands, so a repository never wears a verdict
     // that is really just "still reading". The tooltip carries the full sentence.
+    // A chip that has something to complain about opens a menu offering the fix.
     @ViewBuilder private func freshnessChip(_ project: Project) -> some View {
-        if let report = freshness[project.id] {
+        if updating.contains(project.id) {
+            HStack(spacing: 5) {
+                ProgressView().controlSize(.mini)
+                Text("UPDATING…")
+                    .font(.mono(9, .semibold))
+                    .kerning(0.6)
+                    .foregroundStyle(.secondary)
+            }
+            .transition(.opacity)
+        } else if let report = freshness[project.id] {
             Group {
                 if !report.onDefaultBranch, let expected = report.defaultBranch {
                     MonoChip(text: "NOT ON \(expected.uppercased())", size: 9,
                              tint: Theme.attention)
+                        .appMenu { freshenMenu(project, report: report) }
                 } else if report.behind > 0 {
                     MonoChip(text: "\(report.behind) BEHIND", size: 9, tint: Theme.attention)
+                        .appMenu { freshenMenu(project, report: report) }
                 } else {
                     MonoChip(text: "UP TO DATE", size: 9, tint: Theme.addition)
                 }
             }
-            .appTooltip(report.explanation)
+            .appTooltip(report.isStale
+                        ? report.explanation + " Click to bring the checkout up to date."
+                        : report.explanation)
             .transition(.opacity)
+        }
+    }
+
+    private func freshenMenu(_ project: Project, report: GitFreshness.Report) -> [MenuEntry] {
+        guard let branch = report.defaultBranch else { return [] }
+        if !report.onDefaultBranch {
+            return [.item(report.remoteRef == nil
+                              ? "Switch to \(branch)"
+                              : "Switch to \(branch) and pull",
+                          subtitle: "Uncommitted changes stay in place; git stops if they conflict.") {
+                freshen(project, report: report)
+            }]
+        }
+        return [.item("Pull \(report.behind) commit\(report.behind == 1 ? "" : "s")",
+                      subtitle: "Fast-forward pull from \(report.remoteRef ?? "origin").") {
+            freshen(project, report: report)
+        }]
+    }
+
+    // Fixes what the chip complains about: a switch back to the default branch, a
+    // fast-forward pull, or both. The pull runs after every switch rather than only
+    // when the old report counted commits, because the local default branch can trail
+    // its remote even when the branch just left did not. Whatever git refuses is shown
+    // in its own words, and the chip re-reads the repository either way.
+    private func freshen(_ project: Project, report: GitFreshness.Report) {
+        guard updating.insert(project.id).inserted else { return }
+        Task {
+            var error: String?
+            if !report.onDefaultBranch, let branch = report.defaultBranch {
+                error = await GitActions.switchBranch(branch, at: project.path)
+            }
+            if error == nil, report.remoteRef != nil {
+                error = await GitActions.fastForwardPull(at: project.path)
+            }
+            if let fresh = await GitFreshness.check(at: project.path, fetch: false) {
+                withAnimation(.easeOut(duration: 0.2)) { freshness[project.id] = fresh }
+            }
+            updating.remove(project.id)
+            if let error {
+                dialogs.show(Dialog(title: "Could not update \(project.name)",
+                                    message: error,
+                                    actions: [.init(label: "OK", kind: .cancel)]))
+            }
         }
     }
 
