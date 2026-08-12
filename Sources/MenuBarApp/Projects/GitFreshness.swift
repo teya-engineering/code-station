@@ -35,6 +35,31 @@ enum GitFreshness {
         // brought up to date with a fast-forward pull; anything dirty or on another
         // branch is the user's to sort out.
         var canFastForward: Bool { onDefaultBranch && behind > 0 && !dirty && remoteRef != nil }
+
+        // The report as a short sentence or two: the wrong branch, the missing commits,
+        // and when the fetch failed, how old the answer is. Reads as reassurance when
+        // there is nothing wrong, so it can caption a good report too.
+        var explanation: String {
+            var sentences: [String] = []
+            if !onDefaultBranch, let expected = defaultBranch {
+                let place = currentBranch.map { "on \($0)" } ?? "on a detached HEAD"
+                sentences.append("The checkout is \(place), not \(expected).")
+            }
+            if behind > 0, let target = remoteRef ?? defaultBranch {
+                let subject = sentences.isEmpty ? (currentBranch ?? "The checkout") : "It"
+                sentences.append("\(subject) is \(behind) commit\(behind == 1 ? "" : "s") behind \(target).")
+            }
+            if sentences.isEmpty {
+                sentences.append(defaultBranch.map { "The checkout is \($0) at its latest revision." }
+                                 ?? "There is no default branch to compare against.")
+            }
+            if fetchAttempted && !fetched {
+                sentences.append(lastFetch.map {
+                    "Origin could not be reached, so this is as of the last fetch, \($0.formatted(.relative(presentation: .named)))."
+                } ?? "Origin could not be reached, so this may be out of date.")
+            }
+            return sentences.joined(separator: " ")
+        }
     }
 
     // Long enough for a fetch over a normal connection, short enough that a dead VPN
@@ -46,6 +71,24 @@ enum GitFreshness {
         guard let tool = await GitInspector.tool() else { return nil }
         let url = URL(fileURLWithPath: path)
         return await GitInspector.offMain { inspect(tool: tool, url: url, fetch: fetch) }
+    }
+
+    // Reads several repositories side by side, so the wait is the slowest of them rather
+    // than the sum. Each report lands through the callback as soon as it is ready; the
+    // screens showing many repositories fill in one row at a time instead of all at once.
+    static func checkAll(_ repositories: [(id: UUID, path: String)], fetch: Bool,
+                         onReport: @escaping @MainActor (UUID, Report) -> Void) async {
+        await withTaskGroup(of: (UUID, Report?).self) { group in
+            for repository in repositories {
+                group.addTask { [id = repository.id, path = repository.path] in
+                    (id, await check(at: path, fetch: fetch))
+                }
+            }
+            for await (id, report) in group {
+                guard let report else { continue }
+                await onReport(id, report)
+            }
+        }
     }
 
     private static func inspect(tool: GitInspector.GitTool, url: URL, fetch: Bool) -> Report? {
