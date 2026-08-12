@@ -7,6 +7,10 @@
       "clientID": "00000000-0000-0000-0000-000000000000",
       "scope": "okta"
     },
+    "environments": {
+      "staging": "dev",
+      "production": "prd"
+    },
     "requests": [
       {
         "name": "Fetch DLT messages from cache",
@@ -75,5 +79,11 @@
     "name": "Example Engineering",
     "marketplace": "example-engineering",
     "repository": "https://github.com/example/claude-plugins"
-  }
+  },
+  "shortcuts": [
+    {
+      "name": "Qwen 2.5 7B Instruct",
+      "command": "llama-server -m \"$HOME/models/qwen2.5-7b/Qwen2.5-7B-Instruct-Q4_K_M.gguf\" --host 0.0.0.0 --port 8092 -ngl 99 -c 32768 --jinja --alias qwen25"
+    }
+  ]
 }

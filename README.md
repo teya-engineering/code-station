@@ -23,7 +23,7 @@ Teya Conductor is a macOS app for running Codex and Claude Code across local pro
 - Install and update agent skills from your organisation's marketplace.
 - Save and send HTTP requests with environment variables, path and query parameters, headers, request bodies, and OAuth secrets and tokens stored in the macOS Keychain.
 - Inspect running Docker containers and stop them when needed.
-- Save, edit, run, and stop shell-command shortcuts while inspecting their output. A local Qwen model through `llama-server` is included by default.
+- Save, edit, run, and stop shell-command shortcuts while inspecting their output. A new install starts with the ones your site settings list.
 - Start a guided troubleshooting session with project context, attachments, environment safeguards, and configured observability tools.
 
 ## Build and run
@@ -40,7 +40,7 @@ Teya Conductor is a macOS app for running Codex and Claude Code across local pro
 Clone the repository and create a double-clickable app bundle:
 
 ```bash
-git clone git@github.com:example/teya-conductor.git
+git clone https://github.com/<org>/teya-conductor.git
 cd teya-conductor
 ./build-app.sh
 open "build/Teya Conductor.app"
@@ -58,9 +58,9 @@ The app bundle is recommended for regular use and is required for the Start at L
 
 ## Site configuration
 
-A few features point at things that belong to your organisation rather than to the app: the identity provider your APIs sign in against, the calls worth starting from, your Grafana instances, and the skills marketplace your agents install from. None of that is in the code. It is all data, in a settings file the app reads at startup.
+A few features point at things that belong to your organisation rather than to the app: the identity provider your APIs sign in against, the calls worth starting from, what your environments are named, your Grafana instances, the skills marketplace your agents install from, and the commands worth having on hand. None of that is in the code. It is all data, in a settings file the app reads at startup.
 
-Every section is optional, and so is the file itself. Without it the app runs with blank API environments, no saved requests, no Grafana presets, and the Skills screen reporting that no marketplace is set up. Everything else works as normal.
+Every section is optional, and so is the file itself. Without it the app runs with blank API environments, no saved requests, no Grafana presets, no shortcuts, and the Skills screen reporting that no marketplace is set up. Everything else works as normal.
 
 Two settings files are kept here:
 
@@ -99,9 +99,11 @@ A `swift run` development build has no bundle to fold a file into, so use one of
 | Field | What it does |
 | --- | --- |
 | `dispatch.oauth` | The identity provider both API environments sign in against. `grant` is `authorizationCodePKCE` or `clientCredentials`. `authURL`, `tokenURL`, `clientID`, `scope`, and `callbackURL` are the usual OAuth values. Anything you leave out keeps the app's own default. |
-| `dispatch.requests` | The saved requests a first run starts with, each a `name`, a `method`, and a `url`. `{{env}}` in a URL becomes `dev` or `prd` depending on the environment the request is sent from. |
+| `dispatch.environments` | What `{{env}}` stands for on each side of the sheet: a `staging` and a `production` word. Left out, they are `dev` and `prd`. |
+| `dispatch.requests` | The saved requests a first run starts with, each a `name`, a `method`, and a `url`. `{{env}}` in a URL is replaced with the word above for the environment the request is sent from. |
 | `grafana.presets` | The instances offered in the Add server sheet. A preset is a `scope`, an `environment`, and a `url`. The agents know each one as `grafana-<scope>-<environment>`. `serves` lists which troubleshooting environments (`dev`, `prod`) offer it, and a preset that lists none is offered for all of them. |
 | `skills` | The marketplace the Skills screen installs from: its `name` on screen, its `marketplace` name as the agent CLIs know it, and the `repository` it is cloned from. |
+| `shortcuts` | The command shortcuts a first run starts with, each a `name` and a `command`. Everyone can then add their own, which are saved per install and never overwritten by this file. |
 
 The client secret and the OAuth tokens are yours rather than your organisation's, so they are never part of this file. They stay in the macOS Keychain.
 

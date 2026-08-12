@@ -8,6 +8,10 @@
       "scope": "openid",
       "callbackURL": "http://127.0.0.1:8234/callback"
     },
+    "environments": {
+      "staging": "dev",
+      "production": "prd"
+    },
     "requests": [
       {
         "name": "List orders",
@@ -47,5 +51,11 @@
     "name": "Example Engineering",
     "marketplace": "example-engineering",
     "repository": "https://github.com/example/claude-plugins"
-  }
+  },
+  "shortcuts": [
+    {
+      "name": "Orders service",
+      "command": "./gradlew :orders-service:bootRun"
+    }
+  ]
 }

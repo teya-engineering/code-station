@@ -11,12 +11,6 @@ struct CommandShortcut: Identifiable, Codable, Equatable, Sendable {
         self.name = name
         self.command = command
     }
-
-    static let llama = CommandShortcut(
-        id: UUID(uuidString: "7D204CF7-5DC0-4EDF-AE11-5442E04BA276")!,
-        name: "Qwen 2.5 7B Instruct",
-        command: "llama-server -m \"$HOME/models/qwen2.5-7b/Qwen2.5-7B-Instruct-Q4_K_M.gguf\" --host 0.0.0.0 --port 8092 -ngl 99 -c 32768 --jinja --alias qwen25"
-    )
 }
 
 @MainActor
@@ -41,7 +35,7 @@ final class ShortcutStore {
         }
     }
 
-    private(set) var shortcuts: [CommandShortcut] = [.llama]
+    private(set) var shortcuts: [CommandShortcut] = SiteDefaults.current.commandShortcuts
     private(set) var states: [CommandShortcut.ID: State] = [:]
     private(set) var logs: [CommandShortcut.ID: String] = [:]
     private(set) var loadError: String?
@@ -88,7 +82,7 @@ final class ShortcutStore {
         }
 
         guard let data else {
-            shortcuts = [.llama]
+            shortcuts = SiteDefaults.current.commandShortcuts
             loadError = nil
             saveError = nil
             return

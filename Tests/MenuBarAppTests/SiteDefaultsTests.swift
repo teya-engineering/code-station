@@ -38,7 +38,10 @@ struct SiteDefaultsTests {
             "name": "Example Engineering",
             "marketplace": "example-engineering",
             "repository": "https://github.com/example/plugins"
-          }
+          },
+          "shortcuts": [
+            { "name": "Orders service", "command": "./gradlew bootRun" }
+          ]
         }
         """)
         let defaults = SiteDefaults.load([url])
@@ -57,6 +60,9 @@ struct SiteDefaultsTests {
         #expect(defaults.grafanaPresets.count == 1)
         #expect(defaults.grafanaPresets[0].name == "grafana-platform-dev")
         #expect(defaults.skills?.marketplace == "example-engineering")
+
+        #expect(defaults.commandShortcuts.map(\.name) == ["Orders service"])
+        #expect(defaults.commandShortcuts[0].command == "./gradlew bootRun")
     }
 
     @Test func missingFileLeavesEverythingEmpty() {
@@ -67,7 +73,43 @@ struct SiteDefaultsTests {
         #expect(defaults.dispatchRequests.isEmpty)
         #expect(defaults.grafanaPresets.isEmpty)
         #expect(defaults.skills == nil)
+        #expect(defaults.commandShortcuts.isEmpty)
         #expect(defaults.dispatchOAuth == OAuthConfig())
+    }
+
+    // {{env}} still has to resolve to something on a build with no file, since the sheet
+    // sends requests either way.
+    @Test func environmentNamesFallBackToTheAppsOwn() throws {
+        let named = try file("""
+        { "dispatch": { "environments": { "staging": "test", "production": "live" } } }
+        """)
+        let values = SiteDefaults.load([named]).dispatchEnvValues
+        #expect(values.staging == "test")
+        #expect(values.production == "live")
+
+        let half = try file(#"{ "dispatch": { "environments": { "staging": "test" } } }"#)
+        #expect(SiteDefaults.load([half]).dispatchEnvValues.production == "prd")
+
+        let none = SiteDefaults().dispatchEnvValues
+        #expect(none.staging == "dev")
+        #expect(none.production == "prd")
+    }
+
+    // The file names no IDs. A shortcut still has to come back as the same one on the
+    // next launch, or a running command would lose the row it belongs to.
+    @Test func aShortcutKeepsItsIdentityBetweenReads() throws {
+        let url = try file("""
+        { "shortcuts": [
+            { "name": "Build", "command": "swift build" },
+            { "name": "Test", "command": "swift test" }
+        ] }
+        """)
+
+        let first = SiteDefaults.load([url]).commandShortcuts
+        let second = SiteDefaults.load([url]).commandShortcuts
+
+        #expect(first == second)
+        #expect(first[0].id != first[1].id)
     }
 
     @Test func readsThePreviousHTTPClientSection() throws {
@@ -149,6 +191,7 @@ struct SiteDefaultsTests {
         #expect(!defaults.dispatchRequests.isEmpty)
         #expect(!defaults.grafanaPresets.isEmpty)
         #expect(defaults.skills != nil)
+        #expect(!defaults.commandShortcuts.isEmpty)
     }
 
     // No settings are compiled in, so a plain checkout builds an app with no file to fall

@@ -15,11 +15,13 @@ enum ApiEnvironment: String, Codable, CaseIterable, Identifiable {
         }
     }
 
-    // What {{env}} becomes in a URL sent from this environment.
+    // What {{env}} becomes in a URL sent from this environment. The site file names both
+    // sides, since the same deployment goes by a different word at each organisation.
     var envValue: String {
-        switch self {
-        case .staging: "dev"
-        case .production: "prd"
+        let named = SiteDefaults.current.dispatchEnvValues
+        return switch self {
+        case .staging: named.staging
+        case .production: named.production
         }
     }
 

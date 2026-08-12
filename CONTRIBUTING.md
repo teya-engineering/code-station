@@ -59,7 +59,7 @@ Add tests for behavior and business logic. Trivial view wiring, accessors, and f
 
 ## Site defaults
 
-Anything that belongs to one organisation rather than to the app lives in `site-defaults.json`: the identity provider the API environments sign in against, the saved requests a first run starts with, the Grafana instances offered in the Add server sheet, and the skills marketplace. `SiteDefaults` reads it from the first of these that exists:
+Anything that belongs to one organisation rather than to the app lives in `site-defaults.json`: the identity provider the API environments sign in against, the saved requests a first run starts with, what `{{env}}` stands for on each side, the Grafana instances offered in the Add server sheet, the skills marketplace, and the command shortcuts a first run starts with. `SiteDefaults` reads it from the first of these that exists:
 
 1. `$CONDUCTOR_SITE_DEFAULTS`
 2. `~/Library/Application Support/com.teya.conductor/site-defaults.json`

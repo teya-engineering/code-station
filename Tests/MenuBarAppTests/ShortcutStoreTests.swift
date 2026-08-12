@@ -4,19 +4,20 @@ import Testing
 
 @MainActor
 struct ShortcutStoreTests {
-    @Test func startsWithTheLlamaShortcutWhenNoFileExists() {
+    // The shortcuts a first run starts with come from the site file, and the tests run
+    // without one, so a fresh store is empty and writes nothing until it is edited.
+    @Test func startsFromTheSiteFileWhenNoFileExists() {
         let url = temporaryFile()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
 
         let store = ShortcutStore(storageURL: url)
 
-        #expect(store.shortcuts == [.llama])
-        #expect(store.shortcuts[0].command.contains("llama-server"))
-        #expect(store.shortcuts[0].command.contains("--alias qwen25"))
+        #expect(store.shortcuts.map(\.name)
+            == SiteDefaults.current.commandShortcuts.map(\.name))
         #expect(!FileManager.default.fileExists(atPath: url.path))
     }
 
-    @Test func persistsAddsEditsAndRemovalOfTheDefault() throws {
+    @Test func persistsAddsAndEdits() throws {
         let url = temporaryFile()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let store = ShortcutStore(storageURL: url)
@@ -24,7 +25,6 @@ struct ShortcutStoreTests {
         let id = try #require(store.add(
             name: "  API server  ", command: "  ./gradlew bootRun  "))
         store.update(CommandShortcut(id: id, name: "Service", command: "./gradlew run"))
-        store.remove(CommandShortcut.llama.id)
 
         let reloaded = ShortcutStore(storageURL: url)
         #expect(reloaded.shortcuts == [
