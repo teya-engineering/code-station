@@ -63,12 +63,7 @@ struct TerminalDrawer: View {
 
             Spacer(minLength: 12)
 
-            // The chevron rather than an x: putting the drawer away leaves its shells
-            // running, so the glyph should promise "hide", not "quit".
-            GlyphButton(icon: "chevron.down", side: 24) {
-                terminals.setOpen(false, for: scope, directory: directory)
-                focusTerminal = false
-            }
+            closeButton
             .appTooltip("Hide the terminal (^`)")
             // The strip underneath shows the resize cursor; over the button the hand is
             // clicking, not dragging, so the arrow comes back.
@@ -97,6 +92,33 @@ struct TerminalDrawer: View {
         .onHover { inside in
             if inside { NSCursor.resizeUpDown.push() } else { NSCursor.pop() }
         }
+    }
+
+    // Closing only puts the drawer away; every shell keeps running.
+    @State private var hoveringClose = false
+
+    private var closeButton: some View {
+        Button {
+            terminals.setOpen(false, for: scope, directory: directory)
+            focusTerminal = false
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .semibold))
+                Text("Close")
+                    .font(.system(size: 12, weight: .semibold))
+            }
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .background(RoundedRectangle(cornerRadius: 7)
+                .fill(hoveringClose ? Theme.field : .clear))
+            .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.border))
+            .contentShape(RoundedRectangle(cornerRadius: 7))
+        }
+        .buttonStyle(.plain)
+        .animation(.easeOut(duration: 0.12), value: hoveringClose)
+        .onHover { hoveringClose = $0 }
     }
 
     private func tab(_ terminal: TerminalSession) -> some View {
