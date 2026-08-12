@@ -10,35 +10,36 @@ struct ActivitySpine: View {
     let nodes: [ToolNode]
     let projectPath: String
     let openChanges: () -> Void
-    // Whether the turn this block belongs to is still going. A call interrupted mid-turn
-    // never hears back, so its own state cannot say it is over: the end of the turn is
-    // what folds a block whose calls will never report in.
-    var isTurnActive = false
+    // Whether the turn is still working through this block. Its calls having all reported
+    // in does not mean the work behind it is over: the model writes its next words before
+    // it makes its next call, and a call interrupted mid-turn never reports in at all.
+    // Only the end of the turn says the block is done.
+    var isLive = false
     // A nested spine already sits behind a row the reader opened, so it draws in full.
     var isFoldable = true
 
     @State private var expanded: Set<String> = []
-    // Nil until the reader clicks: until then the block follows the work, open while its
-    // calls run and folded once the last one reports in.
+    // Nil until the reader clicks: until then the block follows the work, open while the
+    // turn is on it and folded once the turn has moved on.
     @State private var showsCalls: Bool?
 
-    // Having opened a row is asking for the block, so the fold that comes with the last
-    // result does not take back what the reader unfolded while the calls ran.
+    // Having opened a row is asking for the block, so the fold that comes with the end of
+    // the turn does not take back what the reader unfolded while the calls ran.
     private var showsRows: Bool {
         Self.rowsAreVisible(isFoldable: isFoldable,
                             userChoice: showsCalls,
-                            hasRunningCalls: hasRunningCalls,
+                            isLive: isLive,
                             hasExpandedRows: !expanded.isEmpty)
     }
 
     private var hasRunningCalls: Bool {
-        isTurnActive && nodes.contains(where: \.hasRunning)
+        isLive && nodes.contains(where: \.hasRunning)
     }
 
     nonisolated static func rowsAreVisible(isFoldable: Bool, userChoice: Bool?,
-                                            hasRunningCalls: Bool,
+                                            isLive: Bool,
                                             hasExpandedRows: Bool) -> Bool {
-        !isFoldable || (userChoice ?? (hasRunningCalls || hasExpandedRows))
+        !isFoldable || (userChoice ?? (isLive || hasExpandedRows))
     }
 
     var body: some View {

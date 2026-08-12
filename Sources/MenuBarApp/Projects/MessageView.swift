@@ -112,17 +112,25 @@ struct MessageView: View, Equatable {
         }
     }
 
+    // The last block of work in a turn that is still going. The model can say a great deal
+    // between two calls, so the block is left open until the turn ends rather than until
+    // its last call reports in.
+    private var liveBlockID: Int? {
+        guard isTurnActive else { return nil }
+        return message.blocks.last { if case .tools = $0 { true } else { false } }?.id
+    }
+
     // The turn reads down the page in the order it happened, so a call the model made
     // after saying something sits under those words rather than above them.
     private var assistantBody: some View {
         VStack(alignment: .leading, spacing: 12) {
             ForEach(message.blocks) { block in
                 switch block {
-                case .tools(_, let nodes):
+                case .tools(let id, let nodes):
                     ActivitySpine(nodes: nodes,
                                   projectPath: projectPath,
                                   openChanges: openChanges,
-                                  isTurnActive: isTurnActive)
+                                  isLive: id == liveBlockID)
                         .transition(.fadeIn)
                 case .prose(_, let text):
                     VStack(alignment: .leading, spacing: 12) {
