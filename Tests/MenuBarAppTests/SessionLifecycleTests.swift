@@ -20,7 +20,7 @@ struct SessionLifecycleTests {
                 return .success(GitWorktree.Created(path: "/worktrees/project",
                                                     branch: "conductor/test"))
             },
-            addWorkspaceProject: { _, _, _, _ in
+            addWorkspaceProject: { _, _, _, _, _ in
                 .failure(GitWorktree.Failure(message: "Unexpected workspace operation"))
             },
             remove: { _, _, _ in
@@ -61,7 +61,7 @@ struct SessionLifecycleTests {
             addProject: { _, _, _, _ in
                 .failure(GitWorktree.Failure(message: "Unexpected project operation"))
             },
-            addWorkspaceProject: { _, name, _, _ in
+            addWorkspaceProject: { _, name, _, _, _ in
                 guard name == "first" else {
                     return .failure(GitWorktree.Failure(message: "Second checkout failed"))
                 }
@@ -86,6 +86,42 @@ struct SessionLifecycleTests {
         #expect(await recorder.recordedPaths() == ["/worktrees/first"])
     }
 
+    @Test func forksEachWorkspaceCheckoutFromItsChosenBase() async throws {
+        let store = makeStore()
+        let first = addProject(named: "first", to: store)
+        let second = addProject(named: "second", to: store)
+        let workspace = store.addWorkspace(name: "Workspace",
+                                           projectIDs: [first.id, second.id],
+                                           leadProjectID: first.id)!
+        let recorder = BaseRecorder()
+        let choice = WorkspaceSessionChoice(
+            sessionID: UUID(),
+            projects: [
+                WorkspaceProjectChoice(projectID: first.id, useWorktree: true,
+                                       base: "origin/main"),
+                WorkspaceProjectChoice(projectID: second.id, useWorktree: true)
+            ],
+            agent: .claudeCode)
+        let worktrees = WorktreeOperations(
+            addProject: { _, _, _, _ in
+                .failure(GitWorktree.Failure(message: "Unexpected project operation"))
+            },
+            addWorkspaceProject: { _, name, _, _, base in
+                await recorder.record(name: name, base: base)
+                return .success(GitWorktree.Created(path: "/worktrees/\(name)",
+                                                    branch: "conductor/test"))
+            },
+            remove: { _, _, _ in
+                .failure(GitWorktree.Failure(message: "Unexpected removal"))
+            })
+
+        let result = await SessionLifecycle.createWorkspaceSession(
+            choice, in: workspace, store: store, worktrees: worktrees)
+
+        _ = try result.get()
+        #expect(await recorder.bases() == ["first": "origin/main", "second": nil])
+    }
+
     @Test func rollsBackAWorktreeWhenTheSessionIndexCannotBeSaved() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("session-lifecycle-\(UUID().uuidString)")
@@ -100,7 +136,7 @@ struct SessionLifecycleTests {
                 .success(GitWorktree.Created(path: "/worktrees/project",
                                              branch: "conductor/test"))
             },
-            addWorkspaceProject: { _, _, _, _ in
+            addWorkspaceProject: { _, _, _, _, _ in
                 .failure(GitWorktree.Failure(message: "Unexpected workspace operation"))
             },
             remove: { path, _, _ in
@@ -273,7 +309,7 @@ struct SessionLifecycleTests {
             addProject: { _, _, _, _ in
                 .failure(GitWorktree.Failure(message: "Unexpected add"))
             },
-            addWorkspaceProject: { _, _, _, _ in
+            addWorkspaceProject: { _, _, _, _, _ in
                 .failure(GitWorktree.Failure(message: "Unexpected add"))
             },
             remove: { _, _, _ in await remove() })
@@ -295,6 +331,18 @@ struct SessionLifecycleTests {
 
     private func processExists(_ pid: pid_t) -> Bool {
         Darwin.kill(pid, 0) == 0 || errno == EPERM
+    }
+}
+
+private actor BaseRecorder {
+    private var received: [String: String?] = [:]
+
+    func record(name: String, base: String?) {
+        received[name] = base
+    }
+
+    func bases() -> [String: String?] {
+        received
     }
 }
 
