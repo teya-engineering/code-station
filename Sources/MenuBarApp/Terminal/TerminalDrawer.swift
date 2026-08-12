@@ -57,16 +57,24 @@ struct TerminalDrawer: View {
             }
             .buttonStyle(.plain)
             .appTooltip("New shell")
+            .onHover { inside in
+                if inside { NSCursor.arrow.push() } else { NSCursor.pop() }
+            }
 
             Spacer(minLength: 12)
 
-            Button("Close") {
+            // The chevron rather than an x: putting the drawer away leaves its shells
+            // running, so the glyph should promise "hide", not "quit".
+            GlyphButton(icon: "chevron.down", side: 24) {
                 terminals.setOpen(false, for: scope, directory: directory)
                 focusTerminal = false
             }
-            .buttonStyle(.plain)
-            .font(.system(size: 12, weight: .semibold))
-            .foregroundStyle(.secondary)
+            .appTooltip("Hide the terminal (^`)")
+            // The strip underneath shows the resize cursor; over the button the hand is
+            // clicking, not dragging, so the arrow comes back.
+            .onHover { inside in
+                if inside { NSCursor.arrow.push() } else { NSCursor.pop() }
+            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 7)
