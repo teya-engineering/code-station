@@ -465,7 +465,7 @@ struct AppSidebar: View {
                 workspace: workspace,
                 projects: projects,
                 selected: store.selection == .workspace(workspace.id),
-                isExpanded: expanded,
+                isExpanded: expanded && !sessions.isEmpty,
                 sessionCount: sessions.count,
                 runningCount: running,
                 finishedCount: store.finishedCount(inWorkspace: workspace.id),
@@ -568,7 +568,7 @@ struct AppSidebar: View {
             ProjectHeaderRow(
                 project: project,
                 selected: store.selection == nil && store.selectedProjectID == project.id,
-                isExpanded: expanded,
+                isExpanded: expanded && !sessions.isEmpty,
                 isMissing: store.isMissing(project),
                 sessionCount: sessions.count,
                 runningCount: running,
@@ -1404,6 +1404,8 @@ private struct WorkspaceHeaderRow: View {
 
 // The shape both container rows wear. Selection is white with a ring; being merely open
 // is the quieter fill, so an expanded project does not compete with the selected one.
+// Open means a block is drawn below, not that the flag is set: a row with nothing under
+// it wears the plain fill, or the tint reads as a state the row does not have.
 private struct TreeRow<Content: View>: View {
     let selected: Bool
     let isExpanded: Bool
