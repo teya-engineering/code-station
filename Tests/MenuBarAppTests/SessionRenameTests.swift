@@ -51,4 +51,15 @@ struct SessionRenameTests {
 
         #expect(store.session(session.id)?.title == "Ship the release")
     }
+
+    // Pasted terminal output is mostly padding, and a title made of blanks says nothing.
+    @Test func aPastedPromptDoesNotBecomeATitleOfBlanks() throws {
+        let store = makeStore()
+        let session = store.newSession(in: project(in: store).id)
+
+        store.append(ChatMessage(role: .user, text: "s%\t   \(String(repeating: " ", count: 40))done"),
+                     to: session.id)
+
+        #expect(store.session(session.id)?.title == "s% done")
+    }
 }

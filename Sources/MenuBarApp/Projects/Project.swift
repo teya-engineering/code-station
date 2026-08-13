@@ -442,13 +442,16 @@ struct ChatSession: Identifiable, Codable, Equatable {
         }
     }
 
-    // The first thing the user asked makes a better title than "New session".
+    // The first thing the user asked makes a better title than "New session". Pasted
+    // terminal output can carry long runs of spaces and tabs, which would spend the whole
+    // title on blanks, so runs collapse to one space before it is cut to length.
     mutating func retitleIfNeeded(from prompt: String) {
         guard title == "New session" else { return }
         let line = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
             .split(separator: "\n").first.map(String.init) ?? ""
-        guard !line.isEmpty else { return }
-        title = line.count > 48 ? String(line.prefix(48)) + "…" : line
+        let words = line.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        guard !words.isEmpty else { return }
+        title = words.count > 48 ? String(words.prefix(48)) + "…" : words
     }
 
     // The transcript is read and written on its own, so it is not part of what a session

@@ -339,11 +339,9 @@ private struct SessionChoiceRow: View {
             .buttonStyle(.plain)
 
             VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 7) {
-                    Text(title)
-                        .font(.system(size: 13, weight: .semibold))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
+                HStack(spacing: 10) {
+                    // A column of its own, so the project reads down the list instead of
+                    // landing wherever the title before it happened to end.
                     HStack(spacing: 5) {
                         Circle()
                             .fill(Theme.monogram(for: projectName))
@@ -353,9 +351,15 @@ private struct SessionChoiceRow: View {
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
+                    .frame(width: 110, alignment: .leading)
+                    Text(title)
+                        .font(.system(size: 13, weight: .semibold))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                     if hasWorktree {
                         StatusPill(text: "WT", running: false)
                     }
+                    Spacer(minLength: 0)
                 }
                 Text(detail)
                     .font(.mono(11))
