@@ -4,40 +4,77 @@ import Testing
 
 @Suite("Sidebar session visibility")
 struct SidebarSessionVisibilityTests {
+    private struct Session: Identifiable {
+        let id: UUID
+    }
+
     private let projectID = UUID()
+
+    private func sessions(_ count: Int) -> [Session] {
+        (0..<count).map { _ in Session(id: UUID()) }
+    }
 
     @Test func initiallyShowsFourSessions() {
         let visibility = SidebarSessionVisibility()
+        let all = sessions(12)
 
-        #expect(visibility.visibleCount(for: projectID, total: 12) == 4)
+        #expect(visibility.visible(all, in: projectID).map(\.id) == all.prefix(4).map(\.id))
     }
 
     @Test func staysCappedWhenSessionsAreAdded() {
         let visibility = SidebarSessionVisibility()
 
-        #expect(visibility.visibleCount(for: projectID, total: 4) == 4)
-        #expect(visibility.visibleCount(for: projectID, total: 5) == 4)
+        #expect(visibility.visible(sessions(4), in: projectID).count == 4)
+        #expect(visibility.visible(sessions(5), in: projectID).count == 4)
     }
 
     @Test func showsFewerWhenThereAreFewerThanFour() {
         let visibility = SidebarSessionVisibility()
 
-        #expect(visibility.visibleCount(for: projectID, total: 2) == 2)
+        #expect(visibility.visible(sessions(2), in: projectID).count == 2)
     }
 
     @Test func showingAllIncludesEverySession() {
         var visibility = SidebarSessionVisibility()
         visibility.showAll(projectID)
 
-        #expect(visibility.visibleCount(for: projectID, total: 12) == 12)
-        #expect(visibility.visibleCount(for: projectID, total: 13) == 13)
+        #expect(visibility.visible(sessions(12), in: projectID).count == 12)
+        #expect(visibility.visible(sessions(13), in: projectID).count == 13)
+    }
+
+    @Test func pinningKeepsTheCapAndAddsTheOpenedSession() {
+        var visibility = SidebarSessionVisibility()
+        let all = sessions(12)
+        visibility.pin(all[8].id, in: projectID)
+
+        let visible = visibility.visible(all, in: projectID)
+
+        #expect(visible.map(\.id) == all.prefix(4).map(\.id) + [all[8].id])
+    }
+
+    @Test func pinningASessionAlreadyShownAddsNothing() {
+        var visibility = SidebarSessionVisibility()
+        let all = sessions(12)
+        visibility.pin(all[1].id, in: projectID)
+
+        #expect(visibility.visible(all, in: projectID).map(\.id) == all.prefix(4).map(\.id))
+    }
+
+    @Test func pinningOnlyAffectsItsOwnContainer() {
+        var visibility = SidebarSessionVisibility()
+        let all = sessions(12)
+        visibility.pin(all[8].id, in: UUID())
+
+        #expect(visibility.visible(all, in: projectID).count == 4)
     }
 
     @Test func resetReturnsToTheInitialLimit() {
         var visibility = SidebarSessionVisibility()
+        let all = sessions(15)
         visibility.showAll(projectID)
+        visibility.pin(all[9].id, in: projectID)
         visibility.reset(projectID)
 
-        #expect(visibility.visibleCount(for: projectID, total: 15) == 4)
+        #expect(visibility.visible(all, in: projectID).count == 4)
     }
 }

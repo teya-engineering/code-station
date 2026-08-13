@@ -341,7 +341,7 @@ struct AppSidebar: View {
         let containerID = session.workspaceID ?? session.projectID
         filterText = ""
         setExpanded(true, for: containerID)
-        sessionVisibility.showAll(containerID)
+        sessionVisibility.pin(session.id, in: containerID)
         store.selectSession(session.id)
         sessionToReveal = session.id
     }
@@ -705,8 +705,7 @@ struct AppSidebar: View {
     // A list stays capped at its newest four sessions unless the user unfolded it with
     // see-more, so a new session pushes the last visible one below the fold.
     private func visibleSessions(_ sessions: [ChatSession], in containerID: UUID) -> [ChatSession] {
-        Array(sessions.prefix(sessionVisibility.visibleCount(
-            for: containerID, total: sessions.count)))
+        sessionVisibility.visible(sessions, in: containerID)
     }
 
     // Keyed on the cards that are drawn rather than the sessions that exist, so the
