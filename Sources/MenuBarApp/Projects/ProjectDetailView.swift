@@ -87,7 +87,8 @@ struct ProjectDetailView: View {
                                 options: [("Sessions", .sessions),
                                           ("Changes", .changes),
                                           ("Explorer", .explorer)])
-                TerminalToggle(isOpen: terminals.isOpen(terminalScope)) {
+                TerminalToggle(isOpen: terminals.isOpen(terminalScope),
+                               directory: project.path) {
                     toggleTerminal(directory: project.path)
                 }
                 .disabled(store.isMissing(project))

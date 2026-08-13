@@ -664,7 +664,7 @@ struct AppSidebar: View {
                     .item("Reveal in Finder") {
                         NSWorkspace.shared.activateFileViewerSelecting([project.url])
                     },
-                    .item("Open in Terminal") { openInTerminal(project) },
+                    .item("Open in \(SystemTerminal.appName)") { openInTerminal(project) },
                     .separator,
                     .item("Clear idle runs", kind: .destructive) { confirmClearSessions(in: project) },
                     .item("Delete task", kind: .destructive) { confirmRemoveProject(project) }]
@@ -675,7 +675,7 @@ struct AppSidebar: View {
                 .item("Reveal in Finder") {
                     NSWorkspace.shared.activateFileViewerSelecting([project.url])
                 },
-                .item("Open in Terminal") { openInTerminal(project) },
+                .item("Open in \(SystemTerminal.appName)") { openInTerminal(project) },
                 .separator,
                 .item("Clear idle sessions", kind: .destructive) { confirmClearSessions(in: project) },
                 .item("Remove project", kind: .destructive) { confirmRemoveProject(project) }]
@@ -1190,12 +1190,8 @@ struct AppSidebar: View {
         }
     }
 
-    // Opening a folder on its own would just reveal it in Finder, so name the app.
     private func openInTerminal(_ project: Project) {
-        let terminal = URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app")
-        NSWorkspace.shared.open([project.url],
-                                withApplicationAt: terminal,
-                                configuration: NSWorkspace.OpenConfiguration())
+        SystemTerminal.open(project.url)
     }
 }
 

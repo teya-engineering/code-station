@@ -252,7 +252,8 @@ struct SessionView: View {
                                 options: [("Chat", .chat),
                                           ("Changes", .changes),
                                           ("Explorer", .explorer)])
-                TerminalToggle(isOpen: terminals.isOpen(terminalScope)) {
+                TerminalToggle(isOpen: terminals.isOpen(terminalScope),
+                               directory: session.worktreePath ?? project.path) {
                     toggleTerminal(directory: session.worktreePath ?? project.path)
                 }
             }

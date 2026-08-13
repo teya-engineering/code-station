@@ -188,30 +188,37 @@ struct TerminalDrawer: View {
     }
 }
 
-// The header control that opens and shuts the terminal. It is deliberately separate
-// from the tabs because it can stay open alongside any of them.
+// The header control for a shell in the folder behind whatever is on screen. Wanting a
+// shell here and wanting one in a window of its own are the same wish, so both hang off
+// one button. It is deliberately separate from the tabs because the drawer can stay open
+// alongside any of them.
 struct TerminalToggle: View {
     let isOpen: Bool
-    let action: () -> Void
+    let directory: String
+    let toggle: () -> Void
 
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: 6) {
-                Text(">_")
-                    .font(.mono(11, .bold))
-                Text("Terminal")
-                    .font(.system(size: 12, weight: .semibold))
-            }
-            .foregroundStyle(isOpen ? Color.white : Color.primary)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 7)
-            .background(RoundedRectangle(cornerRadius: 10)
-                .fill(isOpen ? Theme.accentFill : Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: 10)
-                .stroke(isOpen ? .clear : Theme.border))
-            .contentShape(Rectangle())
+        HStack(spacing: 6) {
+            Text(">_")
+                .font(.mono(11, .bold))
+            Text("Terminal")
+                .font(.system(size: 12, weight: .semibold))
+            Image(systemName: "chevron.down")
+                .font(.system(size: 8, weight: .bold))
+                .opacity(0.65)
         }
-        .buttonStyle(.plain)
-        .appTooltip(isOpen ? "Hide the terminal (^`)" : "Show the terminal (^`)")
+        .foregroundStyle(isOpen ? Color.white : Color.primary)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(RoundedRectangle(cornerRadius: 10)
+            .fill(isOpen ? Theme.accentFill : Theme.card))
+        .overlay(RoundedRectangle(cornerRadius: 10)
+            .stroke(isOpen ? .clear : Theme.border))
+        .appMenu {
+            [.item("Open in \(SystemTerminal.appName)") { SystemTerminal.open(directory) },
+             .item(isOpen ? "Hide terminal here" : "Open terminal here",
+                   detail: "^`") { toggle() }]
+        }
+        .appTooltip("Open a shell in this folder")
     }
 }

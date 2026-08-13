@@ -66,7 +66,8 @@ struct TaskDetailView: View {
                 HeaderTabToggle(selection: $tab,
                                 options: [("Task", .task),
                                           ("Explorer", .explorer)])
-                TerminalToggle(isOpen: terminals.isOpen(terminalScope)) {
+                TerminalToggle(isOpen: terminals.isOpen(terminalScope),
+                               directory: task.path) {
                     toggleTerminal(directory: task.path)
                 }
                 .disabled(store.isMissing(task))

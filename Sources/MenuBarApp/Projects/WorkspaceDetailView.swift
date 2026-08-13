@@ -68,7 +68,9 @@ struct WorkspaceDetailView: View {
             Spacer(minLength: 12)
 
             HStack(spacing: 12) {
-                TerminalToggle(isOpen: terminals.isOpen(terminalScope)) {
+                // Both shells land in the lead project, the same folder the drawer uses.
+                TerminalToggle(isOpen: terminals.isOpen(terminalScope),
+                               directory: store.project(workspace.leadProjectID)?.path ?? "") {
                     toggleTerminal(workspace)
                 }
                 .disabled(hasMissingProjects(workspace))
