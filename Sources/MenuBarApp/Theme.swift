@@ -177,6 +177,37 @@ extension Font {
     static func mono(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
         .system(size: size, weight: weight, design: .monospaced)
     }
+    // The wordmark's own face, so the name next to the mark stays the same shape on any
+    // machine. Weight is a point on the axis, not a Font.Weight, because the file is a
+    // single variable font.
+    static func logo(_ size: CGFloat, weight: Double = 600) -> Font {
+        guard SoraFont.isRegistered,
+              let font = NSFont(descriptor: SoraFont.descriptor(weight: weight), size: size)
+        else { return .system(size: size, weight: .semibold) }
+        return Font(font)
+    }
+}
+
+// Sora ships with the app instead of coming from the system, so Core Text has to be told
+// about the file before anything can ask for the family by name.
+private enum SoraFont {
+    // The name the file itself carries. Its named weights are separate faces that the
+    // variation axis picks between, so they are not asked for by name.
+    private static let family = "Sora-Regular"
+    private static let weightAxis = 0x77676874  // 'wght'
+
+    static let isRegistered: Bool = {
+        guard let url = Bundle.module.url(forResource: "Sora-Variable", withExtension: "ttf")
+        else { return false }
+        return CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
+    }()
+
+    static func descriptor(weight: Double) -> NSFontDescriptor {
+        NSFontDescriptor(fontAttributes: [
+            .name: family,
+            NSFontDescriptor.AttributeName(kCTFontVariationAttribute as String): [weightAxis: weight]
+        ])
+    }
 }
 
 // What a pane says when it has nothing to show: no changes, no file picked, a folder that

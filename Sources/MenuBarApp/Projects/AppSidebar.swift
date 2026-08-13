@@ -99,7 +99,7 @@ struct AppSidebar: View {
                     AppMark()
                         .frame(width: 26, height: 26)
                     Text("Teya Conductor")
-                        .font(.serif(19, .semibold))
+                        .font(.logo(18))
                         .kerning(-0.2)
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
