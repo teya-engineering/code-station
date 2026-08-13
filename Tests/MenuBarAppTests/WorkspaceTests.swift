@@ -71,6 +71,29 @@ struct WorkspaceTests {
         #expect(!updated.worktreeProjectIDs.contains(first.id))
     }
 
+    @Test func deletingAWorkspaceDropsItsSessionsAndKeepsTheProjects() throws {
+        let store = makeStore()
+        let first = project("api", in: store)
+        let second = project("web", in: store)
+        let workspace = try #require(store.addWorkspace(name: "Checkout",
+                                                        projectIDs: [first.id, second.id],
+                                                        leadProjectID: first.id))
+        let shared = try #require(store.newSession(
+            in: workspace.id,
+            projects: [SessionProject(projectID: first.id, worktreePath: nil, worktreeBranch: nil),
+                       SessionProject(projectID: second.id, worktreePath: nil, worktreeBranch: nil)]))
+        let standalone = store.newSession(in: first.id)
+        store.selectWorkspace(workspace.id)
+
+        store.removeWorkspace(workspace.id)
+
+        #expect(store.workspace(workspace.id) == nil)
+        #expect(store.session(shared.id) == nil)
+        #expect(store.session(standalone.id) != nil)
+        #expect(store.projects.map(\.id) == [first.id, second.id])
+        #expect(store.selection == nil)
+    }
+
     @Test func keepsAtLeastTwoProjectsInAWorkspace() throws {
         let store = makeStore()
         let first = project("api", in: store)

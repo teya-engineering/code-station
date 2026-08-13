@@ -340,6 +340,21 @@ final class ProjectStore {
         saveIndex()
     }
 
+    // A workspace is only a grouping of folders the user added elsewhere, so the projects
+    // themselves stay. Its sessions cannot exist outside it and go with it.
+    func removeWorkspace(_ id: UUID) {
+        let affected = Set(sessions.filter { $0.workspaceID == id }.map(\.id))
+        workspaces.removeAll { $0.id == id }
+        for sessionID in affected {
+            if case .failure(let failure) = removeSession(sessionID) {
+                saveError = failure.message
+                return
+            }
+        }
+        if selection == .workspace(id) { selection = nil }
+        saveIndex()
+    }
+
     func setLeadProject(_ projectID: UUID, inWorkspace id: UUID) {
         guard let i = workspaces.firstIndex(where: { $0.id == id }),
               workspaces[i].projectIDs.contains(projectID) else { return }

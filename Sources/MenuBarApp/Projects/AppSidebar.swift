@@ -485,8 +485,11 @@ struct AppSidebar: View {
             }
             .appContextMenu {
                 [.item("Rename…") { renamingID = workspace.id },
+                 .item("New session") { choosingWorkspaceSession = workspace },
                  .separator,
-                 .item("New session") { choosingWorkspaceSession = workspace }]
+                 .item("Delete workspace", kind: .destructive) {
+                     confirmRemoveWorkspace(workspace)
+                 }]
             }
 
             if expanded, !sessions.isEmpty {
@@ -874,6 +877,20 @@ struct AppSidebar: View {
             ]))
     }
 
+    private func confirmRemoveWorkspace(_ workspace: ProjectWorkspace) {
+        let affected = sessions(in: workspace.id)
+        let count = affected.count
+        dialogs.show(Dialog(
+            title: "Delete \(workspace.name)?",
+            message: "This drops \(count) session\(count == 1 ? "" : "s") and removes their worktrees. The \(workspace.projectIDs.count) projects it groups stay.",
+            actions: [
+                .init(label: "Delete workspace", kind: .destructive) {
+                    removeSessions(affected) { store.removeWorkspace(workspace.id) }
+                },
+                .init(label: "Cancel", kind: .cancel)
+            ]))
+    }
+
     // The session id is chosen up front so the worktree folder and branch can carry
     // it before the session exists, which is also what lets the sheet name both.
     private func createWorktreeSession(in project: Project, id sessionID: UUID, base: String?,
@@ -920,6 +937,10 @@ struct AppSidebar: View {
     private func showLifecycleFailure(_ failure: SessionLifecycle.Failure) {
         dialogs.show(Dialog(title: failure.title, message: failure.message,
                             actions: [.init(label: "OK", kind: .cancel)]))
+    }
+
+    private func sessions(in workspaceID: UUID) -> [ChatSession] {
+        store.sidebarSessions.filter { $0.workspaceID == workspaceID }
     }
 
     private func sessions(using projectID: UUID) -> [ChatSession] {

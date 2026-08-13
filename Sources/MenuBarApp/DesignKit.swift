@@ -361,13 +361,17 @@ struct FooterStrip<Trailing: View>: View {
 
 // MARK: - Buttons
 
-// The four shapes a button takes. Which one a button wears says how much of the screen
-// it owns, so the shape is chosen here rather than restated wherever a button is drawn.
+// The shapes a button takes. Which one a button wears says how much of the screen it
+// owns, so the shape is chosen here rather than restated wherever a button is drawn.
 enum ButtonTone {
     // The one action a card or a screen is really offering.
     case dark
     // The same weight, in the app's green, for starting work.
     case green
+    // The same weight in the deletion red, for the action a section exists to warn about.
+    // It wears the same colour as the destructive button in a dialog, so the click that
+    // opens the dialog and the click that confirms it read as the same action.
+    case danger
     // Beside a primary one, or on its own where the action is a choice rather than the
     // point of the row.
     case outlined
@@ -437,7 +441,7 @@ struct ActionButton: View {
 
     private var label: Color {
         switch tone {
-        case .dark, .green: Color.white
+        case .dark, .green, .danger: Color.white
         case .outlined, .sunken: Color.primary
         }
     }
@@ -446,6 +450,7 @@ struct ActionButton: View {
         switch tone {
         case .dark: Color.black.opacity(hovering ? 0.82 : 0.9)
         case .green: hovering ? Theme.accentFill.opacity(0.86) : Theme.accentFill
+        case .danger: hovering ? Theme.deletion.opacity(0.86) : Theme.deletion
         case .outlined: hovering ? Theme.field : .clear
         case .sunken: hovering ? Theme.border : Theme.field
         }
@@ -453,7 +458,7 @@ struct ActionButton: View {
 
     private var stroke: Color {
         switch tone {
-        case .dark, .green: .clear
+        case .dark, .green, .danger: .clear
         case .outlined, .sunken: Theme.border
         }
     }

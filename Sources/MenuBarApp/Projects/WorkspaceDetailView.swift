@@ -101,6 +101,7 @@ struct WorkspaceDetailView: View {
                 projects(workspace)
                 sessionList(workspace, sessions: sessions)
                 defaults(workspace)
+                removal(workspace, sessions: sessions)
             }
             .padding(24)
         }
@@ -491,6 +492,55 @@ struct WorkspaceDetailView: View {
     private func defaults(_ workspace: ProjectWorkspace) -> some View {
         FooterStrip(title: "Workspace defaults", detail: defaultsSummary(workspace)) {
             InlineLink(title: "Change →", size: 12.5) { creatingSession = workspace }
+        }
+    }
+
+    // The way out of a workspace, at the end of the page rather than in the header, so it
+    // is never the button next to the one that starts work.
+    private func removal(_ workspace: ProjectWorkspace,
+                         sessions: [ChatSession]) -> some View {
+        let projects = workspace.projectIDs.count
+        return FooterStrip(
+            title: "Delete this workspace",
+            detail: "\(sessions.count) session\(sessions.count == 1 ? "" : "s") and their worktrees go with it · its \(projects) projects stay") {
+            ActionButton(title: "Delete workspace", tone: .danger, size: 12) {
+                confirmRemoval(workspace, sessions: sessions)
+            }
+        }
+    }
+
+    private func confirmRemoval(_ workspace: ProjectWorkspace, sessions: [ChatSession]) {
+        let count = sessions.count
+        dialogs.show(Dialog(
+            title: "Delete \(workspace.name)?",
+            message: "This drops \(count) session\(count == 1 ? "" : "s") and removes their worktrees. The \(workspace.projectIDs.count) projects it groups stay.",
+            actions: [
+                .init(label: "Delete workspace", kind: .destructive) {
+                    remove(workspace, sessions: sessions)
+                },
+                .init(label: "Cancel", kind: .cancel)
+            ]))
+    }
+
+    // The workspace only goes once every session in it is gone, so a worktree that
+    // refuses to be removed leaves the page as it was rather than orphaning a checkout.
+    private func remove(_ workspace: ProjectWorkspace, sessions: [ChatSession]) {
+        Task {
+            var failures: [SessionLifecycle.Failure] = []
+            for session in sessions {
+                if case .failure(let failure) = await SessionLifecycle.remove(
+                    session, from: store, runner: runner) {
+                    failures.append(failure)
+                }
+            }
+            guard failures.isEmpty else {
+                showCreationError(failures.map(\.message).joined(separator: "\n"),
+                                  title: failures.count == 1
+                                      ? failures[0].title
+                                      : "Could not delete some sessions")
+                return
+            }
+            store.removeWorkspace(workspace.id)
         }
     }
 
