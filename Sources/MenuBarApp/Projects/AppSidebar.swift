@@ -1726,6 +1726,7 @@ private struct SessionCard: View {
         .overlay(RoundedRectangle(cornerRadius: 9)
             .stroke(cardStroke, lineWidth: selected ? 1.4 : 1.2))
         .animation(.easeOut(duration: 0.25), value: [busy, finished])
+        .animation(.easeOut(duration: 0.15), value: selected)
         .appTooltip { tooltip }
         .onHover { hovering = $0 }
         .onChange(of: isRenaming, initial: true) { _, renaming in

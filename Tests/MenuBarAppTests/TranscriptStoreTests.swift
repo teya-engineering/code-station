@@ -217,7 +217,7 @@ struct TranscriptStoreTests {
 
     @Test func transcriptWindowAddsEarlierMessagesInBoundedPages() {
         let messages = (0..<8).map { ChatMessage(role: .user, text: "\($0)") }
-        var window = TranscriptWindow(pageSize: 3)
+        var window = TranscriptWindow(openingPage: 3, step: 3)
 
         #expect(window.visibleMessages(in: messages).map(\.text) == ["5", "6", "7"])
         #expect(window.hiddenCount(totalCount: messages.count) == 5)
@@ -232,8 +232,20 @@ struct TranscriptStoreTests {
         #expect(window.hiddenCount(totalCount: messages.count) == 0)
     }
 
+    // Opening is paid before anything is on screen, reading back is asked for, so the
+    // second page is not held to the size of the first.
+    @Test func transcriptWindowReadsBackInLargerPagesThanItOpensWith() {
+        var window = TranscriptWindow(openingPage: 2, step: 6)
+
+        #expect(window.visibleCount == 2)
+
+        window.loadEarlier(totalCount: 20)
+
+        #expect(window.visibleCount == 8)
+    }
+
     @Test func transcriptWindowResetsWhenAViewChangesSessions() {
-        var window = TranscriptWindow(pageSize: 2)
+        var window = TranscriptWindow(openingPage: 2, step: 2)
         window.loadEarlier(totalCount: 5)
         #expect(window.visibleCount == 4)
 

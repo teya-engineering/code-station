@@ -147,11 +147,17 @@ final class ProjectStore {
         }
     }
 
+    // MARK: - What is on screen
+    //
+    // Every choice here runs from a click and is only a preference, so it takes the
+    // debounced write: a waiting one blocks the main actor until the writer queue drains,
+    // which is long enough to be felt. Quitting flushes whatever is still owed.
+
     // Home sits above project navigation. The last project stays remembered so leaving
     // Home takes the user back to the same working context instead of changing their place.
     func selectHome() {
         selection = .home
-        saveIndex()
+        scheduleIndexSave()
     }
 
     // Choosing a project is different from opening a conversation. Keeping the two
@@ -160,20 +166,20 @@ final class ProjectStore {
         guard project(id) != nil else { return }
         selectedProjectID = id
         selection = nil
-        saveIndex()
+        scheduleIndexSave()
     }
 
     func selectSession(_ id: UUID) {
         guard let session = session(id) else { return }
         selectedProjectID = session.projectID
         selection = .session(id)
-        saveIndex()
+        scheduleIndexSave()
     }
 
     func selectWorkspace(_ id: UUID) {
         guard workspace(id) != nil else { return }
         selection = .workspace(id)
-        saveIndex()
+        scheduleIndexSave()
     }
 
     // MARK: - Turns worth knowing about
@@ -764,8 +770,11 @@ final class ProjectStore {
               sessions[i].transcriptLoaded else { return }
         // Nothing may be dropped that is not on disk yet: the debounced write may still
         // be waiting on a turn that has just ended.
-        save()
-        guard !dirtyTranscripts.contains(sessionID) else { return }
+        if dirtyTranscripts.contains(sessionID) {
+            save()
+            // A failed write leaves the only copy in memory.
+            guard !dirtyTranscripts.contains(sessionID) else { return }
+        }
         // The presentations were built from calls that are about to go, and the cache
         // has no other reason to hold on to them.
         ToolPresentationCache.forget(sessions[i].messages.flatMap(\.tools).map(\.id))

@@ -5,12 +5,19 @@ import SwiftUI
 // view only builds a bounded tail. Earlier pages are added on demand without changing
 // the transcript format or making old sessions migrate their data.
 struct TranscriptWindow: Equatable {
-    let pageSize: Int
+    // What a session opens with. Every row is built eagerly, so this is what opening one
+    // costs, and it is kept small because it is paid before anything is on screen.
+    let openingPage: Int
+    // What each request for earlier messages adds. Larger than the opening page: someone
+    // reading back through a conversation asked for the wait, and should not have to keep
+    // asking a page at a time.
+    let step: Int
     private(set) var visibleCount: Int
 
-    init(pageSize: Int = 80) {
-        self.pageSize = max(1, pageSize)
-        visibleCount = max(1, pageSize)
+    init(openingPage: Int = 20, step: Int = 80) {
+        self.openingPage = max(1, openingPage)
+        self.step = max(1, step)
+        visibleCount = self.openingPage
     }
 
     func hiddenCount(totalCount: Int) -> Int {
@@ -23,11 +30,11 @@ struct TranscriptWindow: Equatable {
 
     mutating func loadEarlier(totalCount: Int) {
         guard hiddenCount(totalCount: totalCount) > 0 else { return }
-        visibleCount = min(totalCount, visibleCount + pageSize)
+        visibleCount = min(totalCount, visibleCount + step)
     }
 
     mutating func reset() {
-        visibleCount = pageSize
+        visibleCount = openingPage
     }
 }
 
@@ -134,6 +141,9 @@ struct SessionView: View {
     @State private var selectedProjectID: UUID?
     @State private var transcriptWindow = TranscriptWindow()
     @State private var transcriptPinnedToBottom = true
+    // False until this session's transcript has been scrolled to its end. The pane is
+    // rebuilt per session, so it starts false on every switch without being reset.
+    @State private var opened = false
 
     // Working tree totals for the header live in the shared cache and are refreshed
     // as tools finish, so the numbers track the run rather than only its end and are
@@ -184,7 +194,7 @@ struct SessionView: View {
             }
             .task(id: sessionID) {
                 selectedProjectID = session.projectID
-                refreshStats(workingDirectories)
+                refreshStats(workingDirectories, reusingRecent: true)
                 runner.refreshContext(sessionID, store: store)
                 store.findPullRequest(in: sessionID)
             }
@@ -369,7 +379,18 @@ struct SessionView: View {
         return last.tools.filter { !$0.isRunning }.count
     }
 
-    private func refreshStats(_ roots: [String], after delay: Duration? = nil) {
+    // `reusingRecent` is for opening a session, where the trees are usually the ones just
+    // looked at and git has nothing new to say. A tree inspected that recently is skipped
+    // outright rather than refreshed behind the numbers already on screen, so the window
+    // is kept short: nothing else will correct them until a tool finishes or the run ends.
+    // Anything that follows a change to the working tree must ask again, so it leaves
+    // this off.
+    private func refreshStats(_ roots: [String], after delay: Duration? = nil,
+                              reusingRecent: Bool = false) {
+        let roots = reusingRecent
+            ? roots.filter { !gitStats.isFresh(at: $0, within: .seconds(5)) }
+            : roots
+        guard !roots.isEmpty else { return }
         statsTask?.cancel()
         statsTask = Task {
             if let delay {
@@ -506,6 +527,10 @@ struct SessionView: View {
                     Task { proxy.scrollTo(bottomAnchor, anchor: .bottom) }
                 }
             })
+            // Held back until the scroll has landed, so the conversation arrives already
+            // at its end instead of appearing and then jumping there.
+            .opacity(opened ? 1 : 0)
+            .accessibilityHidden(!opened)
             // Rows measure again after the first layout - an attachment, an image, text
             // that wraps differently once it has its real width - and the end of the
             // transcript moves with them. One nudge once that settles lands on it.
@@ -514,6 +539,7 @@ struct SessionView: View {
                 transcriptPinnedToBottom = true
                 await Task.yield()
                 proxy.scrollTo(bottomAnchor, anchor: .bottom)
+                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.16)) { opened = true }
             }
             .onChange(of: session.messages.count) { scrollToBottom(proxy, animated: true) }
             // A finished line is worth a glide. A long line is followed in coarse chunks
