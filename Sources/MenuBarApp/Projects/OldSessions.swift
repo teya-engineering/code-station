@@ -41,10 +41,10 @@ enum SessionOutcome: Equatable {
         }
     }
 
-    // Only the outcome that costs nothing but history is safe to tick for the user. A
-    // worktree stays untouched until git has said it is clean, so a slow repository can
-    // never leave a box ticked that the user did not read.
-    var isSafeToPreselect: Bool {
+    // Costs nothing but the conversation. Only these arrive ticked, and only these are
+    // ever cleared without being asked about. A worktree counts as one of them once git
+    // has said it is clean, never while the answer is still coming.
+    var losesNothing: Bool {
         self == .historyOnly || self == .worktreeRemoved
     }
 
@@ -55,6 +55,45 @@ enum SessionOutcome: Equatable {
     var losesWork: Bool {
         if case .wouldLoseWork = self { return true }
         return false
+    }
+}
+
+// What deleting a session would cost, as git answers it. The review sheet and the
+// unattended sweep both ask this, so a box that arrives ticked and a session that goes on
+// its own are decided by one rule rather than by two that could drift apart.
+enum SessionCost {
+    static let inspectionCommandTimeout: TimeInterval = 10
+
+    typealias Inspect = @Sendable (String) async -> GitSnapshot
+
+    static let live: Inspect = {
+        await GitInspector.snapshot(at: $0, commandTimeout: inspectionCommandTimeout)
+    }
+
+    // Worktrees that are still on disk are the only ones worth asking git about. Without
+    // one there is nothing to lose but the conversation.
+    static func startingOutcome(worktrees: [String]) -> SessionOutcome {
+        worktrees.contains { FileManager.default.fileExists(atPath: $0) }
+            ? .checking : .historyOnly
+    }
+
+    // One worktree git could not read is enough to stop here. Silence from git is not the
+    // same as an empty worktree, and only one of the two is safe to act on.
+    static func settledOutcome(worktrees: [String],
+                               inspect: Inspect = live) async -> SessionOutcome {
+        guard startingOutcome(worktrees: worktrees) == .checking else { return .historyOnly }
+
+        var added = 0
+        var removed = 0
+        var hasChanges = false
+        for path in worktrees {
+            let snapshot = await inspect(path)
+            guard snapshot.state == .ready else { return .checkFailed }
+            hasChanges = hasChanges || !snapshot.files.isEmpty
+            added += snapshot.totalAdded
+            removed += snapshot.totalRemoved
+        }
+        return hasChanges ? .wouldLoseWork(added: added, removed: removed) : .worktreeRemoved
     }
 }
 

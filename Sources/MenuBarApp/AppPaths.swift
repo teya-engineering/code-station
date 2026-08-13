@@ -152,6 +152,13 @@ enum Preferences {
         set { store.set(OldSessions.resolvedDays(newValue), forKey: "oldSessionDays") }
     }
 
+    // Whether old sessions are cleared on their own. Off unless it is asked for: deleting
+    // without being asked is not something to inherit from a fresh install.
+    static var autoDeleteOldSessions: Bool {
+        get { store.bool(forKey: "autoDeleteOldSessions") }
+        set { store.set(newValue, forKey: "autoDeleteOldSessions") }
+    }
+
     static func oldSessionDays(in store: UserDefaults) -> Int {
         guard store.object(forKey: "oldSessionDays") != nil else {
             return OldSessions.defaultDays

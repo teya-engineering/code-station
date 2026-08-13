@@ -2,7 +2,7 @@ import SwiftUI
 
 // The offer to clear out sessions that have gone quiet. Everything here is a choice: the
 // sheet arrives with the harmless rows ticked and says, next to each one, exactly what
-// deleting it costs. Nothing is ever cleared without this screen being read.
+// deleting it costs. Anything that would lose work can only be cleared from here.
 struct OldSessionsView: View {
     @Environment(ProjectStore.self) private var store
     @Environment(SessionRunner.self) private var runner
@@ -12,9 +12,14 @@ struct OldSessionsView: View {
 
     @State private var rows: [Row] = []
     @State private var ticked: Set<UUID> = []
+    // Counted apart from `ticked`, so unticking a row the app chose never buys room for
+    // another one to be chosen in its place.
+    @State private var autoTicked = 0
     @State private var deletionProgress: DeletionProgress?
 
-    private static let inspectionCommandTimeout: TimeInterval = 10
+    // A tick is a promise the user has read the row. Past a certain length nobody reads the
+    // whole list, so the ticking stops and anything beyond it has to be asked for by hand.
+    private static let preselectLimit = 50
 
     private var days: Int { appSettings.oldSessionDays }
 
@@ -46,6 +51,7 @@ struct OldSessionsView: View {
                                          canToggle: row.outcome.canSelect && !isDeleting,
                                          toggle: { toggle(row) })
                     }
+                    if preselectCapped { capNotice }
                     if losable > 0 { warning }
                 }
                 .padding(20)
@@ -69,6 +75,23 @@ struct OldSessionsView: View {
         }
         .padding(.horizontal, 20)
         .headerBand()
+    }
+
+    // Said out loud, so a half-ticked list reads as a decision rather than a glitch.
+    private var capNotice: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "checklist")
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+            Text("Only the first \(Self.preselectLimit) sessions are ticked for you. Tick the rest by hand if you want those gone as well.")
+                .font(.system(size: 12))
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
     }
 
     // The one thing this screen can do that cannot be undone, said before the button is
@@ -150,6 +173,10 @@ struct OldSessionsView: View {
         rows.filter { $0.outcome.losesWork }.count
     }
 
+    private var preselectCapped: Bool {
+        rows.filter { $0.outcome.losesNothing }.count > Self.preselectLimit
+    }
+
     // "last turn 9 days ago · 4 turns · ⑂ conductor/pty-test · clean"
     private func detail(_ row: Row) -> String {
         var parts = ["last turn " + SessionAge.phrase(since: row.session.lastActivity)]
@@ -188,37 +215,21 @@ struct OldSessionsView: View {
                         ?? store.project(session.projectID)?.name ?? "",
                     outcome: startingOutcome(session))
             }
-        ticked = Set(rows.filter { $0.outcome.isSafeToPreselect }.map(\.id))
+        ticked = Set(rows.filter { $0.outcome.losesNothing }
+            .prefix(Self.preselectLimit)
+            .map(\.id))
+        autoTicked = ticked.count
 
         for row in rows where row.outcome == .checking {
-            var added = 0
-            var removed = 0
-            var hasChanges = false
-            var inspectionFailed = false
-            for path in worktreePaths(row.session) {
-                guard !isDeleting else { return }
-                let snapshot = await GitInspector.snapshot(
-                    at: path, commandTimeout: Self.inspectionCommandTimeout)
-                guard !isDeleting else { return }
-                guard snapshot.state == .ready else {
-                    inspectionFailed = true
-                    break
-                }
-                hasChanges = hasChanges || !snapshot.files.isEmpty
-                added += snapshot.totalAdded
-                removed += snapshot.totalRemoved
-            }
-            settle(row.id, on: inspectionFailed
-                   ? .checkFailed
-                   : !hasChanges
-                       ? .worktreeRemoved
-                       : .wouldLoseWork(added: added, removed: removed))
+            guard !isDeleting else { return }
+            let outcome = await SessionCost.settledOutcome(worktrees: worktreePaths(row.session))
+            guard !isDeleting else { return }
+            settle(row.id, on: outcome)
         }
     }
 
     private func startingOutcome(_ session: ChatSession) -> SessionOutcome {
-        worktreePaths(session).contains { FileManager.default.fileExists(atPath: $0) }
-            ? .checking : .historyOnly
+        SessionCost.startingOutcome(worktrees: worktreePaths(session))
     }
 
     private func worktreePaths(_ session: ChatSession) -> [String] {
@@ -230,7 +241,10 @@ struct OldSessionsView: View {
         rows[i].outcome = outcome
         // Ticking happens here rather than up front, so a box is only ever ticked for the
         // user once git has said the worktree holds nothing.
-        if outcome.isSafeToPreselect { ticked.insert(id) }
+        if outcome.losesNothing, autoTicked < Self.preselectLimit {
+            ticked.insert(id)
+            autoTicked += 1
+        }
     }
 
     // MARK: - Acting

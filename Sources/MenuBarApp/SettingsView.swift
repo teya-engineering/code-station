@@ -45,6 +45,10 @@ final class AppSettings {
         didSet { Preferences.oldSessionDays = oldSessionDays }
     }
 
+    var autoDeleteOldSessions = Preferences.autoDeleteOldSessions {
+        didSet { Preferences.autoDeleteOldSessions = autoDeleteOldSessions }
+    }
+
     var skillsRefreshInterval = Preferences.skillsRefreshInterval {
         didSet { Preferences.skillsRefreshInterval = skillsRefreshInterval }
     }
@@ -211,8 +215,9 @@ struct SettingsView: View {
 
     // MARK: - The app itself
 
-    // The threshold only decides what gets offered up for review. Nothing acts on it on
-    // its own, which is why the number can be moved freely without asking what it will do.
+    // The threshold decides what gets offered up for review, and, if the sweep below is
+    // on, what gets cleared on its own. Even then the sweep only touches what git has
+    // said is empty, so the number can be moved without wondering what it will take.
     private var oldSessions: some View {
         @Bindable var settings = settings
         let days = settings.oldSessionDays
@@ -224,7 +229,7 @@ struct SettingsView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Count a session as old after")
                             .font(.system(size: 13, weight: .semibold))
-                        Text("Counted from its last turn. The sidebar offers to clear them; nothing is ever deleted without asking.")
+                        Text("Counted from its last turn. The sidebar offers to clear them.")
                             .font(.system(size: 12))
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -232,6 +237,22 @@ struct SettingsView: View {
                     Spacer(minLength: 0)
                     DayField(days: $settings.oldSessionDays)
                 }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(RoundedRectangle(cornerRadius: 9).fill(Theme.card))
+                .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
+
+                Toggle(isOn: $settings.autoDeleteOldSessions) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Delete them without asking")
+                            .font(.system(size: 13, weight: .semibold))
+                        Text("Only where nothing is lost: no worktree left, or one git says holds no changes. A session with uncommitted work is never taken this way, and waits for you in the review.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .toggleStyle(.appSwitch)
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(RoundedRectangle(cornerRadius: 9).fill(Theme.card))

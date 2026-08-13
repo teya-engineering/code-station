@@ -44,11 +44,11 @@ struct OldSessionsTests {
     // Only what costs nothing but history arrives ticked. A worktree is left alone until
     // git has answered, so a slow repository cannot leave a box ticked unread.
     @Test func ticksOnlyTheOutcomesThatLoseNothing() {
-        #expect(SessionOutcome.historyOnly.isSafeToPreselect)
-        #expect(SessionOutcome.worktreeRemoved.isSafeToPreselect)
-        #expect(!SessionOutcome.checking.isSafeToPreselect)
-        #expect(!SessionOutcome.checkFailed.isSafeToPreselect)
-        #expect(!SessionOutcome.wouldLoseWork(added: 64, removed: 0).isSafeToPreselect)
+        #expect(SessionOutcome.historyOnly.losesNothing)
+        #expect(SessionOutcome.worktreeRemoved.losesNothing)
+        #expect(!SessionOutcome.checking.losesNothing)
+        #expect(!SessionOutcome.checkFailed.losesNothing)
+        #expect(!SessionOutcome.wouldLoseWork(added: 64, removed: 0).losesNothing)
     }
 
     @Test func onlySelectsSessionsWhoseWorktreeCheckFinished() {

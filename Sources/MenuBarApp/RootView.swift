@@ -10,6 +10,7 @@ struct RootView: View {
     @Environment(DispatchAuthStore.self) private var dispatchAuth
     @Environment(AppSettings.self) private var settings
     @Environment(ShortcutStore.self) private var shortcuts
+    @Environment(SessionRunner.self) private var runner
     @State private var skills = SkillsManager()
     @State private var configuringServers = false
     @State private var showingSkills = false
@@ -44,6 +45,7 @@ struct RootView: View {
         }
         .task { await resumePendingSessionRemovals() }
         .task(id: settings.skillsRefreshInterval) { await refreshSkillsAutomatically() }
+        .task(id: sweepRule) { await deleteOldSessionsAutomatically() }
         // Settings answers the shortcut every Mac app answers. The standard Settings
         // scene is deliberately empty, so the shortcut is caught here and opens the
         // same sheet the sidebar's menu does.
@@ -103,6 +105,31 @@ struct RootView: View {
         sessionCleanupError = failures.isEmpty
             ? nil
             : failures.map(\.message).joined(separator: "\n")
+    }
+
+    private struct SweepRule: Equatable {
+        let enabled: Bool
+        let days: Int
+    }
+
+    private var sweepRule: SweepRule {
+        SweepRule(enabled: settings.autoDeleteOldSessions, days: settings.oldSessionDays)
+    }
+
+    // Age is the only thing that makes a session sweepable, and age only moves with the
+    // clock, so this runs on a timer rather than off a change in the store.
+    private func deleteOldSessionsAutomatically() async {
+        let rule = sweepRule
+        guard rule.enabled else { return }
+
+        while !Task.isCancelled {
+            await OldSessionSweep.run(days: rule.days, store: store, runner: runner)
+            do {
+                try await Task.sleep(for: OldSessionSweep.interval)
+            } catch {
+                return
+            }
+        }
     }
 
     private func refreshSkillsAutomatically() async {
