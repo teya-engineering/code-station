@@ -152,10 +152,13 @@ enum Preferences {
         set { store.set(OldSessions.resolvedDays(newValue), forKey: "oldSessionDays") }
     }
 
-    // Whether old sessions are cleared on their own. Off unless it is asked for: deleting
-    // without being asked is not something to inherit from a fresh install.
+    // Whether old sessions are cleared on their own. On unless it is turned off: the sweep
+    // only takes what git says holds nothing, so there is nothing to lose by leaving it on.
     static var autoDeleteOldSessions: Bool {
-        get { store.bool(forKey: "autoDeleteOldSessions") }
+        get {
+            guard store.object(forKey: "autoDeleteOldSessions") != nil else { return true }
+            return store.bool(forKey: "autoDeleteOldSessions")
+        }
         set { store.set(newValue, forKey: "autoDeleteOldSessions") }
     }
 
