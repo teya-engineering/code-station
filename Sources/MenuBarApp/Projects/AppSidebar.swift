@@ -22,6 +22,7 @@ struct AppSidebar: View {
     @State private var choosingWorkspaceSession: ProjectWorkspace?
     @State private var showingNewWorkspace = false
     @State private var showingNewTask = false
+    @State private var askingTask: Project?
     // A session opened away from its sidebar card and not brought into view yet. A card
     // clicked in the sidebar is already under the pointer, so it does not need this.
     @State private var sessionToReveal: UUID?
@@ -74,6 +75,9 @@ struct AppSidebar: View {
         .sheet(isPresented: $showingNewTask) {
             NewTaskView(onCreate: createTask)
                 .appOverlays()
+        }
+        .taskRunSheet($askingTask) { task, values, note in
+            startRun(task, values: values, note: note)
         }
     }
 
@@ -1175,9 +1179,19 @@ struct AppSidebar: View {
         }
     }
 
+    // A task whose prompt has holes in it asks for them first; one that runs as written
+    // starts on the click.
     private func runTask(_ project: Project) {
+        if TaskRun.needsInput(project) {
+            askingTask = project
+        } else {
+            startRun(project, values: [:], note: "")
+        }
+    }
+
+    private func startRun(_ project: Project, values: [String: String], note: String) {
         setExpanded(true, for: project.id)
-        switch TaskRun.run(project, store: store, runner: runner,
+        switch TaskRun.run(project, values: values, note: note, store: store, runner: runner,
                            agentAvatarName: appSettings.defaultAgentAvatarName) {
         case .success(let session):
             sessionToReveal = session.id

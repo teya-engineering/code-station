@@ -3,6 +3,10 @@ import Foundation
 // What a task does when it is run: the prompt handed to a fresh session, and the run
 // choices that session starts with. Nil choices follow the app defaults at run time.
 // Only ad-hoc projects carry one.
+//
+// A prompt can leave holes for the run to fill - see TaskTemplate. `inputs` says how each
+// hole is asked for, and `lastValues` is what the last run put in them, so running the
+// same thing again is a confirmation rather than a retype.
 struct TaskSpec: Codable, Equatable {
     var prompt: String
     var agent: AgentKind?
@@ -11,6 +15,38 @@ struct TaskSpec: Codable, Equatable {
     var effort: String?
     var permissionMode: String?
     var codexSandboxMode: String?
+    var inputs: [TaskInput] = []
+    var lastValues: [String: String] = [:]
+
+    init(prompt: String, agent: AgentKind? = nil, agentAvatarName: String? = nil,
+         model: String? = nil, effort: String? = nil, permissionMode: String? = nil,
+         codexSandboxMode: String? = nil, inputs: [TaskInput] = [],
+         lastValues: [String: String] = [:]) {
+        self.prompt = prompt
+        self.agent = agent
+        self.agentAvatarName = agentAvatarName
+        self.model = model
+        self.effort = effort
+        self.permissionMode = permissionMode
+        self.codexSandboxMode = codexSandboxMode
+        self.inputs = inputs
+        self.lastValues = lastValues
+    }
+
+    // Tasks saved before a prompt could ask for anything hold neither list.
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        prompt = try container.decode(String.self, forKey: .prompt)
+        agent = try container.decodeIfPresent(AgentKind.self, forKey: .agent)
+        agentAvatarName = try container.decodeIfPresent(String.self, forKey: .agentAvatarName)
+        model = try container.decodeIfPresent(String.self, forKey: .model)
+        effort = try container.decodeIfPresent(String.self, forKey: .effort)
+        permissionMode = try container.decodeIfPresent(String.self, forKey: .permissionMode)
+        codexSandboxMode = try container.decodeIfPresent(String.self, forKey: .codexSandboxMode)
+        inputs = try container.decodeIfPresent([TaskInput].self, forKey: .inputs) ?? []
+        lastValues = try container.decodeIfPresent([String: String].self, forKey: .lastValues)
+            ?? [:]
+    }
 }
 
 // A project is just a folder on disk. A session runs Claude Code either directly in
@@ -418,6 +454,10 @@ struct ChatSession: Identifiable, Codable, Equatable {
     var agentAvatarName: String?
     // Set when the agent opens a pull request from this session.
     var pullRequest: PullRequest?
+    // What this run of a task was given for the holes in its prompt. The prompt itself is
+    // in the transcript; this is kept so the run list can say what each run was about
+    // without opening it.
+    var taskValues: [String: String]?
     var summary = SessionSummary()
 
     // Empty until the store loads it, and empty again once nothing holds this session,
@@ -468,7 +508,7 @@ struct ChatSession: Identifiable, Codable, Equatable {
         case claudeSessionID, codexSessionID, createdAt
         case worktreePath, worktreeBranch
         case workspaceID, sessionProjects, settings, usage, agentAvatarName
-        case pullRequest, summary, messages
+        case pullRequest, taskValues, summary, messages
     }
 
     init(id: UUID = UUID(), projectID: UUID, agent: AgentKind = .claudeCode) {
@@ -495,6 +535,7 @@ struct ChatSession: Identifiable, Codable, Equatable {
         usage = try container.decodeIfPresent(SessionUsage.self, forKey: .usage)
         agentAvatarName = try container.decodeIfPresent(String.self, forKey: .agentAvatarName)
         pullRequest = try container.decodeIfPresent(PullRequest.self, forKey: .pullRequest)
+        taskValues = try container.decodeIfPresent([String: String].self, forKey: .taskValues)
         summary = try container.decodeIfPresent(SessionSummary.self, forKey: .summary) ?? SessionSummary()
         messages = try container.decodeIfPresent([ChatMessage].self, forKey: .messages) ?? []
         transcriptLoaded = !messages.isEmpty
@@ -523,6 +564,7 @@ struct ChatSession: Identifiable, Codable, Equatable {
         try container.encodeIfPresent(usage, forKey: .usage)
         try container.encodeIfPresent(agentAvatarName, forKey: .agentAvatarName)
         try container.encodeIfPresent(pullRequest, forKey: .pullRequest)
+        try container.encodeIfPresent(taskValues, forKey: .taskValues)
         try container.encode(summary, forKey: .summary)
     }
 

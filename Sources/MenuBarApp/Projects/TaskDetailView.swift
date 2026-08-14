@@ -19,6 +19,7 @@ struct TaskDetailView: View {
     @State private var prompt = ""
     @State private var promptLoaded = false
     @State private var terminalFocused = false
+    @State private var askingTask: Project?
 
     private var terminalScope: TerminalScope { .project(projectID) }
 
@@ -35,6 +36,9 @@ struct TaskDetailView: View {
                 }
             }
             .background(Theme.background)
+            .taskRunSheet($askingTask) { asking, values, note in
+                startRun(asking, values: values, note: note)
+            }
             .onChange(of: prompt) { _, _ in savePrompt(task) }
             .task {
                 guard !promptLoaded else { return }
@@ -94,10 +98,18 @@ struct TaskDetailView: View {
 
     private func details(_ task: Project) -> some View {
         let runs = store.standaloneSessions(for: task.id)
+        let inputs = TaskTemplate.inputs(in: spec(task))
         return ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 promptCard(task)
-                runList(task, runs: runs)
+                if !inputs.isEmpty {
+                    TaskInputsCard(inputs: inputs) { input in
+                        changeSpec(task) { spec in
+                            spec.inputs = TaskTemplate.saving(input, in: spec)
+                        }
+                    }
+                }
+                runList(task, runs: runs, inputs: inputs)
             }
             .padding(24)
         }
@@ -109,6 +121,11 @@ struct TaskDetailView: View {
 
             TaskPromptEditor(prompt: $prompt, minHeight: 110)
 
+            Text("Anything in double braces is a hole the run fills in: write {{ticket}} and every run asks for a ticket before it starts.")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
             Divider().overlay(Theme.hairline)
 
             runBar(task)
@@ -119,7 +136,7 @@ struct TaskDetailView: View {
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.border))
     }
 
-    private func runList(_ task: Project, runs: [ChatSession]) -> some View {
+    private func runList(_ task: Project, runs: [ChatSession], inputs: [TaskInput]) -> some View {
         VStack(alignment: .leading, spacing: 11) {
             SectionRule(title: "RUNS") { EmptyView() }
 
@@ -133,13 +150,23 @@ struct TaskDetailView: View {
                                    branch: nil,
                                    activity: SessionActivity.line(for: session, store: store,
                                                                   runner: runner),
-                                   detail: .location(task.collapsedPath),
+                                   detail: .location(runDetail(session, task: task,
+                                                               inputs: inputs)),
                                    onOpen: { store.selectSession(session.id) },
                                    menu: { runMenu(session, task: task) })
                     }
                 }
             }
         }
+    }
+
+    // Every run of a task sits in the same folder, so saying where it is says nothing.
+    // What it was given says what it was, and only falls back to the folder for a run
+    // from before the prompt asked for anything.
+    private func runDetail(_ session: ChatSession, task: Project,
+                           inputs: [TaskInput]) -> String {
+        let summary = TaskTemplate.summary(of: session.taskValues ?? [:], inputs: inputs)
+        return summary.isEmpty ? task.collapsedPath : summary
     }
 
     private func emptyRuns(_ task: Project) -> some View {
@@ -192,7 +219,9 @@ struct TaskDetailView: View {
             .opacity(runReady(task) ? 1 : 0.45)
             .appTooltip(runBusy(task)
                 ? "A run is still working in this folder."
-                : "Start a fresh session with the saved prompt")
+                : TaskRun.needsInput(task)
+                    ? "Ask for what this run needs, then start a fresh session"
+                    : "Start a fresh session with the saved prompt")
         }
     }
 
@@ -426,8 +455,16 @@ struct TaskDetailView: View {
         // The prompt on screen is the one the user expects to run, saved or not yet.
         savePrompt(task)
         guard let current = store.project(task.id) else { return }
+        if TaskRun.needsInput(current) {
+            askingTask = current
+        } else {
+            startRun(current, values: [:], note: "")
+        }
+    }
+
+    private func startRun(_ task: Project, values: [String: String], note: String) {
         if case .failure(let failure) = TaskRun.run(
-            current, store: store, runner: runner,
+            task, values: values, note: note, store: store, runner: runner,
             agentAvatarName: appSettings.defaultAgentAvatarName) {
             dialogs.show(Dialog(
                 title: "Could not run the task",

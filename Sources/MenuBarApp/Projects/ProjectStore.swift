@@ -545,6 +545,14 @@ final class ProjectStore {
 
     // What the next turn in this session runs with. The agent stays fixed on the session,
     // while the model and other run controls can change between turns.
+    // What a run of a task was given for the holes in its prompt, kept on the run so the
+    // list can say what each one was about.
+    func setTaskValues(_ values: [String: String], for sessionID: UUID) {
+        guard let i = index(sessionID), sessions[i].taskValues != values else { return }
+        sessions[i].taskValues = values
+        saveIndex()
+    }
+
     func setSettings(_ settings: SessionSettings, for sessionID: UUID) {
         guard let i = index(sessionID) else { return }
         guard sessions[i].settings != settings else { return }
