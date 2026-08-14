@@ -1,5 +1,23 @@
 import Foundation
 
+// A checkout a session records whose folder is no longer on disk, and which the app still
+// has what it needs to build again. Worked out once, so the banner that offers the rebuild,
+// the confirmation that describes it and the rebuild itself all speak about the same set of
+// folders rather than each deciding for itself.
+struct LostCheckout: Equatable, Sendable {
+    let path: String
+    let branch: String
+    let projectPath: String
+}
+
+// A lost checkout paired with where its commits would come from. That pairing is the whole
+// of what a rebuild can honestly promise, so it is made before the offer and carried
+// through to the work.
+struct PlannedRebuild: Equatable, Sendable {
+    let checkout: LostCheckout
+    let source: GitWorktree.RestoreSource
+}
+
 struct WorktreeOperations: Sendable {
     let addProject: @Sendable (String, String, UUID, String?) async
         -> Result<GitWorktree.Created, GitWorktree.Failure>
@@ -7,6 +25,12 @@ struct WorktreeOperations: Sendable {
         -> Result<GitWorktree.Created, GitWorktree.Failure>
     let remove: @Sendable (String, String?, String?) async
         -> Result<Void, GitWorktree.Failure>
+    // Defaulted, unlike its neighbours, so the stubs that only ever add or remove a worktree
+    // do not have to name an operation they never reach.
+    var restore: @Sendable (PlannedRebuild) async -> Result<Void, GitWorktree.Failure> = {
+        await GitWorktree.restore(worktreePath: $0.checkout.path, branch: $0.checkout.branch,
+                                  projectPath: $0.checkout.projectPath, from: $0.source)
+    }
 
     static let live = WorktreeOperations(
         addProject: { path, name, sessionID, base in
@@ -152,6 +176,113 @@ enum SessionLifecycle {
         }
 
         return await finish(pending, in: store, worktrees: worktrees)
+    }
+
+    // MARK: - Rebuilding a lost checkout
+
+    // Every folder the session works in that is not there any more, in the order the session
+    // lists them. A handful of stat calls, cheap enough to keep asking on a timer.
+    static func missingDirectories(of session: ChatSession, in store: ProjectStore) -> [String] {
+        store.workingDirectories(for: session).filter {
+            !FileManager.default.fileExists(atPath: $0)
+        }
+    }
+
+    // The lost folders a rebuild could put back, which is fewer than the folders that are
+    // gone. A workspace member checked out in the project folder itself has no worktree of
+    // its own, so there is nothing here to rebuild: putting the user's own directory back is
+    // not something the app can offer.
+    static func rebuildableCheckouts(of session: ChatSession,
+                                     in store: ProjectStore) -> [LostCheckout] {
+        store.checkoutProjects(for: session).compactMap { checkout in
+            guard let path = checkout.worktreePath,
+                  !FileManager.default.fileExists(atPath: path),
+                  let branch = checkout.worktreeBranch,
+                  let project = store.project(checkout.projectID),
+                  FileManager.default.fileExists(atPath: project.path) else { return nil }
+            return LostCheckout(path: path, branch: branch, projectPath: project.path)
+        }
+    }
+
+    // Asked before the rebuild is offered, so the confirmation can name the source, and
+    // handed to `rebuild` unchanged so the work matches the description. A checkout git
+    // cannot answer for drops out: with no answer there is nothing honest to promise.
+    static func planRebuild(_ checkouts: [LostCheckout],
+                            source: (String, String) async -> GitWorktree.RestoreSource?
+                                = { await GitWorktree.restoreSource(of: $0, projectPath: $1) })
+        async -> [PlannedRebuild] {
+        var plan: [PlannedRebuild] = []
+        for checkout in checkouts {
+            guard let found = await source(checkout.branch, checkout.projectPath) else { continue }
+            plan.append(PlannedRebuild(checkout: checkout, source: found))
+        }
+        return plan
+    }
+
+    // Nothing is written to the store, which is the point: `GitWorktree.plan` derives a
+    // checkout's path and branch from the session id, so what comes back is what the session
+    // already records, and a record that was never wrong does not need correcting. The
+    // conversation keeps its history because the session was never replaced.
+    static func rebuild(_ plan: [PlannedRebuild],
+                        worktrees: WorktreeOperations = .live) async -> Result<Void, Failure> {
+        var failures: [String] = []
+        for step in plan {
+            if case .failure(let failure) = await worktrees.restore(step) {
+                failures.append(failure.message)
+            }
+        }
+        guard failures.isEmpty else {
+            return .failure(Failure(
+                title: failures.count == plan.count ? "Could not rebuild the checkout"
+                                                    : "Only some folders came back",
+                message: failures.joined(separator: "\n")))
+        }
+        return .success(())
+    }
+
+    // Where the work comes from goes first and is named. Someone pressing the button is
+    // asking one question - do I get my commits back - and a sentence about consequences
+    // that reads the same whichever case they are in does not answer it.
+    static func rebuildMessage(for plan: [PlannedRebuild]) -> String {
+        if plan.count == 1, let only = plan.first {
+            let branch = only.checkout.branch
+            switch only.source {
+            case .localBranch:
+                return "\(branch) is still on this machine, so its commits come back. "
+                    + "Anything never committed is gone."
+            case .remoteBranch(let ref):
+                return "\(branch) is gone from this machine, but \(shortRef(ref)) still has it, "
+                    + "so its commits come back. Anything never committed is gone."
+            case .projectHead:
+                return "\(branch) is gone from this machine and from every remote. The folder "
+                    + "starts from the project's current checkout, and work committed only on "
+                    + "that branch cannot be recovered."
+            }
+        }
+
+        let kept = plan.filter { $0.source.keepsCommits }.count
+        let lost = plan.count - kept
+        var lines: [String] = []
+        if kept > 0 {
+            lines.append(kept == 1
+                ? "One still has its branch, here or on a remote, so its commits come back."
+                : "\(kept) still have their branch, here or on a remote, so their commits "
+                    + "come back.")
+        }
+        if lost > 0 {
+            lines.append((lost == 1 ? "One has lost its branch everywhere and starts"
+                                    : "\(lost) have lost their branch everywhere and start")
+                + " from the project's current checkout. Work committed only there cannot be "
+                + "recovered.")
+        }
+        return lines.joined(separator: "\n\n")
+    }
+
+    // refs/remotes/origin/conductor/abc reads as origin/conductor/abc, the name git uses
+    // everywhere else the reader sees it.
+    private static func shortRef(_ ref: String) -> String {
+        let prefix = "refs/remotes/"
+        return ref.hasPrefix(prefix) ? String(ref.dropFirst(prefix.count)) : ref
     }
 
     @discardableResult

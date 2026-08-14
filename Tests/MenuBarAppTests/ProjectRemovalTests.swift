@@ -292,8 +292,13 @@ struct ProjectRemovalTests {
 
     // MARK: - Helpers
 
+    // The wait shares the main actor with every other test in the run, so the time it
+    // actually gets to poll in is a fraction of the wall clock. Twenty to match
+    // WorkingTreeWatchTests, which waits the same way for the same reason: a passing run
+    // never spends the budget, and a tighter one fails whenever the suite grows rather than
+    // when the removal breaks.
     private func eventually(
-        timeout: Duration = .seconds(3),
+        timeout: Duration = .seconds(20),
         condition: () async -> Bool
     ) async throws {
         let clock = ContinuousClock()

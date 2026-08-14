@@ -156,23 +156,137 @@ enum GitWorktree {
         }
 
         return await GitInspector.offMain {
-            // Kept out of backups: a worktree can be recreated from the repository it came
-            // from, and copying every checkout into Time Machine is not worth the room.
-            _ = AppPaths.directory(folder, backedUp: false)
-            try? FileManager.default.createDirectory(
-                at: URL(fileURLWithPath: planned.path).deletingLastPathComponent(),
-                withIntermediateDirectories: true)
+            prepareContainingFolder(for: planned.path)
             var arguments = ["-C", projectPath, "worktree", "add", planned.path, "-b", planned.branch]
             if let base { arguments.append(base) }
-            let result = GitInspector.run(tool, arguments)
-            guard result.ok else {
-                let stderr = result.errorText.trimmingCharacters(in: .whitespacesAndNewlines)
-                return .failure(Failure(message: stderr.isEmpty
-                    ? "git worktree add exited with code \(result.status)."
-                    : stderr))
-            }
-            return .success(planned)
+            return worktreeAdd(tool, arguments).map { _ in planned }
         }
+    }
+
+    // Kept out of backups: a worktree can be recreated from the repository it came from,
+    // and copying every checkout into Time Machine is not worth the room.
+    private static func prepareContainingFolder(for path: String) {
+        _ = AppPaths.directory(folder, backedUp: false)
+        try? FileManager.default.createDirectory(
+            at: URL(fileURLWithPath: path).deletingLastPathComponent(),
+            withIntermediateDirectories: true)
+    }
+
+    private static func worktreeAdd(_ tool: GitInspector.GitTool,
+                                    _ arguments: [String]) -> Result<Void, Failure> {
+        let result = GitInspector.run(tool, arguments)
+        guard result.ok else {
+            let stderr = result.errorText.trimmingCharacters(in: .whitespacesAndNewlines)
+            return .failure(Failure(message: stderr.isEmpty
+                ? "git worktree add exited with code \(result.status)."
+                : stderr))
+        }
+        return .success(())
+    }
+
+    // Where a rebuilt checkout would get its commits. Read before anything is changed so a
+    // confirmation can state the outcome, and handed back to `restore` so what runs is what
+    // was promised rather than a second lookup that could answer differently.
+    enum RestoreSource: Sendable, Equatable {
+        case localBranch
+        case remoteBranch(String)
+        // Nothing of the branch is left anywhere, so the checkout starts from whatever the
+        // project has, and work committed only on that branch does not come back.
+        case projectHead
+
+        var keepsCommits: Bool { self != .projectHead }
+    }
+
+    // Nil where the question cannot be asked at all - no git, no project folder. That is
+    // not the same answer as "the branch is gone" and must not be shown as one.
+    static func restoreSource(of branch: String, projectPath: String) async -> RestoreSource? {
+        guard let tool = await GitInspector.tool(),
+              FileManager.default.fileExists(atPath: projectPath) else { return nil }
+        return await GitInspector.offMain { source(of: branch, in: projectPath, tool: tool) }
+    }
+
+    private static func source(of branch: String, in projectPath: String,
+                               tool: GitInspector.GitTool) -> RestoreSource {
+        // Spelled out with its refs/heads prefix, since a bare name matches a tag just as
+        // readily: checking a tag out would leave a detached head on a checkout whose
+        // session records a branch.
+        if GitInspector.run(tool, ["-C", projectPath, "rev-parse", "--verify", "--quiet",
+                                   "refs/heads/" + branch]).ok {
+            return .localBranch
+        }
+        let listed = GitInspector.run(tool, ["-C", projectPath, "for-each-ref",
+                                             "--format=%(refname)", "refs/remotes/*/" + branch])
+        let refs = listed.text
+            .components(separatedBy: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        // Origin wins when several remotes carry the name, rather than whichever git listed
+        // first. Naming the ref also keeps git from guessing, which it gives up on in
+        // exactly that case - and giving up there would fork from the project instead and
+        // lose the commits quietly.
+        let preferred = refs.first { $0.hasPrefix("refs/remotes/origin/") } ?? refs.first
+        return preferred.map(RestoreSource.remoteBranch) ?? .projectHead
+    }
+
+    // Builds a checkout again at the path a session already records, for a folder moved or
+    // deleted outside the app. `plan` derives that path and branch from the session id, so
+    // what comes back is what the session recorded when it was made and nothing saved has
+    // to change for the session to work again.
+    //
+    // This cannot go through `add`: that one always passes `-b`, which fails on a branch
+    // that outlived its folder, and it names no start point, which would fork from the
+    // project while the work sits on a remote.
+    static func restore(worktreePath: String, branch: String, projectPath: String,
+                        from source: RestoreSource) async -> Result<Void, Failure> {
+        guard let tool = await GitInspector.tool() else {
+            return .failure(Failure(message: "Could not find git on PATH."))
+        }
+        guard FileManager.default.fileExists(atPath: projectPath) else {
+            return .failure(Failure(
+                message: "The project folder at \(projectPath.abbreviatedPath) is missing too, "
+                    + "so there is nothing to build the checkout from."))
+        }
+
+        return await GitInspector.offMain {
+            // `--force` is what clears the registration git keeps when only the folder was
+            // deleted, but it also waives the rule that a branch is checked out in one place
+            // at a time. That one is not ours to waive - commits in either of two checkouts
+            // of a branch make the other look out of date - so it is asked here instead.
+            if let existing = liveCheckout(of: branch, in: projectPath, tool: tool),
+               existing != URL(fileURLWithPath: worktreePath).standardizedFileURL.path {
+                return .failure(Failure(
+                    message: "\(branch) is already checked out at \(existing.abbreviatedPath). "
+                        + "Two checkouts of one branch make each other look out of date."))
+            }
+
+            prepareContainingFolder(for: worktreePath)
+            // `--force` rather than `git worktree prune` to clear that stale registration:
+            // prune drops every registration whose folder is missing, so rebuilding one
+            // session's checkout would deregister another session's whose disk is merely
+            // unplugged, and that one is an orphan the moment it comes back.
+            var arguments = ["-C", projectPath, "worktree", "add", "--force", worktreePath]
+            switch source {
+            case .localBranch:
+                arguments.append(branch)
+            case .remoteBranch(let ref):
+                arguments.append(contentsOf: ["-b", branch, ref])
+            case .projectHead:
+                arguments.append(contentsOf: ["-b", branch])
+            }
+            return worktreeAdd(tool, arguments)
+        }
+    }
+
+    // The folder a branch is checked out in, when one is still there. A registration whose
+    // folder has gone does not count: that is the one being rebuilt.
+    private static func liveCheckout(of branch: String, in projectPath: String,
+                                     tool: GitInspector.GitTool) -> String? {
+        let listed = GitInspector.run(
+            tool, ["-C", projectPath, "worktree", "list", "--porcelain", "-z"])
+        guard listed.ok else { return nil }
+        return parseWorktreeList(listed.text)
+            .first { $0.branch == branch && FileManager.default.fileExists(atPath: $0.path) }
+            .map { URL(fileURLWithPath: $0.path).standardizedFileURL.path }
     }
 
     // The checkout folder must be gone before its session record is dropped. Git may no

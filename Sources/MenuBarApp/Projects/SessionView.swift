@@ -148,6 +148,13 @@ struct SessionView: View {
     // False until this session's transcript has been scrolled to its end. The pane is
     // rebuilt per session, so it starts false on every switch without being reset.
     @State private var opened = false
+    // Which of this session's folders are gone, and which of those can be built again.
+    // Sampled on a timer and held here rather than asked while drawing: the file system is
+    // what the warning strip is about and SwiftUI has no way to observe it, so asking during
+    // a redraw leaves the strip only as current as the last unrelated reason to draw - still
+    // reporting a folder that had come back, and silent about one that had just gone.
+    @State private var missingDirectories: [String] = []
+    @State private var rebuildableCheckouts: [LostCheckout] = []
 
     // Working tree totals for the header live in the shared cache and are refreshed
     // as tools finish, so the numbers track the run rather than only its end and are
@@ -220,6 +227,7 @@ struct SessionView: View {
                 runner.refreshContext(sessionID, store: store)
                 store.findPullRequest(in: sessionID)
             }
+            .task(id: sessionID) { await watchForMissingFolders() }
             .onChange(of: completedToolCount) {
                 refreshStats(workingDirectories, after: .milliseconds(350))
             }
@@ -537,21 +545,87 @@ struct SessionView: View {
         if !opening { composerFocused = true }
     }
 
+    // A banner that names a problem and stops there leaves the reader hunting for the way
+    // out of it. A checkout the app made is one it can make again, so that is offered here
+    // rather than left to a session deleted and started over, which costs the conversation.
     @ViewBuilder private func warningStrip(session: ChatSession, project: Project) -> some View {
         if store.isMissing(project) {
             strip("Folder not found at \(project.collapsedPath). Move it back or remove the project.")
-        } else if let missing = missingCheckout(in: session) {
-            strip("Workspace folder not found at \(missing.abbreviatedPath). Move it back or recreate this session.")
-        } else if let worktree = session.worktreePath, !FileManager.default.fileExists(atPath: worktree) {
-            strip("Worktree not found at \(worktree.abbreviatedPath). It was removed outside the app; delete this session or recreate it.")
+        } else if let missing = missingDirectories.first {
+            // Which of the two this is comes from the session rather than from the path:
+            // a workspace folder and a worktree both turn up in `workingDirectories`, and
+            // only the session says whether it has members.
+            let name = session.sessionProjects == nil ? "Worktree" : "Workspace folder"
+            // The folder named is one the button can actually put back, so the sentence and
+            // the action cannot point at different folders - a workspace can be missing one
+            // of each.
+            if let rebuildable = rebuildableCheckouts.first {
+                strip("\(name) not found at \(rebuildable.path.abbreviatedPath). It was removed outside the app.",
+                      action: "Rebuild") { confirmRebuild() }
+            } else {
+                strip("\(name) not found at \(missing.abbreviatedPath). Move it back, or delete this session.")
+            }
         } else if !runner.isAvailable(session.agent) {
             strip("\(session.agent.title) CLI not found on PATH. Sessions cannot run until it is installed.")
         }
     }
 
-    private func missingCheckout(in session: ChatSession) -> String? {
-        store.workingDirectories(for: session).first {
-            !FileManager.default.fileExists(atPath: $0)
+    // Two seconds, because these folders go missing behind the app's back: a directory moved
+    // in Finder, a volume unmounted, a checkout pruned from a terminal. The question is a
+    // handful of stat calls on the folders whose disappearing is the whole subject of the
+    // banner. There is no file-system watcher in the app to hang this off; WorkingTreeWatch
+    // polls too, at thirty seconds.
+    private func watchForMissingFolders() async {
+        while !Task.isCancelled {
+            sampleMissingFolders()
+            try? await Task.sleep(for: .seconds(2))
+        }
+    }
+
+    private func sampleMissingFolders() {
+        guard let session = store.session(sessionID) else { return }
+        let missing = SessionLifecycle.missingDirectories(of: session, in: store)
+        if missing != missingDirectories { missingDirectories = missing }
+        let rebuildable = SessionLifecycle.rebuildableCheckouts(of: session, in: store)
+        if rebuildable != rebuildableCheckouts { rebuildableCheckouts = rebuildable }
+    }
+
+    // What the rebuild would do is worked out before it is offered, so the confirmation names
+    // where the commits come from instead of guessing. Promising work that is not there would
+    // be worse than offering nothing.
+    private func confirmRebuild() {
+        let checkouts = rebuildableCheckouts
+        Task {
+            let plan = await SessionLifecycle.planRebuild(checkouts)
+            guard !plan.isEmpty else {
+                dialogs.show(Dialog(
+                    title: "Nothing here can be rebuilt",
+                    message: "Git could not be asked which branch these folders were on.",
+                    actions: [.init(label: "OK", kind: .cancel)]))
+                return
+            }
+            dialogs.show(Dialog(
+                title: plan.count == 1 ? "Rebuild the missing folder?"
+                                       : "Rebuild the missing folders?",
+                message: SessionLifecycle.rebuildMessage(for: plan),
+                actions: [
+                    .init(label: "Rebuild", kind: .primary) { rebuild(plan) },
+                    .init(label: "Cancel", kind: .cancel)
+                ]))
+        }
+    }
+
+    private func rebuild(_ plan: [PlannedRebuild]) {
+        Task {
+            // Sampled straight away rather than left to the next tick, so the banner answers
+            // the button instead of clearing a moment later on its own. Done either way: a
+            // run that rebuilt some of a workspace's folders before failing has still changed
+            // what the banner should say.
+            defer { sampleMissingFolders() }
+            if case .failure(let failure) = await SessionLifecycle.rebuild(plan) {
+                dialogs.show(Dialog(title: failure.title, message: failure.message,
+                                    actions: [.init(label: "OK", kind: .cancel)]))
+            }
         }
     }
 
@@ -561,11 +635,18 @@ struct SessionView: View {
         return checkout.worktreePath ?? store.project(projectID)?.path
     }
 
-    private func strip(_ message: String) -> some View {
+    // The button sits after the spacer, at the end of the sentence that asks for it, so the
+    // strip reads as a statement and then the way out of it. A banner with nothing to offer
+    // leaves it off and draws as it always did.
+    private func strip(_ message: String, action: String? = nil,
+                       run: (() -> Void)? = nil) -> some View {
         HStack(spacing: 8) {
             Image(systemName: "exclamationmark.triangle.fill")
             Text(message).fixedSize(horizontal: false, vertical: true)
             Spacer()
+            if let action, let run {
+                ActionButton(title: action, tone: .outlined, height: 26, size: 11.5, action: run)
+            }
         }
         .font(.system(size: 12, weight: .medium))
         .foregroundStyle(ChatColor.warningText)
