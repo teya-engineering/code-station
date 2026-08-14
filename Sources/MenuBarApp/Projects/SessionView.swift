@@ -908,10 +908,17 @@ struct SessionView: View {
                 codexAccessMenu(agent: agent)
             }
             Spacer(minLength: 8)
-            if let pullRequest = session.pullRequest { pullRequestTag(pullRequest) }
-            if let usage, let fraction = usage.contextFraction(for: agent) {
-                contextMeter(fraction: fraction, usage: usage, agent: agent)
+            // The trailing pair is laid out before the spacer gets a say. An HStack
+            // splits what is left evenly between the two, so without this the meter is
+            // offered half the free room, decides it does not fit, and drops its bar
+            // while the spacer sits on space the bar would have fitted in.
+            HStack(spacing: 10) {
+                if let pullRequest = session.pullRequest { pullRequestTag(pullRequest) }
+                if let usage, let fraction = usage.contextFraction(for: agent) {
+                    contextMeter(fraction: fraction, usage: usage, agent: agent)
+                }
             }
+            .layoutPriority(1)
         }
     }
 
@@ -1071,7 +1078,9 @@ struct SessionView: View {
             guard let url = URL(string: pullRequest.url) else { return }
             NSWorkspace.shared.open(url)
         } label: {
-            Text("PR #\(pullRequest.number)")
+            // Verbatim, or the interpolated number is read as a localised one and comes
+            // out grouped: PR #2,395.
+            Text(verbatim: "PR #\(pullRequest.number)")
                 .font(.system(size: 11, weight: .semibold))
                 .monospacedDigit()
                 .foregroundStyle(Theme.accent)
