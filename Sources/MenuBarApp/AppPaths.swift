@@ -200,6 +200,13 @@ enum Preferences {
         set { store.set(newValue.rawValue, forKey: "projectGrouping") }
     }
 
+    // Which terminal opens a shell in a window of its own. Held as a bundle ID so the
+    // choice survives the app being moved or renamed. Unset follows the system.
+    static var terminalBundleID: String? {
+        get { text("terminalBundleID") }
+        set { set(newValue, "terminalBundleID") }
+    }
+
     static var appearance: Appearance {
         get { store.string(forKey: "appearance").flatMap(Appearance.init(rawValue:)) ?? .system }
         set { store.set(newValue.rawValue, forKey: "appearance") }

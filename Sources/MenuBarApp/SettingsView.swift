@@ -61,6 +61,12 @@ final class AppSettings {
         didSet { Preferences.projectGrouping = projectGrouping }
     }
 
+    // nil follows whatever macOS hands a .command file, so the app has a sensible terminal
+    // before the user has thought about it.
+    var terminalBundleID = Preferences.terminalBundleID {
+        didSet { Preferences.terminalBundleID = terminalBundleID }
+    }
+
     var appearance = Preferences.appearance {
         didSet {
             Preferences.appearance = appearance
@@ -172,6 +178,7 @@ struct SettingsView: View {
                         skillRefresh
                         defaultAgent
                         botImage
+                        terminal
                         appearance
                         startAtLogin
                         log
@@ -338,6 +345,94 @@ struct SettingsView: View {
             .fixedSize()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    // MARK: - Terminal
+
+    private var terminal: some View {
+        // Reading the stored choice here is what ties this row to the setting, so the name
+        // and icon change the moment a different terminal is picked.
+        let chosen = settings.terminalBundleID
+        let app = SystemTerminal.appURL
+
+        return HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Terminal")
+                    .font(.system(size: 13, weight: .semibold))
+                Text(chosen == nil
+                     ? "\"Open in \(SystemTerminal.name(of: app))\" follows the app macOS opens .command files with. Pick one to keep it fixed."
+                     : "\"Open in \(SystemTerminal.name(of: app))\" opens a shell in a window of its own.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+            HStack(spacing: 7) {
+                Image(nsImage: NSWorkspace.shared.icon(forFile: app.path))
+                    .resizable()
+                    .frame(width: 18, height: 18)
+                Text(SystemTerminal.name(of: app))
+                    .font(.system(size: 13, weight: .medium))
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 10)
+            .frame(height: 34)
+            .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
+            .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
+            .contentShape(Rectangle())
+            .appMenu(matchWidth: true) { terminalMenu }
+            .accessibilityLabel("Terminal: \(SystemTerminal.name(of: app))")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var terminalMenu: [MenuEntry] {
+        let system = SystemTerminal.systemDefault
+        var entries: [MenuEntry] = [
+            .item("System default",
+                  image: NSWorkspace.shared.icon(forFile: system.path),
+                  checked: settings.terminalBundleID == nil,
+                  subtitle: "Currently \(SystemTerminal.name(of: system)).") {
+                settings.terminalBundleID = nil
+            },
+            .separator
+        ]
+        entries.append(contentsOf: SystemTerminal.installed.compactMap { url in
+            guard let id = SystemTerminal.bundleID(of: url) else { return nil }
+            return .item(SystemTerminal.name(of: url),
+                         image: NSWorkspace.shared.icon(forFile: url.path),
+                         checked: settings.terminalBundleID == id) {
+                settings.terminalBundleID = id
+            }
+        })
+        entries.append(.separator)
+        entries.append(.item("Choose…", icon: "folder") { chooseTerminal() })
+        return entries
+    }
+
+    // The list only holds apps that say they run shell scripts, and not every terminal
+    // says so, so there is a way to name one the list never offered.
+    private func chooseTerminal() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.application]
+        panel.directoryURL = URL(fileURLWithPath: "/Applications")
+        panel.prompt = "Choose"
+        panel.message = "Pick the terminal to open a shell in."
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        guard let id = SystemTerminal.bundleID(of: url) else {
+            dialogs.show(Dialog(
+                title: "Could not use that app",
+                message: "\(SystemTerminal.name(of: url)) does not look like an application macOS can open.",
+                actions: [.init(label: "OK", kind: .cancel)]))
+            return
+        }
+        settings.terminalBundleID = id
     }
 
     private var startAtLogin: some View {
