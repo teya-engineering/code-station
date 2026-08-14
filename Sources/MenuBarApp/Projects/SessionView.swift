@@ -141,10 +141,6 @@ struct SessionView: View {
     @State private var terminalFocused = false
     @State private var composerFocused = false
     @State private var selectedProjectID: UUID?
-    // Which checkout the shortcut strip speaks for, kept apart from the one the Changes
-    // and Explorer tabs are showing: picking where a command runs should not move the
-    // diff out from under the reader.
-    @State private var shortcutProjectID: UUID?
     @State private var openShortcutRun: ShortcutRun?
     @State private var shortcutEditor: ShortcutEditorRequest?
     @State private var transcriptWindow = TranscriptWindow()
@@ -170,15 +166,7 @@ struct SessionView: View {
                                              in: session) ?? workingDirectory
             VStack(spacing: 0) {
                 header(session: session, project: project)
-                statusStrip(session)
-                // Ad-hoc tasks run in a private folder the app made for one prompt, so
-                // there is nothing there worth saving a command against.
-                if project.kind == .project {
-                    SessionShortcutStrip(session: session,
-                                         checkoutProjectID: $shortcutProjectID,
-                                         openRun: $openShortcutRun,
-                                         edit: { shortcutEditor = $0 })
-                }
+                statusStrip(session, project: project)
                 warningStrip(session: session, project: project)
                 if store.checkoutProjects(for: session).count > 1, tab != .chat {
                     workspaceProjectBar(session)
@@ -227,7 +215,6 @@ struct SessionView: View {
             }
             .task(id: sessionID) {
                 selectedProjectID = session.projectID
-                shortcutProjectID = session.projectID
                 openShortcutRun = nil
                 refreshStats(workingDirectories, reusingRecent: true)
                 runner.refreshContext(sessionID, store: store)
@@ -310,10 +297,14 @@ struct SessionView: View {
     // MARK: - Status strip
 
     // Everything that describes the session rather than names it, on one thin line and
-    // always in the same order: what it is doing, what it has changed, the branch it is
-    // changing it on, then the pull request and how full the window is. Reading it is a
-    // glance along a line instead of a hunt across a header and a footer.
-    private func statusStrip(_ session: ChatSession) -> some View {
+    // always in the same order: what it is doing, what it has changed, the commands it
+    // has to hand, then the branch, the pull request and how full the window is. Reading
+    // it is a glance along a line instead of a hunt across a header and a footer.
+    //
+    // The shortcuts belong on this line rather than on one of their own. They are the
+    // same kind of thing as the rest of it - what this session is and what it can do -
+    // and a band of their own would cost every session a second rule to read past.
+    private func statusStrip(_ session: ChatSession, project: Project) -> some View {
         // The lead checkout is the one this line speaks for, the same root the stats
         // refresh puts first. The cache only ever holds snapshots of a readable
         // repository, so having one is the same as the repository being ready.
@@ -327,25 +318,48 @@ struct SessionView: View {
         return HStack(spacing: 14) {
             state(session)
             diffStats(session)
-            if let branch, !branch.isEmpty {
-                branchTag(branch: branch, repository: repository)
+
+            // Ad-hoc tasks run in a private folder the app made for one prompt, so there
+            // is nothing there worth saving a command against.
+            if project.kind == .project {
+                stripRule
+                // The chips take the middle of the row rather than a spacer, so a long
+                // list of them scrolls in place instead of pushing the readings apart.
+                SessionShortcutChips(session: session,
+                                     openRun: $openShortcutRun,
+                                     edit: { shortcutEditor = $0 })
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                Spacer(minLength: 12)
             }
-            Spacer(minLength: 12)
-            // The trailing pair is laid out before the spacer gets a say. An HStack
-            // splits what is left evenly between the two, so without this the meter is
-            // offered half the free room, decides it does not fit, and drops its bar
-            // while the spacer sits on space the bar would have fitted in.
+
+            // The trailing group is laid out before anything flexible gets a say. An
+            // HStack splits what is left evenly between its children, so without this
+            // the meter is offered a share of the free room, decides it does not fit,
+            // and drops its bar while the chips sit on space the bar would have used.
             HStack(spacing: 12) {
+                if let branch, !branch.isEmpty {
+                    branchTag(branch: branch, repository: repository)
+                }
                 if let pullRequest = session.pullRequest { pullRequestTag(pullRequest) }
                 if let usage = session.usage,
                    let fraction = usage.contextFraction(for: session.agent) {
                     contextMeter(fraction: fraction, usage: usage, agent: session.agent)
                 }
             }
+            .fixedSize(horizontal: true, vertical: false)
             .layoutPriority(1)
         }
         .padding(.horizontal, 20)
         .headerBand(Theme.statusBand, height: Theme.statusBandHeight)
+    }
+
+    // Parts of the row that are about different things are told apart by a rule rather
+    // than by more space, which the row does not have to give.
+    private var stripRule: some View {
+        Rectangle()
+            .fill(Theme.border)
+            .frame(width: 1, height: 14)
     }
 
     // "RUNNING", "NEEDS YOU · 3m", "IDLE · 2h": the state and how long it has been in it.

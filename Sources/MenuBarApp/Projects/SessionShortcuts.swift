@@ -1,64 +1,54 @@
 import Foundation
 import SwiftUI
 
-// A project's saved commands, on a strip inside the session that is going to run them.
-// They live here rather than in a sheet because the folder they run in is the session's:
-// a workspace shortcut means this session's worktree, so the tests it runs are the tests
-// for the branch on screen and not the ones in the folder that branch came from.
+// A project's saved commands, sitting in the session's own status row rather than on a
+// strip of their own. They belong beside the other readings because they are the same
+// kind of thing: what this session is, on one line. Where they run comes with them - a
+// project shortcut means this session's worktree, so the tests it runs are the tests for
+// the branch named further along the same row.
 //
-// The strip speaks for one checkout at a time. A session with several of them gets a
-// switch on the right, since a command saved against one project has no business running
-// in another's worktree.
-struct SessionShortcutStrip: View {
+// Every checkout's commands are here at once. A session with several of them tints each
+// chip with its project, rather than making the reader switch, since a command saved
+// against one project always runs in that project's checkout anyway.
+struct SessionShortcutChips: View {
     @Environment(ShortcutStore.self) private var shortcuts
     @Environment(ProjectStore.self) private var store
 
     let session: ChatSession
-    @Binding var checkoutProjectID: UUID?
     @Binding var openRun: ShortcutRun?
     let edit: (ShortcutEditorRequest) -> Void
 
     var body: some View {
-        HStack(spacing: 10) {
-            HStack(spacing: 6) {
-                Image(systemName: "bolt.fill")
-                    .font(.system(size: 9))
-                    .foregroundStyle(.tertiary)
-                Text("SHORTCUTS")
-                    .font(.mono(10.5, .semibold))
-                    .kerning(0.6)
-                    .foregroundStyle(.secondary)
-            }
-            .fixedSize()
+        HStack(spacing: 8) {
+            Image(systemName: "bolt.fill")
+                .font(.system(size: 9))
+                .foregroundStyle(.tertiary)
+                .accessibilityLabel("Shortcuts")
 
             ScrollView(.horizontal) {
-                HStack(spacing: 8) {
-                    ForEach(owned) { shortcut in
-                        chip(shortcut)
+                HStack(spacing: 7) {
+                    ForEach(checkouts, id: \.checkout.projectID) { entry in
+                        ForEach(shortcuts.shortcuts(for: entry.checkout.projectID)) { shortcut in
+                            chip(shortcut, in: entry)
+                        }
                     }
                     newButton
                 }
-                .padding(.vertical, 4)
             }
             .scrollIndicators(.hidden)
-
-            Spacer(minLength: 8)
-            folderCaption
         }
-        .padding(.horizontal, 20)
-        .headerBand(Theme.statusBand, height: Theme.statusBandHeight + 12)
     }
 
     // MARK: - Chips
 
-    private func chip(_ shortcut: CommandShortcut) -> some View {
-        let run = run(for: shortcut)
+    private func chip(_ shortcut: CommandShortcut, in entry: Checkout) -> some View {
+        let run = run(for: shortcut, in: entry)
         return ShortcutChip(
             shortcut: shortcut,
             state: shortcuts.state(run),
+            tint: checkouts.count > 1 ? Theme.projectTint(for: entry.project?.name ?? "") : nil,
             open: openRun == run,
-            toggle: { toggle(run) },
-            show: { openRun = openRun == run ? nil : run }
+            toggle: { toggle(run) }
         )
         .appContextMenu {
             [
@@ -68,7 +58,7 @@ struct SessionShortcutStrip: View {
                 .item("Show output", action: { openRun = run }),
                 .item("Edit", action: {
                     edit(ShortcutEditorRequest(shortcut: shortcut,
-                                               projectName: checkoutProject?.name))
+                                               projectName: entry.project?.name))
                 }),
                 .separator,
                 .item("Remove", kind: .destructive, action: {
@@ -79,22 +69,18 @@ struct SessionShortcutStrip: View {
         }
     }
 
-    // Dashed rather than filled, so the one control that makes something new does not
-    // read as another saved command.
+    // Dashed and wordless, so the one control that makes something new neither reads as
+    // another saved command nor takes the room of one.
     private var newButton: some View {
-        HStack(spacing: 5) {
-            Image(systemName: "plus")
-                .font(.system(size: 9, weight: .bold))
-            Text("New")
-                .font(.system(size: 12, weight: .semibold))
-        }
-        .foregroundStyle(.secondary)
-        .padding(.horizontal, 11)
-        .padding(.vertical, 6)
-        .overlay(RoundedRectangle(cornerRadius: 8)
-            .strokeBorder(Theme.border, style: StrokeStyle(lineWidth: 1, dash: [3, 3])))
-        .appMenu { newMenu }
-        .accessibilityLabel("New shortcut")
+        Image(systemName: "plus")
+            .font(.system(size: 9, weight: .bold))
+            .foregroundStyle(.secondary)
+            .frame(width: 22, height: 22)
+            .overlay(RoundedRectangle(cornerRadius: 7)
+                .strokeBorder(Theme.border, style: StrokeStyle(lineWidth: 1, dash: [3, 3])))
+            .appMenu { newMenu }
+            .appTooltip("Save a command for this project")
+            .accessibilityLabel("New shortcut")
     }
 
     private var newMenu: [MenuEntry] {
@@ -115,79 +101,31 @@ struct SessionShortcutStrip: View {
         return entries
     }
 
-    // Anything made from here belongs to the checkout on the strip. Nothing is asked
-    // about where it runs, because being the project's is what decides that.
+    // Anything made from here belongs to the session's own project, the one whose name
+    // is in the header. Nothing is asked about where it runs, because being the
+    // project's is what decides that.
     private var blankRequest: ShortcutEditorRequest {
-        ShortcutEditorRequest(projectID: checkout?.projectID,
-                              projectName: checkoutProject?.name)
+        ShortcutEditorRequest(projectID: session.projectID,
+                              projectName: store.project(session.projectID)?.name)
     }
 
-    // MARK: - Which folder
+    // MARK: - The checkouts behind the chips
 
-    // Names the folder the chips run in. With one checkout it is a caption; with several
-    // it is the switch that decides both the folder and whose shortcuts are on the strip.
-    @ViewBuilder private var folderCaption: some View {
-        let checkouts = store.checkoutProjects(for: session)
-        if checkouts.count > 1 {
-            folderLabel(chevron: true)
-                .appMenu {
-                    checkouts.compactMap { checkout in
-                        guard let project = store.project(checkout.projectID) else { return nil }
-                        return .item(project.name,
-                                     checked: checkout.projectID == checkoutProjectID,
-                                     subtitle: checkout.worktreePath == nil
-                                         ? "Project folder" : "Worktree",
-                                     action: { checkoutProjectID = checkout.projectID })
-                    }
-                }
-                .accessibilityLabel("Choose which checkout the shortcuts run in")
-        } else {
-            folderLabel(chevron: false)
+    private struct Checkout {
+        let checkout: SessionProject
+        let project: Project?
+    }
+
+    private var checkouts: [Checkout] {
+        store.checkoutProjects(for: session).map {
+            Checkout(checkout: $0, project: store.project($0.projectID))
         }
     }
 
-    private func folderLabel(chevron: Bool) -> some View {
-        HStack(spacing: 5) {
-            Text(folderText)
-                .font(.mono(10.5))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-            if chevron {
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 7, weight: .bold))
-                    .foregroundStyle(.tertiary)
-            }
-        }
-        .fixedSize()
-        .contentShape(Rectangle())
-    }
-
-    private var folderText: String {
-        let checkouts = store.checkoutProjects(for: session)
-        let place = checkout?.worktreePath == nil ? "the project folder" : "this worktree"
-        guard checkouts.count > 1, let name = checkoutProject?.name else { return "in \(place)" }
-        return "\(name) · \(place)"
-    }
-
-    // MARK: - The checkout on the strip
-
-    private var checkout: SessionProject? {
-        let checkouts = store.checkoutProjects(for: session)
-        return checkouts.first { $0.projectID == checkoutProjectID } ?? checkouts.first
-    }
-
-    private var checkoutProject: Project? {
-        checkout.flatMap { store.project($0.projectID) }
-    }
-
-    private var owned: [CommandShortcut] {
-        checkout.map { shortcuts.shortcuts(for: $0.projectID) } ?? []
-    }
-
-    private func run(for shortcut: CommandShortcut) -> ShortcutRun {
+    private func run(for shortcut: CommandShortcut, in entry: Checkout) -> ShortcutRun {
         ShortcutRun(shortcut.id,
-                    in: shortcut.directory(projectPath: checkoutProject?.path,
-                                           workspacePath: checkout?.worktreePath))
+                    in: shortcut.directory(projectPath: entry.project?.path,
+                                           workspacePath: entry.checkout.worktreePath))
     }
 
     private func toggle(_ run: ShortcutRun) {
@@ -202,87 +140,94 @@ struct SessionShortcutStrip: View {
 
 // MARK: - One chip
 
-// A saved command as a control: the glyph runs it, everything else opens its output.
-// It carries only state - a tick and how long ago, the seconds it has been running, or
-// the code it came back with - because the name is what identifies it and anything more
-// makes a row of them unreadable.
+// A saved command as one small control: click runs it, click again stops it. It carries
+// its name and a single glyph for how the last run went - a tick, a pulse, an exclamation
+// - because a row of these shares a line with everything else the session has to say, and
+// anything more makes that line unreadable. The timing and the output are in the drawer,
+// which opens on its own the moment a run starts.
 private struct ShortcutChip: View {
     let shortcut: CommandShortcut
     let state: ShortcutStore.State
+    // Set only for a session spanning several checkouts, where whose command this is
+    // matters and the name alone does not say.
+    let tint: Theme.ProjectTint?
     let open: Bool
     let toggle: () -> Void
-    let show: () -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        HStack(spacing: 7) {
-            Button(action: toggle) {
-                Image(systemName: state.isActive ? "stop.fill" : "play.fill")
-                    .font(.system(size: 9))
-                    .foregroundStyle(state.isActive ? Theme.deletion : .secondary)
-                    .frame(width: 14, height: 14)
-                    .contentShape(Rectangle())
+        Button(action: toggle) {
+            HStack(spacing: 6) {
+                if let tint { ProjectDot(tint: tint, size: 6) }
+                Text(shortcut.name)
+                    .font(.system(size: 12, weight: .semibold))
+                    .lineLimit(1)
+                stateGlyph
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel(state.isActive ? "Stop \(shortcut.name)"
-                                               : "Run \(shortcut.name)")
-
-            Button(action: show) {
-                HStack(spacing: 7) {
-                    Text(shortcut.name)
-                        .font(.system(size: 12.5, weight: .semibold))
-                        .lineLimit(1)
-                    stateLabel
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
+            .padding(.horizontal, 9)
+            .frame(height: 22)
+            .background(RoundedRectangle(cornerRadius: 7).fill(Theme.card))
+            .overlay(RoundedRectangle(cornerRadius: 7).stroke(borderColour))
+            .contentShape(RoundedRectangle(cornerRadius: 7))
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(borderColour))
-        .fixedSize()
+        .buttonStyle(.plain)
+        .accessibilityLabel(state.isActive ? "Stop \(shortcut.name)" : "Run \(shortcut.name)")
+        .appTooltip { Tooltip(title: tooltip, subtitle: shortcut.command) }
     }
 
-    // The seconds have to keep moving while a command runs, and an age has to keep
-    // growing after it stops, so the reading is redrawn on a clock rather than only
-    // when the store next changes.
-    @ViewBuilder private var stateLabel: some View {
-        if let since = state.since {
-            TimelineView(.periodic(from: .now, by: 1)) { _ in
-                HStack(spacing: 5) {
-                    switch state {
-                    case .running:
-                        Circle().fill(Theme.dotOn).frame(width: 5, height: 5)
-                        age(since)
-                    case .finished:
-                        Image(systemName: "checkmark")
-                            .font(.system(size: 8, weight: .bold))
-                            .foregroundStyle(Theme.addition)
-                        age(since)
-                    case .failed(_, let status, _):
-                        Text(status.map { "exit \($0)" } ?? "failed")
-                            .font(.mono(10.5, .semibold))
-                            .foregroundStyle(Theme.deletion)
-                    case .stopped:
-                        EmptyView()
-                    }
-                }
-            }
+    @ViewBuilder private var stateGlyph: some View {
+        switch state {
+        case .stopped:
+            EmptyView()
+        case .running:
+            // A run has no other reading on the chip, so the dot has to be the thing
+            // that says it is still going rather than already done.
+            Circle()
+                .fill(Theme.dotOn)
+                .frame(width: 6, height: 6)
+                .modifier(Pulse(active: !reduceMotion))
+        case .finished:
+            Image(systemName: "checkmark")
+                .font(.system(size: 8, weight: .bold))
+                .foregroundStyle(Theme.addition)
+        case .failed:
+            Image(systemName: "exclamationmark")
+                .font(.system(size: 9, weight: .bold))
+                .foregroundStyle(Theme.deletion)
         }
     }
 
-    private func age(_ since: Date) -> some View {
-        Text(RelativeTime.duration(since: since))
-            .font(.mono(10.5))
-            .foregroundStyle(.secondary)
-            .monospacedDigit()
+    private var tooltip: String {
+        switch state {
+        case .stopped: "Run \(shortcut.name)"
+        case .running(let since): "Running for \(RelativeTime.duration(since: since)). Click to stop."
+        case .finished(let at): "Finished \(RelativeTime.duration(since: at)) ago"
+        case .failed(_, let status, let at):
+            status.map { "Exited with code \($0) \(RelativeTime.duration(since: at)) ago" }
+                ?? "Failed \(RelativeTime.duration(since: at)) ago"
+        }
     }
 
     private var borderColour: Color {
         if state.isFailure { return Theme.deletion.opacity(0.55) }
-        if open { return Theme.accent.opacity(0.55) }
+        if open || state.isActive { return Theme.accent.opacity(0.55) }
         return Theme.border
+    }
+}
+
+// The one moving thing on the row, and only while a command is actually running.
+private struct Pulse: ViewModifier {
+    let active: Bool
+    @State private var faded = false
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(active && faded ? 0.35 : 1)
+            .animation(active ? .easeInOut(duration: 0.7).repeatForever(autoreverses: true)
+                              : nil,
+                       value: faded)
+            .onAppear { if active { faded = true } }
     }
 }
 
