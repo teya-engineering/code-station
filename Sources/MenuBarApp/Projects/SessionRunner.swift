@@ -120,6 +120,7 @@ final class SessionRunner {
         guard let turn = turns[sessionID],
               asked[sessionID]?.contains(where: { $0.id == request.id }) == true else { return }
         asked[sessionID]?.removeAll { $0.id == request.id }
+        AppNotifier.shared.clear(sessionID: sessionID)
         SessionLog.note("answered \(request.toolName) \(request.id) with \(answer.logLabel)",
                         session: sessionID)
 
@@ -304,6 +305,64 @@ final class SessionRunner {
         store.append(ChatMessage(role: .system, text: text), to: sessionID)
     }
 
+    // MARK: - Rewinding the conversation
+
+    // Whether the conversation can go back to just before this prompt. Only prompts
+    // that recorded a checkpoint qualify, and only while nothing is running - a live
+    // turn still owns the conversation it would rewind.
+    func canRewind(to messageID: UUID, sessionID: UUID, store: ProjectStore) -> Bool {
+        guard !state(sessionID).isBusy, !removals.contains(sessionID),
+              store.session(sessionID) != nil else { return false }
+        return store.rewindableMessageIDs(in: sessionID).contains(messageID)
+    }
+
+    // Takes the conversation back to just before this prompt: everything from it onward
+    // leaves the transcript, the next turn resumes the conversation as it stood then,
+    // and the prompt itself returns to the composer for another go. Only the words are
+    // wound back - files the discarded turns edited keep their current state.
+    func rewind(to messageID: UUID, sessionID: UUID, store: ProjectStore) {
+        guard canRewind(to: messageID, sessionID: sessionID, store: store) else { return }
+        let transcript = store.transcript(of: sessionID)
+        guard let index = transcript.firstIndex(where: { $0.id == messageID }),
+              let checkpoint = transcript[index].checkpoint else { return }
+        let message = transcript[index]
+
+        // A half-written draft is not thrown away for the returning prompt: it moves to
+        // the front of the queue, the way recalling a queued prompt keeps one.
+        let current = draft(sessionID)
+        if !current.isEmpty {
+            queues[sessionID, default: []].insert(
+                QueuedPrompt(text: current.text.trimmingCharacters(in: .whitespacesAndNewlines),
+                             attachments: current.attachments,
+                             customInstructions: current.customInstructions),
+                at: 0)
+        }
+        // Instructions travel as a message of their own right after the prompt they
+        // belong to, so they come back to the composer with it.
+        let instructions = transcript.indices.contains(index + 1)
+            && transcript[index + 1].role == .instructions ? transcript[index + 1].text : nil
+        drafts[sessionID] = Draft(
+            text: message.text,
+            attachments: (message.attachments ?? []).map { Attachment(url: URL(fileURLWithPath: $0)) },
+            customInstructions: instructions)
+
+        store.truncateTranscript(from: messageID, in: sessionID)
+        store.restoreAgentSessionIDs(claudeSessionID: checkpoint.claudeSessionID,
+                                     codexSessionID: checkpoint.codexSessionID,
+                                     for: sessionID)
+        // How full the window was described the discarded turns; the next turn
+        // measures the conversation as it stands now.
+        store.clearContextUsage(for: sessionID)
+        nudgeDismissals.remove(sessionID)
+        // A failure that belonged to a discarded turn has nothing to explain any more.
+        setState(.idle, for: sessionID)
+        store.append(
+            ChatMessage(role: .system,
+                        text: "Conversation rewound. The turns from this point on were discarded, and the prompt is back in the composer. Files keep their current state."),
+            to: sessionID)
+        SessionLog.note("conversation rewound", session: sessionID)
+    }
+
     // MARK: - Compacting the context
 
     // Unlike clearing, this is the agent's own command and it costs a turn: Claude Code
@@ -408,7 +467,13 @@ final class SessionRunner {
         }
 
         queues[sessionID]?.removeFirst()
-        for message in next.transcriptMessages {
+        // Where the conversation stands right now, stamped on the prompt so it marks a
+        // point that can be come back to.
+        let checkpoint = ConversationCheckpoint(agent: session.agent,
+                                                claudeSessionID: session.claudeSessionID,
+                                                codexSessionID: session.codexSessionID)
+        for var message in next.transcriptMessages {
+            if message.role == .user { message.checkpoint = checkpoint }
             store.append(message, to: sessionID)
         }
         let avatarSequence = nextAvatarSequence(for: sessionID)
@@ -460,7 +525,10 @@ final class SessionRunner {
                 arguments += ["--strict-mcp-config", "--mcp-config", mcpConfigPath]
             }
             if !addDirectories.isEmpty { arguments += ["--add-dir"] + addDirectories }
-            if let resume, !resume.isEmpty { arguments += ["--resume", resume] }
+            // Forking on every resume gives each turn a fresh id and leaves the old one
+            // pointing at the conversation as it stood. Those frozen ids are what the
+            // checkpoints on user messages record, and what rewinding resumes from.
+            if let resume, !resume.isEmpty { arguments += ["--resume", resume, "--fork-session"] }
             return arguments
 
         case .codex:
@@ -1037,6 +1105,11 @@ final class SessionRunner {
             case .permissionRequest(let request):
                 setState(.streaming, for: sessionID)
                 asked[sessionID, default: []].append(request)
+                if let session = store.session(sessionID) {
+                    AppNotifier.shared.needsInput(sessionID: sessionID,
+                                                  sessionTitle: session.title,
+                                                  request: request)
+                }
 
             case .permissionWithdrawn(let id):
                 asked[sessionID]?.removeAll { $0.id == id }
@@ -1295,7 +1368,13 @@ final class SessionRunner {
             runQueue(sessionID, store: store)
             // A queued prompt starting straight away means the session has not stopped
             // working, and there is nothing to come back to yet.
-            if !state(sessionID).isBusy { store.noteTurnEnded(for: sessionID) }
+            if !state(sessionID).isBusy {
+                store.noteTurnEnded(for: sessionID)
+                if let session = store.session(sessionID) {
+                    AppNotifier.shared.turnEnded(sessionID: sessionID,
+                                                 sessionTitle: session.title, failure: nil)
+                }
+            }
             return
         }
         var parts: [String] = []
@@ -1327,6 +1406,10 @@ final class SessionRunner {
         setState(.failed(message), for: sessionID)
         store.release(sessionID, for: .running)
         store.noteTurnEnded(for: sessionID)
+        if let session = store.session(sessionID) {
+            AppNotifier.shared.turnEnded(sessionID: sessionID,
+                                         sessionTitle: session.title, failure: message)
+        }
     }
 
     private func cleanUp(_ turn: Turn) {

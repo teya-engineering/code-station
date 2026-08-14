@@ -16,6 +16,7 @@ struct SessionSettingsTests {
         #expect(!arguments.contains("--effort"))
         #expect(!arguments.contains("--add-dir"))
         #expect(!arguments.contains("--resume"))
+        #expect(!arguments.contains("--fork-session"))
         // The mode is always sent, since the app has one whether or not the session does.
         #expect(arguments.contains("--permission-mode"))
         #expect(arguments.contains("acceptEdits"))
@@ -32,6 +33,9 @@ struct SessionSettingsTests {
         #expect(pair(arguments, after: "--permission-mode") == "manual")
         #expect(pair(arguments, after: "--add-dir") == "/tmp/shots")
         #expect(pair(arguments, after: "--resume") == "abc-123")
+        // Resuming always forks: the old id stays frozen as the checkpoint a rewind
+        // resumes from.
+        #expect(arguments.contains("--fork-session"))
     }
 
     // The model belongs to the session, while other controls can still follow app
@@ -61,6 +65,7 @@ struct SessionSettingsTests {
         #expect(!arguments.contains("--model"))
         #expect(!arguments.contains("--effort"))
         #expect(!arguments.contains("--resume"))
+        #expect(!arguments.contains("--fork-session"))
     }
 
     // Nothing chosen anywhere still has to name a mode: the app is what shows the

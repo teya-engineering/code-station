@@ -51,6 +51,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // needs somewhere to show that the run it belonged to ended here.
         SessionLog.note("app launched")
         Attachments.pruneOldPastes()
+        AppNotifier.shared.activate()
+        AppNotifier.shared.openSession = { [weak self] sessionID in
+            self?.projects.selectSession(sessionID)
+            self?.showManager()
+        }
         showManager()
     }
 

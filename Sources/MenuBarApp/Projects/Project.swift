@@ -273,6 +273,18 @@ enum MessageBlock: Identifiable {
     }
 }
 
+// The resume ids as they stood before a prompt ran, written on that prompt's message.
+// Claude Code forks a new id on every resumed turn, so an id recorded here keeps
+// pointing at the conversation as it was then - which is what makes rewinding to the
+// message, or forking a new session from it, possible. Codex reuses one thread for the
+// whole conversation, so a Codex turn cannot be wound back; the agent that ran the
+// turn is recorded to tell the two apart.
+struct ConversationCheckpoint: Codable, Equatable, Sendable {
+    var agent: AgentKind
+    var claudeSessionID: String?
+    var codexSessionID: String?
+}
+
 struct ChatMessage: Identifiable, Codable, Equatable, Sendable {
     var id: UUID = UUID()
     var role: MessageRole
@@ -285,6 +297,10 @@ struct ChatMessage: Identifiable, Codable, Equatable, Sendable {
     // The model's reasoning, in the order it happened. Optional so conversations written
     // before the app kept thinking still decode.
     var thinking: [ThinkingSegment]?
+    // Where the conversation stood when this prompt ran. Only prompts that start a turn
+    // carry one; a prompt sent into a turn already running does not mark a point the
+    // conversation could go back to.
+    var checkpoint: ConversationCheckpoint?
 
     var isEmpty: Bool {
         text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty

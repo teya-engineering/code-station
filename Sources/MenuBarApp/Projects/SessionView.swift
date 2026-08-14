@@ -785,7 +785,8 @@ struct SessionView: View {
                             isTurnActive: state.isBusy
                                 && message.role == .assistant
                                 && message.id == session.messages.last?.id,
-                            openChanges: { openChanges() })
+                            openChanges: { openChanges() },
+                            promptMenu: promptMenu(for: message))
                     // Every message is on screen now, and a streaming turn rewrites
                     // the last one many times a second. Without this, each of those
                     // redraws every message in the transcript, parsing its markdown
@@ -849,6 +850,48 @@ struct SessionView: View {
 
     private func openChanges() {
         tab = .changes
+    }
+
+    // The right-click menu on one of the user's own prompts. Only prompts that recorded
+    // a checkpoint have one - they are the points the conversation can go back to. The
+    // entries are built when the menu opens, so a turn starting or ending in the
+    // meantime is reflected.
+    private func promptMenu(for message: ChatMessage) -> (() -> [MenuEntry])? {
+        guard message.role == .user, message.checkpoint != nil else { return nil }
+        let store = store
+        let runner = runner
+        let sessionID = sessionID
+        return {
+            var actions: [MenuEntry] = []
+            if runner.canRewind(to: message.id, sessionID: sessionID, store: store) {
+                actions.append(.item(
+                    "Rewind to here",
+                    icon: "arrow.uturn.backward",
+                    subtitle: "Discards this prompt and everything after it. The prompt returns to the composer.") {
+                    runner.rewind(to: message.id, sessionID: sessionID, store: store)
+                })
+            }
+            if store.canForkSession(sessionID, before: message.id) {
+                actions.append(.item(
+                    "Fork from here",
+                    icon: "arrow.triangle.branch",
+                    subtitle: "Starts a new session that carries the conversation up to this point.") {
+                    guard let fork = store.forkSession(sessionID, before: message.id) else { return }
+                    runner.editDraft(fork.id) { draft in
+                        draft.text = message.text
+                        draft.attachments = (message.attachments ?? []).map {
+                            Attachment(url: URL(fileURLWithPath: $0))
+                        }
+                    }
+                })
+            }
+            let copy = MenuEntry.item("Copy prompt", icon: "doc.on.doc") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(message.text, forType: .string)
+            }
+            guard !actions.isEmpty else { return [copy] }
+            return actions + [.separator, copy]
+        }
     }
 
     // Whatever the agent is waiting on sits under the transcript, where the next thing to

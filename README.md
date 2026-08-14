@@ -16,6 +16,8 @@ Teya Conductor is a macOS app for running Codex and Claude Code across local pro
 - Run a session in an isolated Git worktree when you want its own checkout and branch. Independent worktree sessions can run at the same time without editing the same files.
 - Choose Codex or Claude Code for each session, along with its model, reasoning effort, and access settings.
 - Resume saved conversations after relaunching the app and review old sessions before removing them.
+- Rewind a Claude Code conversation to an earlier prompt and send it again, or fork it into a new session from that point, from the prompt's right-click menu.
+- Get a system notification when a session finishes a turn or stops to ask something while the app is in the background. Clicking it opens that session.
 
 ### Built-in tools
 

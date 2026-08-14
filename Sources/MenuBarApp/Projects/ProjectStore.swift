@@ -937,6 +937,89 @@ final class ProjectStore {
         scheduleIndexSave()
     }
 
+    // Which prompts the conversation can be wound back to. A checkpoint freezes Claude
+    // Code's conversation but not Codex's one shared thread, so a Codex turn seals
+    // itself and everything before it.
+    func rewindableMessageIDs(in sessionID: UUID) -> Set<UUID> {
+        var ids: Set<UUID> = []
+        for message in transcript(of: sessionID).reversed() {
+            guard message.role == .user, let checkpoint = message.checkpoint else { continue }
+            guard checkpoint.agent != .codex else { break }
+            ids.insert(message.id)
+        }
+        return ids
+    }
+
+    // Cuts the conversation off from this message onward. What the removed turns spent
+    // stays spent; only the words go.
+    func truncateTranscript(from messageID: UUID, in sessionID: UUID) {
+        guard let i = index(sessionID) else { return }
+        loadTranscript(i)
+        guard let m = sessions[i].messages.firstIndex(where: { $0.id == messageID }) else { return }
+        ToolPresentationCache.forget(sessions[i].messages[m...].flatMap(\.tools).map(\.id))
+        sessions[i].messages.removeSubrange(m...)
+        sessions[i].summary.lastMessageAt = sessions[i].messages.last?.date
+        publishSidebarSessions()
+        transcriptChanged(i)
+    }
+
+    // Puts both resume ids back the way a checkpoint recorded them. Unlike
+    // setAgentSessionID this can also clear one, and it does not care which agent the
+    // session is on now: the checkpoint speaks for both.
+    func restoreAgentSessionIDs(claudeSessionID: String?, codexSessionID: String?,
+                                for sessionID: UUID) {
+        guard let i = index(sessionID) else { return }
+        sessions[i].claudeSessionID = claudeSessionID
+        sessions[i].codexSessionID = codexSessionID
+        scheduleIndexSave()
+    }
+
+    // MARK: - Forking a session
+
+    // Whether a new session could pick this conversation up from just before this
+    // prompt. Only Claude Code can share a conversation between sessions - resuming
+    // forks a fresh id, so the two never write over each other - while a Codex thread
+    // is one shared rollout. A worktree or workspace session is tied to a checkout of
+    // its own that a fork would not have, so those stay whole.
+    func canForkSession(_ sessionID: UUID, before messageID: UUID) -> Bool {
+        guard let source = session(sessionID),
+              source.worktreePath == nil, source.workspaceID == nil else { return false }
+        guard let message = transcript(of: sessionID).first(where: { $0.id == messageID }),
+              message.role == .user, let checkpoint = message.checkpoint else { return false }
+        return checkpoint.codexSessionID == nil
+    }
+
+    // A new session in the same project holding the conversation up to just before this
+    // prompt. The original keeps everything and carries on; the fork goes its own way
+    // from here.
+    @discardableResult
+    func forkSession(_ sessionID: UUID, before messageID: UUID) -> ChatSession? {
+        guard canForkSession(sessionID, before: messageID),
+              let source = session(sessionID) else { return nil }
+        let messages = transcript(of: sessionID)
+        guard let m = messages.firstIndex(where: { $0.id == messageID }),
+              let checkpoint = messages[m].checkpoint else { return nil }
+
+        var fork = ChatSession(projectID: source.projectID, agent: source.agent)
+        fork.title = source.title == "New session" ? source.title : "\(source.title) · fork"
+        fork.settings = source.settings
+        fork.agentAvatarName = source.agentAvatarName
+        fork.claudeSessionID = checkpoint.claudeSessionID
+        fork.messages = Array(messages[..<m])
+        fork.messages.append(ChatMessage(
+            role: .system, text: "Forked from \"\(source.title)\" at this point."))
+        fork.transcriptLoaded = true
+        fork.summary.lastMessageAt = fork.messages.last?.date
+        sessions.append(fork)
+        dirtyTranscripts.insert(fork.id)
+        transcriptRevisions[fork.id, default: 0] &+= 1
+        publishSidebarSessions()
+        selectedProjectID = fork.projectID
+        selection = .session(fork.id)
+        saveIndex()
+        return fork
+    }
+
     // A turn that fails before Claude Code produces anything leaves an empty assistant
     // message behind; without this it would sit in the transcript forever.
     func removeMessage(_ messageID: UUID, from sessionID: UUID) {

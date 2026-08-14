@@ -43,6 +43,13 @@ struct RootView: View {
         .onChange(of: attention) { oldValue, newValue in
             if oldValue != newValue { dismissedAttention = nil }
         }
+        // Opening a session answers whatever was posted about it while the app was in
+        // the background.
+        .onChange(of: store.selection) { _, selection in
+            if case .session(let sessionID) = selection {
+                AppNotifier.shared.clear(sessionID: sessionID)
+            }
+        }
         .task { await resumePendingSessionRemovals() }
         .task(id: settings.skillsRefreshInterval) { await refreshSkillsAutomatically() }
         .task(id: sweepRule) { await deleteOldSessionsAutomatically() }
