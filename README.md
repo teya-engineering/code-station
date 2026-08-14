@@ -18,6 +18,10 @@ Teya Conductor is a macOS app for running Codex and Claude Code across local pro
 - Resume saved conversations after relaunching the app and review old sessions before removing them.
 - Rewind a Claude Code conversation to an earlier prompt and send it again, or fork it into a new session from that point, from the prompt's right-click menu.
 - Get a system notification when a session finishes a turn or stops to ask something while the app is in the background. Clicking it opens that session.
+- Review what a session changed and commit it without leaving the app: pick exactly the files that go into a commit, amend the last commit while it is still unpushed, and read recent commits with their full diffs.
+- Read code as code: chat code blocks, file previews, and diffs are syntax highlighted, with no extra dependencies.
+- See images where they belong: files sent with a prompt and local images the agent references render inline in the conversation, and click open at full size.
+- Know what a conversation costs: each session shows its spend alongside the context meter.
 
 ### Built-in tools
 
