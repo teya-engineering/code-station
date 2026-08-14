@@ -462,12 +462,19 @@ struct TaskDetailView: View {
         terminalFocused = opening
     }
 
+    // A task's folder belongs to the app, so a missing one is unlikely to come back: the
+    // banner names the way out rather than leaving a dead task in the list, and the
+    // sentence offers the button rather than the button arriving unannounced.
     private func missingFolder(_ task: Project) -> some View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: "exclamationmark.triangle.fill")
-            Text("Folder not found at \(task.collapsedPath). The task cannot run until it is back.")
+            Text("Folder not found at \(task.collapsedPath). The task cannot run without it. Delete the task to clear it out.")
                 .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
+            Spacer(minLength: 8)
+            ActionButton(title: "Delete task", tone: .outlined, height: 28, size: 11.5) {
+                ProjectRemoval.confirm(task, in: store, runner: runner, dialogs: dialogs)
+            }
+            .fixedSize()
         }
         .font(.system(size: 12, weight: .medium))
         .foregroundStyle(ChatColor.warningText)

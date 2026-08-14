@@ -859,21 +859,7 @@ struct AppSidebar: View {
     }
 
     private func confirmRemoveProject(_ project: Project) {
-        let affected = sessions(using: project.id)
-        let count = affected.count
-        // A task's folder belongs to the app, so it goes with the task. A project's
-        // folder was chosen by the user and always stays.
-        let isTask = project.kind == .adHoc
-        dialogs.show(Dialog(
-            title: isTask ? "Delete \(project.name)?" : "Remove \(project.name)?",
-            message: isTask
-                ? "This drops its \(count) run\(count == 1 ? "" : "s") and deletes the task's folder, including any files the runs left in it."
-                : "This drops \(count) session\(count == 1 ? "" : "s") that use it and removes their worktrees. It is also removed from every workspace. The folder itself stays on disk.",
-            actions: [
-                .init(label: isTask ? "Delete task" : "Remove project",
-                      kind: .destructive) { removeProject(project) },
-                .init(label: "Cancel", kind: .cancel)
-            ]))
+        ProjectRemoval.confirm(project, in: store, runner: runner, dialogs: dialogs)
     }
 
     private func confirmRemoveWorkspace(_ workspace: ProjectWorkspace) {
@@ -907,11 +893,6 @@ struct AppSidebar: View {
         }
     }
 
-    private func removeProject(_ project: Project) {
-        let affected = sessions(using: project.id)
-        removeSessions(affected) { store.removeProject(project.id) }
-    }
-
     private func removeSessions(_ sessions: [ChatSession], onSuccess: (() -> Void)? = nil) {
         Task {
             var failures: [SessionLifecycle.Failure] = []
@@ -940,12 +921,6 @@ struct AppSidebar: View {
 
     private func sessions(in workspaceID: UUID) -> [ChatSession] {
         store.sidebarSessions.filter { $0.workspaceID == workspaceID }
-    }
-
-    private func sessions(using projectID: UUID) -> [ChatSession] {
-        store.sidebarSessions.filter { session in
-            store.checkoutProjects(for: session).contains { $0.projectID == projectID }
-        }
     }
 
     // The line under a session's title. A running session shows the call in flight

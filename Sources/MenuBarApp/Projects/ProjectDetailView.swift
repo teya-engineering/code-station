@@ -405,12 +405,18 @@ struct ProjectDetailView: View {
         terminalFocused = opening
     }
 
+    // The banner asks for a removal, so it carries the button for it: the same action
+    // sits in the sidebar's context menu, which is not where someone reading this looks.
     private func missingFolder(_ project: Project) -> some View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: "exclamationmark.triangle.fill")
             Text("Folder not found at \(project.collapsedPath). Move it back or remove the project before starting a session.")
                 .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
+            Spacer(minLength: 8)
+            ActionButton(title: "Remove project", tone: .outlined, height: 28, size: 11.5) {
+                ProjectRemoval.confirm(project, in: store, runner: runner, dialogs: dialogs)
+            }
+            .fixedSize()
         }
         .font(.system(size: 12, weight: .medium))
         .foregroundStyle(ChatColor.warningText)
