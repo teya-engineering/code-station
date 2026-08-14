@@ -97,6 +97,17 @@ struct FileDiff: Sendable, Equatable {
     var note: String?
 }
 
+// One commit in the recent history list.
+struct GitCommitSummary: Identifiable, Sendable, Equatable {
+    var hash: String
+    var shortHash: String
+    var author: String
+    var relativeDate: String
+    var subject: String
+
+    var id: String { hash }
+}
+
 // Read-only git inspection for a project folder.
 //
 // Claude Code edits the user's real working tree, so this is the main safety net for
@@ -274,6 +285,66 @@ enum GitInspector {
 
     static func isDirty(at path: String) async -> Bool {
         await uncommittedFileCount(at: path) > 0
+    }
+
+    // MARK: - History
+
+    // Listing subjects is cheap even on a big repository; the expensive part of history
+    // is a commit's diff, which only loads once one is opened.
+    static let historyLimit = 100
+
+    static func recentCommits(at path: String, limit: Int = historyLimit)
+        async -> (commits: [GitCommitSummary], note: String?) {
+        guard let tool = await tool() else { return ([], "Could not find git on PATH.") }
+        let url = URL(fileURLWithPath: path)
+        return await offMain {
+            // Tabs separate the fields because git strips them from the subject line,
+            // so the record splits cleanly whatever the subject says.
+            let output = run(tool, ["log", "--no-color", "-n", "\(limit)",
+                                    "--format=%H%x09%h%x09%an%x09%cr%x09%s"], in: url)
+            guard output.ok else {
+                // A repository with no commits yet has an empty history, not a broken one.
+                if output.errorText.lowercased().contains("does not have any commits") {
+                    return ([], nil)
+                }
+                return ([], output.failureMessage)
+            }
+            let commits: [GitCommitSummary] = output.text.split(separator: "\n").compactMap { line in
+                let fields = line.split(separator: "\t", maxSplits: 4,
+                                        omittingEmptySubsequences: false)
+                guard fields.count == 5 else { return nil }
+                return GitCommitSummary(hash: String(fields[0]), shortHash: String(fields[1]),
+                                        author: String(fields[2]), relativeDate: String(fields[3]),
+                                        subject: String(fields[4]))
+            }
+            return (commits, nil)
+        }
+    }
+
+    static func commitDiff(_ hash: String, root: String, limit: Int = diffLineLimit) async -> FileDiff {
+        guard let tool = await tool() else {
+            return FileDiff(note: "Could not find git on PATH.")
+        }
+        // The fast lane, for the same reason as a file diff: someone just opened the
+        // commit and is looking at an empty pane until it arrives.
+        return await offMain(lane: .interactive) {
+            let rootURL = URL(fileURLWithPath: root)
+            guard FileManager.default.fileExists(atPath: root) else {
+                return FileDiff(note: "The project folder is no longer there.")
+            }
+            // An empty --format drops the message block, leaving only the file diffs.
+            let output = run(tool, ["--no-pager", "show", "--no-color", "--no-ext-diff",
+                                    "--no-textconv", "-M", "--format=", hash], in: rootURL)
+            guard output.ok else { return FileDiff(note: output.failureMessage) }
+            let parsed = parse(output.text, startingAt: 0, limit: limit, fileHeadings: true)
+            var diff = FileDiff(lines: parsed.lines,
+                                truncated: parsed.truncated || output.truncated,
+                                totalLines: parsed.total)
+            if diff.lines.isEmpty {
+                diff.note = "No file changes in this commit."
+            }
+            return diff
+        }
     }
 
     // MARK: - Per-file diff
@@ -454,8 +525,11 @@ enum GitInspector {
     // Header lines before the first hunk are noise we already show elsewhere, so they are
     // dropped. Once inside a hunk every line is classified by its first character only:
     // a removed line whose own text starts with "--" would otherwise look like a header.
+    // With `fileHeadings` on, each "diff --git" header becomes a section line naming the
+    // file, which is how a whole commit's diff keeps its files apart, and a binary file
+    // becomes a note instead of ending the parse, so it cannot swallow the files after it.
     private static func parse(
-        _ text: String, startingAt offset: Int, limit: Int
+        _ text: String, startingAt offset: Int, limit: Int, fileHeadings: Bool = false
     ) -> (lines: [DiffLine], truncated: Bool, total: Int, binary: Bool) {
         var lines: [DiffLine] = []
         var total = 0
@@ -464,10 +538,30 @@ enum GitInspector {
 
         for raw in text.split(separator: "\n", omittingEmptySubsequences: false) {
             let line = String(raw)
+            if line.hasPrefix("diff --git") {
+                // Start of another file in the same output: back to header lines.
+                inHunk = false
+                if fileHeadings {
+                    total += 1
+                    if lines.count < limit {
+                        lines.append(DiffLine(id: offset + lines.count, kind: .section,
+                                              text: fileName(fromDiffHeader: line)))
+                    }
+                }
+                continue
+            }
             if !inHunk {
                 if line.hasPrefix("@@") {
                     inHunk = true
                 } else if line.hasPrefix("Binary files") || line.hasPrefix("GIT binary patch") {
+                    if fileHeadings {
+                        total += 1
+                        if lines.count < limit {
+                            lines.append(DiffLine(id: offset + lines.count, kind: .meta,
+                                                  text: "Binary file. Line by line changes are not shown."))
+                        }
+                        continue
+                    }
                     binary = true
                     break
                 } else if line.hasPrefix("rename from") || line.hasPrefix("rename to")
@@ -480,10 +574,6 @@ enum GitInspector {
                 } else {
                     continue
                 }
-            } else if line.hasPrefix("diff --git") {
-                // Start of another file in the same output: back to header lines.
-                inHunk = false
-                continue
             }
 
             let kind: DiffLine.Kind
@@ -506,6 +596,20 @@ enum GitInspector {
             total -= 1
         }
         return (lines, total > lines.count, total, binary)
+    }
+
+    // "diff --git a/old b/new" names the file; the b side is where it lives now. Paths
+    // with unusual characters arrive quoted, so the quote is part of the marker then.
+    private static func fileName(fromDiffHeader line: String) -> String {
+        if let range = line.range(of: " \"b/") {
+            var name = String(line[range.upperBound...])
+            if name.hasSuffix("\"") { name.removeLast() }
+            return name
+        }
+        if let range = line.range(of: " b/") {
+            return String(line[range.upperBound...])
+        }
+        return line
     }
 
     private static func clean(_ line: String) -> String {

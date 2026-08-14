@@ -120,9 +120,18 @@ enum DiffText {
         // Colouring is for a diff a person reads; a huge one is scrolled, not read, and
         // plain text is much cheaper to build.
         let size = lines.reduce(0) { $0 + $1.text.utf8.count }
-        let language = size <= CodeHighlight.sizeLimit ? language : nil
+        let withinLimit = size <= CodeHighlight.sizeLimit
+        // A single-file diff names its language up front. A commit diff spans many
+        // files instead, and each section heading names the file the following lines
+        // belong to, so the language follows the headings.
+        var activeLanguage = withinLimit ? language : nil
         let result = NSMutableAttributedString()
         for (index, line) in lines.enumerated() {
+            if line.kind == .section {
+                activeLanguage = withinLimit
+                    ? CodeLanguage(fileExtension: (line.text as NSString).pathExtension)
+                    : nil
+            }
             var attributes: [NSAttributedString.Key: Any] = [
                 .font: font,
                 .foregroundColor: color(line.kind)
@@ -139,8 +148,8 @@ enum DiffText {
                 attributes[.paragraphStyle] = style
             }
             let isCode = line.kind == .addition || line.kind == .deletion || line.kind == .context
-            if let language, isCode {
-                result.append(codeLine(line, language: language, attributes: attributes))
+            if let activeLanguage, isCode {
+                result.append(codeLine(line, language: activeLanguage, attributes: attributes))
             } else {
                 result.append(NSAttributedString(string: line.text, attributes: attributes))
             }

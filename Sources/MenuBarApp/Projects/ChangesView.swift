@@ -8,29 +8,49 @@ import SwiftUI
 struct ChangesView: View {
     let root: String
 
+    private enum Mode: Hashable { case changes, history }
+
     @Environment(DialogPresenter.self) private var dialogs
     @Environment(GitStatsCache.self) private var gitStats
 
     @State private var snapshot: GitSnapshot?
     @State private var loading = false
     @State private var working: String?
+    @State private var mode: Mode = .changes
     @State private var committing = false
     @State private var commitMessage = ""
     @FocusState private var commitFocused: Bool
+    // Files the next commit leaves out. Tracking the exclusions rather than the picks
+    // means a file that appears between refreshes starts selected, like everything else.
+    @State private var excluded: Set<GitChange.ID> = []
+    @State private var amend = false
+    @State private var messageBeforeAmend = ""
     @State private var selectedID: GitChange.ID?
+    @State private var commits: [GitCommitSummary]?
+    @State private var historyNote: String?
+    @State private var loadingHistory = false
+    @State private var selectedCommit: GitCommitSummary?
     @State private var diff: FileDiff?
     @State private var diffText: NSAttributedString?
     @State private var loadingDiff = false
 
     private var files: [GitChange] { snapshot?.files ?? [] }
     private var selected: GitChange? { files.first { $0.id == selectedID } }
+    private var selectedFiles: [GitChange] { files.filter { !excluded.contains($0.id) } }
     private var repoRoot: String { snapshot?.root ?? root }
     private var busy: Bool { loading || working != nil }
+
+    // Amending rewrites the last commit, which is only safe while nothing else has it:
+    // an unpublished branch, or one that is ahead of its upstream.
+    private var canAmend: Bool {
+        guard let snapshot, snapshot.hasCommits else { return false }
+        return snapshot.upstream == nil || snapshot.ahead > 0
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             header
-            if committing { commitBar }
+            if committing && mode == .changes { commitBar }
             content
         }
         .background(Theme.background)
@@ -39,6 +59,17 @@ struct ChangesView: View {
         .task(id: root) {
             if snapshot == nil { snapshot = gitStats.snapshot(at: root) }
             await reload()
+        }
+        .onChange(of: mode) { _, _ in switchedMode() }
+        // Amending reuses the last message as the starting point; the typed one comes
+        // back if the box is unticked.
+        .onChange(of: amend) { _, on in
+            if on {
+                messageBeforeAmend = commitMessage
+                if let subject = snapshot?.lastCommitSubject { commitMessage = subject }
+            } else {
+                commitMessage = messageBeforeAmend
+            }
         }
     }
 
@@ -49,20 +80,25 @@ struct ChangesView: View {
             if let snapshot, snapshot.state == .ready {
                 branchControl(snapshot)
 
+                HeaderTabToggle(selection: $mode,
+                                options: [("Changes", .changes), ("History", .history)])
+
                 if !snapshot.hasCommits {
                     Text("no commits yet").font(.system(size: 12)).foregroundStyle(.secondary)
                 }
 
-                Text(files.isEmpty ? "no changes" : "\(files.count) file\(files.count == 1 ? "" : "s")")
-                    .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
+                if mode == .changes {
+                    Text(files.isEmpty ? "no changes" : "\(files.count) file\(files.count == 1 ? "" : "s")")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
 
-                if !files.isEmpty {
-                    HStack(spacing: 8) {
-                        Text("+\(snapshot.totalAdded)").foregroundStyle(Theme.addition)
-                        Text("-\(snapshot.totalRemoved)").foregroundStyle(Theme.deletion)
+                    if !files.isEmpty {
+                        HStack(spacing: 8) {
+                            Text("+\(snapshot.totalAdded)").foregroundStyle(Theme.addition)
+                            Text("-\(snapshot.totalRemoved)").foregroundStyle(Theme.deletion)
+                        }
+                        .font(.mono(13, .medium))
                     }
-                    .font(.mono(13, .medium))
                 }
 
                 Spacer()
@@ -72,11 +108,11 @@ struct ChangesView: View {
                         ProgressView().controlSize(.small)
                         Text(working).font(.system(size: 12)).foregroundStyle(.secondary)
                     }
-                } else if loading {
+                } else if loading || loadingHistory {
                     ProgressView().controlSize(.small)
                 }
 
-                if !files.isEmpty {
+                if !files.isEmpty && mode == .changes {
                     headerAction("Commit", icon: "checkmark.circle") {
                         committing.toggle()
                     }
@@ -163,34 +199,67 @@ struct ChangesView: View {
     // MARK: - Commit
 
     private var commitBar: some View {
-        HStack(spacing: 10) {
-            TextField("Commit message", text: $commitMessage)
-                .textFieldStyle(.plain)
-                .font(.system(size: 13))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 7)
-                .background(RoundedRectangle(cornerRadius: 8).fill(Theme.field))
-                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
-                .focused($commitFocused)
-                .onSubmit { commit() }
+        let blocked = busy || commitMessage.trimmingCharacters(in: .whitespaces).isEmpty
+            || selectedFiles.isEmpty
+        return VStack(spacing: 8) {
+            HStack(spacing: 10) {
+                TextField("Commit message", text: $commitMessage)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 13))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Theme.field))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
+                    .focused($commitFocused)
+                    .onSubmit { commit() }
 
-            Button { commit() } label: {
-                Text("Commit")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.88)))
-                    .contentShape(RoundedRectangle(cornerRadius: 8))
-            }
-            .buttonStyle(.plain)
-            .disabled(busy || commitMessage.trimmingCharacters(in: .whitespaces).isEmpty)
-            .opacity(busy || commitMessage.trimmingCharacters(in: .whitespaces).isEmpty ? 0.4 : 1)
+                Button { commit() } label: {
+                    Text(amend ? "Amend" : "Commit")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.88)))
+                        .contentShape(RoundedRectangle(cornerRadius: 8))
+                }
+                .buttonStyle(.plain)
+                .disabled(blocked)
+                .opacity(blocked ? 0.4 : 1)
 
-            Button("Cancel") { committing = false }
+                Button("Cancel") {
+                    committing = false
+                    if amend { amend = false }
+                }
                 .buttonStyle(.plain)
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.secondary)
+            }
+
+            HStack(spacing: 16) {
+                Toggle(isOn: Binding(
+                    get: { excluded.isEmpty },
+                    set: { on in excluded = on ? [] : Set(files.map(\.id)) }
+                )) {
+                    Text(excluded.isEmpty
+                         ? "All \(files.count) file\(files.count == 1 ? "" : "s") selected"
+                         : "\(selectedFiles.count) of \(files.count) files selected")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
+                .toggleStyle(.appCheckbox)
+
+                if canAmend {
+                    Toggle(isOn: $amend) {
+                        Text("Amend last commit")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                    }
+                    .toggleStyle(.appCheckbox)
+                    .appTooltip("Fold these changes into the last commit instead of making a new one")
+                }
+
+                Spacer()
+            }
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 8)
@@ -201,17 +270,26 @@ struct ChangesView: View {
 
     private func commit() {
         let message = commitMessage.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !message.isEmpty, !busy else { return }
+        let chosen = selectedFiles
+        guard !message.isEmpty, !busy, !chosen.isEmpty else { return }
+        let everything = excluded.isEmpty
+        let fold = amend
         Task {
-            working = "Committing…"
-            let error = await GitActions.commitAll(message: message, at: repoRoot)
+            working = fold ? "Amending…" : "Committing…"
+            let error = everything
+                ? await GitActions.commitAll(message: message, amend: fold, at: repoRoot)
+                : await GitActions.commitSelected(message: message, files: chosen,
+                                                  amend: fold, at: repoRoot)
             working = nil
             if let error {
-                fail("Could not commit", error)
+                fail(fold ? "Could not amend" : "Could not commit", error)
             } else {
                 // The message only clears once it is safely in a commit, so a failed
                 // attempt can be fixed and retried without retyping it.
+                messageBeforeAmend = ""
+                amend = false
                 commitMessage = ""
+                excluded = []
                 committing = false
             }
             await reload()
@@ -223,7 +301,9 @@ struct ChangesView: View {
     @ViewBuilder private var content: some View {
         switch snapshot?.state {
         case .ready:
-            if files.isEmpty {
+            if mode == .history {
+                historyContent
+            } else if files.isEmpty {
                 message(icon: "checkmark.seal", title: "No uncommitted changes",
                         detail: "The working tree matches the last commit.")
             } else {
@@ -270,6 +350,19 @@ struct ChangesView: View {
             select(file)
         } label: {
             HStack(spacing: 10) {
+                // The pick only matters to a commit, so the box appears with the
+                // commit bar and the list stays plain the rest of the time.
+                if committing {
+                    Toggle(isOn: Binding(
+                        get: { !excluded.contains(file.id) },
+                        set: { on in
+                            if on { excluded.remove(file.id) } else { excluded.insert(file.id) }
+                        }
+                    )) { EmptyView() }
+                    .toggleStyle(.appCheckbox)
+                    .appTooltip("Include in the commit")
+                }
+
                 StatusChip(kind: file.kind)
 
                 VStack(alignment: .leading, spacing: 1) {
@@ -352,26 +445,137 @@ struct ChangesView: View {
                 .padding(.vertical, 10)
             }
 
-            if let note = diff?.note {
-                Text(note)
-                    .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let diffText {
-                DiffTextView(text: diffText)
-            } else {
-                Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
+            diffBody(truncationHint: "Open the file to see the rest.")
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(Theme.card)
+    }
 
-            if let diff, diff.truncated {
-                Text("Showing the first \(diff.lines.count) lines of \(diff.totalLines). Open the file to see the rest.")
+    // The rendered diff below a pane header, shared by the file pane and the commit
+    // pane so both truncate and report notes the same way.
+    @ViewBuilder private func diffBody(truncationHint: String) -> some View {
+        if let note = diff?.note {
+            Text(note)
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if let diffText {
+            DiffTextView(text: diffText)
+        } else {
+            Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+
+        if let diff, diff.truncated {
+            Text("Showing the first \(diff.lines.count) lines of \(diff.totalLines). \(truncationHint)")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Theme.field)
+        }
+    }
+
+    // MARK: - History
+
+    @ViewBuilder private var historyContent: some View {
+        if let historyNote {
+            message(icon: "exclamationmark.triangle", title: "Could not read the history",
+                    detail: historyNote, mono: true)
+        } else if let commits {
+            if commits.isEmpty {
+                message(icon: "clock", title: "No commits yet",
+                        detail: "This branch has no history to show.")
+            } else {
+                historyList(commits)
+                if selectedCommit != nil {
+                    Divider().overlay(Theme.hairline)
+                    commitDiffPane
+                }
+            }
+        } else {
+            Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private func historyList(_ commits: [GitCommitSummary]) -> some View {
+        ScrollView {
+            LazyVStack(spacing: 2) {
+                ForEach(commits) { commit in
+                    commitRow(commit)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+        }
+        // Give the diff the room once a commit is open, otherwise fill the pane.
+        .frame(maxHeight: selectedCommit == nil ? .infinity : 260)
+    }
+
+    private func commitRow(_ commit: GitCommitSummary) -> some View {
+        let isSelected = commit.id == selectedCommit?.id
+        return Button {
+            select(commit)
+        } label: {
+            HStack(spacing: 10) {
+                Text(commit.shortHash)
+                    .font(.mono(11, .medium))
+                    .foregroundStyle(.secondary)
+                Text(commit.subject)
+                    .font(.system(size: 12))
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Text(commit.author)
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 8)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Theme.field)
+                    .lineLimit(1)
+                Text(commit.relativeDate)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(RoundedRectangle(cornerRadius: 8).fill(isSelected ? Theme.card : .clear))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(isSelected ? Theme.border : .clear))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .appContextMenu {
+            [.item("Copy Hash") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(commit.hash, forType: .string)
+            }]
+        }
+    }
+
+    @ViewBuilder private var commitDiffPane: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if let commit = selectedCommit {
+                HStack(spacing: 10) {
+                    Text(commit.subject).font(.serif(15, .semibold)).lineLimit(1)
+                    Text(commit.shortHash)
+                        .font(.mono(11, .medium))
+                        .foregroundStyle(.secondary)
+                    Text("\(commit.author), \(commit.relativeDate)")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    Spacer()
+                    if loadingDiff { ProgressView().controlSize(.small) }
+                    Button {
+                        closeDiff()
+                    } label: {
+                        Image(systemName: "xmark").font(.system(size: 11, weight: .semibold))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 10)
+            }
+
+            diffBody(truncationHint: "Run git show in a terminal to see the rest.")
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Theme.card)
@@ -595,6 +799,15 @@ struct ChangesView: View {
         // updates its numbers too rather than waiting for the next run to end.
         gitStats.store(fresh, at: root)
         loading = false
+        excluded.formIntersection(Set(fresh.files.map(\.id)))
+        // A push can land between refreshes, and amending a pushed commit is exactly
+        // what the checkbox exists to prevent.
+        if amend && !canAmend { amend = false }
+
+        if mode == .history {
+            await loadHistory()
+            return
+        }
 
         // Keep the open file open across a refresh, but only if it still has changes.
         if let selectedID, let file = fresh.files.first(where: { $0.id == selectedID }) {
@@ -604,20 +817,67 @@ struct ChangesView: View {
         }
     }
 
+    private func switchedMode() {
+        closeDiff()
+        if mode == .history {
+            Task { await loadHistory() }
+        }
+    }
+
+    // Every visit reads the log again: a commit, pull or amend made in the other mode
+    // rewrites exactly what this list shows.
+    private func loadHistory() async {
+        loadingHistory = true
+        let history = await GitInspector.recentCommits(at: repoRoot)
+        guard !Task.isCancelled else { return }
+        commits = history.commits
+        historyNote = history.note
+        loadingHistory = false
+
+        // Keep the open commit open across a refresh, but only while it is still in
+        // the list; an amend or rebase can have rewritten it away.
+        if let current = selectedCommit {
+            if history.commits.contains(where: { $0.id == current.id }) {
+                await loadCommitDiff(current)
+            } else {
+                closeDiff()
+            }
+        }
+    }
+
     private func select(_ file: GitChange) {
         guard selectedID != file.id else {
             closeDiff()
             return
         }
+        closeDiff()
         selectedID = file.id
-        diff = nil
-        diffText = nil
         let root = snapshot?.root ?? root
         Task { await loadDiff(file, root: root) }
     }
 
+    private func select(_ commit: GitCommitSummary) {
+        guard selectedCommit?.id != commit.id else {
+            closeDiff()
+            return
+        }
+        closeDiff()
+        selectedCommit = commit
+        Task { await loadCommitDiff(commit) }
+    }
+
+    private func loadCommitDiff(_ commit: GitCommitSummary) async {
+        loadingDiff = true
+        let loaded = await GitInspector.commitDiff(commit.hash, root: repoRoot)
+        guard !Task.isCancelled, selectedCommit?.id == commit.id else { return }
+        diff = loaded
+        diffText = loaded.lines.isEmpty ? nil : DiffText.attributed(loaded.lines)
+        loadingDiff = false
+    }
+
     private func closeDiff() {
         selectedID = nil
+        selectedCommit = nil
         diff = nil
         diffText = nil
     }

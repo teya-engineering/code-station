@@ -401,18 +401,207 @@ struct GitActionsTests {
         #expect(snapshot.behind == 0)
     }
 
+    // MARK: - Selective commits
+
+    @Test func commitsOnlyTheSelectedFiles() async throws {
+        let repo = try Repo()
+        try repo.write("README.md", "chosen")
+        try repo.write("later.txt", "not yet")
+
+        let snapshot = await GitInspector.snapshot(at: repo.path)
+        let chosen = snapshot.files.filter { $0.path == "README.md" }
+        let error = await GitActions.commitSelected(message: "Just the pick", files: chosen,
+                                                    at: repo.path)
+        #expect(error == nil)
+
+        #expect(repo.committedFiles == ["README.md"])
+        let after = await GitInspector.snapshot(at: repo.path)
+        #expect(after.files.map(\.path) == ["later.txt"])
+        #expect(repo.read("later.txt") == "not yet")
+    }
+
+    @Test func selectedUntrackedFilesMakeItIntoTheCommit() async throws {
+        let repo = try Repo()
+        try repo.write("fresh.txt", "brand new")
+
+        let snapshot = await GitInspector.snapshot(at: repo.path)
+        let chosen = snapshot.files.filter { $0.path == "fresh.txt" }
+        #expect(chosen.first?.kind == .untracked)
+
+        let error = await GitActions.commitSelected(message: "Add fresh", files: chosen,
+                                                    at: repo.path)
+        #expect(error == nil)
+        #expect(repo.committedFiles == ["fresh.txt"])
+    }
+
+    // The trap in a partial commit: git add stages the picked paths next to whatever was
+    // staged before, and a plain git commit would then sweep the lot in.
+    @Test func stagedButUnselectedFilesStayOutOfTheCommitAndStayStaged() async throws {
+        let repo = try Repo()
+        try repo.write("staged.txt", "staged earlier")
+        repo.git("add", "staged.txt")
+        try repo.write("chosen.txt", "picked")
+
+        let snapshot = await GitInspector.snapshot(at: repo.path)
+        let chosen = snapshot.files.filter { $0.path == "chosen.txt" }
+        let error = await GitActions.commitSelected(message: "Only the pick", files: chosen,
+                                                    at: repo.path)
+        #expect(error == nil)
+
+        #expect(repo.committedFiles == ["chosen.txt"])
+        // The unselected file is exactly where it was: staged, uncommitted, unchanged.
+        #expect(repo.stagedFiles == ["staged.txt"])
+        #expect(repo.read("staged.txt") == "staged earlier")
+    }
+
+    @Test func renameTravelsAsOnePairThroughASelectiveCommit() async throws {
+        let repo = try Repo()
+        repo.git("mv", "README.md", "MANUAL.md")
+        try repo.write("other.txt", "left behind")
+
+        let snapshot = await GitInspector.snapshot(at: repo.path)
+        let renamed = snapshot.files.filter { $0.kind == .renamed }
+        #expect(renamed.first?.originalPath == "README.md")
+
+        let error = await GitActions.commitSelected(message: "Rename the readme",
+                                                    files: renamed, at: repo.path)
+        #expect(error == nil)
+
+        let record = Repo.output(in: repo.url,
+                                 ["show", "--name-status", "--format=", "-M", "HEAD"])
+        #expect(record.contains("R"))
+        #expect(record.contains("README.md"))
+        #expect(record.contains("MANUAL.md"))
+        let after = await GitInspector.snapshot(at: repo.path)
+        #expect(after.files.map(\.path) == ["other.txt"])
+    }
+
+    // MARK: - Amend
+
+    @Test func amendFoldsTheChangesIntoTheLastCommit() async throws {
+        let repo = try Repo()
+        try repo.write("work.txt", "first pass")
+        #expect(await GitActions.commitAll(message: "Add work", at: repo.path) == nil)
+        try repo.write("work.txt", "second pass")
+
+        let error = await GitActions.commitAll(message: "Add finished work", amend: true,
+                                               at: repo.path)
+        #expect(error == nil)
+
+        #expect(repo.commitCount == 2)
+        let after = await GitInspector.snapshot(at: repo.path)
+        #expect(after.lastCommitSubject == "Add finished work")
+        #expect(after.files.isEmpty)
+    }
+
+    @Test func selectiveAmendKeepsUnselectedWorkOutOfTheFoldedCommit() async throws {
+        let repo = try Repo()
+        try repo.write("done.txt", "done")
+        #expect(await GitActions.commitAll(message: "Add done", at: repo.path) == nil)
+        try repo.write("extra.txt", "fold me in")
+        try repo.write("pending.txt", "still cooking")
+
+        let snapshot = await GitInspector.snapshot(at: repo.path)
+        let chosen = snapshot.files.filter { $0.path == "extra.txt" }
+        let error = await GitActions.commitSelected(message: "Add done and extra",
+                                                    files: chosen, amend: true, at: repo.path)
+        #expect(error == nil)
+
+        #expect(repo.commitCount == 2)
+        // The amended commit holds its original file and the folded one, nothing else.
+        #expect(Set(repo.committedFiles) == ["done.txt", "extra.txt"])
+        let after = await GitInspector.snapshot(at: repo.path)
+        #expect(after.lastCommitSubject == "Add done and extra")
+        #expect(after.files.map(\.path) == ["pending.txt"])
+    }
+
+    // MARK: - History
+
+    @Test func historyListsRecentCommitsNewestFirst() async throws {
+        let repo = try Repo()
+        try repo.write("README.md", "two")
+        repo.git("commit", "-qam", "second")
+        try repo.write("README.md", "three")
+        repo.git("commit", "-qam", "third")
+
+        let history = await GitInspector.recentCommits(at: repo.path)
+        #expect(history.note == nil)
+        #expect(history.commits.map(\.subject) == ["third", "second", "first"])
+
+        let newest = history.commits[0]
+        #expect(newest.hash.count == 40)
+        #expect(newest.hash.hasPrefix(newest.shortHash))
+        #expect(newest.author == "Test")
+        #expect(!newest.relativeDate.isEmpty)
+    }
+
+    @Test func historyHonoursItsLimit() async throws {
+        let repo = try Repo()
+        try repo.write("README.md", "two")
+        repo.git("commit", "-qam", "second")
+        try repo.write("README.md", "three")
+        repo.git("commit", "-qam", "third")
+
+        let history = await GitInspector.recentCommits(at: repo.path, limit: 2)
+        #expect(history.commits.map(\.subject) == ["third", "second"])
+    }
+
+    @Test func historyIsEmptyBeforeTheFirstCommit() async throws {
+        let repo = try Repo(empty: true)
+        let history = await GitInspector.recentCommits(at: repo.path)
+        #expect(history.commits.isEmpty)
+        #expect(history.note == nil)
+    }
+
+    @Test func commitDiffShowsEachFileUnderItsOwnHeading() async throws {
+        let repo = try Repo()
+        try repo.write("README.md", "hello\nagain")
+        try repo.write("notes.txt", "fresh")
+        #expect(await GitActions.commitAll(message: "second", at: repo.path) == nil)
+
+        let history = await GitInspector.recentCommits(at: repo.path)
+        let diff = await GitInspector.commitDiff(history.commits[0].hash, root: repo.path)
+        #expect(diff.note == nil)
+
+        let sections = diff.lines.filter { $0.kind == .section }.map(\.text)
+        #expect(sections == ["README.md", "notes.txt"])
+        #expect(diff.lines.contains { $0.kind == .addition && $0.text == "+again" })
+        #expect(diff.lines.contains { $0.kind == .addition && $0.text == "+fresh" })
+    }
+
+    @Test func commitDiffRecordsARename() async throws {
+        let repo = try Repo()
+        repo.git("mv", "README.md", "MANUAL.md")
+        repo.git("commit", "-qm", "rename")
+
+        let history = await GitInspector.recentCommits(at: repo.path)
+        let diff = await GitInspector.commitDiff(history.commits[0].hash, root: repo.path)
+        #expect(diff.lines.contains { $0.kind == .meta && $0.text == "rename from README.md" })
+        #expect(diff.lines.contains { $0.kind == .meta && $0.text == "rename to MANUAL.md" })
+    }
+
+    @Test func commitDiffReportsAnUnknownHash() async throws {
+        let repo = try Repo()
+        let diff = await GitInspector.commitDiff("0000000000000000000000000000000000000000",
+                                                 root: repo.path)
+        #expect(diff.note?.isEmpty == false)
+    }
+
     // A repository with one commit and an identity of its own, so the actions under test
     // can commit without leaning on the machine's git config. Thrown away with the test.
     private final class Repo {
         let url: URL
         var path: String { url.path }
 
-        init() throws {
+        // An empty repo has been initialised but never committed to, which is how a
+        // brand new project folder looks.
+        init(empty: Bool = false) throws {
             url = FileManager.default.temporaryDirectory
                 .appendingPathComponent("actions-repo-" + UUID().uuidString)
             try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
             git("init", "-q", "-b", "main")
             configureIdentity()
+            guard !empty else { return }
             try write("README.md", "hello")
             git("add", ".")
             git("commit", "-qm", "first")
@@ -438,6 +627,21 @@ struct GitActionsTests {
 
         var head: String {
             Self.output(in: url, ["rev-parse", "HEAD"])
+        }
+
+        // The files the newest commit touched, straight from git rather than a snapshot.
+        var committedFiles: [String] {
+            Self.output(in: url, ["show", "--name-only", "--format=", "HEAD"])
+                .split(separator: "\n").map(String.init)
+        }
+
+        var commitCount: Int {
+            Int(Self.output(in: url, ["rev-list", "--count", "HEAD"])) ?? 0
+        }
+
+        var stagedFiles: [String] {
+            Self.output(in: url, ["diff", "--cached", "--name-only"])
+                .split(separator: "\n").map(String.init)
         }
 
         func git(_ arguments: String...) {

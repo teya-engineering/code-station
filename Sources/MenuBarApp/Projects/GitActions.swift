@@ -44,12 +44,13 @@ enum GitActions {
     }
 
     // Commits everything the changes list shows, staged or not, the way the screen
-    // presents it: one working tree, one commit.
-    static func commitAll(message: String, at root: String) async -> String? {
+    // presents it: one working tree, one commit. With `amend` the result replaces the
+    // last commit instead of following it.
+    static func commitAll(message: String, amend: Bool = false, at root: String) async -> String? {
         await perform(at: root) { tool, url in
             let add = GitInspector.run(tool, ["add", "-A"], in: url)
             guard add.ok else { return add }
-            return GitInspector.run(tool, ["commit", "-m", message], in: url)
+            return GitInspector.run(tool, commitArguments(message: message, amend: amend), in: url)
         }
     }
 
@@ -75,6 +76,47 @@ enum GitActions {
             GitInspector.run(
                 tool, ["restore", "--staged", "--worktree", "--source=HEAD", "--"] + paths, in: url)
         }
+    }
+
+    // Commits just the chosen files and leaves the rest of the tree alone, index
+    // included. Staging first brings untracked files in, and the pathspec on the commit
+    // itself keeps anything staged earlier but not chosen from riding along. A rename is
+    // two paths that have to travel together: with only the new one, git records a
+    // delete and an unrelated new file.
+    static func commitSelected(message: String, files: [GitChange], amend: Bool = false,
+                               at root: String) async -> String? {
+        let paths = pathspec(for: files)
+        guard !paths.isEmpty else { return "No files are selected." }
+        // Only paths with unstaged work go through add. A path whose change is already
+        // staged in full, like the old side of a rename, is gone from both the working
+        // tree and the index, and add refuses a pathspec that matches nothing.
+        let unstaged = files.filter(\.isUnstaged).map { ":(literal)" + $0.path }
+        return await perform(at: root) { tool, url in
+            if !unstaged.isEmpty {
+                let add = GitInspector.run(tool, ["add", "-A", "--"] + unstaged, in: url)
+                guard add.ok else { return add }
+            }
+            return GitInspector.run(
+                tool, commitArguments(message: message, amend: amend) + ["--"] + paths, in: url)
+        }
+    }
+
+    private static func commitArguments(message: String, amend: Bool) -> [String] {
+        amend ? ["commit", "--amend", "-m", message] : ["commit", "-m", message]
+    }
+
+    // :(literal) keeps a path that happens to contain a glob character from matching
+    // other files when git reads it back as a pathspec.
+    private static func pathspec(for files: [GitChange]) -> [String] {
+        var seen = Set<String>()
+        var paths: [String] = []
+        for file in files {
+            for path in [file.originalPath, file.path].compactMap({ $0 })
+            where seen.insert(path).inserted {
+                paths.append(":(literal)" + path)
+            }
+        }
+        return paths
     }
 
     // Pull works out how to reconcile the branch itself rather than leaning on pull.rebase,
