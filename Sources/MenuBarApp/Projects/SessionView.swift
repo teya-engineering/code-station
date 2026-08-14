@@ -149,10 +149,11 @@ struct SessionView: View {
     // rebuilt per session, so it starts false on every switch without being reset.
     @State private var opened = false
     // Which of this session's folders are gone, and which of those can be built again.
-    // Sampled on a timer and held here rather than asked while drawing: the file system is
-    // what the warning strip is about and SwiftUI has no way to observe it, so asking during
-    // a redraw leaves the strip only as current as the last unrelated reason to draw - still
-    // reporting a folder that had come back, and silent about one that had just gone.
+    // Sampled at the moments listed on `sampleMissingFolders` and held here rather than
+    // asked while drawing: the file system is what the warning strip is about and SwiftUI
+    // has no way to observe it, so asking during a redraw leaves the strip only as current
+    // as the last unrelated reason to draw - still reporting a folder that had come back,
+    // and silent about one that had just gone.
     @State private var missingDirectories: [String] = []
     @State private var rebuildableCheckouts: [LostCheckout] = []
 
@@ -223,16 +224,26 @@ struct SessionView: View {
             .task(id: sessionID) {
                 selectedProjectID = session.projectID
                 openShortcutRun = nil
+                sampleMissingFolders()
                 refreshStats(workingDirectories, reusingRecent: true)
                 runner.refreshContext(sessionID, store: store)
                 store.findPullRequest(in: sessionID)
             }
-            .task(id: sessionID) { await watchForMissingFolders() }
+            // These folders only go missing while another program has the keyboard, so
+            // coming back to this one is when the answer can have changed.
+            .onReceive(NotificationCenter.default.publisher(
+                for: NSApplication.didBecomeActiveNotification)) { _ in
+                sampleMissingFolders()
+            }
             .onChange(of: completedToolCount) {
                 refreshStats(workingDirectories, after: .milliseconds(350))
             }
             .onChange(of: runner.state(sessionID)) { _, state in
                 if !state.isBusy {
+                    // The runner checks the same folders before it launches and refuses the
+                    // turn if one is gone, so the end of a turn is where that failure turns
+                    // into a strip with a way out of it.
+                    sampleMissingFolders()
                     refreshStats(workingDirectories, after: .milliseconds(350))
                 }
             }
@@ -570,18 +581,11 @@ struct SessionView: View {
         }
     }
 
-    // Two seconds, because these folders go missing behind the app's back: a directory moved
-    // in Finder, a volume unmounted, a checkout pruned from a terminal. The question is a
-    // handful of stat calls on the folders whose disappearing is the whole subject of the
-    // banner. There is no file-system watcher in the app to hang this off; WorkingTreeWatch
-    // polls too, at thirty seconds.
-    private func watchForMissingFolders() async {
-        while !Task.isCancelled {
-            sampleMissingFolders()
-            try? await Task.sleep(for: .seconds(2))
-        }
-    }
-
+    // A handful of stat calls on the folders whose disappearing is the whole subject of the
+    // strip. Cheap, but asked only at the moments the answer can have changed or is about to
+    // be needed: opening the session, returning to the app, the end of a turn, and a rebuild.
+    // A folder that goes while the session sits open and untouched therefore goes unreported
+    // until one of those, which costs nothing: the runner refuses the turn on its own check.
     private func sampleMissingFolders() {
         guard let session = store.session(sessionID) else { return }
         let missing = SessionLifecycle.missingDirectories(of: session, in: store)
