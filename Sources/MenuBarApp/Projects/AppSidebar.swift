@@ -1170,11 +1170,13 @@ struct AppSidebar: View {
         panel.message = "Pick the folder Claude Code should work in."
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
+        // A folder that is already a project comes back as nil, and the store has
+        // pointed itself at the existing one. Either way the rail lands on that project:
+        // the list is ordered by the sort setting, so a project can be added anywhere
+        // in it, including off screen.
         let added = store.addProject(at: url)
         guard let id = added?.id ?? store.selectedProjectID else { return }
         setExpanded(true, for: id)
-
-        guard added == nil else { return }
         filterText = ""
         store.selectProject(id)
         projectToReveal = id
