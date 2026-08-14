@@ -79,6 +79,47 @@ struct SavedRequestFolderTests {
         #expect(store.requests[0].folderID == RequestFolder.defaultID)
     }
 
+    @Test @MainActor func foldersOpenClosedUnlessTheUserLeftThemOpen() throws {
+        let file = FileManager.default.temporaryDirectory
+            .appendingPathComponent("dispatch-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: file) }
+
+        let opened = RequestFolder(name: "Payments")
+        let closed = RequestFolder(name: "Refunds")
+        let saved = SavedRequestCollection(folders: [.default, opened, closed],
+                                           requests: [])
+        try JSONEncoder().encode(saved).write(to: file)
+
+        // A file written before folders remembered their state opens everything closed.
+        let first = DispatchStore(storeURL: file)
+        #expect(!first.isExpanded(RequestFolder.defaultID))
+        #expect(!first.isExpanded(opened.id))
+
+        first.toggleFolder(opened.id)
+        first.save()
+
+        let second = DispatchStore(storeURL: file)
+        #expect(second.isExpanded(opened.id))
+        #expect(!second.isExpanded(closed.id))
+        #expect(!second.isExpanded(RequestFolder.defaultID))
+    }
+
+    @Test @MainActor func aDeletedFolderIsForgottenRatherThanReopened() throws {
+        let file = FileManager.default.temporaryDirectory
+            .appendingPathComponent("dispatch-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: file) }
+        try JSONEncoder().encode(SavedRequestCollection()).write(to: file)
+
+        let store = DispatchStore(storeURL: file)
+        let folder = store.addFolder(named: "Payments")
+        #expect(store.isExpanded(folder.id))
+        store.removeFolder(folder.id)
+
+        let saved = try JSONDecoder().decode(SavedRequestCollection.self,
+                                              from: Data(contentsOf: file))
+        #expect(saved.expandedFolderIDs.isEmpty)
+    }
+
     @Test @MainActor func deletingTheSelectedRequestLeavesTheDetailEmpty() throws {
         let file = FileManager.default.temporaryDirectory
             .appendingPathComponent("dispatch-\(UUID().uuidString).json")

@@ -107,6 +107,7 @@ final class DispatchStore {
     func removeFolder(_ id: UUID) {
         guard id != RequestFolder.defaultID,
               folders.contains(where: { $0.id == id }) else { return }
+        let hadRequests = requests.contains { $0.folderID == id }
         folders.removeAll { $0.id == id }
         requests = requests.map { request in
             guard request.folderID == id else { return request }
@@ -114,7 +115,10 @@ final class DispatchStore {
             request.folderID = RequestFolder.defaultID
             return request
         }
-        expandedFolderIDs.insert(RequestFolder.defaultID)
+        // The rescued requests land in Default, so open it rather than let them look lost.
+        if hadRequests {
+            expandedFolderIDs.insert(RequestFolder.defaultID)
+        }
         expandedFolderIDs.remove(id)
         save()
     }
@@ -147,6 +151,7 @@ final class DispatchStore {
         } else {
             expandedFolderIDs.insert(folderID)
         }
+        scheduleSave()
     }
 
     // MARK: - Persistence
@@ -175,8 +180,12 @@ final class DispatchStore {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         do {
+            // Written in folder order rather than set order, so a save that changes
+            // nothing writes the same bytes every time.
+            let openFolderIDs = folders.map(\.id).filter(expandedFolderIDs.contains)
             let data = try encoder.encode(SavedRequestCollection(folders: folders,
-                                                                  requests: requests))
+                                                                  requests: requests,
+                                                                  expandedFolderIDs: openFolderIDs))
             try PersistentFile.write(data, to: storeURL)
             saveError = nil
             return true
@@ -194,7 +203,6 @@ final class DispatchStore {
             loadError = PersistentFile.loadMessage(for: storeURL, error: error)
             folders = [.default]
             requests = []
-            expandedFolderIDs = [RequestFolder.defaultID]
             return
         }
 
@@ -206,14 +214,15 @@ final class DispatchStore {
                 request.folderID = RequestFolder.defaultID
                 return request
             }
-            expandedFolderIDs = [RequestFolder.defaultID]
             return
         }
 
         let decoder = JSONDecoder()
+        var openFolderIDs: [UUID] = []
         if let saved = try? decoder.decode(SavedRequestCollection.self, from: data) {
             folders = saved.folders
             requests = saved.requests
+            openFolderIDs = saved.expandedFolderIDs
         } else if let saved = try? decoder.decode([SavedRequest].self, from: data) {
             folders = []
             requests = saved
@@ -221,7 +230,6 @@ final class DispatchStore {
             loadError = "The request file at \(storeURL.path) could not be parsed. Fix or remove it before saving changes."
             folders = [.default]
             requests = []
-            expandedFolderIDs = [RequestFolder.defaultID]
             return
         }
         loadError = nil
@@ -238,7 +246,9 @@ final class DispatchStore {
             }
             return request
         }
-        expandedFolderIDs = folderIDs
+        // Folders open closed. Only the ones the user left open come back open, and a
+        // folder that has since been deleted is dropped.
+        expandedFolderIDs = Set(openFolderIDs).intersection(folderIDs)
     }
 
     private func validFolderID(_ folderID: UUID?) -> UUID {
