@@ -66,7 +66,10 @@ struct SessionShortcutStrip: View {
                     ? .item("Stop", action: { toggle(run) })
                     : .item("Run", action: { toggle(run) }),
                 .item("Show output", action: { openRun = run }),
-                .item("Edit", action: { edit(ShortcutEditorRequest(shortcut: shortcut)) }),
+                .item("Edit", action: {
+                    edit(ShortcutEditorRequest(shortcut: shortcut,
+                                               projectName: checkoutProject?.name))
+                }),
                 .separator,
                 .item("Remove", kind: .destructive, action: {
                     if openRun?.shortcutID == shortcut.id { openRun = nil }
@@ -112,10 +115,11 @@ struct SessionShortcutStrip: View {
         return entries
     }
 
+    // Anything made from here belongs to the checkout on the strip. Nothing is asked
+    // about where it runs, because being the project's is what decides that.
     private var blankRequest: ShortcutEditorRequest {
         ShortcutEditorRequest(projectID: checkout?.projectID,
-                              location: checkout?.worktreePath == nil
-                                  ? .projectFolder : .activeWorkspace)
+                              projectName: checkoutProject?.name)
     }
 
     // MARK: - Which folder

@@ -1,20 +1,18 @@
 import SwiftUI
 
-// Every saved command in one place, grouped by whose it is: the Mac's own first, then
-// each project's. A project's shortcuts are managed here rather than in its sessions
-// because this is the list you come to when you want to see all of them at once; the
-// strip inside a session is for running them, not for keeping them.
-//
-// A run started here uses the shortcut's own folder - home, or the project checkout -
-// since a sheet has no session in front of it to borrow a worktree from.
+// The commands saved against this Mac: the ones that are about the machine rather than
+// about any checkout, so they run from the home folder. A project's commands are not
+// here. They belong to the sessions that run them and are managed on the strip inside
+// those sessions, because that is where the folder they run in is decided.
 struct ShortcutsView: View {
     @Environment(ShortcutStore.self) private var store
-    @Environment(ProjectStore.self) private var projects
     @Environment(DialogPresenter.self) private var dialogs
     @Environment(\.dismiss) private var dismiss
 
     @State private var selectedID: CommandShortcut.ID?
     @State private var editor: ShortcutEditorRequest?
+
+    private var shortcuts: [CommandShortcut] { store.macShortcuts }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -25,13 +23,11 @@ struct ShortcutsView: View {
         .frame(width: 700, height: 620)
         .background(Theme.background)
         .onAppear { selectAvailableShortcut() }
-        .onChange(of: store.shortcuts.map(\.id)) { _, _ in selectAvailableShortcut() }
+        .onChange(of: shortcuts.map(\.id)) { _, _ in selectAvailableShortcut() }
         .sheet(item: $editor) { request in
             ShortcutEditorView(request: request) { shortcut in
                 if request.shortcut == nil {
-                    if let id = store.add(name: shortcut.name, command: shortcut.command,
-                                          projectID: shortcut.projectID,
-                                          location: shortcut.location) {
+                    if let id = store.add(name: shortcut.name, command: shortcut.command) {
                         selectedID = id
                     }
                 } else {
@@ -45,10 +41,12 @@ struct ShortcutsView: View {
 
     private var header: some View {
         HStack(spacing: 10) {
-            Text("Shortcuts").font(.serif(18))
-            Text(headerDetail)
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Shortcuts").font(.serif(18))
+                Text(headerDetail)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
             Spacer()
             Button { editor = ShortcutEditorRequest() } label: {
                 HStack(spacing: 6) {
@@ -69,9 +67,13 @@ struct ShortcutsView: View {
         .headerBand()
     }
 
+    // The heading has to say whose these are, because a project's shortcuts are missing
+    // from this list on purpose and the reader would otherwise read that as them being
+    // gone. The count goes on the same line, since both are about the same list.
     private var headerDetail: String {
-        let saved = "\(store.shortcuts.count) saved"
-        return store.runningCount > 0 ? "\(saved) · \(store.runningCount) running" : saved
+        let running = store.runningCount(of: shortcuts)
+        let count = running > 0 ? "\(running) running" : "\(shortcuts.count) saved"
+        return "\(count) on this Mac, run from your home folder"
     }
 
     private var content: some View {
@@ -86,44 +88,8 @@ struct ShortcutsView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    // MARK: - The list
-
-    // One section per owner. A project with no shortcuts is left out entirely, so the
-    // list is as long as what has been saved rather than as long as the sidebar.
-    private struct Group: Identifiable {
-        let id: UUID?
-        let title: String
-        let project: Project?
-        let shortcuts: [CommandShortcut]
-    }
-
-    private var groups: [Group] {
-        var groups: [Group] = []
-        let mac = store.macShortcuts
-        if !mac.isEmpty {
-            groups.append(Group(id: nil, title: "THIS MAC", project: nil, shortcuts: mac))
-        }
-        for project in projects.projects {
-            let owned = store.shortcuts(for: project.id)
-            guard !owned.isEmpty else { continue }
-            groups.append(Group(id: project.id, title: project.name.uppercased(),
-                                project: project, shortcuts: owned))
-        }
-        // Shortcuts whose project has since been removed would otherwise vanish from the
-        // only screen that can delete them.
-        let orphaned = store.shortcuts.filter { shortcut in
-            guard let projectID = shortcut.projectID else { return false }
-            return projects.project(projectID) == nil
-        }
-        if !orphaned.isEmpty {
-            groups.append(Group(id: UUID(), title: "PROJECT NO LONGER ADDED",
-                                project: nil, shortcuts: orphaned))
-        }
-        return groups
-    }
-
     @ViewBuilder private var shortcutList: some View {
-        if store.shortcuts.isEmpty {
+        if shortcuts.isEmpty {
             PaneMessage(
                 icon: "bolt.slash",
                 title: "No shortcuts saved",
@@ -132,49 +98,25 @@ struct ShortcutsView: View {
             .frame(height: 220)
         } else {
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 16) {
-                    ForEach(groups) { group in
-                        VStack(alignment: .leading, spacing: 8) {
-                            groupHeading(group)
-                            ForEach(group.shortcuts) { shortcut in
-                                row(shortcut, in: group)
-                            }
-                        }
+                LazyVStack(spacing: 8) {
+                    ForEach(shortcuts) { shortcut in
+                        ShortcutRow(
+                            shortcut: shortcut,
+                            state: store.state(run(for: shortcut)),
+                            selected: selectedID == shortcut.id,
+                            select: { selectedID = shortcut.id },
+                            run: { toggle(shortcut) },
+                            edit: { editor = ShortcutEditorRequest(shortcut: shortcut) },
+                            remove: { confirmRemoval(of: shortcut) }
+                        )
+                        .appContextMenu { contextMenu(for: shortcut) }
                     }
                 }
                 .padding(20)
             }
-            .frame(height: 280)
+            .frame(height: 250)
         }
     }
-
-    private func groupHeading(_ group: Group) -> some View {
-        HStack(spacing: 7) {
-            if let project = group.project {
-                ProjectDot(tint: Theme.projectTint(for: project.name))
-            }
-            SectionLabel(text: group.title)
-            Rectangle()
-                .fill(Theme.hairline)
-                .frame(height: 1)
-        }
-    }
-
-    private func row(_ shortcut: CommandShortcut, in group: Group) -> some View {
-        let run = self.run(for: shortcut, in: group.project)
-        return ShortcutRow(
-            shortcut: shortcut,
-            state: store.state(run),
-            selected: selectedID == shortcut.id,
-            select: { selectedID = shortcut.id },
-            run: { toggle(shortcut, in: group.project) },
-            edit: { editor = ShortcutEditorRequest(shortcut: shortcut) },
-            remove: { confirmRemoval(of: shortcut, in: group.project) }
-        )
-        .appContextMenu { contextMenu(for: shortcut, in: group.project) }
-    }
-
-    // MARK: - Output
 
     private var output: some View {
         VStack(alignment: .leading, spacing: 7) {
@@ -225,11 +167,11 @@ struct ShortcutsView: View {
     }
 
     private var selected: CommandShortcut? {
-        selectedID.flatMap(store.shortcut)
+        shortcuts.first { $0.id == selectedID }
     }
 
     private var selectedRun: ShortcutRun? {
-        selected.map { run(for: $0, in: $0.projectID.flatMap(projects.project)) }
+        selected.map(run)
     }
 
     private var selectedLog: String {
@@ -268,15 +210,15 @@ struct ShortcutsView: View {
         .background(Theme.deletion.opacity(0.08))
     }
 
-    // MARK: - Actions
-
-    private func run(for shortcut: CommandShortcut, in project: Project?) -> ShortcutRun {
-        ShortcutRun(shortcut.id, in: shortcut.directory(projectPath: project?.path))
+    // Every shortcut on this screen belongs to the Mac, so every run of one is in the
+    // home folder and each shortcut has only the single run.
+    private func run(for shortcut: CommandShortcut) -> ShortcutRun {
+        ShortcutRun(shortcut.id, in: shortcut.directory(projectPath: nil))
     }
 
-    private func toggle(_ shortcut: CommandShortcut, in project: Project?) {
+    private func toggle(_ shortcut: CommandShortcut) {
         selectedID = shortcut.id
-        let run = run(for: shortcut, in: project)
+        let run = run(for: shortcut)
         if store.state(run).isActive {
             store.stop(run)
         } else {
@@ -285,32 +227,29 @@ struct ShortcutsView: View {
     }
 
     private func selectAvailableShortcut() {
-        if selected == nil { selectedID = store.shortcuts.first?.id }
+        if selected == nil { selectedID = shortcuts.first?.id }
     }
 
-    private func contextMenu(for shortcut: CommandShortcut, in project: Project?) -> [MenuEntry] {
-        if store.state(run(for: shortcut, in: project)).isActive {
+    private func contextMenu(for shortcut: CommandShortcut) -> [MenuEntry] {
+        if store.state(run(for: shortcut)).isActive {
             return [
-                .item("Stop", action: { toggle(shortcut, in: project) }),
+                .item("Stop", action: { toggle(shortcut) }),
                 .separator,
-                .item("Remove", kind: .destructive,
-                      action: { confirmRemoval(of: shortcut, in: project) })
+                .item("Remove", kind: .destructive, action: { confirmRemoval(of: shortcut) })
             ]
         }
         return [
-            .item("Run", action: { toggle(shortcut, in: project) }),
+            .item("Run", action: { toggle(shortcut) }),
             .item("Edit", action: { editor = ShortcutEditorRequest(shortcut: shortcut) }),
             .separator,
-            .item("Remove", kind: .destructive,
-                  action: { confirmRemoval(of: shortcut, in: project) })
+            .item("Remove", kind: .destructive, action: { confirmRemoval(of: shortcut) })
         ]
     }
 
-    private func confirmRemoval(of shortcut: CommandShortcut, in project: Project?) {
-        let running = store.isRunningAnywhere(shortcut.id)
+    private func confirmRemoval(of shortcut: CommandShortcut) {
         dialogs.show(Dialog(
             title: "Remove \(shortcut.name)?",
-            message: running
+            message: store.state(run(for: shortcut)).isActive
                 ? "This stops the running command and removes the shortcut."
                 : "The command and its saved shortcut will be removed.",
             actions: [
@@ -341,14 +280,9 @@ private struct ShortcutRow: View {
                 .frame(width: 8, height: 8)
 
             VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 7) {
-                    Text(shortcut.name)
-                        .font(.system(size: 13, weight: .semibold))
-                        .lineLimit(1)
-                    if let badge = shortcut.location.badge {
-                        MonoChip(text: badge, size: 9)
-                    }
-                }
+                Text(shortcut.name)
+                    .font(.system(size: 13, weight: .semibold))
+                    .lineLimit(1)
                 Text(commandSummary)
                     .font(.mono(10.5))
                     .foregroundStyle(.tertiary)

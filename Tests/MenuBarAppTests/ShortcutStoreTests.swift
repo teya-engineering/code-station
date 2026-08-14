@@ -55,45 +55,23 @@ struct ShortcutStoreTests {
         #expect(store.macShortcuts.count == 1)
     }
 
-    // Owner and location are one decision. A shortcut with no project cannot run in a
-    // checkout, and one that runs from home cannot be filed under a project.
-    @Test func foldsAwayOwnerAndLocationPairingsThatHaveNoMeaning() {
-        let project = UUID()
-
-        let homeless = CommandShortcut(name: "Tests", command: "make test",
-                                       location: .activeWorkspace)
-        #expect(homeless.location == .mac)
-        #expect(homeless.projectID == nil)
-
-        let atHome = CommandShortcut(name: "Prune", command: "docker system prune",
-                                     projectID: project, location: .mac)
-        #expect(atHome.projectID == nil)
-
-        let owned = CommandShortcut(name: "Lint", command: "npm run lint",
-                                    projectID: project, location: .projectFolder)
-        #expect(owned.projectID == project)
-        #expect(owned.location == .projectFolder)
-    }
-
-    @Test func resolvesTheFolderEachLocationMeans() {
+    // Who a shortcut belongs to is the only thing that decides where it runs, so the
+    // Mac's own ignore every checkout it is offered.
+    @Test func resolvesTheFolderFromWhoTheShortcutBelongsTo() {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
-        let project = UUID()
 
         let mac = CommandShortcut(name: "Prune", command: "docker system prune")
         #expect(mac.directory(projectPath: "/repos/lantern", workspacePath: "/worktrees/a")
             == home)
 
-        let folder = CommandShortcut(name: "Reset", command: "bin/reset-db",
-                                     projectID: project, location: .projectFolder)
-        #expect(folder.directory(projectPath: "/repos/lantern", workspacePath: "/worktrees/a")
-            == "/repos/lantern")
-
-        let workspace = CommandShortcut(name: "Lint", command: "npm run lint",
-                                        projectID: project, location: .activeWorkspace)
-        #expect(workspace.directory(projectPath: "/repos/lantern", workspacePath: "/worktrees/a")
+        let owned = CommandShortcut(name: "Lint", command: "npm run lint",
+                                    projectID: UUID())
+        #expect(owned.directory(projectPath: "/repos/lantern", workspacePath: "/worktrees/a")
             == "/worktrees/a")
         // No worktree in front of you means the folder the worktrees come from.
-        #expect(workspace.directory(projectPath: "/repos/lantern") == "/repos/lantern")
+        #expect(owned.directory(projectPath: "/repos/lantern") == "/repos/lantern")
+        // And a project whose folder cannot be found is still somewhere runnable.
+        #expect(owned.directory(projectPath: nil) == home)
     }
 
     @Test func groupsShortcutsByOwner() throws {
@@ -105,8 +83,8 @@ struct ShortcutStoreTests {
 
         let prune = try #require(store.add(name: "Prune", command: "docker system prune"))
         let lint = try #require(store.add(name: "Lint", command: "npm run lint",
-                                          projectID: lantern, location: .projectFolder))
-        store.add(name: "Build", command: "make", projectID: other, location: .projectFolder)
+                                          projectID: lantern))
+        store.add(name: "Build", command: "make", projectID: other)
 
         #expect(store.macShortcuts.map(\.id) == [prune])
         #expect(store.shortcuts(for: lantern).map(\.id) == [lint])
@@ -115,6 +93,25 @@ struct ShortcutStoreTests {
         store.removeAll(ownedBy: lantern)
         #expect(store.shortcuts(for: lantern).isEmpty)
         #expect(store.shortcuts.count == 2)
+    }
+
+    // The Mac's list and a project's are separate screens, so neither may report the
+    // other's runs: a count on one that included the other would speak for runs its
+    // reader cannot see.
+    @Test func countsRunsOnlyForTheListDoingTheAsking() async throws {
+        let url = temporaryFile()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let store = ShortcutStore(storageURL: url)
+        let lantern = UUID()
+        let owned = try #require(store.add(name: "Lint", command: "exit 1",
+                                           projectID: lantern))
+        let run = ShortcutRun(owned, in: FileManager.default.temporaryDirectory.path)
+
+        store.start(run)
+        try await settle(store, run)
+
+        #expect(store.failureCount(of: store.shortcuts(for: lantern)) == 1)
+        #expect(store.failureCount(of: store.macShortcuts) == 0)
     }
 
     @Test func refusesToOverwriteAnUnreadableFile() throws {
@@ -168,7 +165,7 @@ struct ShortcutStoreTests {
             return
         }
         #expect(status == 3)
-        #expect(store.failureCount == 1)
+        #expect(store.failureCount(of: store.macShortcuts) == 1)
     }
 
     // The same shortcut in two worktrees is two runs. Neither may report the other's

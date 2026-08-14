@@ -136,10 +136,8 @@ struct ProjectRemovalTests {
         let shortcuts = makeShortcuts()
         let project = addProject(named: "checkout", to: store)
         let other = addProject(named: "elsewhere", to: store)
-        shortcuts.add(name: "Lint", command: "npm run lint",
-                      projectID: project.id, location: .projectFolder)
-        shortcuts.add(name: "Build", command: "make", projectID: other.id,
-                      location: .projectFolder)
+        shortcuts.add(name: "Lint", command: "npm run lint", projectID: project.id)
+        shortcuts.add(name: "Build", command: "make", projectID: other.id)
         shortcuts.add(name: "Prune", command: "docker system prune")
 
         let result = await ProjectRemoval.run(project, in: store, runner: SessionRunner(),

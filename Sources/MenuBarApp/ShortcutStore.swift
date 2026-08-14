@@ -1,34 +1,12 @@
 import Foundation
 import Observation
 
-// Where a shortcut's command is run from. The Mac's own commands run from home, the way
-// every shortcut used to; a project's commands run either in its checkout or in whichever
-// worktree is in front of you, which is what makes "run the tests" mean this session's
-// tests rather than the ones in the folder the branch came from.
-enum ShortcutLocation: String, Codable, Sendable, CaseIterable {
-    case mac
-    case projectFolder
-    case activeWorkspace
-
-    var title: String {
-        switch self {
-        case .mac: "This Mac"
-        case .projectFolder: "Project folder"
-        case .activeWorkspace: "Active workspace"
-        }
-    }
-
-    // The word a row wears next to its name. The Mac's own shortcuts wear none: they are
-    // already filed under "This Mac", so a badge would repeat the heading.
-    var badge: String? {
-        switch self {
-        case .mac: nil
-        case .projectFolder: "FOLDER"
-        case .activeWorkspace: "WORKSPACE"
-        }
-    }
-}
-
+// A saved command, and the one thing that decides where it runs: who it belongs to.
+// The Mac's own commands run from home, the way every shortcut used to. A project's
+// commands run in whichever of its worktrees is in front of you, which is what makes
+// "run the tests" mean this session's tests rather than the ones in the folder the
+// branch came from. Nothing is asked when one is saved, because the screen it is saved
+// from already knows where it belongs.
 struct CommandShortcut: Identifiable, Codable, Equatable, Sendable {
     let id: UUID
     var name: String
@@ -36,22 +14,16 @@ struct CommandShortcut: Identifiable, Codable, Equatable, Sendable {
     // The project this shortcut is filed under, and nil for the ones that belong to the
     // Mac rather than to any checkout.
     var projectID: UUID?
-    var location: ShortcutLocation
 
-    // Owner and location move together, so the pairings that have no meaning cannot be
-    // built: a shortcut with no project can only run from home, and one that runs from
-    // home belongs to no project.
-    init(id: UUID = UUID(), name: String, command: String,
-         projectID: UUID? = nil, location: ShortcutLocation = .mac) {
+    init(id: UUID = UUID(), name: String, command: String, projectID: UUID? = nil) {
         self.id = id
         self.name = name
         self.command = command
-        self.projectID = location == .mac ? nil : projectID
-        self.location = projectID == nil ? .mac : location
+        self.projectID = projectID
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, command, projectID, location
+        case id, name, command, projectID
     }
 
     // Shortcuts saved before they could belong to a project are the Mac's own.
@@ -60,21 +32,16 @@ struct CommandShortcut: Identifiable, Codable, Equatable, Sendable {
         self.init(id: try container.decode(UUID.self, forKey: .id),
                   name: try container.decode(String.self, forKey: .name),
                   command: try container.decode(String.self, forKey: .command),
-                  projectID: try container.decodeIfPresent(UUID.self, forKey: .projectID),
-                  location: try container.decodeIfPresent(ShortcutLocation.self,
-                                                          forKey: .location) ?? .mac)
+                  projectID: try container.decodeIfPresent(UUID.self, forKey: .projectID))
     }
 
-    // The folder this run happens in. A workspace shortcut falls back to the checkout,
+    // The folder this run happens in. A project shortcut falls back to the checkout,
     // which is what it means for a project with nothing open: there is no worktree in
     // front of you, so the folder the worktrees come from is the honest answer.
     func directory(projectPath: String?, workspacePath: String? = nil) -> String {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
-        switch location {
-        case .mac: return home
-        case .projectFolder: return projectPath ?? home
-        case .activeWorkspace: return workspacePath ?? projectPath ?? home
-        }
+        guard projectID != nil else { return home }
+        return workspacePath ?? projectPath ?? home
     }
 }
 
@@ -147,12 +114,21 @@ final class ShortcutStore {
         load()
     }
 
-    var runningCount: Int {
-        states.values.count(where: \.isActive)
+    // Counted over the shortcuts the asking screen shows rather than over all of them,
+    // since the Mac's list and a project's list are separate screens: a number that
+    // counted both would report runs its reader cannot see or reach.
+    func runningCount(of shortcuts: [CommandShortcut]) -> Int {
+        count(over: shortcuts, where: \.isActive)
     }
 
-    var failureCount: Int {
-        states.values.count(where: \.isFailure)
+    func failureCount(of shortcuts: [CommandShortcut]) -> Int {
+        count(over: shortcuts, where: \.isFailure)
+    }
+
+    private func count(over shortcuts: [CommandShortcut],
+                       where matches: (State) -> Bool) -> Int {
+        let ids = Set(shortcuts.map(\.id))
+        return states.count { ids.contains($0.key.shortcutID) && matches($0.value) }
     }
 
     func shortcut(_ id: CommandShortcut.ID) -> CommandShortcut? {
@@ -236,16 +212,14 @@ final class ShortcutStore {
     // MARK: - Mutations
 
     @discardableResult
-    func add(name: String, command: String,
-             projectID: UUID? = nil, location: ShortcutLocation = .mac) -> CommandShortcut.ID? {
+    func add(name: String, command: String, projectID: UUID? = nil) -> CommandShortcut.ID? {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let command = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty, !command.isEmpty else { return nil }
         let shortcut = CommandShortcut(
             name: name,
             command: command,
-            projectID: projectID,
-            location: location
+            projectID: projectID
         )
         shortcuts.append(shortcut)
         save()
@@ -262,11 +236,10 @@ final class ShortcutStore {
             id: shortcut.id,
             name: name,
             command: command,
-            projectID: shortcut.projectID,
-            location: shortcut.location
+            projectID: shortcut.projectID
         )
-        // Editing can move the shortcut to another folder, which leaves the old runs
-        // pointing at a command that no longer exists there.
+        // The state and output on screen belong to the command that was there before,
+        // so they stop meaning anything the moment it is rewritten.
         forgetRuns(of: shortcut.id)
         save()
     }

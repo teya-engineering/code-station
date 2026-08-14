@@ -23,7 +23,7 @@ Teya Conductor is a macOS app for running Codex and Claude Code across local pro
 - Install and update agent skills from your organisation's marketplace.
 - Save and send HTTP requests with environment variables, path and query parameters, headers, request bodies, and OAuth secrets and tokens stored in the macOS Keychain.
 - Inspect running Docker containers and stop them when needed.
-- Save, edit, run, and stop shell-command shortcuts while inspecting their output. A shortcut runs either from your home folder or against a project, in that project's folder or in the worktree of the session you are in. A project's shortcuts sit on a strip inside its sessions, where a chip says how the last run ended and opens its output. A new install starts with the ones your site settings list.
+- Save, edit, run, and stop shell-command shortcuts while inspecting their output. Where a shortcut runs follows from where you saved it, so there is nothing to choose. The Shortcuts screen holds this Mac's own, which run from your home folder and are the ones your site settings can seed. A project's own are saved from a session and sit on a strip inside its sessions, where they run in that session's worktree and a chip says how the last run ended and opens its output.
 - Start a guided troubleshooting session with project context, attachments, environment safeguards, and configured observability tools.
 
 ## Build and run

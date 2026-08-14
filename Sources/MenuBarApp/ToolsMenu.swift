@@ -74,13 +74,14 @@ private struct ToolsMenuModifier: ViewModifier {
         return ("\(docker.containers.count) running", Theme.addition)
     }
 
+    // The card speaks for the screen it opens, which is the Mac's own list. A project's
+    // shortcuts report on the strip inside its sessions instead.
     private var shortcutsDetail: (text: String, colour: Color?) {
-        if shortcuts.runningCount > 0 {
-            return ("\(shortcuts.runningCount) running", Theme.addition)
-        }
-        if shortcuts.failureCount > 0 {
-            return ("\(shortcuts.failureCount) failed", Theme.deletion)
-        }
-        return ("\(shortcuts.shortcuts.count) saved", nil)
+        let mac = shortcuts.macShortcuts
+        let running = shortcuts.runningCount(of: mac)
+        if running > 0 { return ("\(running) running", Theme.addition) }
+        let failed = shortcuts.failureCount(of: mac)
+        if failed > 0 { return ("\(failed) failed", Theme.deletion) }
+        return ("\(mac.count) saved", nil)
     }
 }
