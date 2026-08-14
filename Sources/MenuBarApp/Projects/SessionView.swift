@@ -127,6 +127,7 @@ struct SessionView: View {
     @Environment(SessionRunner.self) private var runner
     @Environment(TerminalStore.self) private var terminals
     @Environment(DialogPresenter.self) private var dialogs
+    @Environment(MenuPresenter.self) private var menus
     @Environment(AppSettings.self) private var appSettings
     @Environment(GitStatsCache.self) private var gitStats
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -189,6 +190,7 @@ struct SessionView: View {
             .background(Theme.background)
             .onAppear { composerFocused = true }
             .background(terminalShortcut(directory: workingDirectory))
+            .background(stopShortcut)
             .onChange(of: terminalFocused) { _, focused in
                 if focused { composerFocused = false }
             }
@@ -428,6 +430,21 @@ struct SessionView: View {
         }
         .keyboardShortcut("`", modifiers: .control)
         .opacity(0)
+    }
+
+    // Escape calls off the running turn, so a run can be stopped without reaching for
+    // the button in the composer. It only takes the key while there is a turn to stop
+    // and nothing else on screen has a better claim on it: a dialog and a menu both
+    // close on escape, and the shell in the drawer needs the key for whatever is
+    // running in it.
+    @ViewBuilder private var stopShortcut: some View {
+        let state = runner.state(sessionID)
+        if state.isBusy, state != .stopping, dialogs.current == nil, !menus.isOpen,
+           !terminalFocused {
+            Button("") { runner.stop(sessionID, store: store) }
+                .keyboardShortcut(.escape, modifiers: [])
+                .opacity(0)
+        }
     }
 
     // The button both opens and shuts it; opening puts the cursor straight in the shell
@@ -822,7 +839,7 @@ struct SessionView: View {
                             .background(Circle().fill(Theme.deletion))
                     }
                     .buttonStyle(.plain)
-                    .appTooltip("Stop this turn")
+                    .appTooltip("Stop this turn (esc)")
                 } else if !canSend {
                     // The button keeps its place so the field does not change width as
                     // soon as there is something to send.
