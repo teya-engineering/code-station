@@ -77,8 +77,16 @@ struct MessageView: View, Equatable {
             Spacer(minLength: 80)
             VStack(alignment: .leading, spacing: 8) {
                 if let paths = message.attachments, !paths.isEmpty {
+                    // An image that is still on disk shows itself; anything else - other
+                    // files, or an image gone since - keeps the chip and its name.
                     ForEach(paths, id: \.self) { path in
-                        AttachmentChip(url: URL(fileURLWithPath: path))
+                        let url = URL(fileURLWithPath: path)
+                        if Attachment(url: url).isImage,
+                           FileManager.default.fileExists(atPath: url.path) {
+                            InlineImageView(url: url)
+                        } else {
+                            AttachmentChip(url: url)
+                        }
                     }
                 }
                 if !message.text.isEmpty {
@@ -167,7 +175,7 @@ struct MessageView: View, Equatable {
                     .transition(.fadeIn)
             } else {
                 ForEach(MarkdownBlock.parse(segment.text)) { block in
-                    MarkdownBlockView(block: block)
+                    MarkdownBlockView(block: block, projectPath: projectPath)
                         .equatable()
                         .transition(.fadeIn)
                 }

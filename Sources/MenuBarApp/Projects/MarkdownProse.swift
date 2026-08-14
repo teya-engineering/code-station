@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 // Block-level markdown for chat prose: headings, tables, lists, quotes and rules.
 // Fenced code is split out before this runs (see MessageSegment). A small hand-rolled
@@ -168,6 +169,120 @@ struct MarkdownBlock: Identifiable, Equatable {
     }
 }
 
+// Images in prose: ![alt](path). Only a paragraph can hold one, and only a local file
+// renders, so the parser keeps every piece verbatim - an image that does not resolve
+// goes back into the text exactly as it was written.
+extension MarkdownBlock {
+    enum ParagraphPart: Equatable {
+        case text(String)
+        case image(alt: String, source: String)
+    }
+
+    static func paragraphParts(_ text: String) -> [ParagraphPart] {
+        var parts: [ParagraphPart] = []
+        var plain = ""
+        var index = text.startIndex
+
+        // Reads up to the terminator on the same line; an image never spans lines.
+        func take(until terminator: Character,
+                  from start: String.Index) -> (String, String.Index)? {
+            var i = start
+            while i < text.endIndex, !text[i].isNewline {
+                if text[i] == terminator { return (String(text[start..<i]), i) }
+                i = text.index(after: i)
+            }
+            return nil
+        }
+
+        while let bang = text.range(of: "![", range: index..<text.endIndex) {
+            var parsed: (alt: String, source: String, end: String.Index)?
+            // An opener inside the alt means this "![" was stray text and the real
+            // image starts further in, so the candidate is abandoned in its favour.
+            if let (alt, closeBracket) = take(until: "]", from: bang.upperBound),
+               !alt.contains("![") {
+                let openParen = text.index(after: closeBracket)
+                if openParen < text.endIndex, text[openParen] == "(",
+                   let (source, closeParen) = take(until: ")",
+                                                   from: text.index(after: openParen)),
+                   !source.trimmingCharacters(in: .whitespaces).isEmpty {
+                    parsed = (alt, source, text.index(after: closeParen))
+                }
+            }
+            if let parsed {
+                plain += text[index..<bang.lowerBound]
+                if !plain.isEmpty {
+                    parts.append(.text(plain))
+                    plain = ""
+                }
+                parts.append(.image(alt: parsed.alt, source: parsed.source))
+                index = parsed.end
+            } else {
+                // Not an image after all; the "![" is ordinary text.
+                plain += text[index..<bang.upperBound]
+                index = bang.upperBound
+            }
+        }
+        plain += text[index...]
+        if !plain.isEmpty { parts.append(.text(plain)) }
+        return parts
+    }
+
+    enum ResolvedPart: Equatable {
+        case text(String)
+        case image(alt: String, url: URL)
+    }
+
+    // Splits a paragraph around the images that resolve to a file. One that does not
+    // rejoins the surrounding text as written, so the paragraph then renders the way
+    // it would have without image support.
+    static func resolvedParts(_ text: String,
+                              resolve: (String) -> URL?) -> [ResolvedPart] {
+        var resolved: [ResolvedPart] = []
+
+        func appendText(_ piece: String) {
+            if case .text(let existing) = resolved.last {
+                resolved[resolved.count - 1] = .text(existing + piece)
+            } else {
+                resolved.append(.text(piece))
+            }
+        }
+
+        for part in paragraphParts(text) {
+            switch part {
+            case .text(let piece):
+                appendText(piece)
+            case .image(let alt, let source):
+                if let url = resolve(source) {
+                    resolved.append(.image(alt: alt, url: url))
+                } else {
+                    appendText("![\(alt)](\(source))")
+                }
+            }
+        }
+        return resolved
+    }
+}
+
+// Where a prose image may come from: an existing local image file, named by an absolute
+// path or one relative to the project. Anything else - a web URL, a missing file, a
+// non-image - stays as text, and nothing is ever fetched over the network.
+enum TranscriptImage {
+    static func resolve(_ source: String, projectPath: String) -> URL? {
+        let trimmed = source.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty, !trimmed.contains("://") else { return nil }
+        let url = trimmed.hasPrefix("/")
+            ? URL(fileURLWithPath: trimmed)
+            : URL(fileURLWithPath: projectPath).appendingPathComponent(trimmed)
+        let file = url.standardizedFileURL
+        guard let type = UTType(filenameExtension: file.pathExtension),
+              type.conforms(to: .image) else { return nil }
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: file.path, isDirectory: &isDirectory),
+              !isDirectory.boolValue else { return nil }
+        return file
+    }
+}
+
 struct MarkdownTable: Equatable {
     enum ColumnAlignment: Equatable {
         case leading, center, trailing
@@ -205,16 +320,12 @@ extension AttributedString {
 // attributed string in the answer several times a second.
 struct MarkdownBlockView: View, Equatable {
     let block: MarkdownBlock
+    let projectPath: String
 
     var body: some View {
         switch block.kind {
         case .paragraph(let text):
-            Text(.inlineMarkdown(text))
-                .font(.system(size: 13))
-                .textSelection(.enabled)
-                .multilineTextAlignment(.leading)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            paragraph(text)
         case .heading(let level, let text):
             Text(.inlineMarkdown(text))
                 .font(headingFont(level))
@@ -260,6 +371,39 @@ struct MarkdownBlockView: View, Equatable {
                 .fill(Theme.hairline)
                 .frame(height: 1)
         }
+    }
+
+    // A paragraph that holds images renders as text runs with each image between them
+    // at reading size; without any it stays one piece of text, exactly as before.
+    @ViewBuilder private func paragraph(_ text: String) -> some View {
+        let parts = MarkdownBlock.resolvedParts(text) {
+            TranscriptImage.resolve($0, projectPath: projectPath)
+        }
+        if parts.contains(where: { if case .image = $0 { true } else { false } }) {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(Array(parts.enumerated()), id: \.offset) { _, part in
+                    switch part {
+                    case .text(let piece):
+                        let trimmed = piece.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !trimmed.isEmpty { paragraphText(trimmed) }
+                    case .image(let alt, let url):
+                        InlineImageView(url: url, label: alt.isEmpty ? nil : alt)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            paragraphText(text)
+        }
+    }
+
+    private func paragraphText(_ text: String) -> some View {
+        Text(.inlineMarkdown(text))
+            .font(.system(size: 13))
+            .textSelection(.enabled)
+            .multilineTextAlignment(.leading)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // A plain bullet is a small green disc rather than a glyph, so a list of findings

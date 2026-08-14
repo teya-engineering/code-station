@@ -150,6 +150,24 @@ extension View {
 
 // MARK: - Showing one
 
+// A small decoded copy of an image file. Screenshots are large, so anything that
+// draws one decodes a bounded copy instead of the whole image.
+struct ImageThumbnail: @unchecked Sendable {
+    let image: CGImage
+
+    var aspectRatio: CGFloat { CGFloat(image.width) / CGFloat(image.height) }
+
+    nonisolated static func load(_ url: URL, maxPixelSize: Int) -> ImageThumbnail? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                  kCGImageSourceCreateThumbnailFromImageAlways: true,
+                  kCGImageSourceCreateThumbnailWithTransform: true,
+                  kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
+              ] as CFDictionary) else { return nil }
+        return ImageThumbnail(image: image)
+    }
+}
+
 // A file on its way out, or one that already went. Images show a thumbnail, everything
 // else shows an icon and its name. `onRemove` is what makes it a composer chip rather
 // than a record of what was sent.
@@ -159,7 +177,7 @@ struct AttachmentChip: View {
     let url: URL
     var onRemove: (() -> Void)?
 
-    @State private var thumbnail: Thumbnail?
+    @State private var thumbnail: ImageThumbnail?
 
     var body: some View {
         HStack(spacing: 6) {
@@ -212,7 +230,7 @@ struct AttachmentChip: View {
         .frame(maxWidth: 220)
         .task(id: url) {
             let thumbnail = await Task.detached(priority: .utility) {
-                Self.thumbnail(url)
+                ImageThumbnail.load(url, maxPixelSize: 96)
             }.value
             guard !Task.isCancelled else { return }
             self.thumbnail = thumbnail
@@ -228,22 +246,81 @@ struct AttachmentChip: View {
             actions: [.init(label: "Close", kind: .cancel)],
             width: 760))
     }
+}
 
-    // Screenshots are large, so the chip decodes a small copy instead of the whole image.
-    private nonisolated static func thumbnail(_ url: URL) -> Thumbnail? {
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
-                  kCGImageSourceCreateThumbnailFromImageAlways: true,
-                  kCGImageSourceCreateThumbnailWithTransform: true,
-                  kCGImageSourceThumbnailMaxPixelSize: 96,
-              ] as CFDictionary) else { return nil }
-        return Thumbnail(image: image)
+// An image shown at reading size in the transcript, with a click opening the full
+// preview. A file that decodes to nothing falls back to the plain chip, so a broken
+// image still says which file it was.
+struct InlineImageView: View {
+    @Environment(DialogPresenter.self) private var dialogs
+
+    let url: URL
+    var label: String?
+
+    @State private var thumbnail: ImageThumbnail?
+    @State private var failed = false
+
+    private static let maxWidth: CGFloat = 280
+    private static let maxHeight: CGFloat = 200
+
+    var body: some View {
+        Group {
+            if let thumbnail {
+                let size = Self.fit(thumbnail)
+                Button {
+                    showPreview(aspectRatio: thumbnail.aspectRatio)
+                } label: {
+                    Image(decorative: thumbnail.image, scale: 1)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: size.width, height: size.height)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
+                        .contentShape(RoundedRectangle(cornerRadius: 8))
+                }
+                .buttonStyle(.plain)
+                .appTooltip { Tooltip(title: label ?? url.lastPathComponent, subtitle: url.path) }
+                .accessibilityLabel("View \(label ?? url.lastPathComponent)")
+            } else if failed {
+                AttachmentChip(url: url)
+            } else {
+                // A quiet stand-in close to the finished size, so the page settles
+                // instead of jumping when the decode lands.
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Theme.sunken)
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
+                    .overlay {
+                        Image(systemName: "photo")
+                            .font(.system(size: 18, weight: .light))
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(width: 220, height: 140)
+            }
+        }
+        .task(id: url) {
+            let loaded = await Task.detached(priority: .utility) {
+                // Twice the widest it can draw, so it stays sharp on a Retina display
+                // without decoding a screenshot at full size.
+                ImageThumbnail.load(url, maxPixelSize: 640)
+            }.value
+            guard !Task.isCancelled else { return }
+            thumbnail = loaded
+            failed = loaded == nil
+        }
     }
 
-    private struct Thumbnail: @unchecked Sendable {
-        let image: CGImage
+    // Fits the reading box without blowing a small image up past its own pixels.
+    private static func fit(_ thumbnail: ImageThumbnail) -> CGSize {
+        let width = min(maxWidth, maxHeight * thumbnail.aspectRatio, CGFloat(thumbnail.image.width))
+        return CGSize(width: width, height: width / thumbnail.aspectRatio)
+    }
 
-        var aspectRatio: CGFloat { CGFloat(image.width) / CGFloat(image.height) }
+    private func showPreview(aspectRatio: CGFloat) {
+        dialogs.show(Dialog(
+            title: url.lastPathComponent,
+            content: AnyView(AttachmentImagePreview(url: url, aspectRatio: aspectRatio)),
+            actions: [.init(label: "Close", kind: .cancel)],
+            width: 760))
     }
 }
 
@@ -251,7 +328,7 @@ private struct AttachmentImagePreview: View {
     let url: URL
     let aspectRatio: CGFloat
 
-    @State private var image: PreviewImage?
+    @State private var image: ImageThumbnail?
     @State private var failed = false
 
     var body: some View {
@@ -281,8 +358,10 @@ private struct AttachmentImagePreview: View {
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
         .task(id: url) {
+            // The popup is at most 720 points wide. A 1,440-pixel copy remains sharp on
+            // a Retina display without decoding a large screenshot at its full size.
             let loaded = await Task.detached(priority: .userInitiated) {
-                Self.load(url)
+                ImageThumbnail.load(url, maxPixelSize: 1_440)
             }.value
             guard !Task.isCancelled else { return }
             image = loaded
@@ -292,21 +371,5 @@ private struct AttachmentImagePreview: View {
 
     private var previewHeight: CGFloat {
         min(480, max(180, 720 / aspectRatio))
-    }
-
-    // The popup is at most 720 points wide. A 1,440-pixel copy remains sharp on a Retina
-    // display without decoding a large screenshot at its full size just to scale it down.
-    private nonisolated static func load(_ url: URL) -> PreviewImage? {
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
-                  kCGImageSourceCreateThumbnailFromImageAlways: true,
-                  kCGImageSourceCreateThumbnailWithTransform: true,
-                  kCGImageSourceThumbnailMaxPixelSize: 1_440,
-              ] as CFDictionary) else { return nil }
-        return PreviewImage(image: image)
-    }
-
-    private struct PreviewImage: @unchecked Sendable {
-        let image: CGImage
     }
 }
