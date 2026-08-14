@@ -53,6 +53,30 @@ enum GitActions {
         }
     }
 
+    // Throws away the uncommitted work in one file. A tracked file goes back to the way the
+    // last commit has it, in the index and the working tree at once, so a change that was
+    // only half staged goes with the rest. A rename is one row on the screen but two paths
+    // in git: the new name has to go and the old one has to come back. A file git has never
+    // seen has no committed version to restore, so it is moved to the trash, which at least
+    // leaves a way back.
+    static func discard(_ file: GitChange, at root: String) async -> String? {
+        let url = URL(fileURLWithPath: root)
+        guard !file.isUntracked else {
+            do {
+                try FileManager.default.trashItem(
+                    at: url.appendingPathComponent(file.path), resultingItemURL: nil)
+                return nil
+            } catch {
+                return error.localizedDescription
+            }
+        }
+        let paths = [file.path] + (file.originalPath.map { [$0] } ?? [])
+        return await perform(at: root) { tool, url in
+            GitInspector.run(
+                tool, ["restore", "--staged", "--worktree", "--source=HEAD", "--"] + paths, in: url)
+        }
+    }
+
     // Pull works out how to reconcile the branch itself rather than leaning on pull.rebase,
     // which git refuses to guess at and which plenty of checkouts never set: a button has
     // no way to stop halfway and ask. The fetch comes first, so the decision runs on how

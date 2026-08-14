@@ -19,6 +19,70 @@ struct GitActionsTests {
         #expect(after.files.isEmpty)
     }
 
+    @Test func discardPutsAModifiedFileBack() async throws {
+        let repo = try Repo()
+        try repo.write("README.md", "changed")
+
+        let file = try #require(await GitInspector.snapshot(at: repo.path).files.first)
+        #expect(await GitActions.discard(file, at: repo.path) == nil)
+
+        #expect(repo.read("README.md") == "hello")
+        #expect(await GitInspector.snapshot(at: repo.path).files.isEmpty)
+    }
+
+    // Staging half a file and leaving the rest is normal while a session works, and a
+    // discard that only cleared the working tree would leave the staged half behind.
+    @Test func discardClearsBothTheIndexAndTheWorkingTree() async throws {
+        let repo = try Repo()
+        try repo.write("README.md", "staged")
+        repo.git("add", "README.md")
+        try repo.write("README.md", "and then some more")
+
+        let file = try #require(await GitInspector.snapshot(at: repo.path).files.first)
+        #expect(file.isStaged && file.isUnstaged)
+        #expect(await GitActions.discard(file, at: repo.path) == nil)
+
+        #expect(repo.read("README.md") == "hello")
+        #expect(await GitInspector.snapshot(at: repo.path).files.isEmpty)
+    }
+
+    // A rename is one row on the screen and two paths in git, so undoing it has to bring
+    // the old name back as well as take the new one away.
+    @Test func discardUndoesARename() async throws {
+        let repo = try Repo()
+        repo.git("mv", "README.md", "NOTES.md")
+
+        let file = try #require(await GitInspector.snapshot(at: repo.path).files.first)
+        #expect(file.originalPath == "README.md")
+        #expect(await GitActions.discard(file, at: repo.path) == nil)
+
+        #expect(repo.read("README.md") == "hello")
+        #expect(await GitInspector.snapshot(at: repo.path).files.isEmpty)
+    }
+
+    @Test func discardBringsBackADeletedFile() async throws {
+        let repo = try Repo()
+        try FileManager.default.removeItem(at: repo.url.appendingPathComponent("README.md"))
+
+        let file = try #require(await GitInspector.snapshot(at: repo.path).files.first)
+        #expect(await GitActions.discard(file, at: repo.path) == nil)
+
+        #expect(repo.read("README.md") == "hello")
+    }
+
+    // Git has no copy of an untracked file, so the trash is the only version left of it.
+    @Test func discardTrashesAnUntrackedFile() async throws {
+        let repo = try Repo()
+        try repo.write("scratch.txt", "never committed")
+
+        let file = try #require(await GitInspector.snapshot(at: repo.path).files.first)
+        #expect(file.isUntracked)
+        #expect(await GitActions.discard(file, at: repo.path) == nil)
+
+        #expect(repo.read("scratch.txt") == nil)
+        #expect(await GitInspector.snapshot(at: repo.path).files.isEmpty)
+    }
+
     @Test func switchesBetweenBranches() async throws {
         let repo = try Repo()
         repo.git("branch", "feature")

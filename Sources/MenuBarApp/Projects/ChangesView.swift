@@ -306,7 +306,9 @@ struct ChangesView: View {
              .item("Copy Path") {
                  NSPasteboard.general.clearContents()
                  NSPasteboard.general.setString(fileURL(file).path, forType: .string)
-             }]
+             },
+             .separator,
+             .item("Discard Changes", kind: .destructive) { confirmDiscard(file) }]
         }
     }
 
@@ -412,6 +414,30 @@ struct ChangesView: View {
         case .failed(let error):
             fail("Could not pull", error)
         }
+    }
+
+    // Discarding is the one action here that destroys work rather than moving it around,
+    // and nothing on this screen can undo it, so it always asks first and says in plain
+    // words what the file will be left as.
+    private func confirmDiscard(_ file: GitChange) {
+        let root = repoRoot
+        let untracked = file.isUntracked
+        dialogs.show(Dialog(
+            title: untracked ? "Delete this file?" : "Discard changes?",
+            message: untracked
+                ? "\(file.path) is not in git yet, so there is no committed version to go back "
+                    + "to. It will be moved to the Trash."
+                : "\(file.path) goes back to the way the last commit has it. The changes in it "
+                    + "are lost.",
+            actions: [
+                .init(label: untracked ? "Move to Trash" : "Discard", kind: .destructive) {
+                    perform("Discarding…", failure: "Could not discard changes") {
+                        await GitActions.discard(file, at: root)
+                    }
+                },
+                .init(label: "Cancel", kind: .cancel)
+            ],
+            width: 420))
     }
 
     private func confirmPush(_ snapshot: GitSnapshot) {
