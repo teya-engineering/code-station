@@ -361,6 +361,7 @@ struct SessionView: View {
                     branchTag(branch: branch, repository: repository)
                 }
                 if let pullRequest = session.pullRequest { pullRequestTag(pullRequest) }
+                if let cost = session.usage?.costUSD, cost > 0 { spentTag(cost) }
                 if let usage = session.usage,
                    let fraction = usage.contextFraction(for: session.agent) {
                     contextMeter(fraction: fraction, usage: usage, agent: session.agent)
@@ -1291,6 +1292,17 @@ struct SessionView: View {
         }
     }
 
+    // What the session has cost so far. Codex reports no cost, so the figure only
+    // appears once there is one, rather than showing a $0.00 that reads as free.
+    private func spentTag(_ cost: Double) -> some View {
+        Text(Money.short(cost))
+            .font(.mono(10.5))
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .fixedSize()
+            .appTooltip("What this session has spent.")
+    }
+
     // The meter is the one thing on this row that says the session is getting heavy, so
     // it is also where the window is dealt with. It only opens a menu while there is a
     // conversation to work on and nothing running that still holds it; the rest of the
@@ -1406,6 +1418,10 @@ struct SessionView: View {
             rows.append(Tooltip.Row(
                 label: "Context",
                 value: "\(formattedTokens(usage.contextTokens)) of \(formattedTokens(usage.contextWindow))"))
+        }
+        // Codex reports no cost, so a zero here means "unknown" rather than free.
+        if usage.costUSD > 0 {
+            rows.append(Tooltip.Row(label: "Spent", value: Money.short(usage.costUSD)))
         }
         let turns = usage.turns == 1 ? "1 turn" : "\(usage.turns) turns"
         return Tooltip(title: "Session usage",
