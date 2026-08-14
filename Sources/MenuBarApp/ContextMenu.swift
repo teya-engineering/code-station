@@ -2,6 +2,9 @@ import AppKit
 import SwiftUI
 
 private let menuMinimumWidth: CGFloat = 170
+// A row takes the width its own text asks for, so a subtitle carrying something long -
+// a shell command, a path, a URL - would otherwise drag the whole menu across the window.
+private let menuSubtitleMaximumWidth: CGFloat = 360
 
 // The right-click menu, drawn by the app rather than by AppKit. The system menu cannot
 // be styled and arrives in the system's own font and colours, so it reads as a piece of
@@ -590,6 +593,9 @@ private struct MenuItemRow: View {
                         Text(subtitle)
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .frame(maxWidth: menuSubtitleMaximumWidth, alignment: .leading)
                     }
                 }
                 if let detail = item.detail {
