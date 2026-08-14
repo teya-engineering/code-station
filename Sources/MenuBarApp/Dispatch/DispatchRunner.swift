@@ -142,35 +142,71 @@ final class DispatchRunner {
 
     // MARK: - Building
 
-    private static func build(_ request: SavedRequest, environment: ApiEnvironment,
-                              authorization: String?) -> URLRequest? {
+    // Exactly what goes on the wire: the address with {{env}} filled in, the headers in
+    // the order they are sent, and the body if there is one. Sending and writing the
+    // request out as curl both read this, so what is copied is what would be sent.
+    struct ResolvedRequest {
+        var url: String
+        var headers: [HeaderField]
+        var body: String?
+    }
+
+    nonisolated static func resolve(_ request: SavedRequest, environment: ApiEnvironment,
+                                    authorization: String?) -> ResolvedRequest {
         // {{env}} is substituted at the last moment, so the saved request stays a
         // template and the same list serves both environments.
-        let trimmed = environment.resolve(request.expandedURL)
+        let url = environment.resolve(request.expandedURL)
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let url = URL(string: trimmed), url.scheme != nil, url.host != nil else { return nil }
 
-        var urlRequest = URLRequest(url: url)
-        urlRequest.httpMethod = request.method.rawValue
+        var headers: [HeaderField] = []
+        // Setting a header twice replaces it rather than sending it twice, the way
+        // URLRequest treats it, and the name is matched however it was typed.
+        func set(_ key: String, _ value: String) {
+            let field = HeaderField(key: key, value: value)
+            if let index = headers.firstIndex(where: {
+                $0.key.caseInsensitiveCompare(key) == .orderedSame
+            }) {
+                headers[index] = field
+            } else {
+                headers.append(field)
+            }
+        }
 
         // The collection's token goes on first, so an Authorization header typed into the
         // request itself still wins.
         if let authorization, request.useAuth {
-            urlRequest.setValue(authorization, forHTTPHeaderField: "Authorization")
+            set("Authorization", authorization)
         }
 
         for header in request.headers where header.enabled && !header.key.isEmpty {
-            urlRequest.setValue(header.value, forHTTPHeaderField: header.key)
+            set(header.key, header.value)
         }
 
+        var body: String?
         if request.bodyType != .none, !request.body.isEmpty {
-            urlRequest.httpBody = Data(request.body.utf8)
+            body = request.body
             // A Content-Type typed by hand is the more deliberate choice, so the one
             // implied by the body type only fills a gap.
-            if urlRequest.value(forHTTPHeaderField: "Content-Type") == nil,
+            if !headers.contains(where: { $0.key.caseInsensitiveCompare("Content-Type") == .orderedSame }),
                let contentType = request.bodyType.contentType {
-                urlRequest.setValue(contentType, forHTTPHeaderField: "Content-Type")
+                set("Content-Type", contentType)
             }
+        }
+        return ResolvedRequest(url: url, headers: headers, body: body)
+    }
+
+    private static func build(_ request: SavedRequest, environment: ApiEnvironment,
+                              authorization: String?) -> URLRequest? {
+        let resolved = resolve(request, environment: environment, authorization: authorization)
+        guard let url = URL(string: resolved.url), url.scheme != nil, url.host != nil else { return nil }
+
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = request.method.rawValue
+        for header in resolved.headers {
+            urlRequest.setValue(header.value, forHTTPHeaderField: header.key)
+        }
+        if let body = resolved.body {
+            urlRequest.httpBody = Data(body.utf8)
         }
         return urlRequest
     }

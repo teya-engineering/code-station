@@ -507,6 +507,7 @@ private func resolvedText(_ template: String, env: ApiEnvironment,
 private struct RequestDetail: View {
     @State private var draft: SavedRequest
     @State private var tab = Tab.queryParams
+    @State private var copiedCurl = false
 
     @Environment(DispatchStore.self) private var store
     @Environment(DispatchRunner.self) private var runner
@@ -526,6 +527,11 @@ private struct RequestDetail: View {
     private var environment: ApiEnvironment { auth.active }
     private var running: Bool { runner.isRunning(draft.id, in: environment) }
     private var result: HTTPResult? { runner.result(draft.id, in: environment) }
+    private var sendable: Bool { !draft.url.isEmpty }
+
+    private var curlMenu: [MenuEntry] {
+        [.item("Copy as curl", icon: "terminal", action: copyAsCurl)]
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -591,23 +597,43 @@ private struct RequestDetail: View {
                     .stroke(environment.accent.opacity(0.35)))
                 .onSubmit(send)
 
-            Button {
-                if running {
-                    cancel()
-                } else {
-                    send()
+            HStack(spacing: 0) {
+                Button {
+                    if running {
+                        cancel()
+                    } else {
+                        send()
+                    }
+                } label: {
+                    Text(running ? "Cancel" : "Send")
+                        .font(.system(size: 13, weight: .semibold))
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 9)
+                        .contentShape(Rectangle())
+                        .opacity(sendable || running ? 1 : 0.45)
                 }
-            } label: {
-                Text(running ? "Cancel" : "Send")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 9)
-                    .background(RoundedRectangle(cornerRadius: 9)
-                        .fill(running ? Theme.deletion : environment.accentFill))
+                .buttonStyle(.plain)
+                .disabled(!running && !sendable)
+
+                Rectangle()
+                    .fill(.white.opacity(0.35))
+                    .frame(width: 1, height: 16)
+
+                // A tick in place of the chevron says the copy landed, since the menu
+                // closes on the click and takes the only other place to say so with it.
+                Image(systemName: copiedCurl ? "checkmark" : "chevron.down")
+                    .font(.system(size: 9, weight: .bold))
+                    .frame(width: 30)
+                    .frame(maxHeight: .infinity)
+                    .contentShape(Rectangle())
+                    .appMenu { curlMenu }
+                    .accessibilityLabel("More request actions")
             }
-            .buttonStyle(.plain)
-            .disabled(!running && draft.url.isEmpty)
+            .fixedSize(horizontal: false, vertical: true)
+            .foregroundStyle(.white)
+            .background(RoundedRectangle(cornerRadius: 9)
+                .fill(running ? Theme.deletion : environment.accentFill))
+            .clipShape(RoundedRectangle(cornerRadius: 9))
         }
         .padding(.horizontal, 20)
         .padding(.bottom, 6)
@@ -847,6 +873,23 @@ private struct RequestDetail: View {
 
     private func cancel() {
         runner.cancel(draft.id, in: environment)
+    }
+
+    private func copyAsCurl() {
+        let request = draft
+        let env = environment
+        Task {
+            // Asked for the same way a send does, so the copied command carries a token
+            // that is live rather than one that expired while the window sat open.
+            let authorization = request.useAuth ? await auth.authorizationHeader(for: env) : nil
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(
+                CurlCommand.text(for: request, environment: env, authorization: authorization),
+                forType: .string)
+            copiedCurl = true
+            try? await Task.sleep(for: .seconds(2))
+            copiedCurl = false
+        }
     }
 
     private func consequence(of method: HTTPMethod) -> String {
