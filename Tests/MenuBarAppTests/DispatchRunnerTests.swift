@@ -60,6 +60,44 @@ struct DispatchRunnerTests {
         #expect(!runner.isRunning(request.id, in: .staging))
     }
 
+    // Foundation puts an unusable header name on the wire without complaint, so the
+    // check has to happen here. Sending it would come back as a lost connection, which
+    // says nothing about the header that caused it.
+    @MainActor
+    @Test func refusesAHeaderNameThatIsNotAToken() async throws {
+        StubURLProtocol.prepare(body: Data("never sent".utf8))
+        let runner = DispatchRunner(maxResponseBytes: 32,
+                                   maxRetainedResultBytes: 64,
+                                   sessionConfiguration: stubConfiguration())
+        let request = SavedRequest(name: "bad header", url: "https://example.test/thing",
+                                   headers: [HeaderField(key: "Authorization: Basic",
+                                                         value: "dGVrdG9u")])
+
+        await runner.send(request, environment: .staging)
+
+        let result = try #require(runner.result(request.id, in: .staging))
+        let failure = try #require(result.failure)
+        #expect(failure.contains("\"Authorization: Basic\" is not a header name"))
+        #expect(result.status == 0)
+    }
+
+    @MainActor
+    @Test func sendsAValidHeaderName() async throws {
+        StubURLProtocol.prepare(body: Data("ok".utf8))
+        let runner = DispatchRunner(maxResponseBytes: 32,
+                                   maxRetainedResultBytes: 64,
+                                   sessionConfiguration: stubConfiguration())
+        let request = SavedRequest(name: "good header", url: "https://example.test/thing",
+                                   headers: [HeaderField(key: "Authorization",
+                                                         value: "Basic dGVrdG9u")])
+
+        await runner.send(request, environment: .staging)
+
+        let result = try #require(runner.result(request.id, in: .staging))
+        #expect(result.failure == nil)
+        #expect(result.body == "ok")
+    }
+
     private func stubConfiguration() -> URLSessionConfiguration {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [StubURLProtocol.self]

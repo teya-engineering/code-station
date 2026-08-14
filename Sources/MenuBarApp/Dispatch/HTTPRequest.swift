@@ -50,6 +50,31 @@ struct HeaderField: Identifiable, Codable, Equatable {
     var value: String
     // Headers are switched off rather than deleted so a token can be parked between runs.
     var enabled = true
+
+    // A header is written and copied as one "Name: value" line, so pasting the whole
+    // line into the name box is the natural move. The colon splits it instead of
+    // becoming part of the name. Whatever follows takes over the value, since a pasted
+    // line is the whole header; a name ending in a bare colon leaves the value alone,
+    // which is what typing the colon by hand should do.
+    mutating func splitPastedName() {
+        guard let colon = key.firstIndex(of: ":") else { return }
+        let rest = key[key.index(after: colon)...].trimmingCharacters(in: .whitespaces)
+        key = key[..<colon].trimmingCharacters(in: .whitespaces)
+        if !rest.isEmpty { value = rest }
+    }
+
+    // A field name is a token: letters, digits and a few marks, nothing else. Foundation
+    // does not check, so a name with a space or a colon in it goes on the wire as typed.
+    // An HTTP/1.1 server treats that as a header nobody reads, but an HTTP/2 server
+    // cannot encode it at all and drops the stream, which surfaces as a lost connection
+    // rather than as anything naming the header. Catching it here is the only place the
+    // real reason is still known.
+    static func isValidName(_ name: String) -> Bool {
+        !name.isEmpty && name.allSatisfy(nameCharacters.contains)
+    }
+
+    private static let nameCharacters = Set(
+        "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!#$%&'*+-.^_`|~")
 }
 
 struct RequestFolder: Identifiable, Codable, Equatable {

@@ -60,10 +60,14 @@ final class DispatchRunner {
               authorization: String? = nil) async {
         let key = Key(request: request.id, environment: environment)
         guard !inFlight.contains(key) else { return }
-        guard let urlRequest = Self.build(request, environment: environment,
-                                          authorization: authorization) else {
+
+        let urlRequest: URLRequest
+        switch Self.build(request, environment: environment, authorization: authorization) {
+        case .success(let built):
+            urlRequest = built
+        case .failure(let problem):
             store(HTTPResult(status: 0, headers: [], body: "", duration: 0,
-                             byteCount: 0, failure: "That URL is not valid."), for: key)
+                             byteCount: 0, failure: problem.message), for: key)
             return
         }
 
@@ -195,20 +199,45 @@ final class DispatchRunner {
         return ResolvedRequest(url: url, headers: headers, body: body)
     }
 
+    // What stops a request before it is sent. Each case carries its own wording, since
+    // "check the URL" and "check that header" send you looking in different places.
+    enum Problem: Error {
+        case url
+        case headerName(String)
+
+        var message: String {
+            switch self {
+            case .url:
+                "That URL is not valid."
+            case .headerName(let name):
+                """
+                "\(name)" is not a header name. A name can hold letters, digits and \
+                !#$%&'*+-.^_`|~, but not spaces or colons. A whole "Name: value" line \
+                belongs in both boxes, not just the first.
+                """
+            }
+        }
+    }
+
     private static func build(_ request: SavedRequest, environment: ApiEnvironment,
-                              authorization: String?) -> URLRequest? {
+                              authorization: String?) -> Result<URLRequest, Problem> {
         let resolved = resolve(request, environment: environment, authorization: authorization)
-        guard let url = URL(string: resolved.url), url.scheme != nil, url.host != nil else { return nil }
+        guard let url = URL(string: resolved.url), url.scheme != nil, url.host != nil else {
+            return .failure(.url)
+        }
 
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = request.method.rawValue
         for header in resolved.headers {
+            guard HeaderField.isValidName(header.key) else {
+                return .failure(.headerName(header.key))
+            }
             urlRequest.setValue(header.value, forHTTPHeaderField: header.key)
         }
         if let body = resolved.body {
             urlRequest.httpBody = Data(body.utf8)
         }
-        return urlRequest
+        return .success(urlRequest)
     }
 
     // MARK: - Reading the response

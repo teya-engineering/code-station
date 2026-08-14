@@ -779,7 +779,7 @@ private struct RequestDetail: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 6) {
                 ForEach($draft.headers) { $header in
-                    HeaderRow(header: $header) {
+                    HeaderRow(header: $header, isHeader: true) {
                         draft.headers.removeAll { $0.id == header.id }
                     }
                 }
@@ -971,34 +971,60 @@ private struct HeaderRow: View {
     @Binding var header: HeaderField
     var keyPlaceholder = "Header"
     var valuePlaceholder = "value"
+    // Only real headers are held to the header name rules. A query or path param is
+    // named by whoever wrote the API and may hold characters a header never could.
+    var isHeader = false
     let onDelete: () -> Void
 
+    // Shown once the name cannot be fixed by splitting it, so a name that arrives whole
+    // is quietly put right and only a genuinely unusable one is called out.
+    private var nameProblem: String? {
+        guard isHeader, !header.key.isEmpty, !HeaderField.isValidName(header.key) else {
+            return nil
+        }
+        return "A header name cannot hold spaces or colons."
+    }
+
     var body: some View {
-        HStack(spacing: 12) {
-            Toggle(isOn: $header.enabled) { EmptyView() }
-                .toggleStyle(.appCheckbox)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 12) {
+                Toggle(isOn: $header.enabled) { EmptyView() }
+                    .toggleStyle(.appCheckbox)
 
-            TextField(keyPlaceholder, text: $header.key)
-                .textFieldStyle(.plain)
-                .font(.mono(12, .semibold))
-                .frame(width: 200, alignment: .leading)
+                TextField(keyPlaceholder, text: $header.key)
+                    .textFieldStyle(.plain)
+                    .font(.mono(12, .semibold))
+                    .foregroundStyle(nameProblem == nil ? Color.primary : Theme.deletion)
+                    .frame(width: 200, alignment: .leading)
+                    .onChange(of: header.key) {
+                        if isHeader { header.splitPastedName() }
+                    }
 
-            TextField(valuePlaceholder, text: $header.value)
-                .textFieldStyle(.plain)
-                .font(.mono(12))
-                .frame(maxWidth: .infinity, alignment: .leading)
+                TextField(valuePlaceholder, text: $header.value)
+                    .textFieldStyle(.plain)
+                    .font(.mono(12))
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
-            Button(action: onDelete) {
-                Image(systemName: "trash").font(.system(size: 11))
+                Button(action: onDelete) {
+                    Image(systemName: "trash").font(.system(size: 11))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
+
+            if let nameProblem {
+                Text(nameProblem)
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.deletion)
+                    .padding(.leading, 32)
+            }
         }
         .opacity(header.enabled ? 1 : 0.45)
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
+        .overlay(RoundedRectangle(cornerRadius: 10)
+            .stroke(nameProblem == nil ? Theme.border : Theme.deletion))
     }
 }
 
