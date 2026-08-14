@@ -6,6 +6,10 @@ struct HeaderTabToggle<Selection: Hashable>: View {
     @Binding var selection: Selection
     let options: [(label: String, value: Selection)]
 
+    // Ties the selected pill to whichever segment holds it, so picking another one moves
+    // the same shape across instead of hiding it here and showing a new one there.
+    @Namespace private var pill
+
     var body: some View {
         HStack(spacing: 2) {
             ForEach(options.indices, id: \.self) { index in
@@ -19,6 +23,7 @@ struct HeaderTabToggle<Selection: Hashable>: View {
         // two lines. It is a fixed set of short words: it should hold its size and let
         // the title beside it give way instead.
         .fixedSize(horizontal: true, vertical: false)
+        .animation(.spring(response: 0.3, dampingFraction: 0.85), value: selection)
     }
 
     private func segment(_ option: (label: String, value: Selection)) -> some View {
@@ -31,10 +36,14 @@ struct HeaderTabToggle<Selection: Hashable>: View {
                 .foregroundStyle(active ? Color.primary : Color.secondary)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 5)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(active ? Theme.card : .clear)
-                        .shadow(color: .black.opacity(active ? 0.08 : 0), radius: 1, y: 0.5))
+                .background {
+                    if active {
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Theme.card)
+                            .shadow(color: .black.opacity(0.08), radius: 1, y: 0.5)
+                            .matchedGeometryEffect(id: "selected", in: pill)
+                    }
+                }
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
