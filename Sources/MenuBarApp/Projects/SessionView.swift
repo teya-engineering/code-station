@@ -800,8 +800,7 @@ struct SessionView: View {
                 .transition(.fadeIn)
 
             if showsThinking(state: state) {
-                WorkingRow(runningTool: runningTool(session, root: projectPath),
-                           since: runner.lastActivity(sessionID) ?? Date(),
+                WorkingRow(since: runner.lastActivity(sessionID) ?? Date(),
                            avatarSequence: runner.avatarSequence(sessionID) ?? 0,
                            avatarName: session.agentAvatarName,
                            waitingOnTasks: state == .waiting)
@@ -861,14 +860,6 @@ struct SessionView: View {
             }
             .id(request.id)
         }
-    }
-
-    // "Bash · swift build" for the call in flight, so the wait has a subject. Nothing while
-    // the model is only writing, which is what a plain "Thinking…" means.
-    private func runningTool(_ session: ChatSession, root: String) -> String? {
-        guard let last = session.messages.last, last.role == .assistant,
-              let tool = last.tools.last(where: { $0.isRunning }) else { return nil }
-        return ToolPresentationCache.presentation(for: tool, projectPath: root).label
     }
 
     // A running turn shows the row for as long as it runs, whatever the transcript looks
@@ -1568,14 +1559,14 @@ struct SessionView: View {
     }
 }
 
-// What the agent is doing, and how long since it last said anything. A working turn
+// That the turn is still alive, and how long since it last said anything. A working turn
 // reports something every few seconds, so the silence is the number worth watching: it is
-// the only thing that separates a long build from a turn that will never come back.
+// the only thing that separates a long build from a turn that will never come back. The
+// call in flight is named in the block above, so the row does not repeat it.
 private struct WorkingRow: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(AppSettings.self) private var appSettings
 
-    let runningTool: String?
     let since: Date
     let avatarSequence: Int
     let avatarName: String?
@@ -1625,12 +1616,6 @@ private struct WorkingRow: View {
                     Text("for a background task to finish")
                         .font(.mono(12))
                         .foregroundStyle(.secondary)
-                } else if let runningTool {
-                    Text(runningTool)
-                        .font(.mono(12))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
                 }
                 if quiet >= Self.showQuietAfter, !waitingOnTasks {
                     Text("silent for \(elapsed(quiet))")
