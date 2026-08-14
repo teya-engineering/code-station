@@ -141,6 +141,144 @@ struct ClearContextTests {
         #expect(store.session(session.id)?.claudeSessionID == "conversation-1")
     }
 
+    // MARK: - Compacting
+
+    // The CLI writes this when it has replaced the conversation with a summary. The
+    // payload here is a real one taken off the wire, underscores and all.
+    @Test func readsTheCompactionBoundaryOffTheStream() throws {
+        let line = #"""
+        {"type":"system","subtype":"compact_boundary","session_id":"abc","compact_metadata":{"trigger":"manual","pre_tokens":32824,"post_tokens":5852,"cumulative_dropped_tokens":52395,"duration_ms":56333}}
+        """#
+        guard case .compacted(let pre, let post) = try #require(StreamEvent.parse(line).first) else {
+            Issue.record("expected a compaction event")
+            return
+        }
+        #expect(pre == 32824)
+        #expect(post == 5852)
+    }
+
+    // The CLI's own history file spells the same fields in camel case and leaves out the
+    // size afterwards, so neither spelling nor completeness can be relied on.
+    @Test func readsTheBoundaryWhicheverWayTheKeysAreSpelled() throws {
+        let line = #"""
+        {"type":"system","subtype":"compact_boundary","compactMetadata":{"trigger":"manual","preTokens":30587}}
+        """#
+        guard case .compacted(let pre, let post) = try #require(StreamEvent.parse(line).first) else {
+            Issue.record("expected a compaction event")
+            return
+        }
+        #expect(pre == 30587)
+        #expect(post == nil)
+    }
+
+    // The summary is the whole conversation now, so its size is how full the window is.
+    @Test func theSizeAfterCompactingIsTheNewReading() {
+        var usage = SessionUsage()
+        usage.noteContext(120_000, contextWindow: 200_000, model: "opus", from: .claudeCode)
+
+        usage.noteContext(5852, contextWindow: nil, model: nil, from: .claudeCode)
+
+        #expect(usage.contextTokens == 5852)
+        #expect(usage.contextWindow == 200_000)
+    }
+
+    // Without a size afterwards there is nothing honest to show, so the meter comes off
+    // the row until a turn measures one.
+    @Test func aCompactionThatSaysNoNewSizeRetiresTheReading() {
+        var usage = SessionUsage()
+        usage.noteContext(120_000, contextWindow: 200_000, model: "opus", from: .claudeCode)
+
+        usage.noteCompacted()
+
+        #expect(usage.contextTokens == 0)
+        #expect(usage.contextWindow == 0)
+        #expect(usage.contextFraction == nil)
+    }
+
+    @Test func theNoticeReportsWhatTheCompactionAchieved() {
+        #expect(SessionRunner.compactedNotice(preTokens: 32824, postTokens: 5852)
+            == "Context compacted, from 32.8k tokens down to 5.9k.")
+        #expect(SessionRunner.compactedNotice(preTokens: 30587, postTokens: nil)
+            .contains("30.6k tokens were summarised"))
+        #expect(SessionRunner.compactedNotice(preTokens: nil, postTokens: nil)
+            .contains("replaced by a summary"))
+    }
+
+    // Clearing is the other way round: the window really is empty, so the meter stays on
+    // the row and reads zero.
+    @Test func clearingKeepsTheMeterAndReadsZero() {
+        var usage = SessionUsage()
+        usage.noteContext(120_000, contextWindow: 200_000, model: "opus", from: .claudeCode)
+
+        usage.noteCleared()
+
+        #expect(usage.contextWindow == 200_000)
+        #expect(usage.contextFraction == 0)
+    }
+
+    // Codex has no compaction in `codex exec`, so it is never offered.
+    @Test func onlyClaudeCodeCanCompact() {
+        let store = makeStore()
+        let runner = SessionRunner(paths: [:])
+
+        #expect(runner.canCompactContext(startedSession(in: store).id, store: store))
+        #expect(!runner.canCompactContext(startedSession(in: store, agent: .codex).id, store: store))
+    }
+
+    @Test func typingCompactOnCodexSaysWhyItCannot() {
+        let store = makeStore()
+        let runner = SessionRunner(paths: [:])
+        let session = startedSession(in: store, agent: .codex)
+
+        runner.send("/compact", sessionID: session.id, store: store)
+
+        #expect(runner.queued(session.id).isEmpty)
+        #expect(store.transcript(of: session.id).last?.text.contains("Codex cannot compact") == true)
+        // The conversation is untouched: compacting is not a quiet clear.
+        #expect(store.session(session.id)?.codexSessionID == "conversation-1")
+    }
+
+    @Test func onlyTheExactCompactWordIsACommand() {
+        #expect(SessionRunner.isCompactCommand("/compact"))
+        #expect(SessionRunner.isCompactCommand("  /Compact "))
+        #expect(!SessionRunner.isCompactCommand("/compact the logs"))
+        #expect(!SessionRunner.isCompactCommand("/compact-db"))
+    }
+
+    // The command travels down the pipe as a prompt, but it is not a line of the
+    // conversation, so it never appears as one.
+    @Test func theCompactCommandIsNotAUserMessage() {
+        let command = SessionRunner.QueuedPrompt(text: "/compact", attachments: [],
+                                                 customInstructions: nil, isAppCommand: true)
+        #expect(command.transcriptMessages.isEmpty)
+        #expect(command.prompt == "/compact")
+
+        let typed = SessionRunner.QueuedPrompt(text: "Fix the bug", attachments: [],
+                                               customInstructions: nil)
+        #expect(typed.transcriptMessages.map(\.role) == [.user])
+    }
+
+    // MARK: - The nearly-full nudge
+
+    // The nudge and the meter's red band are the same warning, so they start together.
+    @Test func theNudgeStartsWhereTheMeterTurnsRed() {
+        #expect(SessionRunner.nearlyFullContext == 0.85)
+    }
+
+    // A dismissal is only meant to last until the window is dealt with. One that outlived
+    // a clear would hide the warning the next time the session filled up.
+    @Test func dealingWithTheWindowBringsTheNudgeBack() {
+        let store = makeStore()
+        let runner = SessionRunner(paths: [:])
+        let session = startedSession(in: store)
+
+        runner.dismissNudge(session.id)
+        #expect(runner.isNudgeDismissed(session.id))
+
+        runner.clearContext(session.id, store: store)
+        #expect(!runner.isNudgeDismissed(session.id))
+    }
+
     @Test func typingItWithNothingToClearSaysSo() {
         let store = makeStore()
         let runner = SessionRunner(paths: [:])

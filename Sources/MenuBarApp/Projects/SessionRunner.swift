@@ -50,6 +50,11 @@ final class SessionRunner {
     // without the words going with it.
     private var drafts: [UUID: Draft] = [:]
     private var removals: Set<UUID> = []
+    // The transcript note a running compaction is writing itself into, so its outcome
+    // replaces it rather than piling a second line underneath.
+    private var compactNotices: [UUID: UUID] = [:]
+    // Sessions whose nearly-full nudge has been waved away for now.
+    private var nudgeDismissals: Set<UUID> = []
 
     @ObservationIgnored private let paths: [AgentKind: String]
     @ObservationIgnored private let configs: ConfigStore?
@@ -140,6 +145,10 @@ final class SessionRunner {
         let text: String
         let attachments: [Attachment]
         let customInstructions: String?
+        // A command the app sends on the person's behalf rather than something they
+        // typed at the agent. It travels down the same pipe but is not a line of the
+        // conversation, so it does not appear as one.
+        var isAppCommand = false
 
         var prompt: String {
             guard let customInstructions else { return text }
@@ -148,6 +157,8 @@ final class SessionRunner {
         }
 
         var transcriptMessages: [ChatMessage] {
+            // The note explaining what the app is doing is already in the transcript.
+            guard !isAppCommand else { return [] }
             var userMessage = ChatMessage(role: .user, text: text)
             if !attachments.isEmpty {
                 userMessage.attachments = attachments.map(\.url.path)
@@ -231,6 +242,7 @@ final class SessionRunner {
             store.clearAgentSessionID(agent: agent, for: sessionID)
         }
         store.clearContextUsage(for: sessionID)
+        nudgeDismissals.remove(sessionID)
         store.append(
             ChatMessage(role: .system,
                         text: "Context cleared. The next turn starts a fresh conversation."),
@@ -251,6 +263,100 @@ final class SessionRunner {
         text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "/clear"
     }
 
+    nonisolated static func isCompactCommand(_ text: String) -> Bool {
+        text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "/compact"
+    }
+
+    // Runs a typed window command, saying in the transcript why if it could not. True
+    // when the text was a command, whether or not anything came of it. Typing one is as
+    // deliberate as any other prompt that costs a turn, so unlike the menu it does not
+    // stop to ask first.
+    private func handleWindowCommand(_ text: String, sessionID: UUID,
+                                     store: ProjectStore) -> Bool {
+        if Self.isClearCommand(text) {
+            switch clearContext(sessionID, store: store) {
+            case .cleared:
+                break
+            case .busy:
+                note("The context cannot be cleared while a turn is running. Stop it first.",
+                     sessionID: sessionID, store: store)
+            case .nothingToClear:
+                note("There is no conversation to clear yet.", sessionID: sessionID, store: store)
+            }
+            return true
+        }
+        guard Self.isCompactCommand(text) else { return false }
+        guard store.session(sessionID)?.agent == .claudeCode else {
+            note("Codex cannot compact a conversation. Clearing the context is the way to make room.",
+                 sessionID: sessionID, store: store)
+            return true
+        }
+        if !compact(sessionID, store: store) {
+            note(state(sessionID).isBusy
+                 ? "The context cannot be compacted while a turn is running. Stop it first."
+                 : "There is no conversation to compact yet.",
+                 sessionID: sessionID, store: store)
+        }
+        return true
+    }
+
+    private func note(_ text: String, sessionID: UUID, store: ProjectStore) {
+        store.append(ChatMessage(role: .system, text: text), to: sessionID)
+    }
+
+    // MARK: - Compacting the context
+
+    // Unlike clearing, this is the agent's own command and it costs a turn: Claude Code
+    // reads the conversation, writes a summary, and carries on from that instead. The
+    // resume id survives it, so nothing here has to be put back together afterwards.
+    //
+    // Codex has no equivalent in `codex exec`, which is why this is Claude Code only.
+    @discardableResult
+    func compact(_ sessionID: UUID, store: ProjectStore) -> Bool {
+        guard canCompactContext(sessionID, store: store) else { return false }
+        // A turn that says nothing for the best part of a minute needs to say why.
+        let notice = ChatMessage(role: .system, text: "Compacting the context…")
+        store.append(notice, to: sessionID)
+        compactNotices[sessionID] = notice.id
+        nudgeDismissals.remove(sessionID)
+        queues[sessionID, default: []].append(
+            QueuedPrompt(text: "/compact", attachments: [], customInstructions: nil,
+                         isAppCommand: true))
+        SessionLog.note("compacting the context", session: sessionID)
+        runQueue(sessionID, store: store)
+        return true
+    }
+
+    func canCompactContext(_ sessionID: UUID, store: ProjectStore) -> Bool {
+        guard let session = store.session(sessionID), session.agent == .claudeCode,
+              !state(sessionID).isBusy, !removals.contains(sessionID) else { return false }
+        return session.hasAgentConversation
+    }
+
+    // The sizes either side are the point of it, so they are what the note says.
+    nonisolated static func compactedNotice(preTokens: Int?, postTokens: Int?) -> String {
+        switch (preTokens, postTokens) {
+        case (let before?, let after?):
+            "Context compacted, from \(formattedTokens(before)) tokens down to \(formattedTokens(after))."
+        case (let before?, nil):
+            "Context compacted. \(formattedTokens(before)) tokens were summarised. How full the window is now shows after the next turn."
+        default:
+            "Context compacted. The conversation so far was replaced by a summary."
+        }
+    }
+
+    // MARK: - The nearly-full nudge
+
+    // Above this the session is close enough to the end of its window to be worth
+    // interrupting for. It is the same point at which the meter turns red.
+    static let nearlyFullContext = 0.85
+
+    func isNudgeDismissed(_ sessionID: UUID) -> Bool { nudgeDismissals.contains(sessionID) }
+
+    // Only until the window is dealt with. Clearing and compacting both take the nudge
+    // away on their own, so a dismissal that outlived them would hide the next one too.
+    func dismissNudge(_ sessionID: UUID) { nudgeDismissals.insert(sessionID) }
+
     // Nothing is ever sent straight to the CLI: a prompt joins the queue and the queue is
     // what runs. Typing during a turn therefore costs nothing, and the ones already waiting
     // keep their order.
@@ -262,23 +368,12 @@ final class SessionRunner {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty || !attachments.isEmpty || instructions?.isEmpty == false else { return }
 
-        // "/clear" is the app's own command rather than a prompt, so it never reaches the
-        // agent. Anything hanging off it would be thrown away with it, so a prompt that
-        // carries files or instructions is left to run as one.
-        if Self.isClearCommand(text), attachments.isEmpty, instructions?.isEmpty != false {
-            switch clearContext(sessionID, store: store) {
-            case .cleared:
-                break
-            case .busy:
-                store.append(
-                    ChatMessage(role: .system,
-                                text: "The context cannot be cleared while a turn is running. Stop it first."),
-                    to: sessionID)
-            case .nothingToClear:
-                store.append(
-                    ChatMessage(role: .system, text: "There is no conversation to clear yet."),
-                    to: sessionID)
-            }
+        // The window commands are answered by the app rather than sent on as prompts, so
+        // that typing one and picking it off the meter do the same thing. Anything hanging
+        // off a command would be thrown away with it, so a prompt that carries files or
+        // instructions is left to run as one.
+        if attachments.isEmpty, instructions?.isEmpty != false,
+           handleWindowCommand(text, sessionID: sessionID, store: store) {
             return
         }
         queues[sessionID, default: []].append(QueuedPrompt(
@@ -502,6 +597,8 @@ final class SessionRunner {
         queues[sessionID] = nil
         drafts[sessionID] = nil
         avatarSequences[sessionID] = nil
+        compactNotices[sessionID] = nil
+        nudgeDismissals.remove(sessionID)
     }
 
     private func requestStop(_ sessionID: UUID, failure: String? = nil) {
@@ -974,6 +1071,26 @@ final class SessionRunner {
                 store.recordContext(tokens, contextWindow: nil, model: nil,
                                     from: turn.agent, for: sessionID)
 
+            case .compacted(let preTokens, let postTokens):
+                nudgeDismissals.remove(sessionID)
+                if let postTokens {
+                    // The summary is the whole of the conversation now, so its size is
+                    // how full the window is - no need to wait for a turn to measure it.
+                    store.recordContext(postTokens, contextWindow: nil, model: nil,
+                                        from: turn.agent, for: sessionID)
+                } else {
+                    // An older CLI reports only the size before. Nothing left on the row
+                    // describes the conversation any more, so it is retired at the end of
+                    // the turn, after the result event has stopped reporting sizes.
+                    turn.compacted = true
+                }
+                if let noticeID = compactNotices.removeValue(forKey: sessionID) {
+                    store.updateMessage(noticeID, in: sessionID) { message in
+                        message.text = Self.compactedNotice(preTokens: preTokens,
+                                                            postTokens: postTokens)
+                    }
+                }
+
             case .backgroundTasks(let ids):
                 turn.pendingTasks = Set(ids)
 
@@ -1143,6 +1260,16 @@ final class SessionRunner {
             store.removeMessage(turn.messageID, from: sessionID)
         }
 
+        // A compaction that ended without saying it had happened did not happen: the
+        // conversation was too short for one, or the turn failed. Either way the agent's
+        // own words are the explanation, and "Compacting…" would sit there for good.
+        if let noticeID = compactNotices.removeValue(forKey: sessionID) {
+            store.removeMessage(noticeID, from: sessionID)
+        }
+        // Last, so that nothing the turn reported on its way out can put the retired
+        // reading back on the row.
+        if turn.compacted { store.recordCompaction(for: sessionID) }
+
         if turn.stopRequested {
             if let failure = turn.stopFailure {
                 setState(.failed(failure), for: sessionID)
@@ -1248,6 +1375,9 @@ final class SessionRunner {
         // True when whatever streams next belongs in a reply bubble of its own, because
         // the last one was already closed off by a result.
         var needsFreshReply = false
+        // Whether this turn replaced the conversation with a summary, which is what makes
+        // the last reading of the window no longer describe anything.
+        var compacted = false
         // The totals from the last usage report, so the next one is recorded as a delta.
         var recordedUsage: TurnUsage?
         // Moved on every read off the CLI's stdout, so it measures silence rather than

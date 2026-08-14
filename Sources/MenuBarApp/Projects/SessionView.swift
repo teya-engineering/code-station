@@ -784,6 +784,7 @@ struct SessionView: View {
 
         return VStack(alignment: .leading, spacing: 8) {
             contextReadout(session)
+            contextNudge(session)
             queueStrip(busy: busy, blocked: blocked)
             attachmentStrip
 
@@ -1109,26 +1110,55 @@ struct SessionView: View {
     }
 
     // The meter is the one thing on this row that says the session is getting heavy, so
-    // it is also where the session is emptied. It only opens a menu while there is a
-    // conversation to drop and nothing running that still holds it; the rest of the time
-    // it stays the read-only reading it has always been.
+    // it is also where the window is dealt with. It only opens a menu while there is a
+    // conversation to work on and nothing running that still holds it; the rest of the
+    // time it stays the read-only reading it has always been.
     @ViewBuilder private func contextMeter(fraction: Double, usage: SessionUsage,
                                            agent: AgentKind) -> some View {
-        if runner.canClearContext(sessionID, store: store) {
-            contextReading(fraction, clearable: true)
-                .contentShape(Rectangle())
-                .appMenu {
-                    [.item("Clear context",
-                           kind: .destructive,
-                           subtitle: "The next turn starts a fresh conversation in the same folder.") {
-                        runner.clearContext(sessionID, store: store)
-                    }]
-                }
-                .appTooltip { usageTooltip(usage, agent: agent, clearable: true) }
-        } else {
+        let actions = contextActions()
+        if actions.isEmpty {
             contextReading(fraction, clearable: false)
                 .appTooltip { usageTooltip(usage, agent: agent, clearable: false) }
+        } else {
+            contextReading(fraction, clearable: true)
+                .contentShape(Rectangle())
+                .appMenu { actions }
+                .appTooltip { usageTooltip(usage, agent: agent, clearable: true) }
         }
+    }
+
+    // Compacting keeps the work and costs a turn; clearing is instant and keeps nothing.
+    // Codex has no compaction of its own, so its sessions are only ever offered the one.
+    private func contextActions() -> [MenuEntry] {
+        var entries: [MenuEntry] = []
+        if runner.canCompactContext(sessionID, store: store) {
+            entries.append(.item("Compact context",
+                                 subtitle: "Summarises the conversation so far and carries on from it.") {
+                confirmCompact()
+            })
+        }
+        if runner.canClearContext(sessionID, store: store) {
+            entries.append(.item("Clear context",
+                                 kind: .destructive,
+                                 subtitle: "The next turn starts a fresh conversation in the same folder.") {
+                runner.clearContext(sessionID, store: store)
+            })
+        }
+        return entries
+    }
+
+    // Compacting spends a turn and takes the best part of a minute, which is not what a
+    // menu row usually costs, so it is said plainly before it starts.
+    private func confirmCompact() {
+        dialogs.show(Dialog(
+            title: "Compact this session's context?",
+            message: "The agent reads the conversation so far, replaces it with a summary, and carries on from that. It takes a turn of its own - up to a minute - and counts towards what this session has spent.",
+            actions: [
+                .init(label: "Compact", kind: .primary) {
+                    runner.compact(sessionID, store: store)
+                },
+                .init(label: "Cancel", kind: .cancel),
+            ]))
     }
 
     // The bar is the first thing to give up when the row runs out of room: it restates
@@ -1202,6 +1232,65 @@ struct SessionView: View {
                            ? "Context in use after the last turn. Click to clear it."
                            : "Context in use after the last turn.",
                        rows: rows)
+    }
+
+    // A session runs into the end of its window mid-thought, and the failure is a turn
+    // that will not start rather than anything the meter said. So once the window is
+    // nearly full the way out is offered here, on the line above the composer, rather
+    // than waiting to be looked for. Compacting keeps the work and is the first offer;
+    // a Codex session can only be cleared, so that is what it is offered.
+    @ViewBuilder private func contextNudge(_ session: ChatSession) -> some View {
+        let fraction = session.usage?.contextFraction(for: session.agent) ?? 0
+        let actions = contextActions()
+        if fraction >= SessionRunner.nearlyFullContext, !actions.isEmpty,
+           !runner.isNudgeDismissed(sessionID) {
+            HStack(spacing: 10) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 11))
+                Text("CONTEXT IS NEARLY FULL · \(Int((fraction * 100).rounded()))%")
+                    .font(.system(size: 11, weight: .semibold))
+                    .kerning(1.2)
+                Spacer(minLength: 8)
+                if runner.canCompactContext(sessionID, store: store) {
+                    Button(action: confirmCompact) {
+                        Text("Compact")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 5)
+                            .background(RoundedRectangle(cornerRadius: 7).fill(Theme.accent))
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .appTooltip("Summarises the conversation so far and carries on from it.")
+                }
+                Button {
+                    runner.clearContext(sessionID, store: store)
+                } label: {
+                    Text("Clear")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Theme.accent)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .appTooltip("Starts the next turn on a fresh conversation in the same folder.")
+                Button { runner.dismissNudge(sessionID) } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .padding(2)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .appTooltip("Hide this until the window is dealt with")
+            }
+            .foregroundStyle(Theme.attention)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.field))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.attention.opacity(0.4)))
+        }
     }
 
     // Prompts typed ahead, above the composer where what happens next belongs. A queue that

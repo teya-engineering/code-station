@@ -266,6 +266,15 @@ struct SessionUsage: Codable, Equatable {
         contextTokens = 0
     }
 
+    // A summary has taken the place of the conversation. Unlike clearing, this does not
+    // leave the window empty, and the CLI only reports how big it was before, never
+    // after - so the honest reading is none at all until the next turn measures one.
+    // Dropping the window size with it is what takes the meter off the row meanwhile.
+    mutating func noteCompacted() {
+        contextTokens = 0
+        contextWindow = 0
+    }
+
     func model(for agent: AgentKind) -> String? {
         latestAgent == agent ? model : nil
     }

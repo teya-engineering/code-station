@@ -598,6 +598,16 @@ final class ProjectStore {
         scheduleIndexSave()
     }
 
+    // The conversation has been summarised, so the last reading no longer describes it
+    // and no new one has arrived yet.
+    func recordCompaction(for sessionID: UUID) {
+        guard let i = index(sessionID), var usage = sessions[i].usage else { return }
+        usage.noteCompacted()
+        sessions[i].usage = usage
+        publishSidebarSessions()
+        scheduleIndexSave()
+    }
+
     func notePullRequest(_ pullRequest: PullRequest, for sessionID: UUID) {
         guard let i = index(sessionID), sessions[i].pullRequest != pullRequest else { return }
         sessions[i].pullRequest = pullRequest

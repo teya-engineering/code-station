@@ -28,6 +28,10 @@ enum StreamEvent: Sendable {
     // How big the prompt was on the last request the main loop made, which is how much of
     // the window is in use right now.
     case context(tokens: Int)
+    // The conversation behind this point has been replaced by a summary, with the size of
+    // it before and after. The sizes are what makes a compaction worth reporting: they are
+    // the difference it made, and the one after is how full the window is now.
+    case compacted(preTokens: Int?, postTokens: Int?)
     // Which background tasks the CLI still has running, sent whole whenever the set
     // changes. A turn that ends while this is not empty is not really over: the CLI runs
     // a follow-up turn when a task finishes, but only if its process is still alive.
@@ -68,6 +72,8 @@ extension StreamEvent {
             "usage updated"
         case .context(let tokens):
             "context tokens=\(tokens)"
+        case .compacted(let preTokens, let postTokens):
+            "compacted pre=\(preTokens.map(String.init) ?? "unknown") post=\(postTokens.map(String.init) ?? "unknown")"
         case .backgroundTasks(let ids):
             "background tasks count=\(ids.count)"
         case .finished(let isError, let message):
@@ -114,6 +120,14 @@ extension StreamEvent {
             case "background_tasks_changed":
                 let tasks = (object["tasks"] as? [Any])?.compactMap { $0 as? [String: Any] } ?? []
                 return [.backgroundTasks(ids: tasks.compactMap { $0["task_id"] as? String })]
+            case "compact_boundary":
+                // The stream spells these with underscores and the CLI's own history file
+                // spells the same fields in camel case, so both are accepted rather than
+                // betting the reading on which one arrives.
+                let metadata = object["compact_metadata"] as? [String: Any]
+                    ?? object["compactMetadata"] as? [String: Any] ?? [:]
+                return [.compacted(preTokens: count(metadata, "pre_tokens", "preTokens"),
+                                   postTokens: count(metadata, "post_tokens", "postTokens"))]
             default:
                 return []
             }
@@ -154,6 +168,12 @@ extension StreamEvent {
     }
 
     // MARK: - Private
+
+    // The first of these names the payload actually uses, for fields the CLI spells one
+    // way on the stream and another in the history file.
+    private static func count(_ container: [String: Any], _ names: String...) -> Int? {
+        names.lazy.compactMap { container[$0] as? Int }.first
+    }
 
     // How many tokens the model was sent on this request: everything it read, cached or
     // not. A turn makes one request per round of tool calls and each one re-reads the
