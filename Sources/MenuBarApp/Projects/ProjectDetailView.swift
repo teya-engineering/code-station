@@ -23,6 +23,8 @@ struct ProjectDetailView: View {
     @State private var git: GitSnapshot?
     @State private var orphanedWorktrees: [GitWorktree.Orphaned] = []
     @State private var pruningOrphans = false
+    @State private var openShortcutRun: ShortcutRun?
+    @State private var shortcutEditor: ShortcutEditorRequest?
 
     private var terminalScope: TerminalScope { .project(projectID) }
 
@@ -30,8 +32,12 @@ struct ProjectDetailView: View {
         if let project = store.project(projectID) {
             VStack(spacing: 0) {
                 header(project)
+                statusStrip(project)
                 if store.isMissing(project) { missingFolder(project) }
                 content(project)
+                if let openShortcutRun {
+                    ShortcutOutputDrawer(run: openShortcutRun) { self.openShortcutRun = nil }
+                }
                 if terminals.isOpen(terminalScope) {
                     TerminalDrawer(scope: terminalScope,
                                    directory: project.path,
@@ -40,7 +46,19 @@ struct ProjectDetailView: View {
             }
             .background(Theme.background)
             .background(terminalShortcut(project))
+            .sheet(item: $shortcutEditor) { request in
+                ShortcutEditorView(request: request) { shortcut in
+                    if request.shortcut == nil {
+                        shortcuts.add(name: shortcut.name, command: shortcut.command,
+                                      projectID: shortcut.projectID)
+                    } else {
+                        shortcuts.update(shortcut)
+                    }
+                }
+                .appOverlays()
+            }
             .task(id: project.path) {
+                openShortcutRun = nil
                 git = await GitInspector.snapshot(at: project.path, lane: .interactive)
             }
             // A session ending is the moment the folder is most likely to have moved on.
@@ -63,6 +81,10 @@ struct ProjectDetailView: View {
 
     // MARK: - Header
 
+    // Which project this is, and nothing else: its colour, its full name - never cut
+    // short - the views it can be read in, and the one action the screen is offering.
+    // The state of the folder reads on the strip under this one. The path is only a
+    // tooltip: it says the same thing the name does, at four times the length.
     private func header(_ project: Project) -> some View {
         HStack(spacing: 12) {
             ProjectDot(tint: Theme.projectTint(for: project.name))
@@ -70,14 +92,7 @@ struct ProjectDetailView: View {
                 .font(.serif(17, .semibold))
                 .lineLimit(1)
                 .truncationMode(.tail)
-            Text(project.collapsedPath)
-                .font(.mono(10.5))
-                .foregroundStyle(.tertiary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .textSelection(.enabled)
-                .layoutPriority(-1)
-            if let summary = gitChip { MonoChip(text: summary) }
+                .appTooltip(project.collapsedPath)
 
             Spacer(minLength: 12)
 
@@ -108,11 +123,186 @@ struct ProjectDetailView: View {
         .headerBand()
     }
 
-    // "main · 3 dirty": the two things about a repository worth carrying in a header.
-    private var gitChip: String? {
-        guard let git, git.state == .ready, !git.branch.isEmpty else { return nil }
+    // MARK: - Status strip
+
+    // The whole of what the repository card used to say, read along a line instead of
+    // down a card: the branch, how far it has drifted from its remote, whether anything
+    // is uncommitted, the commands saved against the folder, and the last commit. State
+    // belongs beside the name it describes rather than in the first card of the page,
+    // where it pushed the sessions - the reason for the screen - below the fold.
+    private func statusStrip(_ project: Project) -> some View {
+        HStack(spacing: 14) {
+            if let git, git.state == .ready {
+                checkout(git)
+            } else {
+                // A strip has room for the verdict, not for the sentence explaining it,
+                // so the sentence the card used to print waits in the tooltip.
+                StatusCaps(text: gitVerdict).appTooltip(gitUnavailable)
+            }
+
+            StatusRule()
+            shortcutsControl(project)
+
+            Spacer(minLength: 12)
+
+            if let git, git.state == .ready { lastCommit(git) }
+            InlineLink(title: "Reveal in Finder", size: 11.5) { reveal(project) }
+                .fixedSize()
+                .layoutPriority(1)
+        }
+        .statusBand(padding: 24)
+    }
+
+    // Branch, drift and dirtiness as one reading, because they are one question: what
+    // state is this checkout in. Ahead and behind only appear when they are not zero -
+    // "0 / 0" is a figure that has to be read to learn there is nothing to say. Clicking
+    // opens the changes, which is what the reading is about.
+    private func checkout(_ git: GitSnapshot) -> some View {
         let dirty = git.files.count
-        return dirty == 0 ? "\(git.branch) · clean" : "\(git.branch) · \(dirty) dirty"
+        return Button { tab = .changes } label: {
+            HStack(spacing: 9) {
+                HStack(spacing: 5) {
+                    Image(systemName: "arrow.triangle.branch")
+                        .font(.system(size: 9.5, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                    Text(git.branch.isEmpty ? "detached" : git.branch)
+                        .font(.mono(11, .semibold))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                if git.ahead > 0 { drift("arrow.up", count: git.ahead) }
+                if git.behind > 0 { drift("arrow.down", count: git.behind) }
+                StatusCaps(text: dirty == 0
+                               ? "CLEAN"
+                               : "\(dirty) UNCOMMITTED FILE\(dirty == 1 ? "" : "S")",
+                           tint: dirty == 0 ? Color.secondary : Theme.attentionText)
+            }
+            .fixedSize()
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .appTooltip(driftSentence(git))
+    }
+
+    private func drift(_ icon: String, count: Int) -> some View {
+        HStack(spacing: 3) {
+            Image(systemName: icon)
+                .font(.system(size: 8, weight: .bold))
+            Text("\(count)")
+                .font(.mono(10.5, .semibold))
+        }
+        .foregroundStyle(.secondary)
+    }
+
+    private func driftSentence(_ git: GitSnapshot) -> String {
+        var parts: [String] = []
+        if git.ahead > 0 { parts.append("\(git.ahead) commit\(git.ahead == 1 ? "" : "s") to push") }
+        if git.behind > 0 { parts.append("\(git.behind) to pull") }
+        return parts.isEmpty ? "Open Changes" : parts.joined(separator: ", ") + ". Open Changes."
+    }
+
+    // The line that says the folder has moved on since you last looked, so it is worth
+    // reading before starting a session in it.
+    private func lastCommit(_ git: GitSnapshot) -> some View {
+        HStack(spacing: 7) {
+            if let subject = git.lastCommitSubject {
+                if let date = git.lastCommitDate {
+                    StatusCaps(text: age(date), tint: Color.secondary.opacity(0.75))
+                    StatusDot()
+                }
+                StatusValue(text: subject)
+            } else {
+                StatusValue(text: "nothing committed yet", tint: Color.secondary.opacity(0.75))
+            }
+        }
+    }
+
+    // "JUST NOW" rather than "NOW AGO", which is what the short form turns into when the
+    // commit is a minute old.
+    private func age(_ date: Date) -> String {
+        let short = RelativeTime.short(date)
+        return short == "now" ? "JUST NOW" : "\(short.uppercased()) AGO"
+    }
+
+    // The project's saved commands, collapsed to a count and a menu. They are worth a
+    // whole row of chips in a session, where running the tests is part of the work in
+    // front of you; here they are one more thing the folder has, so they take the room
+    // of one reading. A run happens in the project folder, since a project screen is not
+    // looking at any one worktree.
+    private func shortcutsControl(_ project: Project) -> some View {
+        let saved = shortcuts.shortcuts(for: project.id)
+        let running = shortcuts.runningCount(of: saved)
+        let failed = shortcuts.failureCount(of: saved)
+        let tint = running > 0 ? Theme.accent : failed > 0 ? Theme.deletion : Color.secondary
+        return HStack(spacing: 6) {
+            Image(systemName: "bolt.fill")
+                .font(.system(size: 9, weight: .semibold))
+            Text(saved.isEmpty ? "Add" : "\(saved.count)")
+                .font(.mono(10.5, .semibold))
+            if running > 0 { RunningDot(size: 5) }
+        }
+        .foregroundStyle(tint)
+        .padding(.horizontal, 8)
+        .frame(height: 20)
+        .background(RoundedRectangle(cornerRadius: 6).fill(Theme.card))
+        .overlay(RoundedRectangle(cornerRadius: 6)
+            .stroke(running > 0 || failed > 0 ? tint.opacity(0.5) : Theme.border))
+        .appMenu { shortcutMenu(project, saved: saved) }
+        .appTooltip(saved.isEmpty
+                    ? "Save a command for this project"
+                    : "\(saved.count) saved command\(saved.count == 1 ? "" : "s"), run in the project folder")
+    }
+
+    private func shortcutMenu(_ project: Project, saved: [CommandShortcut]) -> [MenuEntry] {
+        var entries: [MenuEntry] = saved.map { shortcut in
+            let run = ShortcutRun(shortcut.id, in: shortcut.directory(projectPath: project.path))
+            let state = shortcuts.state(run)
+            return .item(state.isActive ? "Stop \(shortcut.name)" : shortcut.name,
+                         subtitle: shortcut.command,
+                         detail: detail(of: state),
+                         detailColour: colour(of: state)) {
+                toggle(run)
+            }
+        }
+        if !entries.isEmpty {
+            entries.append(.separator)
+            if openShortcutRun != nil {
+                entries.append(.item("Hide output") { openShortcutRun = nil })
+            }
+        }
+        entries.append(.item("New shortcut…", icon: "plus") {
+            shortcutEditor = ShortcutEditorRequest(projectID: project.id,
+                                                   projectName: project.name)
+        })
+        return entries
+    }
+
+    private func detail(of state: ShortcutStore.State) -> String? {
+        switch state {
+        case .stopped: nil
+        case .running(let since): "running · \(RelativeTime.duration(since: since))"
+        case .finished: "exit 0"
+        case .failed(_, let code, _): code.map { "exit \($0)" } ?? "failed"
+        }
+    }
+
+    private func colour(of state: ShortcutStore.State) -> Color? {
+        switch state {
+        case .failed: Theme.deletion
+        case .finished: Theme.addition
+        default: nil
+        }
+    }
+
+    // Starting a run opens its output, the way it does in a session: a command is worth
+    // running because of what it prints.
+    private func toggle(_ run: ShortcutRun) {
+        if shortcuts.state(run).isActive {
+            shortcuts.stop(run)
+        } else {
+            shortcuts.start(run)
+            openShortcutRun = run
+        }
     }
 
     @ViewBuilder private func content(_ project: Project) -> some View {
@@ -135,7 +325,6 @@ struct ProjectDetailView: View {
             .sorted { $0.lastActivity > $1.lastActivity }
         return ScrollView {
             VStack(alignment: .leading, spacing: 22) {
-                repository(project)
                 sessionList(project, sessions: available)
                 defaults(project)
             }
@@ -143,32 +332,14 @@ struct ProjectDetailView: View {
         }
     }
 
-    private func repository(_ project: Project) -> some View {
-        VStack(alignment: .leading, spacing: 13) {
-            SectionRule(title: "REPOSITORY") {
-                InlineLink(title: "Reveal in Finder") { reveal(project) }
-            }
-
-            if let git, git.state == .ready {
-                HStack(alignment: .top, spacing: 24) {
-                    figure("BRANCH", value: git.branch.isEmpty ? "—" : git.branch)
-                    figure("AHEAD / BEHIND", value: "\(git.ahead) / \(git.behind)")
-                    figure("UNCOMMITTED",
-                           value: git.files.isEmpty ? "clean" : "\(git.files.count) files",
-                           tone: git.files.isEmpty ? nil : Theme.attentionText)
-                    lastCommit(git)
-                }
-            } else {
-                Text(gitUnavailable)
-                    .font(.system(size: 12.5))
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
+    private var gitVerdict: String {
+        switch git?.state {
+        case .notARepo: "NOT A GIT REPOSITORY"
+        case .gitMissing: "GIT NOT FOUND"
+        case .missingFolder: "FOLDER MISSING"
+        case .failed: "GIT COULD NOT READ THIS FOLDER"
+        case .ready, nil: "READING…"
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.border))
     }
 
     private var gitUnavailable: String {
@@ -179,37 +350,6 @@ struct ProjectDetailView: View {
         case .failed(let message): message
         case .ready, nil: "Reading the repository…"
         }
-    }
-
-    private func figure(_ label: String, value: String, tone: Color? = nil) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(label)
-                .font(.mono(9.5))
-                .kerning(1.1)
-                .foregroundStyle(.tertiary)
-            Text(value)
-                .font(.mono(13, .semibold))
-                .foregroundStyle(tone ?? Color.primary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-        }
-        .fixedSize(horizontal: true, vertical: false)
-    }
-
-    private func lastCommit(_ git: GitSnapshot) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("LAST COMMIT")
-                .font(.mono(9.5))
-                .kerning(1.1)
-                .foregroundStyle(.tertiary)
-            Text(git.lastCommitSubject.map { subject in
-                git.lastCommitDate.map { "\(RelativeTime.short($0)) ago · \(subject)" } ?? subject
-            } ?? "nothing committed yet")
-                .font(.system(size: 12.5, weight: .medium))
-                .lineLimit(1)
-                .truncationMode(.tail)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func sessionList(_ project: Project, sessions: [ChatSession]) -> some View {

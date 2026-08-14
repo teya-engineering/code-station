@@ -175,6 +175,13 @@ extension View {
                     .frame(height: 1)
             }
     }
+
+    // The strip of state that sits under a header. It takes the side padding of the band
+    // above it, so the first reading lines up with the name it describes.
+    func statusBand(padding: CGFloat) -> some View {
+        self.padding(.horizontal, padding)
+            .headerBand(Theme.statusBand, height: Theme.statusBandHeight)
+    }
 }
 
 extension Font {

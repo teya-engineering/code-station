@@ -28,6 +28,7 @@ struct TaskDetailView: View {
         if let task = store.project(projectID) {
             VStack(spacing: 0) {
                 header(task)
+                statusStrip(task)
                 if store.isMissing(task) { missingFolder(task) }
                 content(task)
                 if terminals.isOpen(terminalScope) {
@@ -55,6 +56,10 @@ struct TaskDetailView: View {
 
     // MARK: - Header
 
+    // The name and the views, and nothing about the runs: how the last one went reads on
+    // the strip under this one, the way a session's state does. Running stays at the foot
+    // of the prompt, because what a run sends is the prompt on screen and the choices
+    // beside the button, not something the header can speak for.
     private func header(_ task: Project) -> some View {
         HStack(spacing: 12) {
             ProjectTileView(name: task.name,
@@ -64,6 +69,7 @@ struct TaskDetailView: View {
                 .font(.serif(17, .semibold))
                 .lineLimit(1)
                 .truncationMode(.tail)
+                .appTooltip(task.collapsedPath)
 
             Spacer(minLength: 12)
 
@@ -83,6 +89,65 @@ struct TaskDetailView: View {
         }
         .padding(.horizontal, 24)
         .headerBand()
+    }
+
+    // MARK: - Status strip
+
+    // A task is a prompt that has been run before, so its state is how the last run went
+    // and what it was given: the same line a session wears, reading about the newest run
+    // instead of about itself. What was filled in last time is the readable part of "what
+    // did this do", which is why it takes the end of the row.
+    private func statusStrip(_ task: Project) -> some View {
+        let runs = store.standaloneSessions(for: task.id)
+        let latest = runs.max { $0.lastActivity < $1.lastActivity }
+        let inputs = TaskTemplate.inputs(in: spec(task))
+        return HStack(spacing: 14) {
+            if let latest {
+                lastRun(latest)
+            } else {
+                StatusCaps(text: "NEVER RUN")
+            }
+
+            StatusRule()
+
+            HStack(spacing: 7) {
+                StatusCaps(text: "\(runs.count) RUN\(runs.count == 1 ? "" : "S")")
+                if !inputs.isEmpty {
+                    StatusDot()
+                    StatusCaps(text: "\(inputs.count) INPUT\(inputs.count == 1 ? "" : "S")")
+                }
+            }
+
+            Spacer(minLength: 12)
+
+            if let latest {
+                let given = TaskTemplate.summary(of: latest.taskValues ?? [:], inputs: inputs)
+                if !given.isEmpty { StatusValue(text: given) }
+            }
+            InlineLink(title: "Reveal in Finder", size: 11.5) {
+                NSWorkspace.shared.activateFileViewerSelecting([task.url])
+            }
+            .fixedSize()
+            .layoutPriority(1)
+        }
+        .statusBand(padding: 24)
+    }
+
+    private func lastRun(_ session: ChatSession) -> some View {
+        let tone = SessionTone(session.id, store: store, runner: runner)
+        return Button { store.selectSession(session.id) } label: {
+            HStack(spacing: 7) {
+                StateLight(tone: tone, size: 6)
+                StatusCaps(text: tone.word,
+                           tint: tone == .idle ? Color.secondary : tone.colour)
+                StatusDot()
+                StatusValue(text: RelativeTime.short(session.lastActivity))
+            }
+            .fixedSize()
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .appTooltip("Open the latest run")
     }
 
     @ViewBuilder private func content(_ task: Project) -> some View {

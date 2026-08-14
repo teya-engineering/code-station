@@ -322,7 +322,7 @@ struct SessionView: View {
             // Ad-hoc tasks run in a private folder the app made for one prompt, so there
             // is nothing there worth saving a command against.
             if project.kind == .project {
-                stripRule
+                StatusRule()
                 // The chips take the middle of the row rather than a spacer, so a long
                 // list of them scrolls in place instead of pushing the readings apart.
                 SessionShortcutChips(session: session,
@@ -350,16 +350,7 @@ struct SessionView: View {
             .fixedSize(horizontal: true, vertical: false)
             .layoutPriority(1)
         }
-        .padding(.horizontal, 20)
-        .headerBand(Theme.statusBand, height: Theme.statusBandHeight)
-    }
-
-    // Parts of the row that are about different things are told apart by a rule rather
-    // than by more space, which the row does not have to give.
-    private var stripRule: some View {
-        Rectangle()
-            .fill(Theme.border)
-            .frame(width: 1, height: 14)
+        .statusBand(padding: 20)
     }
 
     // "RUNNING", "NEEDS YOU · 3m", "IDLE · 2h": the state and how long it has been in it.
@@ -367,23 +358,14 @@ struct SessionView: View {
         let tone = SessionTone(sessionID, store: store, runner: runner)
         return HStack(spacing: 7) {
             StateLight(tone: tone, size: 6)
-            Text(tone.word)
-                .font(.mono(10.5, .semibold))
-                .kerning(0.6)
-                .foregroundStyle(tone == .idle ? Color.secondary : tone.colour)
+            StatusCaps(text: tone.word,
+                       tint: tone == .idle ? Color.secondary : tone.colour)
             if tone != .running {
-                stripDot
-                Text(RelativeTime.short(session.lastActivity))
-                    .font(.mono(10.5))
-                    .foregroundStyle(.secondary)
+                StatusDot()
+                StatusValue(text: RelativeTime.short(session.lastActivity))
             }
         }
         .fixedSize()
-    }
-
-    // The separator between two readings that belong to the same item.
-    private var stripDot: some View {
-        Text("·").font(.mono(10.5)).foregroundStyle(.tertiary)
     }
 
     private func workspaceProjectBar(_ session: ChatSession) -> some View {
@@ -456,10 +438,8 @@ struct SessionView: View {
                     DiffPair(added: snapshots.reduce(0) { $0 + $1.totalAdded },
                              removed: snapshots.reduce(0) { $0 + $1.totalRemoved },
                              size: 11)
-                    stripDot
-                    Text("\(files) file\(files == 1 ? "" : "s")")
-                        .font(.mono(10.5))
-                        .foregroundStyle(.secondary)
+                    StatusDot()
+                    StatusValue(text: "\(files) file\(files == 1 ? "" : "s")")
                 }
             }
         }

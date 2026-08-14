@@ -205,6 +205,62 @@ struct MonoChip: View {
     }
 }
 
+// MARK: - Status strip
+
+// The thin line under a header, and the pieces every one of them is made of. A screen
+// names itself on the band above and describes itself here, always in the same order and
+// the same type: what it is, what state it is in, what it can run. Building the parts
+// once is what keeps the project, workspace, task and session strips reading as one line
+// with different readings on it rather than as four lines.
+
+// A reading that names a state: mono capitals, tinted only when the state is worth
+// noticing.
+struct StatusCaps: View {
+    let text: String
+    var tint: Color? = nil
+
+    var body: some View {
+        Text(text)
+            .font(.mono(10.5, .semibold))
+            .kerning(0.6)
+            .foregroundStyle(tint ?? Color.secondary)
+            .fixedSize()
+    }
+}
+
+// A reading that carries a value rather than a state: the same size in plain mono, so a
+// branch or a commit subject sits under the words of the header without competing.
+struct StatusValue: View {
+    let text: String
+    var tint: Color? = nil
+    var truncation: Text.TruncationMode = .tail
+
+    var body: some View {
+        Text(text)
+            .font(.mono(10.5))
+            .foregroundStyle(tint ?? Color.secondary)
+            .lineLimit(1)
+            .truncationMode(truncation)
+    }
+}
+
+// The separator between two readings that belong to the same item.
+struct StatusDot: View {
+    var body: some View {
+        Text("·").font(.mono(10.5)).foregroundStyle(.tertiary)
+    }
+}
+
+// The separator between readings about different things. A rule rather than more space,
+// which a strip this thin does not have to give.
+struct StatusRule: View {
+    var body: some View {
+        Rectangle()
+            .fill(Theme.border)
+            .frame(width: 1, height: 14)
+    }
+}
+
 // "2m", "3h", "2d": short enough to sit at the end of a narrow row.
 enum RelativeTime {
     static func short(_ date: Date) -> String {

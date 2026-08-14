@@ -28,6 +28,7 @@ struct WorkspaceDetailView: View {
         if let workspace = store.workspace(workspaceID) {
             VStack(spacing: 0) {
                 header(workspace)
+                statusStrip(workspace)
                 content(workspace)
                 if terminals.isOpen(terminalScope), let lead = store.project(workspace.leadProjectID) {
                     TerminalDrawer(scope: terminalScope,
@@ -52,6 +53,9 @@ struct WorkspaceDetailView: View {
 
     // MARK: - Header
 
+    // The same two rows every screen has: the name on its own up here, and what the
+    // workspace is in - which folder the agent runs in, how its checkouts are doing -
+    // on the strip under it.
     private func header(_ workspace: ProjectWorkspace) -> some View {
         HStack(spacing: 12) {
             ProjectDot(tint: Theme.workspaceTint)
@@ -61,9 +65,6 @@ struct WorkspaceDetailView: View {
             Text(workspace.name)
                 .font(.serif(17, .semibold))
                 .lineLimit(1)
-
-            MonoChip(text: "WORKSPACE · \(workspace.projectIDs.count) PROJECTS",
-                     size: 10, tint: Theme.workspaceTint.ink)
 
             Spacer(minLength: 12)
 
@@ -87,6 +88,74 @@ struct WorkspaceDetailView: View {
         }
         .padding(.horizontal, 24)
         .headerBand()
+    }
+
+    // MARK: - Status strip
+
+    // What a workspace is, in the order the questions come: how many repositories it
+    // groups, which of them the agent actually runs in, and whether those checkouts are
+    // where they should be. The verdict is the same one the rows below wear, gathered
+    // into a single word so the page does not have to be scanned to learn that one
+    // repository has drifted.
+    private func statusStrip(_ workspace: ProjectWorkspace) -> some View {
+        let lead = store.project(workspace.leadProjectID)
+        return HStack(spacing: 14) {
+            StatusCaps(text: "WORKSPACE · \(workspace.projectIDs.count) PROJECTS",
+                       tint: Theme.workspaceTint.ink)
+            StatusRule()
+            if let lead { leadTag(lead) }
+            freshnessVerdict(workspace)
+
+            Spacer(minLength: 12)
+
+            if let lead {
+                InlineLink(title: "Reveal lead in Finder", size: 11.5) { reveal(lead) }
+                    .fixedSize()
+                    .layoutPriority(1)
+            }
+        }
+        .statusBand(padding: 24)
+    }
+
+    // The lead project reads as a path into it rather than as a label: it is the folder
+    // every session here starts in, and it is the one row on this screen worth leaving
+    // for.
+    private func leadTag(_ project: Project) -> some View {
+        let branch = freshness[project.id]?.currentBranch
+        return Button { store.selectProject(project.id) } label: {
+            HStack(spacing: 7) {
+                ProjectDot(tint: Theme.projectTint(for: project.name), size: 7)
+                Text(project.name)
+                    .font(.mono(11, .semibold))
+                    .lineLimit(1)
+                if let branch {
+                    StatusDot()
+                    StatusValue(text: branch, truncation: .middle)
+                }
+            }
+            .fixedSize()
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .appTooltip("\(project.name) is the working directory here. Open it.")
+    }
+
+    // One word for the whole workspace: what the chips on the rows below add up to.
+    @ViewBuilder private func freshnessVerdict(_ workspace: ProjectWorkspace) -> some View {
+        let repositories = workspace.projectIDs.compactMap(store.project).filter(\.isGitRepository)
+        let reports = repositories.compactMap { freshness[$0.id] }
+        if !updating.isEmpty {
+            StatusCaps(text: "UPDATING…")
+        } else if reports.count == repositories.count, !reports.isEmpty {
+            let stale = reports.count(where: \.isStale)
+            StatusCaps(text: stale == 0
+                           ? "ALL UP TO DATE"
+                           : "\(stale) OF \(reports.count) NOT UP TO DATE",
+                       tint: stale == 0 ? Theme.addition : Theme.attentionText)
+                .appTooltip(stale == 0
+                            ? "Every repository is on its default branch at the latest revision."
+                            : "Open the rows below to switch branch or pull.")
+        }
     }
 
     // MARK: - Body
