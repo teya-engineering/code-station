@@ -163,6 +163,7 @@ struct SessionView: View {
                                              in: session) ?? workingDirectory
             VStack(spacing: 0) {
                 header(session: session, project: project)
+                statusStrip(session)
                 warningStrip(session: session, project: project)
                 if store.checkoutProjects(for: session).count > 1, tab != .chat {
                     workspaceProjectBar(session)
@@ -220,10 +221,10 @@ struct SessionView: View {
 
     // MARK: - Header
 
-    // The same pattern every screen uses: colour dot, where you are, what this is, how it
-    // is doing, then the actions right-aligned. The path has moved out of it - the
-    // composer already names the branch, and the diff summary is the thing worth carrying
-    // up here instead.
+    // Where you are and what you are looking at, and nothing else: colour dot, container,
+    // title, then the view switcher right-aligned. Everything that describes the state of
+    // the session - what it is doing, what it has changed, its branch, its pull request,
+    // its window - reads on the strip under this one.
     private func header(session: ChatSession, project: Project) -> some View {
         let workspace = session.workspaceID.flatMap(store.workspace)
         let container = workspace?.name ?? project.name
@@ -250,7 +251,6 @@ struct SessionView: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .changingName(session.title)
-                MonoChip(text: stateChip(session), size: 9)
             }
 
             Spacer(minLength: 12)
@@ -259,7 +259,6 @@ struct SessionView: View {
             // it asks for, so the controls can be offered less than their labels need and the
             // words wrap. Holding them at their natural width makes the title give way first.
             HStack(spacing: 8) {
-                diffStats(session)
                 HeaderTabToggle(selection: $tab,
                                 options: [("Chat", .chat),
                                           ("Changes", .changes),
@@ -276,11 +275,69 @@ struct SessionView: View {
         .headerBand()
     }
 
+    // MARK: - Status strip
+
+    // Everything that describes the session rather than names it, on one thin line and
+    // always in the same order: what it is doing, what it has changed, the branch it is
+    // changing it on, then the pull request and how full the window is. Reading it is a
+    // glance along a line instead of a hunt across a header and a footer.
+    private func statusStrip(_ session: ChatSession) -> some View {
+        // The lead checkout is the one this line speaks for, the same root the stats
+        // refresh puts first. The cache only ever holds snapshots of a readable
+        // repository, so having one is the same as the repository being ready.
+        let repository = store.workingDirectories(for: session).first
+            .flatMap { gitStats.snapshot(at: $0) }
+        // A worktree session knows its branch from creation, so the branch can draw on
+        // the first frame instead of waiting for git and shifting the row.
+        let branch = repository?.branch
+            ?? session.worktreeBranch
+            ?? session.sessionProjects?.compactMap(\.worktreeBranch).first
+        return HStack(spacing: 14) {
+            state(session)
+            diffStats(session)
+            if let branch, !branch.isEmpty {
+                branchTag(branch: branch, repository: repository)
+            }
+            Spacer(minLength: 12)
+            // The trailing pair is laid out before the spacer gets a say. An HStack
+            // splits what is left evenly between the two, so without this the meter is
+            // offered half the free room, decides it does not fit, and drops its bar
+            // while the spacer sits on space the bar would have fitted in.
+            HStack(spacing: 12) {
+                if let pullRequest = session.pullRequest { pullRequestTag(pullRequest) }
+                if let usage = session.usage,
+                   let fraction = usage.contextFraction(for: session.agent) {
+                    contextMeter(fraction: fraction, usage: usage, agent: session.agent)
+                }
+            }
+            .layoutPriority(1)
+        }
+        .padding(.horizontal, 20)
+        .headerBand(Theme.statusBand, height: Theme.statusBandHeight)
+    }
+
     // "RUNNING", "NEEDS YOU · 3m", "IDLE · 2h": the state and how long it has been in it.
-    private func stateChip(_ session: ChatSession) -> String {
+    private func state(_ session: ChatSession) -> some View {
         let tone = SessionTone(sessionID, store: store, runner: runner)
-        guard tone != .running else { return tone.word }
-        return "\(tone.word) · \(RelativeTime.short(session.lastActivity))"
+        return HStack(spacing: 7) {
+            StateLight(tone: tone, size: 6)
+            Text(tone.word)
+                .font(.mono(10.5, .semibold))
+                .kerning(0.6)
+                .foregroundStyle(tone == .idle ? Color.secondary : tone.colour)
+            if tone != .running {
+                stripDot
+                Text(RelativeTime.short(session.lastActivity))
+                    .font(.mono(10.5))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .fixedSize()
+    }
+
+    // The separator between two readings that belong to the same item.
+    private var stripDot: some View {
+        Text("·").font(.mono(10.5)).foregroundStyle(.tertiary)
     }
 
     private func workspaceProjectBar(_ session: ChatSession) -> some View {
@@ -329,46 +386,44 @@ struct SessionView: View {
         .overlay(alignment: .bottom) { Divider().overlay(Theme.hairline) }
     }
 
-    // What the working tree looks like right now, promoted out of the body and into the
-    // header: it is the answer to "what has this session actually done". Clicking it opens
-    // the full diff.
+    // What the working tree looks like right now: the answer to "what has this session
+    // actually done". Clicking it opens the full diff.
     //
-    // Until git has answered for this tree, the pill wears the transcript's own running
-    // total - the same numbers the session's sidebar row shows - so the header arrives
-    // whole instead of growing a pill a few seconds in. That total has no file count and
+    // Until git has answered for this tree, the line wears the transcript's own running
+    // total - the same numbers the session's sidebar row shows - so the strip arrives
+    // whole instead of growing an item a few seconds in. That total has no file count and
     // can disagree with the tree (it keeps counting across commits and repeat edits),
     // so it is only a stand-in until the first snapshot lands and corrects it.
     @ViewBuilder private func diffStats(_ session: ChatSession) -> some View {
         let snapshots = store.workingDirectories(for: session).compactMap { gitStats.snapshot(at: $0) }
         if snapshots.isEmpty {
             if session.summary.added > 0 || session.summary.removed > 0 {
-                statsPill {
+                statsButton {
                     DiffPair(added: session.summary.added, removed: session.summary.removed,
-                             size: 11.5)
+                             size: 11)
                 }
             }
         } else {
             let files = snapshots.reduce(0) { $0 + $1.files.count }
             if files > 0 {
-                statsPill {
+                statsButton {
                     DiffPair(added: snapshots.reduce(0) { $0 + $1.totalAdded },
                              removed: snapshots.reduce(0) { $0 + $1.totalRemoved },
-                             size: 11.5)
+                             size: 11)
+                    stripDot
                     Text("\(files) file\(files == 1 ? "" : "s")")
-                        .font(.system(size: 11.5))
+                        .font(.mono(10.5))
                         .foregroundStyle(.secondary)
                 }
             }
         }
     }
 
-    private func statsPill(@ViewBuilder content: () -> some View) -> some View {
+    private func statsButton(@ViewBuilder content: () -> some View) -> some View {
         Button { tab = .changes } label: {
-            HStack(spacing: 8, content: content)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(RoundedRectangle(cornerRadius: 8).fill(Theme.field))
-                .contentShape(RoundedRectangle(cornerRadius: 8))
+            HStack(spacing: 6, content: content)
+                .fixedSize()
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .appTooltip("Open Changes")
@@ -783,7 +838,7 @@ struct SessionView: View {
         let canSend = !blocked && !runner.draft(sessionID).isEmpty
 
         return VStack(alignment: .leading, spacing: 8) {
-            contextReadout(session)
+            runChoices(session)
             contextNudge(session)
             queueStrip(busy: busy, blocked: blocked)
             attachmentStrip
@@ -867,29 +922,13 @@ struct SessionView: View {
         } isTargeted: { dropTargeted = $0 }
     }
 
-    // What the next turn will use, on the line the eye is already on when hitting send:
-    // the branch it edits, its fixed agent, the model and remaining run controls, and
-    // how full the window is.
-    @ViewBuilder private func contextReadout(_ session: ChatSession) -> some View {
-        // The lead checkout is the one the header speaks for, the same root the stats
-        // refresh puts first. The cache only ever holds snapshots of a readable
-        // repository, so having one is the same as the repository being ready.
-        let repository = store.workingDirectories(for: session).first
-            .flatMap { gitStats.snapshot(at: $0) }
-        // A worktree session knows its branch from creation, so the tag can draw on
-        // the first frame instead of waiting for git and shifting the row.
-        let branch = repository?.branch
-            ?? session.worktreeBranch
-            ?? session.sessionProjects?.compactMap(\.worktreeBranch).first
-        let usage = session.usage
+    // The choices the next turn will run on, on the line the eye is already on when
+    // hitting send: the session's fixed agent, its model, and the rest of the run
+    // controls. What the session has done and where belongs on the status strip, not
+    // here - this line is only ever about what happens next.
+    @ViewBuilder private func runChoices(_ session: ChatSession) -> some View {
         let agent = session.agent
         HStack(spacing: 10) {
-            if let branch, !branch.isEmpty {
-                branchTag(branch: branch, repository: repository)
-                Rectangle()
-                    .fill(Theme.border)
-                    .frame(width: 1, height: 12)
-            }
             if session.settings?.mcpServersEnabled == false {
                 Text("MCP off")
                     .font(.mono(10.5, .semibold))
@@ -900,7 +939,7 @@ struct SessionView: View {
                     .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.border))
             }
             pinnedSetting(agent.title, help: "This session always runs on \(agent.title).")
-            modelControl(session, lastRan: usage?.model(for: agent))
+            modelControl(session, lastRan: session.usage?.model(for: agent))
             effortMenu(agent: agent)
             if agent == .claudeCode {
                 permissionsMenu(agent: agent)
@@ -908,17 +947,6 @@ struct SessionView: View {
                 codexAccessMenu(agent: agent)
             }
             Spacer(minLength: 8)
-            // The trailing pair is laid out before the spacer gets a say. An HStack
-            // splits what is left evenly between the two, so without this the meter is
-            // offered half the free room, decides it does not fit, and drops its bar
-            // while the spacer sits on space the bar would have fitted in.
-            HStack(spacing: 10) {
-                if let pullRequest = session.pullRequest { pullRequestTag(pullRequest) }
-                if let usage, let fraction = usage.contextFraction(for: agent) {
-                    contextMeter(fraction: fraction, usage: usage, agent: agent)
-                }
-            }
-            .layoutPriority(1)
         }
     }
 
@@ -1081,8 +1109,7 @@ struct SessionView: View {
             // Verbatim, or the interpolated number is read as a localised one and comes
             // out grouped: PR #2,395.
             Text(verbatim: "PR #\(pullRequest.number)")
-                .font(.system(size: 11, weight: .semibold))
-                .monospacedDigit()
+                .font(.mono(11, .semibold))
                 .foregroundStyle(Theme.accent)
                 .contentShape(Rectangle())
         }
@@ -1101,12 +1128,13 @@ struct SessionView: View {
         Button { tab = .changes } label: {
             HStack(spacing: 5) {
                 Image(systemName: "arrow.triangle.branch")
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.system(size: 9.5, weight: .semibold))
                 Text(branch)
-                    .font(.mono(11, .medium))
+                    .font(.mono(10.5))
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
+            .foregroundStyle(.secondary)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

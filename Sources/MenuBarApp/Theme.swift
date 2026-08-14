@@ -94,6 +94,13 @@ enum Theme {
     // so the two read as a heading and its sub-heading instead of two headings.
     static let subHeaderHeight: CGFloat = 48
 
+    // The line of state under a header: a shade off both the card above it and the canvas
+    // below, so it reads as a footnote to the heading rather than a band of its own.
+    static let statusBand = adaptive(
+        light: NSColor(srgbRed: 0.945, green: 0.937, blue: 0.910, alpha: 1),
+        dark: NSColor(srgbRed: 0.102, green: 0.102, blue: 0.094, alpha: 1))
+    static let statusBandHeight: CGFloat = 30
+
     // A project's colour, used everywhere the project appears: its sidebar tile, the rail
     // under its expanded sessions, and the square dot beside its name on every other
     // screen. The tile is the colour at a low alpha behind the darker ink, which is what
