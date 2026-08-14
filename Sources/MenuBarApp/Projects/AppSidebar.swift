@@ -17,6 +17,7 @@ struct AppSidebar: View {
     // A project is expanded by default while it is the selected one. Explicit choices
     // win over that default and are restored when the app opens again.
     @State private var expansion = Preferences.sidebarExpansion
+    @State private var collapsedGroups = Preferences.collapsedSidebarGroups
     @State private var renamingID: UUID?
     @State private var choosingSessionKind: Project?
     @State private var choosingWorkspaceSession: ProjectWorkspace?
@@ -377,20 +378,26 @@ struct AppSidebar: View {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 1) {
                             ForEach(sections) { section in
-                                if let title = section.title {
-                                    SectionHeading(title: title)
+                                if let group = section.group {
+                                    SectionHeading(title: group.title,
+                                                   count: section.items.count,
+                                                   collapsed: collapsedGroups.contains(group)) {
+                                        toggleCollapsed(group)
+                                    }
                                 }
-                                ForEach(section.items) { item in
-                                    switch item {
-                                    case .project(let project):
-                                        projectSection(project,
-                                                       sessions: grouped[project.id] ?? [])
-                                            .id(project.id)
-                                    case .workspace(let workspace):
-                                        workspaceSection(
-                                            workspace,
-                                            sessions: workspaceGroups[workspace.id] ?? [])
-                                            .id(workspace.id)
+                                if !isCollapsed(section) {
+                                    ForEach(section.items) { item in
+                                        switch item {
+                                        case .project(let project):
+                                            projectSection(project,
+                                                           sessions: grouped[project.id] ?? [])
+                                                .id(project.id)
+                                        case .workspace(let workspace):
+                                            workspaceSection(
+                                                workspace,
+                                                sessions: workspaceGroups[workspace.id] ?? [])
+                                                .id(workspace.id)
+                                        }
                                     }
                                 }
                             }
@@ -409,6 +416,7 @@ struct AppSidebar: View {
                                                           workspaceGroups: workspaceGroups))
                         .animation(.easeOut(duration: 0.22), value: appSettings.projectSort)
                         .animation(.easeOut(duration: 0.22), value: appSettings.projectGrouping)
+                        .animation(.easeOut(duration: 0.22), value: collapsedGroups)
                         .animation(.easeOut(duration: 0.22), value: filterText)
                     }
                     .task(id: sessionToReveal) { await reveal(with: scroller) }
@@ -704,6 +712,33 @@ struct AppSidebar: View {
     private func setExpanded(_ isExpanded: Bool, for id: UUID) {
         expansion[id] = isExpanded
         Preferences.sidebarExpansion = expansion
+        // Opening a row inside a folded section unfolds the section as well, or the row
+        // would be opened somewhere the user cannot see it.
+        if isExpanded { showGroup(containing: id) }
+    }
+
+    // A folded section is drawn as its heading alone. The filter overrides it: a search
+    // is asking to see what matched, so a match is never hidden behind a heading.
+    private func isCollapsed(_ section: SidebarSection) -> Bool {
+        guard let group = section.group,
+              filterText.trimmingCharacters(in: .whitespaces).isEmpty else { return false }
+        return collapsedGroups.contains(group)
+    }
+
+    private func toggleCollapsed(_ group: SidebarGroup) {
+        if collapsedGroups.contains(group) {
+            collapsedGroups.remove(group)
+        } else {
+            collapsedGroups.insert(group)
+        }
+        Preferences.collapsedSidebarGroups = collapsedGroups
+    }
+
+    private func showGroup(containing id: UUID) {
+        let item = store.project(id).map(SidebarItem.project)
+            ?? store.workspace(id).map(SidebarItem.workspace)
+        guard let group = item?.group, collapsedGroups.remove(group) != nil else { return }
+        Preferences.collapsedSidebarGroups = collapsedGroups
     }
 
     // A list stays capped at its newest four sessions unless the user unfolded it with
@@ -1315,24 +1350,49 @@ private struct ArrangementChip: View {
     }
 }
 
-// The label over one run of the rail. It is a quiet line rather than a card, so the rows
-// under it stay the thing being read.
+// The label over one run of the rail, and the way to fold that run away. It is a quiet
+// line rather than a card, so the rows under it stay the thing being read: the chevron
+// only comes out under the pointer, and the count only while the run is folded, since a
+// folded heading is the only thing left saying what is in there.
 private struct SectionHeading: View {
     let title: String
+    let count: Int
+    let collapsed: Bool
+    let onToggle: () -> Void
+
+    @State private var hovering = false
 
     var body: some View {
-        HStack(spacing: 7) {
-            Text(title.uppercased())
-                .font(.mono(9, .semibold))
-                .kerning(1.2)
-                .foregroundStyle(.secondary)
-            Rectangle()
-                .fill(Theme.border)
-                .frame(height: 1)
+        Button(action: onToggle) {
+            HStack(spacing: 7) {
+                Text(title.uppercased())
+                    .font(.mono(9, .semibold))
+                    .kerning(1.2)
+                    .foregroundStyle(.secondary)
+                Rectangle()
+                    .fill(Theme.border)
+                    .frame(height: 1)
+                if collapsed {
+                    Text("\(count)")
+                        .font(.mono(9, .semibold))
+                        .foregroundStyle(.tertiary)
+                }
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .rotationEffect(.degrees(collapsed ? 0 : 90))
+                    .frame(width: 8)
+                    .opacity(hovering || collapsed ? 1 : 0)
+            }
+            .padding(.horizontal, 8)
+            .padding(.top, 9)
+            .padding(.bottom, 3)
+            .contentShape(Rectangle())
         }
-        .padding(.horizontal, 8)
-        .padding(.top, 9)
-        .padding(.bottom, 3)
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.15), value: hovering)
+        .appTooltip(collapsed ? "Show \(title.lowercased())" : "Hide \(title.lowercased())")
     }
 }
 

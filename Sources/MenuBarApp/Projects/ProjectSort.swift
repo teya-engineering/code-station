@@ -26,8 +26,9 @@ enum SidebarItem: Identifiable {
     }
 }
 
-// The kinds the rail can be split into, in the order the sections are shown.
-enum SidebarGroup: Int, CaseIterable {
+// The kinds the rail can be split into, in the order the sections are shown. The raw
+// value is written to preferences, so it has to stay as it is.
+enum SidebarGroup: String, CaseIterable {
     case tasks
     case workspaces
     case projects
@@ -41,12 +42,13 @@ enum SidebarGroup: Int, CaseIterable {
     }
 }
 
-// A run of the rail under one heading. A flat list is a single section with no title.
+// A run of the rail under one heading. A flat list is a single section with no group,
+// and a section without a heading cannot be folded away.
 struct SidebarSection: Identifiable {
-    let title: String?
+    let group: SidebarGroup?
     let items: [SidebarItem]
 
-    var id: String { title ?? "" }
+    var id: String { group?.rawValue ?? "" }
 }
 
 // Grouping splits the rail into kinds; the chosen sort still orders each section.
@@ -73,11 +75,11 @@ enum ProjectGrouping: String, CaseIterable, Identifiable {
     func sections(of items: [SidebarItem]) -> [SidebarSection] {
         switch self {
         case .flat:
-            return [SidebarSection(title: nil, items: items)]
+            return [SidebarSection(group: nil, items: items)]
         case .kind:
             return SidebarGroup.allCases.compactMap { group in
                 let members = items.filter { $0.group == group }
-                return members.isEmpty ? nil : SidebarSection(title: group.title, items: members)
+                return members.isEmpty ? nil : SidebarSection(group: group, items: members)
             }
         }
     }

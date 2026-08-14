@@ -96,7 +96,7 @@ struct ProjectSortTests {
 
         let sections = ProjectGrouping.kind.sections(of: items)
 
-        #expect(sections.map(\.title) == ["Tasks", "Workspaces", "Projects"])
+        #expect(sections.map { $0.group?.title } == ["Tasks", "Workspaces", "Projects"])
         #expect(sections.map { $0.items.map(\.name) }
                 == [["task"], ["workspace"], ["beta", "alpha"]])
     }
@@ -106,17 +106,17 @@ struct ProjectSortTests {
 
         let sections = ProjectGrouping.kind.sections(of: [.project(alpha)])
 
-        #expect(sections.map(\.title) == ["Projects"])
+        #expect(sections.map { $0.group?.title } == ["Projects"])
     }
 
-    @Test func flatGroupingIsOneUntitledSection() {
+    @Test func flatGroupingIsOneUngroupedSection() {
         let alpha = Project(name: "alpha", path: "/a")
         let task = Project(name: "task", path: "/task", kind: .adHoc)
 
         let sections = ProjectGrouping.flat.sections(of: [.project(alpha), .project(task)])
 
         #expect(sections.count == 1)
-        #expect(sections[0].title == nil)
+        #expect(sections[0].group == nil)
         #expect(sections[0].items.map(\.name) == ["alpha", "task"])
     }
 

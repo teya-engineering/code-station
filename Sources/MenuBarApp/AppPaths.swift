@@ -200,6 +200,13 @@ enum Preferences {
         set { store.set(newValue.rawValue, forKey: "projectGrouping") }
     }
 
+    // The sections the sidebar folds away, so a kind the user rarely touches costs the
+    // rail a heading rather than a row each.
+    static var collapsedSidebarGroups: Set<SidebarGroup> {
+        get { collapsedSidebarGroups(in: store) }
+        set { setCollapsedSidebarGroups(newValue, in: store) }
+    }
+
     // Which terminal opens a shell in a window of its own. Held as a bundle ID so the
     // choice survives the app being moved or renamed. Unset follows the system.
     static var terminalBundleID: String? {
@@ -220,6 +227,19 @@ enum Preferences {
             }
             expansion[id] = isExpanded
         }
+    }
+
+    static func collapsedSidebarGroups(in store: UserDefaults) -> Set<SidebarGroup> {
+        let saved = store.array(forKey: "collapsedSidebarGroups") as? [String] ?? []
+        return Set(saved.compactMap(SidebarGroup.init(rawValue:)))
+    }
+
+    static func setCollapsedSidebarGroups(_ groups: Set<SidebarGroup>, in store: UserDefaults) {
+        guard !groups.isEmpty else {
+            store.removeObject(forKey: "collapsedSidebarGroups")
+            return
+        }
+        store.set(groups.map(\.rawValue), forKey: "collapsedSidebarGroups")
     }
 
     static func setSidebarExpansion(_ expansion: [UUID: Bool], in store: UserDefaults) {

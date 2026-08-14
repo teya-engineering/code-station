@@ -101,6 +101,20 @@ struct AppPathsTests {
         ])
     }
 
+    @Test func remembersWhichSidebarSectionsAreFoldedAway() throws {
+        let suite = "conductor-sidebar-group-tests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        #expect(Preferences.collapsedSidebarGroups(in: defaults).isEmpty)
+
+        Preferences.setCollapsedSidebarGroups([.tasks, .workspaces], in: defaults)
+        #expect(Preferences.collapsedSidebarGroups(in: defaults) == [.tasks, .workspaces])
+
+        Preferences.setCollapsedSidebarGroups([], in: defaults)
+        #expect(defaults.object(forKey: "collapsedSidebarGroups") == nil)
+    }
+
     @Test func defaultsAndClampsOldSessionDays() throws {
         let suite = "conductor-old-session-tests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
