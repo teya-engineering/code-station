@@ -9,6 +9,7 @@ struct HeaderTabToggle<Selection: Hashable>: View {
     // options would have taken back to the title, opening the full strip under the pointer.
     var collapsible = false
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var hovering = false
 
     // Falling back to the whole strip keeps a selection that is not one of the options
@@ -38,7 +39,9 @@ struct HeaderTabToggle<Selection: Hashable>: View {
         // count as leaving.
         .contentShape(RoundedRectangle(cornerRadius: 10))
         .onHover { hovering = $0 }
-        .animation(.easeInOut(duration: 0.14), value: hovering)
+        // The strip moves the title beside it, so it opens slowly enough to read as one
+        // thing widening rather than the header jumping.
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: hovering)
     }
 
     private func segment(_ option: (label: String, value: Selection)) -> some View {
