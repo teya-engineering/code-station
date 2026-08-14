@@ -1108,23 +1108,44 @@ struct SessionView: View {
         }
     }
 
+    // The meter is the one thing on this row that says the session is getting heavy, so
+    // it is also where the session is emptied. It only opens a menu while there is a
+    // conversation to drop and nothing running that still holds it; the rest of the time
+    // it stays the read-only reading it has always been.
+    @ViewBuilder private func contextMeter(fraction: Double, usage: SessionUsage,
+                                           agent: AgentKind) -> some View {
+        if runner.canClearContext(sessionID, store: store) {
+            contextReading(fraction, clearable: true)
+                .contentShape(Rectangle())
+                .appMenu {
+                    [.item("Clear context",
+                           kind: .destructive,
+                           subtitle: "The next turn starts a fresh conversation in the same folder.") {
+                        runner.clearContext(sessionID, store: store)
+                    }]
+                }
+                .appTooltip { usageTooltip(usage, agent: agent, clearable: true) }
+        } else {
+            contextReading(fraction, clearable: false)
+                .appTooltip { usageTooltip(usage, agent: agent, clearable: false) }
+        }
+    }
+
     // The bar is the first thing to give up when the row runs out of room: it restates
     // the number beside it, which is the part actually being read.
-    private func contextMeter(fraction: Double, usage: SessionUsage,
-                              agent: AgentKind) -> some View {
+    private func contextReading(_ fraction: Double, clearable: Bool) -> some View {
         ViewThatFits(in: .horizontal) {
             HStack(spacing: 10) {
                 contextLabel
                 Meter(fraction: fraction, colour: contextColour(fraction), height: 5)
                     .frame(width: 110)
-                contextPercent(fraction)
+                contextPercent(fraction, clearable: clearable)
             }
             HStack(spacing: 10) {
                 contextLabel
-                contextPercent(fraction)
+                contextPercent(fraction, clearable: clearable)
             }
         }
-        .appTooltip { usageTooltip(usage, agent: agent) }
     }
 
     private var contextLabel: some View {
@@ -1136,12 +1157,18 @@ struct SessionView: View {
             .fixedSize()
     }
 
-    private func contextPercent(_ fraction: Double) -> some View {
-        Text("\(Int((fraction * 100).rounded()))%")
-            .font(.mono(11, .semibold))
-            .foregroundStyle(contextColour(fraction))
-            .lineLimit(1)
-            .fixedSize()
+    private func contextPercent(_ fraction: Double, clearable: Bool) -> some View {
+        HStack(spacing: 4) {
+            Text("\(Int((fraction * 100).rounded()))%")
+                .font(.mono(11, .semibold))
+            if clearable {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 7, weight: .semibold))
+            }
+        }
+        .foregroundStyle(contextColour(fraction))
+        .lineLimit(1)
+        .fixedSize()
     }
 
     private func contextColour(_ fraction: Double) -> Color {
@@ -1154,7 +1181,8 @@ struct SessionView: View {
 
     // The percentage says how much room is left but not where it went, and the split is
     // rarely what it looks like: cache reads run an order of magnitude ahead of the rest.
-    private func usageTooltip(_ usage: SessionUsage, agent: AgentKind) -> Tooltip {
+    private func usageTooltip(_ usage: SessionUsage, agent: AgentKind,
+                              clearable: Bool) -> Tooltip {
         var rows: [Tooltip.Row] = []
         for (label, count) in [("Input", usage.inputTokens),
                                ("Output", usage.outputTokens),
@@ -1170,7 +1198,9 @@ struct SessionView: View {
         let turns = usage.turns == 1 ? "1 turn" : "\(usage.turns) turns"
         return Tooltip(title: "Session usage",
                        subtitle: usage.model(for: agent).map { "\($0) · \(turns)" } ?? turns,
-                       note: "Context in use after the last turn.",
+                       note: clearable
+                           ? "Context in use after the last turn. Click to clear it."
+                           : "Context in use after the last turn.",
                        rows: rows)
     }
 

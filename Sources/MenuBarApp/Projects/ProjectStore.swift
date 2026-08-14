@@ -588,6 +588,16 @@ final class ProjectStore {
         scheduleIndexSave()
     }
 
+    // Forgets how full the window was, without touching what the session has spent.
+    // Goes with dropping the conversation the next turn would have resumed.
+    func clearContextUsage(for sessionID: UUID) {
+        guard let i = index(sessionID), var usage = sessions[i].usage else { return }
+        usage.noteCleared()
+        sessions[i].usage = usage
+        publishSidebarSessions()
+        scheduleIndexSave()
+    }
+
     func notePullRequest(_ pullRequest: PullRequest, for sessionID: UUID) {
         guard let i = index(sessionID), sessions[i].pullRequest != pullRequest else { return }
         sessions[i].pullRequest = pullRequest

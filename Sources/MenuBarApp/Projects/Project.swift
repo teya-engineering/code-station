@@ -442,6 +442,12 @@ struct ChatSession: Identifiable, Codable, Equatable {
         }
     }
 
+    // Whether any agent still holds a conversation this session could resume. An empty
+    // id is the same as none: it is never handed to a CLI as something to resume.
+    var hasAgentConversation: Bool {
+        AgentKind.allCases.contains { agentSessionID(for: $0)?.isEmpty == false }
+    }
+
     // The first thing the user asked makes a better title than "New session". Pasted
     // terminal output can carry long runs of spaces and tabs, which would spend the whole
     // title on blanks, so runs collapse to one space before it is cut to length.

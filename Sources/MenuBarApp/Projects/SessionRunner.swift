@@ -206,6 +206,51 @@ final class SessionRunner {
                                   customInstructions: item.customInstructions)
     }
 
+    // MARK: - Clearing the context
+
+    // Why a clear did not happen, so the typed command can say so in the transcript.
+    enum ClearOutcome: Equatable { case cleared, busy, nothingToClear }
+
+    // A turn only remembers anything because it is handed a resume id, so dropping that
+    // id is the whole of clearing the context: the next turn starts a conversation from
+    // nothing in the same folder, on the same branch, with the same settings. Neither CLI
+    // has a command for this, and neither needs one - it works the same for both.
+    //
+    // The transcript is left alone. It belongs to the person reading it, not to the agent.
+    @discardableResult
+    func clearContext(_ sessionID: UUID, store: ProjectStore) -> ClearOutcome {
+        guard let session = store.session(sessionID), !removals.contains(sessionID) else {
+            return .nothingToClear
+        }
+        // The running process still holds the conversation, so clearing now would only be
+        // undone the moment it reports its id back.
+        guard !state(sessionID).isBusy else { return .busy }
+        guard session.hasAgentConversation else { return .nothingToClear }
+
+        for agent in AgentKind.allCases {
+            store.clearAgentSessionID(agent: agent, for: sessionID)
+        }
+        store.clearContextUsage(for: sessionID)
+        store.append(
+            ChatMessage(role: .system,
+                        text: "Context cleared. The next turn starts a fresh conversation."),
+            to: sessionID)
+        SessionLog.note("context cleared", session: sessionID)
+        return .cleared
+    }
+
+    // Whether there is a conversation to drop and nothing running that still holds it.
+    func canClearContext(_ sessionID: UUID, store: ProjectStore) -> Bool {
+        guard let session = store.session(sessionID), !state(sessionID).isBusy else { return false }
+        return session.hasAgentConversation
+    }
+
+    // Only the exact word, and only on its own. Both CLIs have real slash commands -
+    // skills, built-ins - that belong to the agent and have to travel to it untouched.
+    nonisolated static func isClearCommand(_ text: String) -> Bool {
+        text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "/clear"
+    }
+
     // Nothing is ever sent straight to the CLI: a prompt joins the queue and the queue is
     // what runs. Typing during a turn therefore costs nothing, and the ones already waiting
     // keep their order.
@@ -216,6 +261,26 @@ final class SessionRunner {
         let instructions = customInstructions?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty || !attachments.isEmpty || instructions?.isEmpty == false else { return }
+
+        // "/clear" is the app's own command rather than a prompt, so it never reaches the
+        // agent. Anything hanging off it would be thrown away with it, so a prompt that
+        // carries files or instructions is left to run as one.
+        if Self.isClearCommand(text), attachments.isEmpty, instructions?.isEmpty != false {
+            switch clearContext(sessionID, store: store) {
+            case .cleared:
+                break
+            case .busy:
+                store.append(
+                    ChatMessage(role: .system,
+                                text: "The context cannot be cleared while a turn is running. Stop it first."),
+                    to: sessionID)
+            case .nothingToClear:
+                store.append(
+                    ChatMessage(role: .system, text: "There is no conversation to clear yet."),
+                    to: sessionID)
+            }
+            return
+        }
         queues[sessionID, default: []].append(QueuedPrompt(
             text: text,
             attachments: attachments,

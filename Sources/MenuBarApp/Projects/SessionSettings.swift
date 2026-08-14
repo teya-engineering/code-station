@@ -259,6 +259,13 @@ struct SessionUsage: Codable, Equatable {
         if let model, !model.isEmpty { self.model = model }
     }
 
+    // The conversation behind the window has been dropped, so the next turn starts from
+    // nothing. Only the size of that prompt goes back to zero: the tokens already spent
+    // were still spent, and the window size still describes the model that will run.
+    mutating func noteCleared() {
+        contextTokens = 0
+    }
+
     func model(for agent: AgentKind) -> String? {
         latestAgent == agent ? model : nil
     }
