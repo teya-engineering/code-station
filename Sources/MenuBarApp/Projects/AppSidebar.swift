@@ -1396,7 +1396,7 @@ private struct SectionHeading: View {
     }
 }
 
-// One line per workspace. The paired tiles distinguish it from a single project without
+// One line per workspace. The stacked tile distinguishes it from a single project without
 // introducing another icon language into the sidebar.
 private struct WorkspaceHeaderRow: View {
     let workspace: ProjectWorkspace
@@ -1417,7 +1417,7 @@ private struct WorkspaceHeaderRow: View {
 
     var body: some View {
         TreeRow(selected: selected, isExpanded: isExpanded, hovering: hovering) {
-            ProjectTileView(name: workspace.name, tint: Theme.workspaceTint)
+            ProjectTileView(name: workspace.name, tint: Theme.workspaceTint, stacked: true)
 
             if isRenaming {
                 TextField("Name", text: $draft)
