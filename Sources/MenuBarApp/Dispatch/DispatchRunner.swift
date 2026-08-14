@@ -176,9 +176,9 @@ final class DispatchRunner {
             }
         }
 
-        // The collection's token goes on first, so an Authorization header typed into the
-        // request itself still wins.
-        if let authorization, request.useAuth {
+        // Whatever the Auth tab signs in with goes on first, so an Authorization header
+        // typed into the request itself still wins.
+        if let authorization, request.authMode != .none {
             set("Authorization", authorization)
         }
 

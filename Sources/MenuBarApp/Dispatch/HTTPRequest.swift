@@ -44,6 +44,23 @@ enum BodyType: String, CaseIterable, Identifiable, Codable {
     }
 }
 
+// How a request fills in its Authorization header. Most services here take the
+// environment's token, but some only ever had a username and password, so the request
+// picks which one it sends.
+enum AuthMode: String, CaseIterable, Identifiable, Codable {
+    case none, environmentToken, basic
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .none: "No auth"
+        case .environmentToken: "Environment token"
+        case .basic: "Basic auth"
+        }
+    }
+}
+
 struct HeaderField: Identifiable, Codable, Equatable {
     var id = UUID()
     var key: String
@@ -107,8 +124,15 @@ struct SavedRequest: Identifiable, Codable, Equatable {
     var pathParams: [HeaderField] = []
     var bodyType: BodyType = .none
     var body: String = ""
-    // Whether the collection's token is attached when the request is sent.
-    var useAuth = true
+    // What is attached as the Authorization header when the request is sent.
+    var authMode: AuthMode = .environmentToken
+    // The password that goes with it is held in the Keychain under this request's id, so
+    // the collection file never carries one.
+    var basicUsername: String = ""
+
+    // Before the mode was a choice, a request either sent the environment's token or
+    // nothing at all.
+    private enum LegacyKeys: String, CodingKey { case useAuth }
 
     // Written by hand so a file saved before a field existed still loads, with the new
     // field taking its default instead of the whole collection being thrown away.
@@ -124,14 +148,24 @@ struct SavedRequest: Identifiable, Codable, Equatable {
         pathParams = try container.decodeIfPresent([HeaderField].self, forKey: .pathParams) ?? []
         bodyType = try container.decodeIfPresent(BodyType.self, forKey: .bodyType) ?? .none
         body = try container.decodeIfPresent(String.self, forKey: .body) ?? ""
-        useAuth = try container.decodeIfPresent(Bool.self, forKey: .useAuth) ?? true
+        authMode = try container.decodeIfPresent(AuthMode.self, forKey: .authMode)
+            ?? Self.legacyAuthMode(from: decoder)
+        basicUsername = try container.decodeIfPresent(String.self, forKey: .basicUsername) ?? ""
+    }
+
+    private static func legacyAuthMode(from decoder: Decoder) -> AuthMode {
+        guard let legacy = try? decoder.container(keyedBy: LegacyKeys.self),
+              let useAuth = try? legacy.decode(Bool.self, forKey: .useAuth) else {
+            return .environmentToken
+        }
+        return useAuth ? .environmentToken : .none
     }
 
     init(id: UUID = UUID(), name: String, folderID: UUID? = nil,
          method: HTTPMethod = .get, url: String = "",
          headers: [HeaderField] = [], queryParams: [HeaderField] = [],
          pathParams: [HeaderField] = [], bodyType: BodyType = .none, body: String = "",
-         useAuth: Bool = true) {
+         authMode: AuthMode = .environmentToken, basicUsername: String = "") {
         self.id = id
         self.name = name
         self.folderID = folderID
@@ -142,7 +176,8 @@ struct SavedRequest: Identifiable, Codable, Equatable {
         self.pathParams = pathParams
         self.bodyType = bodyType
         self.body = body
-        self.useAuth = useAuth
+        self.authMode = authMode
+        self.basicUsername = basicUsername
     }
 
     // The URL with the params folded in. {{env}} is left alone, so the result is still

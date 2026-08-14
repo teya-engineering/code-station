@@ -387,15 +387,42 @@ struct SavedRequestTests {
 
         #expect(requests.count == 1)
         #expect(requests[0].name == "Old")
-        #expect(requests[0].useAuth)
+        #expect(requests[0].authMode == .environmentToken)
+    }
+
+    // Auth used to be a yes or no rather than a choice of modes, and a request that had
+    // it switched off has to stay switched off.
+    @Test func readsTheOldAuthFlagAsAMode() throws {
+        func mode(useAuth: Bool) throws -> AuthMode {
+            let json = """
+            [{"id":"3F2504E0-4F89-11D3-9A0C-0305E82C3301","name":"Old","url":"https://e.test",
+              "useAuth":\(useAuth)}]
+            """
+            return try JSONDecoder().decode([SavedRequest].self, from: Data(json.utf8))[0].authMode
+        }
+
+        #expect(try mode(useAuth: true) == .environmentToken)
+        #expect(try mode(useAuth: false) == .none)
     }
 
     @Test func survivesARoundTripThroughTheFile() throws {
         let request = SavedRequest(name: "Fetch", method: .post, url: "https://example.test",
                                    headers: [HeaderField(key: "X-Trace", value: "1", enabled: false)],
-                                   bodyType: .json, body: "{}", useAuth: false)
+                                   bodyType: .json, body: "{}", authMode: .none)
         let data = try JSONEncoder().encode([request])
 
         #expect(try JSONDecoder().decode([SavedRequest].self, from: data) == [request])
+    }
+
+    // The username travels with the request; the password never does.
+    @Test func keepsTheBasicUsernameOutOfTheModeButThePasswordOutOfTheFile() throws {
+        let request = SavedRequest(name: "Legacy", url: "https://example.test",
+                                   authMode: .basic, basicUsername: "svc-orders")
+        let data = try JSONEncoder().encode([request])
+
+        #expect(try JSONDecoder().decode([SavedRequest].self, from: data) == [request])
+        let written = String(decoding: data, as: UTF8.self)
+        #expect(written.contains("svc-orders"))
+        #expect(!written.contains("password"))
     }
 }

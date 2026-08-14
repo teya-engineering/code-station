@@ -199,8 +199,9 @@ struct EnvironmentsView: View {
     }
 }
 
-// A caption over a one-of-a-set choice, opened as the app's own menu.
-private struct OptionMenu: View {
+// A caption over a one-of-a-set choice, opened as the app's own menu. Shared with the
+// Auth tab, so a choice looks the same wherever Dispatch offers one.
+struct OptionMenu: View {
     let caption: String
     let value: String
     let options: [(label: String, checked: Bool, choose: () -> Void)]
@@ -346,7 +347,7 @@ struct EnvironmentTokenControls: View {
     }
 }
 
-private struct Caption: View {
+struct Caption: View {
     let text: String
 
     var body: some View {
@@ -357,7 +358,7 @@ private struct Caption: View {
     }
 }
 
-private struct CaptionedField: View {
+struct CaptionedField: View {
     let caption: String
     let placeholder: String
     @Binding var text: String

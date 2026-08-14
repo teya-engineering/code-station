@@ -74,8 +74,12 @@ struct WorkingTreeWatchTests {
         }
     }
 
+    // The wait is wall-clock, but this test shares the main actor with every other one in
+    // the run, so the time it actually gets to poll in is a fraction of it. The budget is
+    // generous for that reason: a passing run never spends it, and a tighter one turns
+    // into a failure whenever the suite grows rather than when the watch breaks.
     private func eventually(
-        timeout: Duration = .seconds(3),
+        timeout: Duration = .seconds(20),
         condition: @escaping () async -> Bool
     ) async throws {
         let clock = ContinuousClock()

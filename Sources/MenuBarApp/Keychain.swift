@@ -1,15 +1,36 @@
 import Foundation
 import Security
 
-// Client secrets and access tokens, kept where macOS keeps secrets. Everything sits in
-// one keychain item as a JSON dictionary: each item carries its own access prompt, so
-// one item means at most one prompt instead of one per secret.
+// Client secrets, access tokens and request passwords, kept where macOS keeps secrets.
+// Everything sits in one keychain item as a JSON dictionary: each item carries its own
+// access prompt, so one item means at most one prompt instead of one per secret.
 enum Keychain {
-    enum Account: String, CaseIterable, Sendable {
-        case stagingClientSecret = "dispatch.staging.client-secret"
-        case stagingToken = "dispatch.staging.token"
-        case productionClientSecret = "dispatch.production.client-secret"
-        case productionToken = "dispatch.production.token"
+    // What a secret is filed under. The OAuth ones are fixed, but a request that signs in
+    // with a password needs a name of its own, so the set is open rather than a list.
+    struct Account: Hashable, Sendable {
+        let name: String
+
+        static let stagingClientSecret = Account(name: "dispatch.staging.client-secret")
+        static let stagingToken = Account(name: "dispatch.staging.token")
+        static let productionClientSecret = Account(name: "dispatch.production.client-secret")
+        static let productionToken = Account(name: "dispatch.production.token")
+
+        private static let requestPrefix = "dispatch.request."
+        private static let passwordSuffix = ".basic-password"
+
+        static func basicPassword(for requestID: UUID) -> Account {
+            Account(name: requestPrefix + requestID.uuidString + passwordSuffix)
+        }
+
+        // The request a stored password belongs to, and nil for every other kind of
+        // secret. This is how a load sorts the request passwords out of the one item.
+        var basicPasswordRequestID: UUID? {
+            guard name.hasPrefix(Self.requestPrefix), name.hasSuffix(Self.passwordSuffix) else {
+                return nil
+            }
+            return UUID(uuidString: String(name.dropFirst(Self.requestPrefix.count)
+                                               .dropLast(Self.passwordSuffix.count)))
+        }
     }
 
     private static let store = "dispatch.secrets"
@@ -33,14 +54,14 @@ enum Keychain {
         } else {
             rawValues = try migrateLegacyItems()
         }
-        return Account.allCases.reduce(into: [:]) { values, account in
-            values[account] = rawValues[account.rawValue]
+        return rawValues.reduce(into: [:]) { values, entry in
+            values[Account(name: entry.key)] = entry.value
         }
     }
 
     static func replace(with values: [Account: String]) throws {
         let rawValues = values.reduce(into: [String: String]()) { result, entry in
-            if !entry.value.isEmpty { result[entry.key.rawValue] = entry.value }
+            if !entry.value.isEmpty { result[entry.key.name] = entry.value }
         }
         try write(rawValues)
     }
@@ -51,41 +72,40 @@ enum Keychain {
         var gathered = try read(legacyStore).map {
             normalizedValues(try JSONDecoder().decode([String: String].self, from: $0))
         } ?? [:]
-        for account in Account.allCases {
-            let names = [account.rawValue, legacyName(for: account)]
-            for name in names where gathered[account.rawValue] == nil {
+        for (legacy, current) in legacyNames {
+            for name in [current, legacy] where gathered[current] == nil {
                 if let data = try read(name),
                    let value = String(data: data, encoding: .utf8), !value.isEmpty {
-                    gathered[account.rawValue] = value
+                    gathered[current] = value
                 }
             }
         }
         guard !gathered.isEmpty else { return gathered }
         try write(gathered)
-        let oldItems = [legacyStore] + Account.allCases.flatMap {
-            [$0.rawValue, legacyName(for: $0)]
-        }
+        let oldItems = [legacyStore] + legacyNames.flatMap { [$0.key, $0.value] }
         for item in oldItems {
             try delete(item)
         }
         return gathered
     }
 
+    // A value stored by an earlier release is folded onto the name used now. Anything
+    // else is kept as it is, since the store also holds a name per request.
     static func normalizedValues(_ values: [String: String]) -> [String: String] {
-        Account.allCases.reduce(into: [:]) { result, account in
-            result[account.rawValue] = values[account.rawValue]
-                ?? values[legacyName(for: account)]
+        var normalized = values
+        for (legacy, current) in legacyNames {
+            guard let value = normalized.removeValue(forKey: legacy) else { continue }
+            if normalized[current] == nil { normalized[current] = value }
         }
+        return normalized
     }
 
-    private static func legacyName(for account: Account) -> String {
-        switch account {
-        case .stagingClientSecret: "postman.staging.client-secret"
-        case .stagingToken: "postman.staging.token"
-        case .productionClientSecret: "postman.production.client-secret"
-        case .productionToken: "postman.production.token"
-        }
-    }
+    private static let legacyNames = [
+        "postman.staging.client-secret": Account.stagingClientSecret.name,
+        "postman.staging.token": Account.stagingToken.name,
+        "postman.production.client-secret": Account.productionClientSecret.name,
+        "postman.production.token": Account.productionToken.name
+    ]
 
     private static func delete(_ account: String) throws {
         let status = SecItemDelete(query(account) as CFDictionary)

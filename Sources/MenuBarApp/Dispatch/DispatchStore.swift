@@ -68,8 +68,11 @@ final class DispatchStore {
         save()
     }
 
-    func duplicate(_ id: UUID) {
-        guard let source = requests.first(where: { $0.id == id }) else { return }
+    // Answers with the copy's id, since a request's password is not kept here and the
+    // caller has to carry it over itself.
+    @discardableResult
+    func duplicate(_ id: UUID) -> UUID? {
+        guard let source = requests.first(where: { $0.id == id }) else { return nil }
         var copy = source
         copy.id = UUID()
         copy.name = source.name + " copy"
@@ -83,6 +86,7 @@ final class DispatchStore {
         requests.append(copy)
         selectedID = copy.id
         save()
+        return copy.id
     }
 
     @discardableResult

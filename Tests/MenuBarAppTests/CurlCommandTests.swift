@@ -57,7 +57,7 @@ struct CurlCommandTests {
     }
 
     @Test func skipsTheTokenWhenTheRequestDoesNotUseAuth() {
-        let request = SavedRequest(name: "open", url: "https://example.test", useAuth: false)
+        let request = SavedRequest(name: "open", url: "https://example.test", authMode: .none)
 
         let command = CurlCommand.text(for: request, environment: .staging,
                                        authorization: "Bearer token")

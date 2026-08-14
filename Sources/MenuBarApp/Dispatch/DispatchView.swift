@@ -175,7 +175,11 @@ struct DispatchView: View {
 
     private func requestContextMenu(for request: SavedRequest) -> [MenuEntry] {
         var entries: [MenuEntry] = [
-            .item("Duplicate") { store.duplicate(request.id) },
+            .item("Duplicate") {
+                if let copy = store.duplicate(request.id) {
+                    auth.copyBasicPassword(from: request.id, to: copy)
+                }
+            },
             .separator
         ]
         entries.append(contentsOf: store.folders.map { folder in
@@ -185,7 +189,7 @@ struct DispatchView: View {
         })
         entries.append(.separator)
         entries.append(.item("Delete", kind: .destructive) {
-            dialogs.show(deleteDialog(for: request, store: store))
+            dialogs.show(deleteDialog(for: request, store: store, auth: auth))
         })
         return entries
     }
@@ -328,12 +332,16 @@ private struct EnvironmentSegment: View {
 
 // The same question whether the delete starts from the sidebar or from the editor.
 @MainActor
-private func deleteDialog(for request: SavedRequest, store: DispatchStore) -> Dialog {
+private func deleteDialog(for request: SavedRequest, store: DispatchStore,
+                          auth: DispatchAuthStore) -> Dialog {
     Dialog(
         title: "Delete \"\(request.name.isEmpty ? "Untitled" : request.name)\"?",
         message: "The request and everything set up on it are gone for good.",
         actions: [
-            .init(label: "Delete request", kind: .destructive) { store.remove(request.id) },
+            .init(label: "Delete request", kind: .destructive) {
+                store.remove(request.id)
+                auth.forgetBasicPassword(for: request.id)
+            },
             .init(label: "Cancel", kind: .cancel)
         ])
 }
@@ -554,7 +562,7 @@ private struct RequestDetail: View {
                 .font(.serif(18))
             Spacer(minLength: 8)
             Button("Delete") {
-                dialogs.show(deleteDialog(for: draft, store: store))
+                dialogs.show(deleteDialog(for: draft, store: store, auth: auth))
             }
                 .buttonStyle(.plain)
                 .font(.system(size: 12, weight: .semibold))
@@ -678,7 +686,16 @@ private struct RequestDetail: View {
         case .body:
             return draft.bodyType == .none ? tab.rawValue : "\(tab.rawValue) · \(draft.bodyType.label)"
         case .auth:
-            return draft.useAuth ? "\(tab.rawValue) · \(environment.rawValue) bearer" : "\(tab.rawValue) · off"
+            return "\(tab.rawValue) · \(authSummary)"
+        }
+    }
+
+    // The tab says what a send will attach without having to be opened.
+    private var authSummary: String {
+        switch draft.authMode {
+        case .none: "off"
+        case .environmentToken: "\(environment.rawValue) token"
+        case .basic: "basic"
         }
     }
 
@@ -754,25 +771,52 @@ private struct RequestDetail: View {
     }
 
     private var authEditor: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Toggle(isOn: $draft.useAuth) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Send the environment's token")
-                        .font(.system(size: 13, weight: .semibold))
-                    Text("Adds \(auth.config(for: environment).headerPrefix) <token> as the Authorization header, from whichever environment is active when you send. An Authorization header of your own still wins.")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                OptionMenu(caption: "AUTHORIZATION",
+                           value: draft.authMode.label,
+                           options: AuthMode.allCases.map { mode in
+                               (mode.label, mode == draft.authMode, { draft.authMode = mode })
+                           })
+                    .frame(width: 260)
+
+                switch draft.authMode {
+                case .none:
+                    authNote("Nothing is added. A request that needs an Authorization header can still carry one of its own from the Headers tab.")
+                case .environmentToken:
+                    authNote("Adds \(auth.config(for: environment).headerPrefix) <token> as the Authorization header, from whichever environment is active when you send. An Authorization header of your own still wins.")
+                    EnvironmentTokenControls(env: environment)
+                case .basic:
+                    CaptionedField(caption: "USERNAME",
+                                   placeholder: "username",
+                                   text: $draft.basicUsername)
+                    CaptionedField(caption: "PASSWORD",
+                                   placeholder: "kept in the Keychain, never in the request file",
+                                   text: basicPassword,
+                                   accent: environment.accent,
+                                   secret: true)
+                    authNote("Adds Authorization: Basic <username:password>. The pair is the same in both environments, and base64 hides nothing from anything on the way, so this belongs on https only. An Authorization header of your own still wins.")
                 }
             }
-            .toggleStyle(.appCheckbox)
-
-            EnvironmentTokenControls(env: environment)
-
-            Spacer(minLength: 0)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .padding(20)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .padding(20)
+        .frame(maxHeight: .infinity)
+    }
+
+    private func authNote(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 11))
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    // The password is the one part of a request that is not in the request file, so it is
+    // read and written straight through to the store that owns the Keychain.
+    private var basicPassword: Binding<String> {
+        let id = draft.id
+        return Binding(get: { auth.basicPassword(for: id) },
+                       set: { auth.setBasicPassword($0, for: id) })
     }
 
     private var headerEditor: some View {
@@ -864,10 +908,22 @@ private struct RequestDetail: View {
 
     private func fire(_ request: SavedRequest, in env: ApiEnvironment) {
         Task {
-            // Asked for per send rather than held, so an expired token is refreshed on
-            // the way out instead of failing the call.
-            let authorization = request.useAuth ? await auth.authorizationHeader(for: env) : nil
-            await runner.send(request, environment: env, authorization: authorization)
+            await runner.send(request, environment: env,
+                              authorization: authorization(for: request, in: env))
+        }
+    }
+
+    // Built per send rather than held, so an expired token is refreshed on the way out
+    // instead of failing the call.
+    private func authorization(for request: SavedRequest,
+                               in env: ApiEnvironment) async -> String? {
+        switch request.authMode {
+        case .none:
+            return nil
+        case .environmentToken:
+            return await auth.authorizationHeader(for: env)
+        case .basic:
+            return auth.basicHeader(username: request.basicUsername, requestID: request.id)
         }
     }
 
@@ -879,9 +935,9 @@ private struct RequestDetail: View {
         let request = draft
         let env = environment
         Task {
-            // Asked for the same way a send does, so the copied command carries a token
-            // that is live rather than one that expired while the window sat open.
-            let authorization = request.useAuth ? await auth.authorizationHeader(for: env) : nil
+            // Built the same way a send does, so the copied command carries a token that
+            // is live rather than one that expired while the window sat open.
+            let authorization = await authorization(for: request, in: env)
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(
                 CurlCommand.text(for: request, environment: env, authorization: authorization),

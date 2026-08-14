@@ -2,9 +2,11 @@ import AppKit
 import Foundation
 import Observation
 
-// The two environments' OAuth setups and whatever token each currently holds. A send
-// borrows the active environment's token from here; switching environments never touches
-// the other side's token, so flipping back does not mean signing in again.
+// The two environments' OAuth setups and whatever token each currently holds, plus the
+// password of every request that signs in with basic auth. A send borrows the active
+// environment's token from here; switching environments never touches the other side's
+// token, so flipping back does not mean signing in again. Every secret in the app is
+// written from here, which is what keeps one Keychain item from being written twice.
 @MainActor
 @Observable
 final class DispatchAuthStore {
@@ -13,6 +15,7 @@ final class DispatchAuthStore {
     var production: OAuthConfig { didSet { if production != oldValue { scheduleSave() } } }
 
     private(set) var tokens: [ApiEnvironment: OAuthToken] = [:]
+    private(set) var basicPasswords: [UUID: String] = [:]
     private(set) var busy: Set<ApiEnvironment> = []
     // The browser is out with a sign-in whose answer has to be pasted back.
     private(set) var awaitingPaste: Set<ApiEnvironment> = []
@@ -82,6 +85,11 @@ final class DispatchAuthStore {
         self.staging = staging
         self.production = production
         self.tokens = tokens
+        basicPasswords = keychainValues.reduce(into: [:]) { passwords, entry in
+            if let requestID = entry.key.basicPasswordRequestID {
+                passwords[requestID] = entry.value
+            }
+        }
         storedKeychainValues = keychainValues
         loadError = loadFailures.isEmpty ? nil : loadFailures.joined(separator: "\n")
     }
@@ -127,6 +135,42 @@ final class DispatchAuthStore {
         guard let token = tokens[env] else { return "Not signed in" }
         if tokenIsForOtherSettings(env) { return "Token is for other settings" }
         return token.validityText
+    }
+
+    // MARK: - Basic auth
+
+    func basicPassword(for requestID: UUID) -> String {
+        basicPasswords[requestID] ?? ""
+    }
+
+    func setBasicPassword(_ password: String, for requestID: UUID) {
+        guard basicPassword(for: requestID) != password else { return }
+        basicPasswords[requestID] = password.isEmpty ? nil : password
+        scheduleSave()
+    }
+
+    // Called when the request itself goes, so a password does not outlive what it was for.
+    func forgetBasicPassword(for requestID: UUID) {
+        guard basicPasswords.removeValue(forKey: requestID) != nil else { return }
+        save()
+    }
+
+    func copyBasicPassword(from requestID: UUID, to copyID: UUID) {
+        guard let password = basicPasswords[requestID] else { return }
+        basicPasswords[copyID] = password
+        save()
+    }
+
+    // What a request signing in with a username and password sends. Base64 is an
+    // encoding, not a cipher, so the pair is readable to anything on the way: it is only
+    // safe over https, which is the same deal every basic auth service makes.
+    func basicHeader(username: String, requestID: UUID) -> String? {
+        let username = username.trimmed
+        // The password is sent as typed. Trimming it would quietly change a secret, and
+        // a password is allowed to end in a space.
+        let password = basicPassword(for: requestID)
+        guard !username.isEmpty || !password.isEmpty else { return nil }
+        return "Basic " + Data("\(username):\(password)".utf8).base64EncodedString()
     }
 
     // MARK: - Getting a token
@@ -429,7 +473,13 @@ final class DispatchAuthStore {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         encoder.dateEncodingStrategy = .iso8601
 
-        var keychainValues = storedKeychainValues
+        // The passwords are rebuilt rather than edited in place, so one that has been
+        // cleared is dropped from the Keychain instead of lingering under its old name.
+        var keychainValues = storedKeychainValues.filter { $0.key.basicPasswordRequestID == nil }
+        for (requestID, password) in basicPasswords where !password.isEmpty {
+            keychainValues[.basicPassword(for: requestID)] = password
+        }
+
         var encodingFailures: [String] = []
         for env in ApiEnvironment.allCases {
             let secret = config(for: env).clientSecret
