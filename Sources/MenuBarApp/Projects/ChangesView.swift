@@ -82,11 +82,7 @@ struct ChangesView: View {
                     }
                 }
                 if snapshot.upstream != nil {
-                    headerAction("Pull", icon: "arrow.down", count: snapshot.behind) {
-                        perform("Pulling…", failure: "Could not pull") {
-                            await GitActions.pull(at: repoRoot)
-                        }
-                    }
+                    headerAction("Pull", icon: "arrow.down", count: snapshot.behind) { pull() }
                 }
                 if snapshot.hasCommits {
                     headerAction("Push", icon: "arrow.up", count: snapshot.ahead) {
@@ -387,6 +383,37 @@ struct ChangesView: View {
 
     // MARK: - Actions
 
+    // The count on the button is only as fresh as the last fetch, so the press never
+    // decides for itself that there is nothing to pull: GitActions.pull reads origin first
+    // and works out what to do from that.
+    private func pull() {
+        guard !busy else { return }
+        Task {
+            working = "Pulling…"
+            let outcome = await GitActions.pull(at: repoRoot)
+            working = nil
+            report(outcome)
+            await reload()
+        }
+    }
+
+    // A pull that worked says nothing: the header numbers and the file list are the report.
+    private func report(_ outcome: GitPullOutcome) {
+        switch outcome {
+        case .upToDate, .updated:
+            break
+        case .updatedWithStashConflict:
+            fail("Pulled, with conflicts",
+                 """
+                 Origin's commits are in, but your uncommitted changes could not go back on \
+                 top of them cleanly. The files hold both versions between conflict markers, \
+                 and the originals are kept in a stash, which git stash list will show.
+                 """)
+        case .failed(let error):
+            fail("Could not pull", error)
+        }
+    }
+
     private func confirmPush(_ snapshot: GitSnapshot) {
         let root = snapshot.root
         let upstream = snapshot.upstream
@@ -399,6 +426,9 @@ struct ChangesView: View {
             case .commits(let commits):
                 dialogs.show(pushDialog(commits: commits, upstream: upstream,
                                         hasUpstream: hasUpstream, root: root))
+            case .behindUpstream(let behind, let commits):
+                dialogs.show(behindDialog(behind: behind, commits: commits, upstream: upstream,
+                                          hasUpstream: hasUpstream, root: root))
             case .failed(let error):
                 fail("Could not check commits to push", error)
             }
@@ -430,6 +460,52 @@ struct ChangesView: View {
                 .init(label: "Cancel", kind: .cancel)
             ],
             width: 520)
+    }
+
+    // Origin refuses a push from a branch that trails it, so the screen says so instead of
+    // sending one to be rejected, and offers the pull that makes it possible in one press.
+    private func behindDialog(behind: Int, commits: [GitPushCommit], upstream: String?,
+                              hasUpstream: Bool, root: String) -> Dialog {
+        let target = upstream ?? "origin"
+        let mine = commits.count == 1 ? "your commit" : "your \(commits.count) commits"
+        return Dialog(
+            title: "Pull before pushing",
+            message: "\(target) has \(behind) commit\(behind == 1 ? "" : "s") this branch does "
+                + "not, so origin would refuse the push. Pulling first puts \(mine) on top.",
+            content: AnyView(pushCommitList(commits)),
+            actions: [
+                .init(label: "Pull, then push", kind: .primary) {
+                    pullThenPush(hasUpstream: hasUpstream, root: root)
+                },
+                .init(label: "Cancel", kind: .cancel)
+            ],
+            width: 520)
+    }
+
+    // Only a pull that fails stops the push: a stash that came back badly leaves conflict
+    // markers in uncommitted files, which is worth saying but has no bearing on what the
+    // push sends. Either way that news waits until after, so one dialog cannot bury another.
+    private func pullThenPush(hasUpstream: Bool, root: String) {
+        guard !busy else { return }
+        Task {
+            working = "Pulling…"
+            let outcome = await GitActions.pull(at: root)
+            if case .failed(let error) = outcome {
+                working = nil
+                fail("Could not pull", error)
+                await reload()
+                return
+            }
+            working = "Pushing…"
+            let error = await GitActions.push(hasUpstream: hasUpstream, at: root)
+            working = nil
+            if let error {
+                fail("Could not push", error)
+            } else {
+                report(outcome)
+            }
+            await reload()
+        }
     }
 
     @ViewBuilder private func pushCommitList(_ commits: [GitPushCommit]) -> some View {

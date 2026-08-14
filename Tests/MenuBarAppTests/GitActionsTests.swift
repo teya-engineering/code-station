@@ -121,11 +121,141 @@ struct GitActionsTests {
         let behind = await GitInspector.snapshot(at: second.path)
         #expect(behind.behind == 1)
 
-        let error = await GitActions.pull(at: second.path)
-        #expect(error == nil)
+        #expect(await GitActions.pull(at: second.path) == .updated)
 
         let after = await GitInspector.snapshot(at: second.path)
         #expect(after.behind == 0)
+    }
+
+    // Nothing fetches before the button is pressed, so a pull that trusted the tracking
+    // ref would decide there was nothing to do and quietly do nothing.
+    @Test func pullReadsOriginBeforeDecidingThereIsNothingToDo() async throws {
+        let remote = try Bare()
+        let first = try Repo()
+        first.git("remote", "add", "origin", remote.path)
+        first.git("push", "-q", "-u", "origin", "HEAD")
+
+        let second = try Repo(cloneOf: remote)
+        try first.write("README.md", "moved on")
+        first.git("commit", "-qam", "second")
+        first.git("push", "-q")
+
+        // As far as this clone knows, it is level with origin.
+        #expect(await GitInspector.snapshot(at: second.path).behind == 0)
+
+        #expect(await GitActions.pull(at: second.path) == .updated)
+        #expect(second.read("README.md") == "moved on")
+    }
+
+    @Test func pullSaysSoWhenThereIsNothingToBringIn() async throws {
+        let remote = try Bare()
+        let repo = try Repo()
+        repo.git("remote", "add", "origin", remote.path)
+        repo.git("push", "-q", "-u", "origin", "HEAD")
+
+        #expect(await GitActions.pull(at: repo.path) == .upToDate)
+    }
+
+    // The failure this whole path exists for: git will not guess between a merge and a
+    // rebase, so a diverged branch used to stop at a hint about pull.rebase. Nothing here
+    // sets that config, which is the point.
+    @Test func pullRebasesLocalCommitsOntoADivergedUpstream() async throws {
+        let remote = try Bare()
+        let first = try Repo()
+        first.git("remote", "add", "origin", remote.path)
+        first.git("push", "-q", "-u", "origin", "HEAD")
+
+        let second = try Repo(cloneOf: remote)
+        try second.write("mine.txt", "local work")
+        second.git("add", ".")
+        second.git("commit", "-qm", "local work")
+        try first.write("README.md", "moved on")
+        first.git("commit", "-qam", "second")
+        first.git("push", "-q")
+
+        #expect(await GitActions.pull(at: second.path) == .updated)
+
+        let after = await GitInspector.snapshot(at: second.path)
+        #expect(after.behind == 0)
+        // The local commit is kept, replayed on top of what origin gained.
+        #expect(after.ahead == 1)
+        #expect(second.read("README.md") == "moved on")
+        #expect(second.read("mine.txt") == "local work")
+    }
+
+    // Sessions leave trees dirty, and a pull that refused to run until the folder was
+    // clean would be turned away most of the time it is pressed.
+    @Test func pullKeepsUncommittedWorkThroughTheUpdate() async throws {
+        let remote = try Bare()
+        let first = try Repo()
+        first.git("remote", "add", "origin", remote.path)
+        first.git("push", "-q", "-u", "origin", "HEAD")
+
+        let second = try Repo(cloneOf: remote)
+        try second.write("scratch.txt", "half finished")
+        try first.write("README.md", "moved on")
+        first.git("commit", "-qam", "second")
+        first.git("push", "-q")
+
+        #expect(await GitActions.pull(at: second.path) == .updated)
+        #expect(second.read("scratch.txt") == "half finished")
+        #expect(second.read("README.md") == "moved on")
+    }
+
+    // A rebase that cannot finish leaves the branch parked halfway onto origin, which no
+    // part of this screen can carry on from, so the press has to undo itself.
+    @Test func pullPutsTheBranchBackWhenTheRebaseCannotFinish() async throws {
+        let remote = try Bare()
+        let first = try Repo()
+        first.git("remote", "add", "origin", remote.path)
+        first.git("push", "-q", "-u", "origin", "HEAD")
+
+        let second = try Repo(cloneOf: remote)
+        try second.write("README.md", "my version")
+        second.git("commit", "-qam", "local edit")
+        let before = second.head
+        try first.write("README.md", "their version")
+        first.git("commit", "-qam", "their edit")
+        first.git("push", "-q")
+
+        guard case .failed(let message) = await GitActions.pull(at: second.path) else {
+            #expect(Bool(false), "a conflicting rebase has to report a failure")
+            return
+        }
+        #expect(message.contains("README.md"))
+
+        #expect(second.head == before)
+        #expect(second.read("README.md") == "my version")
+        // No half-finished rebase and no stash left behind to find later.
+        #expect(!FileManager.default.fileExists(
+            atPath: second.url.appendingPathComponent(".git/rebase-merge").path))
+        let after = await GitInspector.snapshot(at: second.path)
+        #expect(after.files.isEmpty)
+    }
+
+    // Pushing from behind the upstream is refused by origin every time, so the screen is
+    // told before it sends one.
+    @Test func pushPreviewReportsABranchThatTrailsOrigin() async throws {
+        let remote = try Bare()
+        let first = try Repo()
+        first.git("remote", "add", "origin", remote.path)
+        first.git("push", "-q", "-u", "origin", "HEAD")
+
+        let second = try Repo(cloneOf: remote)
+        try second.write("mine.txt", "local work")
+        second.git("add", ".")
+        second.git("commit", "-qm", "local work")
+        try first.write("README.md", "moved on")
+        first.git("commit", "-qam", "second")
+        first.git("push", "-q")
+
+        let preview = await GitActions.commitsToPush(hasUpstream: true, at: second.path)
+        guard case .behindUpstream(let behind, let commits) = preview else {
+            #expect(Bool(false), "a trailing branch has to be reported as behind")
+            return
+        }
+        #expect(behind == 1)
+        #expect(commits.map(\.subject) == ["local work"])
     }
 
     @Test func updateCheckoutMovesUpToTheRemoteTip() async throws {
@@ -238,6 +368,14 @@ struct GitActionsTests {
             try contents.write(to: url.appendingPathComponent(name), atomically: true, encoding: .utf8)
         }
 
+        func read(_ name: String) -> String? {
+            try? String(contentsOf: url.appendingPathComponent(name), encoding: .utf8)
+        }
+
+        var head: String {
+            Self.output(in: url, ["rev-parse", "HEAD"])
+        }
+
         func git(_ arguments: String...) {
             Self.run(in: url, arguments)
         }
@@ -257,6 +395,21 @@ struct GitActionsTests {
             process.standardError = FileHandle.nullDevice
             try? process.run()
             process.waitUntilExit()
+        }
+
+        static func output(in directory: URL, _ arguments: [String]) -> String {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            process.arguments = ["git"] + arguments
+            process.currentDirectoryURL = directory
+            let pipe = Pipe()
+            process.standardOutput = pipe
+            process.standardError = FileHandle.nullDevice
+            try? process.run()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            return String(decoding: data, as: UTF8.self)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
         }
     }
 

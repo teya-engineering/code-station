@@ -9,15 +9,33 @@ struct GitPushCommit: Identifiable, Sendable, Equatable {
 
 enum GitPushPreview: Sendable, Equatable {
     case commits([GitPushCommit])
+    // Origin has commits this branch does not, so it would refuse the push.
+    case behindUpstream(Int, [GitPushCommit])
+    case failed(String)
+}
+
+// What a pull did, in the terms the screen has to report. Up to date and updated are both
+// success; they read differently only because one of them has nothing to show.
+enum GitPullOutcome: Sendable, Equatable {
+    case upToDate
+    case updated
+    // The branch moved, but the uncommitted work could not be put back cleanly, so it is
+    // sitting in the files as conflict markers.
+    case updatedWithStashConflict
     case failed(String)
 }
 
 // The git commands that change a repository: switching branch, committing, pulling and
 // pushing. They live apart from GitInspector so the inspection side stays read-only,
 // but they start git through the same runner, so PATH lookup and prompt suppression
-// behave the same everywhere. Each action returns nil on success or the error text git
-// gave, ready to show in a dialog.
+// behave the same everywhere. Most actions return nil on success or the error text git
+// gave, ready to show in a dialog. Pull is the exception: it can succeed in more than one
+// way worth telling apart, so it answers with an outcome instead.
 enum GitActions {
+
+    // Long enough for a fetch over a normal connection, short enough that an unreachable
+    // origin cannot hold a button down for minutes.
+    private static let networkTimeout: TimeInterval = 30
 
     static func switchBranch(_ branch: String, at root: String) async -> String? {
         await perform(at: root) { tool, url in
@@ -35,10 +53,52 @@ enum GitActions {
         }
     }
 
-    // --no-edit keeps a merge pull from waiting on an editor that can never appear here.
-    static func pull(at root: String) async -> String? {
-        await perform(at: root) { tool, url in
-            GitInspector.run(tool, ["pull", "--no-edit"], in: url)
+    // Pull works out how to reconcile the branch itself rather than leaning on pull.rebase,
+    // which git refuses to guess at and which plenty of checkouts never set: a button has
+    // no way to stop halfway and ask. The fetch comes first, so the decision runs on how
+    // far apart the two branches are now instead of whenever origin was last read, and the
+    // step that follows is whichever of a fast-forward or a rebase cannot go wrong for
+    // those numbers. Uncommitted work is stashed around the move either way, since sessions
+    // leave trees dirty all the time and a pull otherwise refuses to touch them.
+    static func pull(at root: String) async -> GitPullOutcome {
+        guard let tool = await GitInspector.tool() else {
+            return .failed("Could not find git on PATH.")
+        }
+        let url = URL(fileURLWithPath: root)
+        return await GitInspector.offMain {
+            let fetch = GitInspector.run(tool, ["fetch", "--quiet", "origin"], in: url,
+                                         timeout: networkTimeout)
+            guard fetch.ok else { return .failed(fetch.failureMessage) }
+
+            let counts = GitInspector.run(
+                tool, ["rev-list", "--count", "--left-right", "HEAD...@{u}"], in: url)
+            guard counts.ok else { return .failed(counts.failureMessage) }
+            guard let (ahead, behind) = divergence(counts.text) else {
+                return .failed("Could not read how far this branch is from its upstream.")
+            }
+            guard behind > 0 else { return .upToDate }
+
+            // With no commits of its own to replay, the branch only has to move forward,
+            // and moving forward cannot conflict with anything. --ff-only holds it to that:
+            // if something did make a merge necessary, it stops instead of making one.
+            if ahead == 0 {
+                let merge = GitInspector.run(tool, ["merge", "--ff-only", "--autostash", "@{u}"],
+                                             in: url)
+                guard merge.ok else { return .failed(merge.failureMessage) }
+                return stashConflicted(merge) ? .updatedWithStashConflict : .updated
+            }
+
+            let rebase = GitInspector.run(tool, ["rebase", "--autostash", "@{u}"], in: url)
+            guard rebase.ok else {
+                let files = conflictedFiles(tool, in: url)
+                // A rebase that stops leaves the branch halfway onto origin, and this
+                // screen has nothing to finish one with. Aborting puts the branch and the
+                // stashed work back where they were, so a press that cannot succeed at
+                // least leaves nothing behind.
+                let restored = GitInspector.run(tool, ["rebase", "--abort"], in: url).ok
+                return .failed(conflictReport(files: files, restored: restored, output: rebase))
+            }
+            return stashConflicted(rebase) ? .updatedWithStashConflict : .updated
         }
     }
 
@@ -65,18 +125,34 @@ enum GitActions {
         }
     }
 
+    // Reads what a push would send, and whether origin would take it. A push refused for
+    // being behind is the one failure that can be seen coming, but only from a fresh read
+    // of origin, so a branch with an upstream fetches first. A fetch that fails is not
+    // fatal here: reaching origin is the push's own job, and the preview can still be built
+    // from whatever the last one left behind.
     static func commitsToPush(hasUpstream: Bool, at root: String) async -> GitPushPreview {
         guard let tool = await GitInspector.tool() else {
             return .failed("Could not find git on PATH.")
         }
         let url = URL(fileURLWithPath: root)
         return await GitInspector.offMain {
+            if hasUpstream {
+                _ = GitInspector.run(tool, ["fetch", "--quiet", "origin"], in: url,
+                                     timeout: networkTimeout)
+            }
             let arguments = hasUpstream
                 ? ["log", "--no-color", "--format=%H%x09%s", "@{u}..HEAD"]
                 : ["log", "--no-color", "--format=%H%x09%s", "HEAD", "--not", "--remotes=origin"]
             let output = GitInspector.run(tool, arguments, in: url)
             guard output.ok else { return .failed(output.failureMessage) }
-            return .commits(parsePushCommits(output.text))
+            let commits = parsePushCommits(output.text)
+            guard hasUpstream else { return .commits(commits) }
+
+            let behind = GitInspector.run(tool, ["rev-list", "--count", "HEAD..@{u}"], in: url)
+            let count = behind.ok
+                ? Int(behind.text.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
+                : 0
+            return count > 0 ? .behindUpstream(count, commits) : .commits(commits)
         }
     }
 
@@ -92,6 +168,38 @@ enum GitActions {
             let output = work(tool, url)
             return output.ok ? nil : output.failureMessage
         }
+    }
+
+    // --left-right counts both sides of a three-dot range in one read: the commits only
+    // HEAD has, then the ones only the upstream has.
+    private static func divergence(_ text: String) -> (ahead: Int, behind: Int)? {
+        let fields = text.split(whereSeparator: \.isWhitespace).compactMap { Int($0) }
+        guard fields.count == 2 else { return nil }
+        return (fields[0], fields[1])
+    }
+
+    // An autostash that will not go back on cleanly is the one way the reconcile step
+    // reports trouble while still exiting zero: the branch did move, and the uncommitted
+    // work is now conflict markers in the files.
+    private static func stashConflicted(_ output: GitInspector.CommandOutput) -> Bool {
+        (output.text + output.errorText).contains("autostash resulted in conflicts")
+    }
+
+    private static func conflictedFiles(_ tool: GitInspector.GitTool, in url: URL) -> [String] {
+        let output = GitInspector.run(tool, ["diff", "--name-only", "--diff-filter=U"], in: url)
+        guard output.ok else { return [] }
+        return output.text.split(separator: "\n").map(String.init)
+    }
+
+    private static func conflictReport(files: [String], restored: Bool,
+                                       output: GitInspector.CommandOutput) -> String {
+        guard !files.isEmpty else { return output.failureMessage }
+        let shown = files.prefix(5).joined(separator: "\n")
+        let rest = files.count > 5 ? "\nand \(files.count - 5) more" : ""
+        let tail = restored
+            ? "Nothing was changed. To work through it, run git pull --rebase in a terminal."
+            : "The rebase could not be undone, so this repository is still in the middle of one."
+        return "Your commits and origin's changed the same lines in:\n\(shown)\(rest)\n\n\(tail)"
     }
 
     private static func parsePushCommits(_ text: String) -> [GitPushCommit] {
