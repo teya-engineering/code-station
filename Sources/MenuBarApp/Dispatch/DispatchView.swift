@@ -1036,13 +1036,31 @@ private struct ResponsePane: View {
 
     @Environment(DispatchStore.self) private var store
 
-    @State private var showingHeaders = false
+    @State private var tab = ResponseTab.body
     // Height while a drag is in flight; the store keeps it once the drag ends.
     @State private var dragHeight: CGFloat?
     // Height at the moment the drag began; the translation is measured from there.
     @State private var dragStartHeight: CGFloat?
 
+    private enum ResponseTab: String, CaseIterable, Identifiable {
+        case body = "Body", headers = "Headers"
+        var id: String { rawValue }
+    }
+
     private var height: CGFloat { dragHeight ?? store.responseHeight }
+
+    // The tabs are only worth showing once there is a choice to make: a failure never
+    // reaches the point of having headers, and neither does a body-only result.
+    private func tabbed(_ result: HTTPResult) -> Bool {
+        result.failure == nil && !result.headers.isEmpty
+    }
+
+    // The pane falls back to the body whenever the headers tab has nothing behind it,
+    // so a result with no headers cannot strand it on an empty list with the tab that
+    // would lead back out of it hidden.
+    private func shown(for result: HTTPResult) -> ResponseTab {
+        tabbed(result) ? tab : .body
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -1071,13 +1089,18 @@ private struct ResponsePane: View {
                     .font(.mono(11))
                     .foregroundStyle(.secondary)
 
-                if !result.headers.isEmpty {
-                    Button(showingHeaders ? "Body" : "Headers · \(result.headers.count)") {
-                        showingHeaders.toggle()
+                if tabbed(result) {
+                    HStack(spacing: 4) {
+                        ForEach(ResponseTab.allCases) { item in
+                            TabButton(title: item == .headers
+                                        ? "\(item.rawValue) · \(result.headers.count)"
+                                        : item.rawValue,
+                                      selected: shown(for: result) == item) {
+                                tab = item
+                            }
+                        }
                     }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(Theme.accent)
+                    .padding(.leading, 2)
                 }
             }
 
@@ -1088,7 +1111,7 @@ private struct ResponsePane: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             } else if let text = copyable, !text.isEmpty {
-                Button("Copy response") {
+                Button(copyLabel) {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(text, forType: .string)
                 }
@@ -1129,7 +1152,7 @@ private struct ResponsePane: View {
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(20)
-                } else if showingHeaders {
+                } else if shown(for: result) == .headers {
                     VStack(alignment: .leading, spacing: 4) {
                         ForEach(result.headers) { header in
                             HStack(alignment: .top, spacing: 8) {
@@ -1172,9 +1195,18 @@ private struct ResponsePane: View {
         }
     }
 
+    // The button sits beside the tabs, so it copies whichever of them is open rather
+    // than always reaching past the headers for the body.
     private var copyable: String? {
         guard let result else { return nil }
-        return result.failure ?? result.body
+        if let failure = result.failure { return failure }
+        guard shown(for: result) == .headers else { return result.body }
+        return result.headers.map { "\($0.key): \($0.value)" }.joined(separator: "\n")
+    }
+
+    private var copyLabel: String {
+        guard let result, shown(for: result) == .headers else { return "Copy response" }
+        return "Copy headers"
     }
 
     private func byteText(_ count: Int) -> String {
