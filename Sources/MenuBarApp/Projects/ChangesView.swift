@@ -627,7 +627,9 @@ struct ChangesView: View {
         let loaded = await GitInspector.diff(for: file, root: root)
         guard !Task.isCancelled, selectedID == file.id else { return }
         diff = loaded
-        diffText = loaded.lines.isEmpty ? nil : DiffText.attributed(loaded.lines)
+        diffText = loaded.lines.isEmpty ? nil : DiffText.attributed(
+            loaded.lines,
+            language: CodeLanguage(fileExtension: (file.path as NSString).pathExtension))
         loadingDiff = false
     }
 

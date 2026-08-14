@@ -114,8 +114,13 @@ private final class DiffDocumentView: NSTextView {
 // One attributed string for a whole diff.
 @MainActor
 enum DiffText {
-    static func attributed(_ lines: [DiffLine]) -> NSAttributedString {
+    static func attributed(_ lines: [DiffLine],
+                           language: CodeLanguage? = nil) -> NSAttributedString {
         let font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+        // Colouring is for a diff a person reads; a huge one is scrolled, not read, and
+        // plain text is much cheaper to build.
+        let size = lines.reduce(0) { $0 + $1.text.utf8.count }
+        let language = size <= CodeHighlight.sizeLimit ? language : nil
         let result = NSMutableAttributedString()
         for (index, line) in lines.enumerated() {
             var attributes: [NSAttributedString.Key: Any] = [
@@ -133,8 +138,49 @@ enum DiffText {
                 style.paragraphSpacing = 4
                 attributes[.paragraphStyle] = style
             }
-            let text = index == lines.count - 1 ? line.text : line.text + "\n"
-            result.append(NSAttributedString(string: text, attributes: attributes))
+            let isCode = line.kind == .addition || line.kind == .deletion || line.kind == .context
+            if let language, isCode {
+                result.append(codeLine(line, language: language, attributes: attributes))
+            } else {
+                result.append(NSAttributedString(string: line.text, attributes: attributes))
+            }
+            if index < lines.count - 1 {
+                result.append(NSAttributedString(string: "\n", attributes: attributes))
+            }
+        }
+        return result
+    }
+
+    // A changed line with its code in syntax colours. The sign keeps the diff colour and
+    // the band runs behind the row, so added and removed still read at a glance while the
+    // code itself reads like code. Each line is scanned on its own: a diff can start in
+    // the middle of anything, so carrying string or comment state between its lines
+    // would guess wrong as often as right.
+    private static func codeLine(_ line: DiffLine, language: CodeLanguage,
+                                 attributes: [NSAttributedString.Key: Any]) -> NSAttributedString {
+        let result = NSMutableAttributedString()
+        var code = Substring(line.text)
+        if line.kind != .context, let sign = code.first {
+            result.append(NSAttributedString(string: String(sign), attributes: attributes))
+            code = code.dropFirst()
+        }
+        var plain = attributes
+        plain[.foregroundColor] = NSColor.labelColor
+        var state = CodeHighlight.State.normal
+        let tokens = CodeHighlight.tokens(in: code, language: language, state: &state)
+        var i = code.startIndex
+        for token in tokens {
+            if i < token.range.lowerBound {
+                result.append(NSAttributedString(string: String(code[i..<token.range.lowerBound]),
+                                                 attributes: plain))
+            }
+            var run = plain
+            run[.foregroundColor] = CodeStyle.nsColor(for: token.kind)
+            result.append(NSAttributedString(string: String(code[token.range]), attributes: run))
+            i = token.range.upperBound
+        }
+        if i < code.endIndex {
+            result.append(NSAttributedString(string: String(code[i...]), attributes: plain))
         }
         return result
     }

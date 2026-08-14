@@ -23,6 +23,12 @@ struct ExplorerView: View {
     @State private var showHidden = true
     @State private var textWidth: CGFloat = 0
 
+    // Syntax colouring for the read-only preview. The state each line starts in is
+    // computed once per file, so a chunk anywhere in the file can be coloured on its
+    // own without scanning from the top.
+    @State private var language: CodeLanguage?
+    @State private var lineStates: [CodeHighlight.State] = []
+
     // Editing keeps the text as loaded next to the draft, so "anything to save" and
     // "anything to lose" are both one comparison.
     @State private var editing = false
@@ -579,16 +585,22 @@ struct ExplorerView: View {
     }
 
     private func highlightedText(_ chunk: Chunk) -> AttributedString {
-        guard !chunk.matches.isEmpty else { return AttributedString(chunk.text) }
-        let text = NSMutableAttributedString(string: chunk.text)
-        let ordinary = NSColor(Theme.secret).withAlphaComponent(0.24)
-        let selected = NSColor(Theme.secret).withAlphaComponent(0.52)
-        for match in chunk.matches {
-            text.addAttribute(.backgroundColor,
-                              value: match.resultIndex == findSelection ? selected : ordinary,
-                              range: match.range)
+        var text: AttributedString
+        if let language, chunk.id < lineStates.count,
+           chunk.text.utf8.count <= CodeHighlight.sizeLimit {
+            var state = lineStates[chunk.id]
+            text = CodeHighlight.highlight(chunk.text, language: language, state: &state)
+        } else {
+            text = AttributedString(chunk.text)
         }
-        return AttributedString(text)
+        guard !chunk.matches.isEmpty else { return text }
+        let ordinary = Color(nsColor: NSColor(Theme.secret).withAlphaComponent(0.24))
+        let selected = Color(nsColor: NSColor(Theme.secret).withAlphaComponent(0.52))
+        for match in chunk.matches {
+            guard let range = Range(match.range, in: text) else { continue }
+            text[range].backgroundColor = match.resultIndex == findSelection ? selected : ordinary
+        }
+        return text
     }
 
     private func relativePath(_ node: FileNode) -> String {
@@ -605,6 +617,8 @@ struct ExplorerView: View {
         expanded = []
         selected = nil
         preview = nil
+        language = nil
+        lineStates = []
         editing = false
         draft = ""
         original = ""
@@ -713,6 +727,8 @@ struct ExplorerView: View {
         selected = node
         preview = nil
         textWidth = 0
+        language = nil
+        lineStates = []
         Task {
             loadingPreview = true
             let loaded = await FileTree.preview(of: node.url)
@@ -721,6 +737,15 @@ struct ExplorerView: View {
             preview = loaded
             if case .text(let lines, _, _) = loaded {
                 textWidth = MonoMetrics.width(ofLongestIn: lines) + 24
+                guard let found = CodeLanguage(fileExtension: node.kind) else { return }
+                // The pass over every line is linear but a file can be 4 MB, so it stays
+                // off the main thread; the preview simply shows plain until it lands.
+                let states = await Task.detached(priority: .userInitiated) {
+                    CodeHighlight.lineStartStates(lines, language: found)
+                }.value
+                guard !Task.isCancelled, selected?.path == node.path else { return }
+                language = found
+                lineStates = states
             }
         }
     }

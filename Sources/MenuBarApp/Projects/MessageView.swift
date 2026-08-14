@@ -369,7 +369,7 @@ private struct CodeBlock: View {
             }
             // Code lines are long; scrolling sideways beats wrapping them.
             ScrollView(.horizontal, showsIndicators: false) {
-                Text(segment.text)
+                Text(CodeHighlight.highlight(segment.text, tag: segment.language))
                     .font(.mono(12))
                     .textSelection(.enabled)
                     // Keeps lines that fit clear of the copy button. A longer line still
