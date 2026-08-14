@@ -1467,8 +1467,12 @@ private struct WorkingRow: View {
                 Text("\(word)…")
                     .font(.mono(12, .medium))
                     .foregroundStyle(.primary)
-                    .id(word)
-                    .transition(.opacity)
+                    // The word is swapped inside one view rather than by giving each word
+                    // its own identity. A new identity makes the old word a separate view
+                    // that has to be animated away, and the row moves down the transcript
+                    // while that happens, so the leaving word is left sitting on top of
+                    // whatever has since taken its place.
+                    .contentTransition(.opacity)
                 if waitingOnTasks {
                     Text("for a background task to finish")
                         .font(.mono(12))
@@ -1488,6 +1492,10 @@ private struct WorkingRow: View {
                 }
                 Spacer(minLength: 0)
             }
+            // The row keeps sliding down as the turn writes more above it. Without this the
+            // avatar fading in on a new turn animates against the transcript rather than
+            // against the row, and lands somewhere the row no longer is.
+            .geometryGroup()
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: word)
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: avatar?.id)
             // Only worth a hint once the silence is long enough to worry about; the
