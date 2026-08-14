@@ -128,7 +128,7 @@ struct GitActionsTests {
         #expect(after.behind == 0)
     }
 
-    @Test func fastForwardPullMovesUpToTheRemoteTip() async throws {
+    @Test func updateCheckoutMovesUpToTheRemoteTip() async throws {
         let remote = try Bare()
         let first = try Repo()
         first.git("remote", "add", "origin", remote.path)
@@ -139,14 +139,37 @@ struct GitActionsTests {
         first.git("commit", "-qam", "second")
         first.git("push", "-q")
 
-        let error = await GitActions.fastForwardPull(at: second.path)
+        let error = await GitActions.updateCheckout(to: "main", at: second.path)
         #expect(error == nil)
 
         let after = await GitInspector.snapshot(at: second.path)
         #expect(after.behind == 0)
     }
 
-    @Test func fastForwardPullRefusesToMerge() async throws {
+    // A checkout parked on a feature branch has to land on the default branch and on its
+    // latest revision; either half on its own leaves a session forking from stale code.
+    @Test func updateCheckoutSwitchesBranchesAndCatchesUp() async throws {
+        let remote = try Bare()
+        let first = try Repo()
+        first.git("remote", "add", "origin", remote.path)
+        first.git("push", "-q", "-u", "origin", "HEAD")
+
+        let second = try Repo(cloneOf: remote)
+        second.git("switch", "-qc", "feature")
+        try first.write("README.md", "moved on")
+        first.git("commit", "-qam", "second")
+        first.git("push", "-q")
+
+        let error = await GitActions.updateCheckout(to: "main", at: second.path)
+        #expect(error == nil)
+
+        let after = await GitInspector.snapshot(at: second.path)
+        #expect(after.branch == "main")
+        #expect(after.behind == 0)
+        #expect(after.ahead == 0)
+    }
+
+    @Test func updateCheckoutRefusesToMerge() async throws {
         let remote = try Bare()
         let first = try Repo()
         first.git("remote", "add", "origin", remote.path)
@@ -160,7 +183,7 @@ struct GitActionsTests {
         first.git("commit", "-qam", "second")
         first.git("push", "-q")
 
-        let error = await GitActions.fastForwardPull(at: second.path)
+        let error = await GitActions.updateCheckout(to: "main", at: second.path)
         #expect(error?.isEmpty == false)
 
         // The diverged branch is left exactly as it was.

@@ -31,10 +31,13 @@ enum GitFreshness {
         // to differ from, so it reads as fine.
         var onDefaultBranch: Bool { defaultBranch == nil || currentBranch == defaultBranch }
         var isStale: Bool { !onDefaultBranch || behind > 0 }
-        // A clean checkout sitting behind its remote on the default branch can be
-        // brought up to date with a fast-forward pull; anything dirty or on another
-        // branch is the user's to sort out.
-        var canFastForward: Bool { onDefaultBranch && behind > 0 && !dirty && remoteRef != nil }
+        // A clean checkout can be put on the default branch at the remote tip: a switch
+        // when it sits somewhere else, a fast-forward pull when it trails the remote,
+        // and both when it is on another branch that has fallen behind too. Uncommitted
+        // work is the user's to sort out first, since either move would carry it along.
+        // A remote ref is what makes "the latest revision" mean anything, so without one
+        // there is nothing to offer.
+        var canUpdateCheckout: Bool { isStale && !dirty && remoteRef != nil }
 
         // The report as a short sentence or two: the wrong branch, the missing commits,
         // and when the fetch failed, how old the answer is. Reads as reassurance when

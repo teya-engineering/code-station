@@ -273,20 +273,19 @@ struct WorkspaceDetailView: View {
         }]
     }
 
-    // Fixes what the chip complains about: a switch back to the default branch, a
-    // fast-forward pull, or both. The pull runs after every switch rather than only
-    // when the old report counted commits, because the local default branch can trail
-    // its remote even when the branch just left did not. Whatever git refuses is shown
-    // in its own words, and the chip re-reads the repository either way.
+    // Fixes what the chip complains about: the checkout ends up on the default branch at
+    // its latest revision. The pull runs even when the old report counted no commits,
+    // because the local default branch can trail its remote even when the branch just
+    // left did not. Whatever git refuses is shown in its own words, and the chip re-reads
+    // the repository either way.
     private func freshen(_ project: Project, report: GitFreshness.Report) {
         guard updating.insert(project.id).inserted else { return }
         Task {
             var error: String?
-            if !report.onDefaultBranch, let branch = report.defaultBranch {
-                error = await GitActions.switchBranch(branch, at: project.path)
-            }
-            if error == nil, report.remoteRef != nil {
-                error = await GitActions.fastForwardPull(at: project.path)
+            if let branch = report.defaultBranch {
+                error = report.remoteRef == nil
+                    ? await GitActions.switchBranch(branch, at: project.path)
+                    : await GitActions.updateCheckout(to: branch, at: project.path)
             }
             if let fresh = await GitFreshness.check(at: project.path, fetch: false) {
                 withAnimation(.easeOut(duration: 0.2)) { freshness[project.id] = fresh }

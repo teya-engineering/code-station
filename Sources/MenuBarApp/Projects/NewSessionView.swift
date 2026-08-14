@@ -27,9 +27,10 @@ struct NewSessionView: View {
     @State private var fetching = true
     // The user asked the worktree to fork from the remote tip instead of the checkout.
     @State private var baseOnRemote = false
-    // The user asked for a fast-forward pull of the checkout before the session starts.
-    @State private var pullFirst = false
-    // The pull is running. The sheet stays up until it finishes, so the whole screen
+    // The user asked for the checkout to be put on the default branch at its latest
+    // revision before the session starts.
+    @State private var updateCheckout = false
+    // The update is running. The sheet stays up until it finishes, so the whole screen
     // goes quiet: a click anywhere while git works could only start the same work twice
     // or abandon it half done.
     @State private var pulling = false
@@ -54,7 +55,7 @@ struct NewSessionView: View {
             header
             if let report = freshness, report.isStale || (useWorktree && report.dirty) {
                 FreshnessNotice(report: report, forWorktree: useWorktree,
-                                baseOnRemote: $baseOnRemote, pullFirst: $pullFirst)
+                                baseOnRemote: $baseOnRemote, updateCheckout: $updateCheckout)
                     .padding(.horizontal, 20)
                     .padding(.bottom, 12)
                     .transition(.opacity)
@@ -126,7 +127,7 @@ struct NewSessionView: View {
             HStack(alignment: .top, spacing: 10) {
                 if pulling {
                     ProgressView().controlSize(.small)
-                    Text("Pulling \(freshness?.currentBranch ?? "the checkout") from origin…")
+                    Text("Updating \(freshness?.defaultBranch ?? "the checkout") from origin…")
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                 } else if fetching {
@@ -225,20 +226,21 @@ struct NewSessionView: View {
         }
     }
 
-    // The pull the user asked for runs here, while the sheet is still up: it can take a
+    // The update the user asked for runs here, while the sheet is still up: it can take a
     // while, and a sheet that closed on the click would leave nothing saying the work is
     // still going, or free to be started again. On failure the session is not created -
     // the user asked to start from the latest commits, and quietly starting from stale
     // ones instead would betray that - so the sheet stays for another try or a cancel.
     private func create() {
         // Checked while the option was on screen, and still safe to apply now.
-        guard pullFirst && (freshness?.canFastForward ?? false) else {
+        guard updateCheckout, let report = freshness, report.canUpdateCheckout,
+              let branch = report.defaultBranch else {
             finish()
             return
         }
         pulling = true
         Task {
-            if let error = await GitActions.fastForwardPull(at: project.path) {
+            if let error = await GitActions.updateCheckout(to: branch, at: project.path) {
                 pulling = false
                 dialogs.show(Dialog(
                     title: "Could not update \(project.name)",
@@ -275,15 +277,15 @@ enum NewSessionChoice: Equatable {
 
 // Says when the checkout a session would fork from is not the default branch at its
 // latest revision, and offers the fixes the sheet can apply itself: a worktree can fork
-// from the remote tip without touching the user's checkout, and a clean checkout on the
-// default branch can be pulled up to date first. Anything else - a dirty folder, a
-// different branch - only warns; sorting that out is the user's to do. Both new-session
-// sheets show it: the single-project one once, the workspace one per repository.
+// from the remote tip without touching the user's checkout, and a clean checkout can be
+// put on the default branch at that same tip first. A dirty folder only warns; saved or
+// dropped, the uncommitted work is the user's to deal with. Both new-session sheets show
+// it: the single-project one once, the workspace one per repository.
 struct FreshnessNotice: View {
     let report: GitFreshness.Report
     let forWorktree: Bool
     @Binding var baseOnRemote: Bool
-    @Binding var pullFirst: Bool
+    @Binding var updateCheckout: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -306,12 +308,11 @@ struct FreshnessNotice: View {
                 }
             }
             if forWorktree, report.isStale, let remote = report.remoteRef {
-                check(isOn: $baseOnRemote, clearing: $pullFirst,
+                check(isOn: $baseOnRemote, clearing: $updateCheckout,
                       label: "Start this session from \(remote), leaving your checkout as it is")
             }
-            if report.canFastForward, let branch = report.currentBranch {
-                check(isOn: $pullFirst, clearing: $baseOnRemote,
-                      label: "Update \(branch) first with a git pull, bringing your checkout up to date")
+            if report.canUpdateCheckout, let update = updateLabel {
+                check(isOn: $updateCheckout, clearing: $baseOnRemote, label: update)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -342,6 +343,17 @@ struct FreshnessNotice: View {
         .buttonStyle(.plain)
         // Sits on the text's left edge, past the warning icon above it.
         .padding(.leading, 19)
+    }
+
+    // The fix named as the moves it makes to the checkout, so ticking it holds no
+    // surprise: a pull when the folder is on the default branch and trailing, a switch
+    // and a pull when it is somewhere else, since landing on the branch says nothing
+    // about landing on its latest revision.
+    private var updateLabel: String? {
+        guard let branch = report.defaultBranch, let remote = report.remoteRef else { return nil }
+        return report.onDefaultBranch
+            ? "Update \(branch) first with a git pull, bringing your checkout up to date"
+            : "Switch your checkout to \(branch) first and update it to \(remote)"
     }
 
     // The trouble as one or two sentences: the wrong branch, the missing commits, and

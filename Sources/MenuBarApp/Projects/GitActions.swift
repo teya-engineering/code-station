@@ -42,12 +42,16 @@ enum GitActions {
         }
     }
 
-    // --ff-only so this can only move the branch up to the remote tip or fail: it runs
-    // unattended before a session starts, where a surprise merge has no place. The
-    // timeout covers the fetch a pull begins with.
-    static func fastForwardPull(at root: String) async -> String? {
+    // Puts the checkout on `branch` at the remote tip. Switching to the branch it is
+    // already on does nothing, so one call covers both a checkout that is elsewhere and
+    // one that has merely fallen behind. --ff-only means the update can only move the
+    // branch forward or fail: this runs unattended before a session starts, where a
+    // surprise merge has no place. The timeout covers the fetch a pull begins with.
+    static func updateCheckout(to branch: String, at root: String) async -> String? {
         await perform(at: root) { tool, url in
-            GitInspector.run(tool, ["pull", "--ff-only"], in: url, timeout: 30)
+            let switched = GitInspector.run(tool, ["switch", branch], in: url)
+            guard switched.ok else { return switched }
+            return GitInspector.run(tool, ["pull", "--ff-only"], in: url, timeout: 30)
         }
     }
 

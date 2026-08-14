@@ -26,8 +26,9 @@ struct NewWorkspaceSessionView: View {
     @State private var freshness: [UUID: GitFreshness.Report] = [:]
     // The projects whose worktree should fork from the remote tip instead of the checkout.
     @State private var baseOnRemote: Set<UUID> = []
-    // The projects whose checkout should be fast-forward pulled before the session starts.
-    @State private var pullFirst: Set<UUID> = []
+    // The projects whose checkout should be put on the default branch at its latest
+    // revision before the session starts.
+    @State private var updateCheckout: Set<UUID> = []
     // Fetch passes still running. Creating waits for them, so a warning a fetch turns up
     // is seen before the choice is made rather than after.
     @State private var activeFetches = 0
@@ -193,7 +194,7 @@ struct NewWorkspaceSessionView: View {
                report.isStale || (usesWorktree && report.dirty) {
                 FreshnessNotice(report: report, forWorktree: usesWorktree,
                                 baseOnRemote: membership(project.id, of: $baseOnRemote),
-                                pullFirst: membership(project.id, of: $pullFirst))
+                                updateCheckout: membership(project.id, of: $updateCheckout))
                     .transition(.opacity)
             }
         }
@@ -238,7 +239,7 @@ struct NewWorkspaceSessionView: View {
             HStack(alignment: .top, spacing: 12) {
                 if pulling {
                     ProgressView().controlSize(.small)
-                    Text("Pulling checkouts from origin…")
+                    Text("Updating checkouts from origin…")
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                 } else if fetching {
@@ -335,7 +336,7 @@ struct NewWorkspaceSessionView: View {
         projectIDs.removeAll { $0 == id }
         worktrees.remove(id)
         baseOnRemote.remove(id)
-        pullFirst.remove(id)
+        updateCheckout.remove(id)
     }
 
     private var fetching: Bool { activeFetches > 0 && !gaveUpWaiting }
@@ -345,24 +346,25 @@ struct NewWorkspaceSessionView: View {
     // moving one of them.
     private var busy: Bool { fetching || pulling }
 
-    // The pulls the user asked for run here, while the sheet is still up, one checkout
+    // The updates the user asked for run here, while the sheet is still up, one checkout
     // after another. On failure the session is not created - the user asked to start
     // from the latest commits, and quietly starting from stale ones instead would betray
     // that - so the sheet stays for another try or a cancel.
     private func create() {
-        let pulls = projectIDs.compactMap { id -> Project? in
-            guard pullFirst.contains(id),
-                  freshness[id]?.canFastForward == true else { return nil }
-            return store.project(id)
+        let updates = projectIDs.compactMap { id -> (project: Project, branch: String)? in
+            guard updateCheckout.contains(id), let report = freshness[id],
+                  report.canUpdateCheckout, let branch = report.defaultBranch,
+                  let project = store.project(id) else { return nil }
+            return (project, branch)
         }
-        guard !pulls.isEmpty else {
+        guard !updates.isEmpty else {
             finish()
             return
         }
         pulling = true
         Task {
-            for project in pulls {
-                if let error = await GitActions.fastForwardPull(at: project.path) {
+            for (project, branch) in updates {
+                if let error = await GitActions.updateCheckout(to: branch, at: project.path) {
                     pulling = false
                     dialogs.show(Dialog(
                         title: "Could not update \(project.name)",

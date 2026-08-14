@@ -55,27 +55,42 @@ struct GitFreshnessTests {
         #expect(report.dirty)
     }
 
-    // The pull-first option is only offered when it cannot go wrong: a clean checkout,
-    // on the default branch, with a remote to pull from.
-    @Test func offersAFastForwardOnlyForACleanDefaultBranchCheckout() async throws {
+    // Updating the checkout is offered whenever it cannot go wrong: a clean checkout
+    // with a remote to catch up with, whether it trails the default branch or sits on
+    // another one.
+    @Test func offersToUpdateACleanCheckoutThatIsBehind() async throws {
         let pair = try ClonedRepo()
         try pair.origin.commit("more.txt", "more")
 
         let clean = try #require(await GitFreshness.check(at: pair.clone.path, fetch: true))
-        #expect(clean.canFastForward)
+        #expect(clean.canUpdateCheckout)
 
         try pair.clone.write("README.md", "changed")
         let dirty = try #require(await GitFreshness.check(at: pair.clone.path, fetch: false))
-        #expect(!dirty.canFastForward)
+        #expect(!dirty.canUpdateCheckout)
     }
 
-    @Test func doesNotOfferAFastForwardOffTheDefaultBranch() async throws {
+    @Test func offersToUpdateACheckoutSittingOnAnotherBranch() async throws {
         let pair = try ClonedRepo()
         try pair.origin.commit("more.txt", "more")
         pair.clone.git("checkout", "-q", "-b", "feature")
         let report = try #require(await GitFreshness.check(at: pair.clone.path, fetch: true))
         #expect(report.behind == 1)
-        #expect(!report.canFastForward)
+        #expect(report.canUpdateCheckout)
+    }
+
+    // Nothing to catch up with means nothing to offer, and without a remote there is no
+    // latest revision to name.
+    @Test func offersNoUpdateWithNothingToCatchUpWith() async throws {
+        let pair = try ClonedRepo()
+        let fresh = try #require(await GitFreshness.check(at: pair.clone.path, fetch: true))
+        #expect(!fresh.canUpdateCheckout)
+
+        let lone = try Repo(name: "lone")
+        lone.git("checkout", "-q", "-b", "feature")
+        let remoteless = try #require(await GitFreshness.check(at: lone.path, fetch: false))
+        #expect(remoteless.isStale)
+        #expect(!remoteless.canUpdateCheckout)
     }
 
     // Without a remote the local main is the only yardstick, so being on a feature
