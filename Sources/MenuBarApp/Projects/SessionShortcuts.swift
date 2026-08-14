@@ -302,11 +302,13 @@ struct ShortcutOutputDrawer: View {
             }
 
             Button(action: onClose) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .padding(5)
-                    .contentShape(Rectangle())
+                Text("Close")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Theme.deletion)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 4)
+                    .background(RoundedRectangle(cornerRadius: 7).fill(Theme.field))
+                    .contentShape(RoundedRectangle(cornerRadius: 7))
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Hide the output")
