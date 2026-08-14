@@ -9,6 +9,7 @@ struct ProjectDetailView: View {
 
     @Environment(ProjectStore.self) private var store
     @Environment(SessionRunner.self) private var runner
+    @Environment(ShortcutStore.self) private var shortcuts
     @Environment(DialogPresenter.self) private var dialogs
     @Environment(AppSettings.self) private var appSettings
     @Environment(WorkingTreeWatch.self) private var workingTrees
@@ -414,7 +415,8 @@ struct ProjectDetailView: View {
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 8)
             ActionButton(title: "Remove project", tone: .outlined, height: 28, size: 11.5) {
-                ProjectRemoval.confirm(project, in: store, runner: runner, dialogs: dialogs)
+                ProjectRemoval.confirm(project, in: store, runner: runner, shortcuts: shortcuts,
+                               dialogs: dialogs)
             }
             .fixedSize()
         }

@@ -35,6 +35,88 @@ struct ShortcutStoreTests {
         #expect(ShortcutStore(storageURL: url).shortcuts.isEmpty)
     }
 
+    // A shortcut saved before shortcuts could belong to a project is the Mac's own.
+    @Test func readsShortcutsSavedWithoutAnOwner() throws {
+        let url = temporaryFile()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let id = UUID()
+        try Data("""
+        { "shortcuts": [ { "id": "\(id.uuidString)", "name": "Prune", "command": "docker system prune" } ] }
+        """.utf8).write(to: url)
+
+        let store = ShortcutStore(storageURL: url)
+
+        #expect(store.loadError == nil)
+        #expect(store.shortcuts == [
+            CommandShortcut(id: id, name: "Prune", command: "docker system prune")
+        ])
+        #expect(store.macShortcuts.count == 1)
+    }
+
+    // Owner and location are one decision. A shortcut with no project cannot run in a
+    // checkout, and one that runs from home cannot be filed under a project.
+    @Test func foldsAwayOwnerAndLocationPairingsThatHaveNoMeaning() {
+        let project = UUID()
+
+        let homeless = CommandShortcut(name: "Tests", command: "make test",
+                                       location: .activeWorkspace)
+        #expect(homeless.location == .mac)
+        #expect(homeless.projectID == nil)
+
+        let atHome = CommandShortcut(name: "Prune", command: "docker system prune",
+                                     projectID: project, location: .mac)
+        #expect(atHome.projectID == nil)
+
+        let owned = CommandShortcut(name: "Lint", command: "npm run lint",
+                                    projectID: project, location: .projectFolder)
+        #expect(owned.projectID == project)
+        #expect(owned.location == .projectFolder)
+    }
+
+    @Test func resolvesTheFolderEachLocationMeans() {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let project = UUID()
+
+        let mac = CommandShortcut(name: "Prune", command: "docker system prune")
+        #expect(mac.directory(projectPath: "/repos/lantern", workspacePath: "/worktrees/a")
+            == home)
+
+        let folder = CommandShortcut(name: "Reset", command: "bin/reset-db",
+                                     projectID: project, location: .projectFolder)
+        #expect(folder.directory(projectPath: "/repos/lantern", workspacePath: "/worktrees/a")
+            == "/repos/lantern")
+
+        let workspace = CommandShortcut(name: "Lint", command: "npm run lint",
+                                        projectID: project, location: .activeWorkspace)
+        #expect(workspace.directory(projectPath: "/repos/lantern", workspacePath: "/worktrees/a")
+            == "/worktrees/a")
+        // No worktree in front of you means the folder the worktrees come from.
+        #expect(workspace.directory(projectPath: "/repos/lantern") == "/repos/lantern")
+    }
+
+    @Test func groupsShortcutsByOwner() throws {
+        let url = temporaryFile()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let store = ShortcutStore(storageURL: url)
+        let lantern = UUID()
+        let other = UUID()
+
+        let prune = try #require(store.add(name: "Prune", command: "docker system prune"))
+        let lint = try #require(store.add(name: "Lint", command: "npm run lint",
+                                          projectID: lantern, location: .projectFolder))
+        store.add(name: "Build", command: "make", projectID: other, location: .projectFolder)
+
+        #expect(store.macShortcuts.map(\.id) == [prune])
+        #expect(store.shortcuts(for: lantern).map(\.id) == [lint])
+        #expect(store.shortcuts(for: other).count == 1)
+
+        store.removeAll(ownedBy: lantern)
+        #expect(store.shortcuts(for: lantern).isEmpty)
+        #expect(store.shortcuts.count == 2)
+    }
+
     @Test func refusesToOverwriteAnUnreadableFile() throws {
         let url = temporaryFile()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
@@ -60,15 +142,88 @@ struct ShortcutStoreTests {
             name: "Output",
             command: "printf 'standard output'; printf 'error output' >&2"
         ))
+        let run = ShortcutRun(id, in: FileManager.default.temporaryDirectory.path)
 
-        store.start(id)
-        for _ in 0..<200 where store.state(id).isActive {
+        store.start(run)
+        try await settle(store, run)
+
+        #expect(store.state(run).since != nil)
+        if case .finished = store.state(run) {} else { Issue.record("expected a clean exit") }
+        #expect(store.log(run).contains("standard output"))
+        #expect(store.log(run).contains("error output"))
+    }
+
+    @Test func reportsTheExitCodeOfACommandThatFails() async throws {
+        let url = temporaryFile()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let store = ShortcutStore(storageURL: url)
+        let id = try #require(store.add(name: "Lint", command: "exit 3"))
+        let run = ShortcutRun(id, in: FileManager.default.temporaryDirectory.path)
+
+        store.start(run)
+        try await settle(store, run)
+
+        guard case .failed(_, let status, _) = store.state(run) else {
+            Issue.record("expected a failure")
+            return
+        }
+        #expect(status == 3)
+        #expect(store.failureCount == 1)
+    }
+
+    // The same shortcut in two worktrees is two runs. Neither may report the other's
+    // state, which is the whole reason a run is a shortcut and a folder together.
+    @Test func keepsRunsInDifferentFoldersApart() async throws {
+        let url = temporaryFile()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("shortcut-runs-\(UUID().uuidString)")
+        let first = root.appendingPathComponent("first")
+        let second = root.appendingPathComponent("second")
+        for folder in [first, second] {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        }
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let store = ShortcutStore(storageURL: url)
+        let id = try #require(store.add(name: "Where", command: "pwd"))
+        let one = ShortcutRun(id, in: first.path)
+        let two = ShortcutRun(id, in: second.path)
+
+        store.start(one)
+        try await settle(store, one)
+        #expect(store.log(one).contains("first"))
+        #expect(store.state(two) == .stopped)
+
+        store.start(two)
+        try await settle(store, two)
+        #expect(store.log(two).contains("second"))
+        #expect(!store.log(two).contains("/first"))
+    }
+
+    // Moving a shortcut to another folder leaves its old runs pointing at a command that
+    // is no longer there, so the state they carry stops meaning anything.
+    @Test func forgetsRunsWhenAShortcutIsEdited() async throws {
+        let url = temporaryFile()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let store = ShortcutStore(storageURL: url)
+        let id = try #require(store.add(name: "Say", command: "echo hello"))
+        let run = ShortcutRun(id, in: FileManager.default.temporaryDirectory.path)
+
+        store.start(run)
+        try await settle(store, run)
+        #expect(!store.log(run).isEmpty)
+
+        store.update(CommandShortcut(id: id, name: "Say", command: "echo goodbye"))
+
+        #expect(store.state(run) == .stopped)
+        #expect(store.log(run).isEmpty)
+    }
+
+    private func settle(_ store: ShortcutStore, _ run: ShortcutRun) async throws {
+        for _ in 0..<400 where store.state(run).isActive {
             try await Task.sleep(for: .milliseconds(10))
         }
-
-        #expect(store.state(id) == .finished)
-        #expect(store.log(id).contains("standard output"))
-        #expect(store.log(id).contains("error output"))
     }
 
     private func temporaryFile() -> URL {

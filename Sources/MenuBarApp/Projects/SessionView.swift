@@ -130,6 +130,7 @@ struct SessionView: View {
     @Environment(MenuPresenter.self) private var menus
     @Environment(AppSettings.self) private var appSettings
     @Environment(GitStatsCache.self) private var gitStats
+    @Environment(ShortcutStore.self) private var shortcuts
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let sessionID: UUID
 
@@ -140,6 +141,12 @@ struct SessionView: View {
     @State private var terminalFocused = false
     @State private var composerFocused = false
     @State private var selectedProjectID: UUID?
+    // Which checkout the shortcut strip speaks for, kept apart from the one the Changes
+    // and Explorer tabs are showing: picking where a command runs should not move the
+    // diff out from under the reader.
+    @State private var shortcutProjectID: UUID?
+    @State private var openShortcutRun: ShortcutRun?
+    @State private var shortcutEditor: ShortcutEditorRequest?
     @State private var transcriptWindow = TranscriptWindow()
     @State private var transcriptPinnedToBottom = true
     // False until this session's transcript has been scrolled to its end. The pane is
@@ -164,6 +171,14 @@ struct SessionView: View {
             VStack(spacing: 0) {
                 header(session: session, project: project)
                 statusStrip(session)
+                // Ad-hoc tasks run in a private folder the app made for one prompt, so
+                // there is nothing there worth saving a command against.
+                if project.kind == .project {
+                    SessionShortcutStrip(session: session,
+                                         checkoutProjectID: $shortcutProjectID,
+                                         openRun: $openShortcutRun,
+                                         edit: { shortcutEditor = $0 })
+                }
                 warningStrip(session: session, project: project)
                 if store.checkoutProjects(for: session).count > 1, tab != .chat {
                     workspaceProjectBar(session)
@@ -182,6 +197,10 @@ struct SessionView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
 
+                if let openShortcutRun {
+                    ShortcutOutputDrawer(run: openShortcutRun) { self.openShortcutRun = nil }
+                }
+
                 if terminals.isOpen(terminalScope) {
                     TerminalDrawer(scope: terminalScope,
                                    directory: workingDirectory,
@@ -190,6 +209,18 @@ struct SessionView: View {
             }
             .background(Theme.background)
             .onAppear { composerFocused = true }
+            .sheet(item: $shortcutEditor) { request in
+                ShortcutEditorView(request: request) { shortcut in
+                    if request.shortcut == nil {
+                        shortcuts.add(name: shortcut.name, command: shortcut.command,
+                                      projectID: shortcut.projectID,
+                                      location: shortcut.location)
+                    } else {
+                        shortcuts.update(shortcut)
+                    }
+                }
+                .appOverlays()
+            }
             .background(terminalShortcut(directory: workingDirectory))
             .background(stopShortcut)
             .onChange(of: terminalFocused) { _, focused in
@@ -197,6 +228,8 @@ struct SessionView: View {
             }
             .task(id: sessionID) {
                 selectedProjectID = session.projectID
+                shortcutProjectID = session.projectID
+                openShortcutRun = nil
                 refreshStats(workingDirectories, reusingRecent: true)
                 runner.refreshContext(sessionID, store: store)
                 store.findPullRequest(in: sessionID)

@@ -218,6 +218,19 @@ enum RelativeTime {
         }
     }
 
+    // "41s", "2m", "1h": a length of time rather than a point in it, for the rows that
+    // count seconds. Seconds are kept because the first minute of a build is the part
+    // being watched, which is exactly where `short` says only "now".
+    static func duration(since date: Date) -> String {
+        let seconds = max(0, Date().timeIntervalSince(date))
+        switch seconds {
+        case ..<60: return "\(Int(seconds))s"
+        case ..<3_600: return "\(Int(seconds / 60))m"
+        case ..<86_400: return "\(Int(seconds / 3_600))h"
+        default: return "\(Int(seconds / 86_400))d"
+        }
+    }
+
     // "today 09:41", "yesterday 16:18", "3 Aug 11:02": what a row shows when the reader
     // is deciding which session to come back to rather than how fresh it is.
     static func stamp(_ date: Date) -> String {

@@ -23,7 +23,7 @@ Teya Conductor is a macOS app for running Codex and Claude Code across local pro
 - Install and update agent skills from your organisation's marketplace.
 - Save and send HTTP requests with environment variables, path and query parameters, headers, request bodies, and OAuth secrets and tokens stored in the macOS Keychain.
 - Inspect running Docker containers and stop them when needed.
-- Save, edit, run, and stop shell-command shortcuts while inspecting their output. A new install starts with the ones your site settings list.
+- Save, edit, run, and stop shell-command shortcuts while inspecting their output. A shortcut runs either from your home folder or against a project, in that project's folder or in the worktree of the session you are in. A project's shortcuts sit on a strip inside its sessions, where a chip says how the last run ended and opens its output. A new install starts with the ones your site settings list.
 - Start a guided troubleshooting session with project context, attachments, environment safeguards, and configured observability tools.
 
 ## Build and run
@@ -103,7 +103,7 @@ A `swift run` development build has no bundle to fold a file into, so use one of
 | `dispatch.requests` | The saved requests a first run starts with, each a `name`, a `method`, and a `url`. `{{env}}` in a URL is replaced with the word above for the environment the request is sent from. |
 | `grafana.presets` | The instances offered in the Add server sheet. A preset is a `scope`, an `environment`, and a `url`. The agents know each one as `grafana-<scope>-<environment>`. `serves` lists which troubleshooting environments (`dev`, `prod`) offer it, and a preset that lists none is offered for all of them. |
 | `skills` | The marketplace the Skills screen installs from: its `name` on screen, its `marketplace` name as the agent CLIs know it, and the `repository` it is cloned from. |
-| `shortcuts` | The command shortcuts a first run starts with, each a `name` and a `command`. Everyone can then add their own, which are saved per install and never overwritten by this file. |
+| `shortcuts` | The command shortcuts a first run starts with, each a `name` and a `command`. They run from your home folder, since the file cannot know which projects you have added. Everyone can then add their own, including ones filed under a project, which are saved per install and never overwritten by this file. |
 
 The client secret and the OAuth tokens are yours rather than your organisation's, so they are never part of this file. They stay in the macOS Keychain.
 

@@ -10,6 +10,7 @@ struct AppSidebar: View {
 
     @Environment(ProjectStore.self) private var store
     @Environment(SessionRunner.self) private var runner
+    @Environment(ShortcutStore.self) private var shortcuts
     @Environment(DialogPresenter.self) private var dialogs
     @Environment(AppSettings.self) private var appSettings
     @Environment(WorkingTreeWatch.self) private var workingTrees
@@ -898,7 +899,8 @@ struct AppSidebar: View {
     }
 
     private func confirmRemoveProject(_ project: Project) {
-        ProjectRemoval.confirm(project, in: store, runner: runner, dialogs: dialogs)
+        ProjectRemoval.confirm(project, in: store, runner: runner, shortcuts: shortcuts,
+                               dialogs: dialogs)
     }
 
     private func confirmRemoveWorkspace(_ workspace: ProjectWorkspace) {

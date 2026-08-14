@@ -9,6 +9,7 @@ struct TaskDetailView: View {
 
     @Environment(ProjectStore.self) private var store
     @Environment(SessionRunner.self) private var runner
+    @Environment(ShortcutStore.self) private var shortcuts
     @Environment(DialogPresenter.self) private var dialogs
     @Environment(AppSettings.self) private var appSettings
     @Environment(TerminalStore.self) private var terminals
@@ -509,7 +510,8 @@ struct TaskDetailView: View {
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 8)
             ActionButton(title: "Delete task", tone: .outlined, height: 28, size: 11.5) {
-                ProjectRemoval.confirm(task, in: store, runner: runner, dialogs: dialogs)
+                ProjectRemoval.confirm(task, in: store, runner: runner, shortcuts: shortcuts,
+                               dialogs: dialogs)
             }
             .fixedSize()
         }

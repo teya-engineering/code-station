@@ -11,10 +11,12 @@ enum ProjectRemoval {
     // that borrowed only a piece of this would be one forgotten error report away from a
     // button that looks like it did nothing.
     static func confirm(_ project: Project, in store: ProjectStore, runner: SessionRunner,
-                        dialogs: DialogPresenter, worktrees: WorktreeOperations = .live) {
+                        shortcuts: ShortcutStore, dialogs: DialogPresenter,
+                        worktrees: WorktreeOperations = .live) {
         dialogs.show(confirmation(for: project, in: store) {
             Task {
                 if case .failure(let failure) = await run(project, in: store, runner: runner,
+                                                          shortcuts: shortcuts,
                                                           worktrees: worktrees) {
                     dialogs.show(Dialog(title: failure.title, message: failure.message,
                                         actions: [.init(label: "OK", kind: .cancel)]))
@@ -54,7 +56,7 @@ enum ProjectRemoval {
     // project it belongs to. The sessions that did go are already gone by then, so what
     // is left is a project the reader can remove again once the refusal is dealt with.
     static func run(_ project: Project, in store: ProjectStore, runner: SessionRunner,
-                    worktrees: WorktreeOperations = .live) async
+                    shortcuts: ShortcutStore, worktrees: WorktreeOperations = .live) async
         -> Result<Void, SessionLifecycle.Failure> {
         var failures: [SessionLifecycle.Failure] = []
         for session in sessions(using: project.id, in: store) {
@@ -74,6 +76,10 @@ enum ProjectRemoval {
                        : "Could not delete some sessions"),
                 message: failures.map(\.message).joined(separator: "\n")))
         }
+        // The commands saved against the project go with it. Nothing can bring them back
+        // by re-adding the folder - a project added again is a new one - so leaving them
+        // would only mean rows filed under a name the app no longer knows.
+        shortcuts.removeAll(ownedBy: project.id)
         store.removeProject(project.id)
         return .success(())
     }

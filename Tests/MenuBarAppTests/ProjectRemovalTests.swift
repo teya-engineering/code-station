@@ -108,6 +108,7 @@ struct ProjectRemovalTests {
         }
 
         let result = await ProjectRemoval.run(project, in: store, runner: SessionRunner(),
+                                              shortcuts: makeShortcuts(),
                                               worktrees: worktrees)
 
         #expect(throwsNothing(result))
@@ -121,10 +122,33 @@ struct ProjectRemovalTests {
         let project = addProject(named: "checkout", to: store)
 
         let result = await ProjectRemoval.run(project, in: store, runner: SessionRunner(),
+                                              shortcuts: makeShortcuts(),
                                               worktrees: removal { .success(()) })
 
         #expect(throwsNothing(result))
         #expect(store.projects.isEmpty)
+    }
+
+    // Nothing else can reach a shortcut whose project has gone, since a folder added
+    // again comes back as a new project.
+    @Test func takesTheProjectsSavedCommandsWithIt() async {
+        let store = makeStore()
+        let shortcuts = makeShortcuts()
+        let project = addProject(named: "checkout", to: store)
+        let other = addProject(named: "elsewhere", to: store)
+        shortcuts.add(name: "Lint", command: "npm run lint",
+                      projectID: project.id, location: .projectFolder)
+        shortcuts.add(name: "Build", command: "make", projectID: other.id,
+                      location: .projectFolder)
+        shortcuts.add(name: "Prune", command: "docker system prune")
+
+        let result = await ProjectRemoval.run(project, in: store, runner: SessionRunner(),
+                                              shortcuts: shortcuts,
+                                              worktrees: removal { .success(()) })
+
+        #expect(throwsNothing(result))
+        #expect(shortcuts.shortcuts(for: project.id).isEmpty)
+        #expect(shortcuts.shortcuts.map(\.name) == ["Build", "Prune"])
     }
 
     // MARK: - When a session refuses to go
@@ -141,6 +165,7 @@ struct ProjectRemovalTests {
         let worktrees = removal { .failure(GitWorktree.Failure(message: "Worktree is busy")) }
 
         let result = await ProjectRemoval.run(project, in: store, runner: SessionRunner(),
+                                              shortcuts: makeShortcuts(),
                                               worktrees: worktrees)
 
         guard case .failure(let failure) = result else {
@@ -164,6 +189,7 @@ struct ProjectRemovalTests {
         let worktrees = removal { .failure(GitWorktree.Failure(message: "Worktree is busy")) }
 
         let result = await ProjectRemoval.run(project, in: store, runner: SessionRunner(),
+                                              shortcuts: makeShortcuts(),
                                               worktrees: worktrees)
 
         guard case .failure(let failure) = result else {
@@ -188,6 +214,7 @@ struct ProjectRemovalTests {
         let worktrees = removal { .failure(GitWorktree.Failure(message: "Worktree is busy")) }
 
         let result = await ProjectRemoval.run(task, in: store, runner: SessionRunner(),
+                                              shortcuts: makeShortcuts(),
                                               worktrees: worktrees)
 
         guard case .failure(let failure) = result else {
@@ -204,7 +231,8 @@ struct ProjectRemovalTests {
         let project = addProject(named: "checkout", to: store)
         let dialogs = DialogPresenter()
 
-        ProjectRemoval.confirm(project, in: store, runner: SessionRunner(), dialogs: dialogs,
+        ProjectRemoval.confirm(project, in: store, runner: SessionRunner(),
+                               shortcuts: makeShortcuts(), dialogs: dialogs,
                                worktrees: removal { .success(()) })
 
         #expect(dialogs.current?.title == "Remove checkout?")
@@ -218,7 +246,8 @@ struct ProjectRemovalTests {
                                        worktreePath: "/worktrees/checkout",
                                        worktreeBranch: "conductor/test")
         let dialogs = DialogPresenter()
-        ProjectRemoval.confirm(project, in: store, runner: SessionRunner(), dialogs: dialogs,
+        ProjectRemoval.confirm(project, in: store, runner: SessionRunner(),
+                               shortcuts: makeShortcuts(), dialogs: dialogs,
                                worktrees: removal { .success(()) })
 
         dialogs.run(try #require(dialogs.current?.actions.first))
@@ -239,8 +268,8 @@ struct ProjectRemovalTests {
                              worktreeBranch: "conductor/test")
         let dialogs = DialogPresenter()
         ProjectRemoval.confirm(
-            project, in: store, runner: SessionRunner(), dialogs: dialogs,
-            worktrees: removal { .failure(GitWorktree.Failure(message: "Worktree is busy")) })
+            project, in: store, runner: SessionRunner(), shortcuts: makeShortcuts(),
+            dialogs: dialogs, worktrees: removal { .failure(GitWorktree.Failure(message: "Worktree is busy")) })
 
         dialogs.run(try #require(dialogs.current?.actions.first))
 
@@ -253,7 +282,8 @@ struct ProjectRemovalTests {
         let store = makeStore()
         let project = addProject(named: "checkout", to: store)
         let dialogs = DialogPresenter()
-        ProjectRemoval.confirm(project, in: store, runner: SessionRunner(), dialogs: dialogs,
+        ProjectRemoval.confirm(project, in: store, runner: SessionRunner(),
+                               shortcuts: makeShortcuts(), dialogs: dialogs,
                                worktrees: removal { .success(()) })
 
         dialogs.run(try #require(dialogs.current?.actions.last))
@@ -279,6 +309,10 @@ struct ProjectRemovalTests {
 
     private func makeStore() -> ProjectStore {
         ProjectStore(storeURL: temporaryDirectory().appendingPathComponent("projects.json"))
+    }
+
+    private func makeShortcuts() -> ShortcutStore {
+        ShortcutStore(storageURL: temporaryDirectory().appendingPathComponent("shortcuts.json"))
     }
 
     private func temporaryDirectory() -> URL {
