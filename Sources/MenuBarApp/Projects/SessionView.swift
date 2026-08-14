@@ -263,8 +263,7 @@ struct SessionView: View {
                 HeaderTabToggle(selection: $tab,
                                 options: [("Chat", .chat),
                                           ("Changes", .changes),
-                                          ("Explorer", .explorer)],
-                                collapsible: true)
+                                          ("Explorer", .explorer)])
                 TerminalToggle(isOpen: terminals.isOpen(terminalScope),
                                directory: session.worktreePath ?? project.path) {
                     toggleTerminal(directory: session.worktreePath ?? project.path)

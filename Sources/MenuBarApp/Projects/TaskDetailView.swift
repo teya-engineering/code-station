@@ -69,8 +69,7 @@ struct TaskDetailView: View {
             HStack(spacing: 12) {
                 HeaderTabToggle(selection: $tab,
                                 options: [("Task", .task),
-                                          ("Explorer", .explorer)],
-                                collapsible: true)
+                                          ("Explorer", .explorer)])
                 TerminalToggle(isOpen: terminals.isOpen(terminalScope),
                                directory: task.path) {
                     toggleTerminal(directory: task.path)

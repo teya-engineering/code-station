@@ -86,8 +86,7 @@ struct ProjectDetailView: View {
                 HeaderTabToggle(selection: $tab,
                                 options: [("Sessions", .sessions),
                                           ("Changes", .changes),
-                                          ("Explorer", .explorer)],
-                                collapsible: true)
+                                          ("Explorer", .explorer)])
                 TerminalToggle(isOpen: terminals.isOpen(terminalScope),
                                directory: project.path) {
                     toggleTerminal(directory: project.path)

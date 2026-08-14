@@ -5,27 +5,11 @@ import SwiftUI
 struct HeaderTabToggle<Selection: Hashable>: View {
     @Binding var selection: Selection
     let options: [(label: String, value: Selection)]
-    // A crowded header can show only the pane you are in and hand the width the unpicked
-    // options would have taken back to the title, opening the full strip under the pointer.
-    var collapsible = false
-
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var hovering = false
-
-    // Falling back to the whole strip keeps a selection that is not one of the options
-    // from drawing an empty control.
-    private var visible: [(label: String, value: Selection)] {
-        guard collapsible, !hovering,
-              let current = options.first(where: { $0.value == selection })
-        else { return options }
-        return [current]
-    }
 
     var body: some View {
         HStack(spacing: 2) {
-            ForEach(visible, id: \.value) { option in
-                segment(option)
-                    .transition(.opacity)
+            ForEach(options.indices, id: \.self) { index in
+                segment(options[index])
             }
         }
         .padding(3)
@@ -35,13 +19,6 @@ struct HeaderTabToggle<Selection: Hashable>: View {
         // two lines. It is a fixed set of short words: it should hold its size and let
         // the title beside it give way instead.
         .fixedSize(horizontal: true, vertical: false)
-        // The gap around the pills belongs to the control, so crossing it should not
-        // count as leaving.
-        .contentShape(RoundedRectangle(cornerRadius: 10))
-        .onHover { hovering = $0 }
-        // The strip moves the title beside it, so it opens slowly enough to read as one
-        // thing widening rather than the header jumping.
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: hovering)
     }
 
     private func segment(_ option: (label: String, value: Selection)) -> some View {
