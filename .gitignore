@@ -37,5 +37,6 @@ Icon?
 # Your own organisation's settings, folded into the bundle by build-app.sh
 /site-defaults.json
 
-# Local Claude Code settings
+# Local Claude Code settings and the worktrees its agents check out
 .claude/settings.local.json
+.claude/worktrees/
