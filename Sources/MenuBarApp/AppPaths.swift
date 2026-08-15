@@ -226,6 +226,17 @@ enum Preferences {
         set { store.set(newValue.rawValue, forKey: "textSize") }
     }
 
+    // Mobile access exposes live session control to another device, so it stays off until
+    // someone deliberately opts into the experimental surface.
+    static var mobileAccessEnabled: Bool {
+        get { mobileAccessEnabled(in: store) }
+        set { store.set(newValue, forKey: "mobileAccessEnabled") }
+    }
+
+    static func mobileAccessEnabled(in store: UserDefaults) -> Bool {
+        store.bool(forKey: "mobileAccessEnabled")
+    }
+
     // Whether what a session has spent is shown. Kept per agent, like the session
     // defaults are, because what a CLI reports about cost is its own business. On unless
     // it is turned off: the figure is still recorded either way, so this only decides

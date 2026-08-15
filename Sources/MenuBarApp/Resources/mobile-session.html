@@ -1,0 +1,527 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <title>Conductor session</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f5f3ee;
+      --card: #fffdfa;
+      --field: #ebe8e1;
+      --border: rgba(37, 34, 29, .13);
+      --text: #211f1b;
+      --muted: #6f6b63;
+      --accent: #6c55c7;
+      --accent-soft: rgba(108, 85, 199, .10);
+      --danger: #b84343;
+      --good: #31936a;
+      --shadow: 0 12px 36px rgba(30, 24, 16, .08);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #181714;
+        --card: #22211d;
+        --field: #2d2b26;
+        --border: rgba(255, 250, 239, .11);
+        --text: #f4f0e7;
+        --muted: #aaa49a;
+        --accent: #a994ff;
+        --accent-soft: rgba(169, 148, 255, .12);
+        --danger: #ee7777;
+        --good: #69c99a;
+        --shadow: 0 12px 36px rgba(0, 0, 0, .24);
+      }
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); }
+    body {
+      font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 15px;
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+    button, textarea, input { font: inherit; }
+    button { -webkit-tap-highlight-color: transparent; }
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 4;
+      padding: calc(12px + env(safe-area-inset-top)) 16px 12px;
+      background: color-mix(in srgb, var(--bg) 88%, transparent);
+      border-bottom: 1px solid var(--border);
+      backdrop-filter: blur(18px);
+    }
+    .head-row { display: flex; align-items: center; gap: 11px; }
+    .head-copy { min-width: 0; flex: 1; }
+    .eyebrow {
+      color: var(--muted);
+      font: 700 10px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    h1 { margin: 2px 0 0; font-family: ui-serif, Georgia, serif; font-size: 20px; line-height: 1.15; }
+    .connection { width: 9px; height: 9px; flex: none; border-radius: 50%; background: var(--muted); }
+    .connection.live { background: var(--good); box-shadow: 0 0 0 4px color-mix(in srgb, var(--good) 15%, transparent); }
+    .state-row { display: flex; align-items: center; gap: 7px; margin-top: 8px; color: var(--muted); font-size: 12px; }
+    .state-row .state { color: var(--text); font-weight: 650; }
+    .spacer { flex: 1; }
+    .small-button, .action, .option {
+      border: 1px solid var(--border);
+      color: var(--text);
+      background: var(--field);
+      border-radius: 10px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .small-button { padding: 7px 10px; font-size: 12px; }
+    .small-button.danger { color: var(--danger); }
+    main { width: min(760px, 100%); margin: 0 auto; padding: 16px 13px 154px; }
+    .notice {
+      margin: 4px 3px 14px;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 11px;
+      color: var(--muted);
+      background: var(--field);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+    .message { margin: 0 0 14px; }
+    .message.user { margin-left: 9%; }
+    .message .role {
+      margin: 0 4px 5px;
+      color: var(--muted);
+      font: 700 10px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
+      letter-spacing: .07em;
+      text-transform: uppercase;
+    }
+    .bubble {
+      padding: 12px 13px;
+      border: 1px solid var(--border);
+      border-radius: 13px;
+      background: var(--card);
+      box-shadow: var(--shadow);
+    }
+    .user .bubble { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 28%, transparent); }
+    .system .bubble, .instructions .bubble { color: var(--muted); background: transparent; box-shadow: none; }
+    .prose, .thinking, .tool pre, .permission pre {
+      margin: 0;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      line-height: 1.52;
+    }
+    .thinking { margin-top: 10px; padding-left: 10px; color: var(--muted); border-left: 2px solid var(--border); font-size: 13px; }
+    .attachment { display: inline-block; margin: 9px 5px 0 0; padding: 5px 8px; border-radius: 8px; background: var(--field); color: var(--muted); font-size: 11px; }
+    details.tool { margin-top: 9px; border: 1px solid var(--border); border-radius: 10px; background: var(--field); overflow: hidden; }
+    details.tool summary { padding: 9px 10px; cursor: pointer; font-size: 12px; font-weight: 750; }
+    details.tool.error summary { color: var(--danger); }
+    .tool-body { padding: 0 10px 10px; }
+    .tool-label { margin: 8px 0 4px; color: var(--muted); font: 700 9px/1.2 ui-monospace, monospace; letter-spacing: .07em; }
+    .tool pre { max-height: 260px; overflow: auto; padding: 9px; border-radius: 8px; background: var(--card); font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .permission {
+      position: sticky;
+      bottom: 132px;
+      z-index: 3;
+      margin: 12px 0;
+      padding: 14px;
+      border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+      border-radius: 14px;
+      background: color-mix(in srgb, var(--card) 94%, var(--accent));
+      box-shadow: 0 16px 44px rgba(0, 0, 0, .16);
+    }
+    .permission h2 { margin: 0 0 5px; font-size: 15px; }
+    .permission .detail { margin: 0 0 10px; color: var(--muted); font-size: 12px; line-height: 1.4; }
+    .permission pre { max-height: 180px; overflow: auto; padding: 10px; border-radius: 9px; background: var(--field); font: 11px/1.4 ui-monospace, monospace; }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 11px; }
+    .action { flex: 1; min-width: 84px; padding: 9px 11px; }
+    .action.primary { color: white; border-color: transparent; background: #27241f; }
+    @media (prefers-color-scheme: dark) { .action.primary { color: #181714; background: #f4f0e7; } }
+    .action.danger { color: var(--danger); }
+    .question { margin-top: 12px; }
+    .question-label { margin-bottom: 7px; font-weight: 700; font-size: 13px; }
+    .option { display: block; width: 100%; margin: 6px 0; padding: 9px 10px; text-align: left; }
+    .option.chosen { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+    .option-description { display: block; margin-top: 2px; color: var(--muted); font-size: 11px; font-weight: 450; }
+    .other {
+      width: 100%; margin-top: 6px; padding: 9px 10px; color: var(--text); border: 1px solid var(--border);
+      border-radius: 9px; outline: none; background: var(--field);
+    }
+    .other:focus, textarea:focus { border-color: var(--accent); }
+    .composer {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 5;
+      padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+      border-top: 1px solid var(--border);
+      background: color-mix(in srgb, var(--bg) 90%, transparent);
+      backdrop-filter: blur(18px);
+    }
+    .compose-inner { display: flex; align-items: flex-end; gap: 9px; width: min(760px, 100%); margin: 0 auto; }
+    textarea {
+      min-height: 48px;
+      max-height: 132px;
+      flex: 1;
+      resize: none;
+      padding: 12px;
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      outline: none;
+      background: var(--card);
+    }
+    .send {
+      width: 48px;
+      height: 48px;
+      flex: none;
+      border: 0;
+      border-radius: 50%;
+      color: white;
+      background: var(--accent);
+      font-size: 20px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+    .send:disabled, button:disabled { opacity: .42; cursor: default; }
+    .empty { padding: 70px 24px; color: var(--muted); text-align: center; line-height: 1.5; }
+    .toast {
+      position: fixed;
+      z-index: 10;
+      left: 16px;
+      right: 16px;
+      top: calc(16px + env(safe-area-inset-top));
+      max-width: 520px;
+      margin: auto;
+      padding: 11px 13px;
+      border-radius: 11px;
+      color: white;
+      background: var(--danger);
+      box-shadow: var(--shadow);
+      transform: translateY(-130%);
+      transition: transform .18s ease-out;
+    }
+    .toast.visible { transform: translateY(0); }
+  </style>
+</head>
+<body>
+  <div id="toast" class="toast" role="alert"></div>
+  <header>
+    <div class="head-row">
+      <span id="connection" class="connection" aria-label="Disconnected"></span>
+      <div class="head-copy">
+        <div id="project" class="eyebrow">Teya Conductor</div>
+        <h1 id="title">Connecting...</h1>
+      </div>
+    </div>
+    <div class="state-row">
+      <span id="state" class="state">Connecting</span>
+      <span id="queued"></span>
+      <span class="spacer"></span>
+      <button id="stop" class="small-button danger" type="button" hidden>Stop turn</button>
+    </div>
+  </header>
+  <main>
+    <div id="older" class="notice" hidden>Showing the latest 200 messages. Earlier messages remain available on the Mac.</div>
+    <section id="messages"><div class="empty">Connecting to the session on your Mac...</div></section>
+    <section id="permission"></section>
+  </main>
+  <form id="composer" class="composer">
+    <div class="compose-inner">
+      <textarea id="prompt" maxlength="100000" placeholder="Message the agent" aria-label="Message the agent"></textarea>
+      <button id="send" class="send" type="submit" aria-label="Send prompt">↑</button>
+    </div>
+  </form>
+  <script>
+    (() => {
+      const pairingID = location.pathname.split('/').filter(Boolean).pop();
+      const fragment = new URLSearchParams(location.hash.slice(1));
+      const storageKey = `conductor-pairing-${pairingID}`;
+      const scannedSecret = fragment.get('secret');
+      if (scannedSecret) sessionStorage.setItem(storageKey, scannedSecret);
+      const secret = scannedSecret || sessionStorage.getItem(storageKey);
+      if (location.hash) history.replaceState(null, '', location.pathname);
+
+      const connection = document.querySelector('#connection');
+      const project = document.querySelector('#project');
+      const title = document.querySelector('#title');
+      const state = document.querySelector('#state');
+      const queued = document.querySelector('#queued');
+      const stop = document.querySelector('#stop');
+      const messages = document.querySelector('#messages');
+      const permission = document.querySelector('#permission');
+      const older = document.querySelector('#older');
+      const composer = document.querySelector('#composer');
+      const prompt = document.querySelector('#prompt');
+      const sendButton = document.querySelector('#send');
+      const toast = document.querySelector('#toast');
+      let socket;
+      let reconnectTimer;
+      let toastTimer;
+      let currentPermissionID;
+      const answerState = new Map();
+      const expandedTools = new Set();
+
+      const element = (tag, className, text) => {
+        const node = document.createElement(tag);
+        if (className) node.className = className;
+        if (text !== undefined) node.textContent = text;
+        return node;
+      };
+
+      const showError = message => {
+        toast.textContent = message;
+        toast.classList.add('visible');
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => toast.classList.remove('visible'), 4500);
+      };
+
+      const send = command => {
+        if (!socket || socket.readyState !== WebSocket.OPEN) {
+          showError('The Mac is not connected.');
+          return false;
+        }
+        socket.send(JSON.stringify(command));
+        return true;
+      };
+
+      const setConnected = live => {
+        connection.classList.toggle('live', live);
+        connection.setAttribute('aria-label', live ? 'Connected' : 'Disconnected');
+        sendButton.disabled = !live;
+      };
+
+      const renderTool = tool => {
+        const details = element('details', `tool${tool.isError ? ' error' : ''}`);
+        details.open = expandedTools.has(tool.id);
+        details.addEventListener('toggle', () => {
+          if (details.open) expandedTools.add(tool.id);
+          else expandedTools.delete(tool.id);
+        });
+        details.append(element('summary', '', `${tool.name}${tool.isRunning ? ' · running' : ''}`));
+        const body = element('div', 'tool-body');
+        if (tool.input) {
+          body.append(element('div', 'tool-label', 'INPUT'));
+          body.append(element('pre', '', tool.input));
+        }
+        if (tool.result) {
+          body.append(element('div', 'tool-label', tool.isError ? 'ERROR' : 'RESULT'));
+          body.append(element('pre', '', tool.result));
+        }
+        details.append(body);
+        return details;
+      };
+
+      const renderMessage = message => {
+        const wrapper = element('article', `message ${message.role}`);
+        wrapper.append(element('div', 'role', message.role));
+        const bubble = element('div', 'bubble');
+        if (message.text) bubble.append(element('div', 'prose', message.text));
+        for (const thought of message.thinking || []) {
+          bubble.append(element('div', 'thinking', thought));
+        }
+        for (const attachment of message.attachments || []) {
+          bubble.append(element('span', 'attachment', attachment));
+        }
+        for (const tool of message.tools || []) bubble.append(renderTool(tool));
+        wrapper.append(bubble);
+        return wrapper;
+      };
+
+      const answerFor = question => {
+        const saved = answerState.get(question.text) || { choices: new Set(), other: '' };
+        const typed = saved.other.trim();
+        if (typed) return typed;
+        return question.options
+          .filter(option => saved.choices.has(option.label))
+          .map(option => option.label)
+          .join(', ');
+      };
+
+      const renderQuestionPermission = request => {
+        const card = element('div', 'permission');
+        card.append(element('h2', '', request.title));
+        if (request.detail) card.append(element('p', 'detail', request.detail));
+
+        for (const question of request.questions) {
+          if (!answerState.has(question.text)) {
+            answerState.set(question.text, { choices: new Set(), other: '' });
+          }
+          const block = element('div', 'question');
+          block.append(element('div', 'question-label', question.text));
+          for (const option of question.options) {
+            const choice = element('button', 'option', option.label);
+            choice.type = 'button';
+            if (option.description) {
+              choice.append(element('span', 'option-description', option.description));
+            }
+            const update = () => {
+              const saved = answerState.get(question.text);
+              choice.classList.toggle('chosen', saved.choices.has(option.label));
+            };
+            choice.addEventListener('click', () => {
+              const saved = answerState.get(question.text);
+              saved.other = '';
+              if (question.multiSelect) {
+                if (saved.choices.has(option.label)) saved.choices.delete(option.label);
+                else saved.choices.add(option.label);
+              } else {
+                const already = saved.choices.has(option.label);
+                saved.choices.clear();
+                if (!already) saved.choices.add(option.label);
+                block.querySelectorAll('.option').forEach(node => node.classList.remove('chosen'));
+              }
+              block.querySelector('.other').value = '';
+              update();
+              updateSubmit();
+            });
+            update();
+            block.append(choice);
+          }
+          const other = element('input', 'other');
+          other.placeholder = 'Something else...';
+          other.value = answerState.get(question.text).other;
+          other.addEventListener('input', () => {
+            const saved = answerState.get(question.text);
+            saved.other = other.value;
+            if (other.value) {
+              saved.choices.clear();
+              block.querySelectorAll('.option').forEach(node => node.classList.remove('chosen'));
+            }
+            updateSubmit();
+          });
+          block.append(other);
+          card.append(block);
+        }
+
+        const actions = element('div', 'actions');
+        const submit = element('button', 'action primary', 'Submit answers');
+        submit.type = 'button';
+        const updateSubmit = () => {
+          submit.disabled = !request.questions.every(question => answerFor(question));
+        };
+        submit.addEventListener('click', () => {
+          const answers = {};
+          for (const question of request.questions) answers[question.text] = answerFor(question);
+          if (send({ type: 'answerPermission', requestID: request.id, answer: 'answers', answers })) {
+            submit.disabled = true;
+          }
+        });
+        actions.append(submit);
+        card.append(actions);
+        updateSubmit();
+        return card;
+      };
+
+      const actionButton = (label, className, handler) => {
+        const button = element('button', `action ${className}`, label);
+        button.type = 'button';
+        button.addEventListener('click', handler);
+        return button;
+      };
+
+      const renderPermission = request => {
+        permission.replaceChildren();
+        if (!request) {
+          currentPermissionID = undefined;
+          answerState.clear();
+          return;
+        }
+        if (currentPermissionID !== request.id) {
+          currentPermissionID = request.id;
+          answerState.clear();
+        }
+        if (request.questions.length) {
+          permission.append(renderQuestionPermission(request));
+          return;
+        }
+
+        const card = element('div', 'permission');
+        card.append(element('h2', '', request.title));
+        if (request.detail) card.append(element('p', 'detail', request.detail));
+        card.append(element('pre', '', request.subject));
+        const actions = element('div', 'actions');
+        actions.append(actionButton('Deny', 'danger', () =>
+          send({ type: 'answerPermission', requestID: request.id, answer: 'deny' })));
+        actions.append(actionButton('Allow once', 'primary', () =>
+          send({ type: 'answerPermission', requestID: request.id, answer: 'allowOnce' })));
+        if (request.alwaysTitle) {
+          actions.append(actionButton(request.alwaysTitle, '', () =>
+            send({ type: 'answerPermission', requestID: request.id, answer: 'allowAlways' })));
+        }
+        card.append(actions);
+        permission.append(card);
+      };
+
+      const render = snapshot => {
+        const nearBottom = document.documentElement.scrollHeight - window.scrollY - window.innerHeight < 180;
+        project.textContent = `${snapshot.project} · ${snapshot.agent}`;
+        title.textContent = snapshot.title;
+        state.textContent = snapshot.state;
+        queued.textContent = snapshot.queuedPrompts ? `· ${snapshot.queuedPrompts} queued` : '';
+        stop.hidden = !snapshot.isBusy;
+        older.hidden = !snapshot.hasEarlierMessages;
+        const rows = snapshot.messages.map(renderMessage);
+        if (!rows.length) rows.push(element('div', 'empty', 'This session has no messages yet.'));
+        messages.replaceChildren(...rows);
+        renderPermission(snapshot.permission);
+        document.title = `${snapshot.title} · Conductor`;
+        if (nearBottom) requestAnimationFrame(() => window.scrollTo({ top: document.body.scrollHeight }));
+      };
+
+      const connect = () => {
+        clearTimeout(reconnectTimer);
+        if (!secret) {
+          title.textContent = 'Pairing code missing';
+          state.textContent = 'Scan the QR code again';
+          showError('The pairing code is missing. Scan the QR code again.');
+          return;
+        }
+        const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
+        socket = new WebSocket(`${scheme}://${location.host}/socket/${pairingID}`);
+        socket.addEventListener('open', () => {
+          setConnected(true);
+          socket.send(JSON.stringify({ type: 'authenticate', version: 1, secret }));
+        });
+        socket.addEventListener('message', event => {
+          try {
+            const payload = JSON.parse(event.data);
+            if (payload.type === 'snapshot') render(payload);
+            else if (payload.type === 'error') showError(payload.message);
+          } catch (_) {
+            showError('The Mac sent an unreadable update.');
+          }
+        });
+        socket.addEventListener('close', () => {
+          setConnected(false);
+          state.textContent = 'Reconnecting';
+          reconnectTimer = setTimeout(connect, 1500);
+        });
+        socket.addEventListener('error', () => socket.close());
+      };
+
+      composer.addEventListener('submit', event => {
+        event.preventDefault();
+        const text = prompt.value.trim();
+        if (!text) return;
+        if (send({ type: 'sendPrompt', prompt: text })) {
+          prompt.value = '';
+          prompt.style.height = '';
+        }
+      });
+      prompt.addEventListener('input', () => {
+        prompt.style.height = 'auto';
+        prompt.style.height = `${Math.min(prompt.scrollHeight, 132)}px`;
+      });
+      stop.addEventListener('click', () => send({ type: 'stopTurn' }));
+      setConnected(false);
+      connect();
+    })();
+  </script>
+</body>
+</html>

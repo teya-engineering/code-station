@@ -11,6 +11,7 @@ struct RootView: View {
     @Environment(AppSettings.self) private var settings
     @Environment(ShortcutStore.self) private var shortcuts
     @Environment(SessionRunner.self) private var runner
+    @Environment(MobileAccessController.self) private var mobileAccess
     @State private var skills = SkillsManager()
     @State private var configuringServers = false
     @State private var showingSkills = false
@@ -42,6 +43,10 @@ struct RootView: View {
         .background(Theme.background)
         .onChange(of: attention) { oldValue, newValue in
             if oldValue != newValue { dismissedAttention = nil }
+        }
+        .onAppear { mobileAccess.setEnabled(settings.mobileAccessEnabled) }
+        .onChange(of: settings.mobileAccessEnabled) { _, enabled in
+            mobileAccess.setEnabled(enabled)
         }
         // Opening a session answers whatever was posted about it while the app was in
         // the background.

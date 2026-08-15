@@ -69,7 +69,7 @@ final class ProjectStore {
     // and a session with a turn in flight is held whether or not anyone is watching it,
     // since the reply has to land somewhere. A session nobody holds gives its messages
     // back to disk.
-    enum TranscriptHold: Hashable { case open, running }
+    enum TranscriptHold: Hashable { case open, running, remote }
 
     private var holds: [UUID: Set<TranscriptHold>] = [:]
 
@@ -902,6 +902,13 @@ final class ProjectStore {
         guard let i = index(sessionID) else { return [] }
         loadTranscript(i)
         return sessions[i].messages
+    }
+
+    // Mobile access compares this cheap number before building a full snapshot. A live
+    // answer can change many times a second, so rebuilding the whole transcript merely to
+    // discover that it stayed still would make the remote view cost more than the app view.
+    func transcriptRevision(_ sessionID: UUID) -> Int {
+        transcriptRevisions[sessionID] ?? 0
     }
 
     // The summary the sidebar reads is rebuilt when the write lands rather than here:

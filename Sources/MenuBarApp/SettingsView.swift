@@ -78,6 +78,10 @@ final class AppSettings {
         didSet { Preferences.textSize = textSize }
     }
 
+    var mobileAccessEnabled = Preferences.mobileAccessEnabled {
+        didSet { Preferences.mobileAccessEnabled = mobileAccessEnabled }
+    }
+
     // Whether the money a session has spent is on screen, one answer per agent. The
     // choice sits with the agent because only some CLIs report a cost at all.
     private var costShown: [AgentKind: Bool]
@@ -199,6 +203,7 @@ struct SettingsView: View {
                         terminal
                         appearance
                         textSize
+                        mobileAccess
                         startAtLogin
                         log
                     case .agents:
@@ -500,6 +505,27 @@ struct SettingsView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var mobileAccess: some View {
+        @Bindable var settings = settings
+        return ChoiceBlock("EXPERIMENTAL") {
+            Toggle(isOn: $settings.mobileAccessEnabled) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Mobile session access")
+                        .font(.system(size: 13, weight: .semibold))
+                    Text("Lets a phone on the same trusted Wi-Fi control a session after scanning a temporary QR code.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .toggleStyle(.appSwitch)
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 9).fill(Theme.card))
+            .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
+        }
     }
 
     private var defaultAgent: some View {
