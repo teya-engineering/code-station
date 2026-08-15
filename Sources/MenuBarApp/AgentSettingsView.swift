@@ -181,6 +181,7 @@ private nonisolated func cliVersion(at path: String, searchPath: String) async -
 // details stay with the agent they belong to.
 struct AgentSettingsView: View {
     @Environment(SessionRunner.self) private var runner
+    @Environment(AppSettings.self) private var appSettings
     @State private var claude = ClaudeAgentInfo()
     @State private var codex = CodexAgentInfo()
     @State private var loggingIn: AgentKind?
@@ -254,6 +255,31 @@ struct AgentSettingsView: View {
         }
     }
 
+    // Hiding it only takes the figure off the screen. Sessions still record what they
+    // spent, so turning this back on shows the full total rather than starting again.
+    private func cost(for agent: AgentKind) -> some View {
+        ChoiceBlock("COST", note: agent == .codex
+                    ? "Codex reports no cost of its own, so its sessions have nothing to show until it does."
+                    : nil) {
+            Toggle(isOn: Binding(get: { appSettings.showsCost(for: agent) },
+                                 set: { appSettings.setShowsCost($0, for: agent) })) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Show what a session has spent")
+                        .font(.system(size: 13, weight: .semibold))
+                    Text("The dollar figure on the session bar, and the Spent line in the hints.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .toggleStyle(.appSwitch)
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 9).fill(Theme.card))
+            .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
+        }
+    }
+
     private var claudePermissions: some View {
         ChoiceBlock("PERMISSIONS") {
             VStack(spacing: 4) {
@@ -307,6 +333,7 @@ struct AgentSettingsView: View {
             model(for: .claudeCode)
             effort(for: .claudeCode)
             claudePermissions
+            cost(for: .claudeCode)
             Divider().overlay(Theme.hairline)
             configRow(title: "Claude Code settings",
                       note: "The CLI's own configuration, at ~/.claude/settings.json. It belongs to Claude Code, so the app only points at it.",
@@ -368,6 +395,7 @@ struct AgentSettingsView: View {
             Divider().overlay(Theme.hairline)
             model(for: .codex)
             effort(for: .codex)
+            cost(for: .codex)
             Divider().overlay(Theme.hairline)
             configRow(title: "Codex config",
                       note: "The CLI's own configuration, at ~/.codex/config.toml. It belongs to Codex, so the app only points at it.",

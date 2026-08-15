@@ -67,16 +67,16 @@ final class AppSettings {
         didSet { Preferences.terminalBundleID = terminalBundleID }
     }
 
-    var showCost = Preferences.showCost {
-        didSet { Preferences.showCost = showCost }
-    }
-
     var appearance = Preferences.appearance {
         didSet {
             Preferences.appearance = appearance
             appearance.apply()
         }
     }
+
+    // Whether the money a session has spent is on screen, one answer per agent. The
+    // choice sits with the agent because only some CLIs report a cost at all.
+    private var costShown: [AgentKind: Bool]
 
     private(set) var agentAvatars: [AgentAvatar]
     private(set) var defaultAgentAvatarName: String
@@ -85,6 +85,9 @@ final class AppSettings {
          preferences: UserDefaults = .standard) {
         self.agentAvatarURL = agentAvatarURL
         self.preferences = preferences
+        costShown = Dictionary(uniqueKeysWithValues: AgentKind.allCases.map {
+            ($0, Preferences.showCost(for: $0))
+        })
         let avatars = AgentAvatarFile.loadAll(from: agentAvatarURL)
         let preferredName = Preferences.defaultAgentAvatarName(in: preferences)
         agentAvatars = avatars
@@ -92,6 +95,13 @@ final class AppSettings {
             preferredName: preferredName,
             availableNames: avatars.map { $0.url.lastPathComponent })
         hasExplicitNonBotDefault = preferredName == AgentAvatarSelection.nonBotName
+    }
+
+    func showsCost(for agent: AgentKind) -> Bool { costShown[agent] ?? true }
+
+    func setShowsCost(_ shown: Bool, for agent: AgentKind) {
+        costShown[agent] = shown
+        Preferences.setShowCost(shown, for: agent)
     }
 
     func importAgentAvatars(from urls: [URL], personality: AgentPersonality = .standard) throws {
@@ -184,7 +194,6 @@ struct SettingsView: View {
                         botImage
                         terminal
                         appearance
-                        cost
                         startAtLogin
                         log
                     case .agents:
@@ -349,25 +358,6 @@ struct SettingsView: View {
             }
             .fixedSize()
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    // Hiding it only takes the figure off the screen. The session still records what it
-    // spent, so turning this back on shows the full total rather than starting again.
-    private var cost: some View {
-        @Bindable var settings = settings
-
-        return Toggle(isOn: $settings.showCost) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Show what sessions spend")
-                    .font(.system(size: 13, weight: .semibold))
-                Text("The dollar figure on the session bar and in the hints. Codex reports no cost, so its sessions never show one.")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .toggleStyle(.appSwitch)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 

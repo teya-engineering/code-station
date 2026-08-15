@@ -21,7 +21,7 @@ Teya Conductor is a macOS app for running Codex and Claude Code across local pro
 - Review what a session changed and commit it without leaving the app: pick exactly the files that go into a commit, amend the last commit while it is still unpushed, and read recent commits with their full diffs.
 - Read code as code: chat code blocks, file previews, and diffs are syntax highlighted, with no extra dependencies.
 - See images where they belong: files sent with a prompt and local images the agent references render inline in the conversation, and click open at full size.
-- Know what a conversation costs: each session shows its spend alongside the context meter, and Settings can hide the figure.
+- Know what a conversation costs: each session shows its spend alongside the context meter, and each agent's settings can hide the figure.
 
 ### Built-in tools
 

@@ -219,14 +219,22 @@ enum Preferences {
         set { store.set(newValue.rawValue, forKey: "appearance") }
     }
 
-    // Whether what a session has spent is shown at all. On unless it is turned off: the
-    // figure is still recorded either way, so this only decides whether it is on screen.
-    static var showCost: Bool {
-        get {
-            guard store.object(forKey: "showCost") != nil else { return true }
-            return store.bool(forKey: "showCost")
-        }
-        set { store.set(newValue, forKey: "showCost") }
+    // Whether what a session has spent is shown. Kept per agent, like the session
+    // defaults are, because what a CLI reports about cost is its own business. On unless
+    // it is turned off: the figure is still recorded either way, so this only decides
+    // whether it is on screen.
+    static func showCost(for agent: AgentKind) -> Bool {
+        let key = showCostKey(agent)
+        guard store.object(forKey: key) != nil else { return true }
+        return store.bool(forKey: key)
+    }
+
+    static func setShowCost(_ shown: Bool, for agent: AgentKind) {
+        store.set(shown, forKey: showCostKey(agent))
+    }
+
+    private static func showCostKey(_ agent: AgentKind) -> String {
+        "showCost-\(agent.rawValue)"
     }
 
     static func sidebarExpansion(in store: UserDefaults) -> [UUID: Bool] {

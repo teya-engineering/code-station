@@ -361,7 +361,8 @@ struct SessionView: View {
                     branchTag(branch: branch, repository: repository)
                 }
                 if let pullRequest = session.pullRequest { pullRequestTag(pullRequest) }
-                if appSettings.showCost, let cost = session.usage?.costUSD, cost > 0 {
+                if appSettings.showsCost(for: session.agent),
+                   let cost = session.usage?.costUSD, cost > 0 {
                     spentTag(cost)
                 }
                 if let usage = session.usage,
@@ -1422,7 +1423,7 @@ struct SessionView: View {
                 value: "\(formattedTokens(usage.contextTokens)) of \(formattedTokens(usage.contextWindow))"))
         }
         // Codex reports no cost, so a zero here means "unknown" rather than free.
-        if appSettings.showCost, usage.costUSD > 0 {
+        if appSettings.showsCost(for: agent), usage.costUSD > 0 {
             rows.append(Tooltip.Row(label: "Spent", value: Money.short(usage.costUSD)))
         }
         let turns = usage.turns == 1 ? "1 turn" : "\(usage.turns) turns"

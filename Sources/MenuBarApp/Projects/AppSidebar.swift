@@ -589,7 +589,12 @@ struct AppSidebar: View {
                 sessionCount: sessions.count,
                 runningCount: running,
                 finishedCount: store.finishedCount(in: project.id),
-                cost: sessions.reduce(0) { $0 + ($1.usage?.costUSD ?? 0) },
+                // A project can hold sessions from either agent, so the total only counts
+                // the ones whose agent is set to show what it spends.
+                cost: sessions.reduce(0) { total, session in
+                    guard appSettings.showsCost(for: session.agent) else { return total }
+                    return total + (session.usage?.costUSD ?? 0)
+                },
                 clearableCount: sessions.count - running,
                 canRunTask: running == 0,
                 isRenaming: renamingID == project.id,
@@ -1518,8 +1523,6 @@ private struct ProjectHeaderRow: View {
     let onRename: (String) -> Void
     let onCancelRename: () -> Void
 
-    @Environment(AppSettings.self) private var appSettings
-
     @State private var draft = ""
     @State private var hovering = false
     @FocusState private var focused: Bool
@@ -1615,7 +1618,7 @@ private struct ProjectHeaderRow: View {
         if finishedCount > 0 {
             rows.append(Tooltip.Row(label: "Finished while away", value: "\(finishedCount)"))
         }
-        if appSettings.showCost, cost > 0 {
+        if cost > 0 {
             rows.append(Tooltip.Row(label: "Spent", value: Money.short(cost)))
         }
         return Tooltip(title: project.name,
@@ -1801,7 +1804,8 @@ private struct SessionCard: View {
         if added > 0 || removed > 0 {
             rows.append(Tooltip.Row(label: "Changes", value: "+\(added) -\(removed)"))
         }
-        if appSettings.showCost, let usage = session.usage, usage.turns > 0 {
+        if appSettings.showsCost(for: session.agent),
+           let usage = session.usage, usage.turns > 0 {
             rows.append(Tooltip.Row(label: "Spent", value: Money.short(usage.costUSD)))
         }
         if let context = session.usage?.contextFraction, context > 0 {
