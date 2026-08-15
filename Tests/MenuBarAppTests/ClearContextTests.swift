@@ -216,7 +216,7 @@ struct ClearContextTests {
         #expect(usage.contextFraction == 0)
     }
 
-    // Codex has no compaction in `codex exec`, so it is never offered.
+    // Codex compacts automatically, so it is never offered a manual action.
     @Test func onlyClaudeCodeCanCompact() {
         let store = makeStore()
         let runner = SessionRunner(paths: [:])
@@ -225,7 +225,7 @@ struct ClearContextTests {
         #expect(!runner.canCompactContext(startedSession(in: store, agent: .codex).id, store: store))
     }
 
-    @Test func typingCompactOnCodexSaysWhyItCannot() {
+    @Test func typingCompactOnCodexExplainsAutomaticCompaction() {
         let store = makeStore()
         let runner = SessionRunner(paths: [:])
         let session = startedSession(in: store, agent: .codex)
@@ -233,7 +233,8 @@ struct ClearContextTests {
         runner.send("/compact", sessionID: session.id, store: store)
 
         #expect(runner.queued(session.id).isEmpty)
-        #expect(store.transcript(of: session.id).last?.text.contains("Codex cannot compact") == true)
+        #expect(store.transcript(of: session.id).last?.text
+            == "Codex compacts context automatically. Manual compaction is not available.")
         // The conversation is untouched: compacting is not a quiet clear.
         #expect(store.session(session.id)?.codexSessionID == "conversation-1")
     }

@@ -348,15 +348,87 @@ struct CodexTests {
         {"type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":18000},"model_context_window":258400}}}
         not json
         {"type":"turn_context","payload":{"model":"gpt-5.6-sol"}}
+        {"type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":20970,"total_tokens":21120},"model_context_window":258400}}}
+        """
+        try Data(contents.utf8).write(to: rollout)
+
+        let reading = await CodexContextReader(codexHome: home).read(threadID: threadID)
+
+        #expect(reading == .measured(CodexContextSnapshot(contextTokens: 21_120,
+                                                          contextWindow: 258_400,
+                                                          model: "gpt-5.6-sol")))
+    }
+
+    @Test func fallsBackToInputTokensFromOlderCodexRollouts() async throws {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("codex-context-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let folder = home.appendingPathComponent("sessions", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let threadID = "019ff016-7f30-7330-a72a-eea8f3984539"
+        let rollout = folder.appendingPathComponent("rollout-\(threadID).jsonl")
+        let contents = """
+        {"type":"turn_context","payload":{"model":"gpt-5.6-sol"}}
         {"type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":20970},"model_context_window":258400}}}
         """
         try Data(contents.utf8).write(to: rollout)
 
-        let snapshot = await CodexContextReader(codexHome: home).read(threadID: threadID)
+        let reading = await CodexContextReader(codexHome: home).read(threadID: threadID)
 
-        #expect(snapshot == CodexContextSnapshot(inputTokens: 20_970,
-                                                 contextWindow: 258_400,
-                                                 model: "gpt-5.6-sol"))
+        #expect(reading == .measured(CodexContextSnapshot(contextTokens: 20_970,
+                                                          contextWindow: 258_400,
+                                                          model: "gpt-5.6-sol")))
+    }
+
+    @Test func readsCamelCaseContextFields() async throws {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("codex-context-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let folder = home.appendingPathComponent("sessions", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let threadID = "019ff016-7f30-7330-a72a-eea8f3984540"
+        let rollout = folder.appendingPathComponent("rollout-\(threadID).jsonl")
+        let contents = """
+        {"type":"turn_context","payload":{"model":"gpt-5.6-sol"}}
+        {"type":"event_msg","payload":{"type":"token_count","info":{"lastTokenUsage":{"inputTokens":20970,"totalTokens":21120},"modelContextWindow":258400}}}
+        """
+        try Data(contents.utf8).write(to: rollout)
+
+        let reading = await CodexContextReader(codexHome: home).read(threadID: threadID)
+
+        #expect(reading == .measured(CodexContextSnapshot(contextTokens: 21_120,
+                                                          contextWindow: 258_400,
+                                                          model: "gpt-5.6-sol")))
+    }
+
+    @Test func retiresTheOldReadingWhenCodexCompacts() async throws {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("codex-context-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let folder = home.appendingPathComponent("sessions", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let threadID = "019ff016-7f30-7330-a72a-eea8f3984541"
+        let rollout = folder.appendingPathComponent("rollout-\(threadID).jsonl")
+        let compacted = """
+        {"type":"turn_context","payload":{"model":"gpt-5.6-sol"}}
+        {"type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"total_tokens":235845},"model_context_window":258400}}}
+        {"type":"event_msg","payload":{"type":"context_compacted"}}
+        """
+        try Data(compacted.utf8).write(to: rollout)
+        let reader = CodexContextReader(codexHome: home)
+
+        #expect(await reader.read(threadID: threadID) == .compacted)
+
+        let measured = compacted + """
+
+        {"type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"total_tokens":22422},"model_context_window":258400}}}
+        """
+        try Data(measured.utf8).write(to: rollout)
+
+        #expect(await reader.read(threadID: threadID)
+            == .measured(CodexContextSnapshot(contextTokens: 22_422,
+                                               contextWindow: 258_400,
+                                               model: "gpt-5.6-sol")))
     }
 
     @Test func codexHomeHonoursTheCLIEnvironment() {

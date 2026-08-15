@@ -1365,18 +1365,18 @@ struct SessionView: View {
                                            agent: AgentKind) -> some View {
         let actions = contextActions()
         if actions.isEmpty {
-            contextReading(fraction, clearable: false)
+            contextReading(fraction, clearable: false, agent: agent)
                 .appTooltip { usageTooltip(usage, agent: agent, clearable: false) }
         } else {
-            contextReading(fraction, clearable: true)
+            contextReading(fraction, clearable: true, agent: agent)
                 .contentShape(Rectangle())
                 .appMenu { actions }
                 .appTooltip { usageTooltip(usage, agent: agent, clearable: true) }
         }
     }
 
-    // Compacting keeps the work and costs a turn; clearing is instant and keeps nothing.
-    // Codex has no compaction of its own, so its sessions are only ever offered the one.
+    // Manual compaction is a Claude Code action. Clearing remains available for either
+    // agent as a deliberate fresh start, even though Codex makes room automatically.
     private func contextActions() -> [MenuEntry] {
         var entries: [MenuEntry] = []
         if runner.canCompactContext(sessionID, store: store) {
@@ -1411,23 +1411,25 @@ struct SessionView: View {
 
     // The bar is the first thing to give up when the row runs out of room: it restates
     // the number beside it, which is the part actually being read.
-    private func contextReading(_ fraction: Double, clearable: Bool) -> some View {
+    private func contextReading(_ fraction: Double, clearable: Bool,
+                                agent: AgentKind) -> some View {
         ViewThatFits(in: .horizontal) {
             HStack(spacing: 10) {
-                contextLabel
-                Meter(fraction: fraction, colour: contextColour(fraction), height: 5)
+                contextLabel(agent)
+                Meter(fraction: fraction,
+                      colour: contextColour(fraction, agent: agent), height: 5)
                     .frame(width: 110)
-                contextPercent(fraction, clearable: clearable)
+                contextPercent(fraction, clearable: clearable, agent: agent)
             }
             HStack(spacing: 10) {
-                contextLabel
-                contextPercent(fraction, clearable: clearable)
+                contextLabel(agent)
+                contextPercent(fraction, clearable: clearable, agent: agent)
             }
         }
     }
 
-    private var contextLabel: some View {
-        Text("CONTEXT")
+    private func contextLabel(_ agent: AgentKind) -> some View {
+        Text(agent == .codex ? "WINDOW" : "CONTEXT")
             .font(.mono(10.5))
             .kerning(0.6)
             .foregroundStyle(.secondary)
@@ -1435,30 +1437,31 @@ struct SessionView: View {
             .fixedSize()
     }
 
-    private func contextPercent(_ fraction: Double, clearable: Bool) -> some View {
+    private func contextPercent(_ fraction: Double, clearable: Bool,
+                                agent: AgentKind) -> some View {
         HStack(spacing: 4) {
-            Text("\(Int((fraction * 100).rounded()))%")
+            Text("\(Int((fraction * 100).rounded()))% USED")
                 .font(.mono(11, .semibold))
             if clearable {
                 Image(systemName: "chevron.down")
                     .font(.system(size: 7, weight: .semibold))
             }
         }
-        .foregroundStyle(contextColour(fraction))
+        .foregroundStyle(contextColour(fraction, agent: agent))
         .lineLimit(1)
         .fixedSize()
     }
 
-    private func contextColour(_ fraction: Double) -> Color {
+    private func contextColour(_ fraction: Double, agent: AgentKind) -> Color {
         switch Int((fraction * 100).rounded()) {
-        case 85...: Theme.deletion
+        case 85...: agent == .codex ? Theme.attention : Theme.deletion
         case 70...: Theme.attention
         default: Theme.dotOn
         }
     }
 
-    // The percentage says how much room is left but not where it went, and the split is
-    // rarely what it looks like: cache reads run an order of magnitude ahead of the rest.
+    // The percentage says how much of the window is in use but not where it went, and the
+    // split is rarely what it looks like: cache reads run an order of magnitude ahead.
     private func usageTooltip(_ usage: SessionUsage, agent: AgentKind,
                               clearable: Bool) -> Tooltip {
         var rows: [Tooltip.Row] = []
@@ -1470,7 +1473,7 @@ struct SessionView: View {
         }
         if usage.contextWindow > 0 {
             rows.append(Tooltip.Row(
-                label: "Context",
+                label: agent == .codex ? "Window" : "Context",
                 value: "\(formattedTokens(usage.contextTokens)) of \(formattedTokens(usage.contextWindow))"))
         }
         // Codex reports no cost, so a zero here means "unknown" rather than free.
@@ -1478,23 +1481,31 @@ struct SessionView: View {
             rows.append(Tooltip.Row(label: "Spent", value: Money.short(usage.costUSD)))
         }
         let turns = usage.turns == 1 ? "1 turn" : "\(usage.turns) turns"
+        let note = if agent == .codex {
+            clearable
+                ? "Current model window after the latest model call. Codex compacts it automatically as it fills. Click for options."
+                : "Current model window after the latest model call. Codex compacts it automatically as it fills."
+        } else {
+            clearable
+                ? "Context in use after the last turn. Click for options."
+                : "Context in use after the last turn."
+        }
         return Tooltip(title: "Session usage",
                        subtitle: usage.model(for: agent).map { "\($0) · \(turns)" } ?? turns,
-                       note: clearable
-                           ? "Context in use after the last turn. Click to clear it."
-                           : "Context in use after the last turn.",
+                       note: note,
                        rows: rows)
     }
 
     // A session runs into the end of its window mid-thought, and the failure is a turn
     // that will not start rather than anything the meter said. So once the window is
     // nearly full the way out is offered here, on the line above the composer, rather
-    // than waiting to be looked for. Compacting keeps the work and is the first offer;
-    // a Codex session can only be cleared, so that is what it is offered.
+    // than waiting to be looked for. Codex handles this condition through automatic
+    // compaction, so only Claude Code needs the interruption.
     @ViewBuilder private func contextNudge(_ session: ChatSession) -> some View {
         let fraction = session.usage?.contextFraction(for: session.agent) ?? 0
         let actions = contextActions()
-        if fraction >= SessionRunner.nearlyFullContext, !actions.isEmpty,
+        if session.agent == .claudeCode,
+           fraction >= SessionRunner.nearlyFullContext, !actions.isEmpty,
            !runner.isNudgeDismissed(sessionID) {
             HStack(spacing: 10) {
                 Image(systemName: "exclamationmark.triangle.fill")

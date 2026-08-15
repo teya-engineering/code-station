@@ -1,9 +1,14 @@
 import Foundation
 
 struct CodexContextSnapshot: Equatable, Sendable {
-    let inputTokens: Int
+    let contextTokens: Int
     let contextWindow: Int
     let model: String?
+}
+
+enum CodexContextReading: Equatable, Sendable {
+    case measured(CodexContextSnapshot)
+    case compacted
 }
 
 // `codex exec --json` reports how much a whole turn consumed, but that total can contain
@@ -19,14 +24,14 @@ actor CodexContextReader {
                  codexHome.appendingPathComponent("archived_sessions", isDirectory: true)]
     }
 
-    func read(threadID: String) async -> CodexContextSnapshot? {
+    func read(threadID: String) async -> CodexContextReading? {
         guard !threadID.isEmpty else { return nil }
 
         // The completion event and rollout write come from the same process, but the
         // filesystem can become visible a beat later on a newly created conversation.
         for attempt in 0..<3 {
-            if let file = rollout(for: threadID), let snapshot = snapshot(in: file) {
-                return snapshot
+            if let file = rollout(for: threadID), let reading = reading(in: file) {
+                return reading
             }
             if attempt < 2 { try? await Task.sleep(for: .milliseconds(50)) }
         }
@@ -63,16 +68,17 @@ actor CodexContextReader {
         return nil
     }
 
-    private func snapshot(in file: URL) -> CodexContextSnapshot? {
+    private func reading(in file: URL) -> CodexContextReading? {
         guard let data = try? Data(contentsOf: file, options: .mappedIfSafe) else { return nil }
 
-        var inputTokens: Int?
+        var contextTokens: Int?
         var contextWindow: Int?
         var model: String?
         var foundModel = false
         var lineEnd = data.endIndex
 
-        while lineEnd > data.startIndex, inputTokens == nil || contextWindow == nil || !foundModel {
+        while lineEnd > data.startIndex,
+              contextTokens == nil || contextWindow == nil || !foundModel {
             if data[data.index(before: lineEnd)] == UInt8(ascii: "\n") {
                 lineEnd = data.index(before: lineEnd)
                 continue
@@ -82,16 +88,24 @@ actor CodexContextReader {
             let newline = prefix.lastIndex(of: UInt8(ascii: "\n"))
             let lineStart = newline.map { data.index(after: $0) } ?? data.startIndex
             if let object = Self.object(from: data[lineStart..<lineEnd]) {
-                if inputTokens == nil || contextWindow == nil,
-                   object["type"] as? String == "event_msg",
-                   let payload = object["payload"] as? [String: Any],
-                   payload["type"] as? String == "token_count",
-                   let info = payload["info"] as? [String: Any],
-                   let last = info["last_token_usage"] as? [String: Any]
-                        ?? info["lastTokenUsage"] as? [String: Any] {
-                    inputTokens = Self.integer(last["input_tokens"] ?? last["inputTokens"])
-                    contextWindow = Self.integer(
-                        info["model_context_window"] ?? info["modelContextWindow"])
+                if object["type"] as? String == "event_msg",
+                   let payload = object["payload"] as? [String: Any] {
+                    if contextTokens == nil, payload["type"] as? String == "context_compacted" {
+                        return .compacted
+                    }
+                    if (contextTokens == nil || contextWindow == nil),
+                       payload["type"] as? String == "token_count",
+                       let info = payload["info"] as? [String: Any],
+                       let last = info["last_token_usage"] as? [String: Any]
+                            ?? info["lastTokenUsage"] as? [String: Any] {
+                        // Older rollouts do not include total_tokens, so input remains a
+                        // compatibility fallback rather than making their meter disappear.
+                        contextTokens = Self.integer(
+                            last["total_tokens"] ?? last["totalTokens"]
+                                ?? last["input_tokens"] ?? last["inputTokens"])
+                        contextWindow = Self.integer(
+                            info["model_context_window"] ?? info["modelContextWindow"])
+                    }
                 }
                 if !foundModel, object["type"] as? String == "turn_context",
                    let payload = object["payload"] as? [String: Any] {
@@ -102,11 +116,11 @@ actor CodexContextReader {
             lineEnd = newline ?? data.startIndex
         }
 
-        guard let inputTokens, inputTokens > 0,
+        guard let contextTokens, contextTokens > 0,
               let contextWindow, contextWindow > 0 else { return nil }
-        return CodexContextSnapshot(inputTokens: inputTokens,
-                                    contextWindow: contextWindow,
-                                    model: model)
+        return .measured(CodexContextSnapshot(contextTokens: contextTokens,
+                                              contextWindow: contextWindow,
+                                              model: model))
     }
 
     private static func object(from line: Data.SubSequence) -> [String: Any]? {

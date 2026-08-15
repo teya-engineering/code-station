@@ -59,6 +59,8 @@ final class SessionRunner {
     @ObservationIgnored private let paths: [AgentKind: String]
     @ObservationIgnored private let configs: ConfigStore?
     @ObservationIgnored private let codexContextReader = CodexContextReader()
+    @ObservationIgnored private var codexContextRefreshes:
+        [UUID: (id: UUID, task: Task<Void, Never>)] = [:]
 
     // How Claude Code says it no longer holds the conversation we asked to resume.
     private static let lostConversation = "No conversation found with session ID"
@@ -288,7 +290,7 @@ final class SessionRunner {
         }
         guard Self.isCompactCommand(text) else { return false }
         guard store.session(sessionID)?.agent == .claudeCode else {
-            note("Codex cannot compact a conversation. Clearing the context is the way to make room.",
+            note("Codex compacts context automatically. Manual compaction is not available.",
                  sessionID: sessionID, store: store)
             return true
         }
@@ -369,7 +371,8 @@ final class SessionRunner {
     // reads the conversation, writes a summary, and carries on from that instead. The
     // resume id survives it, so nothing here has to be put back together afterwards.
     //
-    // Codex has no equivalent in `codex exec`, which is why this is Claude Code only.
+    // Codex compacts automatically, but `codex exec` has no equivalent manual command,
+    // which is why this action is Claude Code only.
     @discardableResult
     func compact(_ sessionID: UUID, store: ProjectStore) -> Bool {
         guard canCompactContext(sessionID, store: store) else { return false }
@@ -659,6 +662,7 @@ final class SessionRunner {
 
     func finishRemoval(_ sessionID: UUID) {
         removals.remove(sessionID)
+        codexContextRefreshes.removeValue(forKey: sessionID)?.task.cancel()
         states[sessionID] = nil
         runningTools[sessionID] = nil
         asked[sessionID] = nil
@@ -1044,6 +1048,7 @@ final class SessionRunner {
 
             case .text(let text):
                 setState(.streaming, for: sessionID)
+                refreshCodexContextAfterModelActivity(turn, sessionID: sessionID, store: store)
                 freshReply(turn, sessionID: sessionID, store: store)
                 store.updateMessage(turn.messageID, in: sessionID) { message in
                     // Each event carries a complete block, and blocks are split around
@@ -1054,6 +1059,7 @@ final class SessionRunner {
 
             case .thinking(let text):
                 setState(.streaming, for: sessionID)
+                refreshCodexContextAfterModelActivity(turn, sessionID: sessionID, store: store)
                 freshReply(turn, sessionID: sessionID, store: store)
                 store.updateMessage(turn.messageID, in: sessionID) { message in
                     // Stamped the same way a tool call is: only the message being built
@@ -1073,6 +1079,7 @@ final class SessionRunner {
 
             case .toolUse(let tool):
                 setState(.streaming, for: sessionID)
+                refreshCodexContextAfterModelActivity(turn, sessionID: sessionID, store: store)
                 freshReply(turn, sessionID: sessionID, store: store)
                 runningTools[sessionID, default: []].append(tool)
                 store.updateMessage(turn.messageID, in: sessionID) { message in
@@ -1212,15 +1219,45 @@ final class SessionRunner {
         }
     }
 
-    private func refreshCodexContext(threadID: String, sessionID: UUID, store: ProjectStore) {
-        Task { [codexContextReader] in
-            guard let snapshot = await codexContextReader.read(threadID: threadID),
+    private func refreshCodexContextAfterModelActivity(_ turn: Turn, sessionID: UUID,
+                                                       store: ProjectStore) {
+        guard turn.agent == .codex,
+              let threadID = turn.agentSessionID
+                ?? store.session(sessionID)?.agentSessionID(for: .codex) else { return }
+        refreshCodexContext(threadID: threadID, sessionID: sessionID, store: store,
+                            after: .milliseconds(200))
+    }
+
+    private func refreshCodexContext(threadID: String, sessionID: UUID, store: ProjectStore,
+                                     after delay: Duration? = nil) {
+        codexContextRefreshes.removeValue(forKey: sessionID)?.task.cancel()
+        let refreshID = UUID()
+        let task = Task { [weak self, codexContextReader] in
+            if let delay {
+                do {
+                    try await Task.sleep(for: delay)
+                } catch {
+                    return
+                }
+            }
+            guard !Task.isCancelled,
+                  let reading = await codexContextReader.read(threadID: threadID),
+                  !Task.isCancelled,
+                  let self,
+                  self.codexContextRefreshes[sessionID]?.id == refreshID,
                   store.session(sessionID)?.codexSessionID == threadID else { return }
-            store.recordContext(snapshot.inputTokens,
-                                contextWindow: snapshot.contextWindow,
-                                model: snapshot.model,
-                                from: .codex, for: sessionID)
+            self.codexContextRefreshes[sessionID] = nil
+            switch reading {
+            case .measured(let snapshot):
+                store.recordContext(snapshot.contextTokens,
+                                    contextWindow: snapshot.contextWindow,
+                                    model: snapshot.model,
+                                    from: .codex, for: sessionID)
+            case .compacted:
+                store.recordCompaction(for: sessionID)
+            }
         }
+        codexContextRefreshes[sessionID] = (refreshID, task)
     }
 
     // Opens a new reply bubble for a turn the CLI started on its own - the one it runs
