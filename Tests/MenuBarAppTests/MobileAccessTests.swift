@@ -148,6 +148,45 @@ struct MobileAccessTests {
         #expect(!RemoteUpdate(permissionCleared: true).isEmpty)
     }
 
+    // The phone draws a call as one row, so it is sent the same verb and argument the
+    // desktop spine puts on that row rather than the raw input to work them out from.
+    @Test func namesAToolCallTheWayTheDesktopDoes() {
+        let command = RemoteTool(
+            ToolUse(id: "call-1", name: "Bash",
+                    input: #"{"command":"npm run test:unit -- billing"}"#),
+            projectPath: "/repo")
+        let edit = RemoteTool(
+            ToolUse(id: "call-2", name: "Edit",
+                    input: #"{"file_path":"/repo/worker/scheduler.ts","old_string":"","new_string":"a\nb"}"#),
+            projectPath: "/repo")
+
+        #expect(command.argument == "npm run test:unit -- billing")
+        #expect(command.added == nil)
+        #expect(edit.argument == "worker/scheduler.ts")
+        #expect(edit.added == 2)
+    }
+
+    @Test func tellsThePhoneWhatIsBeingAskedAndWhereItWouldRun() {
+        let bash = RemotePermission(request(toolName: "Bash", title: "Bash"),
+                                    runsIn: "wt/billing-split")
+        let edit = RemotePermission(request(toolName: "Edit", title: "Edit"),
+                                    runsIn: "lantern-api")
+
+        #expect(bash.kind == "permission")
+        #expect(bash.toolName == "Bash")
+        #expect(bash.lead == "The agent wants to run:")
+        #expect(bash.runsIn == "wt/billing-split")
+        #expect(edit.lead == "The agent wants to use Edit:")
+        #expect(edit.runsIn == "lantern-api")
+    }
+
+    private func request(toolName: String, title: String) -> PermissionRequest {
+        PermissionRequest(id: "req-1", toolName: toolName, title: title,
+                          subject: "bin/reset-db --seed", detail: "", input: Data(),
+                          suggestions: nil, alwaysTitle: "Always allow \(toolName)",
+                          questions: [])
+    }
+
     @Test func createsAReadablePairingCode() {
         let url = URL(string: "http://192.168.1.42:49152/mobile/123#secret=test")!
         let image = MobilePairingQRCode.image(for: url)

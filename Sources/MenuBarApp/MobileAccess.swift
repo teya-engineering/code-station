@@ -133,9 +133,23 @@ final class MobileAccessController {
         let session: String
         let project: String
         let agent: String
+        let branch: String
         let state: String
+        let failure: String
+        let added: Int
+        let removed: Int
+        let context: Double
         let question: String?
         let queued: Int
+    }
+
+    // What the status strip says about the working tree: the branch it is on and the
+    // lines it has gained and lost. Read from the same cache the desktop strip reads, so
+    // both surfaces answer "what has this session done" with one number.
+    private struct WorkingTree {
+        let branch: String?
+        let added: Int
+        let removed: Int
     }
 
     // What one phone has already drawn. Holding digests rather than a copy of the transcript
@@ -158,6 +172,7 @@ final class MobileAccessController {
 
     private let store: ProjectStore
     private let runner: SessionRunner
+    private let gitStats: GitStatsCache
     private var server: LANWebSocketServer?
     private var port: UInt16?
     private var pairings: [UUID: Pairing] = [:]
@@ -169,9 +184,10 @@ final class MobileAccessController {
     private(set) var enabled = false
     private(set) var shares: [UUID: MobileShare] = [:]
 
-    init(store: ProjectStore, runner: SessionRunner) {
+    init(store: ProjectStore, runner: SessionRunner, gitStats: GitStatsCache) {
         self.store = store
         self.runner = runner
+        self.gitStats = gitStats
     }
 
     func setEnabled(_ enabled: Bool) {
@@ -387,6 +403,13 @@ final class MobileAccessController {
             return
         }
         runner.answer(request, with: answer, sessionID: sessionID, store: store)
+
+        // Saying no is rarely the whole answer: the reason typed with it goes on as a
+        // prompt, so the agent hears why rather than only that it was refused.
+        let reason = command.prompt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if answer == .deny, !reason.isEmpty, reason.count <= 100_000 {
+            runner.send(reason, sessionID: sessionID, store: store)
+        }
     }
 
     private func closed(_ connectionID: UUID) {
@@ -455,35 +478,75 @@ final class MobileAccessController {
 
     private func marker(for sessionID: UUID) -> Marker {
         let session = store.session(sessionID)
+        let tree = session.map(workingTree) ?? WorkingTree(branch: nil, added: 0, removed: 0)
         return Marker(transcript: store.transcriptRevision(sessionID),
                       session: session?.title ?? "",
                       project: session.flatMap { store.project($0.projectID)?.name } ?? "",
                       agent: session?.agent.title ?? "",
-                      state: Self.stateLabel(runner.state(sessionID)),
+                      branch: tree.branch ?? "",
+                      state: SessionTone(sessionID, store: store, runner: runner).word,
+                      failure: Self.failure(runner.state(sessionID)) ?? "",
+                      added: tree.added,
+                      removed: tree.removed,
+                      context: session.flatMap { $0.usage?.contextFraction(for: $0.agent) } ?? -1,
                       question: runner.question(sessionID)?.id,
                       queued: runner.queued(sessionID).count)
+    }
+
+    // Mirrors the desktop strip: git's own count of the tree once it has answered, and the
+    // transcript's running total until then, so the phone shows a number from the first
+    // frame rather than growing one a few seconds in.
+    private func workingTree(_ session: ChatSession) -> WorkingTree {
+        let snapshots = store.workingDirectories(for: session).compactMap { gitStats.snapshot(at: $0) }
+        let branch = snapshots.first?.branch
+            ?? session.worktreeBranch
+            ?? session.sessionProjects?.compactMap(\.worktreeBranch).first
+        guard !snapshots.isEmpty else {
+            return WorkingTree(branch: branch,
+                               added: session.summary.added,
+                               removed: session.summary.removed)
+        }
+        return WorkingTree(branch: branch,
+                           added: snapshots.reduce(0) { $0 + $1.totalAdded },
+                           removed: snapshots.reduce(0) { $0 + $1.totalRemoved })
     }
 
     private func remoteState(_ sessionID: UUID) -> RemoteState? {
         guard let session = store.session(sessionID),
               let project = store.project(session.projectID) else { return nil }
         let allMessages = store.transcript(of: sessionID)
-        let visibleMessages = allMessages.suffix(200).map(RemoteMessage.init)
+        let projectPath = store.workingDirectories(for: session).first ?? project.path
+        let visibleMessages = allMessages.suffix(200)
+            .map { RemoteMessage($0, projectPath: projectPath) }
         let state = runner.state(sessionID)
+        let tone = SessionTone(sessionID, store: store, runner: runner)
+        let tree = workingTree(session)
         return RemoteState(
             header: RemoteHeader(
                 title: session.title,
                 project: project.name,
                 agent: session.agent.title,
-                state: Self.stateLabel(state),
+                branch: tree.branch,
+                state: tone.word,
+                // The phone counts the elapsed time itself so a running session does not
+                // need a fresh header every minute just to age its own label.
+                since: tone == .running
+                    ? (allMessages.last { $0.role == .user }?.date ?? session.lastActivity)
+                    : session.lastActivity,
+                failure: Self.failure(state),
                 isBusy: state.isBusy,
+                added: tree.added,
+                removed: tree.removed,
+                context: session.usage?.contextFraction(for: session.agent),
                 queuedPrompts: runner.queued(sessionID).count,
                 hasEarlierMessages: allMessages.count > visibleMessages.count),
             order: visibleMessages.map(\.id),
             messages: visibleMessages,
             digests: Dictionary(visibleMessages.map { ($0.id, RemoteTranscriptDiff.digest(of: $0)) },
                                 uniquingKeysWith: { first, _ in first }),
-            permission: runner.question(sessionID).map(RemotePermission.init))
+            permission: runner.question(sessionID).map {
+                RemotePermission($0, runsIn: tree.branch ?? project.name)
+            })
     }
 
     private func sendSnapshot(to connectionID: UUID, sessionID: UUID) {
@@ -550,15 +613,11 @@ final class MobileAccessController {
         return String(data: data, encoding: .utf8)
     }
 
-    private static func stateLabel(_ state: SessionState) -> String {
-        switch state {
-        case .idle: "Idle"
-        case .starting: "Starting"
-        case .streaming: "Running"
-        case .stopping: "Stopping"
-        case .waiting: "Waiting for background work"
-        case .failed(let message): message
-        }
+    // The state word is the tone the desktop shows, which has no room for why a turn
+    // stopped. A failure travels beside it so the strip can still say what went wrong.
+    private static func failure(_ state: SessionState) -> String? {
+        if case .failed(let message) = state { return message }
+        return nil
     }
 
     private static func makeSecret() throws -> String {
@@ -593,8 +652,16 @@ struct RemoteHeader: Encodable, Equatable {
     let title: String
     let project: String
     let agent: String
+    let branch: String?
     let state: String
+    // What the elapsed time on the strip counts from: the start of the turn while one is
+    // running, and the last thing that happened otherwise.
+    let since: Date
+    let failure: String?
     let isBusy: Bool
+    let added: Int
+    let removed: Int
+    let context: Double?
     let queuedPrompts: Int
     let hasEarlierMessages: Bool
 }
@@ -707,20 +774,24 @@ struct RemoteMessage: Encodable {
     let thinking: [String]
     let tools: [RemoteTool]
 
-    init(_ message: ChatMessage) {
+    init(_ message: ChatMessage, projectPath: String = "") {
         id = message.id.uuidString
         role = message.role.rawValue
         text = message.text
         date = message.date
         attachments = (message.attachments ?? []).map { URL(fileURLWithPath: $0).lastPathComponent }
         thinking = (message.thinking ?? []).map(\.text)
-        tools = message.tools.map(RemoteTool.init)
+        tools = message.tools.map { RemoteTool($0, projectPath: projectPath) }
     }
 }
 
 struct RemoteTool: Encodable, Equatable {
     let id: String
     let name: String
+    // The one argument the row is about, read the way the desktop spine reads it, so a
+    // call names itself the same on both screens.
+    let argument: String
+    let added: Int?
     let input: String
     let result: String?
     let isError: Bool
@@ -736,9 +807,12 @@ struct RemoteTool: Encodable, Equatable {
         return hasher.finalize()
     }
 
-    init(_ tool: ToolUse) {
+    init(_ tool: ToolUse, projectPath: String = "") {
+        let presentation = ToolPresentation(tool: tool, projectPath: projectPath)
         id = tool.id
         name = tool.name
+        argument = presentation.argument
+        added = presentation.added
         input = tool.input
         result = tool.result
         isError = tool.isError
@@ -760,17 +834,29 @@ struct RemotePermission: Encodable {
     }
 
     let id: String
+    // Which of the two asks this is, since the sheet names itself after it.
+    let kind: String
+    let toolName: String
     let title: String
+    let lead: String
     let subject: String
     let detail: String
+    // The branch the call would run on, or the project when the session has no worktree.
+    let runsIn: String
     let alwaysTitle: String?
     let questions: [Question]
 
-    init(_ request: PermissionRequest) {
+    init(_ request: PermissionRequest, runsIn: String) {
         id = request.id
+        kind = request.isQuestion ? "question" : "permission"
+        toolName = request.toolName
         title = request.title
+        lead = request.toolName == "Bash"
+            ? "The agent wants to run:"
+            : "The agent wants to use \(request.title):"
         subject = request.subject
         detail = request.detail
+        self.runsIn = runsIn
         alwaysTitle = request.alwaysTitle
         questions = request.questions.map {
             Question(header: $0.header, text: $0.text, multiSelect: $0.multiSelect,

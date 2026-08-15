@@ -50,7 +50,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let codex = CodexCodeManager()
     private let projects = ProjectStore()
     private lazy var runner = SessionRunner(configs: store)
-    private lazy var mobileAccess = MobileAccessController(store: projects, runner: runner)
+    private lazy var mobileAccess = MobileAccessController(store: projects, runner: runner,
+                                                           gitStats: gitStats)
     private let workingTrees = WorkingTreeWatch()
     private let gitStats = GitStatsCache()
     private let terminals = TerminalStore()

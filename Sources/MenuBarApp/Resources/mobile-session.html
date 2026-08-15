@@ -6,237 +6,470 @@
   <meta name="color-scheme" content="light dark">
   <title>Conductor session</title>
   <style>
+    /* The palette is the Mac app's own, so the phone reads as the same program seen
+       narrow. Sizes are the 300px-wide design scaled by 1.3 for a ~390px viewport. */
     :root {
       color-scheme: light dark;
-      --bg: #f5f3ee;
-      --card: #fffdfa;
-      --field: #ebe8e1;
-      --border: rgba(37, 34, 29, .13);
-      --text: #211f1b;
-      --muted: #6f6b63;
-      --accent: #6c55c7;
-      --accent-soft: rgba(108, 85, 199, .10);
-      --danger: #b84343;
-      --good: #31936a;
-      --shadow: 0 12px 36px rgba(30, 24, 16, .08);
+      --ink: #1c1b16;
+      --canvas: #F5F3ED;
+      --card: #FFFDF6;
+      --hairline: rgba(117, 107, 87, .08);
+      --hairline-strong: rgba(117, 107, 87, .14);
+      --sunken: rgba(26, 26, 21, .035);
+      --field: rgba(26, 26, 21, .05);
+      /* The bare marks - a meter's track, the sheet's handle - that carry no fill of
+         their own and only read as a groove in the surface. */
+      --groove: rgba(26, 26, 21, .1);
+      --muted: rgba(28, 27, 22, .62);
+      --faint: rgba(28, 27, 22, .5);
+      --green: #3E7A46;
+      --green-deep: #2F4A33;
+      --green-add: #2F6B3A;
+      --amber: #C98B1E;
+      --amber-text: #8A5D10;
+      --amber-line: rgba(201, 139, 30, .5);
+      --red: #A33D30;
+      --primary: rgba(0, 0, 0, .9);
+      --primary-text: #fff;
+      --bubble: #E6E9C8;
+      --bubble-line: rgba(120, 128, 50, .3);
+      --serif: 'New York', 'Iowan Old Style', Palatino, Georgia, serif;
+      --sans: -apple-system, 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      --mono: ui-monospace, 'SF Mono', Menlo, monospace;
     }
+    /* The same tokens as the Mac app wears after dark. The design is drawn light; this is
+       its counterpart rather than a second design. */
     @media (prefers-color-scheme: dark) {
       :root {
-        --bg: #181714;
-        --card: #22211d;
-        --field: #2d2b26;
-        --border: rgba(255, 250, 239, .11);
-        --text: #f4f0e7;
-        --muted: #aaa49a;
-        --accent: #a994ff;
-        --accent-soft: rgba(169, 148, 255, .12);
-        --danger: #ee7777;
-        --good: #69c99a;
-        --shadow: 0 12px 36px rgba(0, 0, 0, .24);
+        --ink: #f2eee4;
+        --canvas: #151513;
+        --card: #201F1D;
+        --hairline: rgba(255, 250, 239, .09);
+        --hairline-strong: rgba(255, 250, 239, .14);
+        --sunken: rgba(255, 255, 255, .035);
+        --field: rgba(255, 255, 255, .05);
+        --groove: rgba(255, 255, 255, .13);
+        --muted: rgba(242, 238, 228, .62);
+        --faint: rgba(242, 238, 228, .5);
+        --green: #94C299;
+        --green-deep: #94C299;
+        --green-add: #9CC46A;
+        --amber: #E6B85C;
+        --amber-text: #E6B85C;
+        --amber-line: rgba(230, 184, 92, .5);
+        --red: #D96359;
+        --primary: #f2eee4;
+        --primary-text: #151513;
+        --bubble: #2E3221;
+        --bubble-line: rgba(160, 172, 90, .32);
       }
     }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+    @keyframes rise { from { transform: translateY(100%); } to { transform: translateY(0); } }
+
     * { box-sizing: border-box; }
-    html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); }
+    /* Several of the rows below are flex, which would otherwise draw over `hidden`. */
+    [hidden] { display: none !important; }
+    html, body { height: 100%; margin: 0; }
     body {
-      font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      font-size: 15px;
-      padding-bottom: env(safe-area-inset-bottom);
-    }
-    button, textarea, input { font: inherit; }
-    button { -webkit-tap-highlight-color: transparent; }
-    header {
-      position: sticky;
-      top: 0;
-      z-index: 4;
-      padding: calc(12px + env(safe-area-inset-top)) 16px 12px;
-      background: color-mix(in srgb, var(--bg) 88%, transparent);
-      border-bottom: 1px solid var(--border);
-      backdrop-filter: blur(18px);
-    }
-    .head-row { display: flex; align-items: center; gap: 11px; }
-    .head-copy { min-width: 0; flex: 1; }
-    .eyebrow {
-      color: var(--muted);
-      font: 700 10px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace;
-      letter-spacing: .08em;
-      text-transform: uppercase;
-      white-space: nowrap;
+      display: flex;
+      flex-direction: column;
       overflow: hidden;
+      background: var(--card);
+      color: var(--ink);
+      font-family: var(--sans);
+      -webkit-font-smoothing: antialiased;
+    }
+    button, textarea, input { font: inherit; color: inherit; }
+    button { -webkit-tap-highlight-color: transparent; cursor: pointer; }
+
+    /* Everything the ask rises over. Dimming the pane rather than laying a scrim on top
+       keeps the two lines above the sheet readable as the context they are. */
+    #session {
+      display: flex;
+      flex: 1;
+      flex-direction: column;
+      min-height: 0;
+      transition: opacity .25s ease-out;
+    }
+    body.asking #session { opacity: .32; }
+
+    header {
+      display: flex;
+      flex: none;
+      align-items: center;
+      gap: 12px;
+      height: calc(65px + env(safe-area-inset-top));
+      padding: env(safe-area-inset-top) 18px 0;
+      border-bottom: 1px solid var(--hairline);
+      background: var(--card);
+    }
+    .head-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 1px; }
+    #title {
+      overflow: hidden;
+      font: 600 19px/1.2 var(--serif);
+      white-space: nowrap;
       text-overflow: ellipsis;
     }
-    h1 { margin: 2px 0 0; font-family: ui-serif, Georgia, serif; font-size: 20px; line-height: 1.15; }
-    .connection { width: 9px; height: 9px; flex: none; border-radius: 50%; background: var(--muted); }
-    .connection.live { background: var(--good); box-shadow: 0 0 0 4px color-mix(in srgb, var(--good) 15%, transparent); }
-    .state-row { display: flex; align-items: center; gap: 7px; margin-top: 8px; color: var(--muted); font-size: 12px; }
-    .state-row .state { color: var(--text); font-weight: 650; }
-    .spacer { flex: 1; }
-    .small-button, .action, .option {
-      border: 1px solid var(--border);
-      color: var(--text);
-      background: var(--field);
-      border-radius: 10px;
-      font-weight: 700;
-      cursor: pointer;
+    #where {
+      overflow: hidden;
+      color: var(--faint);
+      font: 11px var(--mono);
+      white-space: nowrap;
+      text-overflow: ellipsis;
     }
-    .small-button { padding: 7px 10px; font-size: 12px; }
-    .small-button.danger { color: var(--danger); }
-    main { width: min(760px, 100%); margin: 0 auto; padding: 16px 13px 154px; }
-    .notice {
-      margin: 4px 3px 14px;
-      padding: 10px 12px;
-      border: 1px solid var(--border);
-      border-radius: 11px;
+    #light {
+      width: 9px;
+      height: 9px;
+      flex: none;
+      border-radius: 50%;
+      background: var(--faint);
+    }
+    #light.running { background: var(--green); animation: pulse 1.6s ease-in-out infinite; }
+    #light.attention { background: var(--amber); }
+
+    #strip {
+      display: flex;
+      flex: none;
+      align-items: center;
+      gap: 12px;
+      height: 36px;
+      padding: 0 18px;
+      border-bottom: 1px solid rgba(117, 107, 87, .06);
+      background: var(--sunken);
       color: var(--muted);
-      background: var(--field);
-      font-size: 12px;
+      font: 11px var(--mono);
+      letter-spacing: .5px;
+    }
+    #state { flex: none; font-weight: 600; color: var(--green-deep); }
+    #state.attention { color: var(--amber-text); }
+    #state.quiet { color: var(--muted); }
+    #diff { display: flex; flex: none; gap: 5px; font-weight: 600; }
+    #diff .added { color: var(--green-add); }
+    #diff .removed { color: var(--red); }
+    #failure {
+      overflow: hidden;
+      flex: 1;
+      color: var(--red);
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+    .strip-gap { flex: 1; }
+    #context { display: flex; flex: none; align-items: center; gap: 9px; }
+    .meter { width: 44px; height: 4px; overflow: hidden; border-radius: 3px; background: var(--groove); }
+    .meter span { display: block; height: 100%; background: var(--green); }
+    /* Stopping the turn is not part of the strip's grammar, so it sits at its end as one
+       small red word rather than as a control. */
+    #stop { flex: none; padding: 0; border: 0; background: none; color: var(--red);
+            font: 600 11px var(--mono); letter-spacing: .5px; }
+
+    #transcript {
+      display: flex;
+      flex: 1;
+      flex-direction: column;
+      gap: 13px;
+      padding: 16px;
+      overflow-y: auto;
+      background: var(--card);
+      -webkit-overflow-scrolling: touch;
+    }
+    .message { display: flex; flex-direction: column; gap: 13px; }
+    .notice, .empty {
+      color: var(--faint);
+      font: 11px var(--mono);
+      letter-spacing: .5px;
+      text-align: center;
+    }
+    .empty { padding: 60px 20px; font-family: var(--sans); font-size: 14px; letter-spacing: 0; }
+
+    .bubble {
+      max-width: 73%;
+      align-self: flex-end;
+      padding: 10px 14px;
+      border: 1px solid var(--bubble-line);
+      border-radius: 14px 14px 5px 14px;
+      background: var(--bubble);
+      font-size: 15.5px;
       line-height: 1.45;
     }
-    .message { margin: 0 0 14px; }
-    .message.user { margin-left: 9%; }
-    .message .role {
-      margin: 0 4px 5px;
+    .prose { font-size: 15.5px; line-height: 1.5; }
+    .prose, .bubble, .thinking, pre { overflow-wrap: anywhere; white-space: pre-wrap; }
+    .system .prose, .instructions .prose { color: var(--muted); font-size: 14px; }
+    .thinking {
+      padding-left: 11px;
+      border-left: 2px solid var(--hairline-strong);
       color: var(--muted);
-      font: 700 10px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
-      letter-spacing: .07em;
-      text-transform: uppercase;
+      font-size: 14px;
+      line-height: 1.5;
     }
-    .bubble {
-      padding: 12px 13px;
-      border: 1px solid var(--border);
-      border-radius: 13px;
-      background: var(--card);
-      box-shadow: var(--shadow);
+    .attachment {
+      align-self: flex-start;
+      padding: 5px 9px;
+      border-radius: 8px;
+      background: var(--field);
+      color: var(--muted);
+      font: 12px var(--mono);
     }
-    .user .bubble { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 28%, transparent); }
-    .system .bubble, .instructions .bubble { color: var(--muted); background: transparent; box-shadow: none; }
-    .prose, .thinking, .tool pre, .permission pre {
+    .cursor {
+      display: inline-block;
+      width: 9px;
+      height: 16px;
+      margin-left: 3px;
+      background: var(--ink);
+      vertical-align: text-bottom;
+      animation: pulse 1.1s ease-in-out infinite;
+    }
+
+    .tool { border: 1px solid rgba(117, 107, 87, .1); border-radius: 10px; background: rgba(26, 26, 21, .04); }
+    .tool-row {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      width: 100%;
+      padding: 8px 12px;
+      border: 0;
+      background: none;
+      font: 12.5px var(--mono);
+      color: var(--muted);
+      text-align: left;
+    }
+    .tool-glyph { flex: none; font-weight: 700; color: var(--green-add); }
+    .tool.running .tool-glyph { color: var(--muted); animation: pulse 1.6s ease-in-out infinite; }
+    .tool.error .tool-glyph { color: var(--red); }
+    .tool-name { flex: none; font-weight: 600; color: var(--ink); }
+    .tool-argument { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .tool-added { flex: none; margin-left: auto; padding-left: 9px; font-weight: 600; color: var(--green-add); }
+    .tool-body { padding: 0 12px 12px; }
+    .tool-label { margin: 9px 0 5px; color: var(--faint); font: 700 10px var(--mono); letter-spacing: .9px; }
+    .tool-body pre {
+      max-height: 300px;
       margin: 0;
-      white-space: pre-wrap;
-      overflow-wrap: anywhere;
-      line-height: 1.52;
+      overflow: auto;
+      padding: 10px;
+      border-radius: 8px;
+      background: var(--card);
+      font: 12px/1.45 var(--mono);
     }
-    .thinking { margin-top: 10px; padding-left: 10px; color: var(--muted); border-left: 2px solid var(--border); font-size: 13px; }
-    .attachment { display: inline-block; margin: 9px 5px 0 0; padding: 5px 8px; border-radius: 8px; background: var(--field); color: var(--muted); font-size: 11px; }
-    details.tool { margin-top: 9px; border: 1px solid var(--border); border-radius: 10px; background: var(--field); overflow: hidden; }
-    details.tool summary { padding: 9px 10px; cursor: pointer; font-size: 12px; font-weight: 750; }
-    details.tool.error summary { color: var(--danger); }
-    .tool-body { padding: 0 10px 10px; }
-    .tool-label { margin: 8px 0 4px; color: var(--muted); font: 700 9px/1.2 ui-monospace, monospace; letter-spacing: .07em; }
-    .tool pre { max-height: 260px; overflow: auto; padding: 9px; border-radius: 8px; background: var(--card); font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
-    .permission {
-      position: sticky;
-      bottom: 132px;
-      z-index: 3;
-      margin: 12px 0;
-      padding: 14px;
-      border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
-      border-radius: 14px;
-      background: color-mix(in srgb, var(--card) 94%, var(--accent));
-      box-shadow: 0 16px 44px rgba(0, 0, 0, .16);
+
+    #composer {
+      display: flex;
+      flex: none;
+      align-items: center;
+      gap: 10px;
+      padding: 13px 16px calc(13px + env(safe-area-inset-bottom));
+      border-top: 1px solid var(--hairline);
+      background: var(--card);
     }
-    .permission h2 { margin: 0 0 5px; font-size: 15px; }
-    .permission .detail { margin: 0 0 10px; color: var(--muted); font-size: 12px; line-height: 1.4; }
-    .permission pre { max-height: 180px; overflow: auto; padding: 10px; border-radius: 9px; background: var(--field); font: 11px/1.4 ui-monospace, monospace; }
-    .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 11px; }
-    .action { flex: 1; min-width: 84px; padding: 9px 11px; }
-    .action.primary { color: white; border-color: transparent; background: #27241f; }
-    @media (prefers-color-scheme: dark) { .action.primary { color: #181714; background: #f4f0e7; } }
-    .action.danger { color: var(--danger); }
-    .question { margin-top: 12px; }
-    .question-label { margin-bottom: 7px; font-weight: 700; font-size: 13px; }
-    .option { display: block; width: 100%; margin: 6px 0; padding: 9px 10px; text-align: left; }
-    .option.chosen { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
-    .option-description { display: block; margin-top: 2px; color: var(--muted); font-size: 11px; font-weight: 450; }
-    .other {
-      width: 100%; margin-top: 6px; padding: 9px 10px; color: var(--text); border: 1px solid var(--border);
-      border-radius: 9px; outline: none; background: var(--field);
-    }
-    .other:focus, textarea:focus { border-color: var(--accent); }
-    .composer {
-      position: fixed;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      z-index: 5;
-      padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
-      border-top: 1px solid var(--border);
-      background: color-mix(in srgb, var(--bg) 90%, transparent);
-      backdrop-filter: blur(18px);
-    }
-    .compose-inner { display: flex; align-items: flex-end; gap: 9px; width: min(760px, 100%); margin: 0 auto; }
-    textarea {
-      min-height: 48px;
-      max-height: 132px;
+    #prompt {
+      min-height: 47px;
+      max-height: 140px;
       flex: 1;
       resize: none;
-      padding: 12px;
-      color: var(--text);
-      border: 1px solid var(--border);
-      border-radius: 12px;
+      padding: 13px 18px;
+      border: 1px solid var(--hairline-strong);
+      border-radius: 24px;
       outline: none;
-      background: var(--card);
+      background: var(--field);
+      font-size: 15.5px;
+      line-height: 1.35;
     }
-    .send {
-      width: 48px;
-      height: 48px;
+    #prompt::placeholder { color: rgba(28, 27, 22, .45); }
+    @media (prefers-color-scheme: dark) { #prompt::placeholder { color: rgba(242, 238, 228, .45); } }
+    #send {
+      display: flex;
+      width: 47px;
+      height: 47px;
+      flex: none;
+      align-items: center;
+      justify-content: center;
+      border: 0;
+      border-radius: 50%;
+      background: var(--primary);
+      color: var(--primary-text);
+      font-size: 19px;
+    }
+    button:disabled { opacity: .4; cursor: default; }
+
+    /* What catches the tap on the dimmed conversation. The pane behind it is context to
+       read, not something to work in, so nothing under here is reachable while it is up. */
+    #scrim { position: fixed; inset: 0; z-index: 4; }
+
+    /* The ask. It is anchored to the foot of the same screen rather than a page of its
+       own, so answering it never costs the reader their place in the conversation. */
+    #sheet {
+      position: fixed;
+      right: 0;
+      bottom: 0;
+      left: 0;
+      z-index: 5;
+      display: flex;
+      max-height: 88%;
+      flex-direction: column;
+      gap: 14px;
+      overflow-y: auto;
+      padding: 18px 21px calc(18px + env(safe-area-inset-bottom));
+      border-top: 1.8px solid var(--amber-line);
+      border-radius: 23px 23px 0 0;
+      background: var(--card);
+      box-shadow: 0 -18px 52px rgba(28, 25, 15, .18);
+      animation: rise .25s ease-out;
+    }
+    #handle {
+      width: 44px;
+      height: 5px;
+      flex: none;
+      align-self: center;
+      border-radius: 3px;
+      background: var(--groove);
+      /* The strip you grab is thin, so the reach around it is widened rather than the
+         mark itself. */
+      box-shadow: 0 -14px 0 0 transparent, 0 14px 0 0 transparent;
+      touch-action: none;
+    }
+    .kind { display: flex; align-items: center; gap: 9px; }
+    .kind-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--amber); }
+    .kind-label { color: var(--amber-text); font: 600 11.5px var(--mono); letter-spacing: 1.4px; }
+    .lead { font-size: 17px; font-weight: 600; }
+    .detail { color: var(--muted); font-size: 14px; line-height: 1.45; }
+    .subject {
+      max-height: 220px;
+      margin: 0;
+      overflow: auto;
+      padding: 12px 14px;
+      border: 1px solid var(--hairline-strong);
+      border-radius: 10px;
+      background: var(--field);
+      font: 14px/1.4 var(--mono);
+    }
+    .runs-in { color: var(--faint); font: 11.5px var(--mono); letter-spacing: .5px; }
+    .buttons { display: flex; gap: 10px; }
+    .buttons button { height: 52px; border-radius: 13px; font-size: 16px; font-weight: 600; }
+    .deny { flex: 1; border: 1px solid rgba(163, 61, 48, .4); background: none; color: var(--red); }
+    .allow { flex: 1.4; border: 0; background: var(--primary); color: var(--primary-text); }
+    .always {
+      padding: 0;
+      border: 0;
+      background: none;
+      color: var(--green-deep);
+      font-size: 15px;
+      font-weight: 600;
+      text-align: center;
+    }
+
+    /* Denying is the start of an answer rather than the whole of it, so the sheet stays
+       and turns into the field where the reason gets typed. */
+    .reason { display: flex; align-items: center; gap: 10px; }
+    .reason textarea {
+      min-height: 47px;
+      max-height: 120px;
+      flex: 1;
+      resize: none;
+      padding: 13px 18px;
+      border: 1px solid var(--hairline-strong);
+      border-radius: 24px;
+      outline: none;
+      background: var(--field);
+      font-size: 15.5px;
+      line-height: 1.35;
+    }
+    .reason button {
+      width: 47px;
+      height: 47px;
       flex: none;
       border: 0;
       border-radius: 50%;
-      color: white;
-      background: var(--accent);
-      font-size: 20px;
-      font-weight: 800;
-      cursor: pointer;
+      background: var(--primary);
+      color: var(--primary-text);
+      font-size: 19px;
     }
-    .send:disabled, button:disabled { opacity: .42; cursor: default; }
-    .empty { padding: 70px 24px; color: var(--muted); text-align: center; line-height: 1.5; }
-    .toast {
+
+    .question-text { font-size: 17px; font-weight: 600; }
+    .option {
+      width: 100%;
+      padding: 13px 15px;
+      border: 1px solid var(--hairline-strong);
+      border-radius: 12px;
+      background: var(--field);
+      font-size: 15px;
+      font-weight: 600;
+      text-align: left;
+    }
+    .option.chosen { border-color: var(--green); background: rgba(62, 122, 70, .1); color: var(--green-deep); }
+    .option-description { display: block; margin-top: 3px; color: var(--muted); font-size: 13px; font-weight: 400; }
+    .options { display: flex; flex-direction: column; gap: 8px; }
+    .other {
+      width: 100%;
+      padding: 13px 15px;
+      border: 1px solid var(--hairline-strong);
+      border-radius: 12px;
+      outline: none;
+      background: var(--field);
+      font-size: 15px;
+    }
+
+    /* The ask folded away. It keeps the amber and stays answerable, so putting the sheet
+       down is not the same as ignoring it. */
+    #bar {
+      display: flex;
+      flex: none;
+      align-items: center;
+      gap: 9px;
+      height: 44px;
+      padding: 0 18px;
+      border: 0;
+      border-top: 1px solid var(--amber-line);
+      background: rgba(201, 139, 30, .12);
+      color: var(--amber-text);
+      font: 600 11.5px var(--mono);
+      letter-spacing: 1.4px;
+      text-align: left;
+    }
+    #bar .strip-gap { letter-spacing: 0; }
+    #bar .open { font-weight: 600; letter-spacing: .5px; }
+
+    #toast {
       position: fixed;
       z-index: 10;
-      left: 16px;
+      top: calc(14px + env(safe-area-inset-top));
       right: 16px;
-      top: calc(16px + env(safe-area-inset-top));
-      max-width: 520px;
-      margin: auto;
-      padding: 11px 13px;
-      border-radius: 11px;
-      color: white;
-      background: var(--danger);
-      box-shadow: var(--shadow);
-      transform: translateY(-130%);
-      transition: transform .18s ease-out;
+      left: 16px;
+      padding: 12px 15px;
+      border-radius: 12px;
+      background: var(--red);
+      color: #fff;
+      font-size: 14px;
+      transform: translateY(-160%);
+      transition: transform .2s ease-out;
     }
-    .toast.visible { transform: translateY(0); }
+    #toast.visible { transform: translateY(0); }
   </style>
 </head>
 <body>
-  <div id="toast" class="toast" role="alert"></div>
-  <header>
-    <div class="head-row">
-      <span id="connection" class="connection" aria-label="Disconnected"></span>
+  <div id="toast" role="alert"></div>
+  <div id="session">
+    <header>
       <div class="head-copy">
-        <div id="project" class="eyebrow">Teya Conductor</div>
-        <h1 id="title">Connecting...</h1>
+        <div id="title">Connecting…</div>
+        <div id="where">Teya Conductor</div>
       </div>
+      <span id="light" aria-label="Disconnected"></span>
+    </header>
+    <div id="strip">
+      <span id="state" class="quiet">CONNECTING</span>
+      <span id="diff" hidden></span>
+      <span id="failure" hidden></span>
+      <span class="strip-gap"></span>
+      <button id="stop" type="button" hidden>STOP</button>
+      <span id="context" hidden>CTX<span class="meter"><span id="meter-fill"></span></span></span>
     </div>
-    <div class="state-row">
-      <span id="state" class="state">Connecting</span>
-      <span id="queued"></span>
-      <span class="spacer"></span>
-      <button id="stop" class="small-button danger" type="button" hidden>Stop turn</button>
-    </div>
-  </header>
-  <main>
-    <div id="older" class="notice" hidden>Showing the latest 200 messages. Earlier messages remain available on the Mac.</div>
-    <section id="messages"><div class="empty">Connecting to the session on your Mac...</div></section>
-    <section id="permission"></section>
-  </main>
-  <form id="composer" class="composer">
-    <div class="compose-inner">
-      <textarea id="prompt" maxlength="100000" placeholder="Message the agent" aria-label="Message the agent"></textarea>
-      <button id="send" class="send" type="submit" aria-label="Send prompt">↑</button>
-    </div>
-  </form>
+    <main id="transcript"><div class="empty">Connecting to the session on your Mac…</div></main>
+    <button id="bar" type="button" hidden></button>
+    <form id="composer">
+      <textarea id="prompt" maxlength="100000" placeholder="Nudge the session…"
+                aria-label="Nudge the session"></textarea>
+      <button id="send" type="submit" aria-label="Send prompt">↑</button>
+    </form>
+  </div>
   <script>
     (() => {
       const pairingID = location.pathname.split('/').filter(Boolean).pop();
@@ -247,34 +480,51 @@
       const secret = scannedSecret || sessionStorage.getItem(storageKey);
       if (location.hash) history.replaceState(null, '', location.pathname);
 
-      const connection = document.querySelector('#connection');
-      const project = document.querySelector('#project');
-      const title = document.querySelector('#title');
-      const state = document.querySelector('#state');
-      const queued = document.querySelector('#queued');
-      const stop = document.querySelector('#stop');
-      const messages = document.querySelector('#messages');
-      const permission = document.querySelector('#permission');
-      const older = document.querySelector('#older');
-      const composer = document.querySelector('#composer');
-      const prompt = document.querySelector('#prompt');
-      const sendButton = document.querySelector('#send');
-      const toast = document.querySelector('#toast');
+      const find = id => document.querySelector(`#${id}`);
+      const light = find('light');
+      const title = find('title');
+      const where = find('where');
+      const state = find('state');
+      const diff = find('diff');
+      const failure = find('failure');
+      const context = find('context');
+      const meterFill = find('meter-fill');
+      const stop = find('stop');
+      const transcript = find('transcript');
+      const bar = find('bar');
+      const composer = find('composer');
+      const prompt = find('prompt');
+      const sendButton = find('send');
+      const toast = find('toast');
       let socket;
       let reconnectTimer;
       let toastTimer;
-      let currentPermissionID;
+      let sheet;
+      let scrim;
+      let ask;
+      // Whether the ask has been put down. It survives an update to the ask itself, so a
+      // sheet folded away does not spring back up when a tool result lands behind it.
+      let collapsed = false;
+      let denying = false;
       const answerState = new Map();
       const expandedTools = new Set();
       // The transcript this phone has drawn, so an update only has to carry what moved.
       const model = new Map();
       const nodes = new Map();
       let order = [];
+      let header = {};
 
       const element = (tag, className, text) => {
         const node = document.createElement(tag);
         if (className) node.className = className;
         if (text !== undefined) node.textContent = text;
+        return node;
+      };
+
+      const button = (className, text, handler) => {
+        const node = element('button', className, text);
+        node.type = 'button';
+        node.addEventListener('click', handler);
         return node;
       };
 
@@ -295,20 +545,80 @@
       };
 
       const setConnected = live => {
-        connection.classList.toggle('live', live);
-        connection.setAttribute('aria-label', live ? 'Connected' : 'Disconnected');
+        light.setAttribute('aria-label', live ? 'Connected' : 'Disconnected');
         sendButton.disabled = !live;
+        if (!live) light.className = '';
       };
 
+      // MARK: - Status strip
+
+      // "4M" while a turn runs, counting from when it was asked for; "2H" otherwise,
+      // counting from the last thing that happened. Both are drawn here rather than sent,
+      // so an idle session costs nothing to keep current.
+      const elapsed = () => {
+        if (!header.since) return '';
+        const seconds = Math.max(0, (Date.now() - Date.parse(header.since)) / 1000);
+        if (header.state === 'RUNNING') {
+          if (seconds < 60) return `${Math.floor(seconds)}S`;
+          if (seconds < 3600) return `${Math.floor(seconds / 60)}M`;
+          if (seconds < 86400) return `${Math.floor(seconds / 3600)}H`;
+          return `${Math.floor(seconds / 86400)}D`;
+        }
+        if (seconds < 60) return 'NOW';
+        if (seconds < 3600) return `${Math.floor(seconds / 60)}M`;
+        if (seconds < 86400) return `${Math.floor(seconds / 3600)}H`;
+        if (seconds < 604800) return `${Math.floor(seconds / 86400)}D`;
+        return `${Math.floor(seconds / 604800)}W`;
+      };
+
+      const renderElapsed = () => {
+        if (!header.state) return;
+        const queued = header.queuedPrompts ? ` · ${header.queuedPrompts} QUEUED` : '';
+        state.textContent = `${header.state} · ${elapsed()}${queued}`;
+      };
+
+      const renderHeader = next => {
+        header = next;
+        title.textContent = next.title;
+        where.textContent = next.branch ? `${next.project} · ${next.branch}`
+                                        : `${next.project} · ${next.agent}`;
+        document.title = `${next.title} · Conductor`;
+
+        const running = next.state === 'RUNNING';
+        light.className = running ? 'running' : next.state === 'IDLE' ? '' : 'attention';
+        state.className = running ? '' : next.state === 'IDLE' ? 'quiet' : 'attention';
+        renderElapsed();
+
+        failure.hidden = !next.failure;
+        failure.textContent = next.failure || '';
+        diff.hidden = !!next.failure || (!next.added && !next.removed);
+        if (!diff.hidden) {
+          diff.replaceChildren(element('span', 'added', `+${next.added}`),
+                               element('span', 'removed', `−${next.removed}`));
+        }
+        context.hidden = next.context === null || next.context === undefined;
+        if (!context.hidden) meterFill.style.width = `${Math.round(next.context * 100)}%`;
+        stop.hidden = !next.isBusy;
+      };
+
+      // MARK: - Transcript
+
       const renderTool = tool => {
-        const details = element('details', `tool${tool.isError ? ' error' : ''}`);
-        details.open = expandedTools.has(tool.id);
-        details.addEventListener('toggle', () => {
-          if (details.open) expandedTools.add(tool.id);
-          else expandedTools.delete(tool.id);
-        });
-        details.append(element('summary', '', `${tool.name}${tool.isRunning ? ' · running' : ''}`));
+        const glyph = tool.isError ? '✕' : tool.isRunning ? '⋯' : '✓';
+        const wrapper = element('div',
+          `tool${tool.isError ? ' error' : tool.isRunning ? ' running' : ''}`);
+        const row = element('button', 'tool-row');
+        row.type = 'button';
+        row.append(element('span', 'tool-glyph', glyph));
+        row.append(element('span', 'tool-name', tool.name));
+        row.append(element('span', 'tool-argument', tool.argument || ''));
+        if (tool.added) row.append(element('span', 'tool-added', `+${tool.added}`));
+        wrapper.append(row);
+
+        // The row says what ran; what it said back is a tap away, so a long result never
+        // takes the conversation over.
         const body = element('div', 'tool-body');
+        body.hidden = !expandedTools.has(tool.id);
         if (tool.input) {
           body.append(element('div', 'tool-label', 'INPUT'));
           body.append(element('pre', '', tool.input));
@@ -317,166 +627,41 @@
           body.append(element('div', 'tool-label', tool.isError ? 'ERROR' : 'RESULT'));
           body.append(element('pre', '', tool.result));
         }
-        details.append(body);
-        return details;
-      };
-
-      const renderMessage = message => {
-        const wrapper = element('article', `message ${message.role}`);
-        wrapper.append(element('div', 'role', message.role));
-        const bubble = element('div', 'bubble');
-        if (message.text) bubble.append(element('div', 'prose', message.text));
-        for (const thought of message.thinking || []) {
-          bubble.append(element('div', 'thinking', thought));
-        }
-        for (const attachment of message.attachments || []) {
-          bubble.append(element('span', 'attachment', attachment));
-        }
-        for (const tool of message.tools || []) bubble.append(renderTool(tool));
-        wrapper.append(bubble);
+        row.addEventListener('click', () => {
+          body.hidden = !body.hidden;
+          if (body.hidden) expandedTools.delete(tool.id);
+          else expandedTools.add(tool.id);
+        });
+        wrapper.append(body);
         return wrapper;
       };
 
-      const answerFor = question => {
-        const saved = answerState.get(question.text) || { choices: new Set(), other: '' };
-        const typed = saved.other.trim();
-        if (typed) return typed;
-        return question.options
-          .filter(option => saved.choices.has(option.label))
-          .map(option => option.label)
-          .join(', ');
+      // A person's turn is one tinted bubble; the agent's is plain prose with its calls
+      // as rows of their own, which is the same shape the Mac draws.
+      const renderMessage = (message, isLast) => {
+        const wrapper = element('article', `message ${message.role}`);
+        if (message.role === 'user') {
+          if (message.text) wrapper.append(element('div', 'bubble', message.text));
+        } else if (message.text) {
+          const prose = element('div', 'prose', message.text);
+          if (isLast && header.state === 'RUNNING') prose.append(element('span', 'cursor'));
+          wrapper.append(prose);
+        }
+        for (const thought of message.thinking || []) {
+          wrapper.append(element('div', 'thinking', thought));
+        }
+        for (const attachment of message.attachments || []) {
+          wrapper.append(element('span', 'attachment', attachment));
+        }
+        for (const tool of message.tools || []) wrapper.append(renderTool(tool));
+        return wrapper;
       };
 
-      const renderQuestionPermission = request => {
-        const card = element('div', 'permission');
-        card.append(element('h2', '', request.title));
-        if (request.detail) card.append(element('p', 'detail', request.detail));
-
-        for (const question of request.questions) {
-          if (!answerState.has(question.text)) {
-            answerState.set(question.text, { choices: new Set(), other: '' });
-          }
-          const block = element('div', 'question');
-          block.append(element('div', 'question-label', question.text));
-          for (const option of question.options) {
-            const choice = element('button', 'option', option.label);
-            choice.type = 'button';
-            if (option.description) {
-              choice.append(element('span', 'option-description', option.description));
-            }
-            const update = () => {
-              const saved = answerState.get(question.text);
-              choice.classList.toggle('chosen', saved.choices.has(option.label));
-            };
-            choice.addEventListener('click', () => {
-              const saved = answerState.get(question.text);
-              saved.other = '';
-              if (question.multiSelect) {
-                if (saved.choices.has(option.label)) saved.choices.delete(option.label);
-                else saved.choices.add(option.label);
-              } else {
-                const already = saved.choices.has(option.label);
-                saved.choices.clear();
-                if (!already) saved.choices.add(option.label);
-                block.querySelectorAll('.option').forEach(node => node.classList.remove('chosen'));
-              }
-              block.querySelector('.other').value = '';
-              update();
-              updateSubmit();
-            });
-            update();
-            block.append(choice);
-          }
-          const other = element('input', 'other');
-          other.placeholder = 'Something else...';
-          other.value = answerState.get(question.text).other;
-          other.addEventListener('input', () => {
-            const saved = answerState.get(question.text);
-            saved.other = other.value;
-            if (other.value) {
-              saved.choices.clear();
-              block.querySelectorAll('.option').forEach(node => node.classList.remove('chosen'));
-            }
-            updateSubmit();
-          });
-          block.append(other);
-          card.append(block);
-        }
-
-        const actions = element('div', 'actions');
-        const submit = element('button', 'action primary', 'Submit answers');
-        submit.type = 'button';
-        const updateSubmit = () => {
-          submit.disabled = !request.questions.every(question => answerFor(question));
-        };
-        submit.addEventListener('click', () => {
-          const answers = {};
-          for (const question of request.questions) answers[question.text] = answerFor(question);
-          if (send({ type: 'answerPermission', requestID: request.id, answer: 'answers', answers })) {
-            submit.disabled = true;
-          }
-        });
-        actions.append(submit);
-        card.append(actions);
-        updateSubmit();
-        return card;
-      };
-
-      const actionButton = (label, className, handler) => {
-        const button = element('button', `action ${className}`, label);
-        button.type = 'button';
-        button.addEventListener('click', handler);
-        return button;
-      };
-
-      const renderPermission = request => {
-        permission.replaceChildren();
-        if (!request) {
-          currentPermissionID = undefined;
-          answerState.clear();
-          return;
-        }
-        if (currentPermissionID !== request.id) {
-          currentPermissionID = request.id;
-          answerState.clear();
-        }
-        if (request.questions.length) {
-          permission.append(renderQuestionPermission(request));
-          return;
-        }
-
-        const card = element('div', 'permission');
-        card.append(element('h2', '', request.title));
-        if (request.detail) card.append(element('p', 'detail', request.detail));
-        card.append(element('pre', '', request.subject));
-        const actions = element('div', 'actions');
-        actions.append(actionButton('Deny', 'danger', () =>
-          send({ type: 'answerPermission', requestID: request.id, answer: 'deny' })));
-        actions.append(actionButton('Allow once', 'primary', () =>
-          send({ type: 'answerPermission', requestID: request.id, answer: 'allowOnce' })));
-        if (request.alwaysTitle) {
-          actions.append(actionButton(request.alwaysTitle, '', () =>
-            send({ type: 'answerPermission', requestID: request.id, answer: 'allowAlways' })));
-        }
-        card.append(actions);
-        permission.append(card);
-      };
-
-      const renderHeader = header => {
-        project.textContent = `${header.project} · ${header.agent}`;
-        title.textContent = header.title;
-        state.textContent = header.state;
-        queued.textContent = header.queuedPrompts ? `· ${header.queuedPrompts} queued` : '';
-        stop.hidden = !header.isBusy;
-        older.hidden = !header.hasEarlierMessages;
-        document.title = `${header.title} · Conductor`;
-      };
-
-      const atBottom = () =>
-        document.documentElement.scrollHeight - window.scrollY - window.innerHeight < 180;
+      const atBottom = () => transcript.scrollHeight - transcript.scrollTop
+        - transcript.clientHeight < 180;
 
       const keepAtBottom = wasAtBottom => {
-        if (wasAtBottom) requestAnimationFrame(() => window.scrollTo({ top: document.body.scrollHeight }));
+        if (wasAtBottom) requestAnimationFrame(() => { transcript.scrollTop = transcript.scrollHeight; });
       };
 
       // The order the Mac sent is the authority on layout. Moving nodes that already exist
@@ -490,37 +675,56 @@
           }
         }
         for (const id of [...model.keys()]) if (!wanted.has(id)) model.delete(id);
-        const rows = order.map(id => {
+        const rows = order.map((id, index) => {
           let node = nodes.get(id);
           if (!node) {
-            node = renderMessage(model.get(id));
+            node = renderMessage(model.get(id), index === order.length - 1);
             nodes.set(id, node);
           }
           return node;
         });
+        if (header.hasEarlierMessages) {
+          rows.unshift(element('div', 'notice', 'EARLIER MESSAGES ARE ON THE MAC'));
+        }
         if (!rows.length) rows.push(element('div', 'empty', 'This session has no messages yet.'));
-        messages.replaceChildren(...rows);
+        transcript.replaceChildren(...rows);
+      };
+
+      const redrawMessage = id => {
+        const existing = nodes.get(id);
+        const fresh = renderMessage(model.get(id), order[order.length - 1] === id);
+        nodes.set(id, fresh);
+        if (existing && existing.parentNode) {
+          existing.replaceWith(fresh);
+          return true;
+        }
+        return false;
       };
 
       const applySnapshot = snapshot => {
-        const wasAtBottom = atBottom();
         renderHeader(snapshot.header);
         model.clear();
         nodes.clear();
         order = snapshot.messages.map(message => message.id);
         for (const message of snapshot.messages) model.set(message.id, message);
         place();
-        renderPermission(snapshot.permission);
-        keepAtBottom(wasAtBottom);
+        renderAsk(snapshot.permission);
+        keepAtBottom(true);
       };
 
       const applyUpdate = update => {
         const wasAtBottom = atBottom();
+        const wasRunning = header.state === 'RUNNING';
         if (update.header) renderHeader(update.header);
         let restructured = false;
         if (update.order) {
           order = update.order;
           restructured = true;
+        }
+        // The cursor rides the last answer, so a turn starting or ending has to redraw it
+        // even when the transcript itself did not move.
+        if (!restructured && wasRunning !== (header.state === 'RUNNING') && order.length) {
+          redrawMessage(order[order.length - 1]);
         }
 
         const redraw = new Set();
@@ -558,13 +762,7 @@
           }
         }
 
-        for (const id of redraw) {
-          const existing = nodes.get(id);
-          const fresh = renderMessage(model.get(id));
-          nodes.set(id, fresh);
-          if (existing && existing.parentNode) existing.replaceWith(fresh);
-          else restructured = true;
-        }
+        for (const id of redraw) if (!redrawMessage(id)) restructured = true;
         if (restructured) place();
 
         // Growing the text in place is what keeps a long answer from rebuilding its whole
@@ -574,24 +772,230 @@
           if (!node) continue;
           const prose = node.querySelector('.prose');
           if (prose) {
-            prose.textContent += text;
+            const cursor = prose.querySelector('.cursor');
+            if (cursor) cursor.before(text);
+            else prose.append(text);
             continue;
           }
-          const fresh = renderMessage(model.get(id));
-          nodes.set(id, fresh);
-          node.replaceWith(fresh);
+          redrawMessage(id);
         }
 
-        if (update.permissionCleared) renderPermission(undefined);
-        else if (update.permission) renderPermission(update.permission);
+        if (update.permissionCleared) renderAsk(undefined);
+        else if (update.permission) renderAsk(update.permission);
         keepAtBottom(wasAtBottom);
       };
+
+      // MARK: - The ask
+
+      const answerFor = question => {
+        const saved = answerState.get(question.text) || { choices: new Set(), other: '' };
+        const typed = saved.other.trim();
+        if (typed) return typed;
+        return question.options
+          .filter(option => saved.choices.has(option.label))
+          .map(option => option.label)
+          .join(', ');
+      };
+
+      const questionBody = () => {
+        const submit = button('allow', 'Submit answers', () => {
+          const answers = {};
+          for (const question of ask.questions) answers[question.text] = answerFor(question);
+          if (send({ type: 'answerPermission', requestID: ask.id, answer: 'answers', answers })) {
+            submit.disabled = true;
+          }
+        });
+        const readySubmit = () => {
+          submit.disabled = !ask.questions.every(question => answerFor(question));
+        };
+
+        const parts = [];
+        for (const question of ask.questions) {
+          if (!answerState.has(question.text)) {
+            answerState.set(question.text, { choices: new Set(), other: '' });
+          }
+          const saved = answerState.get(question.text);
+          const options = element('div', 'options');
+          const other = element('input', 'other');
+          const paint = () => {
+            for (const node of options.children) {
+              node.classList.toggle('chosen', saved.choices.has(node.dataset.label));
+            }
+            readySubmit();
+          };
+          for (const option of question.options) {
+            const choice = button('option', option.label, () => {
+              saved.other = '';
+              other.value = '';
+              if (question.multiSelect) {
+                if (saved.choices.has(option.label)) saved.choices.delete(option.label);
+                else saved.choices.add(option.label);
+              } else {
+                const already = saved.choices.has(option.label);
+                saved.choices.clear();
+                if (!already) saved.choices.add(option.label);
+              }
+              paint();
+            });
+            choice.dataset.label = option.label;
+            if (option.description) {
+              choice.append(element('span', 'option-description', option.description));
+            }
+            options.append(choice);
+          }
+          other.placeholder = 'Something else…';
+          other.value = saved.other;
+          other.addEventListener('input', () => {
+            saved.other = other.value;
+            if (other.value) saved.choices.clear();
+            paint();
+          });
+          parts.push(element('div', 'question-text', question.text), options, other);
+          paint();
+        }
+
+        const buttons = element('div', 'buttons');
+        buttons.append(button('deny', 'Skip', () =>
+          send({ type: 'answerPermission', requestID: ask.id, answer: 'deny' })));
+        buttons.append(submit);
+        parts.push(buttons);
+        return parts;
+      };
+
+      const permissionBody = () => {
+        const parts = [];
+        parts.push(element('div', 'lead', ask.lead));
+        if (ask.detail) parts.push(element('p', 'detail', ask.detail));
+        if (ask.subject) parts.push(element('pre', 'subject', ask.subject));
+        if (ask.runsIn) parts.push(element('div', 'runs-in', `RUNS IN ${ask.runsIn}`));
+
+        const buttons = element('div', 'buttons');
+        buttons.append(button('deny', 'Deny', () => {
+          denying = true;
+          drawSheet();
+        }));
+        buttons.append(button('allow', 'Allow once', () =>
+          send({ type: 'answerPermission', requestID: ask.id, answer: 'allowOnce' })));
+        parts.push(buttons);
+        if (ask.alwaysTitle) {
+          parts.push(button('always', ask.alwaysTitle, () =>
+            send({ type: 'answerPermission', requestID: ask.id, answer: 'allowAlways' })));
+        }
+        return parts;
+      };
+
+      const denyBody = () => {
+        const reason = element('div', 'reason');
+        const field = element('textarea');
+        field.placeholder = 'Tell the agent why…';
+        field.maxLength = 100000;
+        field.setAttribute('aria-label', 'Why this is denied');
+        const submit = button('', '↑', () => {
+          if (send({ type: 'answerPermission', requestID: ask.id, answer: 'deny',
+                     prompt: field.value.trim() })) {
+            submit.disabled = true;
+          }
+        });
+        submit.setAttribute('aria-label', 'Send the denial');
+        reason.append(field, submit);
+        queueMicrotask(() => field.focus());
+        return [element('div', 'lead', 'Why not?'), reason];
+      };
+
+      const drawSheet = () => {
+        sheet?.remove();
+        scrim?.remove();
+        sheet = undefined;
+        scrim = undefined;
+        document.body.classList.toggle('asking', !!ask && !collapsed);
+        bar.hidden = !ask || !collapsed;
+        if (!ask) return;
+
+        const label = ask.kind === 'question' ? 'QUESTION'
+                                              : `PERMISSION · ${ask.toolName.toUpperCase()}`;
+        if (collapsed) {
+          bar.replaceChildren(element('span', 'kind-dot'), element('span', '', label),
+                              element('span', 'strip-gap'), element('span', 'open', 'OPEN'));
+          return;
+        }
+
+        scrim = element('div', '');
+        scrim.id = 'scrim';
+        scrim.addEventListener('click', () => collapse(true));
+        document.body.append(scrim);
+
+        sheet = element('div', '');
+        sheet.id = 'sheet';
+        sheet.setAttribute('role', 'dialog');
+        const handle = element('div', '');
+        handle.id = 'handle';
+        sheet.append(handle);
+        const kind = element('div', 'kind');
+        kind.append(element('span', 'kind-dot'), element('span', 'kind-label', label));
+        sheet.append(kind);
+        const body = denying ? denyBody() : ask.kind === 'question' ? questionBody() : permissionBody();
+        sheet.append(...body);
+        document.body.append(sheet);
+        dragToCollapse(handle);
+      };
+
+      const renderAsk = request => {
+        if (!request) {
+          ask = undefined;
+          collapsed = false;
+          denying = false;
+          answerState.clear();
+          drawSheet();
+          return;
+        }
+        if (ask?.id !== request.id) {
+          collapsed = false;
+          denying = false;
+          answerState.clear();
+        }
+        ask = request;
+        drawSheet();
+      };
+
+      const collapse = value => {
+        if (!ask || collapsed === value) return;
+        collapsed = value;
+        drawSheet();
+      };
+
+      // Pulling the handle down puts the sheet away, which is the gesture the shape of the
+      // sheet already promises.
+      const dragToCollapse = handle => {
+        let start;
+        handle.addEventListener('pointerdown', event => {
+          start = event.clientY;
+          handle.setPointerCapture(event.pointerId);
+        });
+        handle.addEventListener('pointermove', event => {
+          if (start === undefined) return;
+          const travelled = event.clientY - start;
+          if (travelled > 40) {
+            start = undefined;
+            collapse(true);
+          } else if (travelled > 0) {
+            sheet.style.transform = `translateY(${travelled}px)`;
+          }
+        });
+        const settle = () => {
+          start = undefined;
+          if (sheet) sheet.style.transform = '';
+        };
+        handle.addEventListener('pointerup', settle);
+        handle.addEventListener('pointercancel', settle);
+      };
+
+      // MARK: - Connection
 
       const connect = () => {
         clearTimeout(reconnectTimer);
         if (!secret) {
           title.textContent = 'Pairing code missing';
-          state.textContent = 'Scan the QR code again';
+          state.textContent = 'SCAN THE QR CODE AGAIN';
           showError('The pairing code is missing. Scan the QR code again.');
           return;
         }
@@ -613,7 +1017,8 @@
         });
         socket.addEventListener('close', () => {
           setConnected(false);
-          state.textContent = 'Reconnecting';
+          state.textContent = 'RECONNECTING';
+          state.className = 'quiet';
           reconnectTimer = setTimeout(connect, 1500);
         });
         socket.addEventListener('error', () => socket.close());
@@ -630,9 +1035,11 @@
       });
       prompt.addEventListener('input', () => {
         prompt.style.height = 'auto';
-        prompt.style.height = `${Math.min(prompt.scrollHeight, 132)}px`;
+        prompt.style.height = `${Math.min(prompt.scrollHeight, 140)}px`;
       });
       stop.addEventListener('click', () => send({ type: 'stopTurn' }));
+      bar.addEventListener('click', () => collapse(false));
+      setInterval(renderElapsed, 15000);
       setConnected(false);
       connect();
     })();
