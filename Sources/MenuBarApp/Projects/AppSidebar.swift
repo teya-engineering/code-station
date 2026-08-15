@@ -208,8 +208,9 @@ struct AppSidebar: View {
         .onTapGesture { openNoticedSession(noticed.session) }
     }
 
-    // Narrows the list to projects whose name contains what is typed. It filters rather
-    // than searches: the rail keeps its order and simply drops the rows that do not match.
+    // Narrows the list to the projects, workspaces and sessions that contain what is
+    // typed. It filters rather than searches: the rail keeps its order and simply drops
+    // the rows that do not match.
     private var filterBar: some View {
         HStack(spacing: 7) {
             Image(systemName: "magnifyingglass")
@@ -364,7 +365,7 @@ struct AppSidebar: View {
                     .padding(.horizontal, 20)
                     .padding(.top, 16)
             } else if orderedItems.isEmpty {
-                Text("No project or workspace matches \"\(filterText.trimmingCharacters(in: .whitespaces))\".")
+                Text("Nothing matches \"\(filterQuery)\".")
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -431,26 +432,44 @@ struct AppSidebar: View {
         appSettings.projectGrouping.sections(of: orderedItems)
     }
 
+    private var filter: SidebarFilter { SidebarFilter(filterText) }
+
+    private var filterQuery: String { filter.query }
+
+    private var isFiltering: Bool { filter.isActive }
+
+    private func matchesName(_ item: SidebarItem, _ filter: SidebarFilter) -> Bool {
+        switch item {
+        case .project:
+            return filter.matches(name: item.name)
+        case .workspace(let workspace):
+            return filter.matches(name: item.name,
+                                  orAnyOf: workspace.projectIDs.compactMap(store.project).map(\.name))
+        }
+    }
+
+    private func containerID(of session: ChatSession) -> UUID {
+        session.workspaceID ?? session.projectID
+    }
+
     private var orderedItems: [SidebarItem] {
         let items = store.projects.map(SidebarItem.project)
             + store.workspaces.map(SidebarItem.workspace)
         let ordered = appSettings.projectSort.apply(to: items, sessions: store.sidebarSessions)
-        let query = filterText.trimmingCharacters(in: .whitespaces)
-        guard !query.isEmpty else { return ordered }
+        let filter = self.filter
+        guard filter.isActive else { return ordered }
+        // A row stays when it matches itself, and also when it holds a session that does:
+        // a session is only reachable through the row it lives under.
         return ordered.filter { item in
-            switch item {
-            case .project:
-                return item.name.localizedCaseInsensitiveContains(query)
-            case .workspace(let workspace):
-                return item.name.localizedCaseInsensitiveContains(query)
-                    || workspace.projectIDs.compactMap(store.project)
-                        .contains { $0.name.localizedCaseInsensitiveContains(query) }
+            matchesName(item, filter) || store.sidebarSessions.contains { session in
+                containerID(of: session) == item.id && filter.matches(session)
             }
         }
     }
 
     // Every session under its project, most recently active first - the order the cards
-    // are drawn in.
+    // are drawn in. The counts on a project row read from this, so it stays whole even
+    // while a filter is on; the filter narrows the cards, not what the project holds.
     private var groupedSessions: [UUID: [ChatSession]] {
         var groups = Dictionary(grouping: store.sidebarSessions.filter { $0.workspaceID == nil },
                                 by: \.projectID)
@@ -470,6 +489,7 @@ struct AppSidebar: View {
     private func workspaceSection(_ workspace: ProjectWorkspace,
                                   sessions: [ChatSession]) -> some View {
         let expanded = isExpanded(workspace)
+        let visible = visibleSessions(sessions, in: workspace.id)
         let running = sessions.filter { runner.state($0.id).isBusy }.count
         let projects = workspace.projectIDs.compactMap(store.project)
 
@@ -478,7 +498,7 @@ struct AppSidebar: View {
                 workspace: workspace,
                 projects: projects,
                 selected: store.selection == .workspace(workspace.id),
-                isExpanded: expanded && !sessions.isEmpty,
+                isExpanded: expanded && !visible.isEmpty,
                 sessionCount: sessions.count,
                 runningCount: running,
                 finishedCount: store.finishedCount(inWorkspace: workspace.id),
@@ -505,8 +525,7 @@ struct AppSidebar: View {
                  }]
             }
 
-            if expanded, !sessions.isEmpty {
-                let visible = visibleSessions(sessions, in: workspace.id)
+            if expanded, !visible.isEmpty {
                 let tint = Theme.workspaceTint
                 SidebarRail(colour: tint.colour) {
                     ForEach(visible) { session in
@@ -548,7 +567,9 @@ struct AppSidebar: View {
                                 }
                         }
                     }
-                    let hidden = sessions.count - visible.count
+                    // The rest of a filtered list is what did not match, so there is
+                    // nothing to unfold.
+                    let hidden = isFiltering ? 0 : sessions.count - visible.count
                     if hidden > 0 {
                         SidebarRailRow(colour: tint.colour) {
                             SeeMoreCard(title: "See \(hidden) more…") {
@@ -575,6 +596,7 @@ struct AppSidebar: View {
 
     private func projectSection(_ project: Project, sessions: [ChatSession]) -> some View {
         let expanded = isExpanded(project)
+        let visible = visibleSessions(sessions, in: project.id)
         let running = sessions.filter { runner.state($0.id).isBusy }.count
 
         // The row and its sessions are one stack so the gap between them belongs to the
@@ -584,7 +606,7 @@ struct AppSidebar: View {
             ProjectHeaderRow(
                 project: project,
                 selected: store.selection == nil && store.selectedProjectID == project.id,
-                isExpanded: expanded && !sessions.isEmpty,
+                isExpanded: expanded && !visible.isEmpty,
                 isMissing: store.isMissing(project),
                 sessionCount: sessions.count,
                 runningCount: running,
@@ -619,8 +641,7 @@ struct AppSidebar: View {
 
             // An expanded project with nothing under it draws no block at all: an empty one
             // still carries its padding, which reads as the row shifting on every click.
-            if expanded, !sessions.isEmpty {
-                let visible = visibleSessions(sessions, in: project.id)
+            if expanded, !visible.isEmpty {
                 let tint = Theme.projectTint(for: project.name)
                 SidebarRail(colour: tint.colour) {
                     ForEach(visible) { session in
@@ -661,7 +682,7 @@ struct AppSidebar: View {
                                  }]
                             }
                     }
-                    let hidden = sessions.count - visible.count
+                    let hidden = isFiltering ? 0 : sessions.count - visible.count
                     if hidden > 0 {
                         SidebarRailRow(colour: tint.colour) {
                             SeeMoreCard(title: "See \(hidden) more…") {
@@ -702,7 +723,10 @@ struct AppSidebar: View {
                 .item("Remove project", kind: .destructive) { confirmRemoveProject(project) }]
     }
 
+    // A filter is asking to see what matched, so it opens every row that survived it. A
+    // closed row would hide the very sessions the filter kept.
     private func isExpanded(_ project: Project) -> Bool {
+        guard !isFiltering else { return true }
         let selectedProjectID: UUID? = switch store.selection {
         case .session(let id): store.sidebarSession(id)?.projectID
         case .home, .workspace: nil
@@ -712,7 +736,7 @@ struct AppSidebar: View {
     }
 
     private func isExpanded(_ workspace: ProjectWorkspace) -> Bool {
-        expansion[workspace.id] ?? true
+        isFiltering || (expansion[workspace.id] ?? true)
     }
 
     private func setExpanded(_ isExpanded: Bool, for id: UUID) {
@@ -726,8 +750,7 @@ struct AppSidebar: View {
     // A folded section is drawn as its heading alone. The filter overrides it: a search
     // is asking to see what matched, so a match is never hidden behind a heading.
     private func isCollapsed(_ section: SidebarSection) -> Bool {
-        guard let group = section.group,
-              filterText.trimmingCharacters(in: .whitespaces).isEmpty else { return false }
+        guard let group = section.group, !isFiltering else { return false }
         return collapsedGroups.contains(group)
     }
 
@@ -748,9 +771,18 @@ struct AppSidebar: View {
     }
 
     // A list stays capped at its newest four sessions unless the user unfolded it with
-    // see-more, so a new session pushes the last visible one below the fold.
+    // see-more, so a new session pushes the last visible one below the fold. A filtered
+    // list is drawn whole instead: it is already short, and a match left under see-more
+    // reads as the filter having missed it.
     private func visibleSessions(_ sessions: [ChatSession], in containerID: UUID) -> [ChatSession] {
-        sessionVisibility.visible(sessions, in: containerID)
+        let filter = self.filter
+        guard filter.isActive else { return sessionVisibility.visible(sessions, in: containerID) }
+        // A row that matched on its own name keeps every session: the filter picked the
+        // row, and its sessions are what it holds.
+        let item = store.project(containerID).map(SidebarItem.project)
+            ?? store.workspace(containerID).map(SidebarItem.workspace)
+        guard let item, !matchesName(item, filter) else { return sessions }
+        return sessions.filter(filter.matches)
     }
 
     // Keyed on the cards that are drawn rather than the sessions that exist, so the
