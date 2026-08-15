@@ -190,6 +190,7 @@ struct AgentSettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
+            defaultAgent
             agentTabs
             Divider().overlay(Theme.hairline)
             switch runner.agent {
@@ -208,6 +209,44 @@ struct AgentSettingsView: View {
     }
 
     // MARK: - Agent tabs
+
+    private var defaultAgent: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Default agent")
+                    .font(.system(size: 13, weight: .semibold))
+                Text("New sessions use this agent unless you choose a different one when creating them.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+            HStack(spacing: 8) {
+                Text(runner.agent.title)
+                    .font(.system(size: 13, weight: .medium))
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 34)
+            .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
+            .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
+            .contentShape(Rectangle())
+            .appMenu(matchWidth: true) {
+                AgentKind.allCases.map { agent in
+                    .item(agent.title,
+                          checked: runner.agent == agent,
+                          subtitle: agent == .codex
+                              ? "OpenAI's coding agent."
+                              : "Anthropic's coding agent.") {
+                        runner.agent = agent
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
 
     private var agentTabs: some View {
         ChoiceBlock("AGENT", note: "New sessions use this agent by default. A session keeps the agent and model it starts with for its whole conversation.") {
