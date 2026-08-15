@@ -1,12 +1,13 @@
 import AppKit
 import SwiftUI
 
-// Every file in a session's folder, as a tree with a preview beside it. Changes only
+// Every file in a session's folder, as a tree with the file itself beside it. Changes only
 // covers what git has something to say about; this is the whole working tree, which is
 // what you want when the agent names a file you have never opened.
 //
-// A text file can be edited in place. The tree itself stays read-only: nothing here
-// creates, renames or deletes anything.
+// A text file opens straight into an editor: there is no read mode to leave first, and
+// nothing is written until Save. The tree itself stays read-only: nothing here creates,
+// renames or deletes anything.
 struct ExplorerView: View {
     let root: String
 
@@ -21,20 +22,16 @@ struct ExplorerView: View {
     @State private var preview: FilePreview?
     @State private var loadingPreview = false
     @State private var showHidden = true
-    @State private var textWidth: CGFloat = 0
-
-    // Syntax colouring for the read-only preview. The state each line starts in is
-    // computed once per file, so a chunk anywhere in the file can be coloured on its
-    // own without scanning from the top.
     @State private var language: CodeLanguage?
-    @State private var lineStates: [CodeHighlight.State] = []
 
-    // Editing keeps the text as loaded next to the draft, so "anything to save" and
-    // "anything to lose" are both one comparison.
-    @State private var editing = false
+    // The text as loaded sits next to the draft, so "anything to save" and "anything to
+    // lose" are both one comparison.
     @State private var draft = ""
     @State private var original = ""
     @State private var saving = false
+    // When the file was last written at the moment it was read. An agent works in the same
+    // folder, so a pane left open on a file it has since rewritten would save over it.
+    @State private var loadedAt: Date?
 
     @State private var findPresented = false
     @State private var findQuery = ""
@@ -55,7 +52,13 @@ struct ExplorerView: View {
         }
         .background(Theme.background)
         .background(findShortcut)
-        .onChange(of: findQuery) { refreshFind() }
+        .onChange(of: findQuery) {
+            findSelection = 0
+            refreshFind()
+        }
+        // Typing moves every match after the caret, so the results are only right for the
+        // text as it stands now.
+        .onChange(of: draft) { if findPresented { refreshFind() } }
         .task(id: root) { await openRoot() }
     }
 
@@ -209,7 +212,7 @@ struct ExplorerView: View {
         }
     }
 
-    // MARK: - Preview
+    // MARK: - The file
 
     @ViewBuilder private var detail: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -223,26 +226,17 @@ struct ExplorerView: View {
                         .truncationMode(.head)
                     Spacer()
                     if loadingPreview || saving { ProgressView().controlSize(.small) }
-                    if editing {
-                        editButtons(node)
-                    } else {
-                        if canEdit {
-                            Button("Edit") { beginEdit(node) }
-                                .buttonStyle(.plain)
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(Theme.accent)
-                        }
-                        Button("Open") { NSWorkspace.shared.open(node.url) }
-                            .buttonStyle(.plain)
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(Theme.accent)
-                        Button("Reveal in Finder") {
-                            NSWorkspace.shared.activateFileViewerSelecting([node.url])
-                        }
+                    if dirty { saveButtons(node) }
+                    Button("Open") { NSWorkspace.shared.open(node.url) }
                         .buttonStyle(.plain)
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(Theme.accent)
+                    Button("Reveal in Finder") {
+                        NSWorkspace.shared.activateFileViewerSelecting([node.url])
                     }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Theme.accent)
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 10)
@@ -251,11 +245,7 @@ struct ExplorerView: View {
                     findBar
                 }
 
-                if editing {
-                    editor
-                } else {
-                    previewBody(node)
-                }
+                fileBody(node)
             } else {
                 PaneMessage(icon: "sidebar.left", title: "Pick a file",
                             detail: "Its contents show up here. Folders open in place.")
@@ -265,19 +255,14 @@ struct ExplorerView: View {
         .background(Theme.card)
     }
 
-    @ViewBuilder private func previewBody(_ node: FileNode) -> some View {
+    @ViewBuilder private func fileBody(_ node: FileNode) -> some View {
         switch preview {
-        case .text(let lines, let truncated, let total):
-            fileText(lines)
-            if truncated {
-                Text("Showing the first \(lines.count) lines of \(total). Open the file to see the rest.")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 8)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Theme.field)
-            }
+        case .text, .empty:
+            CodeEditorView(documentID: node.path,
+                           text: $draft,
+                           language: language,
+                           matches: findPresented ? findResult.matches : [],
+                           currentMatch: findPresented ? currentFindMatch : nil)
         case .image(let data):
             if let image = NSImage(data: data) {
                 VStack(spacing: 10) {
@@ -299,10 +284,8 @@ struct ExplorerView: View {
             PaneMessage(icon: "doc.zipper", title: "Binary file",
                         detail: "\(size.formatted(.byteCount(style: .file))) of data this app cannot show as text.")
         case .tooLarge(let size):
-            PaneMessage(icon: "doc.badge.ellipsis", title: "Too big to preview",
+            PaneMessage(icon: "doc.badge.ellipsis", title: "Too big to open",
                         detail: "\(size.formatted(.byteCount(style: .file))). Open it in an editor instead.")
-        case .empty:
-            PaneMessage(icon: "doc", title: "Empty file", detail: "0 bytes.")
         case .unreadable(let reason):
             PaneMessage(icon: "exclamationmark.triangle", title: "Could not read this file",
                         detail: reason)
@@ -313,27 +296,21 @@ struct ExplorerView: View {
 
     // MARK: - Editing
 
-    // Only what already previews as text can be edited. Images, binaries and files past
-    // the size limit stay look-but-do-not-touch, and an empty file counts as text.
-    private var canEdit: Bool {
+    // Only what reads as text can be typed into. Images, binaries and files past the size
+    // limit stay look-but-do-not-touch, and an empty file counts as text.
+    private var isEditable: Bool {
         switch preview {
         case .text, .empty: true
         default: false
         }
     }
 
-    private var dirty: Bool { draft != original }
+    private var dirty: Bool { isEditable && draft != original }
 
     // MARK: - Find
 
-    private var previewLines: [String]? {
-        guard case .text(let lines, _, _) = preview else { return nil }
-        return lines
-    }
-
-    private var currentFindMatch: FileFindMatch? {
-        guard findResult.matches.indices.contains(findSelection) else { return nil }
-        return findResult.matches[findSelection]
+    private var currentFindMatch: Int? {
+        findResult.matches.indices.contains(findSelection) ? findSelection : nil
     }
 
     private var findShortcut: some View {
@@ -341,7 +318,7 @@ struct ExplorerView: View {
             .buttonStyle(.plain)
             .keyboardShortcut("f", modifiers: .control)
             .opacity(0)
-            .disabled(previewLines == nil || editing)
+            .disabled(!isEditable)
             .accessibilityHidden(true)
     }
 
@@ -424,13 +401,10 @@ struct ExplorerView: View {
     }
 
     private func refreshFind() {
-        guard let previewLines else {
-            findResult = FileFindResult()
-            findSelection = 0
-            return
-        }
-        findResult = FileFind.search(findQuery, in: previewLines)
-        findSelection = 0
+        findResult = FileFind.search(findQuery, in: draft)
+        // The selection is kept rather than reset: typing shifts the matches around it,
+        // and being thrown back to the first one on every keystroke reads as a bug.
+        findSelection = min(findSelection, max(0, findResult.matches.count - 1))
     }
 
     private func moveFind(by offset: Int) {
@@ -447,10 +421,12 @@ struct ExplorerView: View {
         findSelection = 0
     }
 
-    private func editButtons(_ node: FileNode) -> some View {
+    // Save only appears once there is something to save, which is also the only time the
+    // pane holds anything that could be lost.
+    private func saveButtons(_ node: FileNode) -> some View {
         HStack(spacing: 8) {
-            Button { cancelEdit() } label: {
-                Text("Cancel")
+            Button { revert() } label: {
+                Text("Revert")
                     .font(.system(size: 12, weight: .semibold))
                     .padding(.horizontal, 14)
                     .padding(.vertical, 5)
@@ -471,136 +447,8 @@ struct ExplorerView: View {
             }
             .buttonStyle(.plain)
             .keyboardShortcut("s", modifiers: .command)
-            .disabled(!dirty || saving)
-            .opacity(dirty ? 1 : 0.4)
+            .disabled(saving)
         }
-    }
-
-    // The field background marks the pane as writable, the way every other input in the
-    // app sits on a field.
-    private var editor: some View {
-        TextEditor(text: $draft)
-            .font(.mono(11))
-            .scrollContentBackground(.hidden)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 4)
-            .background(Theme.field)
-    }
-
-    // Line numbers and text are two columns of one monospaced font, so the rows line up
-    // without measuring anything per line. Both scroll together, the gutter included:
-    // pinning it would cost a second scroll view kept in step with this one.
-    private func fileText(_ lines: [String]) -> some View {
-        let gutter = MonoMetrics.width(of: "\(lines.count)") + 8
-        let shownMatches = findPresented ? findResult.matches : []
-        let content = chunks(lines, matches: shownMatches)
-        return GeometryReader { geometry in
-            ScrollViewReader { scroll in
-                ScrollView([.vertical, .horizontal]) {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(content) { chunk in
-                            HStack(alignment: .top, spacing: 12) {
-                                Text(chunk.numbers)
-                                    .foregroundStyle(.tertiary)
-                                    .multilineTextAlignment(.trailing)
-                                    .frame(width: gutter, alignment: .trailing)
-                                Text(highlightedText(chunk))
-                                    .textSelection(.enabled)
-                                    .frame(width: max(textWidth, geometry.size.width - gutter - 36),
-                                           alignment: .leading)
-                            }
-                            .font(.mono(11))
-                            .id(chunk.id)
-                        }
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    // A scroll view centres content that does not fill it, so a short file would
-                    // float in the middle of the pane. Growing to the full height pins it to the top.
-                    .frame(minHeight: geometry.size.height, alignment: .topLeading)
-                }
-                .onChange(of: currentFindMatch) { _, match in
-                    guard findPresented, let match else { return }
-                    withAnimation(.easeOut(duration: 0.15)) {
-                        scroll.scrollTo(match.line, anchor: .center)
-                    }
-                }
-            }
-        }
-    }
-
-    // Runs of lines drawn as one Text each. A file is far too many views one line at a
-    // time, and a single Text holding all of it lays the whole file out before the first
-    // screen of it appears.
-    private struct Chunk: Identifiable {
-        let id: Int
-        let numbers: String
-        let text: String
-        let matches: [ChunkMatch]
-    }
-
-    private struct ChunkMatch {
-        let resultIndex: Int
-        let range: NSRange
-    }
-
-    // Matching lines stand alone so navigation can scroll to the exact line. Everything
-    // else stays in larger chunks, preserving the preview's low view count.
-    private func chunks(_ lines: [String], matches: [FileFindMatch], size: Int = 100) -> [Chunk] {
-        let matchesByLine = Dictionary(grouping: matches.indices) { matches[$0].line }
-        let matchingLines = matchesByLine.keys.sorted()
-        var matchingLineIndex = 0
-        var start = 0
-        var result: [Chunk] = []
-
-        while start < lines.count {
-            let isMatchingLine = matchingLineIndex < matchingLines.count
-                && matchingLines[matchingLineIndex] == start
-            let end: Int
-            let chunkMatches: [ChunkMatch]
-            if isMatchingLine {
-                end = start + 1
-                chunkMatches = (matchesByLine[start] ?? []).map { index in
-                    let match = matches[index]
-                    return ChunkMatch(resultIndex: index,
-                                      range: NSRange(location: match.location, length: match.length))
-                }
-                matchingLineIndex += 1
-            } else {
-                let nextMatch = matchingLineIndex < matchingLines.count
-                    ? matchingLines[matchingLineIndex]
-                    : lines.count
-                end = min(start + size, nextMatch)
-                chunkMatches = []
-            }
-
-            result.append(Chunk(
-                id: start,
-                numbers: (start..<end).map { "\($0 + 1)" }.joined(separator: "\n"),
-                text: lines[start..<end].joined(separator: "\n"),
-                matches: chunkMatches))
-            start = end
-        }
-        return result
-    }
-
-    private func highlightedText(_ chunk: Chunk) -> AttributedString {
-        var text: AttributedString
-        if let language, chunk.id < lineStates.count,
-           chunk.text.utf8.count <= CodeHighlight.sizeLimit {
-            var state = lineStates[chunk.id]
-            text = CodeHighlight.highlight(chunk.text, language: language, state: &state)
-        } else {
-            text = AttributedString(chunk.text)
-        }
-        guard !chunk.matches.isEmpty else { return text }
-        let ordinary = Color(nsColor: NSColor(Theme.secret).withAlphaComponent(0.24))
-        let selected = Color(nsColor: NSColor(Theme.secret).withAlphaComponent(0.52))
-        for match in chunk.matches {
-            guard let range = Range(match.range, in: text) else { continue }
-            text[range].backgroundColor = match.resultIndex == findSelection ? selected : ordinary
-        }
-        return text
     }
 
     private func relativePath(_ node: FileNode) -> String {
@@ -618,10 +466,9 @@ struct ExplorerView: View {
         selected = nil
         preview = nil
         language = nil
-        lineStates = []
-        editing = false
         draft = ""
         original = ""
+        loadedAt = nil
         resetFind()
         await load(root)
     }
@@ -651,13 +498,11 @@ struct ExplorerView: View {
         }
     }
 
-    // Moving to another file throws the draft away, so a dirty one is worth a question
-    // first. A clean draft just moves, and a click on the file already being edited
-    // leaves the editor alone.
+    // Moving to another file throws the draft away, so unsaved work is worth a question
+    // first. A clean pane just moves, and a click on the file already open leaves it alone.
     private func requestSelect(_ node: FileNode) {
-        if editing && node.path == selected?.path { return }
-        guard editing, dirty else {
-            editing = false
+        if node.path == selected?.path { return }
+        guard dirty else {
             select(node)
             return
         }
@@ -665,60 +510,56 @@ struct ExplorerView: View {
             title: "Discard changes?",
             message: "Edits to \(selected?.name ?? "this file") have not been saved.",
             actions: [
-                .init(label: "Discard", kind: .destructive) {
-                    editing = false
-                    select(node)
-                },
+                .init(label: "Discard", kind: .destructive) { select(node) },
                 .init(label: "Keep editing", kind: .cancel)
             ]))
     }
 
-    private func beginEdit(_ node: FileNode) {
-        resetFind()
-        Task {
-            loadingPreview = true
-            let text = await FileTree.fullText(of: node.url)
-            loadingPreview = false
-            guard selected?.path == node.path else { return }
-            guard let text else {
-                dialogs.show(Dialog(
-                    title: "Could not open for editing",
-                    message: "The file could not be read as text.",
-                    actions: [.init(label: "OK", kind: .cancel)]))
-                return
-            }
-            original = text
-            draft = text
-            editing = true
-        }
-    }
-
-    private func cancelEdit() {
-        guard dirty else { editing = false; return }
+    private func revert() {
         dialogs.show(Dialog(
             title: "Discard changes?",
             message: "Edits to \(selected?.name ?? "this file") have not been saved.",
             actions: [
-                .init(label: "Discard", kind: .destructive) { editing = false },
+                .init(label: "Discard", kind: .destructive) { draft = original },
                 .init(label: "Keep editing", kind: .cancel)
             ]))
     }
 
     private func save(_ node: FileNode) {
         Task {
+            guard await FileTree.modified(of: node.url) == loadedAt else {
+                dialogs.show(Dialog(
+                    title: "The file has changed",
+                    message: "\(node.name) was written by something else since it was opened here. Saving replaces what is on disk now.",
+                    actions: [
+                        .init(label: "Save anyway", kind: .destructive) { write(node) },
+                        .init(label: "Cancel", kind: .cancel)
+                    ]))
+                return
+            }
+            write(node)
+        }
+    }
+
+    private func write(_ node: FileNode) {
+        Task {
+            let saved = draft
             saving = true
-            let failure = await FileTree.write(draft, to: node.url)
+            let failure = await FileTree.write(saved, to: node.url)
             saving = false
             if let failure {
                 dialogs.show(Dialog(
                     title: "Could not save",
                     message: failure,
                     actions: [.init(label: "OK", kind: .cancel)]))
-            } else {
-                editing = false
-                select(node)
-                await reopenFolders()
+                return
             }
+            // The pane is left exactly as it is, caret and scroll included. Only what the
+            // file is measured against moves on, so the pane reads as clean again.
+            guard selected?.path == node.path else { return }
+            original = saved
+            loadedAt = await FileTree.modified(of: node.url)
+            await reopenFolders()
         }
     }
 
@@ -726,41 +567,23 @@ struct ExplorerView: View {
         resetFind()
         selected = node
         preview = nil
-        textWidth = 0
         language = nil
-        lineStates = []
+        draft = ""
+        original = ""
+        loadedAt = nil
         Task {
             loadingPreview = true
             let loaded = await FileTree.preview(of: node.url)
+            let modified = await FileTree.modified(of: node.url)
             loadingPreview = false
             guard !Task.isCancelled, selected?.path == node.path else { return }
             preview = loaded
-            if case .text(let lines, _, _) = loaded {
-                textWidth = MonoMetrics.width(ofLongestIn: lines) + 24
-                guard let found = CodeLanguage(fileExtension: node.kind) else { return }
-                // The pass over every line is linear but a file can be 4 MB, so it stays
-                // off the main thread; the preview simply shows plain until it lands.
-                let states = await Task.detached(priority: .userInitiated) {
-                    CodeHighlight.lineStartStates(lines, language: found)
-                }.value
-                guard !Task.isCancelled, selected?.path == node.path else { return }
-                language = found
-                lineStates = states
+            loadedAt = modified
+            language = CodeLanguage(fileExtension: node.kind)
+            if case .text(let text) = loaded {
+                draft = text
+                original = text
             }
         }
-    }
-}
-
-// Monospaced text is as wide as its longest line, so one measurement sizes a whole file
-// without laying any of it out first.
-enum MonoMetrics {
-    static func width(of text: String) -> CGFloat {
-        let font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
-        return ceil((text as NSString).size(withAttributes: [.font: font]).width)
-    }
-
-    static func width(ofLongestIn lines: [String]) -> CGFloat {
-        guard let longest = lines.max(by: { $0.count < $1.count }) else { return 0 }
-        return width(of: longest)
     }
 }

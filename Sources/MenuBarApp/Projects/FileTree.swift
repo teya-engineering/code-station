@@ -15,8 +15,11 @@ struct FileNode: Identifiable, Sendable, Equatable {
 
 // What the explorer can show for one file. A file it cannot draw is still worth an entry:
 // knowing a path holds four megabytes of binary is an answer too.
+//
+// Text arrives exactly as it is on disk, tabs and long lines included. The pane it lands
+// in can be typed into, so anything rewritten on the way in would be saved back mangled.
 enum FilePreview: Sendable, Equatable {
-    case text(lines: [String], truncated: Bool, totalLines: Int)
+    case text(String)
     case image(Data)
     case binary(size: Int64)
     case tooLarge(size: Int64)
@@ -29,13 +32,10 @@ enum FilePreview: Sendable, Equatable {
 // Every call hops off the main thread. A folder with a few thousand entries, or a file
 // that turns out to live on a slow disk, is enough to freeze the window otherwise.
 enum FileTree {
-    // A file longer than this is shown from the top and cut off. Nobody reads to the end
-    // of a 4000 line file in a preview pane, and laying one out costs real time.
-    static let previewLineLimit = 4000
-    static let previewByteLimit: Int64 = 4 << 20
-    // Minified sources are one line holding the whole file, which lays out slowly and
-    // says nothing once it is wider than the pane.
-    private static let lineCharacterLimit = 2000
+    // Past this the file is named and sized but not opened. The text view lays out only
+    // what is on screen, so length costs little, but the whole file is still held in
+    // memory twice over while it is open.
+    static let byteLimit: Int64 = 4 << 20
 
     static let imageKinds: Set<String> = [
         "png", "jpg", "jpeg", "gif", "heic", "heif", "bmp", "tiff", "tif", "webp", "icns", "svg"
@@ -87,8 +87,8 @@ enum FileTree {
 
             let size = (attributes[.size] as? NSNumber)?.int64Value ?? 0
             guard size > 0 else { return .empty }
-            guard size <= previewByteLimit else { return .tooLarge(size: size) }
-            guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else {
+            guard size <= byteLimit else { return .tooLarge(size: size) }
+            guard let data = try? Data(contentsOf: url) else {
                 return .unreadable("Could not read this file.")
             }
 
@@ -97,30 +97,15 @@ enum FileTree {
             if imageKinds.contains(url.pathExtension.lowercased()) { return .image(data) }
             guard !data.looksBinary else { return .binary(size: size) }
 
-            var lines = String(decoding: data, as: UTF8.self).components(separatedBy: "\n")
-            // A trailing newline ends the last line rather than starting an empty one.
-            if lines.last == "" { lines.removeLast() }
-            let total = lines.count
-            lines = Array(lines.prefix(previewLineLimit)).map { line in
-                var text = line.replacingOccurrences(of: "\t", with: "    ")
-                    .replacingOccurrences(of: "\r", with: "")
-                if text.count > lineCharacterLimit {
-                    text = String(text.prefix(lineCharacterLimit)) + " …"
-                }
-                return text
-            }
-            return .text(lines: lines, truncated: total > previewLineLimit, totalLines: total)
+            return .text(String(decoding: data, as: UTF8.self))
         }.value
     }
 
-    // The whole file as one string, for editing. The preview swaps tabs for spaces and
-    // cuts long lines and long files, so saving it back would mangle the file; an edit
-    // starts from the raw bytes instead.
-    static func fullText(of url: URL) async -> String? {
+    // When the file was last written, so a pane that has held a file open for a while can
+    // tell whether anyone else has been at it.
+    static func modified(of url: URL) async -> Date? {
         await Task.detached(priority: .userInitiated) {
-            guard let data = try? Data(contentsOf: url) else { return nil }
-            guard data.isEmpty || !data.looksBinary else { return nil }
-            return String(decoding: data, as: UTF8.self)
+            try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
         }.value
     }
 
