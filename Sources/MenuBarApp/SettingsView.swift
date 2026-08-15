@@ -40,6 +40,7 @@ final class AppSettings {
     private let agentAvatarURL: URL
     @ObservationIgnored private let preferences: UserDefaults
     private var hasExplicitNonBotDefault: Bool
+    private let initialSiteDefaultsURL: URL?
 
     var oldSessionDays = Preferences.oldSessionDays {
         didSet { Preferences.oldSessionDays = oldSessionDays }
@@ -88,11 +89,15 @@ final class AppSettings {
 
     private(set) var agentAvatars: [AgentAvatar]
     private(set) var defaultAgentAvatarName: String
+    private(set) var siteDefaultsURL: URL?
 
     init(agentAvatarURL: URL = AppPaths.supportFile("agent-avatar.png"),
          preferences: UserDefaults = .standard) {
         self.agentAvatarURL = agentAvatarURL
         self.preferences = preferences
+        let siteDefaultsURL = Preferences.siteDefaultsURL(in: preferences)
+        initialSiteDefaultsURL = siteDefaultsURL
+        self.siteDefaultsURL = siteDefaultsURL
         costShown = Dictionary(uniqueKeysWithValues: AgentKind.allCases.map {
             ($0, Preferences.showCost(for: $0))
         })
@@ -103,6 +108,15 @@ final class AppSettings {
             preferredName: preferredName,
             availableNames: avatars.map { $0.url.lastPathComponent })
         hasExplicitNonBotDefault = preferredName == AgentAvatarSelection.nonBotName
+    }
+
+    var siteDefaultsRestartRequired: Bool {
+        siteDefaultsURL?.path != initialSiteDefaultsURL?.path
+    }
+
+    func setSiteDefaultsURL(_ url: URL?) {
+        siteDefaultsURL = url?.standardizedFileURL
+        Preferences.setSiteDefaultsURL(siteDefaultsURL, in: preferences)
     }
 
     func showsCost(for agent: AgentKind) -> Bool { costShown[agent] ?? true }
@@ -196,6 +210,7 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 24) {
                     switch tab {
                     case .general:
+                        siteConfiguration
                         oldSessions
                         skillRefresh
                         defaultAgent
@@ -246,6 +261,146 @@ struct SettingsView: View {
     }
 
     // MARK: - The app itself
+
+    private var siteConfiguration: some View {
+        ChoiceBlock("SITE CONFIGURATION") {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .top, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Currently loaded")
+                            .font(.system(size: 13, weight: .semibold))
+                        Text(siteConfigurationPath)
+                            .font(.mono(11))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                            .truncationMode(.middle)
+                            .textSelection(.enabled)
+                    }
+                    Spacer(minLength: 0)
+                    Button(action: chooseSiteConfiguration) {
+                        Text("Choose…")
+                            .font(.system(size: 12, weight: .semibold))
+                            .padding(.horizontal, 12)
+                            .frame(height: 32)
+                            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.field))
+                            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+
+                    if settings.siteDefaultsURL != nil {
+                        Button(action: resetSiteConfiguration) {
+                            Text("Reset")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(Theme.accent)
+                                .frame(height: 32)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+
+                Text("Provides Dispatch sign-in and request URLs, Grafana presets, skills, and shortcuts.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if let failure = SiteDefaults.current.loadFailure {
+                    siteConfigurationNotice(
+                        icon: "exclamationmark.triangle.fill",
+                        title: "A configuration file could not be loaded",
+                        detail: failure,
+                        colour: Theme.deletion)
+                }
+
+                if settings.siteDefaultsRestartRequired {
+                    siteConfigurationNotice(
+                        icon: "arrow.clockwise.circle.fill",
+                        title: "Restart required",
+                        detail: siteConfigurationRestartMessage,
+                        colour: Theme.attentionText)
+                }
+
+                if SiteDefaults.environmentURL != nil {
+                    siteConfigurationNotice(
+                        icon: "terminal.fill",
+                        title: "Environment override active",
+                        detail: "CONDUCTOR_SITE_DEFAULTS takes precedence over the choice made here.",
+                        colour: Theme.attentionText)
+                }
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 9).fill(Theme.card))
+            .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
+        }
+    }
+
+    private var siteConfigurationPath: String {
+        return SiteDefaults.current.sourceURL?.path.abbreviatedPath
+            ?? "No configuration file found"
+    }
+
+    private var siteConfigurationRestartMessage: String {
+        if SiteDefaults.environmentURL != nil {
+            return "The choice is saved, but CONDUCTOR_SITE_DEFAULTS remains in use until it is removed and the app is restarted."
+        }
+        let destination = settings.siteDefaultsURL?.path.abbreviatedPath
+            ?? "the default search locations"
+        return "Quit and reopen Teya Conductor to load \(destination)."
+    }
+
+    private func siteConfigurationNotice(icon: String, title: String, detail: String,
+                                         colour: Color) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: icon)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(colour)
+                .frame(width: 14)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 11.5, weight: .semibold))
+                    .foregroundStyle(colour)
+                Text(detail)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(9)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 8).fill(colour.opacity(0.08)))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(colour.opacity(0.25)))
+    }
+
+    private func chooseSiteConfiguration() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.json]
+        panel.directoryURL = (settings.siteDefaultsURL ?? SiteDefaults.current.sourceURL)?
+            .deletingLastPathComponent()
+        panel.prompt = "Choose"
+        panel.message = "Pick the JSON file that holds your organisation defaults."
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        settings.setSiteDefaultsURL(url)
+        showSiteConfigurationRestartWarning()
+    }
+
+    private func resetSiteConfiguration() {
+        settings.setSiteDefaultsURL(nil)
+        showSiteConfigurationRestartWarning()
+    }
+
+    private func showSiteConfigurationRestartWarning() {
+        guard settings.siteDefaultsRestartRequired else { return }
+        dialogs.show(Dialog(
+            title: "Restart required",
+            message: "Quit and reopen Teya Conductor to load the site configuration.",
+            actions: [.init(label: "OK", kind: .cancel)]))
+    }
 
     // The threshold decides what gets offered up for review, and, if the sweep below is
     // on, what gets cleared on its own. Even then the sweep only touches what git has

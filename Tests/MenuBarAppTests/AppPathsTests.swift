@@ -133,4 +133,46 @@ struct AppPathsTests {
         defaults.set(366, forKey: "oldSessionDays")
         #expect(Preferences.oldSessionDays(in: defaults) == 365)
     }
+
+    @Test func storesAndResetsTheChosenSiteConfiguration() throws {
+        let suite = "conductor-site-defaults-tests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let selected = URL(fileURLWithPath: "/tmp/../tmp/team-defaults.json")
+
+        Preferences.setSiteDefaultsURL(selected, in: defaults)
+
+        #expect(Preferences.siteDefaultsURL(in: defaults)?.path == "/tmp/team-defaults.json")
+
+        Preferences.setSiteDefaultsURL(nil, in: defaults)
+        #expect(Preferences.siteDefaultsURL(in: defaults) == nil)
+        #expect(defaults.object(forKey: "siteDefaultsPath") == nil)
+    }
+
+    @Test @MainActor func changingTheSiteConfigurationRequiresARestart() throws {
+        let suite = "conductor-site-restart-tests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let original = root.appendingPathComponent("original.json")
+        let replacement = root.appendingPathComponent("replacement.json")
+        Preferences.setSiteDefaultsURL(original, in: defaults)
+        let settings = AppSettings(agentAvatarURL: root.appendingPathComponent("avatar.png"),
+                                   preferences: defaults)
+
+        #expect(settings.siteDefaultsURL == original)
+        #expect(!settings.siteDefaultsRestartRequired)
+
+        settings.setSiteDefaultsURL(replacement)
+        #expect(settings.siteDefaultsRestartRequired)
+        #expect(Preferences.siteDefaultsURL(in: defaults) == replacement)
+
+        settings.setSiteDefaultsURL(nil)
+        #expect(settings.siteDefaultsRestartRequired)
+        #expect(Preferences.siteDefaultsURL(in: defaults) == nil)
+
+        settings.setSiteDefaultsURL(original)
+        #expect(!settings.siteDefaultsRestartRequired)
+    }
 }

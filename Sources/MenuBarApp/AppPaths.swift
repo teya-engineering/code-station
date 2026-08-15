@@ -214,6 +214,27 @@ enum Preferences {
         set { set(newValue, "terminalBundleID") }
     }
 
+    // A chosen site file sits ahead of the conventional and bundled locations. The path
+    // is kept rather than copied so a team can update one shared file in place.
+    static var siteDefaultsURL: URL? {
+        get { siteDefaultsURL(in: store) }
+        set { setSiteDefaultsURL(newValue, in: store) }
+    }
+
+    static func siteDefaultsURL(in store: UserDefaults) -> URL? {
+        store.string(forKey: "siteDefaultsPath").map {
+            URL(fileURLWithPath: $0).standardizedFileURL
+        }
+    }
+
+    static func setSiteDefaultsURL(_ url: URL?, in store: UserDefaults) {
+        guard let url else {
+            store.removeObject(forKey: "siteDefaultsPath")
+            return
+        }
+        store.set(url.standardizedFileURL.path, forKey: "siteDefaultsPath")
+    }
+
     static var appearance: Appearance {
         get { store.string(forKey: "appearance").flatMap(Appearance.init(rawValue:)) ?? .system }
         set { store.set(newValue.rawValue, forKey: "appearance") }

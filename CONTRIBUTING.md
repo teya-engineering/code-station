@@ -59,11 +59,14 @@ Add tests for behavior and business logic. Trivial view wiring, accessors, and f
 
 ## Site defaults
 
-Anything that belongs to one organisation rather than to the app lives in `site-defaults.json`: the identity provider the API environments sign in against, the saved requests a first run starts with, what `{{env}}` stands for on each side, the Grafana instances offered in the Add server sheet, the skills marketplace, and the command shortcuts a first run starts with. `SiteDefaults` reads it from the first of these that exists:
+Anything that belongs to one organisation rather than to the app lives in `site-defaults.json`: the identity provider the API environments sign in against, the saved requests a first run starts with, what `{{env}}` stands for on each side, the Grafana instances offered in the Add server sheet, the skills marketplace, and the command shortcuts a first run starts with. `SiteDefaults` reads the first valid file from these locations:
 
 1. `$CONDUCTOR_SITE_DEFAULTS`
-2. `~/Library/Application Support/com.teya.conductor/site-defaults.json`
-3. `site-defaults.json` inside the app bundle
+2. The file chosen in Settings
+3. `~/Library/Application Support/com.teya.conductor/site-defaults.json`
+4. `site-defaults.json` inside the app bundle
+
+An unreadable or malformed file produces a visible warning and falls through to the next location. Settings stores a chosen path in `UserDefaults`; it does not copy the file. Site defaults are immutable for the life of the process, so choosing or resetting the path requires an app restart.
 
 Nothing is compiled in, so a plain checkout builds an app with all of it empty. Two settings files are tracked: `site-defaults.example.json` is a blank-slate example to copy, and `teya-defaults.json` holds Teya's own setup. [README.md](README.md#site-configuration) covers each field. `build-app.sh` folds one of them into the bundle it builds, chosen with `SITE_DEFAULTS` and defaulting to an untracked `site-defaults.json`, which is how a configured app gets handed to a team. Every section is optional.
 

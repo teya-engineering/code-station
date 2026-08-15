@@ -8,11 +8,12 @@ import Foundation
 // means each team points the same build at its own setup, and a build with no file at all
 // still runs with every one of them empty.
 //
-// The file is read from the first of these that exists:
+// The file is read from the first of these that can be parsed:
 //
 //   1. $CONDUCTOR_SITE_DEFAULTS
-//   2. <application support>/site-defaults.json
-//   3. site-defaults.json inside the app bundle
+//   2. The file chosen in Settings
+//   3. <application support>/site-defaults.json
+//   4. site-defaults.json inside the app bundle
 //
 // None of it is compiled in. `site-defaults.example.json` shows the shape and
 // `teya-defaults.json` holds Teya's own setup; the build script folds whichever one it is
@@ -23,9 +24,10 @@ struct SiteDefaults: Decodable, Sendable {
     var skills: Skills? = nil
     var shortcuts: [Shortcut]? = nil
 
-    // Not part of the file. Set when a file was found but could not be read, so a typo
-    // in it does not look the same as having no file.
+    // Not part of the file. These tell the UI where the values came from and whether an
+    // earlier choice failed, so falling back never looks like the chosen file worked.
     var loadFailure: String? = nil
+    var sourceURL: URL? = nil
 
     private enum CodingKeys: String, CodingKey {
         case dispatch, grafana, skills, shortcuts
@@ -36,12 +38,14 @@ struct SiteDefaults: Decodable, Sendable {
          grafana: Grafana? = nil,
          skills: Skills? = nil,
          shortcuts: [Shortcut]? = nil,
-         loadFailure: String? = nil) {
+         loadFailure: String? = nil,
+         sourceURL: URL? = nil) {
         self.dispatch = dispatch
         self.grafana = grafana
         self.skills = skills
         self.shortcuts = shortcuts
         self.loadFailure = loadFailure
+        self.sourceURL = sourceURL
     }
 
     init(from decoder: Decoder) throws {
@@ -137,27 +141,67 @@ extension SiteDefaults {
     static let current: SiteDefaults = load()
 
     static func load(_ urls: [URL] = searchPaths) -> SiteDefaults {
+        var failures: [String] = []
         for url in urls {
-            guard let data = try? Data(contentsOf: url) else { continue }
+            guard FileManager.default.fileExists(atPath: url.path) else { continue }
+
+            let data: Data
             do {
-                return try JSONDecoder().decode(SiteDefaults.self, from: data)
+                data = try Data(contentsOf: url)
             } catch {
-                let message = "\(url.path) could not be read: \(error.localizedDescription)"
-                FileHandle.standardError.write(Data("site defaults: \(message)\n".utf8))
-                return SiteDefaults(loadFailure: message)
+                failures.append("\(url.path) could not be read: \(error.localizedDescription)")
+                continue
+            }
+
+            do {
+                var defaults = try JSONDecoder().decode(SiteDefaults.self, from: data)
+                defaults.sourceURL = url
+                if !failures.isEmpty {
+                    failures.append("The app loaded \(url.path) instead.")
+                    defaults.loadFailure = report(failures)
+                }
+                return defaults
+            } catch {
+                failures.append("\(url.path) could not be parsed: \(error.localizedDescription)")
             }
         }
-        return SiteDefaults()
+
+        guard !failures.isEmpty else { return SiteDefaults() }
+        failures.append("No fallback configuration was available, so the app started without site defaults.")
+        return SiteDefaults(loadFailure: report(failures))
+    }
+
+    private static func report(_ failures: [String]) -> String {
+        let message = failures.joined(separator: "\n")
+        FileHandle.standardError.write(Data("site defaults: \(message)\n".utf8))
+        return message
+    }
+
+    static var environmentURL: URL? {
+        ProcessInfo.processInfo.environment["CONDUCTOR_SITE_DEFAULTS"].map {
+            URL(fileURLWithPath: $0).standardizedFileURL
+        }
     }
 
     static var searchPaths: [URL] {
-        var paths: [URL] = []
-        if let override = ProcessInfo.processInfo.environment["CONDUCTOR_SITE_DEFAULTS"] {
-            paths.append(URL(fileURLWithPath: override))
+        searchPaths(environmentURL: environmentURL,
+                    selectedURL: Preferences.siteDefaultsURL,
+                    bundledURL: bundledURL)
+    }
+
+    static func searchPaths(environmentURL: URL?, selectedURL: URL?, bundledURL: URL?) -> [URL] {
+        let candidates = [
+            environmentURL,
+            selectedURL,
+            AppPaths.support.appendingPathComponent(fileName),
+            bundledURL
+        ].compactMap { $0?.standardizedFileURL }
+
+        return candidates.reduce(into: []) { paths, url in
+            if !paths.contains(where: { $0.path == url.path }) {
+                paths.append(url)
+            }
         }
-        paths.append(AppPaths.support.appendingPathComponent(fileName))
-        if let bundled = bundledURL { paths.append(bundled) }
-        return paths
     }
 
     static var bundledURL: URL? {

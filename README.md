@@ -82,17 +82,20 @@ Copy the example, then edit it:
 cp site-defaults.example.json site-defaults.json
 ```
 
-The app reads the first of these that exists:
+The app reads the first of these that can be parsed:
 
 1. The path in `$CONDUCTOR_SITE_DEFAULTS`
-2. `~/Library/Application Support/com.teya.conductor/site-defaults.json`
-3. `site-defaults.json` inside the app bundle
+2. The file chosen under Site Configuration in Settings
+3. `~/Library/Application Support/com.teya.conductor/site-defaults.json`
+4. `site-defaults.json` inside the app bundle
 
-Put your file in the second one for everyday use. `site-defaults.json` in the repository root is ignored by Git, so working settings never end up in a commit.
+Settings shows the file currently in use. You can choose a different JSON file or reset the choice to use the normal locations. The app reads site configuration at startup, so it asks you to restart after either change.
+
+Put your file in the third location for everyday use. `site-defaults.json` in the repository root is ignored by Git, so working settings never end up in a commit.
 
 ### Build a configured app
 
-`./build-app.sh` folds a settings file into the bundle it builds, which is the third location above. That gives you an app that is already set up, ready to hand to your team. It uses `site-defaults.json` unless you name another file:
+`./build-app.sh` folds a settings file into the bundle it builds, which is the fourth location above. That gives you an app that is already set up, ready to hand to your team. It uses `site-defaults.json` unless you name another file:
 
 ```bash
 ./build-app.sh                                    # your own settings, or none
@@ -114,7 +117,7 @@ A `swift run` development build has no bundle to fold a file into, so use one of
 
 The client secret and the OAuth tokens are yours rather than your organisation's, so they are never part of this file. They stay in the macOS Keychain.
 
-If the file cannot be read, the app starts with everything empty and writes the reason to its standard error, so a typo does not look the same as having no file at all.
+If a file cannot be read or parsed, the app warns you and tries the next location. If no valid fallback is available, it starts without site defaults and keeps the warning visible.
 
 ## Get started
 

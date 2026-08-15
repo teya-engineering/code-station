@@ -118,6 +118,10 @@ struct RootView: View {
         if let persistenceError {
             return Attention(title: "Storage needs attention", message: persistenceError)
         }
+        if let siteDefaultsFailure = SiteDefaults.current.loadFailure {
+            return Attention(title: "Site configuration needs attention",
+                             message: siteDefaultsFailure)
+        }
         if let sessionCleanupError {
             return Attention(title: "Session cleanup needs attention", message: sessionCleanupError)
         }

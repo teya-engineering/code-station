@@ -47,6 +47,7 @@ struct SiteDefaultsTests {
         let defaults = SiteDefaults.load([url])
 
         #expect(defaults.loadFailure == nil)
+        #expect(defaults.sourceURL == url)
         #expect(defaults.dispatchOAuth.grant == .clientCredentials)
         #expect(defaults.dispatchOAuth.tokenURL == "https://id.example/token")
         #expect(defaults.dispatchOAuth.clientID == "abc")
@@ -128,20 +129,54 @@ struct SiteDefaultsTests {
         #expect(defaults.dispatchRequests.map(\.name) == ["Existing request"])
     }
 
-    @Test func aBrokenFileIsReportedRatherThanIgnored() throws {
+    @Test func aBrokenFileIsReportedWhenThereIsNoFallback() throws {
         let url = try file("{ \"grafana\": { \"presets\": [ { \"scope\": \"platform\" } ] } }")
         let defaults = SiteDefaults.load([url])
 
         #expect(defaults.loadFailure != nil)
+        #expect(defaults.loadFailure?.contains("No fallback configuration was available") == true)
+        #expect(defaults.sourceURL == nil)
         #expect(defaults.grafanaPresets.isEmpty)
     }
 
-    @Test func theFirstFileThatExistsWins() throws {
+    @Test func aBrokenFileFallsBackToTheNextValidFile() throws {
+        let broken = try file("{ \"grafana\": { \"presets\": [ { \"scope\": \"platform\" } ] } }")
+        let fallback = try file(#"{ "skills": { "name": "Fallback", "marketplace": "fallback", "repository": "https://example.test/fallback" } }"#)
+
+        let defaults = SiteDefaults.load([broken, fallback])
+
+        #expect(defaults.skills?.name == "Fallback")
+        #expect(defaults.sourceURL == fallback)
+        #expect(defaults.loadFailure?.contains(broken.path) == true)
+        #expect(defaults.loadFailure?.contains("The app loaded \(fallback.path) instead.") == true)
+    }
+
+    @Test func theFirstValidFileWins() throws {
         let missing = URL(fileURLWithPath: "/nowhere/site-defaults.json")
         let first = try file(#"{ "skills": { "name": "First", "marketplace": "first", "repository": "https://example.test/first" } }"#)
         let second = try file(#"{ "skills": { "name": "Second", "marketplace": "second", "repository": "https://example.test/second" } }"#)
 
         #expect(SiteDefaults.load([missing, first, second]).skills?.name == "First")
+    }
+
+    @Test func searchOrderHonoursTheEnvironmentAndSettingsChoice() {
+        let environment = URL(fileURLWithPath: "/tmp/from-environment.json")
+        let selected = URL(fileURLWithPath: "/tmp/from-settings.json")
+        let bundled = URL(fileURLWithPath: "/tmp/from-bundle.json")
+
+        let paths = SiteDefaults.searchPaths(environmentURL: environment,
+                                             selectedURL: selected,
+                                             bundledURL: bundled)
+
+        #expect(paths == [
+            environment,
+            selected,
+            AppPaths.support.appendingPathComponent(SiteDefaults.fileName),
+            bundled
+        ])
+        #expect(SiteDefaults.searchPaths(environmentURL: selected,
+                                         selectedURL: selected,
+                                         bundledURL: nil).filter { $0 == selected }.count == 1)
     }
 
     @Test func anInstanceServesTheEnvironmentsItLists() throws {
