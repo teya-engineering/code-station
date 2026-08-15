@@ -142,6 +142,8 @@ struct AppSidebar: View {
                 .appMenu { sessionNoticeMenu }
                 .appTooltip("Show active and unread sessions")
             }
+
+            MobileAccessBadge()
         }
         .padding(.horizontal, 14)
         .headerBand(Theme.sidebar)

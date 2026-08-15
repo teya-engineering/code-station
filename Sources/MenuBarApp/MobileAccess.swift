@@ -51,6 +51,26 @@ struct MobileShare: Identifiable, Equatable {
     var isConnected: Bool { connectionID != nil }
 }
 
+// One code that is out there, named and told apart from the others. The codes are made in
+// three different corners of the app, so the header needs them gathered and described in
+// one place to be able to list them and take any of them back.
+struct MobileShareSummary: Identifiable {
+    let id: UUID
+    let scope: MobileScope
+    let name: String
+    let isConnected: Bool
+
+    var reach: String {
+        switch scope {
+        case .session: "This session only"
+        case .project: "Any session in this project"
+        case .everything: "Every project"
+        }
+    }
+
+    var state: String { isConnected ? "Phone connected" : "Waiting for a phone" }
+}
+
 struct RemoteCommand: Decodable, Equatable {
     let type: String
     var version: Int?
@@ -250,6 +270,17 @@ final class MobileAccessController {
 
     func share(for scope: MobileScope) -> MobileShare? {
         shares[scope]
+    }
+
+    // Everything a phone can reach right now, newest first. A code that no phone has
+    // scanned yet still counts, since it is access that has been given away.
+    var activeShares: [MobileShareSummary] {
+        shares.values
+            .sorted { $0.createdAt > $1.createdAt }
+            .map {
+                MobileShareSummary(id: $0.id, scope: $0.scope,
+                                   name: title(for: $0.scope), isConnected: isLive($0.scope))
+            }
     }
 
     // A phone counts as being on a session whether it scanned that session's own code or
@@ -1337,6 +1368,58 @@ struct MobileAccessButton: View {
         case .everything:
             "A phone on the same trusted Wi-Fi can read any session in any project, start new ones anywhere, send prompts, stop turns and answer requests."
         }
+    }
+}
+
+// Every code that is out, wherever it was made. The three buttons that hand out access sit
+// on the session, the project and Home, so without this there is no one place that says
+// what a phone can reach or takes it back.
+struct MobileAccessBadge: View {
+    @Environment(MobileAccessController.self) private var mobileAccess
+
+    var body: some View {
+        let shares = mobileAccess.activeShares
+        if !shares.isEmpty {
+            let connected = shares.filter(\.isConnected).count
+            let tint = connected > 0 ? Theme.addition : Theme.accent
+            HStack(spacing: 5) {
+                Image(systemName: connected > 0
+                        ? "iphone.radiowaves.left.and.right" : "iphone")
+                    .font(.system(size: 10, weight: .semibold))
+                Text("\(shares.count)")
+                    .font(.mono(9.5, .semibold))
+                    .kerning(0.7)
+            }
+            .foregroundStyle(tint)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 4)
+            .background(RoundedRectangle(cornerRadius: 6).fill(tint.opacity(0.1)))
+            .appMenu { menu(shares) }
+            .appTooltip(connected > 0
+                        ? "\(connected) of \(shares.count) shared with a connected phone"
+                        : "Shared with a phone")
+            .accessibilityLabel("Mobile access")
+        }
+    }
+
+    private func menu(_ shares: [MobileShareSummary]) -> [MenuEntry] {
+        var entries: [MenuEntry] = shares.map { share in
+            .item(share.name,
+                  icon: share.isConnected
+                      ? "iphone.radiowaves.left.and.right" : "iphone",
+                  subtitle: "\(share.state) · \(share.reach)",
+                  detail: "Revoke",
+                  detailColour: Theme.deletion) {
+                mobileAccess.revoke(share.scope)
+            }
+        }
+        if shares.count > 1 {
+            entries.append(.separator)
+            entries.append(.item("Revoke all", kind: .destructive, icon: "xmark.circle") {
+                mobileAccess.stop()
+            })
+        }
+        return entries
     }
 }
 
