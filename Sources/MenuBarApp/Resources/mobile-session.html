@@ -642,18 +642,32 @@
         const wrapper = element('article', `message ${message.role}`);
         if (message.role === 'user') {
           if (message.text) wrapper.append(element('div', 'bubble', message.text));
-        } else if (message.text) {
-          const prose = element('div', 'prose', message.text);
-          if (isLast && header.state === 'RUNNING') prose.append(element('span', 'cursor'));
-          wrapper.append(prose);
-        }
-        for (const thought of message.thinking || []) {
-          wrapper.append(element('div', 'thinking', thought));
+        } else {
+          const blocks = message.blocks || [];
+          let lastProse = -1;
+          for (let index = blocks.length - 1; index >= 0; index--) {
+            if (blocks[index].kind === 'prose') {
+              lastProse = index;
+              break;
+            }
+          }
+          for (const [index, block] of blocks.entries()) {
+            if (block.kind === 'prose') {
+              const prose = element('div', 'prose', block.text || '');
+              if (isLast && header.state === 'RUNNING' && index === lastProse) {
+                prose.append(element('span', 'cursor'));
+              }
+              wrapper.append(prose);
+            } else if (block.kind === 'thinking') {
+              wrapper.append(element('div', 'thinking', block.text || ''));
+            } else if (block.kind === 'tools') {
+              for (const tool of block.tools || []) wrapper.append(renderTool(tool));
+            }
+          }
         }
         for (const attachment of message.attachments || []) {
           wrapper.append(element('span', 'attachment', attachment));
         }
-        for (const tool of message.tools || []) wrapper.append(renderTool(tool));
         return wrapper;
       };
 
@@ -737,8 +751,7 @@
               date: change.date,
               text: change.text || '',
               attachments: change.attachments || [],
-              thinking: change.thinking || [],
-              tools: change.tools || [],
+              blocks: change.blocks || [],
             });
             redraw.add(change.id);
             continue;
@@ -750,11 +763,25 @@
             send({ type: 'resync' });
             return;
           }
-          if (change.textAppend) message.text += change.textAppend;
+          if (change.textAppend) {
+            message.text += change.textAppend;
+            const prose = [...message.blocks].reverse().find(block => block.kind === 'prose');
+            if (!prose) {
+              send({ type: 'resync' });
+              return;
+            }
+            prose.text = (prose.text || '') + change.textAppend;
+          }
           for (const tool of change.tools || []) {
-            const at = message.tools.findIndex(existing => existing.id === tool.id);
-            if (at < 0) message.tools.push(tool);
-            else message.tools[at] = tool;
+            const block = message.blocks.find(candidate =>
+              candidate.kind === 'tools'
+                && (candidate.tools || []).some(existing => existing.id === tool.id));
+            if (!block) {
+              send({ type: 'resync' });
+              return;
+            }
+            const at = block.tools.findIndex(existing => existing.id === tool.id);
+            block.tools[at] = tool;
             redraw.add(change.id);
           }
           if (change.textAppend && !redraw.has(change.id)) {
@@ -770,7 +797,8 @@
         for (const [id, text] of appended) {
           const node = nodes.get(id);
           if (!node) continue;
-          const prose = node.querySelector('.prose');
+          const proseBlocks = node.querySelectorAll('.prose');
+          const prose = proseBlocks[proseBlocks.length - 1];
           if (prose) {
             const cursor = prose.querySelector('.cursor');
             if (cursor) cursor.before(text);

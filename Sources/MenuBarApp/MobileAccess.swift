@@ -702,13 +702,13 @@ struct RemoteChange: Encodable, Equatable {
     var text: String?
     var textAppend: String?
     var attachments: [String]?
-    var thinking: [String]?
+    var blocks: [RemoteBlock]?
     var tools: [RemoteTool]?
 
     static func full(_ message: RemoteMessage) -> RemoteChange {
         RemoteChange(kind: "full", id: message.id, role: message.role, date: message.date,
                      text: message.text, attachments: message.attachments,
-                     thinking: message.thinking, tools: message.tools)
+                     blocks: message.blocks)
     }
 
     static func patch(id: String, textAppend: String?, tools: [RemoteTool]?) -> RemoteChange {
@@ -721,7 +721,7 @@ struct RemoteMessageDigest: Equatable {
     let date: Date
     let textCount: Int
     let textHash: Int
-    let thinking: Int
+    let structure: Int
     let attachments: Int
     let toolOrder: [String]
     let tools: [String: Int]
@@ -734,7 +734,7 @@ enum RemoteTranscriptDiff {
             date: message.date,
             textCount: message.text.count,
             textHash: message.text.hashValue,
-            thinking: message.thinking.hashValue,
+            structure: message.structureDigest,
             attachments: message.attachments.hashValue,
             toolOrder: message.tools.map(\.id),
             tools: Dictionary(message.tools.map { ($0.id, $0.digest) },
@@ -748,7 +748,7 @@ enum RemoteTranscriptDiff {
                        message: RemoteMessage) -> RemoteChange {
         guard previous.role == current.role,
               previous.date == current.date,
-              previous.thinking == current.thinking,
+              previous.structure == current.structure,
               previous.attachments == current.attachments,
               previous.toolOrder == current.toolOrder,
               current.textCount >= previous.textCount else { return .full(message) }
@@ -771,8 +771,22 @@ struct RemoteMessage: Encodable {
     let text: String
     let date: Date
     let attachments: [String]
-    let thinking: [String]
-    let tools: [RemoteTool]
+    let blocks: [RemoteBlock]
+
+    var tools: [RemoteTool] { blocks.flatMap { $0.tools ?? [] } }
+
+    // Prose is already covered by the text digest. This only records the layout around
+    // it, so an answer can still stream as small append patches while its last prose block
+    // grows.
+    var structureDigest: Int {
+        var hasher = Hasher()
+        for block in blocks {
+            hasher.combine(block.kind)
+            if block.kind == "thinking" { hasher.combine(block.text) }
+            if block.kind == "tools" { block.tools?.forEach { hasher.combine($0.id) } }
+        }
+        return hasher.finalize()
+    }
 
     init(_ message: ChatMessage, projectPath: String = "") {
         id = message.id.uuidString
@@ -780,8 +794,40 @@ struct RemoteMessage: Encodable {
         text = message.text
         date = message.date
         attachments = (message.attachments ?? []).map { URL(fileURLWithPath: $0).lastPathComponent }
-        thinking = (message.thinking ?? []).map(\.text)
-        tools = message.tools.map { RemoteTool($0, projectPath: projectPath) }
+        blocks = message.blocks.map { RemoteBlock($0, projectPath: projectPath) }
+    }
+}
+
+// The Mac has already rebuilt the separate text, thought and tool streams in their true
+// order. Sending that result keeps the phone on the same ordering rules, including Unicode
+// text offsets and calls made by child agents.
+struct RemoteBlock: Encodable, Equatable {
+    let kind: String
+    let text: String?
+    let tools: [RemoteTool]?
+
+    init(_ block: MessageBlock, projectPath: String) {
+        switch block {
+        case .prose(_, let text):
+            kind = "prose"
+            self.text = text
+            tools = nil
+        case .thinking(_, let text):
+            kind = "thinking"
+            self.text = text
+            tools = nil
+        case .tools(_, let nodes):
+            kind = "tools"
+            text = nil
+            tools = nodes
+                .flatMap(Self.flatten)
+                .sorted { $0.order < $1.order }
+                .map { RemoteTool($0.tool, projectPath: projectPath) }
+        }
+    }
+
+    private static func flatten(_ node: ToolNode) -> [ToolNode] {
+        [node] + node.children.flatMap(flatten)
     }
 }
 

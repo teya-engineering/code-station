@@ -95,6 +95,26 @@ struct MobileAccessTests {
         #expect(change.tools == nil)
     }
 
+    @Test func sendsAssistantContentInTheOrderItHappened() throws {
+        var firstThought = ThinkingSegment(text: "Plan the change")
+        firstThought.textOffset = 0
+        firstThought.toolOffset = 0
+        var secondThought = ThinkingSegment(text: "Check the result")
+        secondThought.textOffset = 8
+        secondThought.toolOffset = 0
+        let call = ToolUse(id: "call-1", name: "Read", input: "Package.swift", result: "ok",
+                           textOffset: 8)
+        var message = ChatMessage(role: .assistant, text: "Looking.\n\nDone.", tools: [call])
+        message.thinking = [firstThought, secondThought]
+
+        let remote = RemoteMessage(message)
+
+        #expect(remote.blocks.map(\.kind) == ["thinking", "prose", "thinking", "tools", "prose"])
+        #expect(remote.blocks.compactMap(\.text)
+            == ["Plan the change", "Looking.", "Check the result", "\n\nDone."])
+        #expect(remote.blocks.flatMap { $0.tools ?? [] }.map(\.id) == ["call-1"])
+    }
+
     @Test func sendsOnlyTheToolThatMoved() {
         let id = UUID()
         let date = Date()
