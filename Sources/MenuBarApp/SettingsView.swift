@@ -210,7 +210,6 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 24) {
                     switch tab {
                     case .general:
-                        siteConfiguration
                         oldSessions
                         skillRefresh
                         defaultAgent
@@ -220,6 +219,7 @@ struct SettingsView: View {
                         textSize
                         startAtLogin
                         log
+                        siteConfiguration
                     case .agents:
                         AgentSettingsView()
                     case .experimental:
