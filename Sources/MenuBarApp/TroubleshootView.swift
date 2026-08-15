@@ -75,7 +75,7 @@ struct TroubleshootRequest {
         Troubleshooting context:
         - Environment: \(environment.promptTitle)
         - Projects: \(projectText)
-        - For Grafana queries, use the project name as the `job` label.
+        - For Grafana queries, follow the `grafana-mcp` skill from the `grafana-specialist` plugin. Load it before the first query, whatever the agent calls skills.
         - \(mcpText)
 
         Investigate the problem and use read-only checks first. Do not change code or configuration.\(productionText) Explain the likely root cause, cite the evidence you found, and give concrete next steps. If a fix is needed, propose it and wait for a follow-up before applying it.

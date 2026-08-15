@@ -16,7 +16,8 @@ struct TroubleshootTests {
         #expect(request.customInstructions.contains("production (prod)"))
         #expect(request.customInstructions.contains("payments-api, merchant-web"))
         #expect(request.customInstructions.contains(
-            "For Grafana queries, use the project name as the `job` label."))
+            "follow the `grafana-mcp` skill from the `grafana-specialist` plugin"))
+        #expect(request.customInstructions.contains("whatever the agent calls skills"))
         #expect(request.customInstructions.contains("MCP servers are enabled"))
         #expect(request.customInstructions.contains("grafana-platform-prd, grafana-shared-shared"))
         #expect(request.customInstructions.contains("Search the available tool catalogue"))
