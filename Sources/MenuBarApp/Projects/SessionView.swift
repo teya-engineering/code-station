@@ -349,36 +349,16 @@ struct SessionView: View {
     }
 
     private func openMobileAccess() {
-        Task {
-            do {
-                _ = try await mobileAccess.prepareShare(for: sessionID)
-                dialogs.show(Dialog(
-                    title: "Open this session on your phone",
-                    message: """
-                    Scan with a phone on the same trusted Wi-Fi. It can read this session, send prompts, stop turns and answer requests.
+        dialogs.show(Dialog(
+            title: "Open this session on your phone",
+            message: """
+            A phone on the same trusted Wi-Fi can read this session, send prompts, stop turns and answer requests. No phone can connect until you start sharing below.
 
-                    Sharing continues after this dialog closes. Reopen it to stop sharing.
-                    """,
-                    content: AnyView(MobilePairingView(sessionID: sessionID)),
-                    actions: [
-                        .init(label: "Stop sharing", kind: .destructive) {
-                            mobileAccess.revoke(sessionID)
-                        },
-                        .init(label: "Done", kind: .primary)
-                    ],
-                    width: 390))
-            } catch let failure as LANServerFailure {
-                dialogs.show(Dialog(
-                    title: "Could not open this session on a phone",
-                    message: failure.message,
-                    actions: [.init(label: "OK", kind: .cancel)]))
-            } catch {
-                dialogs.show(Dialog(
-                    title: "Could not open this session on a phone",
-                    message: error.localizedDescription,
-                    actions: [.init(label: "OK", kind: .cancel)]))
-            }
-        }
+            Sharing continues after this dialog closes. Reopen it to cancel or stop sharing.
+            """,
+            content: AnyView(MobilePairingView(sessionID: sessionID)),
+            actions: [.init(label: "Done", kind: .primary)],
+            width: 390))
     }
 
     // MARK: - Status strip

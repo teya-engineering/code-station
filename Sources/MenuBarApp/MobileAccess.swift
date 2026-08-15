@@ -166,7 +166,7 @@ final class MobileAccessController {
         shares[sessionID]
     }
 
-    func prepareShare(for sessionID: UUID) async throws -> MobileShare {
+    func startSharing(_ sessionID: UUID) async throws -> MobileShare {
         guard enabled else {
             throw LANServerFailure(message: "Turn on Mobile session access in Settings first.")
         }
@@ -605,6 +605,9 @@ struct MobilePairingView: View {
     @Environment(MobileAccessController.self) private var mobileAccess
     let sessionID: UUID
 
+    @State private var starting = false
+    @State private var failure: String?
+
     var body: some View {
         if let share = mobileAccess.share(for: sessionID) {
             VStack(spacing: 14) {
@@ -632,15 +635,62 @@ struct MobilePairingView: View {
                     .lineLimit(2)
                     .multilineTextAlignment(.center)
                     .textSelection(.enabled)
+
+                ActionButton(title: share.isConnected ? "Stop sharing" : "Cancel sharing",
+                             tone: .danger, height: 38, size: 13, fills: true) {
+                    mobileAccess.revoke(sessionID)
+                }
             }
             .frame(maxWidth: .infinity)
             .padding(.top, 6)
         } else {
-            Text("Sharing has stopped.")
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 30)
+            VStack(spacing: 14) {
+                Image(systemName: "iphone.slash")
+                    .font(.system(size: 25, weight: .medium))
+                    .foregroundStyle(.secondary)
+
+                VStack(spacing: 4) {
+                    Text("Sharing is off")
+                        .font(.system(size: 13, weight: .semibold))
+                    Text("Start sharing to create a temporary QR code and allow one phone to connect.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                if let failure {
+                    Text(failure)
+                        .font(.system(size: 12))
+                        .foregroundStyle(Theme.deletion)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                ActionButton(title: starting ? "Starting…" : "Start sharing",
+                             tone: .green, height: 38, size: 13, fills: true,
+                             action: startSharing)
+                    .disabled(starting)
+                    .opacity(starting ? 0.5 : 1)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 18)
+        }
+    }
+
+    private func startSharing() {
+        guard !starting else { return }
+        starting = true
+        failure = nil
+        Task { @MainActor in
+            defer { starting = false }
+            do {
+                _ = try await mobileAccess.startSharing(sessionID)
+            } catch let error as LANServerFailure {
+                failure = error.message
+            } catch {
+                failure = error.localizedDescription
+            }
         }
     }
 }
