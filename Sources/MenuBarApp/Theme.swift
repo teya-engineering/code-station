@@ -202,6 +202,36 @@ extension Font {
     }
 }
 
+// The reading sizes, which follow the size the user picked rather than being fixed like
+// the rest of the type. They are modifiers instead of Font values because the point size
+// they land on comes from the environment, and a modifier can read that where the view
+// holding it would otherwise need a property of its own.
+private struct ScaledFont: ViewModifier {
+    @Environment(\.textScale) private var scale
+
+    let size: CGFloat
+    let weight: Font.Weight
+    let design: Font.Design
+
+    func body(content: Content) -> some View {
+        content.font(.system(size: size * scale, weight: weight, design: design))
+    }
+}
+
+extension View {
+    func scaledText(_ size: CGFloat, _ weight: Font.Weight = .regular) -> some View {
+        modifier(ScaledFont(size: size, weight: weight, design: .default))
+    }
+
+    func scaledMono(_ size: CGFloat, _ weight: Font.Weight = .regular) -> some View {
+        modifier(ScaledFont(size: size, weight: weight, design: .monospaced))
+    }
+
+    func scaledSerif(_ size: CGFloat, _ weight: Font.Weight = .semibold) -> some View {
+        modifier(ScaledFont(size: size, weight: weight, design: .serif))
+    }
+}
+
 // Sora ships with the app instead of coming from the system, so Core Text has to be told
 // about the file before anything can ask for the family by name.
 private enum SoraFont {

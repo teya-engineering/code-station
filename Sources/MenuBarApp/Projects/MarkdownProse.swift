@@ -321,6 +321,7 @@ extension AttributedString {
 struct MarkdownBlockView: View, Equatable {
     let block: MarkdownBlock
     let projectPath: String
+    let textScale: CGFloat
 
     var body: some View {
         switch block.kind {
@@ -342,19 +343,19 @@ struct MarkdownBlockView: View, Equatable {
                         marker(item)
                             .frame(minWidth: 14, alignment: .trailing)
                         Text(.inlineMarkdown(item.text))
-                            .font(.system(size: 13.5))
+                            .scaledText(13.5)
                             .lineSpacing(2)
                             .textSelection(.enabled)
                             .multilineTextAlignment(.leading)
                             .fixedSize(horizontal: false, vertical: true)
                     }
-                    .padding(.leading, CGFloat(item.depth) * 16)
+                    .padding(.leading, CGFloat(item.depth) * 16 * textScale)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         case .quote(let text):
             Text(.inlineMarkdown(text))
-                .font(.system(size: 13))
+                .scaledText(13)
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)
                 .multilineTextAlignment(.leading)
@@ -399,7 +400,7 @@ struct MarkdownBlockView: View, Equatable {
 
     private func paragraphText(_ text: String) -> some View {
         Text(.inlineMarkdown(text))
-            .font(.system(size: 13))
+            .scaledText(13)
             .textSelection(.enabled)
             .multilineTextAlignment(.leading)
             .fixedSize(horizontal: false, vertical: true)
@@ -417,7 +418,7 @@ struct MarkdownBlockView: View, Equatable {
                 .offset(y: -3)
         } else {
             Text(item.marker)
-                .font(.system(size: 13))
+                .scaledText(13)
                 .foregroundStyle(.secondary)
         }
     }
@@ -426,10 +427,10 @@ struct MarkdownBlockView: View, Equatable {
     // levels, plain semibold below.
     private func headingFont(_ level: Int) -> Font {
         switch level {
-        case 1: .serif(18)
-        case 2: .serif(15.5)
-        case 3: .system(size: 14, weight: .semibold)
-        default: .system(size: 13, weight: .semibold)
+        case 1: .serif(18 * textScale)
+        case 2: .serif(15.5 * textScale)
+        case 3: .system(size: 14 * textScale, weight: .semibold)
+        default: .system(size: 13 * textScale, weight: .semibold)
         }
     }
 }
@@ -467,7 +468,7 @@ private struct MarkdownTableView: View {
         let alignment = table.alignments.indices.contains(column)
             ? table.alignments[column] : .leading
         return Text(.inlineMarkdown(text))
-            .font(.system(size: 12.5, weight: header ? .semibold : .regular))
+            .scaledText(12.5, header ? .semibold : .regular)
             .textSelection(.enabled)
             .multilineTextAlignment(textAlignment(alignment))
             .fixedSize(horizontal: false, vertical: true)

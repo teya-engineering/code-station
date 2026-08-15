@@ -64,7 +64,7 @@ struct ActivitySpine: View {
                     .rotationEffect(.degrees(showsRows ? 90 : 0))
                     .frame(width: 10)
                 Text(summary)
-                    .font(.mono(11))
+                    .scaledMono(11)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -76,7 +76,7 @@ struct ActivitySpine: View {
                 Spacer(minLength: 8)
                 if hasRunningCalls && !showsRows {
                     Text("running")
-                        .font(.mono(10.5))
+                        .scaledMono(10.5)
                         .foregroundStyle(.tertiary)
                 }
             }
@@ -131,6 +131,8 @@ private func workDone(calls: Int, agents: Int) -> String {
 }
 
 private struct SpineRow: View {
+    @Environment(\.textScale) private var textScale
+
     let node: ToolNode
     let presentation: ToolPresentation
     let projectPath: String
@@ -162,11 +164,13 @@ private struct SpineRow: View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 10) {
                 Text(presentation.verb)
-                    .font(.mono(11.5, .semibold))
+                    .scaledMono(11.5, .semibold)
                     .lineLimit(1)
-                    .frame(width: 38, alignment: .leading)
+                    // The verb sits in its own column, so the column has to grow with it
+                    // or the longer verbs lose their tails at the larger sizes.
+                    .frame(width: 38 * textScale, alignment: .leading)
                 Text(presentation.argument)
-                    .font(.mono(11.5))
+                    .scaledMono(11.5)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -177,7 +181,7 @@ private struct SpineRow: View {
             // row carries whatever its agents were last doing.
             if let live = liveLine {
                 Text(live)
-                    .font(.system(size: 11))
+                    .scaledText(11)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -199,12 +203,12 @@ private struct SpineRow: View {
             HStack(spacing: 6) {
                 if tool.isError { failed }
                 Text(workDone(calls: node.callCount, agents: node.agentCount))
-                    .font(.mono(10.5))
+                    .scaledMono(10.5)
                     .foregroundStyle(.tertiary)
             }
         } else if tool.isRunning {
             Text("running")
-                .font(.mono(10.5))
+                .scaledMono(10.5)
                 .foregroundStyle(.tertiary)
         } else if tool.isError {
             failed
@@ -214,7 +218,7 @@ private struct SpineRow: View {
             // A command that printed nothing is worth saying out loud: without it the row
             // is indistinguishable from one whose output is simply collapsed.
             Text(result.isEmpty ? "no output" : "\(lineCount(result)) lines")
-                .font(.mono(10.5))
+                .scaledMono(10.5)
                 .foregroundStyle(.tertiary)
         }
     }
@@ -245,7 +249,7 @@ private struct SpineRow: View {
         VStack(alignment: .leading, spacing: 6) {
             if let status = tool.status, !status.isEmpty {
                 Text(status)
-                    .font(.system(size: 11))
+                    .scaledText(11)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 2)
@@ -266,14 +270,15 @@ private struct SpineRow: View {
     private func outputBox(_ text: String, tinted: Bool) -> some View {
         ScrollView {
             Text(text)
-                .font(.mono(11))
+                .scaledMono(11)
                 .foregroundStyle(tinted ? ChatColor.warningText : .primary)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(10)
         }
-        // Tool output can be a whole file, so cap it and let the box scroll.
-        .frame(maxHeight: 220)
+        // Tool output can be a whole file, so cap it and let the box scroll. The cap
+        // follows the text, so the box shows about the same number of lines at any size.
+        .frame(maxHeight: 220 * textScale)
         .background(RoundedRectangle(cornerRadius: 8)
             .fill(tinted ? ChatColor.warningBackground : Theme.field))
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
@@ -307,7 +312,7 @@ private struct EditDiffCard: View {
     private var header: some View {
         HStack(spacing: 8) {
             Text(presentation.fileName ?? presentation.argument)
-                .font(.mono(12, .semibold))
+                .scaledMono(12, .semibold)
                 .lineLimit(1)
                 .truncationMode(.middle)
             if let added = presentation.added, let removed = presentation.removed {
@@ -315,7 +320,7 @@ private struct EditDiffCard: View {
                     Text("+\(added)").foregroundStyle(Theme.addition)
                     Text("-\(removed)").foregroundStyle(Theme.deletion)
                 }
-                .font(.mono(11, .medium))
+                .scaledMono(11, .medium)
             }
             Spacer(minLength: 8)
             Button("Open in Changes", action: openChanges)
@@ -331,7 +336,7 @@ private struct EditDiffCard: View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(presentation.diff.prefix(Self.visibleLines)) { line in
                 Text(line.marker + " " + line.text)
-                    .font(.mono(11))
+                    .scaledMono(11)
                     .foregroundStyle(color(line.kind))
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -342,7 +347,7 @@ private struct EditDiffCard: View {
             }
             if presentation.diff.count > Self.visibleLines {
                 Text("… \(presentation.diff.count - Self.visibleLines) more lines")
-                    .font(.system(size: 11))
+                    .scaledText(11)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 4)

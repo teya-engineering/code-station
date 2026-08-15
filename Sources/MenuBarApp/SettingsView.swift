@@ -74,6 +74,10 @@ final class AppSettings {
         }
     }
 
+    var textSize = Preferences.textSize {
+        didSet { Preferences.textSize = textSize }
+    }
+
     // Whether the money a session has spent is on screen, one answer per agent. The
     // choice sits with the agent because only some CLIs report a cost at all.
     private var costShown: [AgentKind: Bool]
@@ -194,6 +198,7 @@ struct SettingsView: View {
                         botImage
                         terminal
                         appearance
+                        textSize
                         startAtLogin
                         log
                     case .agents:
@@ -353,6 +358,29 @@ struct SettingsView: View {
                     ChoicePill(title: appearance.label,
                                selected: settings.appearance == appearance) {
                         settings.appearance = appearance
+                    }
+                }
+            }
+            .fixedSize()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var textSize: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Text size")
+                    .font(.system(size: 13, weight: .semibold))
+                Text("How large a session reads: the transcript, tool output, diffs and the terminal. Cmd+ and Cmd- change it from anywhere.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+            HStack(spacing: 4) {
+                ForEach(TextSize.allCases) { size in
+                    ChoicePill(title: size.label, selected: settings.textSize == size) {
+                        settings.textSize = size
                     }
                 }
             }

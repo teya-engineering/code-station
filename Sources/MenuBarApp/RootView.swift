@@ -62,6 +62,18 @@ struct RootView: View {
                 .opacity(0)
                 .keyboardShortcut(",", modifiers: .command)
         )
+        // Growing the text is Cmd+ in the View menu, which AppKit only matches on a
+        // shifted key. The unshifted key most people actually press is the same command,
+        // so it is answered here rather than as a second line in the menu saying the same
+        // thing. The menu gets first refusal on a key equivalent, so Cmd+ still runs the
+        // menu item and only Cmd= reaches this.
+        .background(
+            Button("", action: { settings.textSize = settings.textSize.bigger })
+                .buttonStyle(.plain)
+                .opacity(0)
+                .keyboardShortcut("=", modifiers: .command)
+        )
+        .environment(\.textScale, settings.textSize.scale)
         .appOverlays()
         // A sheet is a window of its own, so the layer under it cannot draw over it; each
         // sheet gets one of its own to ask its own questions in.

@@ -219,6 +219,13 @@ enum Preferences {
         set { store.set(newValue.rawValue, forKey: "appearance") }
     }
 
+    // How large a session's own text is drawn. A reading size belongs to the person at the
+    // machine rather than to any one session, so there is a single answer for the app.
+    static var textSize: TextSize {
+        get { store.string(forKey: "textSize").flatMap(TextSize.init(rawValue:)) ?? .standard }
+        set { store.set(newValue.rawValue, forKey: "textSize") }
+    }
+
     // Whether what a session has spent is shown. Kept per agent, like the session
     // defaults are, because what a CLI reports about cost is its own business. On unless
     // it is turned off: the figure is still recorded either way, so this only decides

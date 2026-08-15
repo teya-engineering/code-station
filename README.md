@@ -22,6 +22,7 @@ Teya Conductor is a macOS app for running Codex and Claude Code across local pro
 - Read code as code: chat code blocks, file previews, and diffs are syntax highlighted, with no extra dependencies.
 - See images where they belong: files sent with a prompt and local images the agent references render inline in the conversation, and click open at full size.
 - Know what a conversation costs: each session shows its spend alongside the context meter, and each agent's settings can hide the figure.
+- Read at a size that suits you: Cmd+ and Cmd- resize the transcript, tool output, diffs and the terminal, and Cmd0 puts them back. The same choice sits in Settings, and the app's own headers and controls keep their size so nothing crops.
 
 ### Built-in tools
 

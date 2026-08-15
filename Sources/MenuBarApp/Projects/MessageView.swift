@@ -29,6 +29,7 @@ struct MessageView: View, Equatable {
     let message: ChatMessage
     let projectPath: String
     let isTurnActive: Bool
+    let textScale: CGFloat
     let openChanges: () -> Void
     // The right-click menu on the user's own prompt. Its entries are built when the
     // menu opens, so what it offers reflects the session as it is then.
@@ -41,7 +42,7 @@ struct MessageView: View, Equatable {
     // compared.
     nonisolated static func == (a: MessageView, b: MessageView) -> Bool {
         a.message == b.message && a.projectPath == b.projectPath
-            && a.isTurnActive == b.isTurnActive
+            && a.isTurnActive == b.isTurnActive && a.textScale == b.textScale
     }
 
     var body: some View {
@@ -59,7 +60,7 @@ struct MessageView: View, Equatable {
             assistantBody
         case .system:
             Text(message.text)
-                .font(.mono(11))
+                .scaledMono(11)
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
@@ -91,7 +92,7 @@ struct MessageView: View, Equatable {
                 }
                 if !message.text.isEmpty {
                     Text(message.text)
-                        .font(.system(size: 13.5))
+                        .scaledText(13.5)
                         .lineSpacing(3)
                         .textSelection(.enabled)
                         .multilineTextAlignment(.leading)
@@ -110,8 +111,10 @@ struct MessageView: View, Equatable {
                                             bottomTrailingRadius: 4, topTrailingRadius: 12)
                 .stroke(Theme.userMessageRing))
             // The cap sits outside the background so it only limits how far long text
-            // can wrap; the bubble itself hugs the text instead of filling the cap.
-            .frame(maxWidth: 600, alignment: .trailing)
+            // can wrap; the bubble itself hugs the text instead of filling the cap. It
+            // grows with the text so a bubble holds about the same number of words at
+            // every size.
+            .frame(maxWidth: 600 * textScale, alignment: .trailing)
         }
     }
 
@@ -119,7 +122,7 @@ struct MessageView: View, Equatable {
         HStack(spacing: 0) {
             Spacer(minLength: 80)
             Text(message.text)
-                .font(.system(size: 13))
+                .scaledText(13)
                 .textSelection(.enabled)
                 .multilineTextAlignment(.leading)
                 .fixedSize(horizontal: false, vertical: true)
@@ -175,7 +178,9 @@ struct MessageView: View, Equatable {
                     .transition(.fadeIn)
             } else {
                 ForEach(MarkdownBlock.parse(segment.text)) { block in
-                    MarkdownBlockView(block: block, projectPath: projectPath)
+                    MarkdownBlockView(block: block,
+                                      projectPath: projectPath,
+                                      textScale: textScale)
                         .equatable()
                         .transition(.fadeIn)
                 }
@@ -199,7 +204,7 @@ private struct ThinkingBlock: View {
                         .rotationEffect(.degrees(expanded ? 90 : 0))
                         .frame(width: 10)
                     Text(expanded ? "Thought" : "Thought · \(firstLine)")
-                        .font(.system(size: 12))
+                        .scaledText(12)
                         .italic()
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -212,7 +217,7 @@ private struct ThinkingBlock: View {
 
             if expanded {
                 Text(text.trimmingCharacters(in: .whitespacesAndNewlines))
-                    .font(.system(size: 12))
+                    .scaledText(12)
                     .italic()
                     .foregroundStyle(.secondary)
                     .lineSpacing(3)
@@ -363,14 +368,14 @@ private struct CodeBlock: View {
         VStack(alignment: .leading, spacing: 6) {
             if let language = segment.language {
                 Text(language.uppercased())
-                    .font(.system(size: 10, weight: .semibold))
+                    .scaledText(10, .semibold)
                     .kerning(0.6)
                     .foregroundStyle(.secondary)
             }
             // Code lines are long; scrolling sideways beats wrapping them.
             ScrollView(.horizontal, showsIndicators: false) {
                 Text(CodeHighlight.highlight(segment.text, tag: segment.language))
-                    .font(.mono(12))
+                    .scaledMono(12)
                     .textSelection(.enabled)
                     // Keeps lines that fit clear of the copy button. A longer line still
                     // scrolls under it, where the pill's solid fill keeps it readable.

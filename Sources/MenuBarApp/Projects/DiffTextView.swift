@@ -115,8 +115,9 @@ private final class DiffDocumentView: NSTextView {
 @MainActor
 enum DiffText {
     static func attributed(_ lines: [DiffLine],
-                           language: CodeLanguage? = nil) -> NSAttributedString {
-        let font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+                           language: CodeLanguage? = nil,
+                           scale: CGFloat = 1) -> NSAttributedString {
+        let font = NSFont.monospacedSystemFont(ofSize: 11 * scale, weight: .regular)
         // Colouring is for a diff a person reads; a huge one is scrolled, not read, and
         // plain text is much cheaper to build.
         let size = lines.reduce(0) { $0 + $1.text.utf8.count }

@@ -12,6 +12,7 @@ struct ChangesView: View {
 
     @Environment(DialogPresenter.self) private var dialogs
     @Environment(GitStatsCache.self) private var gitStats
+    @Environment(AppSettings.self) private var appSettings
 
     @State private var snapshot: GitSnapshot?
     @State private var loading = false
@@ -61,6 +62,9 @@ struct ChangesView: View {
             await reload()
         }
         .onChange(of: mode) { _, _ in switchedMode() }
+        // The open diff is one attributed string built when the file was picked, so its
+        // font is baked in and a new reading size only reaches it by building it again.
+        .onChange(of: appSettings.textSize) { _, _ in reopenDiff() }
         // Amending reuses the last message as the starting point; the typed one comes
         // back if the box is unticked.
         .onChange(of: amend) { _, on in
@@ -871,8 +875,24 @@ struct ChangesView: View {
         let loaded = await GitInspector.commitDiff(commit.hash, root: repoRoot)
         guard !Task.isCancelled, selectedCommit?.id == commit.id else { return }
         diff = loaded
-        diffText = loaded.lines.isEmpty ? nil : DiffText.attributed(loaded.lines)
+        diffText = loaded.lines.isEmpty
+            ? nil
+            : DiffText.attributed(loaded.lines, scale: appSettings.textSize.scale)
         loadingDiff = false
+    }
+
+    // Built again from the lines already in hand rather than by asking git a second time:
+    // nothing about the change has moved, only the size it is drawn at. A commit diff
+    // spans many files and takes its languages from its own section headings, so only a
+    // single file's diff has a language to name here.
+    private func reopenDiff() {
+        guard let diff, !diff.lines.isEmpty else { return }
+        diffText = DiffText.attributed(
+            diff.lines,
+            language: selected.flatMap {
+                CodeLanguage(fileExtension: ($0.path as NSString).pathExtension)
+            },
+            scale: appSettings.textSize.scale)
     }
 
     private func closeDiff() {
@@ -889,7 +909,8 @@ struct ChangesView: View {
         diff = loaded
         diffText = loaded.lines.isEmpty ? nil : DiffText.attributed(
             loaded.lines,
-            language: CodeLanguage(fileExtension: (file.path as NSString).pathExtension))
+            language: CodeLanguage(fileExtension: (file.path as NSString).pathExtension),
+            scale: appSettings.textSize.scale)
         loadingDiff = false
     }
 

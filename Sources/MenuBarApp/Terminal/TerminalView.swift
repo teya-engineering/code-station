@@ -6,11 +6,13 @@ import SwiftUI
 // SwiftTerm; this wraps its view for SwiftUI and keeps focus behaving like the rest
 // of the app.
 struct TerminalScreen: View {
+    @Environment(\.textScale) private var textScale
+
     let terminal: TerminalSession
     @Binding var isFocused: Bool
 
     var body: some View {
-        TerminalHost(surface: terminal.surface, isFocused: $isFocused)
+        TerminalHost(surface: terminal.surface, isFocused: $isFocused, textScale: textScale)
             .id(terminal.id)
             .background(Theme.background)
             .overlay {
@@ -24,7 +26,7 @@ struct TerminalScreen: View {
             .overlay(alignment: .bottomLeading) {
                 if let failure = terminal.failure {
                     Text(failure)
-                        .font(.system(size: 12))
+                        .scaledText(12)
                         .foregroundStyle(ChatColor.warningText)
                         .padding(16)
                 }
@@ -38,8 +40,10 @@ struct TerminalScreen: View {
 private struct TerminalHost: NSViewRepresentable {
     let surface: TerminalSurface
     @Binding var isFocused: Bool
+    let textScale: CGFloat
 
     func makeNSView(context: Context) -> NSView {
+        surface.applyTextScale(textScale)
         let container = NSView()
         install(in: container)
         return container
@@ -47,6 +51,9 @@ private struct TerminalHost: NSViewRepresentable {
 
     func updateNSView(_ container: NSView, context: Context) {
         if surface.superview !== container { install(in: container) }
+        // Resizing the type reflows the shell, so this only runs when the size has
+        // actually changed rather than on every pass through here.
+        surface.applyTextScale(textScale)
         surface.onFocusChange = { focused in
             // Clicking the terminal is another way of asking for it, so the binding has
             // to hear about focus the view took on its own.
@@ -84,8 +91,21 @@ final class TerminalSurface: SwiftTerm.TerminalView {
     private var responderObservation: NSKeyValueObservation?
     nonisolated(unsafe) private var keyMonitor: Any?
 
+    // The size the shell's own text is drawn at, before the reading scale is applied.
+    private static let baseFontSize: CGFloat = 12
+    private var textScale: CGFloat = 1
+
+    // Changing the font changes how many columns and rows fit, which SwiftTerm turns into
+    // a window size the running program is told about, so the shell reflows on its own.
+    func applyTextScale(_ scale: CGFloat) {
+        guard scale != textScale else { return }
+        textScale = scale
+        font = NSFont.monospacedSystemFont(ofSize: Self.baseFontSize * scale, weight: .regular)
+    }
+
     override init(frame: NSRect) {
-        super.init(frame: frame, font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular))
+        super.init(frame: frame,
+                   font: NSFont.monospacedSystemFont(ofSize: Self.baseFontSize, weight: .regular))
         applyTheme()
         interceptAppKeys()
     }

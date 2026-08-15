@@ -784,11 +784,14 @@ struct SessionView: View {
             }
 
             ForEach(messages) { message in
+                let isLastMessage = message.id == session.messages.last?.id
+                let isTurnActive: Bool = state.isBusy
+                    && message.role == .assistant
+                    && isLastMessage
                 MessageView(message: message,
                             projectPath: projectPath,
-                            isTurnActive: state.isBusy
-                                && message.role == .assistant
-                                && message.id == session.messages.last?.id,
+                            isTurnActive: isTurnActive,
+                            textScale: appSettings.textSize.scale,
                             openChanges: { openChanges() },
                             promptMenu: promptMenu(for: message))
                     // Every message is on screen now, and a streaming turn rewrites

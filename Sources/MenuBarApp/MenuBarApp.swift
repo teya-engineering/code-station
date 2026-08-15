@@ -13,7 +13,29 @@ struct MenuBarApp: App {
         Settings { EmptyView() }
             .commands {
                 CommandGroup(replacing: .appSettings) { }
+                textSize
             }
+    }
+
+    // Text size is in the View menu because that is where Cmd+ and Cmd- live in every
+    // other Mac app. The menu is also the only place these keys can be found: bound to a
+    // hidden button in the window the way the app's other shortcuts are, nothing on
+    // screen would ever say they exist, and this is the one setting whose whole point is
+    // helping someone who is struggling to read.
+    private var textSize: some Commands {
+        CommandGroup(after: .toolbar) {
+            Button("Bigger Text") { step { $0.bigger } }
+                .keyboardShortcut("+", modifiers: .command)
+            Button("Smaller Text") { step { $0.smaller } }
+                .keyboardShortcut("-", modifiers: .command)
+            Button("Actual Size") { step { _ in .standard } }
+                .keyboardShortcut("0", modifiers: .command)
+        }
+    }
+
+    private func step(_ next: (TextSize) -> TextSize) {
+        let settings = appDelegate.appSettings
+        settings.textSize = next(settings.textSize)
     }
 }
 
@@ -32,7 +54,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let gitStats = GitStatsCache()
     private let terminals = TerminalStore()
     private let loginItem = LoginItem()
-    private let appSettings = AppSettings()
+    // Reached from the main menu as well as the window, so the text size commands can
+    // change the same setting the Settings sheet shows.
+    let appSettings = AppSettings()
     private let docker = DockerService()
     private let dispatch = DispatchStore()
     private let dispatchRunner = DispatchRunner()
