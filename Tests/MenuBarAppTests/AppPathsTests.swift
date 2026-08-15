@@ -149,6 +149,45 @@ struct AppPathsTests {
         #expect(defaults.object(forKey: "siteDefaultsPath") == nil)
     }
 
+    @Test @MainActor func onboardingIsOnlyCompletedAfterTheWizardFinishes() throws {
+        let suite = "conductor-onboarding-tests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let settings = AppSettings(agentAvatarURL: root.appendingPathComponent("avatar.png"),
+                                   preferences: defaults)
+
+        #expect(!settings.hasCompletedOnboarding)
+        #expect(!Preferences.hasCompletedOnboarding(in: defaults))
+        #expect(settings.shouldShowOnboarding(hasExistingWork: false))
+
+        settings.completeOnboarding()
+
+        #expect(settings.hasCompletedOnboarding)
+        #expect(Preferences.hasCompletedOnboarding(in: defaults))
+
+        let restored = AppSettings(agentAvatarURL: root.appendingPathComponent("avatar.png"),
+                                   preferences: defaults)
+        #expect(restored.hasCompletedOnboarding)
+        #expect(!restored.shouldShowOnboarding(hasExistingWork: false))
+    }
+
+    @Test @MainActor func existingWorkDoesNotTriggerFirstRunOnboarding() throws {
+        let suite = "conductor-onboarding-migration-tests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let settings = AppSettings(agentAvatarURL: root.appendingPathComponent("avatar.png"),
+                                   preferences: defaults)
+
+        #expect(!settings.shouldShowOnboarding(hasExistingWork: true))
+        #expect(settings.hasCompletedOnboarding)
+        #expect(Preferences.hasCompletedOnboarding(in: defaults))
+    }
+
     @Test @MainActor func changingTheSiteConfigurationRequiresARestart() throws {
         let suite = "conductor-site-restart-tests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))

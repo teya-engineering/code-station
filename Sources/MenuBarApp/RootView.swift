@@ -21,6 +21,7 @@ struct RootView: View {
     @State private var showingShortcuts = false
     @State private var showingTroubleshoot = false
     @State private var reviewingOldSessions = false
+    @State private var showingOnboarding = false
     @State private var sessionCleanupError: String?
     @State private var dismissedAttention: Attention?
 
@@ -44,7 +45,13 @@ struct RootView: View {
         .onChange(of: attention) { oldValue, newValue in
             if oldValue != newValue { dismissedAttention = nil }
         }
-        .onAppear { mobileAccess.setEnabled(settings.mobileAccessEnabled) }
+        .onAppear {
+            mobileAccess.setEnabled(settings.mobileAccessEnabled)
+            let hasExistingWork = !store.projects.isEmpty
+                || !store.workspaces.isEmpty
+                || !store.sessions.isEmpty
+            showingOnboarding = settings.shouldShowOnboarding(hasExistingWork: hasExistingWork)
+        }
         .onChange(of: settings.mobileAccessEnabled) { _, enabled in
             mobileAccess.setEnabled(enabled)
         }
@@ -92,6 +99,13 @@ struct RootView: View {
             TroubleshootView(skills: skills).appOverlays()
         }
         .sheet(isPresented: $reviewingOldSessions) { OldSessionsView().appOverlays() }
+        .sheet(isPresented: $showingOnboarding) {
+            FirstRunWizard(initialAgent: runner.agent) {
+                settings.completeOnboarding()
+                showingOnboarding = false
+            }
+            .appOverlays()
+        }
     }
 
     private var tools: ToolsMenuActions {

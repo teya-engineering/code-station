@@ -90,6 +90,7 @@ final class AppSettings {
     private(set) var agentAvatars: [AgentAvatar]
     private(set) var defaultAgentAvatarName: String
     private(set) var siteDefaultsURL: URL?
+    private(set) var hasCompletedOnboarding: Bool
 
     init(agentAvatarURL: URL = AppPaths.supportFile("agent-avatar.png"),
          preferences: UserDefaults = .standard) {
@@ -98,6 +99,7 @@ final class AppSettings {
         let siteDefaultsURL = Preferences.siteDefaultsURL(in: preferences)
         initialSiteDefaultsURL = siteDefaultsURL
         self.siteDefaultsURL = siteDefaultsURL
+        hasCompletedOnboarding = Preferences.hasCompletedOnboarding(in: preferences)
         costShown = Dictionary(uniqueKeysWithValues: AgentKind.allCases.map {
             ($0, Preferences.showCost(for: $0))
         })
@@ -112,6 +114,22 @@ final class AppSettings {
 
     var siteDefaultsRestartRequired: Bool {
         siteDefaultsURL?.path != initialSiteDefaultsURL?.path
+    }
+
+    func completeOnboarding() {
+        hasCompletedOnboarding = true
+        Preferences.setHasCompletedOnboarding(true, in: preferences)
+    }
+
+    func shouldShowOnboarding(hasExistingWork: Bool) -> Bool {
+        guard !hasCompletedOnboarding else { return false }
+        // A populated project store proves the app has already been used, even when an
+        // older build had no onboarding preference to save.
+        guard !hasExistingWork else {
+            completeOnboarding()
+            return false
+        }
+        return true
     }
 
     func setSiteDefaultsURL(_ url: URL?) {

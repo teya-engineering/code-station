@@ -209,6 +209,7 @@ struct AgentSettingsView: View {
     }
 
     private func refresh() {
+        runner.refreshAvailableAgents()
         claude.refresh()
         codex.refresh()
     }
@@ -648,8 +649,11 @@ struct AgentSettingsView: View {
 // a real shell, starts the CLI's own login command in it, and lets the CLI take it from
 // there. The shell dies with the sheet, and whoever opened it re-reads the account
 // afterwards.
-private struct AgentLoginSheet: View {
+struct AgentCommandSheet: View {
     let agent: AgentKind
+    let title: String
+    let note: String
+    let command: String
     @Environment(\.dismiss) private var dismiss
     @State private var terminal: TerminalSession?
     @State private var focused = true
@@ -657,8 +661,8 @@ private struct AgentLoginSheet: View {
     var body: some View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 3) {
-                Text("Sign in to \(agent.title)").font(.serif(16))
-                Text("Follow the CLI's login below, then close this when it is done.")
+                Text(title).font(.serif(16))
+                Text(note)
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
             }
@@ -680,10 +684,22 @@ private struct AgentLoginSheet: View {
         guard terminal == nil else { return }
         let session = TerminalSession(
             directory: FileManager.default.homeDirectoryForCurrentUser.path,
-            name: agent.loginCommand)
+            name: command)
         session.start()
         // Queued into the pty now, run by the shell once it has read its rc files.
-        session.send(agent.loginCommand + "\n")
+        session.send(command + "\n")
         terminal = session
+    }
+}
+
+private struct AgentLoginSheet: View {
+    let agent: AgentKind
+
+    var body: some View {
+        AgentCommandSheet(
+            agent: agent,
+            title: "Sign in to \(agent.title)",
+            note: "Follow the CLI's login below, then close this when it is done.",
+            command: agent.loginCommand)
     }
 }

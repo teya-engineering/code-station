@@ -75,6 +75,14 @@ enum AppPaths {
 enum Preferences {
     private static var store: UserDefaults { .standard }
 
+    static func hasCompletedOnboarding(in store: UserDefaults) -> Bool {
+        store.bool(forKey: "hasCompletedOnboarding")
+    }
+
+    static func setHasCompletedOnboarding(_ completed: Bool, in store: UserDefaults) {
+        store.set(completed, forKey: "hasCompletedOnboarding")
+    }
+
     static var selectedSessionID: UUID? {
         get { uuid("selectedSessionID") }
         set { set(newValue, "selectedSessionID") }

@@ -53,7 +53,8 @@ final class SessionRunner {
     // Sessions whose nearly-full nudge has been waved away for now.
     private var nudgeDismissals: Set<UUID> = []
 
-    @ObservationIgnored private let paths: [AgentKind: String]
+    @ObservationIgnored private var paths: [AgentKind: String]
+    @ObservationIgnored private let discoversPaths: Bool
     @ObservationIgnored private let configs: ConfigStore?
     @ObservationIgnored private let codexContextReader = CodexContextReader()
     @ObservationIgnored private var codexContextRefreshes:
@@ -69,6 +70,7 @@ final class SessionRunner {
         })
         if let paths {
             self.paths = paths
+            discoversPaths = false
             return
         }
         var found: [AgentKind: String] = [:]
@@ -76,6 +78,7 @@ final class SessionRunner {
             if let path = ProcessManager.resolve(kind.command) { found[kind] = path }
         }
         self.paths = found
+        discoversPaths = true
     }
 
     func defaults(for agent: AgentKind) -> SessionSettings {
@@ -88,6 +91,13 @@ final class SessionRunner {
     }
 
     func isAvailable(_ agent: AgentKind) -> Bool { paths[agent] != nil }
+
+    func refreshAvailableAgents() {
+        guard discoversPaths else { return }
+        for kind in AgentKind.allCases {
+            paths[kind] = ProcessManager.resolve(kind.command)
+        }
+    }
 
     var availableAgents: [AgentKind] {
         AgentKind.allCases.filter(isAvailable)
