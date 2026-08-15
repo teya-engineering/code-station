@@ -297,18 +297,12 @@ enum GitWorktree {
         -> Result<Void, Failure> {
         let tool = await GitInspector.tool()
         return await GitInspector.offMain {
-            if let tool, let projectPath {
-                _ = GitInspector.run(
-                    tool,
-                    ["-C", projectPath, "worktree", "remove", "--force", worktreePath],
-                    timeout: cleanupCommandTimeout)
-                if let branch {
-                    _ = GitInspector.run(
-                        tool, ["-C", projectPath, "branch", "-d", branch],
-                        timeout: cleanupCommandTimeout)
-                }
-            }
-            if FileManager.default.fileExists(atPath: worktreePath) {
+            // The folder goes first and is moved rather than deleted, so the caller waits
+            // for a rename instead of for however many files the session left behind. What
+            // git is told afterwards is the same either way: a checkout whose folder has
+            // gone is what `prune` is for.
+            if FileManager.default.fileExists(atPath: worktreePath),
+               !WorktreeTrash.accept(worktreePath) {
                 do {
                     try FileManager.default.removeItem(atPath: worktreePath)
                 } catch {
@@ -316,16 +310,26 @@ enum GitWorktree {
                         message: "Could not remove \(worktreePath.abbreviatedPath): \(error.localizedDescription)"))
                 }
             }
+            if let tool, let projectPath {
+                // Before the branch, not after: git refuses to delete a branch it still
+                // believes a checkout has out.
+                _ = GitInspector.run(
+                    tool, ["-C", projectPath, "worktree", "prune"],
+                    timeout: cleanupCommandTimeout)
+                if let branch {
+                    _ = GitInspector.run(
+                        tool, ["-C", projectPath, "branch", "-d", branch],
+                        timeout: cleanupCommandTimeout)
+                }
+            }
+            // A workspace session keeps its checkouts together in a folder of its own,
+            // which is left empty once the last of them goes.
             let parent = URL(fileURLWithPath: worktreePath).deletingLastPathComponent()
             if parent.deletingLastPathComponent().standardizedFileURL == baseDirectory.standardizedFileURL,
                (try? FileManager.default.contentsOfDirectory(atPath: parent.path).isEmpty) == true {
                 try? FileManager.default.removeItem(at: parent)
             }
-            if let tool, let projectPath {
-                _ = GitInspector.run(
-                    tool, ["-C", projectPath, "worktree", "prune"],
-                    timeout: cleanupCommandTimeout)
-            }
+            WorktreeTrash.empty()
             return .success(())
         }
     }

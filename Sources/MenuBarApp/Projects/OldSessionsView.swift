@@ -34,6 +34,10 @@ struct OldSessionsView: View {
     private struct DeletionProgress {
         let total: Int
         var completed = 0
+        // The session being worked on rather than the one about to be. A checkout can take
+        // a while to clear, and a counter alone leaves that time looking like nothing is
+        // happening.
+        var current = ""
     }
 
     var body: some View {
@@ -118,9 +122,11 @@ struct OldSessionsView: View {
         VStack(spacing: 0) {
             Divider().overlay(Theme.hairline)
             HStack(spacing: 10) {
-                Text("Original project folders stay on disk. Session worktrees are removed.")
+                Text(footerNote)
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .truncationMode(.tail)
                 Spacer(minLength: 12)
                 Button {
                     guard !isDeleting else { return }
@@ -156,13 +162,24 @@ struct OldSessionsView: View {
         }
     }
 
+    // Which one of them is being worked on, not how many are behind: a count that reads 0
+    // for as long as the first session takes says nothing about whether it is moving.
     private var deleteLabel: String {
         if let progress = deletionProgress {
-            return "Deleting \(progress.completed) of \(progress.total)…"
+            return "Deleting \(min(progress.completed + 1, progress.total)) of \(progress.total)…"
         }
         return ticked.isEmpty
             ? "Delete"
             : "Delete \(ticked.count) session\(ticked.count == 1 ? "" : "s")"
+    }
+
+    // The line that explains the button while there is nothing to explain, and names what
+    // is being cleared once there is.
+    private var footerNote: String {
+        guard let current = deletionProgress?.current, !current.isEmpty else {
+            return "Original project folders stay on disk. Session worktrees are removed."
+        }
+        return "Clearing \(current)…"
     }
 
     private var isDeleting: Bool {
@@ -288,6 +305,7 @@ struct OldSessionsView: View {
             var failures: [SessionLifecycle.Failure] = []
             for row in chosen {
                 let startedAt = Date()
+                deletionProgress?.current = row.session.title
                 SessionLog.note("deletion started", session: row.id)
                 let result = await SessionLifecycle.remove(
                     row.session, from: store, runner: runner)

@@ -290,6 +290,9 @@ enum SessionLifecycle {
         in store: ProjectStore,
         worktrees: WorktreeOperations = .live
     ) async -> [Failure] {
+        // Checkouts moved aside by the last run are unlinked from here, since a deletion
+        // the app was killed part way through leaves the folder waiting rather than gone.
+        WorktreeTrash.empty()
         var failures: [Failure] = []
         for pending in store.pendingSessionRemovals {
             if case .failure(let failure) = await finish(
