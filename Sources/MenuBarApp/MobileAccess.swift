@@ -1345,6 +1345,7 @@ struct MobilePairingView: View {
     let scope: MobileScope
 
     @State private var starting = false
+    @State private var confirming = false
     @State private var failure: String?
 
     var body: some View {
@@ -1382,44 +1383,102 @@ struct MobilePairingView: View {
             }
             .frame(maxWidth: .infinity)
             .padding(.top, 6)
+        } else if confirming {
+            confirmation
         } else {
-            VStack(spacing: 14) {
-                Image(systemName: "iphone.slash")
-                    .font(.system(size: 25, weight: .medium))
+            idle
+        }
+    }
+
+    private var idle: some View {
+        VStack(spacing: 14) {
+            Image(systemName: "iphone.slash")
+                .font(.system(size: 25, weight: .medium))
+                .foregroundStyle(.secondary)
+
+            VStack(spacing: 4) {
+                Text("Sharing is off")
+                    .font(.system(size: 13, weight: .semibold))
+                Text("Start sharing to create a temporary QR code and allow one phone to connect.")
+                    .font(.system(size: 12))
                     .foregroundStyle(.secondary)
-
-                VStack(spacing: 4) {
-                    Text("Sharing is off")
-                        .font(.system(size: 13, weight: .semibold))
-                    Text("Start sharing to create a temporary QR code and allow one phone to connect.")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                if let failure {
-                    Text(failure)
-                        .font(.system(size: 12))
-                        .foregroundStyle(Theme.deletion)
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                ActionButton(title: starting ? "Starting…" : "Start sharing",
-                             tone: .green, height: 38, size: 13, fills: true,
-                             action: startSharing)
-                    .disabled(starting)
-                    .opacity(starting ? 0.5 : 1)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 18)
+
+            if let failure {
+                Text(failure)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.deletion)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            ActionButton(title: starting ? "Starting…" : "Start sharing",
+                         tone: .green, height: 38, size: 13, fills: true,
+                         action: startSharing)
+                .disabled(starting)
+                .opacity(starting ? 0.5 : 1)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 12)
+    }
+
+    // A code that can browse hands over more than the screen the button was pressed on, so
+    // that reach is spelled out once more and has to be agreed to before the code exists.
+    private var confirmation: some View {
+        VStack(spacing: 14) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 25, weight: .medium))
+                .foregroundStyle(Theme.accent)
+
+            VStack(spacing: 4) {
+                Text("This code opens more than one session")
+                    .font(.system(size: 13, weight: .semibold))
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(warning)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            HStack(spacing: 8) {
+                ActionButton(title: "Back", tone: .outlined, height: 38, size: 13, fills: true) {
+                    confirming = false
+                }
+                ActionButton(title: "Confirm", tone: .green, height: 38, size: 13, fills: true,
+                             action: begin)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 12)
+    }
+
+    private var warning: String {
+        switch scope {
+        case .project:
+            "Whoever scans it can browse every session in this project, read what they say and start new ones that run on this Mac. Only scan it on a phone you trust."
+        default:
+            "Whoever scans it can browse every project, read any session and start new ones anywhere, all running on this Mac. Only scan it on a phone you trust."
         }
     }
 
     private func startSharing() {
         guard !starting else { return }
+        guard !scope.canBrowse else {
+            failure = nil
+            confirming = true
+            return
+        }
+        begin()
+    }
+
+    private func begin() {
+        guard !starting else { return }
         starting = true
+        confirming = false
         failure = nil
         Task { @MainActor in
             defer { starting = false }
