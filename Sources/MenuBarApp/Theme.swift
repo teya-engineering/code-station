@@ -241,7 +241,7 @@ private enum SoraFont {
     private static let weightAxis = 0x77676874  // 'wght'
 
     static let isRegistered: Bool = {
-        guard let url = Bundle.module.url(forResource: "Sora-Variable", withExtension: "ttf")
+        guard let url = AppResources.bundle.url(forResource: "Sora-Variable", withExtension: "ttf")
         else { return false }
         return CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
     }()

@@ -236,7 +236,7 @@ enum AgentAvatarFile {
 enum AgentAvatarArt {
     private static let pictures: [AgentPersonality: Data] = Dictionary(
         uniqueKeysWithValues: AgentPersonality.allCases.compactMap { personality in
-            Bundle.module
+            AppResources.bundle
                 .url(forResource: "avatar-\(personality.rawValue)", withExtension: "png")
                 .flatMap { try? Data(contentsOf: $0) }
                 .map { (personality, $0) }

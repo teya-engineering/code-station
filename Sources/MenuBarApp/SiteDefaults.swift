@@ -161,7 +161,7 @@ extension SiteDefaults {
     }
 
     static var bundledURL: URL? {
-        Bundle.module.url(forResource: "site-defaults", withExtension: "json")
+        AppResources.bundle.url(forResource: "site-defaults", withExtension: "json")
     }
 
     static let fileName = "site-defaults.json"
