@@ -31,7 +31,23 @@ enum MenuEntry {
         .item(MenuItem(label: label, kind: kind, icon: icon, image: image, checked: checked,
                        showsUpdate: showsUpdate,
                        badge: badge, badgeTint: badgeTint, subtitle: subtitle,
-                       detail: detail, detailColour: detailColour, handler: action))
+                       detail: detail, detailColour: detailColour,
+                       handler: action))
+    }
+
+    static func item(_ label: String,
+                     icon: String? = nil,
+                     image: NSImage? = nil,
+                     badge: String? = nil,
+                     badgeTint: Color? = nil,
+                     subtitle: String? = nil,
+                     detail: String,
+                     detailColour: Color? = nil,
+                     detailAction: @escaping () -> Void) -> MenuEntry {
+        .item(MenuItem(label: label, icon: icon, image: image,
+                       badge: badge, badgeTint: badgeTint, subtitle: subtitle,
+                       detail: detail, detailColour: detailColour,
+                       detailHandler: detailAction))
     }
 
     static func searchable(_ items: [MenuItem],
@@ -81,7 +97,8 @@ struct MenuItem {
     // places can say how each one is doing without being opened.
     var detail: String?
     var detailColour: Color?
-    var handler: () -> Void = {}
+    var detailHandler: (() -> Void)? = nil
+    var handler: (() -> Void)? = nil
 
     func matches(_ filter: String) -> Bool {
         let query = filter.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -133,8 +150,15 @@ final class MenuPresenter {
     // The item runs after the menu is gone, so an action that opens a dialog is not
     // left sitting behind a menu.
     func run(_ item: MenuItem) {
+        guard let handler = item.handler else { return }
         entries = []
-        item.handler()
+        handler()
+    }
+
+    func runDetail(_ item: MenuItem) {
+        guard let handler = item.detailHandler else { return }
+        entries = []
+        handler()
     }
 
     func run(_ item: MenuCardItem) {
@@ -361,9 +385,12 @@ struct ContextMenuHost: View {
             ForEach(Array(presenter.entries.enumerated()), id: \.offset) { _, entry in
                 switch entry {
                 case .item(let item):
-                    MenuItemRow(item: item, checkColumn: hasChecks, iconColumn: hasIcons) {
-                        presenter.run(item)
-                    }
+                    MenuItemRow(item: item,
+                                checkColumn: hasChecks,
+                                iconColumn: hasIcons,
+                                action: item.handler == nil ? nil : { presenter.run(item) },
+                                detailAction: item.detailHandler == nil
+                                    ? nil : { presenter.runDetail(item) })
                 case .searchable(let searchable):
                     SearchableMenuItemsView(searchable: searchable,
                                             checkColumn: hasChecks,
@@ -447,9 +474,10 @@ private struct SearchableMenuItemsView: View {
                 ForEach(Array(items.enumerated()), id: \.offset) { _, item in
                     MenuItemRow(item: item,
                                 checkColumn: checkColumn,
-                                iconColumn: iconColumn) {
-                        presenter.run(item)
-                    }
+                                iconColumn: iconColumn,
+                                action: item.handler == nil ? nil : { presenter.run(item) },
+                                detailAction: item.detailHandler == nil
+                                    ? nil : { presenter.runDetail(item) })
                 }
             }
         }
@@ -541,82 +569,96 @@ private struct MenuItemRow: View {
     let item: MenuItem
     let checkColumn: Bool
     let iconColumn: Bool
-    let action: () -> Void
+    let action: (() -> Void)?
+    let detailAction: (() -> Void)?
 
     @State private var hovering = false
 
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: 7) {
-                if checkColumn {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 10, weight: .semibold))
-                        .frame(width: 12)
-                        .opacity(item.checked ? 1 : 0)
+        Group {
+            if let action {
+                Button(action: action) { row }
+                    .buttonStyle(.plain)
+            } else {
+                row
+            }
+        }
+        .onHover { hovering = $0 }
+    }
+
+    private var row: some View {
+        HStack(spacing: 7) {
+            if checkColumn {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 10, weight: .semibold))
+                    .frame(width: 12)
+                    .opacity(item.checked ? 1 : 0)
+            }
+            if iconColumn {
+                if let image = item.image {
+                    Image(nsImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 22, height: 22)
+                        .clipShape(Circle())
+                } else {
+                    Image(systemName: item.icon ?? "square")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Theme.accent)
+                        .frame(width: 22, height: 22)
+                        .opacity(item.icon == nil ? 0 : 1)
                 }
-                if iconColumn {
-                    if let image = item.image {
-                        Image(nsImage: image)
-                            .resizable()
-                            .scaledToFill()
-                            .frame(width: 22, height: 22)
-                            .clipShape(Circle())
-                    } else {
-                        Image(systemName: item.icon ?? "square")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(Theme.accent)
-                            .frame(width: 22, height: 22)
-                            .opacity(item.icon == nil ? 0 : 1)
+            }
+            if let badge = item.badge {
+                let tint = item.badgeTint ?? Color.secondary
+                Text(badge)
+                    .font(.mono(9, .bold))
+                    .kerning(0.5)
+                    .foregroundStyle(tint)
+                    .padding(.vertical, 3)
+                    // One width for every chip, so the labels line up in a column.
+                    .frame(width: 48)
+                    .background(RoundedRectangle(cornerRadius: 5).fill(tint.opacity(0.12)))
+                    .padding(.trailing, 3)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(item.label)
+                        .font(.system(size: 13, weight: item.subtitle == nil ? .regular : .semibold))
+                    if item.showsUpdate {
+                        UpdateIndicator()
                     }
                 }
-                if let badge = item.badge {
-                    let tint = item.badgeTint ?? Color.secondary
-                    Text(badge)
-                        .font(.mono(9, .bold))
-                        .kerning(0.5)
-                        .foregroundStyle(tint)
-                        .padding(.vertical, 3)
-                        // One width for every chip, so the labels line up in a column.
-                        .frame(width: 48)
-                        .background(RoundedRectangle(cornerRadius: 5).fill(tint.opacity(0.12)))
-                        .padding(.trailing, 3)
+                if let subtitle = item.subtitle {
+                    Text(subtitle)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(maxWidth: menuSubtitleMaximumWidth, alignment: .leading)
                 }
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 6) {
-                        Text(item.label)
-                            .font(.system(size: 13, weight: item.subtitle == nil ? .regular : .semibold))
-                        if item.showsUpdate {
-                            UpdateIndicator()
-                        }
-                    }
-                    if let subtitle = item.subtitle {
-                        Text(subtitle)
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                            .frame(maxWidth: menuSubtitleMaximumWidth, alignment: .leading)
-                    }
-                }
-                if let detail = item.detail {
-                    Spacer(minLength: 24)
+            }
+            if let detail = item.detail {
+                Spacer(minLength: 24)
+                if let detailAction {
+                    ActionButton(title: detail, tone: .danger, height: 26, size: 11,
+                                 action: detailAction)
+                } else {
                     Text(detail)
                         .font(.mono(11))
                         .foregroundStyle(item.detailColour.map(AnyShapeStyle.init)
                                          ?? AnyShapeStyle(.tertiary))
                 }
             }
-            .foregroundStyle(item.kind == .destructive ? Theme.deletion : Color.primary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 12)
-            .padding(.vertical, item.subtitle == nil ? 6 : 8)
-            .background(RoundedRectangle(cornerRadius: 6)
-                .fill(hovering ? Color.black.opacity(0.05) : .clear)
-                .padding(.horizontal, 5))
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .onHover { hovering = $0 }
+        .foregroundStyle(item.kind == .destructive ? Theme.deletion : Color.primary)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 12)
+        .padding(.vertical, item.subtitle == nil ? 6 : 8)
+        .background(RoundedRectangle(cornerRadius: 6)
+            .fill(action != nil && hovering ? Color.black.opacity(0.05) : .clear)
+            .padding(.horizontal, 5))
+        .contentShape(Rectangle())
     }
 }
 

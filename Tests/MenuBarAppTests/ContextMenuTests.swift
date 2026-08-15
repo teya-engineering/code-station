@@ -48,6 +48,29 @@ struct ContextMenuTests {
         #expect(items.first?.detail == "open")
     }
 
+    @Test func detailActionDoesNotMakeTheWholeRowInteractive() {
+        var revocations = 0
+        let entry = MenuEntry.item("All projects", detail: "Revoke", detailAction: {
+            revocations += 1
+        })
+        guard case .item(let item) = entry else {
+            Issue.record("Expected a menu item")
+            return
+        }
+        let presenter = MenuPresenter()
+        presenter.show([entry], at: .zero)
+
+        presenter.run(item)
+
+        #expect(presenter.isOpen)
+        #expect(revocations == 0)
+
+        presenter.runDetail(item)
+
+        #expect(!presenter.isOpen)
+        #expect(revocations == 1)
+    }
+
     @Test func topEdgeMenuOpensAboveItsControl() {
         let attachment = MenuVerticalAttachment.control(edge: .top, oppositeY: 544)
 

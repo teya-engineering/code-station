@@ -1409,9 +1409,10 @@ struct MobileAccessBadge: View {
                       ? "iphone.radiowaves.left.and.right" : "iphone",
                   subtitle: "\(share.state) · \(share.reach)",
                   detail: "Revoke",
-                  detailColour: Theme.deletion) {
-                mobileAccess.revoke(share.scope)
-            }
+                  detailColour: Theme.deletion,
+                  detailAction: {
+                      mobileAccess.revoke(share.scope)
+                  })
         }
         if shares.count > 1 {
             entries.append(.separator)
