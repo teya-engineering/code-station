@@ -16,6 +16,21 @@ enum TaskRun {
         return !TaskTemplate.inputs(in: spec).isEmpty
     }
 
+    // A scheduled run cannot stop to show the input sheet. It reuses the last answer,
+    // then the configured default, and waits if a required value still has no answer.
+    static func automaticValues(for task: Project) -> [String: String]? {
+        guard let spec = task.task else { return [:] }
+        let inputs = TaskTemplate.inputs(in: spec)
+        let values = Dictionary(uniqueKeysWithValues: inputs.map { input in
+            let key = TaskTemplate.key(input.name)
+            return (key, spec.lastValues[key] ?? input.startingValue)
+        })
+        guard inputs.allSatisfy({ input in
+            !input.required || input.isAnswered(values[TaskTemplate.key(input.name)] ?? "")
+        }) else { return nil }
+        return values
+    }
+
     @discardableResult
     static func run(_ task: Project, values: [String: String] = [:], note: String = "",
                     store: ProjectStore, runner: SessionRunner,

@@ -1590,6 +1590,15 @@ private struct ProjectHeaderRow: View {
                         .font(.system(size: 13.5, weight: .semibold))
                         .lineLimit(1)
                         .truncationMode(.tail)
+                    if let schedule = project.task?.schedule, schedule.isActive {
+                        Image(systemName: "clock.fill")
+                            .font(.system(size: 9.5, weight: .semibold))
+                            .foregroundStyle(schedule.isWaitingForConfirmation
+                                             ? Theme.attentionText : Theme.accent)
+                            .appTooltip(schedule.isWaitingForConfirmation
+                                ? "Timer waiting for confirmation"
+                                : schedule.summary)
+                    }
                     if finishedCount > 0 { FinishedDot() }
                 }
                 Spacer(minLength: 6)
@@ -1657,6 +1666,16 @@ private struct ProjectHeaderRow: View {
         }
         if cost > 0 {
             rows.append(Tooltip.Row(label: "Spent", value: Money.short(cost)))
+        }
+        if let schedule = project.task?.schedule, schedule.isActive {
+            rows.append(Tooltip.Row(label: "Timer", value: schedule.summary))
+            if schedule.isWaitingForConfirmation {
+                rows.append(Tooltip.Row(label: "Next run", value: "Waiting for confirmation"))
+            } else if let nextRunAt = schedule.nextRunAt {
+                rows.append(Tooltip.Row(label: "Next run",
+                                        value: nextRunAt.formatted(date: .abbreviated,
+                                                                   time: .shortened)))
+            }
         }
         return Tooltip(title: project.name,
                        subtitle: isTask ? nil : project.collapsedPath,

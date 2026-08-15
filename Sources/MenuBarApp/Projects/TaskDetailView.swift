@@ -168,6 +168,9 @@ struct TaskDetailView: View {
         return ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 promptCard(task)
+                TaskScheduleCard(task: task, schedule: spec(task).schedule) { schedule in
+                    changeSpec(task) { $0.schedule = schedule }
+                }
                 if !inputs.isEmpty {
                     TaskInputsCard(inputs: inputs) { input in
                         changeSpec(task) { spec in

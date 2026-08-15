@@ -31,6 +31,7 @@ struct NewTaskView: View {
 
                 nameField
                 promptField
+                timerNote
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(20)
@@ -67,6 +68,24 @@ struct NewTaskView: View {
                 .foregroundStyle(.tertiary)
             TaskPromptEditor(prompt: $prompt, minHeight: 96)
         }
+    }
+
+    private var timerNote: some View {
+        HStack(alignment: .top, spacing: 9) {
+            Image(systemName: "clock.arrow.2.circlepath")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Theme.accent)
+                .frame(width: 16)
+            Text("You can configure a timer after creating the task, including interval "
+                 + "runs, a time of day, recurrence, run limits, and confirmation.")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(11)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 9).fill(Theme.sunken))
+        .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
     }
 
     private var footer: some View {

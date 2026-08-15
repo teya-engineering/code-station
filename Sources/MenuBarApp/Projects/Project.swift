@@ -17,11 +17,12 @@ struct TaskSpec: Codable, Equatable {
     var codexSandboxMode: String?
     var inputs: [TaskInput] = []
     var lastValues: [String: String] = [:]
+    var schedule: TaskSchedule?
 
     init(prompt: String, agent: AgentKind? = nil, agentAvatarName: String? = nil,
          model: String? = nil, effort: String? = nil, permissionMode: String? = nil,
          codexSandboxMode: String? = nil, inputs: [TaskInput] = [],
-         lastValues: [String: String] = [:]) {
+         lastValues: [String: String] = [:], schedule: TaskSchedule? = nil) {
         self.prompt = prompt
         self.agent = agent
         self.agentAvatarName = agentAvatarName
@@ -31,6 +32,7 @@ struct TaskSpec: Codable, Equatable {
         self.codexSandboxMode = codexSandboxMode
         self.inputs = inputs
         self.lastValues = lastValues
+        self.schedule = schedule
     }
 
     // Tasks saved before a prompt could ask for anything hold neither list.
@@ -46,6 +48,7 @@ struct TaskSpec: Codable, Equatable {
         inputs = try container.decodeIfPresent([TaskInput].self, forKey: .inputs) ?? []
         lastValues = try container.decodeIfPresent([String: String].self, forKey: .lastValues)
             ?? [:]
+        schedule = try container.decodeIfPresent(TaskSchedule.self, forKey: .schedule)
     }
 }
 

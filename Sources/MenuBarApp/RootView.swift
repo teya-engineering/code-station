@@ -34,6 +34,7 @@ struct RootView: View {
                 Divider().overlay(Theme.hairline)
                 detail
             }
+            ScheduledTaskRunner()
             if let attention, attention != dismissedAttention {
                 AttentionBanner(title: attention.title,
                                 message: attention.message,
