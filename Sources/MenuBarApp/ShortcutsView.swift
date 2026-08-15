@@ -1,9 +1,8 @@
 import SwiftUI
 
-// The commands saved against this Mac: the ones that are about the machine rather than
-// about any checkout, so they run from the home folder. A project's commands are not
-// here. They belong to the sessions that run them and are managed on the strip inside
-// those sessions, because that is where the folder they run in is decided.
+// The commands saved against this Mac. They run from the home folder here, and the ones
+// marked for all projects also appear in each project's folder and session worktrees.
+// Commands owned by one project stay with the sessions that run them.
 struct ShortcutsView: View {
     @Environment(ShortcutStore.self) private var store
     @Environment(DialogPresenter.self) private var dialogs
@@ -27,7 +26,11 @@ struct ShortcutsView: View {
         .sheet(item: $editor) { request in
             ShortcutEditorView(request: request) { shortcut in
                 if request.shortcut == nil {
-                    if let id = store.add(name: shortcut.name, command: shortcut.command) {
+                    if let id = store.add(
+                        name: shortcut.name,
+                        command: shortcut.command,
+                        availableInAllProjects: shortcut.availableInAllProjects
+                    ) {
                         selectedID = id
                     }
                 } else {
@@ -67,12 +70,15 @@ struct ShortcutsView: View {
         .headerBand()
     }
 
-    // The heading has to say whose these are, because a project's shortcuts are missing
-    // from this list on purpose and the reader would otherwise read that as them being
-    // gone. The count goes on the same line, since both are about the same list.
+    // The heading says whose these are and calls out how many also appear in projects.
+    // The count goes on the same line, since both are about the same list.
     private var headerDetail: String {
         let running = store.runningCount(of: shortcuts)
         let count = running > 0 ? "\(running) running" : "\(shortcuts.count) saved"
+        let shared = shortcuts.count(where: \.availableInAllProjects)
+        if shared > 0 {
+            return "\(count) on this Mac · \(shared) available in all projects"
+        }
         return "\(count) on this Mac, run from your home folder"
     }
 
@@ -280,9 +286,22 @@ private struct ShortcutRow: View {
                 .frame(width: 8, height: 8)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(shortcut.name)
-                    .font(.system(size: 13, weight: .semibold))
-                    .lineLimit(1)
+                HStack(spacing: 7) {
+                    Text(shortcut.name)
+                        .font(.system(size: 13, weight: .semibold))
+                        .lineLimit(1)
+                    if shortcut.availableInAllProjects {
+                        Text("ALL PROJECTS")
+                            .font(.mono(8.5, .semibold))
+                            .kerning(0.45)
+                            .foregroundStyle(Theme.accent)
+                            .padding(.horizontal, 6)
+                            .frame(height: 17)
+                            .background(Capsule().fill(Theme.accent.opacity(0.1)))
+                            .overlay(Capsule().stroke(Theme.accent.opacity(0.28)))
+                            .fixedSize()
+                    }
+                }
                 Text(commandSummary)
                     .font(.mono(10.5))
                     .foregroundStyle(.tertiary)

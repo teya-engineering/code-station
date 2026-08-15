@@ -1,11 +1,10 @@
 import Foundation
 import SwiftUI
 
-// A project's saved commands, sitting in the session's own status row rather than on a
-// strip of their own. They belong beside the other readings because they are the same
-// kind of thing: what this session is, on one line. Where they run comes with them - a
-// project shortcut means this session's worktree, so the tests it runs are the tests for
-// the branch named further along the same row.
+// The commands available to a project, sitting in the session's own status row rather
+// than on a strip of their own. They belong beside the other readings because they are
+// the same kind of thing: what this session is, on one line. A command run here uses this
+// session's worktree, so the tests it runs are the tests for the branch on the same row.
 //
 // Every checkout's commands are here at once. A session with several of them tints each
 // chip with its project, rather than making the reader switch, since a command saved
@@ -58,6 +57,7 @@ struct SessionShortcutChips: View {
                 .item("Show output", action: { openRun = run }),
                 .item("Edit", action: {
                     edit(ShortcutEditorRequest(shortcut: shortcut,
+                                               projectID: entry.checkout.projectID,
                                                projectName: entry.project?.name))
                 }),
                 .separator,
@@ -101,9 +101,8 @@ struct SessionShortcutChips: View {
         return entries
     }
 
-    // Anything made from here belongs to the session's own project, the one whose name
-    // is in the header. Nothing is asked about where it runs, because being the
-    // project's is what decides that.
+    // Anything made from here starts as a command for the session's own project. The
+    // editor can share it with every project instead.
     private var blankRequest: ShortcutEditorRequest {
         ShortcutEditorRequest(projectID: session.projectID,
                               projectName: store.project(session.projectID)?.name)
@@ -160,6 +159,12 @@ private struct ShortcutChip: View {
         Button(action: toggle) {
             HStack(spacing: 6) {
                 if let tint { ProjectDot(tint: tint, size: 6) }
+                if shortcut.availableInAllProjects {
+                    Image(systemName: "globe")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(Theme.accent)
+                        .accessibilityLabel("Available in all projects")
+                }
                 Text(shortcut.name)
                     .font(.system(size: 12, weight: .semibold))
                     .lineLimit(1)

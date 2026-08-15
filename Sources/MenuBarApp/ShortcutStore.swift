@@ -1,12 +1,10 @@
 import Foundation
 import Observation
 
-// A saved command, and the one thing that decides where it runs: who it belongs to.
-// The Mac's own commands run from home, the way every shortcut used to. A project's
-// commands run in whichever of its worktrees is in front of you, which is what makes
-// "run the tests" mean this session's tests rather than the ones in the folder the
-// branch came from. Nothing is asked when one is saved, because the screen it is saved
-// from already knows where it belongs.
+// A saved command and the scope that decides where it runs. The Mac's own commands run
+// from home. A project's commands and the Mac commands shared with every project run in
+// whichever worktree is in front of you, which is what makes "run the tests" mean this
+// session's tests rather than the ones in the folder the branch came from.
 struct CommandShortcut: Identifiable, Codable, Equatable, Sendable {
     let id: UUID
     var name: String
@@ -14,33 +12,42 @@ struct CommandShortcut: Identifiable, Codable, Equatable, Sendable {
     // The project this shortcut is filed under, and nil for the ones that belong to the
     // Mac rather than to any checkout.
     var projectID: UUID?
+    // A Mac shortcut can also be offered by every project. It stays on the Mac's list so
+    // there is still one place to edit or remove it.
+    var availableInAllProjects: Bool
 
-    init(id: UUID = UUID(), name: String, command: String, projectID: UUID? = nil) {
+    init(id: UUID = UUID(), name: String, command: String, projectID: UUID? = nil,
+         availableInAllProjects: Bool = false) {
         self.id = id
         self.name = name
         self.command = command
-        self.projectID = projectID
+        self.projectID = availableInAllProjects ? nil : projectID
+        self.availableInAllProjects = availableInAllProjects
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, command, projectID
+        case id, name, command, projectID, availableInAllProjects
     }
 
-    // Shortcuts saved before they could belong to a project are the Mac's own.
+    // Shortcuts saved before they could belong to a project are the Mac's own. Shortcuts
+    // saved before sharing was added remain private to that list.
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.init(id: try container.decode(UUID.self, forKey: .id),
                   name: try container.decode(String.self, forKey: .name),
                   command: try container.decode(String.self, forKey: .command),
-                  projectID: try container.decodeIfPresent(UUID.self, forKey: .projectID))
+                  projectID: try container.decodeIfPresent(UUID.self, forKey: .projectID),
+                  availableInAllProjects: try container.decodeIfPresent(
+                    Bool.self, forKey: .availableInAllProjects) ?? false)
     }
 
-    // The folder this run happens in. A project shortcut falls back to the checkout,
-    // which is what it means for a project with nothing open: there is no worktree in
-    // front of you, so the folder the worktrees come from is the honest answer.
+    // The folder this run happens in. A project shortcut or a shared Mac shortcut falls
+    // back to the checkout, which is what it means for a project with nothing open:
+    // there is no worktree in front of you, so the folder the worktrees come from is the
+    // honest answer.
     func directory(projectPath: String?, workspacePath: String? = nil) -> String {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
-        guard projectID != nil else { return home }
+        guard projectID != nil || availableInAllProjects else { return home }
         return workspacePath ?? projectPath ?? home
     }
 }
@@ -114,9 +121,9 @@ final class ShortcutStore {
         load()
     }
 
-    // Counted over the shortcuts the asking screen shows rather than over all of them,
-    // since the Mac's list and a project's list are separate screens: a number that
-    // counted both would report runs its reader cannot see or reach.
+    // Counted over the shortcuts the asking screen shows rather than over every saved
+    // shortcut. A shared shortcut can have a separate run in each folder, and each active
+    // run counts because each is a command the reader may need to stop.
     func runningCount(of shortcuts: [CommandShortcut]) -> Int {
         count(over: shortcuts, where: \.isActive)
     }
@@ -135,14 +142,17 @@ final class ShortcutStore {
         shortcuts.first { $0.id == id }
     }
 
-    // The ones filed under the Mac, and the ones filed under one project. Both keep the
+    // The ones filed under the Mac, and the ones available to one project. Both keep the
     // order they were added in, so a list never reshuffles itself under the reader.
     var macShortcuts: [CommandShortcut] {
         shortcuts.filter { $0.projectID == nil }
     }
 
     func shortcuts(for projectID: UUID) -> [CommandShortcut] {
-        shortcuts.filter { $0.projectID == projectID }
+        shortcuts.filter {
+            $0.projectID == projectID
+                || ($0.projectID == nil && $0.availableInAllProjects)
+        }
     }
 
     func state(_ run: ShortcutRun) -> State {
@@ -212,14 +222,16 @@ final class ShortcutStore {
     // MARK: - Mutations
 
     @discardableResult
-    func add(name: String, command: String, projectID: UUID? = nil) -> CommandShortcut.ID? {
+    func add(name: String, command: String, projectID: UUID? = nil,
+             availableInAllProjects: Bool = false) -> CommandShortcut.ID? {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let command = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty, !command.isEmpty else { return nil }
         let shortcut = CommandShortcut(
             name: name,
             command: command,
-            projectID: projectID
+            projectID: projectID,
+            availableInAllProjects: availableInAllProjects
         )
         shortcuts.append(shortcut)
         save()
@@ -236,7 +248,8 @@ final class ShortcutStore {
             id: shortcut.id,
             name: name,
             command: command,
-            projectID: shortcut.projectID
+            projectID: shortcut.projectID,
+            availableInAllProjects: shortcut.availableInAllProjects
         )
         // The state and output on screen belong to the command that was there before,
         // so they stop meaning anything the moment it is rewritten.
@@ -252,9 +265,13 @@ final class ShortcutStore {
     }
 
     // Every shortcut a project owns goes with it, so removing a project does not leave
-    // commands filed under a name nothing can show.
+    // commands filed under a name nothing can show. Shared shortcuts belong to the Mac
+    // and must remain available to the other projects.
     func removeAll(ownedBy projectID: UUID) {
-        for shortcut in shortcuts(for: projectID) { remove(shortcut.id) }
+        let owned = shortcuts.filter { $0.projectID == projectID }
+        for shortcut in owned {
+            remove(shortcut.id)
+        }
     }
 
     func isRunningAnywhere(_ id: CommandShortcut.ID) -> Bool {

@@ -24,11 +24,13 @@ struct ShortcutStoreTests {
 
         let id = try #require(store.add(
             name: "  API server  ", command: "  ./gradlew bootRun  "))
-        store.update(CommandShortcut(id: id, name: "Service", command: "./gradlew run"))
+        store.update(CommandShortcut(id: id, name: "Service", command: "./gradlew run",
+                                     availableInAllProjects: true))
 
         let reloaded = ShortcutStore(storageURL: url)
         #expect(reloaded.shortcuts == [
-            CommandShortcut(id: id, name: "Service", command: "./gradlew run")
+            CommandShortcut(id: id, name: "Service", command: "./gradlew run",
+                            availableInAllProjects: true)
         ])
 
         reloaded.remove(id)
@@ -55,8 +57,8 @@ struct ShortcutStoreTests {
         #expect(store.macShortcuts.count == 1)
     }
 
-    // Who a shortcut belongs to is the only thing that decides where it runs, so the
-    // Mac's own ignore every checkout it is offered.
+    // Private Mac shortcuts ignore every checkout, while project and shared shortcuts
+    // use the project folder or session worktree they are offered.
     @Test func resolvesTheFolderFromWhoTheShortcutBelongsTo() {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
 
@@ -72,6 +74,12 @@ struct ShortcutStoreTests {
         #expect(owned.directory(projectPath: "/repos/lantern") == "/repos/lantern")
         // And a project whose folder cannot be found is still somewhere runnable.
         #expect(owned.directory(projectPath: nil) == home)
+
+        let shared = CommandShortcut(name: "Build", command: "make",
+                                     availableInAllProjects: true)
+        #expect(shared.directory(projectPath: "/repos/lantern",
+                                 workspacePath: "/worktrees/a") == "/worktrees/a")
+        #expect(shared.directory(projectPath: nil) == home)
     }
 
     @Test func groupsShortcutsByOwner() throws {
@@ -84,20 +92,22 @@ struct ShortcutStoreTests {
         let prune = try #require(store.add(name: "Prune", command: "docker system prune"))
         let lint = try #require(store.add(name: "Lint", command: "npm run lint",
                                           projectID: lantern))
-        store.add(name: "Build", command: "make", projectID: other)
+        let test = try #require(store.add(name: "Test", command: "swift test",
+                                          projectID: lantern))
+        let build = try #require(store.add(name: "Build", command: "make", projectID: other))
+        let shared = try #require(store.add(name: "Format", command: "swift format",
+                                            availableInAllProjects: true))
 
-        #expect(store.macShortcuts.map(\.id) == [prune])
-        #expect(store.shortcuts(for: lantern).map(\.id) == [lint])
-        #expect(store.shortcuts(for: other).count == 1)
+        #expect(store.macShortcuts.map(\.id) == [prune, shared])
+        #expect(store.shortcuts(for: lantern).map(\.id) == [lint, test, shared])
+        #expect(store.shortcuts(for: other).map(\.id) == [build, shared])
 
         store.removeAll(ownedBy: lantern)
-        #expect(store.shortcuts(for: lantern).isEmpty)
-        #expect(store.shortcuts.count == 2)
+        #expect(store.shortcuts(for: lantern).map(\.id) == [shared])
+        #expect(store.shortcuts.count == 3)
     }
 
-    // The Mac's list and a project's are separate screens, so neither may report the
-    // other's runs: a count on one that included the other would speak for runs its
-    // reader cannot see.
+    // A count only considers the shortcuts in the list doing the asking.
     @Test func countsRunsOnlyForTheListDoingTheAsking() async throws {
         let url = temporaryFile()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }

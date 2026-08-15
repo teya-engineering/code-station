@@ -1,9 +1,8 @@
 import SwiftUI
 
-// Asking for a shortcut: a name and a command, and nothing else. Where it runs is not a
-// question, because the screen it was opened from is the answer - the Mac's list makes
-// the Mac's shortcuts, a session makes its project's - so the sheet says where the
-// command will run instead of asking.
+// Asking for a shortcut: a name, a command, and whether every project can use it. The
+// screen it was opened from supplies the private scope, while sharing deliberately moves
+// the shortcut to the Mac so every project can see the same saved command.
 struct ShortcutEditorRequest: Identifiable {
     let id = UUID()
     var shortcut: CommandShortcut?
@@ -22,22 +21,25 @@ struct ShortcutEditorView: View {
 
     private let request: ShortcutEditorRequest
     private let id: CommandShortcut.ID
-    private let projectID: UUID?
+    private let projectIDWhenPrivate: UUID?
     private let editing: Bool
     private let onSave: (CommandShortcut) -> Void
 
     @State private var name: String
     @State private var command: String
+    @State private var availableInAllProjects: Bool
 
     init(request: ShortcutEditorRequest, onSave: @escaping (CommandShortcut) -> Void) {
         let shortcut = request.shortcut
         self.request = request
         id = shortcut?.id ?? UUID()
-        projectID = shortcut?.projectID ?? request.projectID
+        projectIDWhenPrivate = shortcut?.projectID ?? request.projectID
         editing = shortcut != nil
         self.onSave = onSave
         _name = State(initialValue: shortcut?.name ?? "")
         _command = State(initialValue: shortcut?.command ?? request.command ?? "")
+        _availableInAllProjects = State(
+            initialValue: shortcut?.availableInAllProjects ?? false)
     }
 
     var body: some View {
@@ -65,6 +67,22 @@ struct ShortcutEditorView: View {
                     .frame(height: 140)
                     .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
                     .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
+
+                Toggle(isOn: $availableInAllProjects) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Available in all projects")
+                            .font(.system(size: 12, weight: .semibold))
+                        Text(availabilityDetail)
+                            .font(.system(size: 10.5))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .toggleStyle(.appCheckbox)
+                .padding(.horizontal, 11)
+                .padding(.vertical, 9)
+                .background(RoundedRectangle(cornerRadius: 9).fill(Theme.card))
+                .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
+
                 Text(runsIn)
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
@@ -87,7 +105,10 @@ struct ShortcutEditorView: View {
 
                 Button {
                     onSave(CommandShortcut(id: id, name: trimmedName,
-                                           command: trimmedCommand, projectID: projectID))
+                                           command: trimmedCommand,
+                                           projectID: availableInAllProjects
+                                               ? nil : projectIDWhenPrivate,
+                                           availableInAllProjects: availableInAllProjects))
                     dismiss()
                 } label: {
                     Text(editing ? "Save" : "Add")
@@ -109,12 +130,25 @@ struct ShortcutEditorView: View {
         .background(Theme.background)
     }
 
-    // Saying where the command lands is what makes the missing question fair: the reader
-    // is told the answer rather than left to guess it.
+    private var availabilityDetail: String {
+        if availableInAllProjects {
+            return "Shown in every project and run from the project using it."
+        }
+        if let name = request.projectName {
+            return "Shown only in \(name)."
+        }
+        return "Turn this on to use the shortcut from any project."
+    }
+
     private var runsIn: String {
-        let place = request.projectName.map {
-            "the worktree of whichever \($0) session runs it, or the project folder when there is none"
-        } ?? "your home folder"
+        let place = if availableInAllProjects {
+            "the project folder or session worktree that runs it"
+        } else if let projectName = request.projectName {
+            "the worktree of whichever \(projectName) session runs it, "
+                + "or the project folder when there is none"
+        } else {
+            "your home folder"
+        }
         return "Runs with zsh in \(place). Output is captured, so the run can report how it ended."
     }
 

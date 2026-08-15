@@ -209,7 +209,8 @@ struct SessionView: View {
                 ShortcutEditorView(request: request) { shortcut in
                     if request.shortcut == nil {
                         shortcuts.add(name: shortcut.name, command: shortcut.command,
-                                      projectID: shortcut.projectID)
+                                      projectID: shortcut.projectID,
+                                      availableInAllProjects: shortcut.availableInAllProjects)
                     } else {
                         shortcuts.update(shortcut)
                     }

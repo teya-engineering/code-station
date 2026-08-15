@@ -50,7 +50,8 @@ struct ProjectDetailView: View {
                 ShortcutEditorView(request: request) { shortcut in
                     if request.shortcut == nil {
                         shortcuts.add(name: shortcut.name, command: shortcut.command,
-                                      projectID: shortcut.projectID)
+                                      projectID: shortcut.projectID,
+                                      availableInAllProjects: shortcut.availableInAllProjects)
                     } else {
                         shortcuts.update(shortcut)
                     }
@@ -227,11 +228,11 @@ struct ProjectDetailView: View {
         return short == "now" ? "JUST NOW" : "\(short.uppercased()) AGO"
     }
 
-    // The project's saved commands, collapsed to a count and a menu. They are worth a
-    // whole row of chips in a session, where running the tests is part of the work in
-    // front of you; here they are one more thing the folder has, so they take the room
-    // of one reading. A run happens in the project folder, since a project screen is not
-    // looking at any one worktree.
+    // The commands available to this project, collapsed to a count and a menu. They are
+    // worth a whole row of chips in a session, where running the tests is part of the
+    // work in front of you; here they are one more thing the folder has, so they take the
+    // room of one reading. A run happens in the project folder, since a project screen is
+    // not looking at any one worktree.
     private func shortcutsControl(_ project: Project) -> some View {
         let saved = shortcuts.shortcuts(for: project.id)
         let running = shortcuts.runningCount(of: saved)
@@ -262,7 +263,7 @@ struct ProjectDetailView: View {
             let state = shortcuts.state(run)
             return .item(state.isActive ? "Stop \(shortcut.name)" : shortcut.name,
                          subtitle: shortcut.command,
-                         detail: detail(of: state),
+                         detail: shortcutDetail(shortcut, state: state),
                          detailColour: colour(of: state)) {
                 toggle(run)
             }
@@ -278,6 +279,13 @@ struct ProjectDetailView: View {
                                                    projectName: project.name)
         })
         return entries
+    }
+
+    private func shortcutDetail(_ shortcut: CommandShortcut,
+                                state: ShortcutStore.State) -> String? {
+        let stateDetail = detail(of: state)
+        guard shortcut.availableInAllProjects else { return stateDetail }
+        return stateDetail.map { "all projects · \($0)" } ?? "all projects"
     }
 
     private func detail(of state: ShortcutStore.State) -> String? {
