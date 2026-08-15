@@ -562,15 +562,18 @@ private struct AgentCard: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             if tone != .unsupported {
-                HStack(spacing: 12) {
+                HStack(spacing: 10) {
                     if tone == .outOfSync {
                         pill("Update", fill: Theme.secret, action: onUpdate)
                     }
                     pill(registered ? "Remove" : "Add",
                          fill: registered ? Theme.deletion : Theme.accentFill,
                          action: onToggle)
-                    InlineLink(title: copied ? "Copied" : "Copy command", size: 12.5,
+                    // Two cards share the row, so the label stays short and the tooltip
+                    // carries the detail.
+                    InlineLink(title: copied ? "Copied" : "Copy", size: 12.5,
                                action: onCopy)
+                        .appTooltip("Copy the \(title) command for this server")
                     Spacer(minLength: 0)
                 }
                 .disabled(!enabled)
@@ -596,6 +599,8 @@ private struct AgentCard: View {
             Text(title)
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.white)
+                .lineLimit(1)
+                .fixedSize()
                 .padding(.horizontal, 13)
                 .padding(.vertical, 7)
                 .background(RoundedRectangle(cornerRadius: 8).fill(fill))
