@@ -307,10 +307,23 @@ struct MarkdownListItem: Equatable {
 // they are. Block structure is the parser's job, so none of it reaches here.
 extension AttributedString {
     static func inlineMarkdown(_ text: String) -> AttributedString {
-        (try? AttributedString(
+        guard var attributed = try? AttributedString(
             markdown: text,
-            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
-            ?? AttributedString(text)
+            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)) else {
+            return AttributedString(text)
+        }
+
+        // Markdown keeps filesystem paths as scheme-less URLs, which Launch Services
+        // cannot open. Turn only filesystem-shaped links into file URLs and leave web,
+        // mail, and relative links to SwiftUI's normal handling.
+        for run in Array(attributed.runs) {
+            guard let link = run.link, link.scheme == nil, link.host == nil else { continue }
+            let path = link.path
+            guard path.hasPrefix("/") || path == "~" || path.hasPrefix("~/") else { continue }
+            attributed[run.range].link = URL(
+                fileURLWithPath: (path as NSString).expandingTildeInPath)
+        }
+        return attributed
     }
 }
 

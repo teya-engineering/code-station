@@ -10,6 +10,10 @@ struct MarkdownBlockTests {
         MarkdownBlock.parse(text).map(\.kind)
     }
 
+    private func link(in text: String) -> URL? {
+        AttributedString.inlineMarkdown(text).runs.compactMap(\.link).first
+    }
+
     @Test func readsATableWithItsAlignments() {
         let text = """
         | Field | Value | Count |
@@ -140,5 +144,27 @@ struct MarkdownBlockTests {
     @Test func givesEveryBlockItsOwnIdentity() {
         let ids = MarkdownBlock.parse("# a\n\ntext\n\n- item").map(\.id)
         #expect(Set(ids).count == ids.count)
+    }
+
+    @Test func turnsAnAbsolutePathLinkIntoAFileURL() {
+        let url = link(in: "[AGENTS.md](/Users/test/.codex/AGENTS.md)")
+
+        #expect(url?.isFileURL == true)
+        #expect(url?.path == "/Users/test/.codex/AGENTS.md")
+    }
+
+    @Test func expandsAHomeRelativePathLink() {
+        let url = link(in: "[AGENTS.md](~/.codex/AGENTS.md)")
+
+        #expect(url?.isFileURL == true)
+        #expect(url?.path == FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".codex/AGENTS.md").path)
+    }
+
+    @Test func leavesAWebLinkUnchanged() {
+        let url = link(in: "[OpenAI](https://openai.com/docs)")
+
+        #expect(url?.absoluteString == "https://openai.com/docs")
+        #expect(url?.isFileURL == false)
     }
 }
