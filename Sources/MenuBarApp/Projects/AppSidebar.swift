@@ -14,6 +14,7 @@ struct AppSidebar: View {
     @Environment(DialogPresenter.self) private var dialogs
     @Environment(AppSettings.self) private var appSettings
     @Environment(WorkingTreeWatch.self) private var workingTrees
+    @Environment(MobileAccessController.self) private var mobileAccess
 
     // A project is expanded by default while it is the selected one. Explicit choices
     // win over that default and are restored when the app opens again.
@@ -548,6 +549,7 @@ struct AppSidebar: View {
                                             removed: session.summary.removed,
                                             branch: workspaceBranch(session),
                                             uncommitted: folders.contains(where: workingTrees.isDirty),
+                                            connected: mobileAccess.share(for: session.id)?.isConnected == true,
                                             isRenaming: renamingID == session.id,
                                             onDelete: { confirmRemoveSession(session) },
                                             onRename: { name in
@@ -662,6 +664,7 @@ struct AppSidebar: View {
                                         removed: session.summary.removed,
                                         branch: branch(session, project: project),
                                         uncommitted: workingTrees.isDirty(folder(session, project: project)),
+                                        connected: mobileAccess.share(for: session.id)?.isConnected == true,
                                         isRenaming: renamingID == session.id,
                                         onDelete: { confirmRemoveSession(session) },
                                         onRename: { name in
@@ -1714,6 +1717,16 @@ private struct UncommittedMark: View {
     }
 }
 
+private struct MobileConnectionMark: View {
+    var body: some View {
+        Image(systemName: "iphone.radiowaves.left.and.right")
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(Theme.addition)
+            .appTooltip("Phone connected")
+            .accessibilityLabel("Phone connected")
+    }
+}
+
 // A session as a compact card. It carries the same state, title, activity and changes the
 // session shows on its project and on Home, so it reads the same wherever it is met.
 private struct SessionCard: View {
@@ -1727,6 +1740,7 @@ private struct SessionCard: View {
     let removed: Int
     let branch: String?
     let uncommitted: Bool
+    let connected: Bool
     let isRenaming: Bool
     let onDelete: () -> Void
     let onRename: (String) -> Void
@@ -1756,6 +1770,7 @@ private struct SessionCard: View {
                     MonoChip(text: "WT", size: 8.5)
                 }
                 if uncommitted { UncommittedMark() }
+                if connected { MobileConnectionMark() }
                 Spacer(minLength: 4)
                 // The trailing details hide in place rather than being taken out, and the
                 // button that replaces them is an overlay, so the card is one size whether
