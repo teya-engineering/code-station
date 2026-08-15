@@ -309,7 +309,7 @@ struct FreshnessNotice: View {
             }
             if forWorktree, report.isStale, let remote = report.remoteRef {
                 check(isOn: $baseOnRemote, clearing: $updateCheckout,
-                      label: "Start this session from \(remote), leaving your checkout as it is")
+                      label: "Start this session from the latest version of \(remote), leaving your checkout as it is")
             }
             if report.canUpdateCheckout, let update = updateLabel {
                 check(isOn: $updateCheckout, clearing: $baseOnRemote, label: update)
