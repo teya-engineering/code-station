@@ -23,10 +23,7 @@ final class SessionRunner {
 
     var defaults: SessionSettings {
         get { defaults(for: agent) }
-        set {
-            defaultsByAgent[agent] = newValue
-            Preferences.setSessionDefaults(newValue, for: agent)
-        }
+        set { setDefaults(newValue, for: agent) }
     }
 
     // The account's usage windows belong to an agent account rather than a session.
@@ -83,6 +80,11 @@ final class SessionRunner {
 
     func defaults(for agent: AgentKind) -> SessionSettings {
         defaultsByAgent[agent] ?? SessionSettings()
+    }
+
+    func setDefaults(_ defaults: SessionSettings, for agent: AgentKind) {
+        defaultsByAgent[agent] = defaults
+        Preferences.setSessionDefaults(defaults, for: agent)
     }
 
     func isAvailable(_ agent: AgentKind) -> Bool { paths[agent] != nil }

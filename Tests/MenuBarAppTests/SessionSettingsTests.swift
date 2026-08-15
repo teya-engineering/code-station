@@ -6,6 +6,31 @@ import Testing
 // payloads here are real ones taken off the wire.
 struct SessionSettingsTests {
 
+    @MainActor
+    @Test func updatesAnAgentsDefaultsWithoutChangingTheDefaultAgent() {
+        let savedAgent = Preferences.agent
+        let savedClaudeDefaults = Preferences.sessionDefaults(for: .claudeCode)
+        let savedCodexDefaults = Preferences.sessionDefaults(for: .codex)
+        defer {
+            Preferences.agent = savedAgent
+            Preferences.setSessionDefaults(savedClaudeDefaults, for: .claudeCode)
+            Preferences.setSessionDefaults(savedCodexDefaults, for: .codex)
+        }
+
+        let runner = SessionRunner(paths: [:])
+        runner.agent = .claudeCode
+        let claudeDefaults = runner.defaults(for: .claudeCode)
+        let codexDefaults = SessionSettings(model: "gpt-5.6-sol",
+                                            effort: "high",
+                                            codexSandboxMode: "workspace-write")
+
+        runner.setDefaults(codexDefaults, for: .codex)
+
+        #expect(runner.agent == .claudeCode)
+        #expect(runner.defaults(for: .claudeCode) == claudeDefaults)
+        #expect(runner.defaults(for: .codex) == codexDefaults)
+    }
+
     // MARK: - Arguments
 
     private let appDefaults = SessionSettings(permissionMode: "acceptEdits")

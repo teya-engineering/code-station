@@ -192,6 +192,7 @@ final class AppSettings {
 struct SettingsView: View {
     @Environment(LoginItem.self) private var loginItem
     @Environment(ProjectStore.self) private var store
+    @Environment(SessionRunner.self) private var runner
     @Environment(AppSettings.self) private var settings
     @Environment(DialogPresenter.self) private var dialogs
     @Environment(\.dismiss) private var dismiss
@@ -219,7 +220,7 @@ struct SettingsView: View {
                         log
                         siteConfiguration
                     case .agents:
-                        AgentSettingsView()
+                        AgentSettingsView(selectedAgent: runner.agent)
                     case .experimental:
                         mobileAccess
                     }

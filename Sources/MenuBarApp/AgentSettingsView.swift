@@ -182,18 +182,23 @@ private nonisolated func cliVersion(at path: String, searchPath: String) async -
 struct AgentSettingsView: View {
     @Environment(SessionRunner.self) private var runner
     @Environment(AppSettings.self) private var appSettings
+    @State private var selectedAgent: AgentKind
     @State private var claude = ClaudeAgentInfo()
     @State private var codex = CodexAgentInfo()
     @State private var loggingIn: AgentKind?
 
-    private var defaults: SessionSettings { runner.defaults }
+    private var defaults: SessionSettings { runner.defaults(for: selectedAgent) }
+
+    init(selectedAgent: AgentKind) {
+        _selectedAgent = State(initialValue: selectedAgent)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
             defaultAgent
             agentTabs
             Divider().overlay(Theme.hairline)
-            switch runner.agent {
+            switch selectedAgent {
             case .claudeCode: claudeSection
             case .codex: codexSection
             }
@@ -249,11 +254,11 @@ struct AgentSettingsView: View {
     }
 
     private var agentTabs: some View {
-        ChoiceBlock("AGENT", note: "New sessions use this agent by default. A session keeps the agent and model it starts with for its whole conversation.") {
+        ChoiceBlock("CONFIGURE", note: "Choose which agent's account and settings to view. This does not change the default agent.") {
             HStack(spacing: 4) {
                 ForEach(AgentKind.allCases) { kind in
-                    ChoicePill(title: kind.title, selected: runner.agent == kind) {
-                        runner.agent = kind
+                    ChoicePill(title: kind.title, selected: selectedAgent == kind) {
+                        selectedAgent = kind
                     }
                 }
                 Spacer(minLength: 0)
@@ -264,7 +269,7 @@ struct AgentSettingsView: View {
     private func change(_ edit: (inout SessionSettings) -> Void) {
         var updated = defaults
         edit(&updated)
-        runner.defaults = updated
+        runner.setDefaults(updated, for: selectedAgent)
     }
 
     private func model(for agent: AgentKind) -> some View {
