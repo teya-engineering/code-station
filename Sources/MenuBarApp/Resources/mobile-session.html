@@ -213,6 +213,21 @@
     .row-meta .removed { color: var(--red); font-weight: 600; }
     .row-meta .flag { color: var(--amber-text); font-weight: 600; }
     .chevron { flex: none; color: var(--faint); font-size: 17px; }
+    /* The tail of a long list, folded away until it is asked for. It reads as a label
+       rather than a row, since there is no session behind it to open. */
+    .more {
+      display: block;
+      width: 100%;
+      padding: 12px 18px;
+      border: 0;
+      border-top: 1px solid var(--hairline);
+      background: none;
+      color: var(--muted);
+      font: 600 11px var(--mono);
+      letter-spacing: .5px;
+      text-align: center;
+    }
+    .more:active { background: var(--sunken); }
 
     /* MARK: - The status strip */
 
@@ -635,6 +650,11 @@
       // The list as the Mac last described it, so the new-session sheet can name the
       // project it is about without asking for it again.
       let listing = { title: '', canCreate: false, projects: [] };
+      // The newest few sessions of a project, as the rail on the Mac shows them. The rest
+      // stay under see-more until they are asked for, and a project that has been unfolded
+      // stays unfolded so an update from the Mac does not fold it back.
+      const sessionLimit = 4;
+      const unfolded = new Set();
       let creating = false;
       // Whether the ask has been put down. It survives an update to the ask itself, so a
       // sheet folded away does not spring back up when a tool result lands behind it.
@@ -748,7 +768,17 @@
         if (!project.sessions.length) {
           group.append(element('div', 'group-empty', 'NO SESSIONS YET'));
         }
-        for (const session of project.sessions) group.append(sessionRow(session));
+        const visible = unfolded.has(project.id)
+          ? project.sessions
+          : project.sessions.slice(0, sessionLimit);
+        for (const session of visible) group.append(sessionRow(session));
+        const hidden = project.sessions.length - visible.length;
+        if (hidden) {
+          group.append(button('more', `SHOW ${hidden} MORE`, () => {
+            unfolded.add(project.id);
+            renderDirectory(listing);
+          }));
+        }
         return group;
       };
 
