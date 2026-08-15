@@ -203,11 +203,12 @@ struct SettingsView: View {
                         terminal
                         appearance
                         textSize
-                        mobileAccess
                         startAtLogin
                         log
                     case .agents:
                         AgentSettingsView()
+                    case .experimental:
+                        mobileAccess
                     }
                 }
                 .padding(20)
@@ -972,11 +973,13 @@ private struct DayField: View {
 enum SettingsTab: CaseIterable {
     case general
     case agents
+    case experimental
 
     var title: String {
         switch self {
         case .general: "General"
         case .agents: "Agents"
+        case .experimental: "Experimental"
         }
     }
 
@@ -984,6 +987,7 @@ enum SettingsTab: CaseIterable {
         switch self {
         case .general: "Settings for Teya Conductor."
         case .agents: "Choose an agent and set how it runs."
+        case .experimental: "Try features that are still in development."
         }
     }
 }
