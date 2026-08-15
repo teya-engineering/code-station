@@ -371,16 +371,16 @@ private struct RunningRow: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                if let progress = live.progress {
-                    Meter(fraction: progress, colour: Theme.dotOn, height: 4)
-                        .frame(width: 92)
-                }
                 DiffPair(added: live.session.summary.added,
                          removed: live.session.summary.removed)
                 Text(RelativeTime.short(live.session.lastActivity))
                     .font(.mono(10.5))
                     .foregroundStyle(.tertiary)
                     .frame(width: 34, alignment: .trailing)
+                if let progress = live.progress {
+                    Meter(fraction: progress, colour: Theme.dotOn, height: 4)
+                        .frame(width: 92)
+                }
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
