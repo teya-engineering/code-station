@@ -95,6 +95,7 @@ private struct PasteCatcher: ViewModifier {
 
     func body(content: Content) -> some View {
         content
+            .background(PasteWindowAnchor(monitor: monitor))
             .onChange(of: isEnabled, initial: true) { _, enabled in
                 if enabled { monitor.start(onPaste) } else { monitor.stop() }
             }
@@ -105,6 +106,10 @@ private struct PasteCatcher: ViewModifier {
     // hold rather than in the view value it was created from.
     @MainActor
     final class Monitor {
+        // Says which window the box is in. A monitor sees every key press in the app, so
+        // this is what tells one box's paste from another's.
+        weak var anchor: NSView?
+
         private var token: Any?
         private var onPaste: (([Attachment]) -> Void)?
 
@@ -126,12 +131,23 @@ private struct PasteCatcher: ViewModifier {
         }
 
         private func take() -> Bool {
-            // A sheet is its own window with its own fields, and their paste is not ours.
-            guard let onPaste, NSApp.keyWindow?.attachedSheet == nil else { return false }
+            // Every box that accepts a pasted file has a monitor of its own and they all
+            // see the key press, so only the one in front acts on it. A box left focused
+            // behind a sheet must not answer for the sheet's own.
+            guard let onPaste, let window = anchor?.window,
+                  window === Self.frontmostWindow else { return false }
             let found = Attachments.fromClipboard()
             guard !found.isEmpty else { return false }
             onPaste(found)
             return true
+        }
+
+        // Which of a sheet and the window it hangs off counts as key is not worth relying
+        // on, so the chain is followed to whichever sheet ended up on top.
+        private static var frontmostWindow: NSWindow? {
+            var window = NSApp.keyWindow
+            while let sheet = window?.attachedSheet { window = sheet }
+            return window
         }
 
         func stop() {
@@ -139,6 +155,23 @@ private struct PasteCatcher: ViewModifier {
             token = nil
             onPaste = nil
         }
+    }
+}
+
+private struct PasteWindowAnchor: NSViewRepresentable {
+    let monitor: PasteCatcher.Monitor
+
+    func makeNSView(context: Context) -> NSView {
+        let view = AnchorView()
+        monitor.anchor = view
+        return view
+    }
+
+    func updateNSView(_ view: NSView, context: Context) { monitor.anchor = view }
+
+    // Only there to name a window, so it takes no clicks of its own.
+    private final class AnchorView: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
     }
 }
 

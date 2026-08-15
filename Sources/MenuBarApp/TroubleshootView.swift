@@ -308,7 +308,7 @@ struct TroubleshootView: View {
                         Image(systemName: "arrow.down.doc")
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(.secondary)
-                        Text(dropTargeted ? "Drop files here" : "Drag files here or add them from Finder")
+                        Text(dropTargeted ? "Drop files here" : "Drag or paste files here, or add them from Finder")
                             .font(.system(size: 11.5))
                             .foregroundStyle(.secondary)
                     } else {
@@ -349,6 +349,9 @@ struct TroubleshootView: View {
                 attach(Attachments.fromDrop(urls))
                 return true
             } isTargeted: { dropTargeted = $0 }
+            // Only while the description has the cursor: the filter box below is a plain
+            // text field, and a file path pasted into it was meant as text.
+            .pasteAttachments(enabled: problemFocused) { attach($0) }
         }
     }
 
