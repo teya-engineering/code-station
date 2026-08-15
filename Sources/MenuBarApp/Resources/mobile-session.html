@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="color-scheme" content="light dark">
-  <title>Conductor session</title>
+  <title>Conductor</title>
   <style>
     /* The palette is the Mac app's own, so the phone reads as the same program seen
        narrow. Sizes are the 300px-wide design scaled by 1.3 for a ~390px viewport. */
@@ -83,16 +83,12 @@
     button, textarea, input { font: inherit; color: inherit; }
     button { -webkit-tap-highlight-color: transparent; cursor: pointer; }
 
-    /* Everything the ask rises over. Dimming the pane rather than laying a scrim on top
-       keeps the two lines above the sheet readable as the context they are. */
-    #session {
-      display: flex;
-      flex: 1;
-      flex-direction: column;
-      min-height: 0;
-      transition: opacity .25s ease-out;
-    }
-    body.asking #session { opacity: .32; }
+    /* The two screens the phone has. Only one is ever up, and each fills the window, so
+       moving between them is a change of place rather than a scroll. */
+    .screen { display: flex; flex: 1; flex-direction: column; min-height: 0; transition: opacity .25s ease-out; }
+    /* Everything a sheet rises over. Dimming the pane rather than laying a scrim on top
+       keeps the lines above the sheet readable as the context they are. */
+    body.asking #session, body.starting #directory { opacity: .32; }
 
     header {
       display: flex;
@@ -105,28 +101,120 @@
       background: var(--card);
     }
     .head-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 1px; }
-    #title {
+    .head-title {
       overflow: hidden;
       font: 600 19px/1.2 var(--serif);
       white-space: nowrap;
       text-overflow: ellipsis;
     }
-    #where {
+    .head-where {
       overflow: hidden;
       color: var(--faint);
       font: 11px var(--mono);
       white-space: nowrap;
       text-overflow: ellipsis;
     }
-    #light {
+    /* Going back is the header's own gesture, so it is the arrow at its edge rather than
+       a control in the row below it. */
+    #back {
+      width: 32px;
+      height: 32px;
+      flex: none;
+      margin-left: -8px;
+      padding: 0;
+      border: 0;
+      background: none;
+      color: var(--ink);
+      font-size: 26px;
+      line-height: 1;
+    }
+    .light {
       width: 9px;
       height: 9px;
       flex: none;
       border-radius: 50%;
       background: var(--faint);
     }
-    #light.running { background: var(--green); animation: pulse 1.6s ease-in-out infinite; }
-    #light.attention { background: var(--amber); }
+    .light.running { background: var(--green); animation: pulse 1.6s ease-in-out infinite; }
+    .light.attention { background: var(--amber); }
+    .light.live { background: var(--green); }
+
+    /* MARK: - The list */
+
+    #projects { flex: 1; overflow-y: auto; background: var(--card); -webkit-overflow-scrolling: touch; }
+    .group { border-bottom: 1px solid var(--hairline); }
+    .group-head {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 14px 18px 9px;
+    }
+    .group-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 2px; }
+    .group-name {
+      overflow: hidden;
+      font: 600 15.5px var(--sans);
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+    .group-path {
+      overflow: hidden;
+      color: var(--faint);
+      font: 10.5px var(--mono);
+      letter-spacing: .4px;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+    .new {
+      flex: none;
+      padding: 7px 14px;
+      border: 0;
+      border-radius: 18px;
+      background: var(--primary);
+      color: var(--primary-text);
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .group-empty {
+      padding: 2px 18px 14px;
+      color: var(--faint);
+      font: 11px var(--mono);
+      letter-spacing: .5px;
+    }
+    .row {
+      display: flex;
+      width: 100%;
+      align-items: center;
+      gap: 11px;
+      padding: 11px 18px;
+      border: 0;
+      border-top: 1px solid var(--hairline);
+      background: none;
+      text-align: left;
+    }
+    .row:active { background: var(--sunken); }
+    .row-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 3px; }
+    .row-title {
+      overflow: hidden;
+      font-size: 15px;
+      font-weight: 600;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+    .row-meta {
+      display: flex;
+      overflow: hidden;
+      gap: 7px;
+      color: var(--muted);
+      font: 11px var(--mono);
+      letter-spacing: .4px;
+      white-space: nowrap;
+    }
+    .row-meta .added { color: var(--green-add); font-weight: 600; }
+    .row-meta .removed { color: var(--red); font-weight: 600; }
+    .row-meta .flag { color: var(--amber-text); font-weight: 600; }
+    .chevron { flex: none; color: var(--faint); font-size: 17px; }
+
+    /* MARK: - The status strip */
 
     #strip {
       display: flex;
@@ -290,13 +378,14 @@
     }
     button:disabled { opacity: .4; cursor: default; }
 
-    /* What catches the tap on the dimmed conversation. The pane behind it is context to
-       read, not something to work in, so nothing under here is reachable while it is up. */
+    /* What catches the tap on the dimmed screen behind a sheet. Whatever is under here is
+       context to read, not something to work in, so nothing in it is reachable. */
     #scrim { position: fixed; inset: 0; z-index: 4; }
 
-    /* The ask. It is anchored to the foot of the same screen rather than a page of its
-       own, so answering it never costs the reader their place in the conversation. */
-    #sheet {
+    /* A sheet: the ask, and the few lines that start a session. Both are anchored to the
+       foot of the same screen rather than a page of their own, so answering one never
+       costs the reader their place. */
+    .sheet {
       position: fixed;
       right: 0;
       bottom: 0;
@@ -308,13 +397,14 @@
       gap: 14px;
       overflow-y: auto;
       padding: 18px 21px calc(18px + env(safe-area-inset-bottom));
-      border-top: 1.8px solid var(--amber-line);
+      border-top: 1.8px solid var(--hairline-strong);
       border-radius: 23px 23px 0 0;
       background: var(--card);
       box-shadow: 0 -18px 52px rgba(28, 25, 15, .18);
       animation: rise .25s ease-out;
     }
-    #handle {
+    #sheet { border-top-color: var(--amber-line); }
+    .handle {
       width: 44px;
       height: 5px;
       flex: none;
@@ -345,6 +435,8 @@
     .buttons { display: flex; gap: 10px; }
     .buttons button { height: 52px; border-radius: 13px; font-size: 16px; font-weight: 600; }
     .deny { flex: 1; border: 1px solid rgba(163, 61, 48, .4); background: none; color: var(--red); }
+    /* Walking away from a sheet is not a refusal, so it carries no colour of its own. */
+    .quiet { flex: 1; border: 1px solid var(--hairline-strong); background: none; color: var(--muted); }
     .allow { flex: 1.4; border: 0; background: var(--primary); color: var(--primary-text); }
     .always {
       padding: 0;
@@ -407,6 +499,21 @@
       font-size: 15px;
     }
 
+    /* The first prompt and where the work happens, which is everything the phone gets to
+       decide about a new session. The rest comes from the Mac's own defaults. */
+    #new-prompt {
+      min-height: 96px;
+      max-height: 200px;
+      resize: none;
+      padding: 13px 15px;
+      border: 1px solid var(--hairline-strong);
+      border-radius: 12px;
+      outline: none;
+      background: var(--field);
+      font-size: 15.5px;
+      line-height: 1.4;
+    }
+
     /* The ask folded away. It keeps the amber and stays answerable, so putting the sheet
        down is not the same as ignoring it. */
     #bar {
@@ -446,13 +553,26 @@
 </head>
 <body>
   <div id="toast" role="alert"></div>
-  <div id="session">
+
+  <div id="directory" class="screen" hidden>
     <header>
       <div class="head-copy">
-        <div id="title">Connecting…</div>
-        <div id="where">Teya Conductor</div>
+        <div id="list-title" class="head-title">Connecting…</div>
+        <div id="list-where" class="head-where">Teya Conductor</div>
       </div>
-      <span id="light" aria-label="Disconnected"></span>
+      <span id="list-light" class="light" aria-label="Disconnected"></span>
+    </header>
+    <main id="projects"><div class="empty">Connecting to your Mac…</div></main>
+  </div>
+
+  <div id="session" class="screen" hidden>
+    <header>
+      <button id="back" type="button" aria-label="Back to the list" hidden>‹</button>
+      <div class="head-copy">
+        <div id="title" class="head-title">Connecting…</div>
+        <div id="where" class="head-where">Teya Conductor</div>
+      </div>
+      <span id="light" class="light" aria-label="Disconnected"></span>
     </header>
     <div id="strip">
       <span id="state" class="quiet">CONNECTING</span>
@@ -462,7 +582,7 @@
       <button id="stop" type="button" hidden>STOP</button>
       <span id="context" hidden>CTX<span class="meter"><span id="meter-fill"></span></span></span>
     </div>
-    <main id="transcript"><div class="empty">Connecting to the session on your Mac…</div></main>
+    <main id="transcript"><div class="empty">Connecting to your Mac…</div></main>
     <button id="bar" type="button" hidden></button>
     <form id="composer">
       <textarea id="prompt" maxlength="100000" placeholder="Nudge the session…"
@@ -470,6 +590,7 @@
       <button id="send" type="submit" aria-label="Send prompt">↑</button>
     </form>
   </div>
+
   <script>
     (() => {
       const pairingID = location.pathname.split('/').filter(Boolean).pop();
@@ -481,6 +602,13 @@
       if (location.hash) history.replaceState(null, '', location.pathname);
 
       const find = id => document.querySelector(`#${id}`);
+      const directoryScreen = find('directory');
+      const sessionScreen = find('session');
+      const listTitle = find('list-title');
+      const listWhere = find('list-where');
+      const listLight = find('list-light');
+      const projects = find('projects');
+      const back = find('back');
       const light = find('light');
       const title = find('title');
       const where = find('where');
@@ -502,6 +630,12 @@
       let sheet;
       let scrim;
       let ask;
+      // Which screen is up. The Mac decides it: a list arrives, or a session does.
+      let screen = 'directory';
+      // The list as the Mac last described it, so the new-session sheet can name the
+      // project it is about without asking for it again.
+      let listing = { title: '', canCreate: false, projects: [] };
+      let creating = false;
       // Whether the ask has been put down. It survives an update to the ask itself, so a
       // sheet folded away does not spring back up when a tool result lands behind it.
       let collapsed = false;
@@ -545,9 +679,195 @@
       };
 
       const setConnected = live => {
-        light.setAttribute('aria-label', live ? 'Connected' : 'Disconnected');
+        for (const dot of [light, listLight]) {
+          dot.setAttribute('aria-label', live ? 'Connected' : 'Disconnected');
+        }
+        // The session light says what the session is doing, so only the list light is
+        // free to say whether the Mac is still on the other end.
+        listLight.className = live ? 'light live' : 'light';
+        if (!live) light.className = 'light';
         sendButton.disabled = !live;
-        if (!live) light.className = '';
+      };
+
+      const show = next => {
+        screen = next;
+        directoryScreen.hidden = next !== 'directory';
+        sessionScreen.hidden = next !== 'session';
+      };
+
+      // How long ago something happened, in the one or two characters the rows have room
+      // for. Drawn here rather than sent, so an idle list costs nothing to keep current.
+      const ago = when => {
+        const seconds = Math.max(0, (Date.now() - Date.parse(when)) / 1000);
+        if (seconds < 60) return 'NOW';
+        if (seconds < 3600) return `${Math.floor(seconds / 60)}M`;
+        if (seconds < 86400) return `${Math.floor(seconds / 3600)}H`;
+        if (seconds < 604800) return `${Math.floor(seconds / 86400)}D`;
+        return `${Math.floor(seconds / 604800)}W`;
+      };
+
+      // MARK: - The list
+
+      const sessionRow = session => {
+        const row = element('button', 'row');
+        row.type = 'button';
+        const dot = element('span', 'light');
+        if (session.state === 'RUNNING') dot.classList.add('running');
+        else if (session.state !== 'IDLE') dot.classList.add('attention');
+        row.append(dot);
+
+        const copy = element('div', 'row-copy');
+        copy.append(element('div', 'row-title', session.title));
+        const meta = element('div', 'row-meta');
+        if (session.state !== 'IDLE') meta.append(element('span', 'flag', session.state));
+        meta.append(element('span', '', ago(session.lastActivity)));
+        meta.append(element('span', '', session.workspace || session.branch || session.agent));
+        if (session.added || session.removed) {
+          meta.append(element('span', 'added', `+${session.added}`));
+          meta.append(element('span', 'removed', `−${session.removed}`));
+        }
+        copy.append(meta);
+        row.append(copy);
+        row.append(element('span', 'chevron', '›'));
+        row.addEventListener('click', () => send({ type: 'openSession', sessionID: session.id }));
+        return row;
+      };
+
+      const projectGroup = project => {
+        const group = element('div', 'group');
+        const head = element('div', 'group-head');
+        const copy = element('div', 'group-copy');
+        copy.append(element('div', 'group-name', project.name));
+        copy.append(element('div', 'group-path',
+          project.isMissing ? 'MISSING FROM DISK' : project.path));
+        head.append(copy);
+        if (listing.canCreate && !project.isMissing) {
+          head.append(button('new', 'New', () => openNewSheet(project)));
+        }
+        group.append(head);
+        if (!project.sessions.length) {
+          group.append(element('div', 'group-empty', 'NO SESSIONS YET'));
+        }
+        for (const session of project.sessions) group.append(sessionRow(session));
+        return group;
+      };
+
+      const renderDirectory = payload => {
+        listing = payload;
+        listTitle.textContent = payload.title;
+        const sessions = payload.projects.reduce((count, p) => count + p.sessions.length, 0);
+        const running = payload.projects.reduce((count, p) =>
+          count + p.sessions.filter(s => s.state === 'RUNNING').length, 0);
+        const waiting = payload.projects.reduce((count, p) =>
+          count + p.sessions.filter(s => s.state === 'NEEDS YOU').length, 0);
+        const parts = [`${sessions} session${sessions === 1 ? '' : 's'}`];
+        if (running) parts.push(`${running} running`);
+        if (waiting) parts.push(`${waiting} needs you`);
+        listWhere.textContent = parts.join(' · ').toUpperCase();
+        document.title = `${payload.title} · Conductor`;
+
+        const groups = payload.projects.map(projectGroup);
+        if (!groups.length) {
+          groups.push(element('div', 'empty', 'There are no projects on this Mac yet.'));
+        }
+        projects.replaceChildren(...groups);
+        if (screen !== 'directory') show('directory');
+        // The sheet names a project, and the project it named may be gone.
+        if (newSheet) {
+          const still = payload.projects.find(project => project.id === newProject.id);
+          if (still) newProject = still;
+          else closeNewSheet();
+        }
+      };
+
+      // MARK: - Starting a session
+
+      let newSheet;
+      let newProject;
+      let newWorktree = true;
+
+      const openNewSheet = project => {
+        newProject = project;
+        newWorktree = project.isGit;
+        creating = false;
+        drawNewSheet();
+      };
+
+      const closeNewSheet = () => {
+        newSheet?.remove();
+        newSheet = undefined;
+        newProject = undefined;
+        scrim?.remove();
+        scrim = undefined;
+        document.body.classList.remove('starting');
+        drawSheet();
+      };
+
+      const drawNewSheet = () => {
+        newSheet?.remove();
+        scrim?.remove();
+        document.body.classList.add('starting');
+        scrim = element('div', '');
+        scrim.id = 'scrim';
+        scrim.addEventListener('click', () => { if (!creating) closeNewSheet(); });
+        document.body.append(scrim);
+
+        newSheet = element('div', 'sheet');
+        newSheet.setAttribute('role', 'dialog');
+        const handle = element('div', 'handle');
+        newSheet.append(handle);
+        newSheet.append(element('div', 'lead', `New session in ${newProject.name}`));
+
+        const field = element('textarea');
+        field.id = 'new-prompt';
+        field.maxLength = 100000;
+        field.placeholder = 'What should it do? (optional)';
+        field.setAttribute('aria-label', 'First prompt');
+        newSheet.append(field);
+
+        // A plain folder has nothing to choose between, so the choice only appears where
+        // it means something.
+        if (newProject.isGit) {
+          const options = element('div', 'options');
+          const paint = () => {
+            for (const node of options.children) {
+              node.classList.toggle('chosen', node.dataset.worktree === String(newWorktree));
+            }
+          };
+          const worktree = button('option', 'Its own worktree', () => {
+            newWorktree = true;
+            paint();
+          });
+          worktree.dataset.worktree = 'true';
+          worktree.append(element('span', 'option-description',
+            'An isolated checkout on a new branch, so it can run alongside the others.'));
+          const folder = button('option', 'The project folder', () => {
+            newWorktree = false;
+            paint();
+          });
+          folder.dataset.worktree = 'false';
+          folder.append(element('span', 'option-description',
+            'Edits the working tree on your Mac directly.'));
+          options.append(worktree, folder);
+          newSheet.append(options);
+          paint();
+        }
+
+        const buttons = element('div', 'buttons');
+        buttons.append(button('quiet', 'Cancel', () => { if (!creating) closeNewSheet(); }));
+        const create = button('allow', creating ? 'Starting…' : 'Create session', () => {
+          if (creating) return;
+          if (send({ type: 'createSession', projectID: newProject.id,
+                     worktree: newWorktree, prompt: field.value.trim() })) {
+            creating = true;
+            create.textContent = 'Starting…';
+            create.disabled = true;
+          }
+        });
+        buttons.append(create);
+        newSheet.append(buttons);
+        document.body.append(newSheet);
+        dragToDismiss(handle, () => { if (!creating) closeNewSheet(); });
       };
 
       // MARK: - Status strip
@@ -564,11 +884,7 @@
           if (seconds < 86400) return `${Math.floor(seconds / 3600)}H`;
           return `${Math.floor(seconds / 86400)}D`;
         }
-        if (seconds < 60) return 'NOW';
-        if (seconds < 3600) return `${Math.floor(seconds / 60)}M`;
-        if (seconds < 86400) return `${Math.floor(seconds / 3600)}H`;
-        if (seconds < 604800) return `${Math.floor(seconds / 86400)}D`;
-        return `${Math.floor(seconds / 604800)}W`;
+        return ago(header.since);
       };
 
       const renderElapsed = () => {
@@ -585,7 +901,7 @@
         document.title = `${next.title} · Conductor`;
 
         const running = next.state === 'RUNNING';
-        light.className = running ? 'running' : next.state === 'IDLE' ? '' : 'attention';
+        light.className = `light ${running ? 'running' : next.state === 'IDLE' ? '' : 'attention'}`;
         state.className = running ? '' : next.state === 'IDLE' ? 'quiet' : 'attention';
         renderElapsed();
 
@@ -716,6 +1032,12 @@
       };
 
       const applySnapshot = snapshot => {
+        // A snapshot is also the answer to "start a session": it lands on the new one.
+        if (newSheet) {
+          creating = false;
+          closeNewSheet();
+        }
+        back.hidden = !snapshot.canBrowse;
         renderHeader(snapshot.header);
         model.clear();
         nodes.clear();
@@ -723,6 +1045,7 @@
         for (const message of snapshot.messages) model.set(message.id, message);
         place();
         renderAsk(snapshot.permission);
+        if (screen !== 'session') show('session');
         keepAtBottom(true);
       };
 
@@ -932,12 +1255,15 @@
 
       const drawSheet = () => {
         sheet?.remove();
-        scrim?.remove();
         sheet = undefined;
-        scrim = undefined;
+        // The new-session sheet owns the scrim while it is up, so the ask leaves it alone.
+        if (!newSheet) {
+          scrim?.remove();
+          scrim = undefined;
+        }
         document.body.classList.toggle('asking', !!ask && !collapsed);
         bar.hidden = !ask || !collapsed;
-        if (!ask) return;
+        if (!ask || newSheet) return;
 
         const label = ask.kind === 'question' ? 'QUESTION'
                                               : `PERMISSION · ${ask.toolName.toUpperCase()}`;
@@ -952,11 +1278,10 @@
         scrim.addEventListener('click', () => collapse(true));
         document.body.append(scrim);
 
-        sheet = element('div', '');
+        sheet = element('div', 'sheet');
         sheet.id = 'sheet';
         sheet.setAttribute('role', 'dialog');
-        const handle = element('div', '');
-        handle.id = 'handle';
+        const handle = element('div', 'handle');
         sheet.append(handle);
         const kind = element('div', 'kind');
         kind.append(element('span', 'kind-dot'), element('span', 'kind-label', label));
@@ -964,7 +1289,7 @@
         const body = denying ? denyBody() : ask.kind === 'question' ? questionBody() : permissionBody();
         sheet.append(...body);
         document.body.append(sheet);
-        dragToCollapse(handle);
+        dragToDismiss(handle, () => collapse(true), sheet);
       };
 
       const renderAsk = request => {
@@ -991,10 +1316,11 @@
         drawSheet();
       };
 
-      // Pulling the handle down puts the sheet away, which is the gesture the shape of the
+      // Pulling the handle down puts a sheet away, which is the gesture the shape of a
       // sheet already promises.
-      const dragToCollapse = handle => {
+      const dragToDismiss = (handle, dismiss, panel) => {
         let start;
+        const moving = () => panel || newSheet;
         handle.addEventListener('pointerdown', event => {
           start = event.clientY;
           handle.setPointerCapture(event.pointerId);
@@ -1004,14 +1330,15 @@
           const travelled = event.clientY - start;
           if (travelled > 40) {
             start = undefined;
-            collapse(true);
-          } else if (travelled > 0) {
-            sheet.style.transform = `translateY(${travelled}px)`;
+            if (moving()) moving().style.transform = '';
+            dismiss();
+          } else if (travelled > 0 && moving()) {
+            moving().style.transform = `translateY(${travelled}px)`;
           }
         });
         const settle = () => {
           start = undefined;
-          if (sheet) sheet.style.transform = '';
+          if (moving()) moving().style.transform = '';
         };
         handle.addEventListener('pointerup', settle);
         handle.addEventListener('pointercancel', settle);
@@ -1022,6 +1349,7 @@
       const connect = () => {
         clearTimeout(reconnectTimer);
         if (!secret) {
+          show('session');
           title.textContent = 'Pairing code missing';
           state.textContent = 'SCAN THE QR CODE AGAIN';
           showError('The pairing code is missing. Scan the QR code again.');
@@ -1038,7 +1366,16 @@
             const payload = JSON.parse(event.data);
             if (payload.type === 'snapshot') applySnapshot(payload);
             else if (payload.type === 'update') applyUpdate(payload);
-            else if (payload.type === 'error') showError(payload.message);
+            else if (payload.type === 'directory') renderDirectory(payload);
+            else if (payload.type === 'error') {
+              // A refused start leaves the sheet up, so the reason can be read and the
+              // same tap tried again.
+              if (creating) {
+                creating = false;
+                if (newSheet) drawNewSheet();
+              }
+              showError(payload.message);
+            }
           } catch (_) {
             showError('The Mac sent an unreadable update.');
           }
@@ -1047,6 +1384,7 @@
           setConnected(false);
           state.textContent = 'RECONNECTING';
           state.className = 'quiet';
+          listWhere.textContent = 'RECONNECTING';
           reconnectTimer = setTimeout(connect, 1500);
         });
         socket.addEventListener('error', () => socket.close());
@@ -1066,9 +1404,14 @@
         prompt.style.height = `${Math.min(prompt.scrollHeight, 140)}px`;
       });
       stop.addEventListener('click', () => send({ type: 'stopTurn' }));
+      back.addEventListener('click', () => {
+        renderAsk(undefined);
+        send({ type: 'closeSession' });
+      });
       bar.addEventListener('click', () => collapse(false));
       setInterval(renderElapsed, 15000);
       setConnected(false);
+      show('directory');
       connect();
     })();
   </script>

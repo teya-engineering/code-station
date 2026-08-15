@@ -666,9 +666,9 @@ struct SettingsView: View {
         return ChoiceBlock("EXPERIMENTAL") {
             Toggle(isOn: $settings.mobileAccessEnabled) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Mobile session access")
+                    Text("Mobile access")
                         .font(.system(size: 13, weight: .semibold))
-                    Text("Lets a phone on the same trusted Wi-Fi control a session after scanning a temporary QR code.")
+                    Text("Puts a QR code on Home, on every project and on every session. A phone on the same trusted Wi-Fi can read and run whatever the code it scanned covers.")
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)

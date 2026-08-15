@@ -129,7 +129,6 @@ struct SessionView: View {
     @Environment(DialogPresenter.self) private var dialogs
     @Environment(MenuPresenter.self) private var menus
     @Environment(AppSettings.self) private var appSettings
-    @Environment(MobileAccessController.self) private var mobileAccess
     @Environment(GitStatsCache.self) private var gitStats
     @Environment(ShortcutStore.self) private var shortcuts
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -299,7 +298,7 @@ struct SessionView: View {
             // words wrap. Holding them at their natural width makes the title give way first.
             HStack(spacing: 8) {
                 if appSettings.mobileAccessEnabled {
-                    mobileAccessButton
+                    MobileAccessButton(scope: .session(sessionID))
                 }
                 HeaderTabToggle(selection: $tab,
                                 options: [("Chat", .chat),
@@ -315,50 +314,6 @@ struct SessionView: View {
         }
         .padding(.horizontal, 20)
         .headerBand()
-    }
-
-    private var mobileAccessButton: some View {
-        let share = mobileAccess.share(for: sessionID)
-        let connected = share?.isConnected == true
-        let statusColor = if connected {
-            Theme.addition
-        } else if share != nil {
-            Theme.accent
-        } else {
-            Color.secondary
-        }
-        let label = if connected {
-            "Phone connected"
-        } else if share != nil {
-            "Session shared with a phone"
-        } else {
-            "Open this session on a phone"
-        }
-        return Button { openMobileAccess() } label: {
-            Image(systemName: "qrcode")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(statusColor)
-                .frame(width: 30, height: 30)
-                .background(RoundedRectangle(cornerRadius: 8).fill(Theme.card))
-                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .appTooltip(label)
-        .accessibilityLabel(label)
-    }
-
-    private func openMobileAccess() {
-        dialogs.show(Dialog(
-            title: "Open this session on your phone",
-            message: """
-            A phone on the same trusted Wi-Fi can read this session, send prompts, stop turns and answer requests. No phone can connect until you start sharing below.
-
-            Sharing continues after this dialog closes. Reopen it to cancel or stop sharing.
-            """,
-            content: AnyView(MobilePairingView(sessionID: sessionID)),
-            actions: [.init(label: "Done", kind: .primary)],
-            width: 390))
     }
 
     // MARK: - Status strip

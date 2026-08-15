@@ -99,6 +99,9 @@ struct ProjectDetailView: View {
             // Held at their natural width so a long project name is what gives way,
             // rather than the controls shrinking until their labels wrap.
             HStack(spacing: 12) {
+                if appSettings.mobileAccessEnabled {
+                    MobileAccessButton(scope: .project(project.id))
+                }
                 HeaderTabToggle(selection: $tab,
                                 options: [("Sessions", .sessions),
                                           ("Changes", .changes),

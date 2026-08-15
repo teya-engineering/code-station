@@ -53,6 +53,10 @@ struct HomeView: View {
                 .foregroundStyle(.tertiary)
 
             Spacer(minLength: 12)
+
+            if appSettings.mobileAccessEnabled {
+                MobileAccessButton(scope: .everything)
+            }
         }
         .padding(.horizontal, 24)
         .headerBand()

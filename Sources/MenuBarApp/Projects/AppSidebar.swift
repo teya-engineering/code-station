@@ -549,7 +549,7 @@ struct AppSidebar: View {
                                             removed: session.summary.removed,
                                             branch: workspaceBranch(session),
                                             uncommitted: folders.contains(where: workingTrees.isDirty),
-                                            connected: mobileAccess.share(for: session.id)?.isConnected == true,
+                                            connected: mobileAccess.isConnected(session: session.id),
                                             isRenaming: renamingID == session.id,
                                             onDelete: { confirmRemoveSession(session) },
                                             onRename: { name in
@@ -664,7 +664,7 @@ struct AppSidebar: View {
                                         removed: session.summary.removed,
                                         branch: branch(session, project: project),
                                         uncommitted: workingTrees.isDirty(folder(session, project: project)),
-                                        connected: mobileAccess.share(for: session.id)?.isConnected == true,
+                                        connected: mobileAccess.isConnected(session: session.id),
                                         isRenaming: renamingID == session.id,
                                         onDelete: { confirmRemoveSession(session) },
                                         onRename: { name in
