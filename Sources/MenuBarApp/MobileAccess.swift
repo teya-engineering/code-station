@@ -138,6 +138,24 @@ final class MobileAccessController {
         let queued: Int
     }
 
+    // What one phone has already drawn. Holding digests rather than a copy of the transcript
+    // keeps the cost of a connected phone flat as the session grows.
+    private struct RemoteView {
+        var marker: Marker
+        var header: RemoteHeader
+        var order: [String]
+        var messages: [String: RemoteMessageDigest]
+        var permissionID: String?
+    }
+
+    private struct RemoteState {
+        let header: RemoteHeader
+        let order: [String]
+        let messages: [RemoteMessage]
+        let digests: [String: RemoteMessageDigest]
+        let permission: RemotePermission?
+    }
+
     private let store: ProjectStore
     private let runner: SessionRunner
     private var server: LANWebSocketServer?
@@ -145,7 +163,7 @@ final class MobileAccessController {
     private var pairings: [UUID: Pairing] = [:]
     private var pendingConnections: [UUID: UUID] = [:]
     private var connections: [UUID: UUID] = [:]
-    private var markers: [UUID: Marker] = [:]
+    private var views: [UUID: RemoteView] = [:]
     private var expiryTasks: [UUID: Task<Void, Never>] = [:]
     private var streamTask: Task<Void, Never>?
     private(set) var enabled = false
@@ -209,7 +227,7 @@ final class MobileAccessController {
         pendingConnections = pendingConnections.filter { $0.value != share.id }
         if let connectionID = share.connectionID {
             connections[connectionID] = nil
-            markers[connectionID] = nil
+            views[connectionID] = nil
             store.release(sessionID, for: .remote)
             server?.close(connectionID)
         }
@@ -221,7 +239,7 @@ final class MobileAccessController {
         let heldSessions = Set(connections.values)
         connections.removeAll()
         pendingConnections.removeAll()
-        markers.removeAll()
+        views.removeAll()
         pairings.removeAll()
         shares.removeAll()
         expiryTasks.values.forEach { $0.cancel() }
@@ -297,6 +315,8 @@ final class MobileAccessController {
             runner.stop(sessionID, store: store)
         case "answerPermission":
             answer(command, sessionID: sessionID, connectionID: connectionID)
+        case "resync":
+            sendSnapshot(to: connectionID, sessionID: sessionID)
         default:
             server?.send(Self.error("That mobile command is not supported."), to: connectionID)
         }
@@ -324,7 +344,7 @@ final class MobileAccessController {
 
         if let previous = pairing.share.connectionID, previous != connectionID {
             connections[previous] = nil
-            markers[previous] = nil
+            views[previous] = nil
             server?.close(previous)
         } else {
             store.hold(sessionID, for: .remote)
@@ -371,7 +391,7 @@ final class MobileAccessController {
 
     private func closed(_ connectionID: UUID) {
         pendingConnections[connectionID] = nil
-        markers[connectionID] = nil
+        views[connectionID] = nil
         guard let sessionID = connections.removeValue(forKey: connectionID) else { return }
         if var share = shares[sessionID], share.connectionID == connectionID {
             share.connectionID = nil
@@ -426,9 +446,10 @@ final class MobileAccessController {
                 revoke(sessionID)
                 continue
             }
-            let marker = marker(for: sessionID)
-            guard markers[connectionID] != marker else { continue }
-            sendSnapshot(to: connectionID, sessionID: sessionID)
+            // The marker is the cheap gate: an idle session must not cost a walk of the
+            // transcript on every tick just to learn that nothing moved.
+            guard views[connectionID]?.marker != marker(for: sessionID) else { continue }
+            sendUpdate(to: connectionID, sessionID: sessionID)
         }
     }
 
@@ -443,30 +464,90 @@ final class MobileAccessController {
                       queued: runner.queued(sessionID).count)
     }
 
-    private func sendSnapshot(to connectionID: UUID, sessionID: UUID) {
+    private func remoteState(_ sessionID: UUID) -> RemoteState? {
         guard let session = store.session(sessionID),
-              let project = store.project(session.projectID) else { return }
+              let project = store.project(session.projectID) else { return nil }
         let allMessages = store.transcript(of: sessionID)
         let visibleMessages = allMessages.suffix(200).map(RemoteMessage.init)
         let state = runner.state(sessionID)
-        let snapshot = RemoteSnapshot(
-            sessionID: sessionID.uuidString,
-            title: session.title,
-            project: project.name,
-            agent: session.agent.title,
-            state: Self.stateLabel(state),
-            isBusy: state.isBusy,
-            queuedPrompts: runner.queued(sessionID).count,
-            hasEarlierMessages: allMessages.count > visibleMessages.count,
+        return RemoteState(
+            header: RemoteHeader(
+                title: session.title,
+                project: project.name,
+                agent: session.agent.title,
+                state: Self.stateLabel(state),
+                isBusy: state.isBusy,
+                queuedPrompts: runner.queued(sessionID).count,
+                hasEarlierMessages: allMessages.count > visibleMessages.count),
+            order: visibleMessages.map(\.id),
             messages: visibleMessages,
+            digests: Dictionary(visibleMessages.map { ($0.id, RemoteTranscriptDiff.digest(of: $0)) },
+                                uniquingKeysWith: { first, _ in first }),
             permission: runner.question(sessionID).map(RemotePermission.init))
+    }
+
+    private func sendSnapshot(to connectionID: UUID, sessionID: UUID) {
+        guard let state = remoteState(sessionID) else { return }
+        let snapshot = RemoteSnapshot(sessionID: sessionID.uuidString,
+                                      header: state.header,
+                                      messages: state.messages,
+                                      permission: state.permission)
+        guard let text = Self.encode(snapshot) else { return }
+        remember(state, for: connectionID, sessionID: sessionID)
+        server?.send(text, to: connectionID)
+    }
+
+    private func sendUpdate(to connectionID: UUID, sessionID: UUID) {
+        guard let view = views[connectionID] else {
+            sendSnapshot(to: connectionID, sessionID: sessionID)
+            return
+        }
+        guard let state = remoteState(sessionID) else { return }
+
+        var changed: [RemoteChange] = []
+        for message in state.messages {
+            guard let current = state.digests[message.id] else { continue }
+            guard let previous = view.messages[message.id] else {
+                changed.append(.full(message))
+                continue
+            }
+            guard previous != current else { continue }
+            changed.append(RemoteTranscriptDiff.change(from: previous, to: current,
+                                                       message: message))
+        }
+
+        let update = RemoteUpdate(
+            header: view.header == state.header ? nil : state.header,
+            order: view.order == state.order ? nil : state.order,
+            changed: changed.isEmpty ? nil : changed,
+            permission: view.permissionID == state.permission?.id ? nil : state.permission,
+            permissionCleared: view.permissionID != nil && state.permission == nil ? true : nil)
+
+        // A revision can bump for something the phone never sees, such as a saved token
+        // count. Recording the marker without sending keeps that from being rechecked.
+        guard !update.isEmpty else {
+            views[connectionID]?.marker = marker(for: sessionID)
+            return
+        }
+        guard let text = Self.encode(update) else { return }
+        remember(state, for: connectionID, sessionID: sessionID)
+        server?.send(text, to: connectionID)
+    }
+
+    private func remember(_ state: RemoteState, for connectionID: UUID, sessionID: UUID) {
+        views[connectionID] = RemoteView(marker: marker(for: sessionID),
+                                         header: state.header,
+                                         order: state.order,
+                                         messages: state.digests,
+                                         permissionID: state.permission?.id)
+    }
+
+    private static func encode(_ value: some Encodable) -> String? {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = .withoutEscapingSlashes
-        guard let data = try? encoder.encode(snapshot),
-              let text = String(data: data, encoding: .utf8) else { return }
-        markers[connectionID] = marker(for: sessionID)
-        server?.send(text, to: connectionID)
+        guard let data = try? encoder.encode(value) else { return nil }
+        return String(data: data, encoding: .utf8)
     }
 
     private static func stateLabel(_ state: SessionState) -> String {
@@ -508,10 +589,7 @@ final class MobileAccessController {
     }
 }
 
-private struct RemoteSnapshot: Encodable {
-    let type = "snapshot"
-    let version = 1
-    let sessionID: String
+struct RemoteHeader: Encodable, Equatable {
     let title: String
     let project: String
     let agent: String
@@ -519,11 +597,108 @@ private struct RemoteSnapshot: Encodable {
     let isBusy: Bool
     let queuedPrompts: Int
     let hasEarlierMessages: Bool
+}
+
+struct RemoteSnapshot: Encodable {
+    let type = "snapshot"
+    let version = 1
+    let sessionID: String
+    let header: RemoteHeader
     let messages: [RemoteMessage]
     let permission: RemotePermission?
 }
 
-private struct RemoteMessage: Encodable {
+// Only the parts that moved. An absent field means the phone should keep what it has, which
+// is why a cleared permission needs a flag of its own rather than a missing one.
+struct RemoteUpdate: Encodable {
+    let type = "update"
+    let version = 1
+    var header: RemoteHeader?
+    var order: [String]?
+    var changed: [RemoteChange]?
+    var permission: RemotePermission?
+    var permissionCleared: Bool?
+
+    var isEmpty: Bool {
+        header == nil && order == nil && changed == nil
+            && permission == nil && permissionCleared == nil
+    }
+}
+
+// A "full" change replaces the message outright. A "patch" carries only the fields it names:
+// text to add to the end, and the tools whose contents moved.
+struct RemoteChange: Encodable, Equatable {
+    let kind: String
+    let id: String
+    var role: String?
+    var date: Date?
+    var text: String?
+    var textAppend: String?
+    var attachments: [String]?
+    var thinking: [String]?
+    var tools: [RemoteTool]?
+
+    static func full(_ message: RemoteMessage) -> RemoteChange {
+        RemoteChange(kind: "full", id: message.id, role: message.role, date: message.date,
+                     text: message.text, attachments: message.attachments,
+                     thinking: message.thinking, tools: message.tools)
+    }
+
+    static func patch(id: String, textAppend: String?, tools: [RemoteTool]?) -> RemoteChange {
+        RemoteChange(kind: "patch", id: id, textAppend: textAppend, tools: tools)
+    }
+}
+
+struct RemoteMessageDigest: Equatable {
+    let role: String
+    let date: Date
+    let textCount: Int
+    let textHash: Int
+    let thinking: Int
+    let attachments: Int
+    let toolOrder: [String]
+    let tools: [String: Int]
+}
+
+enum RemoteTranscriptDiff {
+    static func digest(of message: RemoteMessage) -> RemoteMessageDigest {
+        RemoteMessageDigest(
+            role: message.role,
+            date: message.date,
+            textCount: message.text.count,
+            textHash: message.text.hashValue,
+            thinking: message.thinking.hashValue,
+            attachments: message.attachments.hashValue,
+            toolOrder: message.tools.map(\.id),
+            tools: Dictionary(message.tools.map { ($0.id, $0.digest) },
+                              uniquingKeysWith: { first, _ in first }))
+    }
+
+    // A live answer grows one chunk at a time, so the usual change is a longer text with
+    // everything else untouched. Anything that rewrites what the phone already drew falls
+    // back to the whole message, since patching it would need the old text to undo.
+    static func change(from previous: RemoteMessageDigest, to current: RemoteMessageDigest,
+                       message: RemoteMessage) -> RemoteChange {
+        guard previous.role == current.role,
+              previous.date == current.date,
+              previous.thinking == current.thinking,
+              previous.attachments == current.attachments,
+              previous.toolOrder == current.toolOrder,
+              current.textCount >= previous.textCount else { return .full(message) }
+
+        var appended: String?
+        if previous.textHash != current.textHash {
+            let kept = String(message.text.prefix(previous.textCount))
+            guard kept.hashValue == previous.textHash else { return .full(message) }
+            appended = String(message.text.dropFirst(previous.textCount))
+        }
+
+        let tools = message.tools.filter { previous.tools[$0.id] != current.tools[$0.id] }
+        return .patch(id: message.id, textAppend: appended, tools: tools.isEmpty ? nil : tools)
+    }
+}
+
+struct RemoteMessage: Encodable {
     let id: String
     let role: String
     let text: String
@@ -543,13 +718,23 @@ private struct RemoteMessage: Encodable {
     }
 }
 
-private struct RemoteTool: Encodable {
+struct RemoteTool: Encodable, Equatable {
     let id: String
     let name: String
     let input: String
     let result: String?
     let isError: Bool
     let isRunning: Bool
+
+    var digest: Int {
+        var hasher = Hasher()
+        hasher.combine(name)
+        hasher.combine(input)
+        hasher.combine(result)
+        hasher.combine(isError)
+        hasher.combine(isRunning)
+        return hasher.finalize()
+    }
 
     init(_ tool: ToolUse) {
         id = tool.id
@@ -561,7 +746,7 @@ private struct RemoteTool: Encodable {
     }
 }
 
-private struct RemotePermission: Encodable {
+struct RemotePermission: Encodable {
     struct Question: Encodable {
         struct Option: Encodable {
             let label: String

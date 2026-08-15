@@ -266,6 +266,10 @@
       let currentPermissionID;
       const answerState = new Map();
       const expandedTools = new Set();
+      // The transcript this phone has drawn, so an update only has to carry what moved.
+      const model = new Map();
+      const nodes = new Map();
+      let order = [];
 
       const element = (tag, className, text) => {
         const node = document.createElement(tag);
@@ -458,20 +462,129 @@
         permission.append(card);
       };
 
-      const render = snapshot => {
-        const nearBottom = document.documentElement.scrollHeight - window.scrollY - window.innerHeight < 180;
-        project.textContent = `${snapshot.project} · ${snapshot.agent}`;
-        title.textContent = snapshot.title;
-        state.textContent = snapshot.state;
-        queued.textContent = snapshot.queuedPrompts ? `· ${snapshot.queuedPrompts} queued` : '';
-        stop.hidden = !snapshot.isBusy;
-        older.hidden = !snapshot.hasEarlierMessages;
-        const rows = snapshot.messages.map(renderMessage);
+      const renderHeader = header => {
+        project.textContent = `${header.project} · ${header.agent}`;
+        title.textContent = header.title;
+        state.textContent = header.state;
+        queued.textContent = header.queuedPrompts ? `· ${header.queuedPrompts} queued` : '';
+        stop.hidden = !header.isBusy;
+        older.hidden = !header.hasEarlierMessages;
+        document.title = `${header.title} · Conductor`;
+      };
+
+      const atBottom = () =>
+        document.documentElement.scrollHeight - window.scrollY - window.innerHeight < 180;
+
+      const keepAtBottom = wasAtBottom => {
+        if (wasAtBottom) requestAnimationFrame(() => window.scrollTo({ top: document.body.scrollHeight }));
+      };
+
+      // The order the Mac sent is the authority on layout. Moving nodes that already exist
+      // keeps whatever the reader had opened or scrolled inside them.
+      const place = () => {
+        const wanted = new Set(order);
+        for (const id of [...nodes.keys()]) {
+          if (!wanted.has(id)) {
+            nodes.get(id).remove();
+            nodes.delete(id);
+          }
+        }
+        for (const id of [...model.keys()]) if (!wanted.has(id)) model.delete(id);
+        const rows = order.map(id => {
+          let node = nodes.get(id);
+          if (!node) {
+            node = renderMessage(model.get(id));
+            nodes.set(id, node);
+          }
+          return node;
+        });
         if (!rows.length) rows.push(element('div', 'empty', 'This session has no messages yet.'));
         messages.replaceChildren(...rows);
+      };
+
+      const applySnapshot = snapshot => {
+        const wasAtBottom = atBottom();
+        renderHeader(snapshot.header);
+        model.clear();
+        nodes.clear();
+        order = snapshot.messages.map(message => message.id);
+        for (const message of snapshot.messages) model.set(message.id, message);
+        place();
         renderPermission(snapshot.permission);
-        document.title = `${snapshot.title} · Conductor`;
-        if (nearBottom) requestAnimationFrame(() => window.scrollTo({ top: document.body.scrollHeight }));
+        keepAtBottom(wasAtBottom);
+      };
+
+      const applyUpdate = update => {
+        const wasAtBottom = atBottom();
+        if (update.header) renderHeader(update.header);
+        let restructured = false;
+        if (update.order) {
+          order = update.order;
+          restructured = true;
+        }
+
+        const redraw = new Set();
+        const appended = new Map();
+        for (const change of update.changed || []) {
+          if (change.kind === 'full') {
+            model.set(change.id, {
+              id: change.id,
+              role: change.role,
+              date: change.date,
+              text: change.text || '',
+              attachments: change.attachments || [],
+              thinking: change.thinking || [],
+              tools: change.tools || [],
+            });
+            redraw.add(change.id);
+            continue;
+          }
+          const message = model.get(change.id);
+          // A patch for a message this phone never drew means the two views have drifted
+          // apart, and only the Mac can say what the truth is.
+          if (!message) {
+            send({ type: 'resync' });
+            return;
+          }
+          if (change.textAppend) message.text += change.textAppend;
+          for (const tool of change.tools || []) {
+            const at = message.tools.findIndex(existing => existing.id === tool.id);
+            if (at < 0) message.tools.push(tool);
+            else message.tools[at] = tool;
+            redraw.add(change.id);
+          }
+          if (change.textAppend && !redraw.has(change.id)) {
+            appended.set(change.id, change.textAppend);
+          }
+        }
+
+        for (const id of redraw) {
+          const existing = nodes.get(id);
+          const fresh = renderMessage(model.get(id));
+          nodes.set(id, fresh);
+          if (existing && existing.parentNode) existing.replaceWith(fresh);
+          else restructured = true;
+        }
+        if (restructured) place();
+
+        // Growing the text in place is what keeps a long answer from rebuilding its whole
+        // message on every chunk that arrives.
+        for (const [id, text] of appended) {
+          const node = nodes.get(id);
+          if (!node) continue;
+          const prose = node.querySelector('.prose');
+          if (prose) {
+            prose.textContent += text;
+            continue;
+          }
+          const fresh = renderMessage(model.get(id));
+          nodes.set(id, fresh);
+          node.replaceWith(fresh);
+        }
+
+        if (update.permissionCleared) renderPermission(undefined);
+        else if (update.permission) renderPermission(update.permission);
+        keepAtBottom(wasAtBottom);
       };
 
       const connect = () => {
@@ -491,7 +604,8 @@
         socket.addEventListener('message', event => {
           try {
             const payload = JSON.parse(event.data);
-            if (payload.type === 'snapshot') render(payload);
+            if (payload.type === 'snapshot') applySnapshot(payload);
+            else if (payload.type === 'update') applyUpdate(payload);
             else if (payload.type === 'error') showError(payload.message);
           } catch (_) {
             showError('The Mac sent an unreadable update.');

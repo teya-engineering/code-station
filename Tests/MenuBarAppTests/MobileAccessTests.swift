@@ -76,6 +76,78 @@ struct MobileAccessTests {
         #expect(prompt == RemoteCommand(type: "sendPrompt", prompt: "Run the tests"))
     }
 
+    @Test func sendsOnlyTheCharactersAnAnswerGained() {
+        let id = UUID()
+        let date = Date()
+        let started = RemoteMessage(ChatMessage(id: id, role: .assistant,
+                                                text: "Reading the", date: date))
+        let grown = RemoteMessage(ChatMessage(id: id, role: .assistant,
+                                              text: "Reading the tests now", date: date))
+
+        let change = RemoteTranscriptDiff.change(
+            from: RemoteTranscriptDiff.digest(of: started),
+            to: RemoteTranscriptDiff.digest(of: grown),
+            message: grown)
+
+        #expect(change.kind == "patch")
+        #expect(change.textAppend == " tests now")
+        #expect(change.text == nil)
+        #expect(change.tools == nil)
+    }
+
+    @Test func sendsOnlyTheToolThatMoved() {
+        let id = UUID()
+        let date = Date()
+        let running = ToolUse(id: "call-1", name: "Bash", input: "swift test", result: nil)
+        let quiet = ToolUse(id: "call-2", name: "Read", input: "Package.swift", result: "ok")
+        let before = RemoteMessage(ChatMessage(id: id, role: .assistant, text: "Working",
+                                               tools: [running, quiet], date: date))
+        var finished = running
+        finished.result = "3 tests passed"
+        let after = RemoteMessage(ChatMessage(id: id, role: .assistant, text: "Working",
+                                              tools: [finished, quiet], date: date))
+
+        let change = RemoteTranscriptDiff.change(
+            from: RemoteTranscriptDiff.digest(of: before),
+            to: RemoteTranscriptDiff.digest(of: after),
+            message: after)
+
+        #expect(change.kind == "patch")
+        #expect(change.textAppend == nil)
+        #expect(change.tools?.map(\.id) == ["call-1"])
+        #expect(change.tools?.first?.result == "3 tests passed")
+    }
+
+    // Rewind and clear-context rewrite what the phone already drew, and a patch has no way
+    // to take text back.
+    @Test func fallsBackToTheWholeMessageWhenTextIsRewritten() {
+        let id = UUID()
+        let date = Date()
+        let before = RemoteMessage(ChatMessage(id: id, role: .assistant,
+                                               text: "Reading the tests", date: date))
+        let after = RemoteMessage(ChatMessage(id: id, role: .assistant,
+                                              text: "Writing the docs", date: date))
+
+        let change = RemoteTranscriptDiff.change(
+            from: RemoteTranscriptDiff.digest(of: before),
+            to: RemoteTranscriptDiff.digest(of: after),
+            message: after)
+
+        #expect(change.kind == "full")
+        #expect(change.text == "Writing the docs")
+        #expect(change.textAppend == nil)
+    }
+
+    @Test func leavesAnUpdateEmptyWhenNothingMoved() {
+        let message = RemoteMessage(ChatMessage(role: .assistant, text: "Done"))
+        let digest = RemoteTranscriptDiff.digest(of: message)
+
+        #expect(digest == RemoteTranscriptDiff.digest(of: message))
+        #expect(RemoteUpdate().isEmpty)
+        #expect(!RemoteUpdate(order: ["a"]).isEmpty)
+        #expect(!RemoteUpdate(permissionCleared: true).isEmpty)
+    }
+
     @Test func createsAReadablePairingCode() {
         let url = URL(string: "http://192.168.1.42:49152/mobile/123#secret=test")!
         let image = MobilePairingQRCode.image(for: url)
