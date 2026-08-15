@@ -280,28 +280,29 @@ struct NewWorkspaceSessionView: View {
                         }
                         .buttonStyle(.plain)
                         .keyboardShortcut(.defaultAction)
-                        .disabled(projectIDs.count < 2 || busy)
+                        .disabled(!canCreate)
 
-                        Rectangle()
-                            .fill(.white.opacity(0.35))
-                            .frame(width: 1, height: 16)
+                        if runner.availableAgents.count > 1 {
+                            Rectangle()
+                                .fill(.white.opacity(0.35))
+                                .frame(width: 1, height: 16)
 
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 9, weight: .bold))
-                            .frame(width: 32, height: 32)
-                            .contentShape(Rectangle())
-                            .appMenu { agentMenu }
-                            .accessibilityLabel("Choose coding agent")
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 9, weight: .bold))
+                                .frame(width: 32, height: 32)
+                                .contentShape(Rectangle())
+                                .appMenu { agentMenu }
+                                .accessibilityLabel("Choose coding agent")
+                        }
                     }
                     .foregroundStyle(.white)
                     .background(RoundedRectangle(cornerRadius: 8).fill(Theme.accentFill))
                     .clipShape(RoundedRectangle(cornerRadius: 8))
-                    .opacity(projectIDs.count >= 2 && !busy ? 1 : 0.45)
+                    .opacity(canCreate ? 1 : 0.45)
 
-                    Text(selectedAgent.map { "Will use \($0.title)" }
-                         ?? "Uses default: \(runner.agent.title)")
+                    Text(agentNote)
                         .font(.system(size: 10.5))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(chosenAgent == nil ? Theme.deletion : .secondary)
                 }
             }
             .padding(.horizontal, 20)
@@ -327,8 +328,8 @@ struct NewWorkspaceSessionView: View {
     }
 
     private var agentMenu: [MenuEntry] {
-        AgentKind.allCases.map { agent in
-            .item(agent.title, checked: selectedAgent == agent) { selectedAgent = agent }
+        runner.availableAgents.map { agent in
+            .item(agent.title, checked: chosenAgent == agent) { selectedAgent = agent }
         }
     }
 
@@ -345,6 +346,22 @@ struct NewWorkspaceSessionView: View {
     // the sheet cannot say what each checkout would fork from, and a pull is still
     // moving one of them.
     private var busy: Bool { fetching || pulling }
+
+    private var chosenAgent: AgentKind? {
+        runner.agentForNewSession(selected: selectedAgent)
+    }
+
+    private var canCreate: Bool {
+        projectIDs.count >= 2 && !busy && chosenAgent != nil
+    }
+
+    private var agentNote: String {
+        guard let chosenAgent else { return "No coding agent found on PATH." }
+        if runner.availableAgents.count == 1 || selectedAgent != nil {
+            return "Will use \(chosenAgent.title)"
+        }
+        return "Uses default: \(chosenAgent.title)"
+    }
 
     // The updates the user asked for run here, while the sheet is still up, one checkout
     // after another. On failure the session is not created - the user asked to start
@@ -378,7 +395,7 @@ struct NewWorkspaceSessionView: View {
     }
 
     private func finish() {
-        let agent = selectedAgent ?? runner.agent
+        guard let agent = chosenAgent else { return }
         let choices = projectIDs.map { id -> WorkspaceProjectChoice in
             let useWorktree = store.project(id).map {
                 worktrees.contains(id) && $0.isGitRepository

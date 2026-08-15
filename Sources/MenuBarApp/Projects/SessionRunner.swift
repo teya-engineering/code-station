@@ -89,6 +89,16 @@ final class SessionRunner {
 
     func isAvailable(_ agent: AgentKind) -> Bool { paths[agent] != nil }
 
+    var availableAgents: [AgentKind] {
+        AgentKind.allCases.filter(isAvailable)
+    }
+
+    func agentForNewSession(selected: AgentKind?) -> AgentKind? {
+        if let selected, isAvailable(selected) { return selected }
+        if isAvailable(agent) { return agent }
+        return availableAgents.first
+    }
+
     var available: Bool { isAvailable(agent) }
 
     func state(_ sessionID: UUID) -> SessionState { states[sessionID] ?? .idle }

@@ -7,6 +7,35 @@ import Testing
 struct SessionSettingsTests {
 
     @MainActor
+    @Test func newSessionsOnlyOfferInstalledAgents() {
+        let runner = SessionRunner(paths: [
+            .claudeCode: "/usr/local/bin/claude",
+            .codex: "/usr/local/bin/codex",
+        ])
+
+        #expect(runner.availableAgents == [.claudeCode, .codex])
+        #expect(runner.agentForNewSession(selected: nil) == runner.agent)
+        #expect(runner.agentForNewSession(selected: .codex) == .codex)
+    }
+
+    @MainActor
+    @Test func newSessionsUseTheOnlyInstalledAgent() {
+        let runner = SessionRunner(paths: [.codex: "/usr/local/bin/codex"])
+
+        #expect(runner.availableAgents == [.codex])
+        #expect(runner.agentForNewSession(selected: nil) == .codex)
+        #expect(runner.agentForNewSession(selected: .claudeCode) == .codex)
+    }
+
+    @MainActor
+    @Test func newSessionsNeedAnInstalledAgent() {
+        let runner = SessionRunner(paths: [:])
+
+        #expect(runner.availableAgents.isEmpty)
+        #expect(runner.agentForNewSession(selected: nil) == nil)
+    }
+
+    @MainActor
     @Test func updatesAnAgentsDefaultsWithoutChangingTheDefaultAgent() {
         let savedAgent = Preferences.agent
         let savedClaudeDefaults = Preferences.sessionDefaults(for: .claudeCode)

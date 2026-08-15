@@ -178,26 +178,28 @@ struct NewSessionView: View {
                 .buttonStyle(.plain)
                 .keyboardShortcut(.defaultAction)
 
-                Rectangle()
-                    .fill(.white.opacity(0.35))
-                    .frame(width: 1, height: 16)
+                if runner.availableAgents.count > 1 {
+                    Rectangle()
+                        .fill(.white.opacity(0.35))
+                        .frame(width: 1, height: 16)
 
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .bold))
-                    .frame(width: 32, height: 32)
-                    .contentShape(Rectangle())
-                    .appMenu { agentMenu() }
-                    .accessibilityLabel("Choose coding agent")
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 9, weight: .bold))
+                        .frame(width: 32, height: 32)
+                        .contentShape(Rectangle())
+                        .appMenu { agentMenu() }
+                        .accessibilityLabel("Choose coding agent")
+                }
             }
             .foregroundStyle(.white)
             .background(RoundedRectangle(cornerRadius: 8).fill(Theme.accentFill))
             .clipShape(RoundedRectangle(cornerRadius: 8))
-            .opacity(busy ? 0.5 : 1)
-            .disabled(busy)
+            .opacity(canCreate ? 1 : 0.5)
+            .disabled(!canCreate)
 
             Text(agentNote)
                 .font(.system(size: 10.5))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(chosenAgent == nil ? Theme.deletion : .secondary)
         }
     }
 
@@ -206,8 +208,18 @@ struct NewSessionView: View {
     // the checkout it would fork from.
     private var busy: Bool { fetching || pulling }
 
+    private var chosenAgent: AgentKind? {
+        runner.agentForNewSession(selected: selectedAgent)
+    }
+
+    private var canCreate: Bool { !busy && chosenAgent != nil }
+
     private var agentNote: String {
-        selectedAgent.map { "Will use \($0.title)" } ?? "Uses default: \(runner.agent.title)"
+        guard let chosenAgent else { return "No coding agent found on PATH." }
+        if runner.availableAgents.count == 1 || selectedAgent != nil {
+            return "Will use \(chosenAgent.title)"
+        }
+        return "Uses default: \(chosenAgent.title)"
     }
 
     private func selectInitialAvatar() {
@@ -215,9 +227,9 @@ struct NewSessionView: View {
     }
 
     private func agentMenu() -> [MenuEntry] {
-        AgentKind.allCases.map { agent in
+        runner.availableAgents.map { agent in
             .item(agent.title,
-                  checked: selectedAgent == agent,
+                  checked: chosenAgent == agent,
                   subtitle: agent == .codex
                       ? "OpenAI's coding agent."
                       : "Anthropic's coding agent.") {
@@ -253,8 +265,8 @@ struct NewSessionView: View {
     }
 
     private func finish() {
+        guard let agent = chosenAgent else { return }
         let base = baseOnRemote ? freshness?.remoteRef : nil
-        let agent = selectedAgent ?? runner.agent
         let model = runner.defaults(for: agent).model
         onCreate(useWorktree
                  ? .worktree(sessionID, base: base, agent: agent, model: model,
