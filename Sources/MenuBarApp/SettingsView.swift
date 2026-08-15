@@ -67,6 +67,10 @@ final class AppSettings {
         didSet { Preferences.terminalBundleID = terminalBundleID }
     }
 
+    var showCost = Preferences.showCost {
+        didSet { Preferences.showCost = showCost }
+    }
+
     var appearance = Preferences.appearance {
         didSet {
             Preferences.appearance = appearance
@@ -180,6 +184,7 @@ struct SettingsView: View {
                         botImage
                         terminal
                         appearance
+                        cost
                         startAtLogin
                         log
                     case .agents:
@@ -344,6 +349,25 @@ struct SettingsView: View {
             }
             .fixedSize()
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    // Hiding it only takes the figure off the screen. The session still records what it
+    // spent, so turning this back on shows the full total rather than starting again.
+    private var cost: some View {
+        @Bindable var settings = settings
+
+        return Toggle(isOn: $settings.showCost) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Show what sessions spend")
+                    .font(.system(size: 13, weight: .semibold))
+                Text("The dollar figure on the session bar and in the hints. Codex reports no cost, so its sessions never show one.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .toggleStyle(.appSwitch)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 

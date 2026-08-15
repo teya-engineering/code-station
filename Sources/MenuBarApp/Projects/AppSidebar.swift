@@ -1518,6 +1518,8 @@ private struct ProjectHeaderRow: View {
     let onRename: (String) -> Void
     let onCancelRename: () -> Void
 
+    @Environment(AppSettings.self) private var appSettings
+
     @State private var draft = ""
     @State private var hovering = false
     @FocusState private var focused: Bool
@@ -1613,7 +1615,7 @@ private struct ProjectHeaderRow: View {
         if finishedCount > 0 {
             rows.append(Tooltip.Row(label: "Finished while away", value: "\(finishedCount)"))
         }
-        if cost > 0 {
+        if appSettings.showCost, cost > 0 {
             rows.append(Tooltip.Row(label: "Spent", value: Money.short(cost)))
         }
         return Tooltip(title: project.name,
@@ -1694,6 +1696,8 @@ private struct SessionCard: View {
     let onDelete: () -> Void
     let onRename: (String) -> Void
     let onCancelRename: () -> Void
+
+    @Environment(AppSettings.self) private var appSettings
 
     @State private var hovering = false
     @State private var draft = ""
@@ -1797,7 +1801,7 @@ private struct SessionCard: View {
         if added > 0 || removed > 0 {
             rows.append(Tooltip.Row(label: "Changes", value: "+\(added) -\(removed)"))
         }
-        if let usage = session.usage, usage.turns > 0 {
+        if appSettings.showCost, let usage = session.usage, usage.turns > 0 {
             rows.append(Tooltip.Row(label: "Spent", value: Money.short(usage.costUSD)))
         }
         if let context = session.usage?.contextFraction, context > 0 {

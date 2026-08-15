@@ -219,6 +219,16 @@ enum Preferences {
         set { store.set(newValue.rawValue, forKey: "appearance") }
     }
 
+    // Whether what a session has spent is shown at all. On unless it is turned off: the
+    // figure is still recorded either way, so this only decides whether it is on screen.
+    static var showCost: Bool {
+        get {
+            guard store.object(forKey: "showCost") != nil else { return true }
+            return store.bool(forKey: "showCost")
+        }
+        set { store.set(newValue, forKey: "showCost") }
+    }
+
     static func sidebarExpansion(in store: UserDefaults) -> [UUID: Bool] {
         let saved = store.dictionary(forKey: "sidebarExpansion") ?? [:]
         return saved.reduce(into: [:]) { expansion, entry in
