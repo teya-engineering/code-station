@@ -67,9 +67,9 @@ struct DialogHost: View {
                 card(dialog)
                     .frame(width: dialog.width)
                     .id(dialog.id)
-                    .transition(.scale(scale: 0.96).combined(with: .opacity))
+                    .transition(.fadeIn)
             }
-            .transition(.opacity)
+            .transition(.fadeIn)
             .smoothlyResizes(when: dialog.id)
         }
     }

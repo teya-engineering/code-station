@@ -1066,7 +1066,7 @@ struct SessionView: View {
                     .buttonStyle(.plain)
                     .appTooltip(busy ? "Queue this for when the turn ends"
                                      : "Send (shift-return for a new line)")
-                    .transition(.opacity)
+                    .transition(.fadeIn)
                 }
 
                 if state == .stopping {
@@ -1715,19 +1715,17 @@ private struct WorkingRow: View {
                 if let avatar {
                     AgentAvatarView(image: avatar.image, size: 20)
                         .id(avatar.id)
-                        .transition(.opacity)
+                        .transition(.fadeIn)
                 } else {
                     WorkingGlyph(animated: !reduceMotion)
                 }
                 Text("\(word)…")
                     .font(.mono(12, .medium))
                     .foregroundStyle(.primary)
-                    // The word is swapped inside one view rather than by giving each word
-                    // its own identity. A new identity makes the old word a separate view
-                    // that has to be animated away, and the row moves down the transcript
-                    // while that happens, so the leaving word is left sitting on top of
-                    // whatever has since taken its place.
-                    .contentTransition(.opacity)
+                    // Each word is a replacement: the old one leaves before the new one
+                    // fades in, so it cannot linger as the row moves down the transcript.
+                    .id(word)
+                    .transition(.fadeIn)
                 if waitingOnTasks {
                     Text("for a background task to finish")
                         .font(.mono(12))

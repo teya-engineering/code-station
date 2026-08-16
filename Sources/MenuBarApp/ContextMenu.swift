@@ -397,21 +397,21 @@ struct ContextMenuHost: View {
                                 action: item.handler == nil ? nil : { presenter.run(item) },
                                 detailAction: item.detailHandler == nil
                                     ? nil : { presenter.runDetail(item) })
-                        .transition(.reveal)
+                        .transition(.fadeIn)
                 case .searchable(let searchable):
                     SearchableMenuItemsView(searchable: searchable,
                                             checkColumn: hasChecks,
                                             iconColumn: hasIcons)
-                        .transition(.reveal)
+                        .transition(.fadeIn)
                 case .cards(let items):
                     MenuCardGrid(items: items) { presenter.run($0) }
-                        .transition(.reveal)
+                        .transition(.fadeIn)
                 case .separator:
                     Divider()
                         .overlay(Theme.hairline)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 5)
-                        .transition(.reveal)
+                        .transition(.fadeIn)
                 }
             }
         }
@@ -487,7 +487,7 @@ private struct SearchableMenuItemsView: View {
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 10)
-                    .transition(.reveal)
+                    .transition(.fadeIn)
             } else {
                 ForEach(items, id: \.index) { indexed in
                     MenuItemRow(item: indexed.item,
@@ -497,7 +497,7 @@ private struct SearchableMenuItemsView: View {
                                     ? nil : { presenter.run(indexed.item) },
                                 detailAction: indexed.item.detailHandler == nil
                                     ? nil : { presenter.runDetail(indexed.item) })
-                        .transition(.reveal)
+                        .transition(.fadeIn)
                 }
             }
         }

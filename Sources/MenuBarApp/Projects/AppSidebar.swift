@@ -410,12 +410,12 @@ struct AppSidebar: View {
                         .padding(.horizontal, 10)
                         .padding(.bottom, 8)
                         // Keyed on what decides whether a session block is on screen, so the
-                        // reveal plays wherever the change came from: a click on the project
-                        // row, or the first session arriving under an already open one.
+                        // transition plays wherever the change came from: a click on the
+                        // project row, or the first session arriving under an open one.
                         // Easing out rather than a spring: the block must not overshoot its
                         // own height, or it opens onto a gap under the last card.
                         .animation(.easeOut(duration: 0.26),
-                                   value: revealKey(grouped, workspaceGroups: workspaceGroups))
+                                   value: visibilityKey(grouped, workspaceGroups: workspaceGroups))
                         .animation(.easeOut(duration: 0.22),
                                    value: sessionOrderKey(grouped,
                                                           workspaceGroups: workspaceGroups))
@@ -582,7 +582,7 @@ struct AppSidebar: View {
                         }
                     }
                 }
-                .transition(.reveal)
+                .transition(.fadeIn)
             }
         }
     }
@@ -604,8 +604,8 @@ struct AppSidebar: View {
         let running = sessions.count { runner.state($0.id).isBusy }
 
         // The row and its sessions are one stack so the gap between them belongs to the
-        // block that slides: an outer spacing would stay behind for a frame as the block
-        // goes, which reads as the row jumping at the end of the close.
+        // block that changes size. An outer spacing would remain after the block leaves,
+        // which reads as the row jumping at the end of the close.
         return VStack(alignment: .leading, spacing: 0) {
             ProjectHeaderRow(
                 project: project,
@@ -696,7 +696,7 @@ struct AppSidebar: View {
                         }
                     }
                 }
-                .transition(.reveal)
+                .transition(.fadeIn)
             }
         }
     }
@@ -791,9 +791,9 @@ struct AppSidebar: View {
     }
 
     // Keyed on the cards that are drawn rather than the sessions that exist, so the
-    // slide plays for see-more the same as for a session arriving or leaving.
-    private func revealKey(_ grouped: [UUID: [ChatSession]],
-                           workspaceGroups: [UUID: [ChatSession]]) -> [UUID: Int] {
+    // fade plays for see-more the same as for a session arriving or leaving.
+    private func visibilityKey(_ grouped: [UUID: [ChatSession]],
+                               workspaceGroups: [UUID: [ChatSession]]) -> [UUID: Int] {
         var key: [UUID: Int] = [:]
         for project in store.projects where isExpanded(project) {
             key[project.id] = visibleSessions(grouped[project.id] ?? [], in: project.id).count
@@ -1909,9 +1909,8 @@ private struct ActivityLine: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    // Arriving text is the news, so it lands at once; leaving text
-                    // fades so the row does not blink.
-                    .transition(.asymmetric(insertion: .identity, removal: .opacity))
+                    // Replacements leave at once, then the current activity fades in.
+                    .transition(.fadeIn)
             }
         }
         .animation(.easeOut(duration: 0.3), value: shown)

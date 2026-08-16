@@ -14,15 +14,6 @@ enum ChatColor {
         dark: NSColor(srgbRed: 0.22, green: 0.11, blue: 0.10, alpha: 1))
 }
 
-// How anything new lands in the transcript: it fades in where it appears. Arrival is
-// one-way, so nothing fades out - a row that leaves mid-stream would ghost under the
-// row replacing it.
-extension AnyTransition {
-    static var fadeIn: AnyTransition {
-        .asymmetric(insertion: .opacity, removal: .identity)
-    }
-}
-
 // One turn of the conversation. The user gets a bubble, Claude does not: long
 // answers read better as plain page text than as a giant tinted block.
 struct MessageView: View, Equatable {
@@ -236,7 +227,7 @@ private struct ThinkingBlock: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.leading, 18)
                     .transcriptCopyButton(for: text)
-                    .transition(.reveal)
+                    .transition(.fadeIn)
             }
         }
         .padding(.trailing, 32)
@@ -314,7 +305,7 @@ private struct TranscriptCopyButton: ViewModifier {
                 if hovering && !descendantHovering && !text.isEmpty {
                     CopyPill(text: text, tooltip: tooltip)
                         .padding(inset)
-                        .transition(.opacity)
+                        .transition(.fadeIn)
                 }
             }
             .onHover { hovering = $0 }

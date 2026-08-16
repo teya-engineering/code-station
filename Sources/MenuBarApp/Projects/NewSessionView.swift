@@ -58,7 +58,7 @@ struct NewSessionView: View {
                                 baseOnRemote: $baseOnRemote, updateCheckout: $updateCheckout)
                     .padding(.horizontal, 20)
                     .padding(.bottom, 12)
-                    .transition(.opacity)
+                    .transition(.fadeIn)
             }
             VStack(spacing: 10) {
                 OptionCard(

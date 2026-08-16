@@ -305,7 +305,7 @@ struct WorkspaceDetailView: View {
                     .kerning(0.6)
                     .foregroundStyle(.secondary)
             }
-            .transition(.opacity)
+            .transition(.fadeIn)
         } else if let report = freshness[project.id] {
             Group {
                 if !report.onDefaultBranch, let expected = report.defaultBranch {
@@ -322,7 +322,7 @@ struct WorkspaceDetailView: View {
             .appTooltip(report.isStale
                         ? report.explanation + " Click to bring the checkout up to date."
                         : report.explanation)
-            .transition(.opacity)
+            .transition(.fadeIn)
         }
     }
 

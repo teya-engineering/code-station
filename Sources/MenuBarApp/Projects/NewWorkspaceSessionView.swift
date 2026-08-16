@@ -195,7 +195,7 @@ struct NewWorkspaceSessionView: View {
                 FreshnessNotice(report: report, forWorktree: usesWorktree,
                                 baseOnRemote: membership(project.id, of: $baseOnRemote),
                                 updateCheckout: membership(project.id, of: $updateCheckout))
-                    .transition(.opacity)
+                    .transition(.fadeIn)
             }
         }
         .padding(14)

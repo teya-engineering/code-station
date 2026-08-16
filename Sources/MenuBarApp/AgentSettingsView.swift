@@ -671,7 +671,7 @@ struct AgentCommandSheet: View {
             if let terminal {
                 TerminalScreen(terminal: terminal, isFocused: $focused)
                     .frame(height: 420)
-                    .transition(.reveal)
+                    .transition(.fadeIn)
             }
             SheetFooter { dismiss() }
         }

@@ -1475,11 +1475,11 @@ struct MobilePairingView: View {
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.top, 6)
-                .transition(.reveal)
+                .transition(.fadeIn)
             } else if confirming {
-                confirmation.transition(.reveal)
+                confirmation.transition(.fadeIn)
             } else {
-                idle.transition(.reveal)
+                idle.transition(.fadeIn)
             }
         }
         .smoothlyResizes(when: contentState)
@@ -1507,7 +1507,7 @@ struct MobilePairingView: View {
                     .foregroundStyle(Theme.deletion)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
-                    .transition(.reveal)
+                    .transition(.fadeIn)
             }
 
             ActionButton(title: starting ? "Starting…" : "Start sharing",

@@ -68,7 +68,7 @@ struct TaskInputsCard: View {
                     editor(input)
                         .padding(12)
                 }
-                .transition(.reveal)
+                .transition(.fadeIn)
             }
         }
         .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
@@ -101,7 +101,7 @@ struct TaskInputsCard: View {
             HStack(alignment: .top, spacing: 12) {
                 if input.kind != .toggle {
                     field("DEFAULT", placeholder: "empty", text: binding(input, \.defaultValue))
-                        .transition(.reveal)
+                        .transition(.fadeIn)
                 }
                 field("HINT", placeholder: "What this is for",
                       text: binding(input, \.hint))
@@ -118,7 +118,7 @@ struct TaskInputsCard: View {
                         .font(.system(size: 12, weight: .medium))
                 }
                 .toggleStyle(.appSwitch)
-                .transition(.reveal)
+                .transition(.fadeIn)
             }
         }
     }

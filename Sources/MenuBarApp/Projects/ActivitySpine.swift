@@ -45,7 +45,7 @@ struct ActivitySpine: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if isFoldable { header }
-            if showsRows { rows.transition(.reveal) }
+            if showsRows { rows.transition(.fadeIn) }
         }
         .padding(.horizontal, 13)
         .padding(.vertical, showsRows ? 11 : 8)
@@ -154,7 +154,7 @@ private struct SpineRow: View {
             if isExpanded {
                 detail
                     .padding(.bottom, 8)
-                    .transition(.reveal)
+                    .transition(.fadeIn)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

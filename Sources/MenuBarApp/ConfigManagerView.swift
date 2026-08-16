@@ -130,7 +130,7 @@ struct ConfigManagerView: View {
                             VStack(spacing: 4) {
                                 ForEach(grafanaServers) { row(for: $0) }
                             }
-                            .transition(.reveal)
+                            .transition(.fadeIn)
                         }
                     }
                     if !otherServers.isEmpty, store.servers.contains(where: \.isGrafana) {

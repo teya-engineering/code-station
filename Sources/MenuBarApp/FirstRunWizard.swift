@@ -103,14 +103,12 @@ struct FirstRunWizard: View {
             header
             ZStack {
                 switch step {
-                case .welcome: welcome
-                case .features: featureTour
-                case .agent: agentSetup
+                case .welcome: welcome.transition(.fadeIn)
+                case .features: featureTour.transition(.fadeIn)
+                case .agent: agentSetup.transition(.fadeIn)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .id(step)
-            .transition(reduceMotion ? .opacity : .opacity.combined(with: .offset(x: 18)))
             footer
         }
         .frame(width: 760, height: 590)

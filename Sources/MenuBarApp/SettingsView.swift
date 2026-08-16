@@ -225,27 +225,7 @@ struct SettingsView: View {
             header
             tabs
             ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    switch tab {
-                    case .general:
-                        oldSessions
-                        skillRefresh
-                        botImage
-                        terminal
-                        appearance
-                        textSize
-                        startAtLogin
-                        log
-                        siteConfiguration
-                    case .agents:
-                        AgentSettingsView(selectedAgent: runner.agent)
-                    case .experimental:
-                        mobileAccess
-                    }
-                }
-                .id(tab)
-                .transition(.fadeIn)
-                .padding(20)
+                tabContent.padding(20)
             }
             .frame(maxHeight: 560)
             SheetFooter { dismiss() }
@@ -261,14 +241,51 @@ struct SettingsView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 3) {
             Text("Settings").font(.serif(16))
-            Text(tab.note)
+            tabNote
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
-                .id(tab)
-                .transition(.fadeIn)
         }
         .padding(.horizontal, 20)
         .headerBand()
+    }
+
+    @ViewBuilder private var tabContent: some View {
+        switch tab {
+        case .general:
+            VStack(alignment: .leading, spacing: 24) {
+                oldSessions
+                skillRefresh
+                botImage
+                terminal
+                appearance
+                textSize
+                startAtLogin
+                log
+                siteConfiguration
+            }
+            .transition(.fadeIn)
+        case .agents:
+            VStack(alignment: .leading, spacing: 24) {
+                AgentSettingsView(selectedAgent: runner.agent)
+            }
+            .transition(.fadeIn)
+        case .experimental:
+            VStack(alignment: .leading, spacing: 24) {
+                mobileAccess
+            }
+            .transition(.fadeIn)
+        }
+    }
+
+    @ViewBuilder private var tabNote: some View {
+        switch tab {
+        case .general:
+            Text(SettingsTab.general.note).transition(.fadeIn)
+        case .agents:
+            Text(SettingsTab.agents.note).transition(.fadeIn)
+        case .experimental:
+            Text(SettingsTab.experimental.note).transition(.fadeIn)
+        }
     }
 
     private var tabs: some View {

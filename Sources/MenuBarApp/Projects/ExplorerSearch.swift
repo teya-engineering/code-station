@@ -222,7 +222,7 @@ struct ExplorerSearchDialog: View {
     @ViewBuilder private var results: some View {
         if model.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             searchMessage("Start typing to find a file")
-                .transition(.reveal)
+                .transition(.fadeIn)
         } else if model.loading {
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small)
@@ -231,10 +231,10 @@ struct ExplorerSearchDialog: View {
             .font(.system(size: 12))
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, minHeight: 180)
-            .transition(.reveal)
+            .transition(.fadeIn)
         } else if model.matches.isEmpty {
             searchMessage("No matching files")
-                .transition(.reveal)
+                .transition(.fadeIn)
         } else {
             ScrollViewReader { proxy in
                 ScrollView {
@@ -257,7 +257,7 @@ struct ExplorerSearchDialog: View {
                     }
                 }
             }
-            .transition(.reveal)
+            .transition(.fadeIn)
         }
     }
 

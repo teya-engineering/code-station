@@ -74,10 +74,10 @@ struct TaskScheduleCard: View {
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                         .foregroundStyle(Theme.attentionText)
-                        .transition(.reveal)
+                        .transition(.fadeIn)
                     }
                 }
-                .transition(.reveal)
+                .transition(.fadeIn)
             }
 
             Divider().overlay(Theme.hairline)
@@ -174,7 +174,7 @@ struct TaskScheduleCard: View {
                         }
                     }
                 }
-                .transition(.reveal)
+                .transition(.fadeIn)
             }
         }
         .padding(13)

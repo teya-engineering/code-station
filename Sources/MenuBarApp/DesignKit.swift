@@ -299,12 +299,8 @@ enum RelativeTime {
 }
 
 // A name that gets replaced rather than edited, most often the moment a session's first
-// prompt takes "New session" over. Swapping the words in place is easy to miss, so the
-// old ones leave upward while the new ones rise into their spot, and the line widens into
-// them so whatever sits after the name slides across rather than jumping.
-//
-// The words are stacked rather than laid out in a row: one of them is always on its way
-// out, and a row would hold a slot open for it and show both names side by side.
+// prompt takes "New session" over. The old name leaves at once and the new one fades into
+// its final width, so the replacement is clear without drawing both names together.
 extension View {
     func changingName(_ name: String) -> some View {
         modifier(ChangingName(name: name))
@@ -325,27 +321,23 @@ private struct ChangingName: ViewModifier {
         ZStack(alignment: .leading) {
             content
                 .id(name)
-                .transition(.asymmetric(
-                    insertion: .opacity.combined(with: .offset(y: 12)),
-                    removal: .opacity.combined(with: .offset(y: -12))))
+                .transition(.fadeIn)
         }
         .animation(reduceMotion ? nil : .easeInOut(duration: Self.duration), value: name)
     }
 }
 
-// A block that opens and closes by its own height, so the content around it moves at
-// the same rate. Fading alone takes the final space from the first frame and leaves the
-// surrounding card or dialog jumping ahead of what appears inside it.
+// Inserted content fades into its final place. Removed content leaves immediately, so it
+// cannot linger over the view that replaces it while the surrounding layout changes.
 extension AnyTransition {
-    static var reveal: AnyTransition {
-        .modifier(active: RevealModifier(progress: 0), identity: RevealModifier(progress: 1))
+    static var fadeIn: AnyTransition {
+        .asymmetric(insertion: .opacity, removal: .identity)
     }
 }
 
 extension View {
-    // The transition controls how conditional content is drawn; this supplies the
-    // animation transaction that lets it change the layout around it. Keeping the two
-    // shared makes disclosures in cards, dialogs and menus move at the same pace.
+    // Supplies the animation transaction that lets conditional content change the layout
+    // around it. Keeping this shared makes cards, dialogs and menus resize at one pace.
     func smoothlyResizes<Value: Equatable>(when value: Value) -> some View {
         modifier(SmoothResizeModifier(value: value))
     }
@@ -358,48 +350,6 @@ private struct SmoothResizeModifier<Value: Equatable>: ViewModifier {
 
     func body(content: Content) -> some View {
         content.animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: value)
-    }
-}
-
-private struct RevealModifier: ViewModifier, @MainActor Animatable {
-    var progress: Double
-
-    var animatableData: Double {
-        get { progress }
-        set { progress = newValue }
-    }
-
-    func body(content: Content) -> some View {
-        RevealLayout(progress: progress) { content.offset(y: (progress - 1) * 6) }
-            .clipped()
-            // A short fade hides the one frame where the clipping edge crosses text.
-            .opacity(min(1, progress * 2.5))
-    }
-}
-
-// The content keeps its natural size and is uncovered from the top. Scaling the view
-// itself would squeeze text and controls while the parent changes height.
-private struct RevealLayout: Layout, Animatable {
-    var progress: Double
-
-    var animatableData: Double {
-        get { progress }
-        set { progress = newValue }
-    }
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        guard let content = subviews.first else { return .zero }
-        let size = content.sizeThatFits(proposal)
-        return CGSize(width: size.width, height: size.height * progress)
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize,
-                       subviews: Subviews, cache: inout ()) {
-        guard let content = subviews.first else { return }
-        let size = content.sizeThatFits(proposal)
-        content.place(at: CGPoint(x: bounds.minX, y: bounds.minY),
-                      anchor: .topLeading,
-                      proposal: ProposedViewSize(width: bounds.width, height: size.height))
     }
 }
 
