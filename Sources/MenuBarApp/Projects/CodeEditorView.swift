@@ -489,6 +489,10 @@ final class LineNumberGutter: NSView {
     init(textView: NSTextView) {
         self.textView = textView
         super.init(frame: NSRect(x: 0, y: 0, width: thickness, height: 0))
+        // A view is free to paint outside its own bounds, and this one fills the rect it is
+        // handed. Left unclipped it covers the text, and everything else in the window with
+        // it, on any redraw that asks for more than the gutter's own column.
+        clipsToBounds = true
     }
 
     required init?(coder: NSCoder) { nil }

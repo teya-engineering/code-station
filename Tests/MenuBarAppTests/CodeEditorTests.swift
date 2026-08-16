@@ -72,12 +72,14 @@ struct CodeEditorTests {
         #expect(pane.textView.string == "let a = 1\n")
     }
 
+    // Drawn through the whole pane rather than the text view on its own. The gutter is a
+    // sibling laid over the text, and a gutter that paints past its own column hides
+    // everything under it while still showing its numbers.
     @Test func theTextDrawsBesideTheGutter() throws {
         let pane = Pane("rendered text\n", language: nil)
-        let visible = pane.textView.visibleRect
-        let image = try #require(
-            pane.textView.bitmapImageRepForCachingDisplay(in: visible))
-        pane.textView.cacheDisplay(in: visible, to: image)
+        let visible = pane.view.bounds
+        let image = try #require(pane.view.bitmapImageRepForCachingDisplay(in: visible))
+        pane.view.cacheDisplay(in: visible, to: image)
 
         let scale = CGFloat(image.pixelsWide) / visible.width
         let firstTextPixel = Int(ceil(gutter(pane).thickness * scale)) + 1
