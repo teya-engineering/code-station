@@ -60,7 +60,8 @@ struct ToolPresentation: Sendable {
             added = change.added
             removed = change.removed
         case "Bash":
-            argument = Self.singleLine(input["command"] as? String ?? "")
+            // Claude wraps shell input in JSON, while Codex sends the command itself.
+            argument = Self.singleLine(input["command"] as? String ?? tool.input)
             notesResultLineCount = true
         case "Grep", "Glob":
             argument = input["pattern"] as? String ?? argument

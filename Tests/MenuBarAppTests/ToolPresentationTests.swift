@@ -39,4 +39,23 @@ struct ToolPresentationTests {
 
         #expect(presentation.argument == file)
     }
+
+    @Test func presentsAPlainCodexShellCommand() {
+        let tool = ToolUse(id: "codex-command", name: "Bash",
+                           input: "swift test --filter ToolPresentationTests")
+
+        let presentation = ToolPresentation(tool: tool, projectPath: "/tmp/project")
+
+        #expect(presentation.argument == "swift test --filter ToolPresentationTests")
+        #expect(presentation.label == "Bash · swift test --filter ToolPresentationTests")
+    }
+
+    @Test func foldsAMultilineCodexShellCommandOntoOneLine() {
+        let tool = ToolUse(id: "codex-script", name: "Bash",
+                           input: "swift build\n  swift test")
+
+        let presentation = ToolPresentation(tool: tool, projectPath: "/tmp/project")
+
+        #expect(presentation.argument == "swift build swift test")
+    }
 }
