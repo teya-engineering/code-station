@@ -33,6 +33,47 @@ struct MobileAccessTests {
         ])
     }
 
+    @Test func mobilePageRendersQueuedMessageDetails() throws {
+        let url = try #require(AppResources.bundle.url(
+            forResource: "mobile-session", withExtension: "html"))
+        let html = try String(contentsOf: url, encoding: .utf8)
+        let start = try #require(html.range(of: "const renderQueue"))
+        let end = try #require(html.range(
+            of: "\n\n      const renderHeader", range: start.upperBound..<html.endIndex))
+        let function = html[start.lowerBound..<end.lowerBound]
+        let context = try #require(JSContext())
+        let value = try #require(context.evaluateScript("""
+        let queuedPrompts = [{ text: 'Run the tests', attachments: ['test-plan.md'] }];
+        const header = { isBusy: true };
+        const queuedPanel = { hidden: true };
+        const queuedHead = { textContent: '' };
+        const queuedList = {
+          children: [],
+          replaceChildren(...children) { this.children = children; }
+        };
+        const element = (tag, className, text) => ({
+          tag, className, textContent: text, children: [],
+          append(...children) { this.children.push(...children); }
+        });
+        \(function)
+        renderQueue();
+        JSON.stringify([
+          String(queuedPanel.hidden),
+          queuedHead.textContent,
+          queuedList.children[0].children[0].textContent,
+          queuedList.children[0].children[1].textContent
+        ]);
+        """))
+        let data = try #require(value.toString().data(using: .utf8))
+
+        #expect(try JSONDecoder().decode([String].self, from: data) == [
+            "false",
+            "QUEUED · 1 · RUNS WHEN THIS TURN ENDS",
+            "Run the tests",
+            "test-plan.md",
+        ])
+    }
+
     private func mobileFencedSegments(_ text: String) throws -> [[String: String]] {
         let url = try #require(AppResources.bundle.url(
             forResource: "mobile-session", withExtension: "html"))
@@ -271,6 +312,28 @@ struct MobileAccessTests {
         #expect(RemoteUpdate().isEmpty)
         #expect(!RemoteUpdate(order: ["a"]).isEmpty)
         #expect(!RemoteUpdate(permissionCleared: true).isEmpty)
+    }
+
+    @Test func sendsQueuedMessageTextAndAttachmentNames() {
+        let prompt = SessionRunner.QueuedPrompt(
+            text: "Run the integration tests",
+            attachments: [Attachment(url: URL(fileURLWithPath: "/tmp/test-plan.md"))],
+            customInstructions: "Use the staging environment")
+
+        let queued = RemoteQueuedPrompt(prompt)
+
+        #expect(UUID(uuidString: queued.id) == prompt.id)
+        #expect(queued.text == "Run the integration tests")
+        #expect(queued.attachments == ["test-plan.md"])
+    }
+
+    @Test func anEmptyQueueIsSentAsARealUpdate() throws {
+        let update = RemoteUpdate(queued: [])
+
+        #expect(!update.isEmpty)
+        let data = try JSONEncoder().encode(update)
+        let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect((object["queued"] as? [Any])?.isEmpty == true)
     }
 
     // The phone draws a call as one row, so it is sent the same verb and argument the

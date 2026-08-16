@@ -410,6 +410,44 @@
       font: 12px/1.45 var(--mono);
     }
 
+    #queued {
+      max-height: 190px;
+      flex: none;
+      overflow-y: auto;
+      padding: 10px 16px;
+      border-top: 1px solid var(--hairline);
+      background: var(--card);
+      -webkit-overflow-scrolling: touch;
+    }
+    .queued-head {
+      color: var(--green-deep);
+      font: 600 10.5px var(--mono);
+      letter-spacing: .8px;
+    }
+    .queued-list { display: flex; flex-direction: column; gap: 7px; margin-top: 8px; }
+    .queued-item {
+      padding: 9px 11px;
+      border: 1px solid var(--hairline-strong);
+      border-radius: 9px;
+      background: var(--field);
+    }
+    .queued-text {
+      display: -webkit-box;
+      overflow: hidden;
+      font-size: 13px;
+      line-height: 1.4;
+      overflow-wrap: anywhere;
+      white-space: pre-wrap;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+    }
+    .queued-attachments {
+      margin-top: 5px;
+      color: var(--muted);
+      font: 10.5px var(--mono);
+      overflow-wrap: anywhere;
+    }
+
     #composer {
       display: flex;
       flex: none;
@@ -654,6 +692,10 @@
       <span id="context" hidden>CTX<span class="meter"><span id="meter-fill"></span></span></span>
     </div>
     <main id="transcript"><div class="empty">Connecting to your Mac…</div></main>
+    <section id="queued" aria-label="Queued messages" hidden>
+      <div id="queued-head" class="queued-head"></div>
+      <div id="queued-list" class="queued-list"></div>
+    </section>
     <button id="bar" type="button" hidden></button>
     <form id="composer">
       <textarea id="prompt" maxlength="100000" placeholder="Nudge the session…"
@@ -690,6 +732,9 @@
       const meterFill = find('meter-fill');
       const stop = find('stop');
       const transcript = find('transcript');
+      const queuedPanel = find('queued');
+      const queuedHead = find('queued-head');
+      const queuedList = find('queued-list');
       const bar = find('bar');
       const composer = find('composer');
       const prompt = find('prompt');
@@ -722,6 +767,7 @@
       const model = new Map();
       const nodes = new Map();
       let order = [];
+      let queuedPrompts = [];
       let header = {};
 
       const element = (tag, className, text) => {
@@ -998,8 +1044,27 @@
 
       const renderElapsed = () => {
         if (!header.state) return;
-        const queued = header.queuedPrompts ? ` · ${header.queuedPrompts} QUEUED` : '';
-        state.textContent = `${header.state} · ${elapsed()}${queued}`;
+        const queueStatus = header.queuedPrompts ? ` · ${header.queuedPrompts} QUEUED` : '';
+        state.textContent = `${header.state} · ${elapsed()}${queueStatus}`;
+      };
+
+      const renderQueue = () => {
+        queuedPanel.hidden = !queuedPrompts.length;
+        if (!queuedPrompts.length) {
+          queuedList.replaceChildren();
+          return;
+        }
+        queuedHead.textContent = header.isBusy
+          ? `QUEUED · ${queuedPrompts.length} · RUNS WHEN THIS TURN ENDS`
+          : `QUEUED · ${queuedPrompts.length}`;
+        queuedList.replaceChildren(...queuedPrompts.map(prompt => {
+          const item = element('div', 'queued-item');
+          if (prompt.text) item.append(element('div', 'queued-text', prompt.text));
+          if (prompt.attachments?.length) {
+            item.append(element('div', 'queued-attachments', prompt.attachments.join(' · ')));
+          }
+          return item;
+        }));
       };
 
       const renderHeader = next => {
@@ -1013,6 +1078,7 @@
         light.className = `light ${running ? 'running' : next.state === 'IDLE' ? '' : 'attention'}`;
         state.className = running ? '' : next.state === 'IDLE' ? 'quiet' : 'attention';
         renderElapsed();
+        renderQueue();
 
         failure.hidden = !next.failure;
         failure.textContent = next.failure || '';
@@ -1186,6 +1252,7 @@
           closeNewSheet();
         }
         back.hidden = !snapshot.canBrowse;
+        queuedPrompts = snapshot.queued || [];
         renderHeader(snapshot.header);
         model.clear();
         nodes.clear();
@@ -1200,7 +1267,10 @@
       const applyUpdate = update => {
         const wasAtBottom = atBottom();
         const wasRunning = header.state === 'RUNNING';
+        const queueChanged = update.queued !== undefined;
+        if (queueChanged) queuedPrompts = update.queued || [];
         if (update.header) renderHeader(update.header);
+        else if (queueChanged) renderQueue();
         let restructured = false;
         if (update.order) {
           order = update.order;

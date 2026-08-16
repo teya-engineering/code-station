@@ -208,7 +208,7 @@ final class MobileAccessController {
         let removed: Int
         let context: Double
         let question: String?
-        let queued: Int
+        let queued: [UUID]
     }
 
     // What the status strip says about the working tree: the branch it is on and the
@@ -227,6 +227,7 @@ final class MobileAccessController {
         var header: RemoteHeader
         var order: [String]
         var messages: [String: RemoteMessageDigest]
+        var queued: [RemoteQueuedPrompt]
         var permissionID: String?
     }
 
@@ -235,6 +236,7 @@ final class MobileAccessController {
         let order: [String]
         let messages: [RemoteMessage]
         let digests: [String: RemoteMessageDigest]
+        let queued: [RemoteQueuedPrompt]
         let permission: RemotePermission?
     }
 
@@ -756,7 +758,7 @@ final class MobileAccessController {
                       removed: tree.removed,
                       context: session.flatMap { $0.usage?.contextFraction(for: $0.agent) } ?? -1,
                       question: runner.question(sessionID)?.id,
-                      queued: runner.queued(sessionID).count)
+                      queued: runner.queued(sessionID).map(\.id))
     }
 
     // Mirrors the desktop strip: git's own count of the tree once it has answered, and the
@@ -852,6 +854,7 @@ final class MobileAccessController {
         let projectPath = store.workingDirectories(for: session).first ?? project.path
         let visibleMessages = allMessages.suffix(200)
             .map { RemoteMessage($0, projectPath: projectPath) }
+        let queued = runner.queued(sessionID)
         let state = runner.state(sessionID)
         let tone = SessionTone(sessionID, store: store, runner: runner)
         let tree = workingTree(session)
@@ -872,12 +875,13 @@ final class MobileAccessController {
                 added: tree.added,
                 removed: tree.removed,
                 context: session.usage?.contextFraction(for: session.agent),
-                queuedPrompts: runner.queued(sessionID).count,
+                queuedPrompts: queued.count,
                 hasEarlierMessages: allMessages.count > visibleMessages.count),
             order: visibleMessages.map(\.id),
             messages: visibleMessages,
             digests: Dictionary(visibleMessages.map { ($0.id, RemoteTranscriptDiff.digest(of: $0)) },
                                 uniquingKeysWith: { first, _ in first }),
+            queued: queued.map(RemoteQueuedPrompt.init),
             permission: runner.question(sessionID).map {
                 RemotePermission($0, runsIn: tree.branch ?? project.name)
             })
@@ -889,6 +893,7 @@ final class MobileAccessController {
                                       canBrowse: reader.scope.canBrowse,
                                       header: state.header,
                                       messages: state.messages,
+                                      queued: state.queued,
                                       permission: state.permission)
         guard let text = Self.encode(snapshot) else { return }
         remember(state, for: connectionID, sessionID: sessionID)
@@ -918,6 +923,7 @@ final class MobileAccessController {
             header: view.header == state.header ? nil : state.header,
             order: view.order == state.order ? nil : state.order,
             changed: changed.isEmpty ? nil : changed,
+            queued: view.queued == state.queued ? nil : state.queued,
             permission: view.permissionID == state.permission?.id ? nil : state.permission,
             permissionCleared: view.permissionID != nil && state.permission == nil ? true : nil)
 
@@ -937,6 +943,7 @@ final class MobileAccessController {
                                          header: state.header,
                                          order: state.order,
                                          messages: state.digests,
+                                         queued: state.queued,
                                          permissionID: state.permission?.id)
     }
 
@@ -1045,6 +1052,7 @@ struct RemoteSnapshot: Encodable {
     let canBrowse: Bool
     let header: RemoteHeader
     let messages: [RemoteMessage]
+    let queued: [RemoteQueuedPrompt]
     let permission: RemotePermission?
 }
 
@@ -1056,12 +1064,25 @@ struct RemoteUpdate: Encodable {
     var header: RemoteHeader?
     var order: [String]?
     var changed: [RemoteChange]?
+    var queued: [RemoteQueuedPrompt]?
     var permission: RemotePermission?
     var permissionCleared: Bool?
 
     var isEmpty: Bool {
-        header == nil && order == nil && changed == nil
+        header == nil && order == nil && changed == nil && queued == nil
             && permission == nil && permissionCleared == nil
+    }
+}
+
+struct RemoteQueuedPrompt: Encodable, Equatable {
+    let id: String
+    let text: String
+    let attachments: [String]
+
+    init(_ prompt: SessionRunner.QueuedPrompt) {
+        id = prompt.id.uuidString
+        text = prompt.text
+        attachments = prompt.attachments.map(\.name)
     }
 }
 
