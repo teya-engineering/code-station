@@ -13,6 +13,7 @@ struct CodeEditorTests {
     // is the only part it colours.
     @MainActor
     private final class Pane {
+        let view: CodeEditorPane
         let scrollView: NSScrollView
         let coordinator: CodeEditorView.Coordinator
         let window: NSWindow
@@ -25,12 +26,13 @@ struct CodeEditorTests {
                 CodeEditorView(documentID: "pane.swift", text: .constant(text),
                                language: language, matches: matches, currentMatch: currentMatch))
             self.coordinator = coordinator
-            scrollView = coordinator.makePane()
-            scrollView.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
-            window = NSWindow(contentRect: scrollView.frame, styleMask: [.borderless],
+            view = coordinator.makePane()
+            scrollView = view.scrollView
+            view.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
+            window = NSWindow(contentRect: view.frame, styleMask: [.borderless],
                               backing: .buffered, defer: false)
-            window.contentView?.addSubview(scrollView)
-            scrollView.layoutSubtreeIfNeeded()
+            window.contentView?.addSubview(view)
+            view.layoutSubtreeIfNeeded()
             apply(text: text, language: language, matches: matches, currentMatch: currentMatch)
         }
 
@@ -68,6 +70,39 @@ struct CodeEditorTests {
 
         #expect(pane.textView.isEditable)
         #expect(pane.textView.string == "let a = 1\n")
+    }
+
+    @Test func theTextDrawsBesideTheGutter() throws {
+        let pane = Pane("rendered text\n", language: nil)
+        let visible = pane.textView.visibleRect
+        let image = try #require(
+            pane.textView.bitmapImageRepForCachingDisplay(in: visible))
+        pane.textView.cacheDisplay(in: visible, to: image)
+
+        let scale = CGFloat(image.pixelsWide) / visible.width
+        let firstTextPixel = Int(ceil(gutter(pane).thickness * scale)) + 1
+        let lastTextPixel = min(image.pixelsWide - 1, Int(250 * scale))
+        let hasTextPixel = (0..<image.pixelsHigh).contains { y in
+            (firstTextPixel...lastTextPixel).contains { x in
+                guard let colour = image.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else {
+                    return false
+                }
+                return colour.alphaComponent > 0.5
+                    && colour.redComponent < 0.5
+                    && colour.greenComponent < 0.5
+                    && colour.blueComponent < 0.5
+            }
+        }
+
+        #expect(hasTextPixel)
+    }
+
+    @Test func theGutterStaysOutsideTheScrollViewSurface() {
+        let pane = Pane("one\ntwo\n")
+
+        #expect(pane.view.gutter.superview === pane.view)
+        #expect(pane.scrollView.verticalRulerView == nil)
+        #expect(!pane.scrollView.rulersVisible)
     }
 
     @Test func codeOnScreenIsColoured() {
@@ -163,8 +198,8 @@ struct CodeEditorTests {
     // The gutter has to be wide enough for the biggest number it will draw, or the numbers
     // on the longest files run under the code.
     @Test func theGutterGrowsWithTheLineCount() {
-        let narrow = Pane("a\n").scrollView.verticalRulerView!.ruleThickness
-        let wide = Pane(String(repeating: "a\n", count: 5000)).scrollView.verticalRulerView!.ruleThickness
+        let narrow = gutter(Pane("a\n")).thickness
+        let wide = gutter(Pane(String(repeating: "a\n", count: 5000))).thickness
 
         #expect(wide > narrow)
     }
@@ -181,14 +216,14 @@ struct CodeEditorTests {
     }
     // MARK: - The gutter
 
-    private func ruler(_ pane: Pane) -> LineNumberRuler {
-        pane.scrollView.verticalRulerView as! LineNumberRuler
+    private func gutter(_ pane: Pane) -> LineNumberGutter {
+        pane.view.gutter
     }
 
     @Test func everyLineOnScreenIsNumberedOnce() {
         let pane = Pane("one\ntwo\nthree")
 
-        #expect(ruler(pane).visibleLabels().map(\.number) == [1, 2, 3])
+        #expect(gutter(pane).visibleLabels().map(\.number) == [1, 2, 3])
     }
 
     // A file ending in a newline leaves a last line with nothing on it. The text view puts
@@ -196,7 +231,7 @@ struct CodeEditorTests {
     @Test func theEmptyLineAfterATrailingNewlineIsNumbered() {
         let pane = Pane("one\ntwo\n")
 
-        #expect(ruler(pane).visibleLabels().map(\.number) == [1, 2, 3])
+        #expect(gutter(pane).visibleLabels().map(\.number) == [1, 2, 3])
     }
 
     // The gutter and the text are separate views that scroll together, so a number has to
@@ -206,7 +241,7 @@ struct CodeEditorTests {
         pane.scrollView.contentView.scroll(to: NSPoint(x: 0, y: 743))
         pane.scrollView.reflectScrolledClipView(pane.scrollView.contentView)
 
-        let labels = ruler(pane).visibleLabels()
+        let labels = gutter(pane).visibleLabels()
         let first = try! #require(labels.first)
 
         // The first number showing is the first line actually in the viewport ...
@@ -222,7 +257,7 @@ struct CodeEditorTests {
         var effective = NSRange()
         let fragment = layoutManager.lineFragmentRect(forGlyphAt: glyphs.location,
                                                       effectiveRange: &effective)
-        let textY = ruler(pane).convert(
+        let textY = gutter(pane).convert(
             NSPoint(x: 0, y: fragment.minY + textView.textContainerInset.height),
             from: textView).y
         #expect(abs(first.y - textY) < 0.5)

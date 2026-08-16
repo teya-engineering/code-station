@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-// Character offsets where each line starts, so the ruler can name a line and the
+// Character offsets where each line starts, so the gutter can name a line and the
 // highlighter can find one without counting newlines from the top of the file each time.
 // Offsets are UTF-16, which is the unit the text view counts in.
 struct LineIndex: Equatable {
@@ -64,15 +64,15 @@ struct CodeEditorView: NSViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
-    func makeNSView(context: Context) -> NSScrollView {
+    func makeNSView(context: Context) -> CodeEditorPane {
         context.coordinator.makePane()
     }
 
-    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+    func updateNSView(_ pane: CodeEditorPane, context: Context) {
         context.coordinator.apply(self)
     }
 
-    static func dismantleNSView(_ scrollView: NSScrollView, coordinator: Coordinator) {
+    static func dismantleNSView(_ pane: CodeEditorPane, coordinator: Coordinator) {
         NotificationCenter.default.removeObserver(coordinator)
     }
 
@@ -80,7 +80,7 @@ struct CodeEditorView: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextViewDelegate, @preconcurrency NSTextStorageDelegate {
         private var parent: CodeEditorView
         private weak var textView: CodeDocumentView?
-        private weak var ruler: LineNumberRuler?
+        private weak var gutter: LineNumberGutter?
 
         private var documentID: String?
         private var language: CodeLanguage?
@@ -111,8 +111,8 @@ struct CodeEditorView: NSViewRepresentable {
 
         // The whole pane, built here rather than in makeNSView so it can be stood up
         // without a SwiftUI context behind it.
-        func makePane() -> NSScrollView {
-            // The text system is built by hand so the view starts on TextKit 1: the ruler
+        func makePane() -> CodeEditorPane {
+            // The text system is built by hand so the view starts on TextKit 1: the gutter
             // walks the layout manager, and asking a TextKit 2 view for one mid-life
             // throws its layout away.
             let storage = NSTextStorage()
@@ -165,18 +165,14 @@ struct CodeEditorView: NSViewRepresentable {
             scrollView.autohidesScrollers = true
             scrollView.scrollerStyle = .overlay
 
-            let ruler = LineNumberRuler(scrollView: scrollView, orientation: .verticalRuler)
-            ruler.clientView = textView
-            ruler.reservedThicknessForMarkers = 0
-            ruler.reservedThicknessForAccessoryView = 0
-            scrollView.verticalRulerView = ruler
-            scrollView.hasVerticalRuler = true
-            scrollView.rulersVisible = true
+            let gutter = LineNumberGutter(textView: textView)
+            textView.textContainerInset.width = gutter.thickness + 10
+            let pane = CodeEditorPane(scrollView: scrollView, gutter: gutter)
 
             self.textView = textView
-            self.ruler = ruler
+            self.gutter = gutter
 
-            // The ruler and the colouring both follow the viewport, so both are redone
+            // The gutter and the colouring both follow the viewport, so both are redone
             // whenever the pane scrolls under the text or changes size around it. Without
             // the second, a pane that is laid out after its text arrives never colours
             // more than the sliver it was first measured at.
@@ -187,7 +183,7 @@ struct CodeEditorView: NSViewRepresentable {
                 NotificationCenter.default.addObserver(
                     self, selector: #selector(viewportMoved), name: name, object: clip)
             }
-            return scrollView
+            return pane
         }
 
         // MARK: - From SwiftUI
@@ -234,7 +230,7 @@ struct CodeEditorView: NSViewRepresentable {
 
         private func reindex(_ text: String) {
             lineIndex = LineIndex(text as NSString)
-            ruler?.index = lineIndex
+            gutter?.index = lineIndex
         }
 
         // MARK: - Typing
@@ -271,7 +267,7 @@ struct CodeEditorView: NSViewRepresentable {
         }
 
         @objc func viewportMoved() {
-            ruler?.needsDisplay = true
+            gutter?.needsDisplay = true
             colourViewport()
         }
 
@@ -435,18 +431,75 @@ final class CodeDocumentView: NSTextView {
     @objc private func paneResized() { setFrameSize(frame.size) }
 }
 
-// The line numbers. A ruler rather than a column inside the text, so the gutter stays put
-// when the pane is scrolled sideways.
-final class LineNumberRuler: NSRulerView {
-    // Set by the pane whenever the document changes: the ruler cannot work out which line
+// NSScrollView reserves parts of its surface for native rulers and scrollers. Keeping the
+// gutter in a plain parent view avoids that machinery while still pinning it over the
+// leading edge of the text.
+final class CodeEditorPane: NSView {
+    let scrollView: NSScrollView
+    let gutter: LineNumberGutter
+
+    init(scrollView: NSScrollView, gutter: LineNumberGutter) {
+        self.scrollView = scrollView
+        self.gutter = gutter
+        super.init(frame: .zero)
+
+        addSubview(scrollView)
+        addSubview(gutter, positioned: .above, relativeTo: scrollView)
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        gutter.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            scrollView.topAnchor.constraint(equalTo: topAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            gutter.leadingAnchor.constraint(equalTo: leadingAnchor),
+            gutter.topAnchor.constraint(equalTo: topAnchor),
+            gutter.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
+    }
+
+    required init?(coder: NSCoder) { nil }
+}
+
+// The line numbers sit above the scroll view rather than inside its document, so the
+// gutter stays put when the pane is scrolled sideways.
+final class LineNumberGutter: NSView {
+    private weak var textView: NSTextView?
+
+    private(set) var thickness: CGFloat = 30
+
+    // Set by the pane whenever the document changes: the gutter cannot work out which line
     // a character belongs to on its own.
     var index = LineIndex("") {
         didSet {
             guard index != oldValue else { return }
-            ruleThickness = max(30, MonoMetrics.width(of: "\(index.count)", font: CodeEditorStyle.rulerFont) + 16)
+            thickness = max(30, MonoMetrics.width(of: "\(index.count)",
+                                                  font: CodeEditorStyle.rulerFont) + 16)
+            invalidateIntrinsicContentSize()
+            if let textView {
+                var inset = textView.textContainerInset
+                inset.width = thickness + 10
+                textView.textContainerInset = inset
+                textView.setFrameSize(textView.frame.size)
+            }
             needsDisplay = true
         }
     }
+
+    init(textView: NSTextView) {
+        self.textView = textView
+        super.init(frame: NSRect(x: 0, y: 0, width: thickness, height: 0))
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override var isFlipped: Bool { true }
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: thickness, height: NSView.noIntrinsicMetric)
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     // One number and where it goes. Which lines are showing is this view's own working
     // out, kept apart from the drawing so it can be checked without a screen.
@@ -457,11 +510,11 @@ final class LineNumberRuler: NSRulerView {
     }
 
     func visibleLabels() -> [Label] {
-        guard let textView = clientView as? NSTextView,
+        guard let textView,
               let layoutManager = textView.layoutManager,
               let container = textView.textContainer else { return [] }
 
-        // The ruler and the text scroll together but are separate views, so every
+        // The gutter and the text scroll together but are separate views, so every
         // fragment's position has to be brought back into this one's coordinates.
         let offset = convert(NSPoint.zero, from: textView).y + textView.textContainerInset.height
         // Layout is lazy, so the lines about to be numbered may not exist yet.
@@ -492,7 +545,7 @@ final class LineNumberRuler: NSRulerView {
         return labels
     }
 
-    override func drawHashMarksAndLabels(in rect: NSRect) {
+    override func draw(_ rect: NSRect) {
         Theme.backgroundNSColor.setFill()
         rect.fill()
         NSColor(Theme.border).setFill()
