@@ -1702,6 +1702,8 @@ private struct RowAction: View {
     let title: String
     let action: () -> Void
 
+    @State private var hovering = false
+
     var body: some View {
         Button(action: action) {
             HStack(spacing: 3) {
@@ -1711,9 +1713,14 @@ private struct RowAction: View {
                     .font(.system(size: 11, weight: .semibold))
             }
             .foregroundStyle(.secondary)
-            .contentShape(Rectangle())
+            .padding(.horizontal, 7)
+            .padding(.vertical, 4)
+            .overlay(Capsule().stroke(hovering ? Theme.border : .clear))
+            .contentShape(Capsule())
         }
         .buttonStyle(.plain)
+        .animation(.easeOut(duration: 0.12), value: hovering)
+        .onHover { hovering = $0 }
     }
 }
 
