@@ -217,7 +217,8 @@ struct TerminalToggle: View {
         .appMenu {
             [.item("Open in \(SystemTerminal.appName)") { SystemTerminal.open(directory) },
              .item(isOpen ? "Hide terminal here" : "Open terminal here",
-                   detail: "^`") { toggle() }]
+                   detail: "^`",
+                   action: toggle)]
         }
         .appTooltip("Open a shell in this folder")
     }
