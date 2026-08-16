@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -317,23 +318,38 @@ extension AttributedString {
         // cannot open. Turn only filesystem-shaped links into file URLs and leave web,
         // mail, and relative links to SwiftUI's normal handling.
         for run in Array(attributed.runs) {
-            guard let link = run.link, link.scheme == nil, link.host == nil else { continue }
-            let path = link.path
-            guard path.hasPrefix("/") || path == "~" || path.hasPrefix("~/") else { continue }
-            attributed[run.range].link = URL(
-                fileURLWithPath: (path as NSString).expandingTildeInPath)
+            guard var link = run.link else { continue }
+            if link.scheme == nil, link.host == nil {
+                let path = link.path
+                if path.hasPrefix("/") || path == "~" || path.hasPrefix("~/") {
+                    link = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
+                    attributed[run.range].link = link
+                }
+            }
+            if link.isFileURL {
+                attributed[run.range].appKit.toolTip = TranscriptLink.finderToolTip
+            }
         }
         return attributed
     }
 }
 
 enum TranscriptLink {
-    // SwiftUI's default link action does not hand local files to Launch Services.
-    // Handle those here while web and mail links keep the system action.
-    static func openFile(_ url: URL, using open: (URL) -> Void) -> Bool {
-        guard url.isFileURL else { return false }
-        open(url)
-        return true
+    static let finderToolTip = "Open in Finder"
+
+    // File links can carry a source line after the path. Finder needs the real path,
+    // while web and mail links keep SwiftUI's normal system action.
+    static func finderTarget(
+        for url: URL,
+        fileExists: (String) -> Bool = FileManager.default.fileExists(atPath:)
+    ) -> URL? {
+        guard url.isFileURL else { return nil }
+        guard !fileExists(url.path),
+              let suffix = url.path.range(of: #":\d+(?::\d+)?$"#,
+                                          options: .regularExpression) else { return url }
+
+        let file = URL(fileURLWithPath: String(url.path[..<suffix.lowerBound]))
+        return fileExists(file.path) ? file : url
     }
 }
 

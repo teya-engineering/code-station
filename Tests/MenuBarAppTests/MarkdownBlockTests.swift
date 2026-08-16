@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 @testable import MenuBarApp
@@ -161,6 +162,13 @@ struct MarkdownBlockTests {
             .appendingPathComponent(".codex/AGENTS.md").path)
     }
 
+    @Test func describesAFileLinkAsOpeningInFinder() throws {
+        let run = try #require(AttributedString.inlineMarkdown(
+            "[AGENTS.md](/Users/test/.codex/AGENTS.md)").runs.first(where: { $0.link != nil }))
+
+        #expect(run.appKit.toolTip == "Open in Finder")
+    }
+
     @Test func leavesAWebLinkUnchanged() {
         let url = link(in: "[OpenAI](https://openai.com/docs)")
 
@@ -168,23 +176,35 @@ struct MarkdownBlockTests {
         #expect(url?.isFileURL == false)
     }
 
-    @Test func opensAFileLinkWithTheFileHandler() {
+    @Test func keepsAFileURLWithoutASourceLine() {
         let url = URL(fileURLWithPath: "/tmp/result.png")
-        var opened: URL?
 
-        let handled = TranscriptLink.openFile(url) { opened = $0 }
+        let target = TranscriptLink.finderTarget(for: url, fileExists: { _ in true })
 
-        #expect(handled)
-        #expect(opened == url)
+        #expect(target == url)
+    }
+
+    @Test func removesASourceLineFromAnExistingFile() {
+        let url = URL(fileURLWithPath: "/tmp/DesignKit.swift:337")
+
+        let target = TranscriptLink.finderTarget(for: url) {
+            $0 == "/tmp/DesignKit.swift"
+        }
+
+        #expect(target?.path == "/tmp/DesignKit.swift")
+    }
+
+    @Test func keepsASourceLineWhenTheFileCannotBeFound() {
+        let url = URL(fileURLWithPath: "/tmp/DesignKit.swift:337")
+
+        let target = TranscriptLink.finderTarget(for: url, fileExists: { _ in false })
+
+        #expect(target == url)
     }
 
     @Test func leavesAWebLinkForTheSystemHandler() throws {
         let url = try #require(URL(string: "https://openai.com/docs"))
-        var opened: URL?
 
-        let handled = TranscriptLink.openFile(url) { opened = $0 }
-
-        #expect(!handled)
-        #expect(opened == nil)
+        #expect(TranscriptLink.finderTarget(for: url) == nil)
     }
 }

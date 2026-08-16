@@ -170,8 +170,15 @@ struct MessageView: View, Equatable {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .environment(\.openURL, OpenURLAction { url in
-            TranscriptLink.openFile(url) { _ = NSWorkspace.shared.open($0) }
-                ? .handled : .systemAction
+            guard let file = TranscriptLink.finderTarget(for: url) else { return .systemAction }
+            if FileManager.default.fileExists(atPath: file.path) {
+                NSWorkspace.shared.activateFileViewerSelecting([file])
+            } else {
+                NSWorkspace.shared.selectFile(
+                    nil,
+                    inFileViewerRootedAtPath: file.deletingLastPathComponent().path)
+            }
+            return .handled
         })
     }
 
