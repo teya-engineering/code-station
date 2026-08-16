@@ -204,11 +204,19 @@ struct TaskScheduleCard: View {
             .font(.system(size: 11.5))
             .foregroundStyle(.secondary)
             Spacer(minLength: 12)
-            ActionButton(title: "Save timer", tone: .green, icon: "clock") {
-                save()
+            HStack(spacing: 8) {
+                ActionButton(title: "Cancel", tone: .danger, icon: "xmark") {
+                    draft = Draft(schedule ?? TaskSchedule())
+                }
+                .disabled(!isDirty)
+                .opacity(isDirty ? 1 : 0.45)
+
+                ActionButton(title: "Save timer", tone: .green, icon: "clock") {
+                    save()
+                }
+                .disabled(!isDirty || issue != nil)
+                .opacity(isDirty && issue == nil ? 1 : 0.45)
             }
-            .disabled(!isDirty || issue != nil)
-            .opacity(isDirty && issue == nil ? 1 : 0.45)
         }
     }
 
