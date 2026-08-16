@@ -36,7 +36,7 @@ enum SessionOutcome: Equatable {
         case .historyOnly: "history only"
         case .checking: "checking…"
         case .checkFailed: "check failed"
-        case .worktreeRemoved: "worktree removed"
+        case .worktreeRemoved: "will remove worktree"
         case .wouldLoseWork: "would lose work"
         }
     }
