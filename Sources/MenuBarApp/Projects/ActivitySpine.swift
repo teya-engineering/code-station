@@ -45,14 +45,14 @@ struct ActivitySpine: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if isFoldable { header }
-            if showsRows { rows }
+            if showsRows { rows.transition(.reveal) }
         }
         .padding(.horizontal, 13)
         .padding(.vertical, showsRows ? 11 : 8)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 11).fill(Theme.sunken))
-        .animation(.easeInOut(duration: 0.12), value: expanded)
-        .animation(.easeInOut(duration: 0.12), value: showsRows)
+        .smoothlyResizes(when: expanded)
+        .smoothlyResizes(when: showsRows)
     }
 
     private var header: some View {
@@ -152,7 +152,9 @@ private struct SpineRow: View {
             .buttonStyle(.plain)
 
             if isExpanded {
-                detail.padding(.bottom, 8)
+                detail
+                    .padding(.bottom, 8)
+                    .transition(.reveal)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

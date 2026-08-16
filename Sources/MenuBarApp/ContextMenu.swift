@@ -124,6 +124,9 @@ final class MenuPresenter {
     private(set) var verticalAttachment: MenuVerticalAttachment = .point
     // Changes on every open so the host can drop the size it measured for the last menu.
     private(set) var generation = 0
+    // A refresh can replace an open menu without opening a new generation. Its own key
+    // lets the host animate any size change while keeping the same anchor and focus.
+    private(set) var contentRevision = 0
 
     var isOpen: Bool { !entries.isEmpty }
 
@@ -137,12 +140,14 @@ final class MenuPresenter {
         self.trailingAnchor = trailingAnchor
         self.verticalAttachment = verticalAttachment
         generation += 1
+        contentRevision += 1
         return generation
     }
 
     func replaceEntries(_ entries: [MenuEntry], ifGeneration generation: Int) {
         guard isOpen, self.generation == generation else { return }
         self.entries = entries
+        contentRevision += 1
     }
 
     func dismiss() { entries = [] }
@@ -315,6 +320,7 @@ struct ContextMenuHost: View {
                         .fixedSize(horizontal: presenter.width == nil, vertical: false)
                         .frame(width: presenter.width)
                         .id(presenter.generation)
+                        .smoothlyResizes(when: presenter.contentRevision)
                         // The measurement carries the menu it was taken for, so two
                         // menus that happen to be the same size still each report one,
                         // and a report that arrives late cannot pass itself off as a
@@ -391,17 +397,21 @@ struct ContextMenuHost: View {
                                 action: item.handler == nil ? nil : { presenter.run(item) },
                                 detailAction: item.detailHandler == nil
                                     ? nil : { presenter.runDetail(item) })
+                        .transition(.reveal)
                 case .searchable(let searchable):
                     SearchableMenuItemsView(searchable: searchable,
                                             checkColumn: hasChecks,
                                             iconColumn: hasIcons)
+                        .transition(.reveal)
                 case .cards(let items):
                     MenuCardGrid(items: items) { presenter.run($0) }
+                        .transition(.reveal)
                 case .separator:
                     Divider()
                         .overlay(Theme.hairline)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 5)
+                        .transition(.reveal)
                 }
             }
         }
@@ -425,6 +435,11 @@ struct ContextMenuHost: View {
 }
 
 private struct SearchableMenuItemsView: View {
+    private struct IndexedItem {
+        let index: Int
+        let item: MenuItem
+    }
+
     let searchable: SearchableMenuItems
     let checkColumn: Bool
     let iconColumn: Bool
@@ -433,8 +448,10 @@ private struct SearchableMenuItemsView: View {
     @State private var filter = ""
     @FocusState private var filterFocused: Bool
 
-    private var items: [MenuItem] {
-        searchable.items.filter { $0.matches(filter) }
+    private var items: [IndexedItem] {
+        searchable.items.enumerated().compactMap { index, item in
+            item.matches(filter) ? IndexedItem(index: index, item: item) : nil
+        }
     }
 
     var body: some View {
@@ -470,17 +487,21 @@ private struct SearchableMenuItemsView: View {
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 10)
+                    .transition(.reveal)
             } else {
-                ForEach(Array(items.enumerated()), id: \.offset) { _, item in
-                    MenuItemRow(item: item,
+                ForEach(items, id: \.index) { indexed in
+                    MenuItemRow(item: indexed.item,
                                 checkColumn: checkColumn,
                                 iconColumn: iconColumn,
-                                action: item.handler == nil ? nil : { presenter.run(item) },
-                                detailAction: item.detailHandler == nil
-                                    ? nil : { presenter.runDetail(item) })
+                                action: indexed.item.handler == nil
+                                    ? nil : { presenter.run(indexed.item) },
+                                detailAction: indexed.item.detailHandler == nil
+                                    ? nil : { presenter.runDetail(indexed.item) })
+                        .transition(.reveal)
                 }
             }
         }
+        .smoothlyResizes(when: items.map(\.index))
         .task {
             await Task.yield()
             filterFocused = true

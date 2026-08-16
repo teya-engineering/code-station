@@ -229,11 +229,12 @@ private struct ThinkingBlock: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.leading, 18)
                     .transcriptCopyButton(for: text)
+                    .transition(.reveal)
             }
         }
         .padding(.trailing, 32)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .animation(.easeInOut(duration: 0.12), value: expanded)
+        .smoothlyResizes(when: expanded)
     }
 
     private var firstLine: String {

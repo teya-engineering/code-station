@@ -104,8 +104,10 @@ struct TaskRunView: View {
                     .padding(12)
                     .background(RoundedRectangle(cornerRadius: 10).fill(Theme.sunken))
                     .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
+                    .transition(.reveal)
             }
         }
+        .smoothlyResizes(when: showingPrompt)
     }
 
     private var footer: some View {

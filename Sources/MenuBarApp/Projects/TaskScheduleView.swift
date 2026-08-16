@@ -47,33 +47,37 @@ struct TaskScheduleCard: View {
             }
 
             if draft.isEnabled {
-                Divider().overlay(Theme.hairline)
+                VStack(alignment: .leading, spacing: 13) {
+                    Divider().overlay(Theme.hairline)
 
-                HStack(spacing: 8) {
-                    ChoicePill(title: "Every interval", selected: draft.timing == .interval) {
-                        draft.timing = .interval
+                    HStack(spacing: 8) {
+                        ChoicePill(title: "Every interval", selected: draft.timing == .interval) {
+                            draft.timing = .interval
+                        }
+                        ChoicePill(title: "Time of day", selected: draft.timing == .timeOfDay) {
+                            draft.timing = .timeOfDay
+                        }
                     }
-                    ChoicePill(title: "Time of day", selected: draft.timing == .timeOfDay) {
-                        draft.timing = .timeOfDay
+
+                    if draft.timing == .interval {
+                        intervalEditor
+                    } else {
+                        timeOfDayEditor
+                    }
+
+                    if let issue {
+                        HStack(alignment: .top, spacing: 7) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.system(size: 10, weight: .semibold))
+                            Text(issue)
+                                .font(.system(size: 11.5))
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .foregroundStyle(Theme.attentionText)
+                        .transition(.reveal)
                     }
                 }
-
-                if draft.timing == .interval {
-                    intervalEditor
-                } else {
-                    timeOfDayEditor
-                }
-
-                if let issue {
-                    HStack(alignment: .top, spacing: 7) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.system(size: 10, weight: .semibold))
-                        Text(issue)
-                            .font(.system(size: 11.5))
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    .foregroundStyle(Theme.attentionText)
-                }
+                .transition(.reveal)
             }
 
             Divider().overlay(Theme.hairline)
@@ -83,6 +87,7 @@ struct TaskScheduleCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 12).fill(Theme.card))
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.border))
+        .smoothlyResizes(when: layoutState)
         .onChange(of: schedule) { oldValue, newValue in
             let old = oldValue ?? TaskSchedule()
             guard !draft.differs(from: old) else { return }
@@ -169,6 +174,7 @@ struct TaskScheduleCard: View {
                         }
                     }
                 }
+                .transition(.reveal)
             }
         }
         .padding(13)
@@ -229,6 +235,14 @@ struct TaskScheduleCard: View {
 
     private var isDirty: Bool { draft.differs(from: schedule ?? TaskSchedule()) }
 
+    private var layoutState: LayoutState {
+        LayoutState(isEnabled: draft.isEnabled,
+                    timing: draft.timing,
+                    hasMaximum: draft.hasMaximum,
+                    recurrence: draft.recurrence,
+                    issue: issue)
+    }
+
     private func save() {
         guard issue == nil, var value = draft.schedule else { return }
         value.restart()
@@ -272,6 +286,14 @@ struct TaskScheduleCard: View {
             .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
             .appMenu(matchWidth: true) { entries() }
         }
+    }
+
+    private struct LayoutState: Equatable {
+        let isEnabled: Bool
+        let timing: TaskSchedule.Timing
+        let hasMaximum: Bool
+        let recurrence: TaskSchedule.Recurrence
+        let issue: String?
     }
 
     private struct Draft {

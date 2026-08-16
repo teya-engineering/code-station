@@ -127,7 +127,10 @@ struct ConfigManagerView: View {
                             expanded: $grafanaExpanded,
                             toggleAll: toggleAllGrafana)
                         if grafanaExpanded {
-                            ForEach(grafanaServers) { row(for: $0) }
+                            VStack(spacing: 4) {
+                                ForEach(grafanaServers) { row(for: $0) }
+                            }
+                            .transition(.reveal)
                         }
                     }
                     if !otherServers.isEmpty, store.servers.contains(where: \.isGrafana) {
@@ -151,6 +154,7 @@ struct ConfigManagerView: View {
                             .padding(12)
                     }
                 }
+                .smoothlyResizes(when: grafanaExpanded)
                 .padding(.horizontal, 12)
             }
 

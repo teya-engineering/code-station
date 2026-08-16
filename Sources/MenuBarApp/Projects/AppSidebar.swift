@@ -1285,64 +1285,6 @@ struct AppSidebar: View {
     }
 }
 
-// MARK: - Reveal
-
-// A block that opens and closes by its own height, so the rows under it move at the same
-// rate rather than being displaced in one step. Fading alone leaves the space taken from
-// the first frame, which reads as the list jumping and the block catching up.
-private extension AnyTransition {
-    static var reveal: AnyTransition {
-        .modifier(active: RevealModifier(progress: 0), identity: RevealModifier(progress: 1))
-    }
-}
-
-private struct RevealModifier: ViewModifier, @MainActor Animatable {
-    var progress: Double
-
-    var animatableData: Double {
-        get { progress }
-        set { progress = newValue }
-    }
-
-    func body(content: Content) -> some View {
-        // The cards trail the edge they come out from by a few points, so the block
-        // arrives rather than simply being uncovered. The offset is drawn, not laid out,
-        // so it costs the reveal no height.
-        RevealLayout(progress: progress) { content.offset(y: (progress - 1) * 6) }
-            .clipped()
-            // Only the last stretch fades: a card cut in half by the clip is the one
-            // frame worth softening, and fading throughout would wash out the rest.
-            .opacity(min(1, progress * 2.5))
-    }
-}
-
-// Reports a fraction of what the content asks for while still laying the content out at
-// full size, pinned to the top: the block is uncovered from the top down instead of being
-// squashed, which is what makes it read as a slide rather than a stretch.
-private struct RevealLayout: Layout, Animatable {
-    var progress: Double
-
-    var animatableData: Double {
-        get { progress }
-        set { progress = newValue }
-    }
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        guard let content = subviews.first else { return .zero }
-        let size = content.sizeThatFits(proposal)
-        return CGSize(width: size.width, height: size.height * progress)
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize,
-                       subviews: Subviews, cache: inout ()) {
-        guard let content = subviews.first else { return }
-        let size = content.sizeThatFits(proposal)
-        content.place(at: CGPoint(x: bounds.minX, y: bounds.minY),
-                      anchor: .topLeading,
-                      proposal: ProposedViewSize(width: bounds.width, height: size.height))
-    }
-}
-
 // MARK: - Rows
 
 // The square that closes the footer row. Everything the app can be set up with lives

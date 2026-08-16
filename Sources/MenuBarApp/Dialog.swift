@@ -66,10 +66,11 @@ struct DialogHost: View {
 
                 card(dialog)
                     .frame(width: dialog.width)
+                    .id(dialog.id)
                     .transition(.scale(scale: 0.96).combined(with: .opacity))
             }
             .transition(.opacity)
-            .animation(.easeOut(duration: 0.12), value: dialog.id)
+            .smoothlyResizes(when: dialog.id)
         }
     }
 

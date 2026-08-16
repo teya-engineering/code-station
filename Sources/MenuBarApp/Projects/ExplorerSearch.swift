@@ -175,6 +175,13 @@ struct ExplorerSearchShortcut: NSViewRepresentable {
 }
 
 struct ExplorerSearchDialog: View {
+    private enum ResultsState: Equatable {
+        case prompt
+        case loading
+        case empty
+        case matches
+    }
+
     @Bindable var model: ExplorerSearchModel
     let onOpen: (FileNode) -> Void
 
@@ -205,6 +212,7 @@ struct ExplorerSearchDialog: View {
 
             results
         }
+        .smoothlyResizes(when: resultsState)
         .task {
             searchFocused = true
             await model.load()
@@ -214,6 +222,7 @@ struct ExplorerSearchDialog: View {
     @ViewBuilder private var results: some View {
         if model.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             searchMessage("Start typing to find a file")
+                .transition(.reveal)
         } else if model.loading {
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small)
@@ -222,8 +231,10 @@ struct ExplorerSearchDialog: View {
             .font(.system(size: 12))
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, minHeight: 180)
+            .transition(.reveal)
         } else if model.matches.isEmpty {
             searchMessage("No matching files")
+                .transition(.reveal)
         } else {
             ScrollViewReader { proxy in
                 ScrollView {
@@ -246,7 +257,14 @@ struct ExplorerSearchDialog: View {
                     }
                 }
             }
+            .transition(.reveal)
         }
+    }
+
+    private var resultsState: ResultsState {
+        if model.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return .prompt }
+        if model.loading { return .loading }
+        return model.matches.isEmpty ? .empty : .matches
     }
 
     private func resultRow(_ node: FileNode, index: Int) -> some View {

@@ -1425,6 +1425,12 @@ struct MobileAccessBadge: View {
 }
 
 struct MobilePairingView: View {
+    private enum ContentState: Equatable {
+        case idle(hasFailure: Bool)
+        case confirming
+        case sharing
+    }
+
     @Environment(MobileAccessController.self) private var mobileAccess
     let scope: MobileScope
 
@@ -1433,45 +1439,50 @@ struct MobilePairingView: View {
     @State private var failure: String?
 
     var body: some View {
-        if let share = mobileAccess.share(for: scope) {
-            VStack(spacing: 14) {
-                if let image = MobilePairingQRCode.image(for: share.url) {
-                    Image(nsImage: image)
-                        .interpolation(.none)
-                        .resizable()
-                        .frame(width: 214, height: 214)
-                        .padding(18)
-                        .background(RoundedRectangle(cornerRadius: 12).fill(.white))
-                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.border))
-                }
+        Group {
+            if let share = mobileAccess.share(for: scope) {
+                VStack(spacing: 14) {
+                    if let image = MobilePairingQRCode.image(for: share.url) {
+                        Image(nsImage: image)
+                            .interpolation(.none)
+                            .resizable()
+                            .frame(width: 214, height: 214)
+                            .padding(18)
+                            .background(RoundedRectangle(cornerRadius: 12).fill(.white))
+                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.border))
+                    }
 
-                HStack(spacing: 7) {
-                    Circle()
-                        .fill(mobileAccess.isLive(scope) ? Theme.addition : Color.secondary)
-                        .frame(width: 7, height: 7)
-                    Text(mobileAccess.isLive(scope) ? "Phone connected" : "Waiting for the phone")
-                        .font(.system(size: 12, weight: .semibold))
-                }
+                    HStack(spacing: 7) {
+                        Circle()
+                            .fill(mobileAccess.isLive(scope) ? Theme.addition : Color.secondary)
+                            .frame(width: 7, height: 7)
+                        Text(mobileAccess.isLive(scope)
+                             ? "Phone connected" : "Waiting for the phone")
+                            .font(.system(size: 12, weight: .semibold))
+                    }
 
-                Text(share.url.absoluteString)
-                    .font(.mono(9.5))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.center)
-                    .textSelection(.enabled)
+                    Text(share.url.absoluteString)
+                        .font(.mono(9.5))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.center)
+                        .textSelection(.enabled)
 
-                ActionButton(title: share.isConnected ? "Stop sharing" : "Cancel sharing",
-                             tone: .danger, height: 38, size: 13, fills: true) {
-                    mobileAccess.revoke(scope)
+                    ActionButton(title: share.isConnected ? "Stop sharing" : "Cancel sharing",
+                                 tone: .danger, height: 38, size: 13, fills: true) {
+                        mobileAccess.revoke(scope)
+                    }
                 }
+                .frame(maxWidth: .infinity)
+                .padding(.top, 6)
+                .transition(.reveal)
+            } else if confirming {
+                confirmation.transition(.reveal)
+            } else {
+                idle.transition(.reveal)
             }
-            .frame(maxWidth: .infinity)
-            .padding(.top, 6)
-        } else if confirming {
-            confirmation
-        } else {
-            idle
         }
+        .smoothlyResizes(when: contentState)
     }
 
     private var idle: some View {
@@ -1496,6 +1507,7 @@ struct MobilePairingView: View {
                     .foregroundStyle(Theme.deletion)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
+                    .transition(.reveal)
             }
 
             ActionButton(title: starting ? "Starting…" : "Start sharing",
@@ -1547,6 +1559,12 @@ struct MobilePairingView: View {
         default:
             "Whoever scans it can browse every project, read any session and start new ones anywhere, all running on this Mac. Only scan it on a phone you trust."
         }
+    }
+
+    private var contentState: ContentState {
+        if mobileAccess.share(for: scope) != nil { return .sharing }
+        if confirming { return .confirming }
+        return .idle(hasFailure: failure != nil)
     }
 
     private func startSharing() {

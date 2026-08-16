@@ -63,13 +63,17 @@ struct TaskInputsCard: View {
             .buttonStyle(.plain)
 
             if open {
-                Divider().overlay(Theme.hairline)
-                editor(input)
-                    .padding(12)
+                VStack(alignment: .leading, spacing: 0) {
+                    Divider().overlay(Theme.hairline)
+                    editor(input)
+                        .padding(12)
+                }
+                .transition(.reveal)
             }
         }
         .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
+        .smoothlyResizes(when: "\(open):\(input.kind.rawValue)")
     }
 
     private func editor(_ input: TaskInput) -> some View {
@@ -97,6 +101,7 @@ struct TaskInputsCard: View {
             HStack(alignment: .top, spacing: 12) {
                 if input.kind != .toggle {
                     field("DEFAULT", placeholder: "empty", text: binding(input, \.defaultValue))
+                        .transition(.reveal)
                 }
                 field("HINT", placeholder: "What this is for",
                       text: binding(input, \.hint))
@@ -113,6 +118,7 @@ struct TaskInputsCard: View {
                         .font(.system(size: 12, weight: .medium))
                 }
                 .toggleStyle(.appSwitch)
+                .transition(.reveal)
             }
         }
     }
