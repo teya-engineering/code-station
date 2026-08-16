@@ -1,4 +1,3 @@
-import AppKit
 import Foundation
 import Testing
 @testable import MenuBarApp
@@ -162,18 +161,20 @@ struct MarkdownBlockTests {
             .appendingPathComponent(".codex/AGENTS.md").path)
     }
 
-    @Test func describesAFileLinkAsOpeningInFinder() throws {
-        let run = try #require(AttributedString.inlineMarkdown(
-            "[AGENTS.md](/Users/test/.codex/AGENTS.md)").runs.first(where: { $0.link != nil }))
+    @Test func recognizesAFileLinkAsLocal() {
+        let attributed = AttributedString.inlineMarkdown(
+            "[AGENTS.md](/Users/test/.codex/AGENTS.md)")
 
-        #expect(run.appKit.toolTip == "Open in Finder")
+        #expect(attributed.hasLocalFileLink)
     }
 
     @Test func leavesAWebLinkUnchanged() {
-        let url = link(in: "[OpenAI](https://openai.com/docs)")
+        let attributed = AttributedString.inlineMarkdown("[OpenAI](https://openai.com/docs)")
+        let url = attributed.runs.compactMap(\.link).first
 
         #expect(url?.absoluteString == "https://openai.com/docs")
         #expect(url?.isFileURL == false)
+        #expect(!attributed.hasLocalFileLink)
     }
 
     @Test func keepsAFileURLWithoutASourceLine() {

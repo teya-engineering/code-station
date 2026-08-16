@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -318,19 +317,20 @@ extension AttributedString {
         // cannot open. Turn only filesystem-shaped links into file URLs and leave web,
         // mail, and relative links to SwiftUI's normal handling.
         for run in Array(attributed.runs) {
-            guard var link = run.link else { continue }
+            guard let link = run.link else { continue }
             if link.scheme == nil, link.host == nil {
                 let path = link.path
                 if path.hasPrefix("/") || path == "~" || path.hasPrefix("~/") {
-                    link = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
-                    attributed[run.range].link = link
+                    attributed[run.range].link = URL(
+                        fileURLWithPath: (path as NSString).expandingTildeInPath)
                 }
-            }
-            if link.isFileURL {
-                attributed[run.range].appKit.toolTip = TranscriptLink.finderToolTip
             }
         }
         return attributed
+    }
+
+    var hasLocalFileLink: Bool {
+        runs.contains { $0.link?.isFileURL == true }
     }
 }
 
@@ -353,6 +353,19 @@ enum TranscriptLink {
     }
 }
 
+private struct InlineMarkdownText: View {
+    private let attributed: AttributedString
+
+    init(_ text: String) {
+        attributed = .inlineMarkdown(text)
+    }
+
+    var body: some View {
+        Text(attributed)
+            .appTooltip(attributed.hasLocalFileLink ? TranscriptLink.finderToolTip : "")
+    }
+}
+
 // Draws one parsed block in the transcript's type and palette.
 // A streaming reply is re-parsed on every flush, but only its last block is still growing.
 // Comparing the block lets SwiftUI leave the settled ones alone instead of rebuilding every
@@ -367,7 +380,7 @@ struct MarkdownBlockView: View, Equatable {
         case .paragraph(let text):
             paragraph(text)
         case .heading(let level, let text):
-            Text(.inlineMarkdown(text))
+            InlineMarkdownText(text)
                 .font(headingFont(level))
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
@@ -381,7 +394,7 @@ struct MarkdownBlockView: View, Equatable {
                     HStack(alignment: .firstTextBaseline, spacing: 9) {
                         marker(item)
                             .frame(minWidth: 14, alignment: .trailing)
-                        Text(.inlineMarkdown(item.text))
+                        InlineMarkdownText(item.text)
                             .scaledText(13.5)
                             .lineSpacing(2)
                             .textSelection(.enabled)
@@ -393,7 +406,7 @@ struct MarkdownBlockView: View, Equatable {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         case .quote(let text):
-            Text(.inlineMarkdown(text))
+            InlineMarkdownText(text)
                 .scaledText(13)
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)
@@ -438,7 +451,7 @@ struct MarkdownBlockView: View, Equatable {
     }
 
     private func paragraphText(_ text: String) -> some View {
-        Text(.inlineMarkdown(text))
+        InlineMarkdownText(text)
             .scaledText(13)
             .textSelection(.enabled)
             .multilineTextAlignment(.leading)
@@ -506,7 +519,7 @@ private struct MarkdownTableView: View {
     private func cell(_ text: String, column: Int, header: Bool) -> some View {
         let alignment = table.alignments.indices.contains(column)
             ? table.alignments[column] : .leading
-        return Text(.inlineMarkdown(text))
+        return InlineMarkdownText(text)
             .scaledText(12.5, header ? .semibold : .regular)
             .textSelection(.enabled)
             .multilineTextAlignment(textAlignment(alignment))
