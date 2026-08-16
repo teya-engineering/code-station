@@ -2,9 +2,9 @@ import Foundation
 
 // Clearing old sessions without being asked each time. This is the only place in the app
 // that deletes a session nobody chose, so the rule it works to is the narrowest one: the
-// session has gone quiet, it is not running, and git has said its worktree holds nothing.
-// A worktree with uncommitted work, or one git could not read, is left where it is and
-// stays in the review sheet for a person to decide on.
+// session has gone quiet, it is neither open nor running, and git has said its worktree
+// holds nothing. A worktree with uncommitted work, or one git could not read, is left
+// where it is and stays in the review sheet for a person to decide on.
 @MainActor
 enum OldSessionSweep {
     static let interval: Duration = .seconds(3_600)
@@ -13,12 +13,13 @@ enum OldSessionSweep {
     static let batchLimit = 50
 
     // The order is the sheet's order, oldest first, so a capped pass takes the sessions
-    // that have been sitting the longest. A session that is running is never old, however
-    // long ago its last turn was: it is busy right now, which is the opposite of stale.
+    // that have been sitting the longest. A session that is open or running is never old,
+    // however long ago its last turn was: it is in use right now, which is the opposite
+    // of stale.
     static func due(days: Int, in sessions: [ChatSession], now: Date = Date(),
-                    isBusy: (UUID) -> Bool) -> [ChatSession] {
+                    isBusy: (UUID) -> Bool, isOpen: (UUID) -> Bool) -> [ChatSession] {
         Array(OldSessions.olderThan(days, in: sessions, now: now)
-            .filter { !isBusy($0.id) }
+            .filter { !isBusy($0.id) && !isOpen($0.id) }
             .prefix(batchLimit))
     }
 
@@ -26,12 +27,16 @@ enum OldSessionSweep {
     static func run(days: Int, store: ProjectStore, runner: SessionRunner,
                     inspect: SessionCost.Inspect = SessionCost.live) async -> Int {
         var deleted = 0
-        let due = due(days: days, in: store.sessions) { runner.state($0).isBusy }
+        let due = due(days: days, in: store.sessions,
+                      isBusy: { runner.state($0).isBusy },
+                      isOpen: { store.selection == .session($0) })
         // Reading git takes time, and the app keeps running while it does: a session that
-        // has since been picked up or removed by hand is no longer ours to take, so this
-        // is asked again on the far side of every wait.
+        // has since been opened, picked up, or removed by hand is no longer ours to take,
+        // so this is asked again on the far side of every wait.
         let stillStale = { (session: ChatSession) in
-            store.session(session.id) != nil && !runner.state(session.id).isBusy
+            store.session(session.id) != nil
+                && store.selection != .session(session.id)
+                && !runner.state(session.id).isBusy
         }
 
         for session in due {

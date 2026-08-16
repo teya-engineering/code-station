@@ -37,13 +37,16 @@ struct OldSessionSweepTests {
 
     // MARK: - What the sweep picks up
 
-    @Test func takesOnlyWhatHasGoneQuietAndIsNotRunning() {
+    @Test func takesOnlyWhatHasGoneQuietAndIsNeitherOpenNorRunning() {
         let running = session(daysAgo: 30)
-        let sessions = [session(daysAgo: 0.5), running, session(daysAgo: 8)]
+        let open = session(daysAgo: 20)
+        let sessions = [session(daysAgo: 0.5), running, open, session(daysAgo: 8)]
 
-        let due = OldSessionSweep.due(days: 7, in: sessions, now: now) { $0 == running.id }
+        let due = OldSessionSweep.due(days: 7, in: sessions, now: now,
+                                      isBusy: { $0 == running.id },
+                                      isOpen: { $0 == open.id })
 
-        #expect(due.map(\.id) == [sessions[2].id])
+        #expect(due.map(\.id) == [sessions[3].id])
     }
 
     @Test func clearsALongBacklogOverSeveralPasses() {
@@ -51,11 +54,38 @@ struct OldSessionSweepTests {
             session(daysAgo: 8 + Double($0))
         }
 
-        let due = OldSessionSweep.due(days: 7, in: sessions, now: now) { _ in false }
+        let due = OldSessionSweep.due(days: 7, in: sessions, now: now,
+                                      isBusy: { _ in false },
+                                      isOpen: { _ in false })
 
         #expect(due.count == OldSessionSweep.batchLimit)
         // Oldest first, so the backlog is worked through from the far end.
         #expect(due.first?.id == sessions.last?.id)
+    }
+
+    // Git inspection yields to the app. Opening the session while that answer is on its
+    // way must protect it just as opening it before the sweep starts does.
+    @Test func keepsASessionOpenedWhileItsWorktreeIsBeingChecked() async throws {
+        let store = ProjectStore(storeURL: FileManager.default.temporaryDirectory
+            .appendingPathComponent("conductor-old-session-sweep-\(UUID().uuidString).json"))
+        let project = try #require(store.addProject(at: FileManager.default.temporaryDirectory
+            .appendingPathComponent("project-\(UUID().uuidString)")))
+        let worktree = try folderOnDisk()
+        let old = store.newSession(in: project.id, worktreePath: worktree)
+        store.append(ChatMessage(role: .user, text: "Old work",
+                                 date: Date().addingTimeInterval(-8 * 86_400)),
+                     to: old.id)
+        _ = store.newSession(in: project.id)
+
+        let deleted = await OldSessionSweep.run(
+            days: 7, store: store, runner: SessionRunner(paths: [:])) { _ in
+                await MainActor.run { store.selectSession(old.id) }
+                return self.snapshot(changedFiles: 0)
+            }
+
+        #expect(deleted == 0)
+        #expect(store.session(old.id) != nil)
+        #expect(store.selection == .session(old.id))
     }
 
     // MARK: - What git has to say first
