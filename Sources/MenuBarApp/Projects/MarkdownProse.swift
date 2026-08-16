@@ -327,6 +327,16 @@ extension AttributedString {
     }
 }
 
+enum TranscriptLink {
+    // SwiftUI's default link action does not hand local files to Launch Services.
+    // Handle those here while web and mail links keep the system action.
+    static func openFile(_ url: URL, using open: (URL) -> Void) -> Bool {
+        guard url.isFileURL else { return false }
+        open(url)
+        return true
+    }
+}
+
 // Draws one parsed block in the transcript's type and palette.
 // A streaming reply is re-parsed on every flush, but only its last block is still growing.
 // Comparing the block lets SwiftUI leave the settled ones alone instead of rebuilding every

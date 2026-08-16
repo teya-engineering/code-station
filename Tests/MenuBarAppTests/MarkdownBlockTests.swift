@@ -167,4 +167,24 @@ struct MarkdownBlockTests {
         #expect(url?.absoluteString == "https://openai.com/docs")
         #expect(url?.isFileURL == false)
     }
+
+    @Test func opensAFileLinkWithTheFileHandler() {
+        let url = URL(fileURLWithPath: "/tmp/result.png")
+        var opened: URL?
+
+        let handled = TranscriptLink.openFile(url) { opened = $0 }
+
+        #expect(handled)
+        #expect(opened == url)
+    }
+
+    @Test func leavesAWebLinkForTheSystemHandler() throws {
+        let url = try #require(URL(string: "https://openai.com/docs"))
+        var opened: URL?
+
+        let handled = TranscriptLink.openFile(url) { opened = $0 }
+
+        #expect(!handled)
+        #expect(opened == nil)
+    }
 }

@@ -169,6 +169,10 @@ struct MessageView: View, Equatable {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .environment(\.openURL, OpenURLAction { url in
+            TranscriptLink.openFile(url) { _ = NSWorkspace.shared.open($0) }
+                ? .handled : .systemAction
+        })
     }
 
     @ViewBuilder private func prose(_ text: String) -> some View {
