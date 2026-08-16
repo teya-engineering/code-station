@@ -83,6 +83,22 @@ struct AppPathsTests {
         #expect(AppPaths.support.path.contains("Application Support"))
     }
 
+    @Test func abbreviatesOnlyPathsInsideTheHomeDirectory() {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+
+        #expect(home.abbreviatedPath == "~")
+        #expect("\(home)/project/file.swift".abbreviatedPath == "~/project/file.swift")
+        #expect("\(home)-archive/file.swift".abbreviatedPath == "\(home)-archive/file.swift")
+    }
+
+    @Test func findsPathsRelativeToADirectoryAtComponentBoundaries() {
+        #expect("/work/project".pathRelative(to: "/work/project") == "")
+        #expect("/work/project/Sources/App.swift".pathRelative(to: "/work/project")
+                == "Sources/App.swift")
+        #expect("/work/project-copy/App.swift".pathRelative(to: "/work/project") == nil)
+        #expect("/work/project/App.swift".pathRelative(to: "/") == "work/project/App.swift")
+    }
+
     @Test func restoresEachSidebarItemExpansionState() throws {
         let suite = "conductor-sidebar-tests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))

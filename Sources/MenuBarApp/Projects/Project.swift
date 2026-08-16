@@ -171,11 +171,20 @@ struct SessionProject: Identifiable, Codable, Equatable {
 }
 
 extension String {
-    // "/Users/me/x" reads better as "~/x" anywhere a path is shown.
+    func pathRelative(to directory: String) -> String? {
+        let path = URL(fileURLWithPath: self).standardizedFileURL.path
+        let directory = URL(fileURLWithPath: directory).standardizedFileURL.path
+        guard path != directory else { return "" }
+
+        let prefix = directory == "/" ? "/" : directory + "/"
+        guard path.hasPrefix(prefix) else { return nil }
+        return String(path.dropFirst(prefix.count))
+    }
+
     var abbreviatedPath: String {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
-        guard hasPrefix(home) else { return self }
-        return "~" + dropFirst(home.count)
+        guard let relativePath = pathRelative(to: home) else { return self }
+        return relativePath.isEmpty ? "~" : "~/\(relativePath)"
     }
 }
 

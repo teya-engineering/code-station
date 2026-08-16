@@ -115,7 +115,7 @@ struct HomeView: View {
 
     private func waitingNote(_ waiting: [HomeLive]) -> String {
         guard !waiting.isEmpty else { return "Nothing is waiting on you" }
-        let permissions = waiting.filter { $0.permission != nil }.count
+        let permissions = waiting.count { $0.permission != nil }
         let reviews = waiting.count - permissions
         var parts: [String] = []
         if permissions > 0 { parts.append("\(permissions) permission") }

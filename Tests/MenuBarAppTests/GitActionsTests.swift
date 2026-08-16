@@ -220,9 +220,8 @@ struct GitActionsTests {
         #expect(await GitActions.pull(at: repo.path) == .upToDate)
     }
 
-    // The failure this whole path exists for: git will not guess between a merge and a
-    // rebase, so a diverged branch used to stop at a hint about pull.rebase. Nothing here
-    // sets that config, which is the point.
+    // Git refuses a divergent pull without a configured policy. The app must request a
+    // rebase explicitly instead of depending on the user's global Git configuration.
     @Test func pullRebasesLocalCommitsOntoADivergedUpstream() async throws {
         let remote = try Bare()
         let first = try Repo()

@@ -120,7 +120,7 @@ struct CodeHighlightTests {
         let code = "let a = \"unterminated\nlet b = 2"
         let found = tokens(code, .swift)
         #expect(found.contains { $0.text == "b" } == false)
-        #expect(found.filter { $0.text == "let" && $0.kind == .keyword }.count == 2)
+        #expect(found.count { $0.text == "let" && $0.kind == .keyword } == 2)
         #expect(found.contains { $0.text == "2" && $0.kind == .number })
     }
 

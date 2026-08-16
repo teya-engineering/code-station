@@ -1380,7 +1380,7 @@ struct MobileAccessBadge: View {
     var body: some View {
         let shares = mobileAccess.activeShares
         if !shares.isEmpty {
-            let connected = shares.filter(\.isConnected).count
+            let connected = shares.count(where: \.isConnected)
             let tint = connected > 0 ? Theme.addition : Theme.accent
             HStack(spacing: 5) {
                 Image(systemName: connected > 0

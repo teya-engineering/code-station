@@ -81,7 +81,29 @@ struct TaskScheduleTests {
         #expect(TaskSchedule.parseTime("23:59") == 23 * 60 + 59)
         #expect(TaskSchedule.parseTime("24:00") == nil)
         #expect(TaskSchedule.parseTime("9") == nil)
+        #expect(TaskSchedule.parseTime("9:00") == nil)
+        #expect(TaskSchedule.parseTime("09:0") == nil)
+        #expect(TaskSchedule.parseTime("+9:00") == nil)
+        #expect(TaskSchedule.parseTime("09:+0") == nil)
         #expect(TaskSchedule.parseTime("09:60") == nil)
+    }
+
+    @Test func invalidSavedSchedulesNeverBecomeDue() {
+        var interval = TaskSchedule()
+        interval.isEnabled = true
+        interval.interval = 0
+        interval.restart(at: date(17, 8), calendar: calendar)
+
+        var timeOfDay = TaskSchedule()
+        timeOfDay.isEnabled = true
+        timeOfDay.timing = .timeOfDay
+        timeOfDay.timeOfDayMinutes = 24 * 60
+        timeOfDay.restart(at: date(17, 8), calendar: calendar)
+
+        #expect(!interval.isActive)
+        #expect(interval.nextRunAt == nil)
+        #expect(!timeOfDay.isActive)
+        #expect(timeOfDay.nextRunAt == nil)
     }
 }
 

@@ -29,6 +29,7 @@ final class ProcessManager {
     }
 
     func start(_ server: Server) {
+        guard !state(server.id).isActive else { return }
         guard let executable = Self.resolve(server.command ?? "") else {
             states[server.id] = .failed(
                 "Could not find \"\(server.command ?? "")\" on PATH. Install it (go install github.com/grafana/mcp-grafana/cmd/mcp-grafana@latest) or use an absolute path.")
@@ -78,6 +79,8 @@ final class ProcessManager {
             if httpMode { endpoints[id] = "http://localhost:\(port)/mcp" }
             states[id] = .running
         } catch {
+            pipe.fileHandleForReading.readabilityHandler = nil
+            process.terminationHandler = nil
             states[id] = .failed(error.localizedDescription)
         }
     }
@@ -108,7 +111,7 @@ final class ProcessManager {
     func clearLog(_ id: Server.ID) { logs[id] = "" }
 
     func runningCount(among ids: [Server.ID]) -> Int {
-        ids.filter { state($0).isActive }.count
+        ids.count { state($0).isActive }
     }
 
     // MARK: - Private

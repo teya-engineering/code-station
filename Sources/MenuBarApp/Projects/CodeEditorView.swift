@@ -52,8 +52,7 @@ struct LineIndex: Equatable {
 //
 // SwiftUI can do either half of that but not both at once. A Text draws colour and can sit
 // next to a gutter but cannot be typed into; a TextEditor can be typed into but draws
-// neither. AppKit does both, which is what lets the pane drop the separate read mode and
-// the Edit button that used to switch out of it.
+// neither. AppKit provides both in one pane.
 struct CodeEditorView: NSViewRepresentable {
     // Which file is in the pane. A change swaps the document outright: new text, scrolled
     // back to the top, nothing treated as something the user typed.

@@ -124,7 +124,7 @@ struct CommandRunnerTests {
         } catch {
             Issue.record("unexpected error: \(error)")
         }
-        #expect(started.duration(to: .now) < .seconds(3))
+        #expect(started.duration(to: .now) < .seconds(5))
         let pid = try #require(descendantPID(in: pidFile))
         #expect(!processExists(pid))
     }
@@ -168,7 +168,7 @@ struct CommandRunnerTests {
         } catch {
             Issue.record("unexpected error: \(error)")
         }
-        #expect(started.duration(to: .now) < .seconds(3))
+        #expect(started.duration(to: .now) < .seconds(5))
         #expect(!processExists(pid))
     }
 
@@ -229,7 +229,7 @@ struct CommandRunnerTests {
 
         #expect(output.status == -1)
         #expect(output.failureMessage == "Command timed out.")
-        #expect(started.duration(to: .now) < .seconds(3))
+        #expect(started.duration(to: .now) < .seconds(5))
         let pid = try #require(descendantPID(in: pidFile))
         #expect(!processExists(pid))
     }

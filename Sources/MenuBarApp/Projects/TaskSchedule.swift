@@ -4,6 +4,9 @@ import Foundation
 // after an app restart. The app must be running for a task to start. A missed occurrence
 // is handled once when the app is available again instead of replaying a backlog.
 struct TaskSchedule: Codable, Equatable {
+    static let countRange = 1...10_000
+    static let timeOfDayRange = 0..<(24 * 60)
+
     enum Timing: String, Codable, CaseIterable, Hashable {
         case interval
         case timeOfDay
@@ -96,7 +99,16 @@ struct TaskSchedule: Codable, Equatable {
         maximumRuns.map { completedRuns >= $0 } ?? false
     }
 
-    var isActive: Bool { isEnabled && !hasReachedMaximum }
+    var isActive: Bool {
+        guard isEnabled, !hasReachedMaximum else { return false }
+        switch timing {
+        case .interval:
+            return Self.countRange.contains(interval)
+                && (maximumRuns.map(Self.countRange.contains) ?? true)
+        case .timeOfDay:
+            return Self.timeOfDayRange.contains(timeOfDayMinutes)
+        }
+    }
 
     var timeText: String {
         String(format: "%02d:%02d", timeOfDayMinutes / 60, timeOfDayMinutes % 60)
@@ -118,7 +130,7 @@ struct TaskSchedule: Codable, Equatable {
     mutating func restart(at date: Date = Date(), calendar: Calendar = .current) {
         completedRuns = 0
         isWaitingForConfirmation = false
-        nextRunAt = isEnabled ? nextDate(after: date, calendar: calendar) : nil
+        nextRunAt = isActive ? nextDate(after: date, calendar: calendar) : nil
     }
 
     mutating func prepareIfNeeded(at date: Date = Date(), calendar: Calendar = .current) {
@@ -210,7 +222,9 @@ struct TaskSchedule: Codable, Equatable {
 
     static func parseTime(_ text: String) -> Int? {
         let parts = text.split(separator: ":", omittingEmptySubsequences: false)
-        guard parts.count == 2, let hour = Int(parts[0]), let minute = Int(parts[1]),
+        guard parts.count == 2, parts[0].count == 2, parts[1].count == 2,
+              parts.allSatisfy({ $0.allSatisfy(\.isNumber) }),
+              let hour = Int(parts[0]), let minute = Int(parts[1]),
               (0...23).contains(hour), (0...59).contains(minute) else { return nil }
         return hour * 60 + minute
     }

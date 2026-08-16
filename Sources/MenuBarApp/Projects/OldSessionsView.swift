@@ -187,11 +187,11 @@ struct OldSessionsView: View {
     }
 
     private var losable: Int {
-        rows.filter { $0.outcome.losesWork }.count
+        rows.count { $0.outcome.losesWork }
     }
 
     private var preselectCapped: Bool {
-        rows.filter { $0.outcome.losesNothing }.count > Self.preselectLimit
+        rows.count { $0.outcome.losesNothing } > Self.preselectLimit
     }
 
     // "last turn 9 days ago · 4 turns · ⑂ conductor/pty-test · clean"

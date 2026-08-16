@@ -36,8 +36,7 @@ struct MissingProjectTests {
         #expect(store.isMissing(project))
     }
 
-    // A file where the folder used to be is no more usable than nothing at all: an agent
-    // needs a directory to run in.
+    // A regular file at the configured path is unusable because an agent needs a directory.
     @Test func reportsAProjectAsMissingWhenAFileTookItsPlace() throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -51,8 +50,7 @@ struct MissingProjectTests {
         #expect(store.isMissing(project))
     }
 
-    // The case the banner offers a button for: the folder is gone and the sessions that ran
-    // in it were cleared first, which used to leave an entry with no way to take it out.
+    // A missing project remains removable after all its sessions have been cleared.
     @Test func removesAMissingProjectThatHasNoSessionsLeft() throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }

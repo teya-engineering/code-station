@@ -300,11 +300,11 @@ struct TaskScheduleCard: View {
         }
 
         var interval: Int? {
-            Int(intervalText).flatMap { (1...10_000).contains($0) ? $0 : nil }
+            Int(intervalText).flatMap { TaskSchedule.countRange.contains($0) ? $0 : nil }
         }
 
         var maximumRuns: Int? {
-            Int(maximumRunsText).flatMap { (1...10_000).contains($0) ? $0 : nil }
+            Int(maximumRunsText).flatMap { TaskSchedule.countRange.contains($0) ? $0 : nil }
         }
 
         var schedule: TaskSchedule? {

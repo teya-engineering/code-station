@@ -165,4 +165,10 @@ struct AttachmentTests {
         #expect(SessionRunner.directoriesOutside(["/work/api", "/work/web"],
                                                  for: attachments).isEmpty)
     }
+
+    @Test func rootMakesEveryAttachmentReachable() {
+        let attachment = Attachment(url: URL(fileURLWithPath: "/tmp/shot.png"))
+
+        #expect(SessionRunner.directoriesOutside("/", for: [attachment]).isEmpty)
+    }
 }

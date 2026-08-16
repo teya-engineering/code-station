@@ -27,4 +27,16 @@ struct ToolPresentationTests {
             "shared-suffix-0", "shared-suffix-1"
         ])
     }
+
+    @Test func keepsAHomeDirectorySiblingAbsolute() throws {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let file = "\(home)-archive/source.swift"
+        let input = try JSONSerialization.data(withJSONObject: ["file_path": file])
+        let tool = ToolUse(id: "outside-home", name: "Read",
+                           input: String(decoding: input, as: UTF8.self))
+
+        let presentation = ToolPresentation(tool: tool, projectPath: "/tmp/project")
+
+        #expect(presentation.argument == file)
+    }
 }

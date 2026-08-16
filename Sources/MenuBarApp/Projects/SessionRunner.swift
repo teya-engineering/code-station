@@ -50,7 +50,7 @@ final class SessionRunner {
     // The transcript note a running compaction is writing itself into, so its outcome
     // replaces it rather than piling a second line underneath.
     private var compactNotices: [UUID: UUID] = [:]
-    // Sessions whose nearly-full nudge has been waved away for now.
+    // Sessions whose current context-limit nudge has been dismissed.
     private var nudgeDismissals: Set<UUID> = []
 
     @ObservationIgnored private var paths: [AgentKind: String]
@@ -635,7 +635,7 @@ final class SessionRunner {
         for attachment in attachments {
             let parent = attachment.url.deletingLastPathComponent()
                 .resolvingSymlinksInPath().path
-            let alreadyReachable = roots.contains { parent == $0 || parent.hasPrefix($0 + "/") }
+            let alreadyReachable = roots.contains { parent.pathRelative(to: $0) != nil }
             guard !alreadyReachable, !directories.contains(parent) else {
                 continue
             }

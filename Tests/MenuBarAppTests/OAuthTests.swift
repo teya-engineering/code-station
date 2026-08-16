@@ -390,8 +390,8 @@ struct SavedRequestTests {
         #expect(requests[0].authMode == .environmentToken)
     }
 
-    // Auth used to be a yes or no rather than a choice of modes, and a request that had
-    // it switched off has to stay switched off.
+    // Legacy boolean auth records map to the equivalent mode without changing whether
+    // authentication is enabled.
     @Test func readsTheOldAuthFlagAsAMode() throws {
         func mode(useAuth: Bool) throws -> AuthMode {
             let json = """

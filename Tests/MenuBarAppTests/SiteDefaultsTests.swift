@@ -176,7 +176,7 @@ struct SiteDefaultsTests {
         ])
         #expect(SiteDefaults.searchPaths(environmentURL: selected,
                                          selectedURL: selected,
-                                         bundledURL: nil).filter { $0 == selected }.count == 1)
+                                         bundledURL: nil).count { $0 == selected } == 1)
     }
 
     @Test func anInstanceServesTheEnvironmentsItLists() throws {

@@ -452,8 +452,7 @@ struct ExplorerView: View {
     }
 
     private func relativePath(_ node: FileNode) -> String {
-        let prefix = root.hasSuffix("/") ? root : root + "/"
-        return node.path.hasPrefix(prefix) ? String(node.path.dropFirst(prefix.count)) : node.path
+        node.path.pathRelative(to: root) ?? node.path
     }
 
     // MARK: - Actions

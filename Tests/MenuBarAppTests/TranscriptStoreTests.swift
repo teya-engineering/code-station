@@ -405,11 +405,10 @@ struct TranscriptStoreTests {
         #expect(!messages.contains { $0.id == opened.id })
     }
 
-    // MARK: - The file an earlier version wrote
+    // MARK: - Legacy inline transcripts
 
-    // Everything used to sit in one file. Opening one has to move each conversation into
-    // a file of its own and work out the summaries that version never wrote, or every
-    // session would read as having done nothing.
+    // Legacy stores can hold conversations inline without summaries. Loading one splits
+    // the conversations into their own files and derives the missing summaries.
     @Test func movesConversationsOutOfAFileThatKeptThemInline() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("conductor-legacy-\(UUID().uuidString)")

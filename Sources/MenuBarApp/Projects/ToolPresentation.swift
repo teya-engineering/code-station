@@ -146,10 +146,7 @@ struct ToolPresentation: Sendable {
     }
 
     private static func relativize(_ path: String, to projectPath: String) -> String {
-        let root = projectPath.hasSuffix("/") ? projectPath : projectPath + "/"
-        if path.hasPrefix(root) { return String(path.dropFirst(root.count)) }
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        return path.replacingOccurrences(of: home, with: "~")
+        path.pathRelative(to: projectPath) ?? path.abbreviatedPath
     }
 
     private static func singleLine(_ text: String) -> String {

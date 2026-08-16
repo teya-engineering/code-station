@@ -191,6 +191,17 @@ struct OldSessionSweepTests {
         #expect(outcome.losesNothing)
     }
 
+    @Test func checksOnlyWorkspaceWorktreesThatStillExist() async throws {
+        let existing = try folderOnDisk()
+        let outcome = await SessionCost.settledOutcome(
+            worktrees: ["/nowhere/gone", existing]
+        ) { path in
+            path == existing ? self.snapshot(changedFiles: 0) : .state(.failed("unexpected"))
+        }
+
+        #expect(outcome == .worktreeRemoved)
+    }
+
     @Test func uncommittedWorkIsLeftForAPersonToDecideOn() async throws {
         let path = try folderOnDisk()
         let outcome = await SessionCost.settledOutcome(worktrees: [path]) { _ in

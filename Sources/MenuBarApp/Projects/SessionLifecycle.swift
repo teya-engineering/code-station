@@ -260,7 +260,7 @@ enum SessionLifecycle {
             }
         }
 
-        let kept = plan.filter { $0.source.keepsCommits }.count
+        let kept = plan.count { $0.source.keepsCommits }
         let lost = plan.count - kept
         var lines: [String] = []
         if kept > 0 {

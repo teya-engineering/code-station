@@ -486,7 +486,7 @@ struct SessionView: View {
     // touched the working tree, so each is a moment to refresh the header stats.
     private var completedToolCount: Int {
         guard let last = store.session(sessionID)?.messages.last, last.role == .assistant else { return 0 }
-        return last.tools.filter { !$0.isRunning }.count
+        return last.tools.count { !$0.isRunning }
     }
 
     // `reusingRecent` is for opening a session, where the trees are usually the ones just
@@ -710,8 +710,8 @@ struct SessionView: View {
             .defaultScrollAnchor(.bottom)
             // The pane changes height under a transcript that is already there: the
             // composer grows a line, the terminal drawer opens, the window is resized.
-            // The end of the content moves with it, and the scroll view is left holding
-            // the offset that used to reach it, so it has to be sent there again.
+            // The end of the content moves with it while the scroll view keeps its offset,
+            // so a pinned transcript must be sent to the bottom again.
             .background(GeometryReader { geometry in
                 Color.clear.onChange(of: geometry.size.height, initial: true) {
                     guard transcriptPinnedToBottom else { return }

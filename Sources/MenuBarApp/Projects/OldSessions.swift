@@ -81,12 +81,13 @@ enum SessionCost {
     // same as an empty worktree, and only one of the two is safe to act on.
     static func settledOutcome(worktrees: [String],
                                inspect: Inspect = live) async -> SessionOutcome {
-        guard startingOutcome(worktrees: worktrees) == .checking else { return .historyOnly }
+        let existingWorktrees = worktrees.filter { FileManager.default.fileExists(atPath: $0) }
+        guard !existingWorktrees.isEmpty else { return .historyOnly }
 
         var added = 0
         var removed = 0
         var hasChanges = false
-        for path in worktrees {
+        for path in existingWorktrees {
             let snapshot = await inspect(path)
             guard snapshot.state == .ready else { return .checkFailed }
             hasChanges = hasChanges || !snapshot.files.isEmpty

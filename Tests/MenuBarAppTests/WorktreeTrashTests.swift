@@ -2,10 +2,8 @@ import Foundation
 import Testing
 @testable import MenuBarApp
 
-// Deleting a session used to wait on unlinking its checkout, which is tens of seconds when
-// the session installed dependencies. The folder is moved aside instead, so what these pin
-// down is that the move really takes it off its path, that what was moved is unlinked
-// afterwards, and that a folder which will not move says so rather than looking cleared.
+// Session deletion moves a checkout aside before unlinking it in the background. These
+// tests cover the move, the later unlink, and failures that must remain visible.
 struct WorktreeTrashTests {
 
     private func temporaryDirectory() throws -> URL {

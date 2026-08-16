@@ -41,8 +41,7 @@ struct TaskInput: Codable, Equatable {
         self.required = required
     }
 
-    // Written whole today, but read leniently so a record saved before a field existed
-    // still loads as the default rather than losing the whole task.
+    // Missing fields use their model defaults so partial and legacy records remain usable.
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         name = try container.decode(String.self, forKey: .name)

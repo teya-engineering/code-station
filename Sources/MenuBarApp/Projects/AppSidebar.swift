@@ -99,7 +99,7 @@ struct AppSidebar: View {
     }
 
     private func brandBar(_ notices: [NoticedSession]) -> some View {
-        let running = notices.filter { $0.notice == .running }.count
+        let running = notices.count { $0.notice == .running }
         return HStack(spacing: 10) {
             Button(action: store.selectHome) {
                 HStack(spacing: 9) {
@@ -493,7 +493,7 @@ struct AppSidebar: View {
                                   sessions: [ChatSession]) -> some View {
         let expanded = isExpanded(workspace)
         let visible = visibleSessions(sessions, in: workspace.id)
-        let running = sessions.filter { runner.state($0.id).isBusy }.count
+        let running = sessions.count { runner.state($0.id).isBusy }
         let projects = workspace.projectIDs.compactMap(store.project)
 
         return VStack(alignment: .leading, spacing: 0) {
@@ -601,7 +601,7 @@ struct AppSidebar: View {
     private func projectSection(_ project: Project, sessions: [ChatSession]) -> some View {
         let expanded = isExpanded(project)
         let visible = visibleSessions(sessions, in: project.id)
-        let running = sessions.filter { runner.state($0.id).isBusy }.count
+        let running = sessions.count { runner.state($0.id).isBusy }
 
         // The row and its sessions are one stack so the gap between them belongs to the
         // block that slides: an outer spacing would stay behind for a frame as the block
@@ -888,7 +888,7 @@ struct AppSidebar: View {
 
     private func confirmRemoveSession(_ session: ChatSession) {
         let worktrees = store.checkoutProjects(for: session).compactMap(\.worktreePath)
-        let dirty = worktrees.filter(workingTrees.isDirty).count
+        let dirty = worktrees.count { workingTrees.isDirty($0) }
         dialogs.show(Dialog(
             title: "Delete \"\(session.title)\"?",
             message: worktrees.isEmpty
@@ -912,8 +912,8 @@ struct AppSidebar: View {
     private func confirmClearSessions(in project: Project) {
         let idle = idleSessions(in: project)
         guard !idle.isEmpty else { return }
-        let worktrees = idle.filter { $0.worktreePath != nil }.count
-        let dirty = idle.filter { $0.worktreePath.map(workingTrees.isDirty) ?? false }.count
+        let worktrees = idle.count { $0.worktreePath != nil }
+        let dirty = idle.count { $0.worktreePath.map(workingTrees.isDirty) ?? false }
         let kept = store.standaloneSessions(for: project.id).count - idle.count
         var message = "Their conversation history is removed from the app."
         if worktrees > 0 {

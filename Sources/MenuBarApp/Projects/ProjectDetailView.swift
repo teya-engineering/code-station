@@ -129,18 +129,14 @@ struct ProjectDetailView: View {
 
     // MARK: - Status strip
 
-    // The whole of what the repository card used to say, read along a line instead of
-    // down a card: the branch, how far it has drifted from its remote, whether anything
-    // is uncommitted, the commands saved against the folder, and the last commit. State
-    // belongs beside the name it describes rather than in the first card of the page,
-    // where it pushed the sessions - the reason for the screen - below the fold.
+    // Repository state stays beside the project name so the session list remains above
+    // the fold.
     private func statusStrip(_ project: Project) -> some View {
         HStack(spacing: 14) {
             if let git, git.state == .ready {
                 checkout(git)
             } else {
-                // A strip has room for the verdict, not for the sentence explaining it,
-                // so the sentence the card used to print waits in the tooltip.
+                // The strip has room for the verdict; the tooltip carries the explanation.
                 StatusCaps(text: gitVerdict).appTooltip(gitUnavailable)
             }
 

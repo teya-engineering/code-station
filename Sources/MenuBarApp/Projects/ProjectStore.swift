@@ -197,13 +197,13 @@ final class ProjectStore {
     // A collapsed project hides its sessions, so the count is what says how much is
     // waiting behind it.
     func finishedCount(in projectID: UUID) -> Int {
-        sidebarSessions.filter {
+        sidebarSessions.count {
             $0.projectID == projectID && $0.workspaceID == nil && finished.contains($0.id)
-        }.count
+        }
     }
 
     func finishedCount(inWorkspace workspaceID: UUID) -> Int {
-        sidebarSessions.filter { $0.workspaceID == workspaceID && finished.contains($0.id) }.count
+        sidebarSessions.count { $0.workspaceID == workspaceID && finished.contains($0.id) }
     }
 
     // MARK: - Projects
