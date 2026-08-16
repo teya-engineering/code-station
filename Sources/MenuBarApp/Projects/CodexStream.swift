@@ -45,7 +45,8 @@ extension StreamEvent {
             return [.finished(isError: true, message: error?["message"] as? String)]
 
         case "error":
-            return [.finished(isError: true, message: object["message"] as? String)]
+            return [.streamError(object["message"] as? String
+                ?? "Codex lost its connection and is trying to recover.")]
 
         default:
             return []

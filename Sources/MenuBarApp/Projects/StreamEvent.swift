@@ -36,6 +36,9 @@ enum StreamEvent: Sendable {
     // changes. A turn that ends while this is not empty is not really over: the CLI runs
     // a follow-up turn when a task finishes, but only if its process is still alive.
     case backgroundTasks(ids: [String])
+    // The transport dropped but the CLI is still running and may reconnect on its own.
+    // This is status, not the result of the turn.
+    case streamError(String)
     case finished(isError: Bool, message: String?)
 }
 
@@ -76,6 +79,8 @@ extension StreamEvent {
             "compacted pre=\(preTokens.map(String.init) ?? "unknown") post=\(postTokens.map(String.init) ?? "unknown")"
         case .backgroundTasks(let ids):
             "background tasks count=\(ids.count)"
+        case .streamError(let message):
+            "stream error messageBytes=\(message.utf8.count)"
         case .finished(let isError, let message):
             "finished error=\(isError) messageBytes=\(message?.utf8.count ?? 0)"
         }

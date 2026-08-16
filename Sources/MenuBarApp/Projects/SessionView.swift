@@ -819,14 +819,47 @@ struct SessionView: View {
                     .transition(.fadeIn)
             }
 
+            if case .reconnecting(let message) = state {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "arrow.triangle.2.circlepath.circle.fill")
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Codex is reconnecting")
+                            .fontWeight(.semibold)
+                        Text(message)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(ChatColor.warningText)
+                .padding(12)
+                .background(RoundedRectangle(cornerRadius: 10).fill(ChatColor.warningBackground))
+                .transition(.fadeIn)
+            }
+
             // A failed run belongs in the flow of the conversation, not in a dialog.
             if case .failed(let message) = state {
-                HStack(alignment: .top, spacing: 8) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                    Text(message)
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Spacer(minLength: 0)
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                        Text(message)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 0)
+                    }
+                    HStack(spacing: 8) {
+                        Spacer(minLength: 0)
+                        if runner.canContinueAfterFailure(sessionID, store: store) {
+                            ActionButton(title: "Continue", height: 28, size: 11.5) {
+                                runner.continueAfterFailure(sessionID, store: store)
+                            }
+                        }
+                        ActionButton(title: "Dismiss", tone: .outlined,
+                                     height: 28, size: 11.5) {
+                            runner.dismissFailure(sessionID)
+                        }
+                    }
                 }
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(ChatColor.warningText)
@@ -922,7 +955,10 @@ struct SessionView: View {
     // of the turn - which is also when the silence counter is worth the most.
     private func showsThinking(state: SessionState) -> Bool {
         // A parked turn is waiting on the person, not working.
-        state.isBusy && runner.question(sessionID) == nil
+        guard case .reconnecting = state else {
+            return state.isBusy && runner.question(sessionID) == nil
+        }
+        return false
     }
 
     private func scrollToBottom(_ proxy: ScrollViewProxy, animated: Bool) {

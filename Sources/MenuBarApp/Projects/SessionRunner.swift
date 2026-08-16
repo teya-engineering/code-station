@@ -47,6 +47,8 @@ final class SessionRunner {
     // without the words going with it.
     private var drafts: [UUID: Draft] = [:]
     private var removals: Set<UUID> = []
+    // Terminal agent turns that still have a conversation id and can be continued.
+    private var continuableFailures: Set<UUID> = []
     // The transcript note a running compaction is writing itself into, so its outcome
     // replaces it rather than piling a second line underneath.
     private var compactNotices: [UUID: UUID] = [:]
@@ -62,6 +64,9 @@ final class SessionRunner {
 
     // How Claude Code says it no longer holds the conversation we asked to resume.
     private static let lostConversation = "No conversation found with session ID"
+    static let recoveryPrompt = """
+    Inspect the current state and continue only the unfinished parts of the previous request. Do not repeat work or side effects that are already complete.
+    """
 
     init(configs: ConfigStore? = nil, paths: [AgentKind: String]? = nil) {
         self.configs = configs
@@ -282,6 +287,39 @@ final class SessionRunner {
         return session.hasAgentConversation
     }
 
+    // A failed process is gone, but its conversation can still be resumed. Recovery goes
+    // through the normal queue so it gets the same ownership and process checks as a
+    // prompt typed by hand.
+    func canContinueAfterFailure(_ sessionID: UUID, store: ProjectStore) -> Bool {
+        guard continuableFailures.contains(sessionID), case .failed = state(sessionID),
+              !removals.contains(sessionID),
+              let session = store.session(sessionID) else { return false }
+        return session.hasAgentConversation
+    }
+
+    @discardableResult
+    func continueAfterFailure(_ sessionID: UUID, store: ProjectStore) -> Bool {
+        guard canContinueAfterFailure(sessionID, store: store) else { return false }
+        continuableFailures.remove(sessionID)
+        store.append(
+            ChatMessage(role: .system,
+                        text: "Continuing after the failed turn. The agent will inspect the current state before it resumes unfinished work."),
+            to: sessionID)
+        queues[sessionID, default: []].insert(
+            QueuedPrompt(text: Self.recoveryPrompt, attachments: [], customInstructions: nil,
+                         isAppCommand: true),
+            at: 0)
+        SessionLog.note("continuing after failed turn", session: sessionID)
+        runQueue(sessionID, store: store)
+        return true
+    }
+
+    func dismissFailure(_ sessionID: UUID) {
+        guard case .failed = state(sessionID) else { return }
+        continuableFailures.remove(sessionID)
+        setState(.idle, for: sessionID)
+    }
+
     // Only the exact word, and only on its own. Both CLIs have real slash commands -
     // skills, built-ins - that belong to the agent and have to travel to it untouched.
     nonisolated static func isClearCommand(_ text: String) -> Bool {
@@ -481,6 +519,7 @@ final class SessionRunner {
         guard !state(sessionID).isBusy,
               let next = queues[sessionID]?.first,
               let session = store.session(sessionID) else { return }
+        continuableFailures.remove(sessionID)
 
         // Two agents sharing any direct project folder would edit the same files under
         // each other. Workspace sessions therefore conflict when any root overlaps.
@@ -693,6 +732,7 @@ final class SessionRunner {
         avatarSequences[sessionID] = nil
         compactNotices[sessionID] = nil
         nudgeDismissals.remove(sessionID)
+        continuableFailures.remove(sessionID)
     }
 
     private func requestStop(_ sessionID: UUID, failure: String? = nil) {
@@ -1196,8 +1236,18 @@ final class SessionRunner {
             case .backgroundTasks(let ids):
                 turn.pendingTasks = Set(ids)
 
+            case .streamError(let message):
+                turn.lastStreamError = message
+                setState(.reconnecting(message), for: sessionID)
+
             case .finished(let isError, let message):
-                if isError { turn.failure = message ?? "Claude Code reported an error." }
+                turn.receivedCompletion = true
+                if isError {
+                    turn.failure = message ?? "\(turn.agent.title) reported an error."
+                } else {
+                    turn.lastStreamError = nil
+                    setState(.streaming, for: sessionID)
+                }
                 // A result with background tasks still running is not the end of the
                 // turn: the CLI runs a follow-up turn when a task finishes, but only
                 // while its process is alive, so the input pipe is held open until the
@@ -1413,9 +1463,11 @@ final class SessionRunner {
             return
         }
 
-        // Warnings on stderr are common and harmless, so only a reported error or a bad
-        // exit code counts as a failed turn.
-        guard turn.failure != nil || status != 0 else {
+        // Warnings on stderr are common and harmless. Codex must also report its terminal
+        // event, since an exit code of zero after a broken stream does not prove the turn
+        // reached completion.
+        let missingCompletion = turn.agent == .codex && !turn.receivedCompletion
+        guard turn.failure != nil || status != 0 || missingCompletion else {
             SessionLog.note("turn finished", session: sessionID)
             setState(.idle, for: sessionID)
             // Given back before the queue runs: the next turn takes the transcript for
@@ -1438,9 +1490,16 @@ final class SessionRunner {
         }
         var parts: [String] = []
         if let failure = turn.failure { parts.append(failure) }
+        if turn.failure == nil, missingCompletion, let streamError = turn.lastStreamError {
+            parts.append(streamError)
+        }
         let stderr = turn.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
         if !stderr.isEmpty { parts.append(stderr) }
-        if parts.isEmpty { parts.append("\(turn.agent.title) exited with code \(status).") }
+        if parts.isEmpty {
+            parts.append(missingCompletion
+                ? "Codex ended before completing the turn."
+                : "\(turn.agent.title) exited with code \(status).")
+        }
         let message = parts.joined(separator: "\n\n")
         SessionLog.note(
             "turn failed status=\(status) failure=\(turn.failure != nil) stderrBytes=\(turn.stderr.utf8.count)",
@@ -1462,6 +1521,9 @@ final class SessionRunner {
             return
         }
 
+        if store.session(sessionID)?.hasAgentConversation == true {
+            continuableFailures.insert(sessionID)
+        }
         setState(.failed(message), for: sessionID)
         store.release(sessionID, for: .running)
         store.noteTurnEnded(for: sessionID)
@@ -1504,6 +1566,8 @@ final class SessionRunner {
         var agentSessionID: String?
         var stderr = ""
         var failure: String?
+        var lastStreamError: String?
+        var receivedCompletion = false
         var stopRequested = false
         var stopFailure: String?
         var stdoutOpen = true

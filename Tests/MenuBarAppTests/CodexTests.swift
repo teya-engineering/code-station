@@ -481,6 +481,109 @@ struct CodexTests {
         }
     }
 
+    @Test func aConnectionErrorDoesNotFinishTheTurn() {
+        let events = StreamEvent.parseCodex("""
+        {"type":"error","message":"Reconnecting... 2/5"}
+        """)
+        #expect(events.count == 1)
+        if case .streamError(let message) = events[0] {
+            #expect(message == "Reconnecting... 2/5")
+        } else {
+            Issue.record("expected a stream error, got \(events)")
+        }
+    }
+
+    @MainActor @Test func aReconnectThatCompletesIsSuccessful() async throws {
+        let fixture = try codexFixture(script: """
+        input=$(cat)
+        folder=$(dirname "$0")
+        printf '%s\n' '{"type":"thread.started","thread_id":"thread-1"}'
+        printf '%s\n' '{"type":"error","message":"Reconnecting... 1/5"}'
+        printf '%s\n' '{"type":"error","message":"Reconnecting... 2/5"}'
+        count=0
+        while [ ! -f "$folder/finish" ] && [ "$count" -lt 200 ]; do
+            sleep 0.05
+            count=$((count + 1))
+        done
+        printf '%s\n' '{"type":"item.completed","item":{"id":"answer","item_type":"agent_message","text":"Done"}}'
+        printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":2}}'
+        """)
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+
+        fixture.runner.send("finish the work", sessionID: fixture.session.id, store: fixture.store)
+
+        let sawReconnect = await waitUntil {
+            if case .reconnecting = fixture.runner.state(fixture.session.id) { return true }
+            return false
+        }
+        try Data().write(to: fixture.directory.appendingPathComponent("finish"))
+        #expect(sawReconnect)
+        #expect(await waitUntil { fixture.runner.state(fixture.session.id) == .idle })
+        #expect(fixture.store.transcript(of: fixture.session.id).last?.text == "Done")
+    }
+
+    @MainActor @Test func aDisconnectedStreamWithoutCompletionFails() async throws {
+        let fixture = try codexFixture(script: """
+        input=$(cat)
+        printf '%s\n' '{"type":"thread.started","thread_id":"thread-1"}'
+        printf '%s\n' '{"type":"error","message":"Reconnecting... 5/5"}'
+        """)
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+
+        fixture.runner.send("finish the work", sessionID: fixture.session.id, store: fixture.store)
+
+        #expect(await waitUntil { !fixture.runner.state(fixture.session.id).isBusy })
+        guard case .failed(let message) = fixture.runner.state(fixture.session.id) else {
+            Issue.record("expected the turn to fail")
+            return
+        }
+        #expect(message == "Reconnecting... 5/5")
+        fixture.runner.dismissFailure(fixture.session.id)
+        #expect(fixture.runner.state(fixture.session.id) == .idle)
+    }
+
+    @MainActor @Test func continueResumesWithoutReplayingTheOriginalPrompt() async throws {
+        let fixture = try codexFixture(script: """
+        input=$(cat)
+        folder=$(dirname "$0")
+        count_file="$folder/count"
+        count=0
+        if [ -f "$count_file" ]; then count=$(cat "$count_file"); fi
+        count=$((count + 1))
+        printf '%s' "$count" > "$count_file"
+        printf '%s' "$input" > "$folder/prompt-$count.txt"
+        printf '%s\n' "$@" > "$folder/arguments-$count.txt"
+        printf '%s\n' '{"type":"thread.started","thread_id":"thread-1"}'
+        if [ "$count" -eq 1 ]; then
+            printf '%s\n' '{"type":"turn.failed","error":{"message":"connection failed"}}'
+            exit 1
+        fi
+        printf '%s\n' '{"type":"item.completed","item":{"id":"answer","item_type":"agent_message","text":"Recovered"}}'
+        printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":2}}'
+        """)
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+
+        let originalPrompt = "change the production setting"
+        fixture.runner.send(originalPrompt, sessionID: fixture.session.id, store: fixture.store)
+        #expect(await waitUntil {
+            if case .failed = fixture.runner.state(fixture.session.id) { return true }
+            return false
+        })
+
+        #expect(fixture.runner.continueAfterFailure(fixture.session.id, store: fixture.store))
+        #expect(await waitUntil { fixture.runner.state(fixture.session.id) == .idle })
+
+        let recoveryPrompt = try String(contentsOf: fixture.directory
+            .appendingPathComponent("prompt-2.txt"), encoding: .utf8)
+        let recoveryArguments = try String(contentsOf: fixture.directory
+            .appendingPathComponent("arguments-2.txt"), encoding: .utf8)
+        #expect(recoveryPrompt == SessionRunner.recoveryPrompt)
+        #expect(recoveryPrompt != originalPrompt)
+        #expect(recoveryArguments.contains("resume\nthread-1"))
+        #expect(fixture.store.transcript(of: fixture.session.id)
+            .filter { $0.role == .user }.map(\.text) == [originalPrompt])
+    }
+
     @Test func aCompletedReasoningItemBecomesThinking() {
         let events = StreamEvent.parseCodex("""
         {"type":"item.completed","item":{"id":"item_5","item_type":"reasoning","text":"weighing options"}}
@@ -551,5 +654,39 @@ struct CodexTests {
         #expect(CodexAgentInfo.account(from: ["OPENAI_API_KEY": ""]) == nil)
         // A token that is not a JWT falls back to the key, and failing that, to nothing.
         #expect(CodexAgentInfo.account(from: ["tokens": ["id_token": "garbage"]]) == nil)
+    }
+
+    @MainActor
+    private func codexFixture(script: String) throws -> CodexFixture {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("codex-reconnect-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let executable = directory.appendingPathComponent("codex-fixture")
+        try Data(("#!/bin/sh\n" + script + "\n").utf8).write(to: executable)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700],
+                                              ofItemAtPath: executable.path)
+        let projectURL = directory.appendingPathComponent("project", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+        let store = ProjectStore(storeURL: directory.appendingPathComponent("projects.json"))
+        let project = try #require(store.addProject(at: projectURL))
+        let session = try store.insertSession(in: project.id, agent: .codex).get()
+        let runner = SessionRunner(paths: [.codex: executable.path])
+        return CodexFixture(directory: directory, store: store, session: session, runner: runner)
+    }
+
+    @MainActor
+    private func waitUntil(_ condition: () -> Bool) async -> Bool {
+        for _ in 0..<1_000 {
+            if condition() { return true }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        return condition()
+    }
+
+    private struct CodexFixture {
+        let directory: URL
+        let store: ProjectStore
+        let session: ChatSession
+        let runner: SessionRunner
     }
 }
