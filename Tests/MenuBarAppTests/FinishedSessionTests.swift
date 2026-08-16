@@ -60,8 +60,31 @@ struct FinishedSessionTests {
         #expect(store.finishedCount(in: project.id) == 0)
     }
 
-    // Nothing else clears it: looking at another session, or at no session at all, is
-    // not reading this one.
+    @Test func leavesASessionBeingReadOnMobileAlone() {
+        let store = makeStore()
+        let project = project(in: store)
+        let session = store.newSession(in: project.id)
+
+        store.hold(session.id, for: .remote)
+        store.noteTurnEnded(for: session.id)
+
+        #expect(store.hasFinished(session.id) == false)
+        #expect(store.finishedCount(in: project.id) == 0)
+    }
+
+    @Test func openingTheSessionOnMobileClearsIt() {
+        let store = makeStore()
+        let project = project(in: store)
+        let session = store.newSession(in: project.id)
+
+        store.noteTurnEnded(for: session.id)
+        store.hold(session.id, for: .remote)
+
+        #expect(store.hasFinished(session.id) == false)
+        #expect(store.finishedCount(in: project.id) == 0)
+    }
+
+    // Looking at another session, or at no session at all, is not reading this one.
     @Test func staysUntilThatSessionIsOpened() {
         let store = makeStore()
         let project = project(in: store)

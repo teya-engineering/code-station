@@ -48,9 +48,9 @@ final class ProjectStore {
     }
     var selectedProjectID: UUID?
 
-    // Sessions that ended a turn while the user was looking somewhere else. This is about
-    // sitting in front of the app rather than about the conversation, so it is not saved:
-    // a relaunch is not something to catch up on.
+    // Sessions that ended a turn while the user was not reading them on either screen.
+    // This is about live attention rather than the conversation, so it is not saved: a
+    // relaunch is not something to catch up on.
     private(set) var finished: Set<UUID> = []
 
     let storeURL: URL
@@ -188,6 +188,7 @@ final class ProjectStore {
     // already being read.
     func noteTurnEnded(for sessionID: UUID) {
         if case .session(let open) = selection, open == sessionID { return }
+        if holds[sessionID]?.contains(.remote) == true { return }
         guard sessions.contains(where: { $0.id == sessionID }) else { return }
         finished.insert(sessionID)
     }
@@ -787,6 +788,7 @@ final class ProjectStore {
     // starts while the session is already running does not add a second.
     func hold(_ sessionID: UUID, for reason: TranscriptHold) {
         guard let i = index(sessionID) else { return }
+        if reason == .remote { finished.remove(sessionID) }
         holds[sessionID, default: []].insert(reason)
         loadTranscript(i)
     }
