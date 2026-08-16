@@ -450,7 +450,7 @@ struct SettingsView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Delete them without asking")
                             .font(.system(size: 13, weight: .semibold))
-                        Text("Only where nothing is lost: no worktree left, or one git says holds no changes. A session with uncommitted work is never taken this way, and waits for you in the review.")
+                        Text("Only where nothing is lost: no worktree left, or one git says holds no changes. Once a session appears for review, it waits at least one hour before automatic deletion. A session with uncommitted work is never taken this way.")
                             .font(.system(size: 12))
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)

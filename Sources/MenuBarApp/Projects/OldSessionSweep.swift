@@ -2,15 +2,36 @@ import Foundation
 
 // Clearing old sessions without being asked each time. This is the only place in the app
 // that deletes a session nobody chose, so the rule it works to is the narrowest one: the
-// session has gone quiet, it is neither open nor running, and git has said its worktree
-// holds nothing. A worktree with uncommitted work, or one git could not read, is left
-// where it is and stays in the review sheet for a person to decide on.
+// session has remained eligible through a full warning hour, it is neither open nor
+// running, and git has said its worktree holds nothing. A worktree with uncommitted work,
+// or one git could not read, is left where it is for a person to decide on.
 @MainActor
 enum OldSessionSweep {
     static let interval: Duration = .seconds(3_600)
+    nonisolated static let gracePeriod: TimeInterval = 3_600
     // A backlog is cleared over several passes rather than in one go, so turning this on
     // with hundreds of stale sessions does not spend the next while shelling out to git.
     static let batchLimit = 50
+
+    // The first pass only arms a session. Keeping the time in memory gives every newly
+    // eligible session a full warning hour, including the first pass after launch.
+    struct EligibilityBuffer {
+        private var firstSeenAt: [UUID: Date] = [:]
+
+        mutating func ready(_ sessions: [ChatSession], now: Date) -> [ChatSession] {
+            let eligibleIDs = Set(sessions.map(\.id))
+            firstSeenAt = firstSeenAt.filter { eligibleIDs.contains($0.key) }
+
+            for session in sessions where firstSeenAt[session.id] == nil {
+                firstSeenAt[session.id] = now
+            }
+
+            return sessions.filter { session in
+                guard let firstSeen = firstSeenAt[session.id] else { return false }
+                return now.timeIntervalSince(firstSeen) >= gracePeriod
+            }
+        }
+    }
 
     // The order is the sheet's order, oldest first, so a capped pass takes the sessions
     // that have been sitting the longest. A session that is open or running is never old,
@@ -25,11 +46,13 @@ enum OldSessionSweep {
 
     @discardableResult
     static func run(days: Int, store: ProjectStore, runner: SessionRunner,
+                    buffer: inout EligibilityBuffer, now: Date = Date(),
                     inspect: SessionCost.Inspect = SessionCost.live) async -> Int {
         var deleted = 0
-        let due = due(days: days, in: store.sessions,
-                      isBusy: { runner.state($0).isBusy },
-                      isOpen: { store.selection == .session($0) })
+        let eligible = due(days: days, in: store.sessions, now: now,
+                           isBusy: { runner.state($0).isBusy },
+                           isOpen: { store.selection == .session($0) })
+        let due = buffer.ready(eligible, now: now)
         // Reading git takes time, and the app keeps running while it does: a session that
         // has since been opened, picked up, or removed by hand is no longer ours to take,
         // so this is asked again on the far side of every wait.

@@ -63,6 +63,70 @@ struct OldSessionSweepTests {
         #expect(due.first?.id == sessions.last?.id)
     }
 
+    @Test func waitsAnHourAfterAnOldSessionIsFirstSeen() {
+        let old = session(daysAgo: 8)
+        var buffer = OldSessionSweep.EligibilityBuffer()
+
+        #expect(buffer.ready([old], now: now).isEmpty)
+        #expect(buffer.ready(
+            [old], now: now.addingTimeInterval(OldSessionSweep.gracePeriod - 1)).isEmpty)
+        #expect(buffer.ready(
+            [old], now: now.addingTimeInterval(OldSessionSweep.gracePeriod)).map(\.id)
+                == [old.id])
+    }
+
+    @Test func givesANewlyEligibleSessionAnHourWhileTheAppIsOpen() {
+        let newlyOld = session(daysAgo: 7)
+        var buffer = OldSessionSweep.EligibilityBuffer()
+
+        #expect(buffer.ready([], now: now).isEmpty)
+        #expect(buffer.ready(
+            [newlyOld], now: now.addingTimeInterval(OldSessionSweep.gracePeriod)).isEmpty)
+        #expect(buffer.ready(
+            [newlyOld],
+            now: now.addingTimeInterval(OldSessionSweep.gracePeriod * 2 - 1)).isEmpty)
+        #expect(buffer.ready(
+            [newlyOld],
+            now: now.addingTimeInterval(OldSessionSweep.gracePeriod * 2)).map(\.id)
+                == [newlyOld.id])
+    }
+
+    @Test func startsANewHourWhenASessionBecomesEligibleAgain() {
+        let old = session(daysAgo: 8)
+        var buffer = OldSessionSweep.EligibilityBuffer()
+
+        #expect(buffer.ready([old], now: now).isEmpty)
+        #expect(buffer.ready(
+            [], now: now.addingTimeInterval(OldSessionSweep.gracePeriod / 2)).isEmpty)
+        #expect(buffer.ready(
+            [old], now: now.addingTimeInterval(OldSessionSweep.gracePeriod * 2)).isEmpty)
+    }
+
+    @Test func deletesAStillEligibleSessionAfterTheWarningHour() async throws {
+        let store = ProjectStore(storeURL: FileManager.default.temporaryDirectory
+            .appendingPathComponent("conductor-old-session-sweep-\(UUID().uuidString).json"))
+        let project = try #require(store.addProject(at: FileManager.default.temporaryDirectory
+            .appendingPathComponent("project-\(UUID().uuidString)")))
+        let old = store.newSession(in: project.id)
+        store.append(ChatMessage(role: .user, text: "Old work",
+                                 date: Date().addingTimeInterval(-8 * 86_400)),
+                     to: old.id)
+        _ = store.newSession(in: project.id)
+        let firstSeen = Date()
+        let runner = SessionRunner(paths: [:])
+        var buffer = OldSessionSweep.EligibilityBuffer()
+
+        let duringWarning = await OldSessionSweep.run(
+            days: 7, store: store, runner: runner, buffer: &buffer, now: firstSeen)
+        let afterWarning = await OldSessionSweep.run(
+            days: 7, store: store, runner: runner, buffer: &buffer,
+            now: firstSeen.addingTimeInterval(OldSessionSweep.gracePeriod))
+
+        #expect(duringWarning == 0)
+        #expect(afterWarning == 1)
+        #expect(store.session(old.id) == nil)
+    }
+
     // Git inspection yields to the app. Opening the session while that answer is on its
     // way must protect it just as opening it before the sweep starts does.
     @Test func keepsASessionOpenedWhileItsWorktreeIsBeingChecked() async throws {
@@ -76,13 +140,25 @@ struct OldSessionSweepTests {
                                  date: Date().addingTimeInterval(-8 * 86_400)),
                      to: old.id)
         _ = store.newSession(in: project.id)
+        let firstSeen = Date()
+        var buffer = OldSessionSweep.EligibilityBuffer()
+
+        let duringWarning = await OldSessionSweep.run(
+            days: 7, store: store, runner: SessionRunner(paths: [:]),
+            buffer: &buffer, now: firstSeen) { _ in
+                Issue.record("git should not be checked during the warning hour")
+                return self.snapshot(changedFiles: 0)
+            }
 
         let deleted = await OldSessionSweep.run(
-            days: 7, store: store, runner: SessionRunner(paths: [:])) { _ in
+            days: 7, store: store, runner: SessionRunner(paths: [:]),
+            buffer: &buffer,
+            now: firstSeen.addingTimeInterval(OldSessionSweep.gracePeriod)) { _ in
                 await MainActor.run { store.selectSession(old.id) }
                 return self.snapshot(changedFiles: 0)
             }
 
+        #expect(duringWarning == 0)
         #expect(deleted == 0)
         #expect(store.session(old.id) != nil)
         #expect(store.selection == .session(old.id))

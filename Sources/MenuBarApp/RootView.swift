@@ -164,9 +164,11 @@ struct RootView: View {
     private func deleteOldSessionsAutomatically() async {
         let rule = sweepRule
         guard rule.enabled else { return }
+        var buffer = OldSessionSweep.EligibilityBuffer()
 
         while !Task.isCancelled {
-            await OldSessionSweep.run(days: rule.days, store: store, runner: runner)
+            await OldSessionSweep.run(days: rule.days, store: store, runner: runner,
+                                      buffer: &buffer)
             do {
                 try await Task.sleep(for: OldSessionSweep.interval)
             } catch {
