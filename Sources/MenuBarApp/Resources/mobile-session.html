@@ -147,8 +147,20 @@
       display: flex;
       align-items: center;
       gap: 10px;
-      padding: 14px 18px 9px;
+      padding: 0 18px;
     }
+    .group-toggle {
+      display: flex;
+      min-width: 0;
+      flex: 1;
+      align-items: center;
+      gap: 10px;
+      padding: 14px 0 9px;
+      border: 0;
+      background: none;
+      text-align: left;
+    }
+    .group-toggle:active { opacity: .72; }
     .group-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 2px; }
     .group-name {
       overflow: hidden;
@@ -164,6 +176,22 @@
       white-space: nowrap;
       text-overflow: ellipsis;
     }
+    .group-chevron {
+      flex: none;
+      color: var(--faint);
+      font-size: 17px;
+      transform: rotate(0deg);
+      transition: transform .22s ease-out;
+    }
+    .group.expanded .group-chevron { transform: rotate(90deg); }
+    .group-body {
+      display: grid;
+      grid-template-rows: 0fr;
+      opacity: 0;
+      transition: grid-template-rows .22s ease-out, opacity .16s ease-out;
+    }
+    .group.expanded .group-body { grid-template-rows: 1fr; opacity: 1; }
+    .group-content { min-height: 0; overflow: hidden; }
     .new {
       flex: none;
       padding: 7px 14px;
@@ -228,6 +256,10 @@
       text-align: center;
     }
     .more:active { background: var(--sunken); }
+
+    @media (prefers-reduced-motion: reduce) {
+      .group-chevron, .group-body { transition: none; }
+    }
 
     /* MARK: - The status strip */
 
@@ -650,10 +682,10 @@
       // The list as the Mac last described it, so the new-session sheet can name the
       // project it is about without asking for it again.
       let listing = { title: '', canCreate: false, projects: [] };
-      // The newest few sessions of a project, as the rail on the Mac shows them. The rest
-      // stay under see-more until they are asked for, and a project that has been unfolded
-      // stays unfolded so an update from the Mac does not fold it back.
+      // Projects start shut. Once opened, their newest few sessions match the rail on the
+      // Mac, with the rest under see-more. Both choices survive list updates from the Mac.
       const sessionLimit = 4;
+      const expandedProjects = new Set();
       const unfolded = new Set();
       let creating = false;
       // Whether the ask has been put down. It survives an update to the ask itself, so a
@@ -754,31 +786,54 @@
       };
 
       const projectGroup = project => {
-        const group = element('div', 'group');
+        const expanded = expandedProjects.has(project.id);
+        const group = element('div', `group${expanded ? ' expanded' : ''}`);
         const head = element('div', 'group-head');
+        const toggle = element('button', 'group-toggle');
+        toggle.type = 'button';
+        toggle.setAttribute('aria-expanded', String(expanded));
         const copy = element('div', 'group-copy');
         copy.append(element('div', 'group-name', project.name));
         copy.append(element('div', 'group-path',
           project.isMissing ? 'MISSING FROM DISK' : project.path));
-        head.append(copy);
+        toggle.append(copy);
+        toggle.append(element('span', 'group-chevron', '›'));
+        head.append(toggle);
         if (listing.canCreate && !project.isMissing) {
           head.append(button('new', 'New', () => openNewSheet(project)));
         }
         group.append(head);
+
+        const body = element('div', 'group-body');
+        const content = element('div', 'group-content');
+        body.inert = !expanded;
+        body.setAttribute('aria-hidden', String(!expanded));
         if (!project.sessions.length) {
-          group.append(element('div', 'group-empty', 'NO SESSIONS YET'));
+          content.append(element('div', 'group-empty', 'NO SESSIONS YET'));
         }
         const visible = unfolded.has(project.id)
           ? project.sessions
           : project.sessions.slice(0, sessionLimit);
-        for (const session of visible) group.append(sessionRow(session));
+        for (const session of visible) content.append(sessionRow(session));
         const hidden = project.sessions.length - visible.length;
         if (hidden) {
-          group.append(button('more', `SHOW ${hidden} MORE`, () => {
+          content.append(button('more', `SHOW ${hidden} MORE`, () => {
             unfolded.add(project.id);
             renderDirectory(listing);
           }));
         }
+        body.append(content);
+        group.append(body);
+
+        toggle.addEventListener('click', () => {
+          const willExpand = !expandedProjects.has(project.id);
+          if (willExpand) expandedProjects.add(project.id);
+          else expandedProjects.delete(project.id);
+          group.classList.toggle('expanded', willExpand);
+          toggle.setAttribute('aria-expanded', String(willExpand));
+          body.inert = !willExpand;
+          body.setAttribute('aria-hidden', String(!willExpand));
+        });
         return group;
       };
 
