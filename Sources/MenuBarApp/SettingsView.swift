@@ -248,6 +248,7 @@ struct SettingsView: View {
             .frame(maxHeight: 560)
             SheetFooter { dismiss() }
         }
+        .smoothlyResizes(when: tab)
         .frame(width: 520)
         .background(Theme.background)
         .onAppear { loginItem.refresh() }
