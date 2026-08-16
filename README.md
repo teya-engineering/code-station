@@ -82,6 +82,8 @@ The first-launch wizard explains what the site configuration controls. It offers
 - Enter a GitHub repository URL. The repository must contain `site-defaults.json`, `teya-defaults.json`, or exactly one JSON file in its root. Conductor clones it with the user's existing Git access, so the same flow works for a private repository that Git can already read.
 - Skip the step and use the defaults built into the app.
 
+Teya users can enter [github.com/example/site-settings](https://github.com/example/site-settings) to load the shared Teya configuration.
+
 Conductor validates an imported file and copies it to:
 
 ```text
