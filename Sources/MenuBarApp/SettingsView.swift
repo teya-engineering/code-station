@@ -243,6 +243,8 @@ struct SettingsView: View {
                         mobileAccess
                     }
                 }
+                .id(tab)
+                .transition(.fadeIn)
                 .padding(20)
             }
             .frame(maxHeight: 560)
@@ -262,6 +264,8 @@ struct SettingsView: View {
             Text(tab.note)
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
+                .id(tab)
+                .transition(.fadeIn)
         }
         .padding(.horizontal, 20)
         .headerBand()
