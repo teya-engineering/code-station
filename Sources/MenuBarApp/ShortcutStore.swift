@@ -65,6 +65,15 @@ struct ShortcutRun: Hashable, Sendable {
     }
 }
 
+// One shortcut as it is offered in a group of projects. Shared shortcuts have no project
+// of their own, so the project records the checkout they will run in.
+struct ShortcutPlacement: Identifiable, Equatable, Sendable {
+    let shortcut: CommandShortcut
+    let projectID: UUID
+
+    var id: CommandShortcut.ID { shortcut.id }
+}
+
 @MainActor
 @Observable
 final class ShortcutStore {
@@ -157,6 +166,19 @@ final class ShortcutStore {
         shortcuts.filter {
             $0.projectID == projectID
                 || ($0.projectID == nil && $0.availableInAllProjects)
+        }
+    }
+
+    // A shared shortcut is available through every project, but a workspace should only
+    // show one chip for it. The first project is the workspace lead, so it also supplies
+    // the checkout where that single chip runs.
+    func shortcuts(for projectIDs: [UUID]) -> [ShortcutPlacement] {
+        var seen: Set<CommandShortcut.ID> = []
+        return projectIDs.flatMap { projectID in
+            shortcuts(for: projectID).compactMap { shortcut in
+                guard seen.insert(shortcut.id).inserted else { return nil }
+                return ShortcutPlacement(shortcut: shortcut, projectID: projectID)
+            }
         }
     }
 

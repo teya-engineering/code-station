@@ -26,9 +26,9 @@ struct SessionShortcutChips: View {
 
             ScrollView(.horizontal) {
                 HStack(spacing: 7) {
-                    ForEach(checkouts, id: \.checkout.projectID) { entry in
-                        ForEach(shortcuts.shortcuts(for: entry.checkout.projectID)) { shortcut in
-                            chip(shortcut, in: entry)
+                    ForEach(placements) { placement in
+                        if let entry = checkout(with: placement.projectID) {
+                            chip(placement.shortcut, in: entry)
                         }
                     }
                     newButton
@@ -50,7 +50,7 @@ struct SessionShortcutChips: View {
             toggle: { toggle(run) }
         )
         .appContextMenu {
-            [
+            var entries: [MenuEntry] = [
                 shortcuts.state(run).isActive
                     ? .item("Stop", action: { toggle(run) })
                     : .item("Run", action: { toggle(run) }),
@@ -59,13 +59,16 @@ struct SessionShortcutChips: View {
                     edit(ShortcutEditorRequest(shortcut: shortcut,
                                                projectID: entry.checkout.projectID,
                                                projectName: entry.project?.name))
-                }),
-                .separator,
-                .item("Remove", kind: .destructive, action: {
-                    if openRun?.shortcutID == shortcut.id { openRun = nil }
-                    shortcuts.remove(shortcut.id)
                 })
             ]
+            if !shortcut.availableInAllProjects {
+                entries.append(.separator)
+                entries.append(.item("Remove", kind: .destructive, action: {
+                    if openRun?.shortcutID == shortcut.id { openRun = nil }
+                    shortcuts.remove(shortcut.id)
+                }))
+            }
+            return entries
         }
     }
 
@@ -121,6 +124,14 @@ struct SessionShortcutChips: View {
         }
     }
 
+    private var placements: [ShortcutPlacement] {
+        shortcuts.shortcuts(for: checkouts.map(\.checkout.projectID))
+    }
+
+    private func checkout(with projectID: UUID) -> Checkout? {
+        checkouts.first { $0.checkout.projectID == projectID }
+    }
+
     private func run(for shortcut: CommandShortcut, in entry: Checkout) -> ShortcutRun {
         ShortcutRun(shortcut.id,
                     in: shortcut.directory(projectPath: entry.project?.path,
@@ -147,8 +158,8 @@ struct SessionShortcutChips: View {
 private struct ShortcutChip: View {
     let shortcut: CommandShortcut
     let state: ShortcutStore.State
-    // Set only for a session spanning several checkouts, where whose command this is
-    // matters and the name alone does not say.
+    // Set only for a session spanning several checkouts, where the checkout this command
+    // runs in matters and the name alone does not say.
     let tint: Theme.ProjectTint?
     let open: Bool
     let toggle: () -> Void

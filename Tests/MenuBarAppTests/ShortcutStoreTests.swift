@@ -107,6 +107,26 @@ struct ShortcutStoreTests {
         #expect(store.shortcuts.count == 3)
     }
 
+    @Test func placesASharedShortcutOnceInAWorkspace() throws {
+        let url = temporaryFile()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let store = ShortcutStore(storageURL: url)
+        let lead = UUID()
+        let attached = UUID()
+
+        let leadShortcut = try #require(store.add(name: "Lead", command: "make lead",
+                                                   projectID: lead))
+        let shared = try #require(store.add(name: "Shared", command: "make shared",
+                                           availableInAllProjects: true))
+        let attachedShortcut = try #require(store.add(name: "Attached", command: "make attached",
+                                                       projectID: attached))
+
+        let placements = store.shortcuts(for: [lead, attached])
+
+        #expect(placements.map(\.shortcut.id) == [leadShortcut, shared, attachedShortcut])
+        #expect(placements.map(\.projectID) == [lead, lead, attached])
+    }
+
     // A count only considers the shortcuts in the list doing the asking.
     @Test func countsRunsOnlyForTheListDoingTheAsking() async throws {
         let url = temporaryFile()
