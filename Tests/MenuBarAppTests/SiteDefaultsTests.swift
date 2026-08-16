@@ -159,13 +159,13 @@ struct SiteDefaultsTests {
         #expect(SiteDefaults.load([missing, first, second]).skills?.name == "First")
     }
 
-    @Test func searchOrderHonoursTheEnvironmentAndSettingsChoice() {
+    @Test func searchOrderHonoursTheEnvironmentAndSavedOverride() {
         let environment = URL(fileURLWithPath: "/tmp/from-environment.json")
         let selected = URL(fileURLWithPath: "/tmp/from-settings.json")
         let bundled = URL(fileURLWithPath: "/tmp/from-bundle.json")
 
         let paths = SiteDefaults.searchPaths(environmentURL: environment,
-                                             selectedURL: selected,
+                                             savedURL: selected,
                                              bundledURL: bundled)
 
         #expect(paths == [
@@ -175,7 +175,7 @@ struct SiteDefaultsTests {
             bundled
         ])
         #expect(SiteDefaults.searchPaths(environmentURL: selected,
-                                         selectedURL: selected,
+                                         savedURL: selected,
                                          bundledURL: nil).count { $0 == selected } == 1)
     }
 

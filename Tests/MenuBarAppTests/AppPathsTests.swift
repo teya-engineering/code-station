@@ -150,7 +150,7 @@ struct AppPathsTests {
         #expect(Preferences.oldSessionDays(in: defaults) == 365)
     }
 
-    @Test func storesAndResetsTheChosenSiteConfiguration() throws {
+    @Test func storesAndResetsAnExternalSiteConfigurationPath() throws {
         let suite = "conductor-site-defaults-tests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
@@ -204,30 +204,4 @@ struct AppPathsTests {
         #expect(Preferences.hasCompletedOnboarding(in: defaults))
     }
 
-    @Test @MainActor func changingTheSiteConfigurationRequiresARestart() throws {
-        let suite = "conductor-site-restart-tests-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
-        let root = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let original = root.appendingPathComponent("original.json")
-        let replacement = root.appendingPathComponent("replacement.json")
-        Preferences.setSiteDefaultsURL(original, in: defaults)
-        let settings = AppSettings(agentAvatarURL: root.appendingPathComponent("avatar.png"),
-                                   preferences: defaults)
-
-        #expect(settings.siteDefaultsURL == original)
-        #expect(!settings.siteDefaultsRestartRequired)
-
-        settings.setSiteDefaultsURL(replacement)
-        #expect(settings.siteDefaultsRestartRequired)
-        #expect(Preferences.siteDefaultsURL(in: defaults) == replacement)
-
-        settings.setSiteDefaultsURL(nil)
-        #expect(settings.siteDefaultsRestartRequired)
-        #expect(Preferences.siteDefaultsURL(in: defaults) == nil)
-
-        settings.setSiteDefaultsURL(original)
-        #expect(!settings.siteDefaultsRestartRequired)
-    }
 }

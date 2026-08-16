@@ -64,7 +64,7 @@ struct RootView: View {
             }
         }
         .task { await resumePendingSessionRemovals() }
-        .task(id: settings.skillsRefreshInterval) { await refreshSkillsAutomatically() }
+        .task(id: skillsRefreshRule) { await refreshSkillsAutomatically() }
         .task(id: sweepRule) { await deleteOldSessionsAutomatically() }
         // Settings answers the shortcut every Mac app answers. The standard Settings
         // scene is deliberately empty, so the shortcut is caught here and opens the
@@ -101,7 +101,8 @@ struct RootView: View {
         }
         .sheet(isPresented: $reviewingOldSessions) { OldSessionsView().appOverlays() }
         .sheet(isPresented: $showingOnboarding) {
-            FirstRunWizard(initialAgent: runner.agent) {
+            FirstRunWizard(initialAgent: runner.agent,
+                           onSiteConfigurationLoaded: applySiteConfiguration) {
                 settings.completeOnboarding()
                 showingOnboarding = false
             }
@@ -155,6 +156,16 @@ struct RootView: View {
         let days: Int
     }
 
+    private struct SkillsRefreshRule: Equatable {
+        let interval: SkillsRefreshInterval
+        let onboardingComplete: Bool
+    }
+
+    private var skillsRefreshRule: SkillsRefreshRule {
+        SkillsRefreshRule(interval: settings.skillsRefreshInterval,
+                          onboardingComplete: settings.hasCompletedOnboarding)
+    }
+
     private var sweepRule: SweepRule {
         SweepRule(enabled: settings.autoDeleteOldSessions, days: settings.oldSessionDays)
     }
@@ -178,6 +189,7 @@ struct RootView: View {
     }
 
     private func refreshSkillsAutomatically() async {
+        guard settings.hasCompletedOnboarding else { return }
         let interval = settings.skillsRefreshInterval
         await skills.loadForNotifications(every: interval)
         guard interval != .never else { return }
@@ -190,6 +202,13 @@ struct RootView: View {
             }
             await skills.refreshIfNeeded(every: interval)
         }
+    }
+
+    private func applySiteConfiguration() {
+        let defaults = SiteDefaults.current
+        dispatch.applySiteDefaults(defaults)
+        dispatchAuth.applySiteDefaults(defaults)
+        shortcuts.applySiteDefaults(defaults)
     }
 
     @ViewBuilder private var detail: some View {

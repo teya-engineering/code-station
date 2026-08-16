@@ -27,6 +27,16 @@ final class DispatchStore {
         load()
     }
 
+    func applySiteDefaults(_ defaults: SiteDefaults) {
+        guard !FileManager.default.fileExists(atPath: storeURL.path) else { return }
+        folders = [.default]
+        requests = defaults.dispatchRequests.map { request in
+            var request = request
+            request.folderID = RequestFolder.defaultID
+            return request
+        }
+    }
+
     private static func defaultStoreURL() -> URL {
         let environment = ProcessInfo.processInfo.environment
         if let path = environment["CONDUCTOR_DISPATCH_STORE"]

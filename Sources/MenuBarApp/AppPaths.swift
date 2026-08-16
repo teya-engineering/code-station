@@ -222,8 +222,8 @@ enum Preferences {
         set { set(newValue, "terminalBundleID") }
     }
 
-    // A chosen site file sits ahead of the conventional and bundled locations. The path
-    // is kept rather than copied so a team can update one shared file in place.
+    // A saved external site file sits ahead of the conventional and bundled locations.
+    // Imported first-run configuration uses the conventional Application Support file.
     static var siteDefaultsURL: URL? {
         get { siteDefaultsURL(in: store) }
         set { setSiteDefaultsURL(newValue, in: store) }

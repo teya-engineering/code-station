@@ -121,6 +121,11 @@ final class ShortcutStore {
         load()
     }
 
+    func applySiteDefaults(_ defaults: SiteDefaults) {
+        guard !FileManager.default.fileExists(atPath: storageURL.path) else { return }
+        shortcuts = defaults.commandShortcuts
+    }
+
     // Counted over the shortcuts the asking screen shows rather than over every saved
     // shortcut. A shared shortcut can have a separate run in each folder, and each active
     // run counts because each is a command the reader may need to stop.

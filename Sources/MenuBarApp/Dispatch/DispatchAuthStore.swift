@@ -107,6 +107,17 @@ final class DispatchAuthStore {
         ])
     }
 
+    func applySiteDefaults(_ defaults: SiteDefaults) {
+        guard !FileManager.default.fileExists(atPath: storeURL.path) else { return }
+        let oauth = defaults.dispatchOAuth
+        var staging = oauth
+        var production = oauth
+        staging.clientSecret = self.staging.clientSecret
+        production.clientSecret = self.production.clientSecret
+        self.staging = staging
+        self.production = production
+    }
+
     func config(for env: ApiEnvironment) -> OAuthConfig {
         env == .staging ? staging : production
     }

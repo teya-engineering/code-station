@@ -76,7 +76,19 @@ Two settings files are kept here:
 
 ### Set it up
 
-Copy the example, then edit it:
+The first-launch wizard explains what the site configuration controls. It offers three choices:
+
+- Choose a JSON file from the Mac.
+- Enter a GitHub repository URL. The repository must contain `site-defaults.json`, `teya-defaults.json`, or exactly one JSON file in its root. Conductor clones it with the user's existing Git access, so the same flow works for a private repository that Git can already read.
+- Skip the step and use the defaults built into the app.
+
+Conductor validates an imported file and copies it to:
+
+```text
+~/Library/Application Support/com.teya.conductor/site-defaults.json
+```
+
+To prepare your own file, copy the example and edit it:
 
 ```bash
 cp site-defaults.example.json site-defaults.json
@@ -85,24 +97,21 @@ cp site-defaults.example.json site-defaults.json
 The app reads the first of these that can be parsed:
 
 1. The path in `$CONDUCTOR_SITE_DEFAULTS`
-2. The file chosen under Site Configuration in Settings
-3. `~/Library/Application Support/com.teya.conductor/site-defaults.json`
-4. `site-defaults.json` inside the app bundle
+2. `~/Library/Application Support/com.teya.conductor/site-defaults.json`
+3. `site-defaults.json` inside the app bundle
 
-Settings shows the file currently in use. You can choose a different JSON file or reset the choice to use the normal locations. The app reads site configuration at startup, so it asks you to restart after either change.
-
-Put your file in the third location for everyday use. `site-defaults.json` in the repository root is ignored by Git, so working settings never end up in a commit.
+`site-defaults.json` in the repository root is ignored by Git, so working settings never end up in a commit.
 
 ### Build a configured app
 
-`./build-app.sh` folds a settings file into the bundle it builds, which is the fourth location above. That gives you an app that is already set up, ready to hand to your team. It uses `site-defaults.json` unless you name another file:
+`./build-app.sh` folds a settings file into the bundle it builds, which is the third location above. That gives you an app that is already set up, ready to hand to your team. It uses `site-defaults.json` unless you name another file:
 
 ```bash
 ./build-app.sh                                    # your own settings, or none
 SITE_DEFAULTS=teya-defaults.json ./build-app.sh   # a Teya build
 ```
 
-A `swift run` development build has no bundle to fold a file into, so use one of the first two locations instead.
+A `swift run` development build has no bundle to fold a file into, so use the first-launch import or `$CONDUCTOR_SITE_DEFAULTS` instead.
 
 ### What goes in it
 

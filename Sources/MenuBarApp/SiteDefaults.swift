@@ -11,7 +11,7 @@ import Foundation
 // The file is read from the first of these that can be parsed:
 //
 //   1. $CONDUCTOR_SITE_DEFAULTS
-//   2. The file chosen in Settings
+//   2. A saved external configuration path
 //   3. <application support>/site-defaults.json
 //   4. site-defaults.json inside the app bundle
 //
@@ -24,8 +24,8 @@ struct SiteDefaults: Decodable, Sendable {
     var skills: Skills? = nil
     var shortcuts: [Shortcut]? = nil
 
-    // Not part of the file. These tell the UI where the values came from and whether an
-    // earlier choice failed, so falling back never looks like the chosen file worked.
+    // Not part of the file. These tell the UI where the values came from and whether a
+    // higher-priority location failed, so a fallback never looks like that file worked.
     var loadFailure: String? = nil
     var sourceURL: URL? = nil
 
@@ -138,7 +138,22 @@ struct SiteDefaults: Decodable, Sendable {
 }
 
 extension SiteDefaults {
-    static let current: SiteDefaults = load()
+    private static let storage = CurrentStorage(load())
+
+    static var current: SiteDefaults { storage.read() }
+
+    @discardableResult
+    static func reload() -> SiteDefaults {
+        let defaults = load()
+        storage.write(defaults)
+        return defaults
+    }
+
+    static func decode(_ data: Data, from url: URL) throws -> SiteDefaults {
+        var defaults = try JSONDecoder().decode(SiteDefaults.self, from: data)
+        defaults.sourceURL = url
+        return defaults
+    }
 
     static func load(_ urls: [URL] = searchPaths) -> SiteDefaults {
         var failures: [String] = []
@@ -154,11 +169,12 @@ extension SiteDefaults {
             }
 
             do {
-                var defaults = try JSONDecoder().decode(SiteDefaults.self, from: data)
-                defaults.sourceURL = url
+                let defaults = try decode(data, from: url)
                 if !failures.isEmpty {
+                    var defaults = defaults
                     failures.append("The app loaded \(url.path) instead.")
                     defaults.loadFailure = report(failures)
+                    return defaults
                 }
                 return defaults
             } catch {
@@ -185,14 +201,14 @@ extension SiteDefaults {
 
     static var searchPaths: [URL] {
         searchPaths(environmentURL: environmentURL,
-                    selectedURL: Preferences.siteDefaultsURL,
+                    savedURL: Preferences.siteDefaultsURL,
                     bundledURL: bundledURL)
     }
 
-    static func searchPaths(environmentURL: URL?, selectedURL: URL?, bundledURL: URL?) -> [URL] {
+    static func searchPaths(environmentURL: URL?, savedURL: URL?, bundledURL: URL?) -> [URL] {
         let candidates = [
             environmentURL,
-            selectedURL,
+            savedURL,
             AppPaths.support.appendingPathComponent(fileName),
             bundledURL
         ].compactMap { $0?.standardizedFileURL }
@@ -209,6 +225,27 @@ extension SiteDefaults {
     }
 
     static let fileName = "site-defaults.json"
+
+    private final class CurrentStorage: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value: SiteDefaults
+
+        init(_ value: SiteDefaults) {
+            self.value = value
+        }
+
+        func read() -> SiteDefaults {
+            lock.lock()
+            defer { lock.unlock() }
+            return value
+        }
+
+        func write(_ value: SiteDefaults) {
+            lock.lock()
+            self.value = value
+            lock.unlock()
+        }
+    }
 
     // MARK: - What the rest of the app reads
 

@@ -146,7 +146,13 @@ final class SkillsManager {
     private(set) var hasLoaded = false
     private(set) var catalogueNotice: String?
 
-    private let cacheURL: URL
+    private let cacheURLOverride: URL?
+
+    private var cacheURL: URL {
+        cacheURLOverride
+            ?? AppPaths.directory("marketplaces", backedUp: false)
+                .appendingPathComponent(Self.marketplaceName, isDirectory: true)
+    }
 
     struct Action: Hashable, Sendable {
         let host: SkillHost
@@ -154,9 +160,7 @@ final class SkillsManager {
     }
 
     init(cacheURL: URL? = nil) {
-        self.cacheURL = cacheURL
-            ?? AppPaths.directory("marketplaces", backedUp: false)
-                .appendingPathComponent(Self.marketplaceName, isDirectory: true)
+        cacheURLOverride = cacheURL
     }
 
     private func setMarketplace(_ catalogue: SkillMarketplace?) {
