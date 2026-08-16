@@ -449,6 +449,8 @@ struct ExplorerView: View {
             .keyboardShortcut("s", modifiers: .command)
             .disabled(saving)
         }
+        .fixedSize(horizontal: true, vertical: false)
+        .layoutPriority(1)
     }
 
     private func relativePath(_ node: FileNode) -> String {
