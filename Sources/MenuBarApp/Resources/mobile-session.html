@@ -330,6 +330,30 @@
     .prose { font-size: 15.5px; line-height: 1.5; }
     .prose, .bubble, .thinking, pre { overflow-wrap: anywhere; white-space: pre-wrap; }
     .system .prose, .instructions .prose { color: var(--muted); font-size: 14px; }
+    .prose-code {
+      margin: 9px 0;
+      overflow: hidden;
+      border: 1px solid var(--hairline-strong);
+      border-radius: 10px;
+      background: var(--field);
+    }
+    .prose-code:first-child { margin-top: 0; }
+    .prose-code:last-child { margin-bottom: 0; }
+    .code-language {
+      padding: 8px 11px 0;
+      color: var(--faint);
+      font: 700 10px var(--mono);
+      letter-spacing: .8px;
+    }
+    .prose-code pre {
+      margin: 0;
+      overflow-x: auto;
+      padding: 10px 11px;
+      overflow-wrap: normal;
+      font: 12px/1.5 var(--mono);
+      white-space: pre;
+      -webkit-overflow-scrolling: touch;
+    }
     .thinking {
       padding-left: 11px;
       border-left: 2px solid var(--hairline-strong);
@@ -1037,6 +1061,47 @@
         return wrapper;
       };
 
+      // Fenced code stays source text on the phone, matching the transcript on the Mac.
+      // The last segment may still be open while an answer streams, so an unmatched fence
+      // is treated as code until its closing fence arrives.
+      const fencedSegments = text => text.split('```').flatMap((part, index) => {
+        if (index % 2 === 0) {
+          const prose = part.trim();
+          return prose ? [{ kind: 'prose', text: prose }] : [];
+        }
+
+        let code = part;
+        let language;
+        const newline = part.indexOf('\n');
+        if (newline >= 0) {
+          const firstLine = part.slice(0, newline).trim();
+          if (!firstLine || !firstLine.includes(' ')) {
+            language = firstLine || undefined;
+            code = part.slice(newline + 1);
+          }
+        }
+        code = code.replace(/^\n+|\n+$/g, '');
+        return code ? [{ kind: 'code', text: code, language }] : [];
+      });
+
+      const renderProse = (text, showCursor) => {
+        const prose = element('div', 'prose');
+        for (const segment of fencedSegments(text)) {
+          if (segment.kind === 'prose') {
+            prose.append(document.createTextNode(segment.text));
+            continue;
+          }
+          const code = element('div', 'prose-code');
+          if (segment.language) {
+            code.append(element('div', 'code-language', segment.language.toUpperCase()));
+          }
+          code.append(element('pre', '', segment.text));
+          prose.append(code);
+        }
+        if (showCursor) prose.append(element('span', 'cursor'));
+        return prose;
+      };
+
       // A person's turn is one tinted bubble; the agent's is plain prose with its calls
       // as rows of their own, which is the same shape the Mac draws.
       const renderMessage = (message, isLast) => {
@@ -1054,11 +1119,9 @@
           }
           for (const [index, block] of blocks.entries()) {
             if (block.kind === 'prose') {
-              const prose = element('div', 'prose', block.text || '');
-              if (isLast && header.state === 'RUNNING' && index === lastProse) {
-                prose.append(element('span', 'cursor'));
-              }
-              wrapper.append(prose);
+              wrapper.append(renderProse(
+                block.text || '',
+                isLast && header.state === 'RUNNING' && index === lastProse));
             } else if (block.kind === 'thinking') {
               wrapper.append(element('div', 'thinking', block.text || ''));
             } else if (block.kind === 'tools') {
@@ -1209,6 +1272,13 @@
           const prose = proseBlocks[proseBlocks.length - 1];
           if (prose) {
             const cursor = prose.querySelector('.cursor');
+            const message = model.get(id);
+            const block = [...(message?.blocks || [])].reverse()
+              .find(candidate => candidate.kind === 'prose');
+            if ((block?.text || '').includes('```')) {
+              prose.replaceWith(renderProse(block.text || '', !!cursor));
+              continue;
+            }
             if (cursor) cursor.before(text);
             else prose.append(text);
             continue;

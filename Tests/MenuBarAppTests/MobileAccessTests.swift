@@ -1,8 +1,56 @@
 import Foundation
+import JavaScriptCore
 import Testing
 @testable import MenuBarApp
 
 struct MobileAccessTests {
+    @Test func mobilePageSplitsFencedMarkdownIntoACodeBlock() throws {
+        let segments = try mobileFencedSegments("""
+        Before
+
+        ```md
+        # Heading
+
+        - item
+        ```
+
+        After
+        """)
+
+        #expect(segments == [
+            ["kind": "prose", "text": "Before"],
+            ["kind": "code", "text": "# Heading\n\n- item", "language": "md"],
+            ["kind": "prose", "text": "After"],
+        ])
+    }
+
+    @Test func mobilePageTreatsAnUnclosedFenceAsStreamingCode() throws {
+        let segments = try mobileFencedSegments("Working\n\n```swift\nlet answer = 42")
+
+        #expect(segments == [
+            ["kind": "prose", "text": "Working"],
+            ["kind": "code", "text": "let answer = 42", "language": "swift"],
+        ])
+    }
+
+    private func mobileFencedSegments(_ text: String) throws -> [[String: String]] {
+        let url = try #require(AppResources.bundle.url(
+            forResource: "mobile-session", withExtension: "html"))
+        let html = try String(contentsOf: url, encoding: .utf8)
+        let start = try #require(html.range(of: "const fencedSegments"))
+        let end = try #require(html.range(
+            of: "\n\n      const renderProse", range: start.upperBound..<html.endIndex))
+        let function = html[start.lowerBound..<end.lowerBound]
+        let argument = String(decoding: try JSONEncoder().encode(text), as: UTF8.self)
+        let context = try #require(JSContext())
+        let value = try #require(context.evaluateScript("""
+        \(function)
+        JSON.stringify(fencedSegments(\(argument)));
+        """))
+        let data = try #require(value.toString().data(using: .utf8))
+        return try JSONDecoder().decode([[String: String]].self, from: data)
+    }
+
     @Test func mobileAccessStaysOffUntilItIsEnabled() throws {
         let suite = "mobile-access-tests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
