@@ -80,10 +80,37 @@ extension StreamEvent {
         case .backgroundTasks(let ids):
             "background tasks count=\(ids.count)"
         case .streamError(let message):
-            "stream error messageBytes=\(message.utf8.count)"
+            "stream error category=\(Self.streamErrorCategory(message)) "
+                + "messageBytes=\(message.utf8.count)"
         case .finished(let isError, let message):
             "finished error=\(isError) messageBytes=\(message?.utf8.count ?? 0)"
         }
+    }
+
+    // Error text can include endpoint details or account data. A small category gives
+    // diagnostics enough shape without copying the payload into the app log.
+    static func streamErrorCategory(_ message: String) -> String {
+        let message = message.lowercased()
+        if message.contains("rate limit") || message.contains("too many requests")
+            || message.contains("429") {
+            return "rate-limit"
+        }
+        if message.contains("timed out") || message.contains("timeout") {
+            return "timeout"
+        }
+        if message.contains("reconnect") {
+            return "reconnecting"
+        }
+        if message.contains("connection") || message.contains("disconnect")
+            || message.contains("socket") || message.contains("closed")
+            || message.contains("eof") {
+            return "connection"
+        }
+        if message.contains("unauthorized") || message.contains("authentication")
+            || message.contains("sign in") || message.contains("401") {
+            return "authentication"
+        }
+        return "other"
     }
 
     // One JSON line can carry several content blocks, so a line maps to zero or more

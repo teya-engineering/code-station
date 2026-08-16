@@ -815,6 +815,7 @@ struct SessionView: View {
                 WorkingRow(since: runner.lastActivity(sessionID) ?? Date(),
                            avatarSequence: runner.avatarSequence(sessionID) ?? 0,
                            avatarName: session.agentAvatarName,
+                           agentTitle: session.agent.title,
                            waitingOnTasks: state == .waiting)
                     .transition(.fadeIn)
             }
@@ -830,6 +831,39 @@ struct SessionView: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     Spacer(minLength: 0)
+                }
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(ChatColor.warningText)
+                .padding(12)
+                .background(RoundedRectangle(cornerRadius: 10).fill(ChatColor.warningBackground))
+                .transition(.fadeIn)
+            }
+
+            if state == .stalled {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "exclamationmark.arrow.triangle.2.circlepath")
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Codex has stopped responding")
+                                .fontWeight(.semibold)
+                            Text("There has been no output for five minutes, with no command, question, or background task in progress. "
+                                + "You can keep waiting, stop the turn, or retry it safely.")
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    HStack(spacing: 8) {
+                        Spacer(minLength: 0)
+                        ActionButton(title: "Stop", tone: .outlined,
+                                     height: 28, size: 11.5) {
+                            runner.stop(sessionID, store: store)
+                        }
+                        if runner.canRetryStalled(sessionID, store: store) {
+                            ActionButton(title: "Retry turn", height: 28, size: 11.5) {
+                                runner.retryStalled(sessionID, store: store)
+                            }
+                        }
+                    }
                 }
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(ChatColor.warningText)
@@ -955,10 +989,12 @@ struct SessionView: View {
     // of the turn - which is also when the silence counter is worth the most.
     private func showsThinking(state: SessionState) -> Bool {
         // A parked turn is waiting on the person, not working.
-        guard case .reconnecting = state else {
-            return state.isBusy && runner.question(sessionID) == nil
+        switch state {
+        case .reconnecting, .stalled:
+            false
+        default:
+            state.isBusy && runner.question(sessionID) == nil
         }
-        return false
     }
 
     private func scrollToBottom(_ proxy: ScrollViewProxy, animated: Bool) {
@@ -1686,6 +1722,7 @@ private struct WorkingRow: View {
     let since: Date
     let avatarSequence: Int
     let avatarName: String?
+    let agentTitle: String
     // The agent has answered and is being held open for a background task it started.
     // Silence is the expected thing here, not a worry.
     var waitingOnTasks = false
@@ -1749,7 +1786,7 @@ private struct WorkingRow: View {
             // empty one shows nothing.
             .appTooltip {
                 guard quiet >= Self.concerningAfter, !waitingOnTasks else { return Tooltip(title: "") }
-                return Tooltip(title: "Claude Code has sent nothing for a while.",
+                return Tooltip(title: "\(agentTitle) has sent nothing for a while.",
                                note: "The log in Settings says what it last did.")
             }
             .onAppear { words = WorkingWords(personality: personality) }

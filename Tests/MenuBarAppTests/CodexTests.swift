@@ -584,6 +584,75 @@ struct CodexTests {
             .filter { $0.role == .user }.map(\.text) == [originalPrompt])
     }
 
+    @MainActor @Test func aSilentTurnCanBeRetriedWithoutReplayingItsPrompt() async throws {
+        let fixture = try codexFixture(script: """
+        input=$(cat)
+        folder=$(dirname "$0")
+        count_file="$folder/count"
+        count=0
+        if [ -f "$count_file" ]; then count=$(cat "$count_file"); fi
+        count=$((count + 1))
+        printf '%s' "$count" > "$count_file"
+        printf '%s' "$input" > "$folder/prompt-$count.txt"
+        printf '%s\n' "$@" > "$folder/arguments-$count.txt"
+        printf '%s\n' '{"type":"thread.started","thread_id":"thread-1"}'
+        if [ "$count" -eq 1 ]; then
+            while true; do sleep 1; done
+        fi
+        printf '%s\n' '{"type":"item.completed","item":{"id":"answer","item_type":"agent_message","text":"Recovered"}}'
+        printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":2}}'
+        """, stalledAfter: 0.08, stallCheckInterval: .milliseconds(10))
+        defer {
+            fixture.runner.stop(fixture.session.id, store: fixture.store)
+            try? FileManager.default.removeItem(at: fixture.directory)
+        }
+
+        let originalPrompt = "change the production setting"
+        fixture.runner.send(originalPrompt, sessionID: fixture.session.id, store: fixture.store)
+
+        #expect(await waitUntil {
+            fixture.runner.state(fixture.session.id) == .stalled
+                && fixture.runner.canRetryStalled(fixture.session.id, store: fixture.store)
+        })
+        #expect(fixture.runner.retryStalled(fixture.session.id, store: fixture.store))
+        #expect(await waitUntil { fixture.runner.state(fixture.session.id) == .idle })
+
+        let recoveryPrompt = try String(contentsOf: fixture.directory
+            .appendingPathComponent("prompt-2.txt"), encoding: .utf8)
+        let recoveryArguments = try String(contentsOf: fixture.directory
+            .appendingPathComponent("arguments-2.txt"), encoding: .utf8)
+        #expect(recoveryPrompt == SessionRunner.recoveryPrompt)
+        #expect(recoveryPrompt != originalPrompt)
+        #expect(recoveryArguments.contains("resume\nthread-1"))
+        #expect(fixture.store.transcript(of: fixture.session.id)
+            .filter { $0.role == .user }.map(\.text) == [originalPrompt])
+        #expect(fixture.store.transcript(of: fixture.session.id).last?.text == "Recovered")
+    }
+
+    @MainActor @Test func aSilentRunningCommandDoesNotMarkTheTurnAsStalled() async throws {
+        let fixture = try codexFixture(script: """
+        input=$(cat)
+        folder=$(dirname "$0")
+        printf '%s\n' '{"type":"thread.started","thread_id":"thread-1"}'
+        printf '%s\n' '{"type":"item.started","item":{"id":"command-1","item_type":"command_execution","command":"swift test"}}'
+        while [ ! -f "$folder/finish" ]; do sleep 0.02; done
+        printf '%s\n' '{"type":"item.completed","item":{"id":"command-1","item_type":"command_execution","command":"swift test","aggregated_output":"passed","exit_code":0,"status":"completed"}}'
+        printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":2}}'
+        """, stalledAfter: 0.05, stallCheckInterval: .milliseconds(10))
+        defer {
+            fixture.runner.stop(fixture.session.id, store: fixture.store)
+            try? FileManager.default.removeItem(at: fixture.directory)
+        }
+
+        fixture.runner.send("run the tests", sessionID: fixture.session.id, store: fixture.store)
+
+        #expect(await waitUntil { fixture.runner.runningTool(fixture.session.id) != nil })
+        try? await Task.sleep(for: .milliseconds(120))
+        #expect(fixture.runner.state(fixture.session.id) != .stalled)
+        try Data().write(to: fixture.directory.appendingPathComponent("finish"))
+        #expect(await waitUntil { fixture.runner.state(fixture.session.id) == .idle })
+    }
+
     @Test func aCompletedReasoningItemBecomesThinking() {
         let events = StreamEvent.parseCodex("""
         {"type":"item.completed","item":{"id":"item_5","item_type":"reasoning","text":"weighing options"}}
@@ -657,7 +726,8 @@ struct CodexTests {
     }
 
     @MainActor
-    private func codexFixture(script: String) throws -> CodexFixture {
+    private func codexFixture(script: String, stalledAfter: TimeInterval = 5 * 60,
+                              stallCheckInterval: Duration = .seconds(5)) throws -> CodexFixture {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("codex-reconnect-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -670,7 +740,9 @@ struct CodexTests {
         let store = ProjectStore(storeURL: directory.appendingPathComponent("projects.json"))
         let project = try #require(store.addProject(at: projectURL))
         let session = try store.insertSession(in: project.id, agent: .codex).get()
-        let runner = SessionRunner(paths: [.codex: executable.path])
+        let runner = SessionRunner(paths: [.codex: executable.path],
+                                   stalledAfter: stalledAfter,
+                                   stallCheckInterval: stallCheckInterval)
         return CodexFixture(directory: directory, store: store, session: session, runner: runner)
     }
 

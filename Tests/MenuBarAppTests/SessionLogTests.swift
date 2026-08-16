@@ -34,10 +34,23 @@ struct SessionLogTests {
 
     @Test func streamSummariesDoNotContainPayloads() {
         let secret = "token-\(UUID().uuidString)"
+        let reconnect = "Reconnecting to \(secret)"
 
         #expect(StreamEvent.text(secret).logSummary == "text bytes=\(secret.utf8.count)")
         #expect(StreamEvent.toolResult(id: "tool-1", output: secret, isError: false)
             .logSummary == "tool result id=tool-1 bytes=\(secret.utf8.count) error=false")
+        #expect(StreamEvent.streamError(reconnect).logSummary
+            == "stream error category=reconnecting messageBytes=\(reconnect.utf8.count)")
         #expect(!StreamEvent.text(secret).logSummary.contains(secret))
+        #expect(!StreamEvent.streamError(reconnect).logSummary.contains(secret))
+    }
+
+    @Test func streamErrorsAreReducedToUsefulCategories() {
+        #expect(StreamEvent.streamErrorCategory("request timed out") == "timeout")
+        #expect(StreamEvent.streamErrorCategory("429 too many requests") == "rate-limit")
+        #expect(StreamEvent.streamErrorCategory("socket closed") == "connection")
+        #expect(StreamEvent.streamErrorCategory("401 unauthorized") == "authentication")
+        #expect(StreamEvent.streamErrorCategory("Reconnecting... 2/5") == "reconnecting")
+        #expect(StreamEvent.streamErrorCategory("something novel") == "other")
     }
 }

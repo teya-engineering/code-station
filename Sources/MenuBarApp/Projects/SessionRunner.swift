@@ -61,6 +61,8 @@ final class SessionRunner {
     @ObservationIgnored private let codexContextReader = CodexContextReader()
     @ObservationIgnored private var codexContextRefreshes:
         [UUID: (id: UUID, task: Task<Void, Never>)] = [:]
+    @ObservationIgnored private let stalledAfter: TimeInterval
+    @ObservationIgnored private let stallCheckInterval: Duration
 
     // How Claude Code says it no longer holds the conversation we asked to resume.
     private static let lostConversation = "No conversation found with session ID"
@@ -68,8 +70,12 @@ final class SessionRunner {
     Inspect the current state and continue only the unfinished parts of the previous request. Do not repeat work or side effects that are already complete.
     """
 
-    init(configs: ConfigStore? = nil, paths: [AgentKind: String]? = nil) {
+    init(configs: ConfigStore? = nil, paths: [AgentKind: String]? = nil,
+         stalledAfter: TimeInterval = 5 * 60,
+         stallCheckInterval: Duration = .seconds(5)) {
         self.configs = configs
+        self.stalledAfter = stalledAfter
+        self.stallCheckInterval = stallCheckInterval
         defaultsByAgent = Dictionary(uniqueKeysWithValues: AgentKind.allCases.map {
             ($0, Preferences.sessionDefaults(for: $0))
         })
@@ -311,6 +317,30 @@ final class SessionRunner {
             at: 0)
         SessionLog.note("continuing after failed turn", session: sessionID)
         runQueue(sessionID, store: store)
+        return true
+    }
+
+    // A retry stops the unresponsive process first, then resumes its saved conversation
+    // through the normal queue. The original prompt is not replayed because it may have
+    // already caused changes before the stream stopped moving.
+    func canRetryStalled(_ sessionID: UUID, store: ProjectStore) -> Bool {
+        guard case .stalled = state(sessionID), !removals.contains(sessionID),
+              let turn = turns[sessionID], turn.agent == .codex, !turn.stopRequested,
+              runningTools[sessionID]?.isEmpty != false,
+              asked[sessionID]?.isEmpty != false,
+              turn.pendingTasks.isEmpty, !turn.waitingOnTasks,
+              let session = store.session(sessionID) else { return false }
+        return session.hasAgentConversation
+    }
+
+    @discardableResult
+    func retryStalled(_ sessionID: UUID, store: ProjectStore) -> Bool {
+        guard canRetryStalled(sessionID, store: store), let turn = turns[sessionID] else {
+            return false
+        }
+        turn.restartAfterStop = true
+        SessionLog.note("retry requested for stalled turn", session: sessionID)
+        requestStop(sessionID)
         return true
     }
 
@@ -737,7 +767,14 @@ final class SessionRunner {
 
     private func requestStop(_ sessionID: UUID, failure: String? = nil) {
         guard let turn = turns[sessionID], !turn.stopRequested else { return }
-        SessionLog.note("stopped by hand", session: sessionID)
+        let reason = if turn.restartAfterStop {
+            "stopping stalled turn for retry"
+        } else if failure != nil {
+            "stopping turn after runner failure"
+        } else {
+            "stopped by hand"
+        }
+        SessionLog.note(reason, session: sessionID)
         turn.stopRequested = true
         turn.stopFailure = failure
         asked[sessionID] = nil
@@ -952,6 +989,7 @@ final class SessionRunner {
 
         turns[sessionID] = turn
         setState(.starting, for: sessionID)
+        startStallWatchdog(turn, sessionID: sessionID)
         SessionLog.note("starting \(agent.command) arguments=\(processArguments.count)",
                         session: sessionID)
 
@@ -1100,6 +1138,9 @@ final class SessionRunner {
     private func apply(_ events: [StreamEvent], sessionID: UUID, token: UUID, store: ProjectStore) {
         guard let turn = turn(sessionID, token) else { return }
         turn.lastActivity = Date()
+        if case .stalled = state(sessionID) {
+            setState(.streaming, for: sessionID)
+        }
         for event in events {
             switch event {
             case .initialized(let claudeSessionID):
@@ -1272,6 +1313,38 @@ final class SessionRunner {
             asked[sessionID] = nil
             setState(.stopping, for: sessionID)
         }
+    }
+
+    private func startStallWatchdog(_ turn: Turn, sessionID: UUID) {
+        guard turn.agent == .codex else { return }
+        let token = turn.token
+        let interval = stallCheckInterval
+        turn.stallWatchdog = Task { [weak self] in
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: interval)
+                } catch {
+                    return
+                }
+                guard let self else { return }
+                self.markStalledIfNeeded(sessionID, token: token)
+            }
+        }
+    }
+
+    private func markStalledIfNeeded(_ sessionID: UUID, token: UUID) {
+        guard let turn = turn(sessionID, token), !turn.stopRequested,
+              !turn.receivedCompletion,
+              runningTools[sessionID]?.isEmpty != false,
+              asked[sessionID]?.isEmpty != false,
+              turn.pendingTasks.isEmpty, !turn.waitingOnTasks,
+              Date().timeIntervalSince(turn.lastActivity) >= stalledAfter else { return }
+        if case .stalled = state(sessionID) { return }
+        let silence = Int(Date().timeIntervalSince(turn.lastActivity))
+        let category = turn.lastStreamError.map(StreamEvent.streamErrorCategory) ?? "none"
+        SessionLog.note("turn stalled silentSeconds=\(silence) streamError=\(category)",
+                        session: sessionID)
+        setState(.stalled, for: sessionID)
     }
 
     private func flush(_ stream: StreamBatcher, sessionID: UUID, token: UUID,
@@ -1453,6 +1526,21 @@ final class SessionRunner {
         if turn.compacted { store.recordCompaction(for: sessionID) }
 
         if turn.stopRequested {
+            if turn.restartAfterStop, turn.stopFailure == nil {
+                setState(.idle, for: sessionID)
+                store.release(sessionID, for: .running)
+                store.append(
+                    ChatMessage(role: .system,
+                                text: "Retrying the stalled turn. The agent will inspect the current state before it resumes unfinished work."),
+                    to: sessionID)
+                queues[sessionID, default: []].insert(
+                    QueuedPrompt(text: Self.recoveryPrompt, attachments: [],
+                                 customInstructions: nil, isAppCommand: true),
+                    at: 0)
+                SessionLog.note("resuming after stalled turn", session: sessionID)
+                runQueue(sessionID, store: store)
+                return
+            }
             if let failure = turn.stopFailure {
                 setState(.failed(failure), for: sessionID)
                 store.noteTurnEnded(for: sessionID)
@@ -1534,6 +1622,8 @@ final class SessionRunner {
     }
 
     private func cleanUp(_ turn: Turn) {
+        turn.stallWatchdog?.cancel()
+        turn.stallWatchdog = nil
         turn.output.fileHandleForReading.readabilityHandler = nil
         turn.errorOutput.fileHandleForReading.readabilityHandler = nil
         turn.exitMonitor?.cancel()
@@ -1570,6 +1660,8 @@ final class SessionRunner {
         var receivedCompletion = false
         var stopRequested = false
         var stopFailure: String?
+        var restartAfterStop = false
+        var stallWatchdog: Task<Void, Never>?
         var stdoutOpen = true
         var stderrOpen = true
         var exitStatus: Int32?

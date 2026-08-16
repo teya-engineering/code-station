@@ -614,6 +614,9 @@ enum SessionState: Equatable {
     // Codex reported a transport interruption but its process is still trying to finish
     // the turn. The message is kept visible until progress resumes or the turn ends.
     case reconnecting(String)
+    // Codex has produced no output for long enough to be considered unresponsive, with
+    // no command, question, or background task that would make silence expected.
+    case stalled
     // Stop has been requested, but the process still owns its working directory until
     // termination is confirmed.
     case stopping
@@ -624,7 +627,7 @@ enum SessionState: Equatable {
 
     var isBusy: Bool {
         switch self {
-        case .starting, .streaming, .reconnecting, .stopping, .waiting: true
+        case .starting, .streaming, .reconnecting, .stalled, .stopping, .waiting: true
         case .idle, .failed: false
         }
     }
