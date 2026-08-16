@@ -20,6 +20,7 @@ struct Tooltip {
     var subtitle: String?
     var note: String?
     var rows: [Row] = []
+    var action: (() -> Void)?
 
     // A hint that is only words needs no panel around it, so it is drawn as a plain line
     // instead.
@@ -42,6 +43,8 @@ struct Tooltip {
 @MainActor
 @Observable
 final class TooltipPresenter {
+    private static let interactiveDismissalDelay = Duration.milliseconds(250)
+
     private(set) var current: Tooltip?
     private(set) var anchor: CGRect = .zero
     // Changes on every hint so the host can drop the size it measured for the last one.
@@ -49,8 +52,10 @@ final class TooltipPresenter {
 
     private var owner: UUID?
     @ObservationIgnored private var dismissal: Any?
+    @ObservationIgnored private var pendingHide: Task<Void, Never>?
 
     func show(_ tooltip: Tooltip, from rect: CGRect, owner: UUID) {
+        pendingHide?.cancel()
         self.owner = owner
         current = tooltip
         anchor = rect
@@ -63,10 +68,40 @@ final class TooltipPresenter {
     // did not check would clear the hint that has just arrived.
     func hide(owner: UUID) {
         guard self.owner == owner else { return }
+        guard current?.action != nil else {
+            hideAll()
+            return
+        }
+        pendingHide?.cancel()
+        pendingHide = Task { [weak self] in
+            guard let self else { return }
+            try? await Task.sleep(for: Self.interactiveDismissalDelay)
+            guard !Task.isCancelled else { return }
+            hideAll()
+        }
+    }
+
+    func sourceEntered(owner: UUID) -> Bool {
+        guard self.owner == owner, current != nil else { return false }
+        pendingHide?.cancel()
+        pendingHide = nil
+        return true
+    }
+
+    func keepInteractiveTooltipVisible() {
+        guard current?.action != nil else { return }
+        pendingHide?.cancel()
+        pendingHide = nil
+    }
+
+    func hideInteractiveTooltip() {
+        guard current?.action != nil else { return }
         hideAll()
     }
 
     func hideAll() {
+        pendingHide?.cancel()
+        pendingHide = nil
         owner = nil
         current = nil
         if let dismissal {
@@ -76,14 +111,20 @@ final class TooltipPresenter {
     }
 
     // A hint is placed where its row was when the pointer stopped. A click or a scroll
-    // moves that row out from under it, so both take the hint away rather than leaving
-    // it pointing at nothing.
+    // moves that row out from under it, so both take the hint away. An interactive hint
+    // remains through mouse-down because its button performs the action on mouse-up.
     private func watchForDismissal() {
         guard dismissal == nil else { return }
         dismissal = NSEvent.addLocalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel]
         ) { [weak self] event in
-            MainActor.assumeIsolated { self?.hideAll() }
+            MainActor.assumeIsolated {
+                // Removing an interactive hint on mouse-down also removes its button
+                // before mouse-up can perform the action.
+                if event.type != .leftMouseDown || self?.current?.action == nil {
+                    self?.hideAll()
+                }
+            }
             return event
         }
     }
@@ -123,6 +164,7 @@ private struct AppTooltip: ViewModifier {
                     presenter.hide(owner: id)
                     return
                 }
+                guard !presenter.sourceEntered(owner: id) else { return }
                 pending = Task {
                     try? await Task.sleep(for: Self.delay)
                     guard !Task.isCancelled, let frame = anchor.frame() else { return }
@@ -208,78 +250,100 @@ struct TooltipHost: View {
                     // wrong corner.
                     .opacity(measurement.generation == presenter.generation ? 1 : 0)
                     .onPreferenceChange(TooltipSizeKey.self) { measurement = $0 }
+                    .onHover { inside in
+                        if inside {
+                            presenter.keepInteractiveTooltipVisible()
+                        } else {
+                            presenter.hideInteractiveTooltip()
+                        }
+                    }
+                    .allowsHitTesting(tooltip.action != nil)
             }
             .ignoresSafeArea()
-            // The hint is never the thing being pointed at, so it must not take the
-            // hover it would otherwise steal from the row underneath it.
-            .allowsHitTesting(false)
         }
     }
 
     @ViewBuilder private func card(_ tooltip: Tooltip) -> some View {
-        if tooltip.isPlain {
-            Text(tooltip.title)
-                .font(.system(size: 12))
-                .fixedSize(horizontal: !tooltip.wraps, vertical: true)
-                .frame(maxWidth: tooltip.wraps ? Self.width : nil, alignment: .leading)
-                .padding(.horizontal, 9)
-                .padding(.vertical, 5)
-                .background(RoundedRectangle(cornerRadius: 8).fill(Theme.card))
-                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
-                .shadow(color: .black.opacity(0.14), radius: 12, y: 4)
+        if let action = tooltip.action {
+            Button {
+                action()
+                presenter.hideAll()
+            } label: {
+                plainCard(tooltip)
+                    .contentShape(RoundedRectangle(cornerRadius: 8))
+            }
+            .buttonStyle(.plain)
+        } else if tooltip.isPlain {
+            plainCard(tooltip)
         } else {
-            VStack(alignment: .leading, spacing: 0) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(tooltip.title)
-                        .font(.serif(14, .semibold))
-                        .lineLimit(3)
+            detailedCard(tooltip)
+        }
+    }
+
+    private func plainCard(_ tooltip: Tooltip) -> some View {
+        Text(tooltip.title)
+            .font(.system(size: 12))
+            .fixedSize(horizontal: !tooltip.wraps, vertical: true)
+            .frame(maxWidth: tooltip.wraps ? Self.width : nil, alignment: .leading)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.card))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
+            .shadow(color: .black.opacity(0.14), radius: 12, y: 4)
+    }
+
+    private func detailedCard(_ tooltip: Tooltip) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(tooltip.title)
+                    .font(.serif(14, .semibold))
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let subtitle = tooltip.subtitle {
+                    Text(subtitle)
+                        .font(.mono(10.5))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .truncationMode(.middle)
                         .fixedSize(horizontal: false, vertical: true)
-                    if let subtitle = tooltip.subtitle {
-                        Text(subtitle)
-                            .font(.mono(10.5))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
-                            .truncationMode(.middle)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    if let note = tooltip.note {
-                        Text(note)
-                            .font(.system(size: 11))
-                            .foregroundStyle(Theme.attention)
-                            .fixedSize(horizontal: false, vertical: true)
+                }
+                if let note = tooltip.note {
+                    Text(note)
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.attention)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+
+            if !tooltip.rows.isEmpty {
+                Divider().overlay(Theme.hairline)
+                VStack(spacing: 4) {
+                    ForEach(tooltip.rows) { row in
+                        HStack(alignment: .firstTextBaseline, spacing: 10) {
+                            Text(row.label.uppercased())
+                                .font(.mono(9, .semibold))
+                                .kerning(0.5)
+                                .foregroundStyle(.tertiary)
+                                .lineLimit(1)
+                            Spacer(minLength: 6)
+                            Text(row.value)
+                                .font(.mono(10.5))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
                     }
                 }
                 .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-
-                if !tooltip.rows.isEmpty {
-                    Divider().overlay(Theme.hairline)
-                    VStack(spacing: 4) {
-                        ForEach(tooltip.rows) { row in
-                            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                                Text(row.label.uppercased())
-                                    .font(.mono(9, .semibold))
-                                    .kerning(0.5)
-                                    .foregroundStyle(.tertiary)
-                                    .lineLimit(1)
-                                Spacer(minLength: 6)
-                                Text(row.value)
-                                    .font(.mono(10.5))
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 9)
-                }
+                .padding(.vertical, 9)
             }
-            .frame(width: Self.width, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 11).fill(Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: 11).stroke(Theme.border))
-            .shadow(color: .black.opacity(0.16), radius: 18, y: 6)
         }
+        .frame(width: Self.width, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 11).fill(Theme.card))
+        .overlay(RoundedRectangle(cornerRadius: 11).stroke(Theme.border))
+        .shadow(color: .black.opacity(0.16), radius: 18, y: 6)
     }
 
     // Beside the row rather than under it: the sidebar is a column of rows, and a hint

@@ -354,6 +354,8 @@ enum TranscriptLink {
 }
 
 private struct InlineMarkdownText: View {
+    @Environment(\.openURL) private var openURL
+
     private let attributed: AttributedString
 
     init(_ text: String) {
@@ -362,7 +364,13 @@ private struct InlineMarkdownText: View {
 
     var body: some View {
         Text(attributed)
-            .appTooltip(attributed.hasLocalFileLink ? TranscriptLink.finderToolTip : "")
+            .appTooltip {
+                guard let url = attributed.runs.compactMap(\.link).first(where: \.isFileURL)
+                else { return Tooltip(title: "") }
+                return Tooltip(title: TranscriptLink.finderToolTip) {
+                    openURL(url)
+                }
+            }
     }
 }
 
