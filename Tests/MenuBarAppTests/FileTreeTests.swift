@@ -73,4 +73,33 @@ struct FileTreeTests {
 
         #expect(failure != nil)
     }
+
+    @Test func listsFilesRecursivelyWithoutWalkingGitMetadata() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let nested = root.appendingPathComponent("Sources/Feature")
+        let git = root.appendingPathComponent(".git/objects")
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: git, withIntermediateDirectories: true)
+        try Data().write(to: nested.appendingPathComponent("View.swift"))
+        try Data().write(to: root.appendingPathComponent(".env"))
+        try Data().write(to: git.appendingPathComponent("object"))
+
+        let visible = await FileTree.files(beneath: root, includeHidden: false)
+        let withHidden = await FileTree.files(beneath: root, includeHidden: true)
+
+        #expect(visible.map(\.name) == ["View.swift"])
+        #expect(Set(withHidden.map(\.name)) == [".env", "View.swift"])
+    }
+
+    @Test func givesAncestorDirectoriesFromRootToFile() {
+        let root = URL(fileURLWithPath: "/project")
+        let file = URL(fileURLWithPath: "/project/Sources/Feature/View.swift")
+
+        #expect(FileTree.ancestorDirectories(of: file, beneath: root) == [
+            "/project/Sources", "/project/Sources/Feature"
+        ])
+        #expect(FileTree.ancestorDirectories(
+            of: URL(fileURLWithPath: "/elsewhere/View.swift"), beneath: root).isEmpty)
+    }
 }

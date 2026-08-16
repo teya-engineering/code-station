@@ -77,6 +77,60 @@ enum FileTree {
         }.value
     }
 
+    static func files(beneath url: URL, includeHidden: Bool) async -> [FileNode] {
+        await Task.detached(priority: .userInitiated) {
+            filesOnCurrentThread(beneath: url, includeHidden: includeHidden)
+        }.value
+    }
+
+    // DirectoryEnumerator uses a synchronous iterator, so it stays in a synchronous helper
+    // even though the helper itself runs on the detached file-system task above.
+    private static func filesOnCurrentThread(beneath url: URL, includeHidden: Bool) -> [FileNode] {
+        let keys: [URLResourceKey] = [
+            .isDirectoryKey, .isSymbolicLinkKey, .fileSizeKey, .contentModificationDateKey
+        ]
+        let options: FileManager.DirectoryEnumerationOptions = includeHidden ? [] : [.skipsHiddenFiles]
+        guard let entries = FileManager.default.enumerator(
+            at: url, includingPropertiesForKeys: keys, options: options) else { return [] }
+
+        var nodes: [FileNode] = []
+        for case let entry as URL in entries {
+            if Task.isCancelled { return nodes }
+            if skipped.contains(entry.lastPathComponent) {
+                entries.skipDescendants()
+                continue
+            }
+
+            let values = try? entry.resourceValues(forKeys: Set(keys))
+            let isLink = values?.isSymbolicLink ?? false
+            if isLink { entries.skipDescendants() }
+            if values?.isDirectory == true { continue }
+
+            nodes.append(FileNode(
+                url: entry,
+                name: entry.lastPathComponent,
+                isDirectory: false,
+                size: Int64(values?.fileSize ?? 0),
+                modified: values?.contentModificationDate))
+        }
+
+        return nodes.sorted {
+            $0.path.localizedStandardCompare($1.path) == .orderedAscending
+        }
+    }
+
+    static func ancestorDirectories(of file: URL, beneath root: URL) -> [String] {
+        guard let relativePath = file.path.pathRelative(to: root.path) else { return [] }
+        let parent = (relativePath as NSString).deletingLastPathComponent
+        guard parent != ".", !parent.isEmpty else { return [] }
+
+        var directory = root.standardizedFileURL
+        return parent.split(separator: "/").map { component in
+            directory.appendPathComponent(String(component), isDirectory: true)
+            return directory.path
+        }
+    }
+
     static func preview(of url: URL) async -> FilePreview {
         await Task.detached(priority: .userInitiated) {
             let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)

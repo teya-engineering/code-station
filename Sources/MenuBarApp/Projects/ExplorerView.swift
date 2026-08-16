@@ -52,6 +52,7 @@ struct ExplorerView: View {
         }
         .background(Theme.background)
         .background(findShortcut)
+        .background(ExplorerSearchShortcut { showFileSearch() })
         .onChange(of: findQuery) {
             findSelection = 0
             refreshFind()
@@ -127,14 +128,24 @@ struct ExplorerView: View {
                 PaneMessage(icon: "folder", title: "Empty folder",
                             detail: showHidden ? "" : "Hidden files are off.")
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 1) {
-                        ForEach(rows) { row in
-                            treeRow(row)
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(spacing: 1) {
+                            ForEach(rows) { row in
+                                treeRow(row)
+                                    .id(row.id)
+                            }
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 8)
+                    }
+                    .onChange(of: selected?.path) {
+                        if let path = selected?.path {
+                            withAnimation(.easeOut(duration: 0.12)) {
+                                proxy.scrollTo(path, anchor: .center)
+                            }
                         }
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 8)
                 }
             }
         }
@@ -247,8 +258,21 @@ struct ExplorerView: View {
 
                 fileBody(node)
             } else {
-                PaneMessage(icon: "sidebar.left", title: "Pick a file",
-                            detail: "Its contents show up here. Folders open in place.")
+                VStack(spacing: 8) {
+                    Image(systemName: "sidebar.left")
+                        .font(.system(size: 26, weight: .light))
+                        .foregroundStyle(.secondary)
+                    Text("Pick a file").font(.serif(17, .semibold))
+                    HStack(spacing: 6) {
+                        Image(systemName: "shift")
+                            .font(.system(size: 12, weight: .medium))
+                        Text("Tap shift key twice to search")
+                    }
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                }
+                .padding(40)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -419,6 +443,37 @@ struct ExplorerView: View {
         findQuery = ""
         findResult = FileFindResult()
         findSelection = 0
+    }
+
+    // MARK: - File search
+
+    private func showFileSearch() {
+        guard dialogs.current == nil else { return }
+        let model = ExplorerSearchModel(root: root, includeHidden: showHidden)
+        let open: (FileNode) -> Void = { node in
+            dialogs.dismiss()
+            revealAndSelect(node)
+        }
+        dialogs.show(Dialog(
+            title: "Search files",
+            content: AnyView(ExplorerSearchDialog(model: model, onOpen: open)),
+            actions: [
+                .init(label: "Open", kind: .primary, handler: {
+                    if let node = model.selected { revealAndSelect(node) }
+                }, isEnabled: { model.selected != nil }),
+                .init(label: "Cancel", kind: .cancel)
+            ],
+            width: 560))
+    }
+
+    private func revealAndSelect(_ node: FileNode) {
+        Task {
+            for path in FileTree.ancestorDirectories(of: node.url, beneath: rootURL) {
+                expanded.insert(path)
+                if children[path] == nil { await load(path) }
+            }
+            requestSelect(node)
+        }
     }
 
     // Save only appears once there is something to save, which is also the only time the
