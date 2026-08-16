@@ -138,7 +138,7 @@ struct MessageBlockTests {
 
     // A turn that spoke no words leaves every offset at zero, so only the call count
     // says whether a thought came before or after the work.
-    @Test func keepsThoughtsInArrivalOrderAroundASilentRound() {
+    @Test func keepsThoughtsAndSilentRoundsInArrivalOrder() {
         var message = ChatMessage(role: .assistant, text: "",
                                   tools: [tool("a", at: 0), tool("b", at: 0)])
         message.thinking = [segment("first", at: 0, tool: 0),
@@ -146,10 +146,9 @@ struct MessageBlockTests {
         let blocks = message.blocks
 
         #expect(thought(blocks[0]) == "first")
-        // Both calls share one offset and read as a single round, so the later thought
-        // follows the round rather than splitting it.
-        #expect(toolIDs(blocks[1]) == ["a", "b"])
+        #expect(toolIDs(blocks[1]) == ["a"])
         #expect(thought(blocks[2]) == "second")
+        #expect(toolIDs(blocks[3]) == ["b"])
     }
 
     @Test func endsWithAThoughtTheTurnNeverSpokeAfter() {

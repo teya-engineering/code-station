@@ -271,8 +271,8 @@ struct ThinkingSegment: Identifiable, Codable, Equatable, Sendable {
 }
 
 // A run of the turn laid out in the order it happened: some text Claude wrote, a stretch
-// of thinking, or the calls it made at that point. Calls that started at the same point
-// ran as one round, so they stay together and are drawn as a single spine.
+// of thinking, or the calls it made at that point. Adjacent calls that started at the
+// same point ran as one round, so they stay together and are drawn as a single spine.
 enum MessageBlock: Identifiable {
     case prose(id: Int, text: String)
     case thinking(id: Int, text: String)
@@ -368,21 +368,9 @@ struct ChatMessage: Identifiable, Codable, Equatable, Sendable {
             cursorIndex = endIndex
         }
 
-        // Only the calls the main loop made set the shape of the turn. What ran inside
-        // an agent is drawn under the call that started it, wherever that call sits.
-        // Calls that started at the same point ran as one round.
-        var rounds: [[ToolNode]] = []
-        for node in toolTree {
-            if let previous = rounds.last?.first?.tool,
-               (previous.textOffset ?? 0) == (node.tool.textOffset ?? 0) {
-                rounds[rounds.count - 1].append(node)
-            } else {
-                rounds.append([node])
-            }
-        }
-
         // Both lists are already in the order they happened, so this is a plain merge.
-        // A thought that arrived before a round's first call goes ahead of the round.
+        // A thought that arrived before a call goes ahead of it. It also ends the prior
+        // round, even when no prose was written between the calls.
         var thoughts = ArraySlice(thinking ?? [])
         func emitThoughts(beforeText textOffset: Int, tool toolOrder: Int) {
             while let thought = thoughts.first,
@@ -394,11 +382,22 @@ struct ChatMessage: Identifiable, Codable, Equatable, Sendable {
             }
         }
 
-        for round in rounds {
-            guard let first = round.first else { continue }
-            emitThoughts(beforeText: first.tool.textOffset ?? 0, tool: first.order)
-            emitProse(upTo: first.tool.textOffset ?? 0)
-            blocks.append(.tools(id: blocks.count, round))
+        // Only the calls the main loop made set the shape of the turn. What ran inside
+        // an agent is drawn under the call that started it, wherever that call sits.
+        for node in toolTree {
+            let textOffset = node.tool.textOffset ?? 0
+            emitThoughts(beforeText: textOffset, tool: node.order)
+            emitProse(upTo: textOffset)
+
+            // Adjacent calls at the same text offset were one round. A thought or prose
+            // block between them keeps separate steps separate.
+            if case .tools(let id, var round)? = blocks.last,
+               (round.first?.tool.textOffset ?? 0) == textOffset {
+                round.append(node)
+                blocks[blocks.count - 1] = .tools(id: id, round)
+            } else {
+                blocks.append(.tools(id: blocks.count, [node]))
+            }
         }
         for thought in thoughts {
             emitProse(upTo: thought.textOffset)
