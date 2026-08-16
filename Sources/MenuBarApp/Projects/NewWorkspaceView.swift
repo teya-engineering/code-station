@@ -50,7 +50,7 @@ struct NewWorkspaceView: View {
 
             ScrollView {
                 VStack(spacing: 9) {
-                    ForEach(store.projects) { project in
+                    ForEach(store.regularProjects) { project in
                         projectRow(project)
                     }
 

@@ -112,6 +112,10 @@ final class ProjectStore {
     func workspace(_ id: UUID) -> ProjectWorkspace? { workspaces.first { $0.id == id } }
     func session(_ id: UUID) -> ChatSession? { sessions.first { $0.id == id } }
 
+    var regularProjects: [Project] {
+        projects.filter { $0.kind == .project }
+    }
+
     // The rail needs session metadata, but observing the main array would also make it
     // observe every transcript write because ChatSession is a value. This copy is
     // published only when card metadata changes and never carries message payloads.
@@ -322,7 +326,9 @@ final class ProjectStore {
     func addWorkspace(name: String, projectIDs: [UUID], leadProjectID: UUID) -> ProjectWorkspace? {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         var seen: Set<UUID> = []
-        let members = projectIDs.filter { project($0) != nil && seen.insert($0).inserted }
+        let members = projectIDs.filter {
+            project($0)?.kind == .project && seen.insert($0).inserted
+        }
         guard !trimmed.isEmpty, members.count >= 2, members.contains(leadProjectID) else { return nil }
 
         let ordered = [leadProjectID] + members.filter { $0 != leadProjectID }
@@ -380,11 +386,11 @@ final class ProjectStore {
     }
 
     func addProject(_ projectID: UUID, toWorkspace id: UUID) {
-        guard project(projectID) != nil,
+        guard let project = project(projectID), project.kind == .project,
               let i = workspaces.firstIndex(where: { $0.id == id }),
               !workspaces[i].projectIDs.contains(projectID) else { return }
         workspaces[i].projectIDs.append(projectID)
-        if let project = project(projectID), project.isGitRepository {
+        if project.isGitRepository {
             workspaces[i].worktreeProjectIDs.append(projectID)
         }
         saveIndex()

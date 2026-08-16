@@ -667,7 +667,7 @@ struct WorkspaceDetailView: View {
     }
 
     private func attachableProjects(_ workspace: ProjectWorkspace) -> [Project] {
-        store.projects.filter { !workspace.projectIDs.contains($0.id) }
+        store.regularProjects.filter { !workspace.projectIDs.contains($0.id) }
     }
 
     private func addFolder(to workspace: ProjectWorkspace) {

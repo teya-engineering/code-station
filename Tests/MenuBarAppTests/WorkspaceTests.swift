@@ -106,4 +106,29 @@ struct WorkspaceTests {
 
         #expect(store.workspace(workspace.id)?.projectIDs == [first.id, second.id])
     }
+
+    @Test func excludesTasksFromWorkspaces() throws {
+        let store = makeStore()
+        let first = project("api", in: store)
+        let second = project("web", in: store)
+        let taskRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("conductor-workspace-tasks-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: taskRoot) }
+        let task = try store.addTask(
+            named: "Reply as a bot",
+            prompt: "Reply to the message.",
+            in: taskRoot)
+            .get()
+
+        #expect(store.regularProjects.map(\.id) == [first.id, second.id])
+        let workspace = try #require(store.addWorkspace(
+            name: "Checkout",
+            projectIDs: [first.id, task.id, second.id],
+            leadProjectID: first.id))
+        #expect(workspace.projectIDs == [first.id, second.id])
+
+        store.addProject(task.id, toWorkspace: workspace.id)
+
+        #expect(store.workspace(workspace.id)?.projectIDs == [first.id, second.id])
+    }
 }

@@ -424,7 +424,7 @@ struct TroubleshootView: View {
                 }
             }
 
-            if store.projects.isEmpty {
+            if store.regularProjects.isEmpty {
                 Text("Create a workspace and add projects to it to start the diagnosis.")
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
@@ -503,7 +503,7 @@ struct TroubleshootView: View {
     }
 
     private var filteredProjects: [Project] {
-        Self.projects(store.projects, matching: projectFilter)
+        Self.projects(store.regularProjects, matching: projectFilter)
     }
 
     private var environmentMCPServers: [Server] {
@@ -828,7 +828,7 @@ struct TroubleshootView: View {
     }
 
     private var orderedSelectedProjects: [Project] {
-        let selected = store.projects.filter { selectedProjects.contains($0.id) }
+        let selected = store.regularProjects.filter { selectedProjects.contains($0.id) }
         guard let current = store.selectedProjectID,
               let lead = selected.first(where: { $0.id == current }) else { return selected }
         return [lead] + selected.filter { $0.id != current }

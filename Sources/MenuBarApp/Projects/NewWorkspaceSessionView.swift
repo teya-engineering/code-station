@@ -312,7 +312,7 @@ struct NewWorkspaceSessionView: View {
     }
 
     private var attachableProjects: [Project] {
-        store.projects.filter { !projectIDs.contains($0.id) }
+        store.regularProjects.filter { !projectIDs.contains($0.id) }
     }
 
     private var attachMenu: [MenuEntry] {
