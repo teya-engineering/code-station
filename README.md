@@ -69,10 +69,7 @@ A few features point at things that belong to your organisation rather than to t
 
 Every section is optional, and so is the file itself. Without it the app runs with blank API environments, no saved requests, no Grafana presets, no shortcuts, and the Skills screen reporting that no marketplace is set up. Everything else works as normal.
 
-Two settings files are kept here:
-
-- `site-defaults.example.json` is a blank-slate example. Copy it and fill in your own values.
-- `teya-defaults.json` is Teya's own setup, which is what Teya builds of this app use.
+`site-defaults.example.json` is a blank-slate example. Copy it and fill in your own values. Teya's shared configuration is maintained in the separate [teya-conductor-settings](https://github.com/example/site-settings) repository.
 
 ### Set it up
 
@@ -109,8 +106,8 @@ The app reads the first of these that can be parsed:
 `./build-app.sh` folds a settings file into the bundle it builds, which is the third location above. That gives you an app that is already set up, ready to hand to your team. It uses `site-defaults.json` unless you name another file:
 
 ```bash
-./build-app.sh                                    # your own settings, or none
-SITE_DEFAULTS=teya-defaults.json ./build-app.sh   # a Teya build
+./build-app.sh
+SITE_DEFAULTS=/path/to/team-defaults.json ./build-app.sh
 ```
 
 A `swift run` development build has no bundle to fold a file into, so use the first-launch import or `$CONDUCTOR_SITE_DEFAULTS` instead.

@@ -15,9 +15,9 @@ import Foundation
 //   3. <application support>/site-defaults.json
 //   4. site-defaults.json inside the app bundle
 //
-// None of it is compiled in. `site-defaults.example.json` shows the shape and
-// `teya-defaults.json` holds Teya's own setup; the build script folds whichever one it is
-// given into the bundle, so a team can hand out an app that is already set up.
+// None of it is compiled in. `site-defaults.example.json` shows the shape, and the build
+// script can fold a chosen settings file into the bundle so a team can hand out an app
+// that is already set up.
 struct SiteDefaults: Decodable, Sendable {
     var dispatch: DispatchConfig? = nil
     var grafana: Grafana? = nil

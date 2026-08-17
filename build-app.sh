@@ -6,8 +6,8 @@ CONFIG="${1:-release}"
 APP_NAME="Teya Conductor"
 BUNDLE_ID="com.teya.conductor"
 
-# The organisation settings folded into the bundle. Teya builds pass teya-defaults.json;
-# anyone else points this at their own file, and a build with none is left unconfigured.
+# The organisation settings folded into the bundle. Override this path to select another
+# file; a build with no file is left unconfigured.
 SITE_DEFAULTS="${SITE_DEFAULTS:-site-defaults.json}"
 
 swift build -c "$CONFIG"

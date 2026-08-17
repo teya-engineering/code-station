@@ -209,17 +209,16 @@ struct SiteDefaultsTests {
         #expect(edge.serves("prod"))
     }
 
-    // The settings files kept in the repository. A typo in one would only show up much
-    // later, as a build that quietly starts with nothing set up, so both are read here.
-    // The example is what anyone new copies and edits; the Teya file is what Teya builds
-    // are handed to `build-app.sh`.
-    @Test(arguments: ["site-defaults.example.json", "teya-defaults.json"])
-    func aTrackedSettingsFileParses(_ name: String) {
+    // The example is intended to be copied into deployments, so it must stay loadable
+    // and complete.
+    @Test func theTrackedSettingsExampleParses() {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-        let defaults = SiteDefaults.load([root.appendingPathComponent(name)])
+        let defaults = SiteDefaults.load([
+            root.appendingPathComponent("site-defaults.example.json")
+        ])
 
         #expect(defaults.loadFailure == nil)
         #expect(!defaults.dispatchOAuth.clientID.isEmpty)

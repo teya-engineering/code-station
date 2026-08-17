@@ -68,7 +68,7 @@ Anything that belongs to one organisation rather than to the app lives in `site-
 
 An unreadable or malformed file produces a visible warning and falls through to the next location. On first launch, the setup wizard can validate and import a local JSON file or clone one from a GitHub repository. Imports are copied to Application Support, then the shared defaults and empty first-run stores are reloaded in the same process. Skipping the step keeps the normal bundled or empty defaults.
 
-Nothing is compiled in, so a plain checkout builds an app with all of it empty. Two settings files are tracked: `site-defaults.example.json` is a blank-slate example to copy, and `teya-defaults.json` holds Teya's own setup. [README.md](README.md#site-configuration) covers each field. `build-app.sh` folds one of them into the bundle it builds, chosen with `SITE_DEFAULTS` and defaulting to an untracked `site-defaults.json`, which is how a configured app gets handed to a team. Every section is optional.
+Nothing is compiled in, so a plain checkout builds an app with all of it empty. `site-defaults.example.json` is a blank-slate example to copy. Organisation-owned settings are maintained outside this repository and can be imported during setup or folded into an app bundle with `build-app.sh`. The build script uses the file selected with `SITE_DEFAULTS` and defaults to an untracked `site-defaults.json`. [README.md](README.md#site-configuration) covers each field. Every section is optional.
 
 Keep organisation-specific hostnames, client IDs, and repository URLs in that file rather than in Swift, so the code stays free of them. Tests should pass in whatever settings they need rather than reading `SiteDefaults.current`, so they pass on a checkout that has no site file.
 
