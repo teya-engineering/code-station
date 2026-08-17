@@ -782,12 +782,7 @@ struct AppSidebar: View {
     private func visibleSessions(_ sessions: [ChatSession], in containerID: UUID) -> [ChatSession] {
         let filter = self.filter
         guard filter.isActive else { return sessionVisibility.visible(sessions, in: containerID) }
-        // A row that matched on its own name keeps every session: the filter picked the
-        // row, and its sessions are what it holds.
-        let item = store.project(containerID).map(SidebarItem.project)
-            ?? store.workspace(containerID).map(SidebarItem.workspace)
-        guard let item, !matchesName(item, filter) else { return sessions }
-        return sessions.filter(filter.matches)
+        return filter.matchingSessions(in: sessions)
     }
 
     // Keyed on the cards that are drawn rather than the sessions that exist, so the

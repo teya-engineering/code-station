@@ -27,6 +27,11 @@ struct SidebarFilter {
             && SidebarFilter.troubleshootLabel.localizedCaseInsensitiveContains(query)
     }
 
+    func matchingSessions(in sessions: [ChatSession]) -> [ChatSession] {
+        guard isActive else { return sessions }
+        return sessions.filter(matches)
+    }
+
     // The word the card shows in place of a kind, matched as it is read rather than as it
     // is drawn: the chip is upper case, but nobody types it that way.
     private static let troubleshootLabel = "troubleshoot"
