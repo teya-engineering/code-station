@@ -105,6 +105,10 @@ struct CodeEditorView: NSViewRepresentable {
         // to. One pass at a time keeps that from feeding itself.
         private var colouring = false
 
+        // Whether a viewport pass is already waiting to run. However many notifications
+        // arrive before it does, they all want the same thing, so one pass covers them.
+        private var colourQueued = false
+
         init(_ parent: CodeEditorView) {
             self.parent = parent
         }
@@ -220,6 +224,11 @@ struct CodeEditorView: NSViewRepresentable {
         private func load(_ text: String, into textView: CodeDocumentView) {
             textView.string = text
             textView.typingAttributes = CodeEditorStyle.base
+            // The one place the type and the spacing are set. Everything typed afterwards
+            // arrives carrying them, so colouring never has to put them back.
+            textView.textStorage?.setAttributes(
+                CodeEditorStyle.base,
+                range: NSRange(location: 0, length: (text as NSString).length))
             textView.undoManager?.removeAllActions()
             textView.setContentWidth(MonoMetrics.width(ofLongestIn: text))
             reindex(text)
@@ -266,9 +275,18 @@ struct CodeEditorView: NSViewRepresentable {
             return text.substring(with: lineIndex.range(of: line, length: text.length))
         }
 
+        // AppKit posts the bounds change from inside its own layout pass, which is reading
+        // the storage this would write to. Colouring on the next turn of the run loop keeps
+        // the two apart: writing mid-pass leaves work behind that the pass then has to redo,
+        // and it scrolls to keep up, which posts another bounds change and never settles.
         @objc func viewportMoved() {
             gutter?.needsDisplay = true
-            colourViewport()
+            guard !colourQueued else { return }
+            colourQueued = true
+            Task { @MainActor in
+                self.colourQueued = false
+                self.colourViewport()
+            }
         }
 
         // MARK: - Colour
@@ -294,8 +312,13 @@ struct CodeEditorView: NSViewRepresentable {
                                     - lineIndex.start(of: first))
             guard range.length > 0 else { return }
 
+            // Only the colours are rewritten. The type and the spacing are set once when the
+            // file is loaded and left alone, because changing either is a layout change: it
+            // moves the glyphs, which resizes the pane around them, which scrolls, which asks
+            // for another pass. Colour on its own changes nothing the layout has to measure.
             storage.beginEditing()
-            storage.setAttributes(CodeEditorStyle.base, range: range)
+            storage.removeAttribute(.backgroundColor, range: range)
+            storage.addAttribute(.foregroundColor, value: CodeEditorStyle.plain, range: range)
             if let language { colour(first...last, language: language, in: storage) }
             highlightMatches(within: range, in: storage)
             storage.endEditing()
@@ -371,9 +394,12 @@ enum CodeEditorStyle {
     static let font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
     static let rulerFont = NSFont.monospacedSystemFont(ofSize: 10, weight: .regular)
 
+    // The colour of anything the highlighter has no token for.
+    static let plain = NSColor.labelColor
+
     static let base: [NSAttributedString.Key: Any] = [
         .font: font,
-        .foregroundColor: NSColor.labelColor,
+        .foregroundColor: plain,
         .paragraphStyle: paragraphStyle
     ]
 
