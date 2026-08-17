@@ -168,6 +168,7 @@ struct CodeEditorView: NSViewRepresentable {
             scrollView.hasHorizontalScroller = true
             scrollView.autohidesScrollers = true
             scrollView.scrollerStyle = .overlay
+            scrollView.horizontalScrollElasticity = .none
 
             let gutter = LineNumberGutter(textView: textView)
             textView.textContainerInset.width = gutter.thickness + 10
@@ -301,7 +302,7 @@ struct CodeEditorView: NSViewRepresentable {
             colouring = true
             defer { colouring = false }
 
-            let viewport = textView.visibleRect.insetBy(dx: 0, dy: -screenfulMargin)
+            let viewport = textView.verticalViewport.insetBy(dx: 0, dy: -screenfulMargin)
             let glyphs = layoutManager.glyphRange(forBoundingRect: viewport, in: container)
             let characters = layoutManager.characterRange(forGlyphRange: glyphs,
                                                           actualGlyphRange: nil)
@@ -422,6 +423,14 @@ enum CodeEditorStyle {
 final class CodeDocumentView: NSTextView {
     private var contentWidth: CGFloat = 0
 
+    // Horizontal scrolling changes which columns are visible, not which lines are on
+    // screen. TextKit's lazy layout must cover the full width or it can discard every
+    // short line when the viewport moves past its last glyph.
+    var verticalViewport: NSRect {
+        NSRect(x: bounds.minX, y: visibleRect.minY,
+               width: bounds.width, height: visibleRect.height)
+    }
+
     func setContentWidth(_ width: CGFloat) {
         contentWidth = width
         setFrameSize(frame.size)
@@ -490,7 +499,7 @@ final class CodeEditorPane: NSView {
 // The line numbers sit above the scroll view rather than inside its document, so the
 // gutter stays put when the pane is scrolled sideways.
 final class LineNumberGutter: NSView {
-    private weak var textView: NSTextView?
+    private weak var textView: CodeDocumentView?
 
     private(set) var thickness: CGFloat = 30
 
@@ -512,7 +521,7 @@ final class LineNumberGutter: NSView {
         }
     }
 
-    init(textView: NSTextView) {
+    init(textView: CodeDocumentView) {
         self.textView = textView
         super.init(frame: NSRect(x: 0, y: 0, width: thickness, height: 0))
         // A view is free to paint outside its own bounds, and this one fills the rect it is
@@ -548,8 +557,9 @@ final class LineNumberGutter: NSView {
         // fragment's position has to be brought back into this one's coordinates.
         let offset = convert(NSPoint.zero, from: textView).y + textView.textContainerInset.height
         // Layout is lazy, so the lines about to be numbered may not exist yet.
-        layoutManager.ensureLayout(forBoundingRect: textView.visibleRect, in: container)
-        let glyphs = layoutManager.glyphRange(forBoundingRect: textView.visibleRect, in: container)
+        let viewport = textView.verticalViewport
+        layoutManager.ensureLayout(forBoundingRect: viewport, in: container)
+        let glyphs = layoutManager.glyphRange(forBoundingRect: viewport, in: container)
 
         var labels: [Label] = []
         layoutManager.enumerateLineFragments(forGlyphRange: glyphs) { fragment, _, _, glyphRange, _ in
@@ -567,7 +577,7 @@ final class LineNumberGutter: NSView {
         // the viewport: on a long file scrolled to the middle it sits far below.
         let extra = layoutManager.extraLineFragmentRect
         if layoutManager.extraLineFragmentTextContainer != nil,
-           textView.visibleRect.intersects(
+           viewport.intersects(
                extra.offsetBy(dx: 0, dy: textView.textContainerInset.height)) {
             labels.append(Label(number: index.count, y: offset + extra.minY,
                                 height: extra.height))

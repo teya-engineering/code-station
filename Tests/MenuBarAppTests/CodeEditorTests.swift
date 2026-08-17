@@ -266,4 +266,38 @@ struct CodeEditorTests {
         #expect(labels.map(\.number) == Array(first.number...(first.number + labels.count - 1)))
     }
 
+    @Test func horizontalScrollingKeepsTheDocumentVisible() async throws {
+        let longLine = String(repeating: "abcdefghij", count: 200)
+        let pane = Pane("one\ntwo\n\(longLine)\nthree\n")
+        let before = gutter(pane).visibleLabels().map(\.number)
+
+        pane.scrollView.contentView.scroll(to: NSPoint(x: 700, y: 0))
+        pane.scrollView.reflectScrolledClipView(pane.scrollView.contentView)
+        await Task.yield()
+
+        #expect(before == [1, 2, 3, 4, 5])
+        #expect(pane.scrollView.contentView.bounds.minX == 700)
+        #expect(pane.scrollView.horizontalScrollElasticity == .none)
+        #expect(gutter(pane).visibleLabels().map(\.number) == before)
+
+        let visible = pane.view.bounds
+        let image = try #require(pane.view.bitmapImageRepForCachingDisplay(in: visible))
+        pane.view.cacheDisplay(in: visible, to: image)
+        let scale = CGFloat(image.pixelsWide) / visible.width
+        let gutterEdge = Int(ceil(gutter(pane).thickness * scale)) + 1
+        let bottomOfTextArea = max(0, image.pixelsHigh - Int(30 * scale))
+        let hasTextPixel = (0..<bottomOfTextArea).contains { y in
+            (gutterEdge..<image.pixelsWide).contains { x in
+                guard let colour = image.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else {
+                    return false
+                }
+                return colour.alphaComponent > 0.5
+                    && colour.redComponent < 0.5
+                    && colour.greenComponent < 0.5
+                    && colour.blueComponent < 0.5
+            }
+        }
+        #expect(hasTextPixel)
+    }
+
 }
