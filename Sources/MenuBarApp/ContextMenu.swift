@@ -425,11 +425,13 @@ struct ContextMenuHost: View {
 }
 
 // A single content tree keeps the search field and its rows alive while the filter
-// changes. The fixed ideal height makes a short menu hug its rows; the outer cap turns
-// only a long menu into a viewport.
+// changes. Measuring the document rather than fixing the scroll view at its ideal size
+// lets a short menu hug its rows while a long one stays clipped inside its viewport.
 struct MenuContentScrollView<Content: View>: View {
     let maxHeight: CGFloat
     let content: Content
+
+    @State private var contentHeight: CGFloat?
 
     init(maxHeight: CGFloat, @ViewBuilder content: () -> Content) {
         self.maxHeight = maxHeight
@@ -438,11 +440,25 @@ struct MenuContentScrollView<Content: View>: View {
 
     var body: some View {
         ScrollView {
-            content.fixedSize(horizontal: false, vertical: true)
+            content
+                .fixedSize(horizontal: false, vertical: true)
+                .background(GeometryReader { geometry in
+                    Color.clear.preference(key: MenuContentHeightKey.self,
+                                           value: geometry.size.height)
+                })
         }
         .scrollIndicators(.visible)
-        .fixedSize(horizontal: false, vertical: true)
-        .frame(maxHeight: maxHeight)
+        .frame(height: min(contentHeight ?? maxHeight, maxHeight))
+        .clipped()
+        .onPreferenceChange(MenuContentHeightKey.self) { contentHeight = $0 }
+    }
+}
+
+private struct MenuContentHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }
 
