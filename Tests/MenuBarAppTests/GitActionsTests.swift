@@ -410,7 +410,7 @@ struct GitActionsTests {
         #expect(after.ahead == 0)
     }
 
-    @Test func updateCheckoutRefusesToMerge() async throws {
+    @Test func updateCheckoutRebasesADivergedDefaultBranch() async throws {
         let remote = try Bare()
         let first = try Repo()
         first.git("remote", "add", "origin", remote.path)
@@ -425,11 +425,36 @@ struct GitActionsTests {
         first.git("push", "-q")
 
         let error = await GitActions.updateCheckout(to: "main", at: second.path)
-        #expect(error?.isEmpty == false)
+        #expect(error == nil)
 
-        // The diverged branch is left exactly as it was.
         let after = await GitInspector.snapshot(at: second.path)
         #expect(after.ahead == 1)
+        #expect(after.behind == 0)
+        #expect(second.read("README.md") == "moved on")
+        #expect(second.read("local.txt") == "diverged")
+    }
+
+    @Test func updateCheckoutRestoresTheOriginalBranchWhenARebaseConflicts() async throws {
+        let remote = try Bare()
+        let first = try Repo()
+        first.git("remote", "add", "origin", remote.path)
+        first.git("push", "-q", "-u", "origin", "HEAD")
+
+        let second = try Repo(cloneOf: remote)
+        try second.write("README.md", "local version")
+        second.git("commit", "-qam", "local edit")
+        let mainBefore = second.head
+        second.git("switch", "-qc", "feature")
+        try first.write("README.md", "remote version")
+        first.git("commit", "-qam", "remote edit")
+        first.git("push", "-q")
+
+        let error = await GitActions.updateCheckout(to: "main", at: second.path)
+        #expect(error?.contains("README.md") == true)
+
+        let after = await GitInspector.snapshot(at: second.path)
+        #expect(after.branch == "feature")
+        #expect(second.revision("main") == mainBefore)
     }
 
     @Test func snapshotListsBranchesAndCountsDrift() async throws {
@@ -674,6 +699,10 @@ struct GitActionsTests {
 
         var head: String {
             Self.output(in: url, ["rev-parse", "HEAD"])
+        }
+
+        func revision(_ ref: String) -> String {
+            Self.output(in: url, ["rev-parse", ref])
         }
 
         // The files the newest commit touched, straight from git rather than a snapshot.

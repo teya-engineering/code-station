@@ -19,6 +19,11 @@ enum GitFreshness {
         var remoteRef: String?
         // Commits the comparison target has that HEAD does not.
         var behind = 0
+        // Commits that exist on only one side of the local default branch and its remote.
+        // These are separate from `behind`, which follows HEAD and may describe a feature
+        // branch instead of the branch an update would switch to.
+        var defaultBranchAhead = 0
+        var defaultBranchBehind = 0
         // Whether the fetch that makes `behind` trustworthy was tried, and whether it
         // worked. Without a fetch the remote refs are only as fresh as the last one.
         var fetchAttempted = false
@@ -31,13 +36,25 @@ enum GitFreshness {
         // to differ from, so it reads as fine.
         var onDefaultBranch: Bool { defaultBranch == nil || currentBranch == defaultBranch }
         var isStale: Bool { !onDefaultBranch || behind > 0 }
-        // A clean checkout can be put on the default branch at the remote tip: a switch
-        // when it sits somewhere else, a fast-forward pull when it trails the remote,
-        // and both when it is on another branch that has fallen behind too. Uncommitted
-        // work is the user's to sort out first, since either move would carry it along.
+        var defaultBranchHasDiverged: Bool {
+            defaultBranchAhead > 0 && defaultBranchBehind > 0
+        }
+        // A clean checkout can be put on the default branch with the remote changes: a
+        // switch when it sits somewhere else, a fast-forward when it only trails, or an
+        // explicit rebase when both sides have commits. A conflicting rebase is aborted.
         // A remote ref is what makes "the latest revision" mean anything, so without one
         // there is nothing to offer.
         var canUpdateCheckout: Bool { isStale && !dirty && remoteRef != nil }
+
+        var divergenceExplanation: String? {
+            guard defaultBranchHasDiverged, let branch = defaultBranch, let remote = remoteRef else {
+                return nil
+            }
+            return "\(branch) and \(remote) have diverged: \(branch) has "
+                + count(defaultBranchAhead, singular: "local commit")
+                + " and \(remote) has "
+                + count(defaultBranchBehind, singular: "remote commit") + "."
+        }
 
         // The report as a short sentence or two: the wrong branch, the missing commits,
         // and when the fetch failed, how old the answer is. Reads as reassurance when
@@ -48,7 +65,9 @@ enum GitFreshness {
                 let place = currentBranch.map { "on \($0)" } ?? "on a detached HEAD"
                 sentences.append("The checkout is \(place), not \(expected).")
             }
-            if behind > 0, let target = remoteRef ?? defaultBranch {
+            if let divergenceExplanation {
+                sentences.append(divergenceExplanation)
+            } else if behind > 0, let target = remoteRef ?? defaultBranch {
                 let subject = sentences.isEmpty ? (currentBranch ?? "The checkout") : "It"
                 sentences.append("\(subject) is \(behind) commit\(behind == 1 ? "" : "s") behind \(target).")
             }
@@ -62,6 +81,10 @@ enum GitFreshness {
                 } ?? "Origin could not be reached, so this may be out of date.")
             }
             return sentences.joined(separator: " ")
+        }
+
+        private func count(_ value: Int, singular: String) -> String {
+            "\(value) \(singular)\(value == 1 ? "" : "s")"
         }
     }
 
@@ -137,6 +160,17 @@ enum GitFreshness {
             report.remoteRef = "origin/\(name)"
         }
 
+        if let branch = report.defaultBranch, let remote = report.remoteRef {
+            let counts = GitInspector.run(
+                tool,
+                ["rev-list", "--count", "--left-right", "refs/heads/\(branch)...\(remote)"],
+                in: url)
+            if counts.ok, let divergence = divergence(counts.text) {
+                report.defaultBranchAhead = divergence.ahead
+                report.defaultBranchBehind = divergence.behind
+            }
+        }
+
         // Without a remote, a checkout that is on the default branch has nothing it
         // could be behind.
         let target = report.remoteRef ?? (report.onDefaultBranch ? nil : report.defaultBranch)
@@ -153,6 +187,12 @@ enum GitFreshness {
         report.dirty = status.ok && !status.text.isEmpty
 
         return report
+    }
+
+    private static func divergence(_ text: String) -> (ahead: Int, behind: Int)? {
+        let fields = text.split(whereSeparator: \.isWhitespace).compactMap { Int($0) }
+        guard fields.count == 2 else { return nil }
+        return (fields[0], fields[1])
     }
 
     // What origin calls its default branch, read from the origin/HEAD ref a clone

@@ -14,6 +14,8 @@ struct GitFreshnessTests {
         #expect(report.defaultBranch == "main")
         #expect(report.remoteRef == "origin/main")
         #expect(report.behind == 0)
+        #expect(report.defaultBranchAhead == 0)
+        #expect(report.defaultBranchBehind == 0)
         #expect(!report.isStale)
     }
 
@@ -28,7 +30,25 @@ struct GitFreshnessTests {
         let fresh = try #require(await GitFreshness.check(at: pair.clone.path, fetch: true))
         #expect(fresh.fetched)
         #expect(fresh.behind == 1)
+        #expect(fresh.defaultBranchBehind == 1)
         #expect(fresh.isStale)
+    }
+
+    // HEAD may be a feature branch, but the update offered by the sheet switches to main.
+    // Its safety and copy therefore have to describe main rather than the checked-out ref.
+    @Test func measuresDivergenceOnTheDefaultBranchInsteadOfHead() async throws {
+        let pair = try ClonedRepo()
+        try pair.clone.commit("local.txt", "local main work")
+        pair.clone.git("checkout", "-q", "-b", "feature")
+        try pair.clone.commit("feature.txt", "feature work")
+        try pair.origin.commit("remote.txt", "remote work")
+
+        let report = try #require(await GitFreshness.check(at: pair.clone.path, fetch: true))
+        #expect(report.currentBranch == "feature")
+        #expect(report.defaultBranchAhead == 1)
+        #expect(report.defaultBranchBehind == 1)
+        #expect(report.defaultBranchHasDiverged)
+        #expect(report.canUpdateCheckout)
     }
 
     @Test func noticesAFeatureBranch() async throws {
@@ -129,6 +149,12 @@ struct GitFreshnessTests {
                                             remoteRef: "origin/main", behind: 1)
         #expect(elsewhere.explanation
                 == "The checkout is on feature, not main. It is 1 commit behind origin/main.")
+
+        let diverged = GitFreshness.Report(currentBranch: "main", defaultBranch: "main",
+                                           remoteRef: "origin/main", behind: 2,
+                                           defaultBranchAhead: 1, defaultBranchBehind: 2)
+        #expect(diverged.explanation
+                == "main and origin/main have diverged: main has 1 local commit and origin/main has 2 remote commits.")
 
         let unreachable = GitFreshness.Report(currentBranch: "main", defaultBranch: "main",
                                               remoteRef: "origin/main",

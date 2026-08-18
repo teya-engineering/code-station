@@ -137,70 +137,45 @@ enum GitActions {
     // which git refuses to guess at and which plenty of checkouts never set: a button has
     // no way to stop halfway and ask. The fetch comes first, so the decision runs on how
     // far apart the two branches are now instead of whenever origin was last read, and the
-    // step that follows is whichever of a fast-forward or a rebase cannot go wrong for
-    // those numbers. Uncommitted work is stashed around the move either way, since sessions
-    // leave trees dirty all the time and a pull otherwise refuses to touch them.
+    // step that follows is a fast-forward or a rebase based on those numbers. Uncommitted
+    // work is stashed around the move either way, since sessions leave trees dirty all the
+    // time and a pull otherwise refuses to touch them.
     static func pull(at root: String) async -> GitPullOutcome {
         guard let tool = await GitInspector.tool() else {
             return .failed("Could not find git on PATH.")
         }
         let url = URL(fileURLWithPath: root)
         return await GitInspector.offMain {
-            let fetch = GitInspector.run(tool, ["fetch", "--quiet", "origin"], in: url,
-                                         timeout: networkTimeout)
-            guard fetch.ok else { return .failed(fetch.failureMessage) }
-
-            let counts = GitInspector.run(
-                tool, ["rev-list", "--count", "--left-right", "HEAD...@{u}"], in: url)
-            guard counts.ok else { return .failed(counts.failureMessage) }
-            guard let (ahead, behind) = divergence(counts.text) else {
-                return .failed("Could not read how far this branch is from its upstream.")
-            }
-            guard behind > 0 else { return .upToDate }
-
-            let incoming = GitInspector.run(
-                tool, ["log", "--no-color", "--format=%H%x09%s", "HEAD..@{u}"], in: url)
-            guard incoming.ok else { return .failed(incoming.failureMessage) }
-            let commits = parseRemoteCommits(incoming.text)
-
-            // With no commits of its own to replay, the branch only has to move forward,
-            // and moving forward cannot conflict with anything. --ff-only holds it to that:
-            // if something did make a merge necessary, it stops instead of making one.
-            if ahead == 0 {
-                let merge = GitInspector.run(tool, ["merge", "--ff-only", "--autostash", "@{u}"],
-                                             in: url)
-                guard merge.ok else { return .failed(merge.failureMessage) }
-                return stashConflicted(merge)
-                    ? .updatedWithStashConflict(commits)
-                    : .updated(commits)
-            }
-
-            let rebase = GitInspector.run(tool, ["rebase", "--autostash", "@{u}"], in: url)
-            guard rebase.ok else {
-                let files = conflictedFiles(tool, in: url)
-                // A rebase that stops leaves the branch halfway onto origin, and this
-                // screen has nothing to finish one with. Aborting puts the branch and the
-                // stashed work back where they were, so a press that cannot succeed at
-                // least leaves nothing behind.
-                let restored = GitInspector.run(tool, ["rebase", "--abort"], in: url).ok
-                return .failed(conflictReport(files: files, restored: restored, output: rebase))
-            }
-            return stashConflicted(rebase)
-                ? .updatedWithStashConflict(commits)
-                : .updated(commits)
+            reconcile(tool, in: url, with: "@{u}")
         }
     }
 
-    // Puts the checkout on `branch` at the remote tip. Switching to the branch it is
-    // already on does nothing, so one call covers both a checkout that is elsewhere and
-    // one that has merely fallen behind. --ff-only means the update can only move the
-    // branch forward or fail: this runs unattended before a session starts, where a
-    // surprise merge has no place. The timeout covers the fetch a pull begins with.
+    // Puts the checkout on `branch` with all of its local commits on top of origin. The
+    // choice that calls this says when a rebase is needed, so preserving those commits is
+    // explicit. A failed rebase aborts itself, and a checkout that started on another
+    // branch is put back there so a failed session launch leaves the folder unchanged.
     static func updateCheckout(to branch: String, at root: String) async -> String? {
-        await perform(at: root) { tool, url in
+        guard let tool = await GitInspector.tool() else {
+            return "Could not find git on PATH."
+        }
+        let url = URL(fileURLWithPath: root)
+        return await GitInspector.offMain {
+            let originalBranch = GitInspector.run(
+                tool, ["symbolic-ref", "--quiet", "--short", "HEAD"], in: url)
+            let originalHead = GitInspector.run(tool, ["rev-parse", "--verify", "HEAD"], in: url)
             let switched = GitInspector.run(tool, ["switch", branch], in: url)
-            guard switched.ok else { return switched }
-            return GitInspector.run(tool, ["pull", "--ff-only"], in: url, timeout: 30)
+            guard switched.ok else { return switched.failureMessage }
+
+            switch reconcile(tool, in: url, with: "origin/\(branch)") {
+            case .upToDate, .updated:
+                return nil
+            case .updatedWithStashConflict:
+                return "The branch was updated, but uncommitted changes could not be put back cleanly. Resolve the conflicts before starting a session."
+            case .failed(let message):
+                let restored = restoreCheckout(tool, in: url, branch: originalBranch, head: originalHead,
+                                               unlessAlreadyOn: branch)
+                return restored ? message : message + "\n\nThe checkout could not be switched back to where it started."
+            }
         }
     }
 
@@ -265,6 +240,65 @@ enum GitActions {
         let fields = text.split(whereSeparator: \.isWhitespace).compactMap { Int($0) }
         guard fields.count == 2 else { return nil }
         return (fields[0], fields[1])
+    }
+
+    private static func reconcile(_ tool: GitInspector.GitTool, in url: URL,
+                                  with target: String) -> GitPullOutcome {
+        let fetch = GitInspector.run(tool, ["fetch", "--quiet", "origin"], in: url,
+                                     timeout: networkTimeout)
+        guard fetch.ok else { return .failed(fetch.failureMessage) }
+
+        let counts = GitInspector.run(
+            tool, ["rev-list", "--count", "--left-right", "HEAD...\(target)"], in: url)
+        guard counts.ok else { return .failed(counts.failureMessage) }
+        guard let (ahead, behind) = divergence(counts.text) else {
+            return .failed("Could not read how far this branch is from \(target).")
+        }
+        guard behind > 0 else { return .upToDate }
+
+        let incoming = GitInspector.run(
+            tool, ["log", "--no-color", "--format=%H%x09%s", "HEAD..\(target)"], in: url)
+        guard incoming.ok else { return .failed(incoming.failureMessage) }
+        let commits = parseRemoteCommits(incoming.text)
+
+        // With no commits of its own to replay, the branch only has to move forward,
+        // and moving forward cannot conflict with anything. --ff-only holds it to that:
+        // if something did make a merge necessary, it stops instead of making one.
+        if ahead == 0 {
+            let merge = GitInspector.run(
+                tool, ["merge", "--ff-only", "--autostash", target], in: url)
+            guard merge.ok else { return .failed(merge.failureMessage) }
+            return stashConflicted(merge)
+                ? .updatedWithStashConflict(commits)
+                : .updated(commits)
+        }
+
+        let rebase = GitInspector.run(tool, ["rebase", "--autostash", target], in: url)
+        guard rebase.ok else {
+            let files = conflictedFiles(tool, in: url)
+            // A rebase that stops leaves the branch halfway onto origin, and this screen
+            // has nothing to finish one with. Aborting puts the branch and the stashed
+            // work back where they were, so a press that cannot succeed leaves no rebase.
+            let restored = GitInspector.run(tool, ["rebase", "--abort"], in: url).ok
+            return .failed(conflictReport(files: files, restored: restored, output: rebase))
+        }
+        return stashConflicted(rebase)
+            ? .updatedWithStashConflict(commits)
+            : .updated(commits)
+    }
+
+    private static func restoreCheckout(_ tool: GitInspector.GitTool, in url: URL,
+                                        branch: GitInspector.CommandOutput,
+                                        head: GitInspector.CommandOutput,
+                                        unlessAlreadyOn target: String) -> Bool {
+        if branch.ok {
+            let name = branch.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard name != target else { return true }
+            return GitInspector.run(tool, ["switch", name], in: url).ok
+        }
+        guard head.ok else { return false }
+        let commit = head.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return GitInspector.run(tool, ["switch", "--detach", commit], in: url).ok
     }
 
     // An autostash that will not go back on cleanly is the one way the reconcile step

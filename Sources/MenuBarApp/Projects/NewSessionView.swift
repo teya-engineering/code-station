@@ -25,11 +25,10 @@ struct NewSessionView: View {
     // from an answer that was about to change, and so the warning a fetch turns up is
     // seen before the choice is made rather than after.
     @State private var fetching = true
-    // The user asked the worktree to fork from the remote tip instead of the checkout.
-    @State private var baseOnRemote = false
-    // The user asked for the checkout to be put on the default branch at its latest
-    // revision before the session starts.
-    @State private var updateCheckout = false
+    // Where the session should start when the checkout is stale. The three states are
+    // shown as choices instead of making an unchecked pair of boxes mean a third answer.
+    @State private var startPoint: SessionStartPoint = .currentCheckout
+    @State private var startPointWasChosen = false
     // The update is running. The sheet stays up until it finishes, so the whole screen
     // goes quiet: a click anywhere while git works could only start the same work twice
     // or abandon it half done.
@@ -55,10 +54,12 @@ struct NewSessionView: View {
             header
             if let report = freshness, report.isStale || (useWorktree && report.dirty) {
                 FreshnessNotice(report: report, forWorktree: useWorktree,
-                                baseOnRemote: $baseOnRemote, updateCheckout: $updateCheckout)
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 12)
-                    .transition(.fadeIn)
+                                startPoint: $startPoint) {
+                    startPointWasChosen = true
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 12)
+                .transition(.fadeIn)
             }
             VStack(spacing: 10) {
                 OptionCard(
@@ -68,7 +69,7 @@ struct NewSessionView: View {
                     detail: "An isolated checkout on its own branch, so several sessions of this project can run at once.",
                     branch: planned.branch,
                     path: planned.path.abbreviatedPath,
-                    selected: useWorktree) { useWorktree = true }
+                    selected: useWorktree) { selectWorktree() }
 
                 OptionCard(
                     title: "Work in the project folder",
@@ -77,7 +78,7 @@ struct NewSessionView: View {
                     detail: "Edits your working tree directly. Sessions that share a folder cannot run together.",
                     branch: GitHead.branch(at: project.path),
                     path: project.collapsedPath,
-                    selected: !useWorktree) { useWorktree = false }
+                    selected: !useWorktree) { selectProjectFolder() }
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 20)
@@ -93,7 +94,10 @@ struct NewSessionView: View {
             withAnimation(.easeOut(duration: 0.2)) { freshness = local }
             let fetched = await GitFreshness.check(at: project.path, fetch: true)
             withAnimation(.easeOut(duration: 0.2)) {
-                if let fetched { freshness = fetched }
+                if let fetched {
+                    freshness = fetched
+                    selectRecommendedStartPoint(for: fetched)
+                }
                 fetching = false
             }
         }
@@ -226,6 +230,21 @@ struct NewSessionView: View {
         selectedAvatarName = appSettings.defaultAgentAvatarName
     }
 
+    private func selectWorktree() {
+        useWorktree = true
+        if let freshness { selectRecommendedStartPoint(for: freshness) }
+    }
+
+    private func selectProjectFolder() {
+        useWorktree = false
+        if startPoint == .remote { startPoint = .currentCheckout }
+    }
+
+    private func selectRecommendedStartPoint(for report: GitFreshness.Report) {
+        guard useWorktree, report.defaultBranchHasDiverged, !startPointWasChosen else { return }
+        startPoint = .remote
+    }
+
     private func agentMenu() -> [MenuEntry] {
         runner.availableAgents.map { agent in
             .item(agent.title,
@@ -245,7 +264,7 @@ struct NewSessionView: View {
     // ones instead would betray that - so the sheet stays for another try or a cancel.
     private func create() {
         // Checked while the option was on screen, and still safe to apply now.
-        guard updateCheckout, let report = freshness, report.canUpdateCheckout,
+        guard startPoint == .updateCheckout, let report = freshness, report.canUpdateCheckout,
               let branch = report.defaultBranch else {
             finish()
             return
@@ -254,19 +273,33 @@ struct NewSessionView: View {
         Task {
             if let error = await GitActions.updateCheckout(to: branch, at: project.path) {
                 pulling = false
-                dialogs.show(Dialog(
-                    title: "Could not update \(project.name)",
-                    message: error,
-                    actions: [.init(label: "OK", kind: .cancel)]))
+                showUpdateFailure(error, report: report)
                 return
             }
             finish()
         }
     }
 
+    private func showUpdateFailure(_ error: String, report: GitFreshness.Report) {
+        var actions: [Dialog.Action] = []
+        if useWorktree, let remote = report.remoteRef {
+            actions.append(.init(label: "Start from \(remote)", kind: .primary) {
+                startPoint = .remote
+                finish()
+            })
+        }
+        actions.append(.init(label: actions.isEmpty ? "OK" : "Cancel", kind: .cancel))
+        dialogs.show(Dialog(
+            title: report.defaultBranchHasDiverged
+                ? "Could not rebase \(report.defaultBranch ?? "the checkout")"
+                : "Could not update \(project.name)",
+            message: error,
+            actions: actions))
+    }
+
     private func finish() {
         guard let agent = chosenAgent else { return }
-        let base = baseOnRemote ? freshness?.remoteRef : nil
+        let base = startPoint == .remote ? freshness?.remoteRef : nil
         let model = runner.defaults(for: agent).model
         onCreate(useWorktree
                  ? .worktree(sessionID, base: base, agent: agent, model: model,
@@ -275,6 +308,12 @@ struct NewSessionView: View {
                            agentAvatarName: selectedAvatarName))
         dismiss()
     }
+}
+
+enum SessionStartPoint: Equatable {
+    case currentCheckout
+    case remote
+    case updateCheckout
 }
 
 // What the sheet came back with. The worktree case carries the id the session must be
@@ -296,8 +335,8 @@ enum NewSessionChoice: Equatable {
 struct FreshnessNotice: View {
     let report: GitFreshness.Report
     let forWorktree: Bool
-    @Binding var baseOnRemote: Bool
-    @Binding var updateCheckout: Bool
+    @Binding var startPoint: SessionStartPoint
+    let onChoose: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -319,12 +358,16 @@ struct FreshnessNotice: View {
                     }
                 }
             }
-            if forWorktree, report.isStale, let remote = report.remoteRef {
-                check(isOn: $baseOnRemote, clearing: $updateCheckout,
-                      label: "Start this session from the latest version of \(remote), leaving your checkout as it is")
-            }
-            if report.canUpdateCheckout, let update = updateLabel {
-                check(isOn: $updateCheckout, clearing: $baseOnRemote, label: update)
+            if report.isStale {
+                if forWorktree, let remote = report.remoteRef {
+                    choice(.remote,
+                           title: "Start from \(remote)\(report.defaultBranchHasDiverged ? " (Recommended)" : "")",
+                           detail: remoteDetail)
+                }
+                if report.canUpdateCheckout, let title = updateTitle {
+                    choice(.updateCheckout, title: title, detail: updateDetail)
+                }
+                choice(.currentCheckout, title: currentTitle, detail: currentDetail)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -333,39 +376,73 @@ struct FreshnessNotice: View {
         .overlay(RoundedRectangle(cornerRadius: 11).stroke(Theme.attention.opacity(0.3)))
     }
 
-    // The two fixes are alternatives - a pulled checkout is already at the remote tip -
-    // so ticking one clears the other.
-    private func check(isOn: Binding<Bool>, clearing other: Binding<Bool>, label: String) -> some View {
+    private func choice(_ value: SessionStartPoint, title: String, detail: String) -> some View {
         Button {
-            isOn.wrappedValue.toggle()
-            if isOn.wrappedValue { other.wrappedValue = false }
+            startPoint = value
+            onChoose()
         } label: {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Image(systemName: isOn.wrappedValue ? "checkmark.square.fill" : "square")
-                    .font(.system(size: 12))
-                    .foregroundStyle(isOn.wrappedValue ? AnyShapeStyle(Theme.accent)
-                                                       : AnyShapeStyle(.secondary))
-                Text(label)
-                    .font(.system(size: 12, weight: .medium))
-                    .multilineTextAlignment(.leading)
-                    .fixedSize(horizontal: false, vertical: true)
+            HStack(alignment: .top, spacing: 7) {
+                Image(systemName: startPoint == value ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 13))
+                    .foregroundStyle(startPoint == value ? AnyShapeStyle(Theme.accent)
+                                                         : AnyShapeStyle(.secondary))
+                    .padding(.top, 1)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.system(size: 12, weight: .semibold))
+                    Text(detail)
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(.secondary)
+                }
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        // Sits on the text's left edge, past the warning icon above it.
         .padding(.leading, 19)
     }
 
-    // The fix named as the moves it makes to the checkout, so ticking it holds no
-    // surprise: a pull when the folder is on the default branch and trailing, a switch
-    // and a pull when it is somewhere else, since landing on the branch says nothing
-    // about landing on its latest revision.
-    private var updateLabel: String? {
+    private var updateTitle: String? {
         guard let branch = report.defaultBranch, let remote = report.remoteRef else { return nil }
+        if report.defaultBranchHasDiverged {
+            return "Rebase \(branch) onto \(remote), then start"
+        }
         return report.onDefaultBranch
-            ? "Update \(branch) first with a git pull, bringing your checkout up to date"
-            : "Switch your checkout to \(branch) first and update it to \(remote)"
+            ? "Update \(branch) to \(remote), then start"
+            : "Switch to \(branch), update it to \(remote), then start"
+    }
+
+    private var updateDetail: String {
+        if report.defaultBranchHasDiverged {
+            return "Keeps \(commitCount(report.defaultBranchAhead, name: "local commit")) and includes \(commitCount(report.defaultBranchBehind, name: "remote commit"))."
+        }
+        return "Changes the project folder before the session is created."
+    }
+
+    private var remoteDetail: String {
+        guard let branch = report.defaultBranch else {
+            return "Leaves the project folder unchanged."
+        }
+        if report.defaultBranchAhead > 0 {
+            return "Leaves \(branch) and \(commitCount(report.defaultBranchAhead, name: "local commit")) unchanged."
+        }
+        return "Leaves \(branch) and its local commits unchanged."
+    }
+
+    private var currentTitle: String {
+        "Start from \(report.currentBranch ?? "the current checkout") as it is"
+    }
+
+    private var currentDetail: String {
+        guard report.behind > 0, let remote = report.remoteRef ?? report.defaultBranch else {
+            return "Does not change the project folder."
+        }
+        return "Does not include \(commitCount(report.behind, name: "commit")) from \(remote)."
+    }
+
+    private func commitCount(_ count: Int, name: String) -> String {
+        "\(count) \(name)\(count == 1 ? "" : "s")"
     }
 
     // The trouble as one or two sentences: the wrong branch, the missing commits, and
@@ -376,7 +453,9 @@ struct FreshnessNotice: View {
             let place = report.currentBranch.map { "on \($0)" } ?? "on a detached HEAD"
             sentences.append("The project folder is \(place), not \(expected).")
         }
-        if report.behind > 0, let target = report.remoteRef ?? report.defaultBranch {
+        if let divergence = report.divergenceExplanation {
+            sentences.append(divergence)
+        } else if report.behind > 0, let target = report.remoteRef ?? report.defaultBranch {
             let subject = sentences.isEmpty ? (report.currentBranch ?? "The checkout") : "It"
             sentences.append("\(subject) is \(report.behind) commit\(report.behind == 1 ? "" : "s") behind \(target).")
         }

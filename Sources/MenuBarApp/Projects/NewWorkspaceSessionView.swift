@@ -24,11 +24,10 @@ struct NewWorkspaceSessionView: View {
     // say, then the same read again after a fetch, so the cards are honest immediately
     // and accurate a moment later.
     @State private var freshness: [UUID: GitFreshness.Report] = [:]
-    // The projects whose worktree should fork from the remote tip instead of the checkout.
-    @State private var baseOnRemote: Set<UUID> = []
-    // The projects whose checkout should be put on the default branch at its latest
-    // revision before the session starts.
-    @State private var updateCheckout: Set<UUID> = []
+    // One explicit start point per stale repository. Missing entries mean the checkout
+    // as it is, which is also the choice for repositories with nothing to reconcile.
+    @State private var startPoints: [UUID: SessionStartPoint] = [:]
+    @State private var chosenStartPoints: Set<UUID> = []
     // Fetch passes still running. Creating waits for them, so a warning a fetch turns up
     // is seen before the choice is made rather than after.
     @State private var activeFetches = 0
@@ -121,7 +120,13 @@ struct NewWorkspaceSessionView: View {
         let repositories = projects.map { (id: $0.id, path: $0.path) }
         for fetch in [false, true] {
             await GitFreshness.checkAll(repositories, fetch: fetch) { id, report in
-                withAnimation(.easeOut(duration: 0.2)) { freshness[id] = report }
+                withAnimation(.easeOut(duration: 0.2)) {
+                    freshness[id] = report
+                    if fetch, report.defaultBranchHasDiverged,
+                       worktrees.contains(id), !chosenStartPoints.contains(id) {
+                        startPoints[id] = .remote
+                    }
+                }
             }
         }
     }
@@ -171,10 +176,17 @@ struct NewWorkspaceSessionView: View {
                 modeButton("Worktree", selected: usesWorktree,
                            enabled: supportsWorktree, tint: projectColour(project.id)) {
                     worktrees.insert(project.id)
+                    if let report = freshness[project.id], report.defaultBranchHasDiverged,
+                       !chosenStartPoints.contains(project.id) {
+                        startPoints[project.id] = .remote
+                    }
                 }
                 modeButton("Project folder", selected: !usesWorktree,
                            enabled: true, tint: projectColour(project.id)) {
                     worktrees.remove(project.id)
+                    if startPoints[project.id] == .remote {
+                        startPoints[project.id] = .currentCheckout
+                    }
                 }
                 Spacer(minLength: 8)
                 Text(usesWorktree ? checkout.path.abbreviatedPath : project.collapsedPath)
@@ -193,9 +205,10 @@ struct NewWorkspaceSessionView: View {
             if let report = freshness[project.id],
                report.isStale || (usesWorktree && report.dirty) {
                 FreshnessNotice(report: report, forWorktree: usesWorktree,
-                                baseOnRemote: membership(project.id, of: $baseOnRemote),
-                                updateCheckout: membership(project.id, of: $updateCheckout))
-                    .transition(.fadeIn)
+                                startPoint: startPoint(project.id)) {
+                    chosenStartPoints.insert(project.id)
+                }
+                .transition(.fadeIn)
             }
         }
         .padding(14)
@@ -204,13 +217,9 @@ struct NewWorkspaceSessionView: View {
             .stroke(lead ? Theme.accent : Theme.border, lineWidth: lead ? 1.5 : 1))
     }
 
-    // The notice's checkboxes act on one project's membership of a set, presented as the
-    // Bool binding the shared notice expects.
-    private func membership(_ id: UUID, of set: Binding<Set<UUID>>) -> Binding<Bool> {
-        Binding(get: { set.wrappedValue.contains(id) },
-                set: { chosen in
-                    if chosen { set.wrappedValue.insert(id) } else { set.wrappedValue.remove(id) }
-                })
+    private func startPoint(_ id: UUID) -> Binding<SessionStartPoint> {
+        Binding(get: { startPoints[id] ?? .currentCheckout },
+                set: { startPoints[id] = $0 })
     }
 
     private func modeButton(_ title: String, selected: Bool, enabled: Bool,
@@ -336,8 +345,8 @@ struct NewWorkspaceSessionView: View {
     private func detach(_ id: UUID) {
         projectIDs.removeAll { $0 == id }
         worktrees.remove(id)
-        baseOnRemote.remove(id)
-        updateCheckout.remove(id)
+        startPoints.removeValue(forKey: id)
+        chosenStartPoints.remove(id)
     }
 
     private var fetching: Bool { activeFetches > 0 && !gaveUpWaiting }
@@ -369,7 +378,7 @@ struct NewWorkspaceSessionView: View {
     // that - so the sheet stays for another try or a cancel.
     private func create() {
         let updates = projectIDs.compactMap { id -> (project: Project, branch: String)? in
-            guard updateCheckout.contains(id), let report = freshness[id],
+            guard startPoints[id] == .updateCheckout, let report = freshness[id],
                   report.canUpdateCheckout, let branch = report.defaultBranch,
                   let project = store.project(id) else { return nil }
             return (project, branch)
@@ -383,15 +392,30 @@ struct NewWorkspaceSessionView: View {
             for (project, branch) in updates {
                 if let error = await GitActions.updateCheckout(to: branch, at: project.path) {
                     pulling = false
-                    dialogs.show(Dialog(
-                        title: "Could not update \(project.name)",
-                        message: error,
-                        actions: [.init(label: "OK", kind: .cancel)]))
+                    showUpdateFailure(error, for: project, report: freshness[project.id])
                     return
                 }
             }
             finish()
         }
+    }
+
+    private func showUpdateFailure(_ error: String, for project: Project,
+                                   report: GitFreshness.Report?) {
+        var actions: [Dialog.Action] = []
+        if worktrees.contains(project.id), let remote = report?.remoteRef {
+            actions.append(.init(label: "Start from \(remote)", kind: .primary) {
+                startPoints[project.id] = .remote
+                create()
+            })
+        }
+        actions.append(.init(label: actions.isEmpty ? "OK" : "Cancel", kind: .cancel))
+        dialogs.show(Dialog(
+            title: report?.defaultBranchHasDiverged == true
+                ? "Could not rebase \(report?.defaultBranch ?? "the checkout")"
+                : "Could not update \(project.name)",
+            message: error,
+            actions: actions))
     }
 
     private func finish() {
@@ -400,7 +424,7 @@ struct NewWorkspaceSessionView: View {
             let useWorktree = store.project(id).map {
                 worktrees.contains(id) && $0.isGitRepository
             } ?? false
-            let base = useWorktree && baseOnRemote.contains(id)
+            let base = useWorktree && startPoints[id] == .remote
                 ? freshness[id]?.remoteRef : nil
             return WorkspaceProjectChoice(projectID: id, useWorktree: useWorktree, base: base)
         }
