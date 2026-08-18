@@ -120,7 +120,7 @@ A `swift run` development build has no bundle to fold a file into, so use the fi
 | `dispatch.environments` | What `{{env}}` stands for on each side of the sheet: a `staging` and a `production` word. Left out, they are `dev` and `prd`. |
 | `dispatch.requests` | The saved requests a first run starts with, each a `name`, a `method`, and a `url`. `{{env}}` in a URL is replaced with the word above for the environment the request is sent from. |
 | `grafana.presets` | The instances offered in the Add server sheet. A preset is a `scope`, an `environment`, and a `url`. The agents know each one as `grafana-<scope>-<environment>`. `serves` lists which troubleshooting environments (`dev`, `prod`) offer it, and a preset that lists none is offered for all of them. |
-| `skills` | The marketplace the Skills screen installs from: its `name` on screen, its `marketplace` name as the agent CLIs know it, and the `repository` it is cloned from. |
+| `skills` | The marketplace the Skills screen starts with: its `name` on screen, its `marketplace` name as the agent CLIs know it, and the `repository` it is cloned from. The Skills screen can also use a Git repository or a local marketplace JSON file selected on that Mac. |
 | `shortcuts` | The command shortcuts a first run starts with, each a `name` and a `command`. They run from your home folder, since the file cannot know which projects you have added. Everyone can then add their own, including ones filed under a project, which are saved per install and never overwritten by this file. |
 
 The client secret and the OAuth tokens are yours rather than your organisation's, so they are never part of this file. They stay in the macOS Keychain.

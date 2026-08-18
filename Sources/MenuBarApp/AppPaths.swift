@@ -229,8 +229,35 @@ enum Preferences {
     }
 
     static var skillsLastRefresh: Date? {
-        get { store.object(forKey: "skillsLastRefresh") as? Date }
-        set { store.set(newValue, forKey: "skillsLastRefresh") }
+        get { skillsLastRefresh(in: store) }
+        set { setSkillsLastRefresh(newValue, in: store) }
+    }
+
+    static func skillsLastRefresh(in store: UserDefaults) -> Date? {
+        store.object(forKey: "skillsLastRefresh") as? Date
+    }
+
+    static func setSkillsLastRefresh(_ date: Date?, in store: UserDefaults) {
+        store.set(date, forKey: "skillsLastRefresh")
+    }
+
+    static var skillsMarketplace: SkillMarketplaceConfiguration? {
+        get { skillsMarketplace(in: store) }
+        set { setSkillsMarketplace(newValue, in: store) }
+    }
+
+    static func skillsMarketplace(in store: UserDefaults) -> SkillMarketplaceConfiguration? {
+        guard let data = store.data(forKey: "skillsMarketplace") else { return nil }
+        return try? JSONDecoder().decode(SkillMarketplaceConfiguration.self, from: data)
+    }
+
+    static func setSkillsMarketplace(_ marketplace: SkillMarketplaceConfiguration?,
+                                     in store: UserDefaults) {
+        guard let marketplace, let data = try? JSONEncoder().encode(marketplace) else {
+            store.removeObject(forKey: "skillsMarketplace")
+            return
+        }
+        store.set(data, forKey: "skillsMarketplace")
     }
 
     // How the sidebar orders projects. An unset key reads as the alphabetical order,

@@ -58,6 +58,23 @@ struct AppPathsTests {
         #expect(FileManager.default.fileExists(atPath: destination.path) == false)
     }
 
+    @Test func savesAndClearsTheSelectedSkillsMarketplace() throws {
+        let suite = "skills-marketplace-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let marketplace = SkillMarketplaceConfiguration(
+            source: "/tmp/marketplace.json",
+            sourceKind: .localFile,
+            marketplace: "example-engineering",
+            label: "example-engineering")
+
+        Preferences.setSkillsMarketplace(marketplace, in: defaults)
+        #expect(Preferences.skillsMarketplace(in: defaults) == marketplace)
+
+        Preferences.setSkillsMarketplace(nil, in: defaults)
+        #expect(Preferences.skillsMarketplace(in: defaults) == nil)
+    }
+
     @Test func movesTheFirstExistingCandidate() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }

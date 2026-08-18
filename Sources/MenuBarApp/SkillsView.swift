@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 private enum RepertoireFilter: CaseIterable, Identifiable {
     case all
@@ -21,6 +22,8 @@ struct SkillsView: View {
     @State private var manager: SkillsManager
     @State private var query = ""
     @State private var filter = RepertoireFilter.all
+    @State private var repositorySource = ""
+    @State private var setupFailure: String?
 
     init(manager: SkillsManager) {
         _manager = State(initialValue: manager)
@@ -73,31 +76,33 @@ struct SkillsView: View {
                 .buttonStyle(.plain)
                 .disabled(manager.isUpdatingAll || manager.isRefreshing)
             }
-            Button {
-                Task { await manager.refresh() }
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 10.5, weight: .semibold))
-                        .rotationEffect(manager.isRefreshing ? .degrees(360) : .zero)
-                        .animation(manager.isRefreshing
-                                   ? .linear(duration: 0.9)
-                                       .repeatForever(autoreverses: false)
-                                   : .default,
-                                   value: manager.isRefreshing)
-                    Text(manager.isRefreshing ? "Refreshing…" : "Refresh")
-                        .font(.system(size: 11.5, weight: .semibold))
+            if manager.isConfigured {
+                Button {
+                    Task { await manager.refresh() }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 10.5, weight: .semibold))
+                            .rotationEffect(manager.isRefreshing ? .degrees(360) : .zero)
+                            .animation(manager.isRefreshing
+                                       ? .linear(duration: 0.9)
+                                           .repeatForever(autoreverses: false)
+                                       : .default,
+                                       value: manager.isRefreshing)
+                        Text(manager.isRefreshing ? "Refreshing…" : "Refresh")
+                            .font(.system(size: 11.5, weight: .semibold))
+                    }
+                    .foregroundStyle(Color.primary)
+                    .padding(.horizontal, 12)
+                    .frame(height: 30)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Theme.field))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
+                    .contentShape(RoundedRectangle(cornerRadius: 8))
                 }
-                .foregroundStyle(Color.primary)
-                .padding(.horizontal, 12)
-                .frame(height: 30)
-                .background(RoundedRectangle(cornerRadius: 8).fill(Theme.field))
-                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
-                .contentShape(RoundedRectangle(cornerRadius: 8))
+                .buttonStyle(.plain)
+                .disabled(manager.isRefreshing || manager.isUpdatingAll)
+                .appTooltip("Refresh marketplace and installed versions")
             }
-            .buttonStyle(.plain)
-            .disabled(manager.isRefreshing || manager.isUpdatingAll)
-            .appTooltip("Refresh marketplace and installed versions")
         }
         .padding(.horizontal, 20)
         .headerBand()
@@ -109,9 +114,7 @@ struct SkillsView: View {
                         title: "Fetching repertoire",
                         detail: "Reading the marketplace and both agent installations.")
         } else if manager.plugins.isEmpty {
-            PaneMessage(icon: "exclamationmark.triangle",
-                        title: "Repertoire could not be loaded",
-                        detail: manager.catalogueNotice ?? "The marketplace returned no packages.")
+            marketplaceSetup
         } else {
             VStack(spacing: 0) {
                 if let notice = manager.catalogueNotice {
@@ -137,6 +140,140 @@ struct SkillsView: View {
                         .padding(.bottom, 20)
                     }
                 }
+            }
+        }
+    }
+
+    private var marketplaceSetup: some View {
+        VStack(spacing: 18) {
+            VStack(spacing: 8) {
+                Image(systemName: manager.isConfigured
+                      ? "exclamationmark.triangle"
+                      : "shippingbox")
+                    .font(.system(size: 26, weight: .light))
+                    .foregroundStyle(.secondary)
+                Text(manager.isConfigured
+                     ? "Repertoire could not be loaded"
+                     : "Add a skills marketplace")
+                    .font(.serif(17, .semibold))
+                Text(setupFailure
+                     ?? manager.catalogueNotice
+                     ?? (manager.isConfigured
+                         ? "The marketplace returned no packages."
+                         : "Load a marketplace from a Git repository or a local manifest file."))
+                    .font(.system(size: 13))
+                    .foregroundStyle(setupFailure == nil ? Color.secondary : Theme.deletion)
+                    .multilineTextAlignment(.center)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: 560)
+            }
+
+            HStack(alignment: .top, spacing: 12) {
+                setupCard(icon: "arrow.triangle.branch",
+                          title: "Git repository",
+                          detail: "Clone a repository and refresh it with Git.") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        TextField("https://github.com/org/marketplace.git",
+                                  text: $repositorySource)
+                            .textFieldStyle(.plain)
+                            .font(.mono(11.5))
+                            .padding(.horizontal, 10)
+                            .frame(height: 34)
+                            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.field))
+                            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
+                            .onSubmit(loadRepository)
+                        ActionButton(title: manager.isRefreshing ? "Loading…" : "Load repository",
+                                     tone: .outlined,
+                                     icon: manager.isRefreshing ? nil : "arrow.down.circle",
+                                     action: loadRepository)
+                            .disabled(manager.isRefreshing || trimmedRepository.isEmpty)
+                            .opacity(manager.isRefreshing ? 0.6 : 1)
+                    }
+                }
+
+                setupCard(icon: "doc.badge.plus",
+                          title: "Local file",
+                          detail: "Read a marketplace JSON file already on this Mac.") {
+                    ActionButton(title: "Choose marketplace file",
+                                 tone: .outlined,
+                                 icon: "folder",
+                                 action: chooseMarketplaceFile)
+                        .disabled(manager.isRefreshing)
+                        .opacity(manager.isRefreshing ? 0.6 : 1)
+                }
+            }
+            .frame(maxWidth: 680)
+
+            Text("Repository sources must contain .claude-plugin/marketplace.json.")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+        }
+        .padding(40)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func setupCard<Content: View>(
+        icon: String,
+        title: String,
+        detail: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Theme.accent)
+                .frame(width: 32, height: 32)
+                .background(Circle().fill(Theme.accent.opacity(0.09)))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(.serif(15))
+                Text(detail)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 2)
+            content()
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, minHeight: 170, alignment: .topLeading)
+        .background(RoundedRectangle(cornerRadius: 11).fill(Theme.card))
+        .overlay(RoundedRectangle(cornerRadius: 11).stroke(Theme.border))
+    }
+
+    private var trimmedRepository: String {
+        repositorySource.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func loadRepository() {
+        let repository = trimmedRepository
+        guard !manager.isRefreshing, !repository.isEmpty else { return }
+        setupFailure = nil
+        Task {
+            do {
+                try await manager.configure(gitRepository: repository)
+            } catch {
+                setupFailure = error.localizedDescription
+            }
+        }
+    }
+
+    private func chooseMarketplaceFile() {
+        guard !manager.isRefreshing else { return }
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.json]
+        panel.prompt = "Load"
+        panel.message = "Choose a marketplace JSON file."
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        setupFailure = nil
+        Task {
+            do {
+                try await manager.configure(localFile: url)
+            } catch {
+                setupFailure = error.localizedDescription
             }
         }
     }
@@ -408,11 +545,11 @@ struct SkillsView: View {
 
     private func marketplaceStatus(at date: Date) -> String {
         guard let lastRefresh = manager.lastRefresh else {
-            return "\(SkillsManager.marketplaceLabel) · not yet refreshed"
+            return "\(manager.marketplaceLabel) · not yet refreshed"
         }
         let age = RelativeTime.short(lastRefresh)
         let freshness = age == "now" ? "refreshed now" : "refreshed \(age) ago"
-        return "\(SkillsManager.marketplaceLabel) · \(freshness)"
+        return "\(manager.marketplaceLabel) · \(freshness)"
     }
 
     private func versionText(_ version: String) -> String {

@@ -16,6 +16,31 @@ struct SkillMarketplace: Decodable, Equatable, Sendable {
     let plugins: [Plugin]
 }
 
+struct SkillMarketplaceConfiguration: Codable, Equatable, Sendable {
+    enum SourceKind: String, Codable, Sendable {
+        case gitRepository
+        case localFile
+    }
+
+    let source: String
+    let sourceKind: SourceKind
+    let marketplace: String
+    let label: String
+
+    var isLocalFile: Bool { sourceKind == .localFile }
+    var isValid: Bool {
+        !source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !marketplace.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    static func siteDefault(_ skills: SiteDefaults.Skills) -> Self {
+        Self(source: skills.repository,
+             sourceKind: .gitRepository,
+             marketplace: skills.marketplace,
+             label: skills.name)
+    }
+}
+
 enum SkillHost: String, CaseIterable, Identifiable, Sendable {
     case claude
     case codex
@@ -109,7 +134,7 @@ enum SkillsRefreshInterval: Int, CaseIterable, Identifiable, Sendable {
 
 enum SkillActionProgress: String, Equatable, Sendable {
     case checkingMarketplace = "Checking marketplace…"
-    case cloningMarketplace = "Cloning marketplace…"
+    case addingMarketplace = "Adding marketplace…"
     case refreshingMarketplace = "Refreshing marketplace…"
     case installing = "Installing skill…"
     case uninstalling = "Uninstalling skill…"
@@ -120,19 +145,6 @@ enum SkillActionProgress: String, Equatable, Sendable {
 @MainActor
 @Observable
 final class SkillsManager {
-    nonisolated static var repositoryURL: String { SiteDefaults.current.skills?.repository ?? "" }
-    nonisolated static var marketplaceName: String { SiteDefaults.current.skills?.marketplace ?? "" }
-
-    // What the marketplace is called on screen. A build with no marketplace still has to
-    // put something under the Skills heading.
-    nonisolated static var marketplaceLabel: String {
-        SiteDefaults.current.skills?.name ?? "No marketplace"
-    }
-
-    nonisolated static var isConfigured: Bool {
-        !repositoryURL.isEmpty && !marketplaceName.isEmpty
-    }
-
     private(set) var marketplace: SkillMarketplace?
     // Sorted when the catalogue arrives rather than on every read: the sidebar and the
     // tools menu both reach for this while they draw, and the compare is not free.
@@ -147,11 +159,32 @@ final class SkillsManager {
     private(set) var catalogueNotice: String?
 
     private let cacheURLOverride: URL?
+    @ObservationIgnored private let preferences: UserDefaults
+
+    private var configuration: SkillMarketplaceConfiguration? {
+        if let selected = Preferences.skillsMarketplace(in: preferences), selected.isValid {
+            return selected
+        }
+        guard let skills = SiteDefaults.current.skills else { return nil }
+        let siteDefault = SkillMarketplaceConfiguration.siteDefault(skills)
+        return siteDefault.isValid ? siteDefault : nil
+    }
+
+    var marketplaceName: String { configuration?.marketplace ?? "" }
+
+    // What the marketplace is called on screen. A build with no marketplace still has to
+    // put something under the Skills heading.
+    var marketplaceLabel: String { configuration?.label ?? "No marketplace" }
+
+    var isConfigured: Bool { configuration != nil }
 
     private var cacheURL: URL {
-        cacheURLOverride
-            ?? AppPaths.directory("marketplaces", backedUp: false)
-                .appendingPathComponent(Self.marketplaceName, isDirectory: true)
+        if let cacheURLOverride { return cacheURLOverride }
+        let name = Preferences.skillsMarketplace(in: preferences) == nil
+            ? marketplaceName
+            : "custom"
+        return AppPaths.directory("marketplaces", backedUp: false)
+            .appendingPathComponent(name, isDirectory: true)
     }
 
     struct Action: Hashable, Sendable {
@@ -159,8 +192,9 @@ final class SkillsManager {
         let plugin: String
     }
 
-    init(cacheURL: URL? = nil) {
+    init(cacheURL: URL? = nil, preferences: UserDefaults = .standard) {
         cacheURLOverride = cacheURL
+        self.preferences = preferences
     }
 
     private func setMarketplace(_ catalogue: SkillMarketplace?) {
@@ -182,7 +216,7 @@ final class SkillsManager {
         }
     }
 
-    var lastRefresh: Date? { Preferences.skillsLastRefresh }
+    var lastRefresh: Date? { Preferences.skillsLastRefresh(in: preferences) }
 
     func isAvailable(_ host: SkillHost) -> Bool {
         ProcessManager.resolve(host.command) != nil
@@ -225,22 +259,91 @@ final class SkillsManager {
         actionFailures[Action(host: host, plugin: plugin.name)]
     }
 
+    func configure(localFile url: URL) async throws {
+        guard !isRefreshing else { return }
+        let (configuration, catalogue) = try Self.localConfiguration(at: url)
+
+        isRefreshing = true
+        catalogueNotice = nil
+        hostFailures = [:]
+        Preferences.setSkillsMarketplace(configuration, in: preferences)
+        Preferences.setSkillsLastRefresh(Date(), in: preferences)
+
+        async let claudeLoad = Self.loadInstallations(for: .claude,
+                                                       marketplace: configuration.marketplace)
+        async let codexLoad = Self.loadInstallations(for: .codex,
+                                                      marketplace: configuration.marketplace)
+        let (claude, codex) = await (claudeLoad, codexLoad)
+
+        setMarketplace(catalogue)
+        apply(claude, to: .claude)
+        apply(codex, to: .codex)
+        isRefreshing = false
+        hasLoaded = true
+    }
+
+    func configure(gitRepository source: String) async throws {
+        guard !isRefreshing else { return }
+        let source = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !source.isEmpty else { throw ImportError("Enter a Git repository.") }
+
+        isRefreshing = true
+        catalogueNotice = nil
+        hostFailures = [:]
+        defer { isRefreshing = false }
+
+        let load = await Self.loadGitCatalogue(source: source,
+                                               at: cacheURLOverride
+                                                   ?? AppPaths.directory("marketplaces",
+                                                                         backedUp: false)
+                                                       .appendingPathComponent("custom",
+                                                                               isDirectory: true),
+                                               forceClone: true)
+        guard let catalogue = load.marketplace else {
+            throw ImportError(load.notice ?? "The marketplace could not be loaded.")
+        }
+        let configuration = SkillMarketplaceConfiguration(
+            source: source,
+            sourceKind: .gitRepository,
+            marketplace: catalogue.name,
+            label: catalogue.name)
+        Preferences.setSkillsMarketplace(configuration, in: preferences)
+        Preferences.setSkillsLastRefresh(Date(), in: preferences)
+
+        async let claudeLoad = Self.loadInstallations(for: .claude,
+                                                       marketplace: configuration.marketplace)
+        async let codexLoad = Self.loadInstallations(for: .codex,
+                                                      marketplace: configuration.marketplace)
+        let (claude, codex) = await (claudeLoad, codexLoad)
+
+        setMarketplace(catalogue)
+        apply(claude, to: .claude)
+        apply(codex, to: .codex)
+        hasLoaded = true
+    }
+
     func refresh() async {
         guard !isRefreshing else { return }
         isRefreshing = true
         catalogueNotice = nil
         hostFailures = [:]
 
-        async let catalogueLoad = Self.loadCatalogue(at: cacheURL)
-        async let claudeLoad = Self.loadInstallations(for: .claude)
-        async let codexLoad = Self.loadInstallations(for: .codex)
+        let selectedConfiguration = configuration
+        let marketplaceName = selectedConfiguration?.marketplace ?? ""
+
+        async let catalogueLoad = Self.loadCatalogue(configuration: selectedConfiguration,
+                                                      at: cacheURL)
+        async let claudeLoad = Self.loadInstallations(for: .claude,
+                                                       marketplace: marketplaceName)
+        async let codexLoad = Self.loadInstallations(for: .codex,
+                                                      marketplace: marketplaceName)
 
         let (catalogue, claude, codex) = await (catalogueLoad, claudeLoad, codexLoad)
 
         setMarketplace(catalogue.marketplace)
         catalogueNotice = catalogue.notice
         if catalogue.didRefresh {
-            Preferences.skillsLastRefresh = Date()
+            Preferences.setSkillsLastRefresh(Date(), in: preferences)
         }
         apply(claude, to: .claude)
         apply(codex, to: .codex)
@@ -249,7 +352,7 @@ final class SkillsManager {
     }
 
     func refreshIfNeeded(every interval: SkillsRefreshInterval, now: Date = Date()) async {
-        guard interval.shouldRefresh(lastRefresh: Preferences.skillsLastRefresh, now: now) else {
+        guard interval.shouldRefresh(lastRefresh: lastRefresh, now: now) else {
             return
         }
         await refresh()
@@ -257,7 +360,7 @@ final class SkillsManager {
 
     func loadForNotifications(every interval: SkillsRefreshInterval,
                               now: Date = Date()) async {
-        if interval.shouldRefresh(lastRefresh: Preferences.skillsLastRefresh, now: now) {
+        if interval.shouldRefresh(lastRefresh: lastRefresh, now: now) {
             await refresh()
         } else {
             await loadCachedState()
@@ -279,14 +382,14 @@ final class SkillsManager {
                 actionProgress[action] = .installing
                 result = await Self.run(host.command,
                                         host.installArguments(plugin: plugin.name,
-                                                              marketplace: Self.marketplaceName))
+                                                              marketplace: marketplaceName))
             } else {
                 result = ready
             }
         } else {
             result = await Self.run(host.command,
                                     host.removeArguments(plugin: plugin.name,
-                                                         marketplace: Self.marketplaceName))
+                                                         marketplace: marketplaceName))
         }
 
         if result.ok {
@@ -310,7 +413,7 @@ final class SkillsManager {
             actionProgress[action] = .updating
             result = await Self.run(host.command,
                                     host.updateArguments(plugin: plugin.name,
-                                                         marketplace: Self.marketplaceName))
+                                                         marketplace: marketplaceName))
         } else {
             result = ready
         }
@@ -338,7 +441,7 @@ final class SkillsManager {
     }
 
     private func refreshInstallations(for host: SkillHost) async {
-        apply(await Self.loadInstallations(for: host), to: host)
+        apply(await Self.loadInstallations(for: host, marketplace: marketplaceName), to: host)
     }
 
     private func apply(_ load: InstallationLoad, to host: SkillHost) {
@@ -358,13 +461,44 @@ final class SkillsManager {
         try JSONDecoder().decode(SkillMarketplace.self, from: data)
     }
 
+    nonisolated static func localConfiguration(at url: URL) throws
+        -> (SkillMarketplaceConfiguration, SkillMarketplace) {
+        let url = url.standardizedFileURL
+        let data: Data
+        do {
+            data = try Data(contentsOf: url)
+        } catch {
+            throw ImportError("The marketplace file could not be read: \(error.localizedDescription)")
+        }
+
+        let marketplace: SkillMarketplace
+        do {
+            marketplace = try decodeMarketplace(data)
+        } catch {
+            throw ImportError("The marketplace file is not valid: \(error.localizedDescription)")
+        }
+        guard !marketplace.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw ImportError("The marketplace file must contain a name.")
+        }
+        return (SkillMarketplaceConfiguration(source: url.path,
+                                               sourceKind: .localFile,
+                                               marketplace: marketplace.name,
+                                               label: marketplace.name),
+                marketplace)
+    }
+
     private func loadCachedState() async {
         guard !hasLoaded, !isRefreshing else { return }
         isRefreshing = true
 
-        let catalogue = Self.loadCachedCatalogue(at: cacheURL)
-        async let claudeLoad = Self.loadInstallations(for: .claude)
-        async let codexLoad = Self.loadInstallations(for: .codex)
+        let selectedConfiguration = configuration
+        let marketplaceName = selectedConfiguration?.marketplace ?? ""
+        let catalogue = Self.loadCachedCatalogue(configuration: selectedConfiguration,
+                                                  at: cacheURL)
+        async let claudeLoad = Self.loadInstallations(for: .claude,
+                                                       marketplace: marketplaceName)
+        async let codexLoad = Self.loadInstallations(for: .codex,
+                                                      marketplace: marketplaceName)
         let (claude, codex) = await (claudeLoad, codexLoad)
 
         setMarketplace(catalogue.marketplace)
@@ -375,8 +509,16 @@ final class SkillsManager {
         hasLoaded = true
     }
 
-    private nonisolated static func loadCachedCatalogue(at cacheURL: URL) -> CatalogueLoad {
-        let manifest = cacheURL.appendingPathComponent(".claude-plugin/marketplace.json")
+    private nonisolated static func loadCachedCatalogue(
+        configuration: SkillMarketplaceConfiguration?,
+        at cacheURL: URL
+    ) -> CatalogueLoad {
+        guard let configuration else {
+            return CatalogueLoad(marketplace: nil, notice: nil, didRefresh: false)
+        }
+        let manifest = configuration.isLocalFile
+            ? URL(fileURLWithPath: configuration.source)
+            : cacheURL.appendingPathComponent(".claude-plugin/marketplace.json")
         guard let data = try? Data(contentsOf: manifest),
               let marketplace = try? decodeMarketplace(data) else {
             return CatalogueLoad(marketplace: nil, notice: nil, didRefresh: false)
@@ -384,54 +526,109 @@ final class SkillsManager {
         return CatalogueLoad(marketplace: marketplace, notice: nil, didRefresh: false)
     }
 
-    private nonisolated static func loadCatalogue(at cacheURL: URL) async -> CatalogueLoad {
-        guard isConfigured else {
+    private nonisolated static func loadCatalogue(
+        configuration: SkillMarketplaceConfiguration?,
+        at cacheURL: URL
+    ) async -> CatalogueLoad {
+        guard let configuration else {
             return CatalogueLoad(marketplace: nil,
-                                 notice: "This build has no skills marketplace set up.",
+                                 notice: "No skills marketplace is set up.",
                                  didRefresh: false)
         }
-        let files = FileManager.default
-        let manifest = cacheURL.appendingPathComponent(".claude-plugin/marketplace.json")
-        let gitFolder = cacheURL.appendingPathComponent(".git")
-        let gitResult: CommandResult
 
-        if files.fileExists(atPath: gitFolder.path) {
-            gitResult = await run("git", ["-C", cacheURL.path, "pull", "--ff-only"])
-        } else {
+        if configuration.isLocalFile {
+            let url = URL(fileURLWithPath: configuration.source)
+            let data: Data
             do {
-                let parent = cacheURL.deletingLastPathComponent()
-                let candidate = parent.appendingPathComponent(
-                    ".\(marketplaceName)-\(UUID().uuidString)", isDirectory: true)
-                try files.createDirectory(at: parent,
-                                          withIntermediateDirectories: true)
-                let cloned = await run("git", ["clone", "--depth", "1", repositoryURL,
-                                               candidate.path])
-                if cloned.ok {
-                    if files.fileExists(atPath: cacheURL.path) {
-                        try files.removeItem(at: cacheURL)
-                    }
-                    try files.moveItem(at: candidate, to: cacheURL)
-                    gitResult = cloned
-                } else {
-                    try? files.removeItem(at: candidate)
-                    gitResult = cloned
-                }
+                data = try Data(contentsOf: url)
             } catch {
-                gitResult = CommandResult(errorText: error.localizedDescription)
+                return CatalogueLoad(
+                    marketplace: nil,
+                    notice: "The marketplace file could not be read: \(error.localizedDescription)",
+                    didRefresh: false)
+            }
+            do {
+                return CatalogueLoad(marketplace: try decodeMarketplace(data),
+                                     notice: nil,
+                                     didRefresh: true)
+            } catch {
+                return CatalogueLoad(
+                    marketplace: nil,
+                    notice: "The marketplace file is not valid: \(error.localizedDescription)",
+                    didRefresh: false)
             }
         }
 
-        guard let data = try? Data(contentsOf: manifest),
-              let marketplace = try? decodeMarketplace(data) else {
-            let detail = gitResult.ok
-                ? "The marketplace did not contain a readable .claude-plugin/marketplace.json file."
-                : gitResult.failureMessage
-            return CatalogueLoad(marketplace: nil, notice: detail, didRefresh: false)
+        return await loadGitCatalogue(source: configuration.source, at: cacheURL)
+    }
+
+    nonisolated static func loadGitCatalogue(source: String,
+                                             at cacheURL: URL,
+                                             forceClone: Bool = false) async
+        -> CatalogueLoad {
+        let files = FileManager.default
+        let manifest = cacheURL.appendingPathComponent(".claude-plugin/marketplace.json")
+        let gitFolder = cacheURL.appendingPathComponent(".git")
+
+        if !forceClone, files.fileExists(atPath: gitFolder.path) {
+            let pulled = await run("git", ["-C", cacheURL.path, "pull", "--ff-only"])
+            guard let data = try? Data(contentsOf: manifest),
+                  let marketplace = try? decodeMarketplace(data) else {
+                let detail = pulled.ok
+                    ? "The repository did not contain a readable .claude-plugin/marketplace.json file."
+                    : pulled.failureMessage
+                return CatalogueLoad(marketplace: nil, notice: detail, didRefresh: false)
+            }
+            return CatalogueLoad(
+                marketplace: marketplace,
+                notice: pulled.ok ? nil
+                    : "Could not refresh the marketplace. Showing the cached list. \(pulled.failureMessage)",
+                didRefresh: pulled.ok)
         }
-        return CatalogueLoad(marketplace: marketplace,
-                             notice: gitResult.ok ? nil
-                                 : "Could not refresh the marketplace. Showing the cached list. \(gitResult.failureMessage)",
-                             didRefresh: gitResult.ok)
+
+        let parent = cacheURL.deletingLastPathComponent()
+        let candidate = parent.appendingPathComponent(
+            ".marketplace-\(UUID().uuidString)", isDirectory: true)
+        do {
+            try files.createDirectory(at: parent, withIntermediateDirectories: true)
+        } catch {
+            return CatalogueLoad(marketplace: nil,
+                                 notice: error.localizedDescription,
+                                 didRefresh: false)
+        }
+
+        let cloned = await run("git", ["clone", "--depth", "1", "--", source,
+                                       candidate.path])
+        guard cloned.ok else {
+            try? files.removeItem(at: candidate)
+            return CatalogueLoad(marketplace: nil,
+                                 notice: cloned.failureMessage,
+                                 didRefresh: false)
+        }
+
+        let candidateManifest = candidate
+            .appendingPathComponent(".claude-plugin/marketplace.json")
+        guard let data = try? Data(contentsOf: candidateManifest),
+              let marketplace = try? decodeMarketplace(data) else {
+            try? files.removeItem(at: candidate)
+            return CatalogueLoad(
+                marketplace: nil,
+                notice: "The repository did not contain a readable .claude-plugin/marketplace.json file.",
+                didRefresh: false)
+        }
+
+        do {
+            if files.fileExists(atPath: cacheURL.path) {
+                try files.removeItem(at: cacheURL)
+            }
+            try files.moveItem(at: candidate, to: cacheURL)
+            return CatalogueLoad(marketplace: marketplace, notice: nil, didRefresh: true)
+        } catch {
+            try? files.removeItem(at: candidate)
+            return CatalogueLoad(marketplace: nil,
+                                 notice: error.localizedDescription,
+                                 didRefresh: false)
+        }
     }
 
     // MARK: - Installed plugins
@@ -442,7 +639,7 @@ final class SkillsManager {
     }
 
     nonisolated static func installedPlugins(from output: String, for host: SkillHost,
-                                             marketplace: String = marketplaceName)
+                                             marketplace: String)
         -> [String: SkillInstallation] {
         guard let root = jsonObject(from: output) else { return [:] }
         let rows: [[String: Any]]
@@ -487,37 +684,43 @@ final class SkillsManager {
         return Set(rows.compactMap { $0["name"] as? String })
     }
 
-    private nonisolated static func loadInstallations(for host: SkillHost) async
+    private nonisolated static func loadInstallations(for host: SkillHost,
+                                                      marketplace: String) async
         -> InstallationLoad {
-        guard ProcessManager.resolve(host.command) != nil else {
+        guard !marketplace.isEmpty, ProcessManager.resolve(host.command) != nil else {
             return InstallationLoad(installations: [:], failure: nil)
         }
         let result = await run(host.command, host.listArguments)
         guard result.ok else {
             return InstallationLoad(installations: [:], failure: result.failureMessage)
         }
-        return InstallationLoad(installations: installedPlugins(from: result.output, for: host),
+        return InstallationLoad(installations: installedPlugins(from: result.output,
+                                                                for: host,
+                                                                marketplace: marketplace),
                                 failure: nil)
     }
 
     private func prepareMarketplace(for host: SkillHost, action: Action) async -> CommandResult {
-        guard Self.isConfigured else {
-            return CommandResult(errorText: "This build has no skills marketplace set up.",
+        guard let configuration else {
+            return CommandResult(errorText: "No skills marketplace is set up.",
                                  status: 1)
         }
         actionProgress[action] = .checkingMarketplace
         let listed = await Self.run(host.command, host.marketplaceListArguments)
         guard listed.ok else { return listed }
 
-        if !Self.marketplaceNames(from: listed.output).contains(Self.marketplaceName) {
-            actionProgress[action] = .cloningMarketplace
+        if !Self.marketplaceNames(from: listed.output).contains(configuration.marketplace) {
+            actionProgress[action] = .addingMarketplace
             let added = await Self.run(host.command,
-                                       host.marketplaceAddArguments(source: Self.repositoryURL))
+                                       host.marketplaceAddArguments(source: configuration.source))
             guard added.ok else { return added }
+        }
+        guard !configuration.isLocalFile || host == .claude else {
+            return CommandResult(status: 0)
         }
         actionProgress[action] = .refreshingMarketplace
         return await Self.run(host.command,
-                              host.marketplaceRefreshArguments(name: Self.marketplaceName))
+                              host.marketplaceRefreshArguments(name: configuration.marketplace))
     }
 
     // MARK: - Commands
