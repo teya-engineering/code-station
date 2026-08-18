@@ -136,7 +136,7 @@ struct ChangesView: View {
             }
 
             Button {
-                Task { await reload() }
+                Task { await reload(fetchOrigin: true) }
             } label: {
                 Image(systemName: "arrow.clockwise").font(.system(size: 12, weight: .semibold))
             }
@@ -607,21 +607,37 @@ struct ChangesView: View {
         }
     }
 
-    // A pull that worked says nothing: the header numbers and the file list are the report.
     private func report(_ outcome: GitPullOutcome) {
         switch outcome {
-        case .upToDate, .updated:
-            break
-        case .updatedWithStashConflict:
-            fail("Pulled, with conflicts",
-                 """
-                 Origin's commits are in, but your uncommitted changes could not go back on \
-                 top of them cleanly. The files hold both versions between conflict markers, \
-                 and the originals are kept in a stash, which git stash list will show.
-                 """)
+        case .upToDate:
+            dialogs.show(Dialog(
+                title: "Already up to date",
+                message: "There were no new commits to pull from origin.",
+                actions: [.init(label: "OK", kind: .primary)]))
+        case .updated(let commits):
+            dialogs.show(pullResultDialog(commits: commits, hasStashConflict: false))
+        case .updatedWithStashConflict(let commits):
+            dialogs.show(pullResultDialog(commits: commits, hasStashConflict: true))
         case .failed(let error):
             fail("Could not pull", error)
         }
+    }
+
+    private func pullResultDialog(commits: [GitRemoteCommit], hasStashConflict: Bool) -> Dialog {
+        let count = commits.count
+        return Dialog(
+            title: hasStashConflict
+                ? "Pulled \(count) commit\(count == 1 ? "" : "s"), with conflicts"
+                : "Pulled \(count) commit\(count == 1 ? "" : "s")",
+            message: hasStashConflict
+                ? "Origin's commits are in, but your uncommitted changes could not go back on "
+                    + "top of them cleanly. The files hold both versions between conflict markers, "
+                    + "and the originals remain in the stash."
+                : "These commits were pulled from origin.",
+            content: AnyView(remoteCommitList(commits,
+                                              emptyMessage: "There were no commits to show.")),
+            actions: [.init(label: "OK", kind: .primary)],
+            width: 520)
     }
 
     // Discarding is the one action here that destroys work rather than moving it around,
@@ -669,7 +685,7 @@ struct ChangesView: View {
         }
     }
 
-    private func pushDialog(commits: [GitPushCommit], upstream: String?,
+    private func pushDialog(commits: [GitRemoteCommit], upstream: String?,
                             hasUpstream: Bool, root: String) -> Dialog {
         let count = commits.count
         let title = count == 0
@@ -683,7 +699,8 @@ struct ChangesView: View {
         return Dialog(
             title: title,
             message: message,
-            content: AnyView(pushCommitList(commits)),
+            content: AnyView(remoteCommitList(
+                commits, emptyMessage: "There are no new commits to send.")),
             actions: [
                 .init(label: count == 0 ? (hasUpstream ? "Push" : "Publish branch") : "Push commits",
                       kind: .primary) {
@@ -698,7 +715,7 @@ struct ChangesView: View {
 
     // Origin refuses a push from a branch that trails it, so the screen says so instead of
     // sending one to be rejected, and offers the pull that makes it possible in one press.
-    private func behindDialog(behind: Int, commits: [GitPushCommit], upstream: String?,
+    private func behindDialog(behind: Int, commits: [GitRemoteCommit], upstream: String?,
                               hasUpstream: Bool, root: String) -> Dialog {
         let target = upstream ?? "origin"
         let mine = commits.count == 1 ? "your commit" : "your \(commits.count) commits"
@@ -706,7 +723,8 @@ struct ChangesView: View {
             title: "Pull before pushing",
             message: "\(target) has \(behind) commit\(behind == 1 ? "" : "s") this branch does "
                 + "not, so origin would refuse the push. Pulling first puts \(mine) on top.",
-            content: AnyView(pushCommitList(commits)),
+            content: AnyView(remoteCommitList(
+                commits, emptyMessage: "There are no new commits to send.")),
             actions: [
                 .init(label: "Pull, then push", kind: .primary) {
                     pullThenPush(hasUpstream: hasUpstream, root: root)
@@ -742,9 +760,10 @@ struct ChangesView: View {
         }
     }
 
-    @ViewBuilder private func pushCommitList(_ commits: [GitPushCommit]) -> some View {
+    @ViewBuilder private func remoteCommitList(_ commits: [GitRemoteCommit],
+                                               emptyMessage: String) -> some View {
         if commits.isEmpty {
-            Text("There are no new commits to send.")
+            Text(emptyMessage)
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
         } else {
@@ -794,8 +813,13 @@ struct ChangesView: View {
                             actions: [.init(label: "OK", kind: .cancel)]))
     }
 
-    private func reload() async {
+    private func reload(fetchOrigin: Bool = false) async {
         loading = true
+        if fetchOrigin, snapshot?.state == .ready,
+           let error = await GitActions.fetchOrigin(at: repoRoot) {
+            guard !Task.isCancelled else { return }
+            fail("Could not refresh origin", error)
+        }
         let fresh = await GitInspector.snapshot(at: root, lane: .interactive)
         guard !Task.isCancelled else { return }
         snapshot = fresh

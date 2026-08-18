@@ -177,22 +177,58 @@ struct GitActionsTests {
         let second = try Repo(cloneOf: remote)
         try first.write("README.md", "moved on")
         first.git("commit", "-qam", "second")
+        try first.write("notes.txt", "more remote work")
+        first.git("add", ".")
+        first.git("commit", "-qm", "third")
         first.git("push", "-q")
 
         // The behind count reads the tracking ref, so it only moves once a fetch has
         // seen what the remote gained.
         second.git("fetch", "-q")
         let behind = await GitInspector.snapshot(at: second.path)
-        #expect(behind.behind == 1)
+        #expect(behind.behind == 2)
 
-        #expect(await GitActions.pull(at: second.path) == .updated)
+        guard case .updated(let commits) = await GitActions.pull(at: second.path) else {
+            #expect(Bool(false), "a successful pull has to report its commits")
+            return
+        }
+        #expect(commits.map(\.subject) == ["third", "second"])
 
         let after = await GitInspector.snapshot(at: second.path)
         #expect(after.behind == 0)
     }
 
-    // Nothing fetches before the button is pressed, so a pull that trusted the tracking
-    // ref would decide there was nothing to do and quietly do nothing.
+    @Test func fetchRefreshesTheTrackingRefWithoutPulling() async throws {
+        let remote = try Bare()
+        let first = try Repo()
+        first.git("remote", "add", "origin", remote.path)
+        first.git("push", "-q", "-u", "origin", "HEAD")
+
+        let second = try Repo(cloneOf: remote)
+        let headBeforeFetch = second.head
+        try first.write("README.md", "moved on")
+        first.git("commit", "-qam", "second")
+        first.git("push", "-q")
+
+        #expect(await GitInspector.snapshot(at: second.path).behind == 0)
+        #expect(await GitActions.fetchOrigin(at: second.path) == nil)
+
+        let after = await GitInspector.snapshot(at: second.path)
+        #expect(after.behind == 1)
+        #expect(second.head == headBeforeFetch)
+        #expect(second.read("README.md") == "hello")
+    }
+
+    @Test func fetchWithoutAnOriginLeavesTheRepositoryAlone() async throws {
+        let repo = try Repo()
+        let head = repo.head
+
+        #expect(await GitActions.fetchOrigin(at: repo.path) == nil)
+        #expect(repo.head == head)
+    }
+
+    // A tracking ref can be stale, so a pull that trusted it would decide there was
+    // nothing to do and quietly leave the branch behind.
     @Test func pullReadsOriginBeforeDecidingThereIsNothingToDo() async throws {
         let remote = try Bare()
         let first = try Repo()
@@ -207,7 +243,11 @@ struct GitActionsTests {
         // As far as this clone knows, it is level with origin.
         #expect(await GitInspector.snapshot(at: second.path).behind == 0)
 
-        #expect(await GitActions.pull(at: second.path) == .updated)
+        guard case .updated(let commits) = await GitActions.pull(at: second.path) else {
+            #expect(Bool(false), "a successful pull has to report its commits")
+            return
+        }
+        #expect(commits.map(\.subject) == ["second"])
         #expect(second.read("README.md") == "moved on")
     }
 
@@ -236,7 +276,11 @@ struct GitActionsTests {
         first.git("commit", "-qam", "second")
         first.git("push", "-q")
 
-        #expect(await GitActions.pull(at: second.path) == .updated)
+        guard case .updated(let commits) = await GitActions.pull(at: second.path) else {
+            #expect(Bool(false), "a successful pull has to report its commits")
+            return
+        }
+        #expect(commits.map(\.subject) == ["second"])
 
         let after = await GitInspector.snapshot(at: second.path)
         #expect(after.behind == 0)
@@ -260,7 +304,11 @@ struct GitActionsTests {
         first.git("commit", "-qam", "second")
         first.git("push", "-q")
 
-        #expect(await GitActions.pull(at: second.path) == .updated)
+        guard case .updated(let commits) = await GitActions.pull(at: second.path) else {
+            #expect(Bool(false), "a successful pull has to report its commits")
+            return
+        }
+        #expect(commits.map(\.subject) == ["second"])
         #expect(second.read("scratch.txt") == "half finished")
         #expect(second.read("README.md") == "moved on")
     }

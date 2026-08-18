@@ -1,6 +1,6 @@
 import Foundation
 
-struct GitPushCommit: Identifiable, Sendable, Equatable {
+struct GitRemoteCommit: Identifiable, Sendable, Equatable {
     let id: String
     let subject: String
 
@@ -8,9 +8,9 @@ struct GitPushCommit: Identifiable, Sendable, Equatable {
 }
 
 enum GitPushPreview: Sendable, Equatable {
-    case commits([GitPushCommit])
+    case commits([GitRemoteCommit])
     // Origin has commits this branch does not, so it would refuse the push.
-    case behindUpstream(Int, [GitPushCommit])
+    case behindUpstream(Int, [GitRemoteCommit])
     case failed(String)
 }
 
@@ -18,10 +18,10 @@ enum GitPushPreview: Sendable, Equatable {
 // success; they read differently only because one of them has nothing to show.
 enum GitPullOutcome: Sendable, Equatable {
     case upToDate
-    case updated
+    case updated([GitRemoteCommit])
     // The branch moved, but the uncommitted work could not be put back cleanly, so it is
     // sitting in the files as conflict markers.
-    case updatedWithStashConflict
+    case updatedWithStashConflict([GitRemoteCommit])
     case failed(String)
 }
 
@@ -36,6 +36,20 @@ enum GitActions {
     // Long enough for a fetch over a normal connection, short enough that an unreachable
     // origin cannot hold a button down for minutes.
     private static let networkTimeout: TimeInterval = 30
+
+    static func fetchOrigin(at root: String) async -> String? {
+        guard let tool = await GitInspector.tool() else {
+            return "Could not find git on PATH."
+        }
+        let url = URL(fileURLWithPath: root)
+        return await GitInspector.offMain {
+            let origin = GitInspector.run(tool, ["remote", "get-url", "origin"], in: url)
+            guard origin.ok else { return nil }
+            let fetch = GitInspector.run(tool, ["fetch", "--quiet", "origin"], in: url,
+                                         timeout: networkTimeout)
+            return fetch.ok ? nil : fetch.failureMessage
+        }
+    }
 
     static func switchBranch(_ branch: String, at root: String) async -> String? {
         await perform(at: root) { tool, url in
@@ -144,6 +158,11 @@ enum GitActions {
             }
             guard behind > 0 else { return .upToDate }
 
+            let incoming = GitInspector.run(
+                tool, ["log", "--no-color", "--format=%H%x09%s", "HEAD..@{u}"], in: url)
+            guard incoming.ok else { return .failed(incoming.failureMessage) }
+            let commits = parseRemoteCommits(incoming.text)
+
             // With no commits of its own to replay, the branch only has to move forward,
             // and moving forward cannot conflict with anything. --ff-only holds it to that:
             // if something did make a merge necessary, it stops instead of making one.
@@ -151,7 +170,9 @@ enum GitActions {
                 let merge = GitInspector.run(tool, ["merge", "--ff-only", "--autostash", "@{u}"],
                                              in: url)
                 guard merge.ok else { return .failed(merge.failureMessage) }
-                return stashConflicted(merge) ? .updatedWithStashConflict : .updated
+                return stashConflicted(merge)
+                    ? .updatedWithStashConflict(commits)
+                    : .updated(commits)
             }
 
             let rebase = GitInspector.run(tool, ["rebase", "--autostash", "@{u}"], in: url)
@@ -164,7 +185,9 @@ enum GitActions {
                 let restored = GitInspector.run(tool, ["rebase", "--abort"], in: url).ok
                 return .failed(conflictReport(files: files, restored: restored, output: rebase))
             }
-            return stashConflicted(rebase) ? .updatedWithStashConflict : .updated
+            return stashConflicted(rebase)
+                ? .updatedWithStashConflict(commits)
+                : .updated(commits)
         }
     }
 
@@ -211,7 +234,7 @@ enum GitActions {
                 : ["log", "--no-color", "--format=%H%x09%s", "HEAD", "--not", "--remotes=origin"]
             let output = GitInspector.run(tool, arguments, in: url)
             guard output.ok else { return .failed(output.failureMessage) }
-            let commits = parsePushCommits(output.text)
+            let commits = parseRemoteCommits(output.text)
             guard hasUpstream else { return .commits(commits) }
 
             let behind = GitInspector.run(tool, ["rev-list", "--count", "HEAD..@{u}"], in: url)
@@ -268,11 +291,11 @@ enum GitActions {
         return "Your commits and origin's changed the same lines in:\n\(shown)\(rest)\n\n\(tail)"
     }
 
-    private static func parsePushCommits(_ text: String) -> [GitPushCommit] {
+    private static func parseRemoteCommits(_ text: String) -> [GitRemoteCommit] {
         text.split(separator: "\n").compactMap { line in
             let fields = line.split(separator: "\t", maxSplits: 1, omittingEmptySubsequences: false)
             guard fields.count == 2, !fields[0].isEmpty else { return nil }
-            return GitPushCommit(id: String(fields[0]), subject: String(fields[1]))
+            return GitRemoteCommit(id: String(fields[0]), subject: String(fields[1]))
         }
     }
 }
