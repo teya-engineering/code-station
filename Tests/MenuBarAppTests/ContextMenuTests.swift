@@ -1,8 +1,21 @@
+import AppKit
+import SwiftUI
 import Testing
 @testable import MenuBarApp
 
 @MainActor
 struct ContextMenuTests {
+    @Test func menuScrollViewCapsLongContentAndShrinksWithItsContent() {
+        let model = MenuContentHeight(500)
+        let host = NSHostingView(rootView: ResizingMenuContent(model: model))
+        #expect(host.fittingSize.height == 300)
+
+        model.value = 120
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+
+        #expect(host.fittingSize.height == 120)
+    }
+
     @Test func menuItemsMatchFiltersByNameOrSubtitle() {
         let item = MenuItem(label: "merchant-account",
                             subtitle: "~/Development/payments/merchant-account")
@@ -11,6 +24,18 @@ struct ContextMenuTests {
         #expect(item.matches("payments"))
         #expect(item.matches("  "))
         #expect(!item.matches("checkout"))
+    }
+
+    @Test func menuRowRunsItsHandlerAndDismissesTheMenu() {
+        var selected = false
+        let item = MenuItem(label: "merchant-account", handler: { selected = true })
+        let presenter = MenuPresenter()
+        presenter.show([.item(item)], at: .zero)
+
+        presenter.run(item)
+
+        #expect(selected)
+        #expect(!presenter.isOpen)
     }
 
     @Test func refreshesTheCurrentMenuWithoutReplacingANewerMenu() {
@@ -81,5 +106,25 @@ struct ContextMenuTests {
         let attachment = MenuVerticalAttachment.control(edge: .top, oppositeY: 84)
 
         #expect(attachment.y(originY: 40, menuHeight: 80, boundsHeight: 660) == 84)
+    }
+}
+
+@MainActor
+@Observable
+private final class MenuContentHeight {
+    var value: CGFloat
+
+    init(_ value: CGFloat) {
+        self.value = value
+    }
+}
+
+private struct ResizingMenuContent: View {
+    let model: MenuContentHeight
+
+    var body: some View {
+        MenuContentScrollView(maxHeight: 300) {
+            Color.clear.frame(width: 100, height: model.value)
+        }
     }
 }

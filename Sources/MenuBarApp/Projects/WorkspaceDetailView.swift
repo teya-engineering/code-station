@@ -427,9 +427,10 @@ struct WorkspaceDetailView: View {
     private func addMenu(_ workspace: ProjectWorkspace) -> [MenuEntry] {
         let projects = attachableProjects(workspace)
         let projectItems = projects.map { project in
-            MenuItem(label: project.name, icon: "folder", subtitle: project.collapsedPath) {
-                store.addProject(project.id, toWorkspace: workspace.id)
-            }
+            MenuItem(label: project.name, icon: "folder", subtitle: project.collapsedPath,
+                     handler: {
+                         store.addProject(project.id, toWorkspace: workspace.id)
+                     })
         }
 
         var entries: [MenuEntry] = []

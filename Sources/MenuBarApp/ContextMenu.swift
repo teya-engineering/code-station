@@ -367,18 +367,8 @@ struct ContextMenuHost: View {
         let hasChecks = items.contains(where: \.checked)
         let hasIcons = items.contains { $0.icon != nil || $0.image != nil }
 
-        return ViewThatFits(in: .vertical) {
+        return MenuContentScrollView(maxHeight: maxHeight) {
             menuContent(hasChecks: hasChecks, hasIcons: hasIcons)
-                .fixedSize(horizontal: false, vertical: true)
-
-            // Only the menu that has to scroll takes the height it was given. A frame
-            // grows to its maximum, so capping the whole card would draw every short
-            // menu as a window-tall panel with its rows floating in the middle of it.
-            ScrollView {
-                menuContent(hasChecks: hasChecks, hasIcons: hasIcons)
-            }
-            .scrollIndicators(.visible)
-            .frame(height: maxHeight)
         }
         .frame(minWidth: menuMinimumWidth, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 11).fill(Theme.card))
@@ -431,6 +421,28 @@ struct ContextMenuHost: View {
         presenter.verticalAttachment.y(originY: presenter.origin.y,
                                        menuHeight: size.height,
                                        boundsHeight: bounds.height)
+    }
+}
+
+// A single content tree keeps the search field and its rows alive while the filter
+// changes. The fixed ideal height makes a short menu hug its rows; the outer cap turns
+// only a long menu into a viewport.
+struct MenuContentScrollView<Content: View>: View {
+    let maxHeight: CGFloat
+    let content: Content
+
+    init(maxHeight: CGFloat, @ViewBuilder content: () -> Content) {
+        self.maxHeight = maxHeight
+        self.content = content()
+    }
+
+    var body: some View {
+        ScrollView {
+            content.fixedSize(horizontal: false, vertical: true)
+        }
+        .scrollIndicators(.visible)
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxHeight: maxHeight)
     }
 }
 
