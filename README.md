@@ -47,8 +47,8 @@ Teya Code Station is a macOS app for running Codex and Claude Code across local 
 Clone the repository and create a double-clickable app bundle:
 
 ```bash
-git clone https://github.com/<org>/teya-conductor.git
-cd teya-conductor
+git clone https://github.com/teya-engineering/code-station.git
+cd code-station
 ./build-app.sh
 open "build/Teya Code Station.app"
 ```
