@@ -140,7 +140,7 @@ struct FirstRunWizard: View {
             AppMark()
                 .frame(width: 38, height: 38)
             VStack(alignment: .leading, spacing: 2) {
-                Text("Teya Conductor")
+                Text("Teya Code Station")
                     .font(.logo(16, weight: 650))
                 Text(step.title)
                     .font(.system(size: 11.5))
@@ -175,7 +175,7 @@ struct FirstRunWizard: View {
                 Text("Your coding agents,\nworking in the open.")
                     .font(.serif(34, .semibold))
                     .fixedSize(horizontal: false, vertical: true)
-                Text("Conductor brings Codex and Claude Code together with your projects, Git state, files and terminals. You stay in control while the agent does the work.")
+                Text("Code Station brings Codex and Claude Code together with your projects, Git state, files and terminals. You stay in control while the agent does the work.")
                     .font(.system(size: 15))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -248,7 +248,7 @@ struct FirstRunWizard: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Add your team's configuration")
                     .font(.serif(25))
-                Text("One JSON file gives Conductor the shared setup that belongs to your organisation: Dispatch sign-in and starter requests, Grafana presets, the skills marketplace, and useful command shortcuts. Personal tokens and passwords are never stored in it.")
+                Text("One JSON file gives Code Station the shared setup that belongs to your organisation: Dispatch sign-in and starter requests, Grafana presets, the skills marketplace, and useful command shortcuts. Personal tokens and passwords are never stored in it.")
                     .font(.system(size: 13.5))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -366,7 +366,7 @@ struct FirstRunWizard: View {
         panel.allowsMultipleSelection = false
         panel.allowedContentTypes = [.json]
         panel.prompt = "Load"
-        panel.message = "Choose the JSON file containing your organisation's shared Conductor setup."
+        panel.message = "Choose the JSON file containing your organisation's shared Code Station setup."
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
         do {
@@ -400,7 +400,7 @@ struct FirstRunWizard: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Choose your coding agent")
                     .font(.serif(25))
-                Text("Conductor runs the agent's own CLI and uses its existing account. You can add the other agent later in Settings.")
+                Text("Code Station runs the agent's own CLI and uses its existing account. You can add the other agent later in Settings.")
                     .font(.system(size: 13.5))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -538,7 +538,7 @@ struct FirstRunWizard: View {
         if !isSignedIn {
             return "The CLI is installed. Connect the account you want your sessions to use."
         }
-        return "Conductor found the CLI and its account. New sessions can use it now."
+        return "Code Station found the CLI and its account. New sessions can use it now."
     }
 
     private var statusColour: Color {
@@ -565,7 +565,7 @@ struct FirstRunWizard: View {
                 }
             }
             if step == .agent {
-                ActionButton(title: "Start using Conductor", tone: .green, action: finish)
+                ActionButton(title: "Start using Code Station", tone: .green, action: finish)
                     .disabled(!isSignedIn)
                     .opacity(isSignedIn ? 1 : 0.45)
             } else if step == .configuration {

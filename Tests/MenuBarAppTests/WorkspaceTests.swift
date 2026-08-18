@@ -6,8 +6,8 @@ import Testing
 struct WorkspaceTests {
     private func makeStore() -> ProjectStore {
         let path = FileManager.default.temporaryDirectory
-            .appendingPathComponent("conductor-workspace-tests-\(UUID().uuidString).json").path
-        setenv("CONDUCTOR_STORE", path, 1)
+            .appendingPathComponent("code-station-workspace-tests-\(UUID().uuidString).json").path
+        setenv("CODE_STATION_STORE", path, 1)
         return ProjectStore()
     }
 
@@ -112,7 +112,7 @@ struct WorkspaceTests {
         let first = project("api", in: store)
         let second = project("web", in: store)
         let taskRoot = FileManager.default.temporaryDirectory
-            .appendingPathComponent("conductor-workspace-tasks-\(UUID().uuidString)")
+            .appendingPathComponent("code-station-workspace-tasks-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: taskRoot) }
         let task = try store.addTask(
             named: "Reply as a bot",

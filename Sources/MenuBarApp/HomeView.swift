@@ -466,7 +466,7 @@ private struct HomeIntroduction: View {
                   detail: "Start each session with Codex or Claude Code and choose its model, reasoning and access settings."),
         Highlight(icon: "wrench.and.screwdriver.fill",
                   title: "Stay in flow",
-                  detail: "Answer permissions, manage Git, inspect Docker, send API requests and use MCP tools inside Conductor.")
+                  detail: "Answer permissions, manage Git, inspect Docker, send API requests and use MCP tools inside Code Station.")
     ]
 
     private struct Highlight: Identifiable {
@@ -487,7 +487,7 @@ private struct HomeIntroduction: View {
                         Text("Run the work. See the whole change.")
                             .font(.serif(30))
                             .fixedSize(horizontal: false, vertical: true)
-                        Text("Add a project from the rail on the left and Conductor starts reporting on it here: what is running, what is waiting on you, and what you left half done.")
+                        Text("Add a project from the rail on the left and Code Station starts reporting on it here: what is running, what is waiting on you, and what you left half done.")
                             .font(.system(size: 14))
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)

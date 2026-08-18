@@ -10,7 +10,7 @@ import Foundation
 //
 // The file is read from the first of these that can be parsed:
 //
-//   1. $CONDUCTOR_SITE_DEFAULTS
+//   1. $CODE_STATION_SITE_DEFAULTS
 //   2. A saved external configuration path
 //   3. <application support>/site-defaults.json
 //   4. site-defaults.json inside the app bundle
@@ -194,7 +194,9 @@ extension SiteDefaults {
     }
 
     static var environmentURL: URL? {
-        ProcessInfo.processInfo.environment["CONDUCTOR_SITE_DEFAULTS"].map {
+        let environment = ProcessInfo.processInfo.environment
+        return (environment["CODE_STATION_SITE_DEFAULTS"]
+            ?? environment["CONDUCTOR_SITE_DEFAULTS"]).map {
             URL(fileURLWithPath: $0).standardizedFileURL
         }
     }

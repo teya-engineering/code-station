@@ -415,7 +415,7 @@ final class MobileAccessController {
     private func received(_ message: String, from connectionID: UUID) {
         guard let data = message.data(using: .utf8),
               let command = try? JSONDecoder().decode(RemoteCommand.self, from: data) else {
-            server?.send(Self.error("The phone sent a message Conductor could not read."),
+            server?.send(Self.error("The phone sent a message Code Station could not read."),
                          to: connectionID)
             return
         }
@@ -1353,7 +1353,7 @@ struct MobileAccessButton: View {
         return switch scope {
         case .session: "Open this session on a phone"
         case .project: "Open this project on a phone"
-        case .everything: "Open Conductor on a phone"
+        case .everything: "Open Code Station on a phone"
         }
     }
 
@@ -1374,7 +1374,7 @@ struct MobileAccessButton: View {
         switch scope {
         case .session: "Open this session on your phone"
         case .project(let id): "Open \(store.project(id)?.name ?? "this project") on your phone"
-        case .everything: "Open Conductor on your phone"
+        case .everything: "Open Code Station on your phone"
         }
     }
 

@@ -194,7 +194,7 @@ struct OldSessionsView: View {
         rows.count { $0.outcome.losesNothing } > Self.preselectLimit
     }
 
-    // "last turn 9 days ago · 4 turns · ⑂ conductor/pty-test · clean"
+    // "last turn 9 days ago · 4 turns · ⑂ code-station/pty-test · clean"
     private func detail(_ row: Row) -> String {
         var parts = ["last turn " + SessionAge.phrase(since: row.session.lastActivity)]
         if let turns = row.session.usage?.turns, turns > 0 {

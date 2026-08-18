@@ -34,7 +34,7 @@ struct TaskScheduleCard: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Scheduled runs")
                         .font(.system(size: 14, weight: .semibold))
-                    Text("Runs happen while Teya Conductor is open. A missed time runs once "
+                    Text("Runs happen while Teya Code Station is open. A missed time runs once "
                          + "when the app is available again.")
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)

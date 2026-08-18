@@ -285,14 +285,14 @@ struct PersistenceSafetyTests {
             at: directory.appendingPathComponent("project")))
         let session = store.newSession(in: project.id,
                                        worktreePath: "/worktrees/project",
-                                       worktreeBranch: "conductor/test")
+                                       worktreeBranch: "code-station/test")
         #expect(store.save())
 
         let pending = try #require(store.prepareSessionRemoval(session.id).value)
         #expect(store.session(session.id) == nil)
         #expect(pending.worktrees == [PendingSessionRemoval.Worktree(
             path: "/worktrees/project", projectPath: project.path,
-            branch: "conductor/test")])
+            branch: "code-station/test")])
 
         failures.failWrites(to: index)
         guard case .failure = store.finishSessionRemoval(session.id) else {

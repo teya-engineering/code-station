@@ -1,10 +1,10 @@
-# Teya Conductor
+# Teya Code Station
 
 [![Contributing](https://img.shields.io/badge/Contributing-guide-2ea44f.svg?logo=github)](CONTRIBUTING.md)
 
-Teya Conductor is a macOS app for running Codex and Claude Code across local projects. It brings the conversation, project files, Git state, and a terminal into one window, while each coding agent continues to use its own CLI and account.
+Teya Code Station is a macOS app for running Codex and Claude Code across local projects. It brings the conversation, project files, Git state, and a terminal into one window, while each coding agent continues to use its own CLI and account.
 
-![Teya Conductor showing fictional projects and an agent session](docs/images/teya-conductor.png)
+![Teya Code Station showing fictional projects and an agent session](docs/images/teya-code-station.png)
 
 ## Main features
 
@@ -50,10 +50,10 @@ Clone the repository and create a double-clickable app bundle:
 git clone https://github.com/<org>/teya-conductor.git
 cd teya-conductor
 ./build-app.sh
-open "build/Teya Conductor.app"
+open "build/Teya Code Station.app"
 ```
 
-The build script creates an ad-hoc signed release bundle at `build/Teya Conductor.app`. You can move that bundle to `/Applications` for normal use.
+The build script creates an ad-hoc signed release bundle at `build/Teya Code Station.app`. You can move that bundle to `/Applications` for normal use.
 
 For a quick development run without creating an app bundle:
 
@@ -76,15 +76,15 @@ Every section is optional, and so is the file itself. Without it the app runs wi
 The first-launch wizard explains what the site configuration controls. It offers three choices:
 
 - Choose a JSON file from the Mac.
-- Enter a GitHub repository URL. The repository must contain `site-defaults.json`, `teya-defaults.json`, or exactly one JSON file in its root. Conductor clones it with the user's existing Git access, so the same flow works for a private repository that Git can already read.
+- Enter a GitHub repository URL. The repository must contain `site-defaults.json`, `teya-defaults.json`, or exactly one JSON file in its root. Code Station clones it with the user's existing Git access, so the same flow works for a private repository that Git can already read.
 - Skip the step and use the defaults built into the app.
 
 Teya users can enter [github.com/example/site-settings](https://github.com/example/site-settings) to load the shared Teya configuration.
 
-Conductor validates an imported file and copies it to:
+Code Station validates an imported file and copies it to:
 
 ```text
-~/Library/Application Support/com.teya.conductor/site-defaults.json
+~/Library/Application Support/com.teya.code-station/site-defaults.json
 ```
 
 To prepare your own file, copy the example and edit it:
@@ -95,8 +95,8 @@ cp site-defaults.example.json site-defaults.json
 
 The app reads the first of these that can be parsed:
 
-1. The path in `$CONDUCTOR_SITE_DEFAULTS`
-2. `~/Library/Application Support/com.teya.conductor/site-defaults.json`
+1. The path in `$CODE_STATION_SITE_DEFAULTS`
+2. `~/Library/Application Support/com.teya.code-station/site-defaults.json`
 3. `site-defaults.json` inside the app bundle
 
 `site-defaults.json` in the repository root is ignored by Git, so working settings never end up in a commit.
@@ -110,7 +110,7 @@ The app reads the first of these that can be parsed:
 SITE_DEFAULTS=/path/to/team-defaults.json ./build-app.sh
 ```
 
-A `swift run` development build has no bundle to fold a file into, so use the first-launch import or `$CONDUCTOR_SITE_DEFAULTS` instead.
+A `swift run` development build has no bundle to fold a file into, so use the first-launch import or `$CODE_STATION_SITE_DEFAULTS` instead.
 
 ### What goes in it
 
@@ -129,7 +129,7 @@ If a file cannot be read or parsed, the app warns you and tries the next locatio
 
 ## Get started
 
-1. Open Teya Conductor and add a project folder.
+1. Open Teya Code Station and add a project folder.
 2. Open Settings to choose the default agent and its access settings.
 3. Start a session and choose whether it should use the project folder or an isolated worktree.
 4. Describe the task, attach any useful files, and follow the work in Chat, Changes, Explorer, or Terminal.

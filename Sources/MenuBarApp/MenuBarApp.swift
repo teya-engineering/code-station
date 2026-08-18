@@ -127,7 +127,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 backing: .buffered, defer: false)
             win.contentViewController = hosting
             win.setContentSize(NSSize(width: 1180, height: 820))
-            win.title = "Teya Conductor"
+            win.title = "Teya Code Station"
             win.titleVisibility = .hidden
             win.titlebarAppearsTransparent = true
             win.backgroundColor = Theme.backgroundNSColor

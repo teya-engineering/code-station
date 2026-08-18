@@ -90,7 +90,8 @@ final class ProjectStore {
 
     init(storeURL: URL? = nil, files: PersistentFileClient = .live) {
         self.storeURL = storeURL
-            ?? ProcessInfo.processInfo.environment["CONDUCTOR_STORE"]
+            ?? (ProcessInfo.processInfo.environment["CODE_STATION_STORE"]
+                ?? ProcessInfo.processInfo.environment["CONDUCTOR_STORE"])
                 .map { URL(fileURLWithPath: $0) }
             ?? AppPaths.supportFile("projects.json", movedFrom: AppPaths.legacy("projects.json"))
         self.files = files
@@ -1084,7 +1085,7 @@ final class ProjectStore {
     // frames of a streaming reply, so writes happen here instead of on the main actor.
     // One serial queue keeps them in order, and a caller that has to see the bytes on
     // disk before its next line waits on it.
-    private static let writer = DispatchQueue(label: "com.teya.conductor.project-store-writes")
+    private static let writer = DispatchQueue(label: "com.teya.code-station.project-store-writes")
 
     private struct PendingTranscript: @unchecked Sendable {
         let sessionID: UUID

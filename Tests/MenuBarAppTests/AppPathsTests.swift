@@ -8,7 +8,7 @@ struct AppPathsTests {
 
     private func temporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("conductor-tests-\(UUID().uuidString)")
+            .appendingPathComponent("code-station-tests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }
@@ -100,7 +100,7 @@ struct AppPathsTests {
     }
 
     @Test func restoresEachSidebarItemExpansionState() throws {
-        let suite = "conductor-sidebar-tests-\(UUID().uuidString)"
+        let suite = "code-station-sidebar-tests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let collapsedProject = UUID()
@@ -118,7 +118,7 @@ struct AppPathsTests {
     }
 
     @Test func remembersWhichSidebarSectionsAreFoldedAway() throws {
-        let suite = "conductor-sidebar-group-tests-\(UUID().uuidString)"
+        let suite = "code-station-sidebar-group-tests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
 
@@ -132,7 +132,7 @@ struct AppPathsTests {
     }
 
     @Test func defaultsAndClampsOldSessionDays() throws {
-        let suite = "conductor-old-session-tests-\(UUID().uuidString)"
+        let suite = "code-station-old-session-tests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
 
@@ -151,7 +151,7 @@ struct AppPathsTests {
     }
 
     @Test func storesAndResetsAnExternalSiteConfigurationPath() throws {
-        let suite = "conductor-site-defaults-tests-\(UUID().uuidString)"
+        let suite = "code-station-site-defaults-tests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let selected = URL(fileURLWithPath: "/tmp/../tmp/team-defaults.json")
@@ -166,7 +166,7 @@ struct AppPathsTests {
     }
 
     @Test @MainActor func onboardingIsOnlyCompletedAfterTheWizardFinishes() throws {
-        let suite = "conductor-onboarding-tests-\(UUID().uuidString)"
+        let suite = "code-station-onboarding-tests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let root = try temporaryDirectory()
@@ -191,7 +191,7 @@ struct AppPathsTests {
     }
 
     @Test @MainActor func existingWorkDoesNotTriggerFirstRunOnboarding() throws {
-        let suite = "conductor-onboarding-migration-tests-\(UUID().uuidString)"
+        let suite = "code-station-onboarding-migration-tests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let root = try temporaryDirectory()
@@ -202,6 +202,63 @@ struct AppPathsTests {
         #expect(!settings.shouldShowOnboarding(hasExistingWork: true))
         #expect(settings.hasCompletedOnboarding)
         #expect(Preferences.hasCompletedOnboarding(in: defaults))
+    }
+
+    @Test func takesOverThePreferencesTheOldBundleIdentifierOwned() throws {
+        let previous = "code-station-previous-bundle-\(UUID().uuidString)"
+        let suite = "code-station-adopt-tests-\(UUID().uuidString)"
+        let old = try #require(UserDefaults(suiteName: previous))
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer {
+            old.removePersistentDomain(forName: previous)
+            defaults.removePersistentDomain(forName: suite)
+        }
+
+        old.set("opus", forKey: "claudeDefaultModel")
+        old.set(true, forKey: "hasCompletedOnboarding")
+        defaults.set("sonnet", forKey: "claudeDefaultModel")
+
+        AppPaths.adoptDefaults(of: previous, into: defaults)
+
+        // An answer already given under the new name is the newer of the two.
+        #expect(defaults.string(forKey: "claudeDefaultModel") == "sonnet")
+        #expect(defaults.bool(forKey: "hasCompletedOnboarding"))
+    }
+
+    @Test func doesNotBringBackAPreferenceClearedAfterTheRename() throws {
+        let previous = "code-station-previous-bundle-\(UUID().uuidString)"
+        let suite = "code-station-adopt-once-tests-\(UUID().uuidString)"
+        let old = try #require(UserDefaults(suiteName: previous))
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer {
+            old.removePersistentDomain(forName: previous)
+            defaults.removePersistentDomain(forName: suite)
+        }
+
+        old.set(true, forKey: "mobileAccessEnabled")
+
+        AppPaths.adoptDefaults(of: previous, into: defaults)
+        #expect(defaults.bool(forKey: "mobileAccessEnabled"))
+
+        defaults.removeObject(forKey: "mobileAccessEnabled")
+        AppPaths.adoptDefaults(of: previous, into: defaults)
+
+        #expect(defaults.object(forKey: "mobileAccessEnabled") == nil)
+    }
+
+    @Test func carriesTheWholeDataFolderOverToTheNewName() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let old = root.appendingPathComponent("com.teya.conductor")
+        let new = root.appendingPathComponent("com.teya.code-station")
+        try FileManager.default.createDirectory(at: old, withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: old.appendingPathComponent("projects.json"))
+
+        AppPaths.move(old, to: new)
+
+        #expect(FileManager.default.fileExists(atPath: new.appendingPathComponent("projects.json").path))
+        #expect(!FileManager.default.fileExists(atPath: old.path))
     }
 
 }

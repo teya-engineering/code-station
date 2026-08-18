@@ -132,11 +132,11 @@ enum GitInspector {
     enum Lane: Sendable { case interactive, background }
 
     private static let backgroundQueue = DispatchQueue(
-        label: "com.teya.conductor.git",
+        label: "com.teya.code-station.git",
         qos: .userInitiated
     )
     private static let interactiveQueue = DispatchQueue(
-        label: "com.teya.conductor.git.interactive",
+        label: "com.teya.code-station.git.interactive",
         qos: .userInitiated
     )
 

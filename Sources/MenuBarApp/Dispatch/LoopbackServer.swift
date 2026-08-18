@@ -12,7 +12,7 @@ import Network
 // State is only ever touched on `queue`, so the server is safe to hand across tasks even
 // though Network's callbacks arrive on their own.
 final class LoopbackServer: @unchecked Sendable {
-    private let queue = DispatchQueue(label: "conductor.oauth.callback")
+    private let queue = DispatchQueue(label: "code-station.oauth.callback")
     private var listener: NWListener?
     private var connections: [NWConnection] = []
     private var ready: CheckedContinuation<Void, Error>?
@@ -151,7 +151,7 @@ final class LoopbackServer: @unchecked Sendable {
                 // is on its way out, or the browser shows a connection error instead of it.
                 self.reply(on: connection,
                            body: Self.page(title: landed ? "Signed in" : "Sign-in failed",
-                                           detail: landed ? "You can close this window and go back to Conductor."
+                                           detail: landed ? "You can close this window and go back to Code Station."
                                                           : query["error_description"] ?? query["error"] ?? "")) {
                     self.finish(.success(query))
                 }

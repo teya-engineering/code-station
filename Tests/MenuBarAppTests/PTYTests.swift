@@ -63,8 +63,8 @@ struct PTYTests {
 
         try startShell(pty)
 
-        pty.write(Data("echo conductor-was-here\r".utf8))
-        #expect(await collector.waitFor("conductor-was-here"))
+        pty.write(Data("echo code-station-was-here\r".utf8))
+        #expect(await collector.waitFor("code-station-was-here"))
     }
 
     // The shell has to be on a real tty, not a pipe: that is what keeps colour on and
@@ -82,7 +82,7 @@ struct PTYTests {
 
     @Test func startsInTheDirectoryItWasGiven() async throws {
         let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("conductor-pty-\(UUID().uuidString)")
+            .appendingPathComponent("code-station-pty-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
 

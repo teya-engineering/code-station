@@ -1,4 +1,4 @@
-# Contributing to Teya Conductor
+# Contributing to Teya Code Station
 
 This guide covers the development workflow and the technical details behind the app. For the user-facing overview and normal build instructions, see [README.md](README.md).
 
@@ -23,10 +23,10 @@ Create the app bundle used for normal manual testing:
 
 ```bash
 ./build-app.sh
-open "build/Teya Conductor.app"
+open "build/Teya Code Station.app"
 ```
 
-`build-app.sh` builds the `MenuBarApp` executable, copies its SwiftPM resource bundle into the app, adds the icon and `Info.plist`, and applies an ad-hoc signature. The result is written to `build/Teya Conductor.app`.
+`build-app.sh` builds the `MenuBarApp` executable, copies its SwiftPM resource bundle into the app, adds the icon and `Info.plist`, and applies an ad-hoc signature. The result is written to `build/Teya Code Station.app`.
 
 ## Tests
 
@@ -61,9 +61,9 @@ Add tests for behavior and business logic. Trivial view wiring, accessors, and f
 
 Anything that belongs to one organisation rather than to the app lives in `site-defaults.json`: the identity provider the API environments sign in against, the saved requests a first run starts with, what `{{env}}` stands for on each side, the Grafana instances offered in the Add server sheet, the skills marketplace, and the command shortcuts a first run starts with. `SiteDefaults` reads the first valid file from these locations:
 
-1. `$CONDUCTOR_SITE_DEFAULTS`
+1. `$CODE_STATION_SITE_DEFAULTS`
 2. A saved external configuration path
-3. `~/Library/Application Support/com.teya.conductor/site-defaults.json`
+3. `~/Library/Application Support/com.teya.code-station/site-defaults.json`
 4. `site-defaults.json` inside the app bundle
 
 An unreadable or malformed file produces a visible warning and falls through to the next location. On first launch, the setup wizard can validate and import a local JSON file or clone one from a GitHub repository. Imports are copied to Application Support, then the shared defaults and empty first-run stores are reloaded in the same process. Skipping the step keeps the normal bundled or empty defaults.
@@ -89,10 +89,10 @@ The terminal uses a real pseudo-terminal through SwiftTerm. Each tab owns its sh
 App-owned data lives under:
 
 ```text
-~/Library/Application Support/com.teya.conductor/
+~/Library/Application Support/com.teya.code-station/
 ```
 
-This includes the project and session index, one transcript file per session, saved HTTP requests, command shortcuts, worktrees, temporary attachments, and the cached skills marketplace. Small UI preferences use `UserDefaults`. OAuth client secrets and tokens use the macOS Keychain. Session logs live under `~/Library/Logs/com.teya.conductor`.
+This includes the project and session index, one transcript file per session, saved HTTP requests, command shortcuts, worktrees, temporary attachments, and the cached skills marketplace. Small UI preferences use `UserDefaults`. OAuth client secrets and tokens use the macOS Keychain. Session logs live under `~/Library/Logs/com.teya.code-station`.
 
 MCP definitions are read from and written to `~/.config/mcp/config.json`. The app uses those shared definitions when it registers a server in each coding agent's own configuration. Locally started MCP servers, shortcut commands, agent processes, and terminal shells are child processes owned by the app and are stopped when the app quits.
 

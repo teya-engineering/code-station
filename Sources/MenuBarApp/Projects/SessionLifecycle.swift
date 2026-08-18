@@ -278,7 +278,7 @@ enum SessionLifecycle {
         return lines.joined(separator: "\n\n")
     }
 
-    // refs/remotes/origin/conductor/abc reads as origin/conductor/abc, the name git uses
+    // refs/remotes/origin/code-station/abc reads as origin/code-station/abc, the name git uses
     // everywhere else the reader sees it.
     private static func shortRef(_ ref: String) -> String {
         let prefix = "refs/remotes/"

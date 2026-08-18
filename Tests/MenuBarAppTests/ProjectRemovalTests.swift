@@ -98,7 +98,7 @@ struct ProjectRemovalTests {
         let projectID = project.id
         let session = store.newSession(in: project.id,
                                        worktreePath: "/worktrees/checkout",
-                                       worktreeBranch: "conductor/test")
+                                       worktreeBranch: "code-station/test")
         // Read while the checkout is being torn down: the project has to still be there,
         // because a session removal that fails must find its project intact.
         let projectWasPresent = Sealed()
@@ -159,7 +159,7 @@ struct ProjectRemovalTests {
         let project = addProject(named: "checkout", to: store)
         let session = store.newSession(in: project.id,
                                        worktreePath: "/worktrees/checkout",
-                                       worktreeBranch: "conductor/test")
+                                       worktreeBranch: "code-station/test")
         let worktrees = removal { .failure(GitWorktree.Failure(message: "Worktree is busy")) }
 
         let result = await ProjectRemoval.run(project, in: store, runner: SessionRunner(),
@@ -182,7 +182,7 @@ struct ProjectRemovalTests {
         for index in 0..<2 {
             _ = store.newSession(in: project.id,
                                  worktreePath: "/worktrees/checkout-\(index)",
-                                 worktreeBranch: "conductor/test-\(index)")
+                                 worktreeBranch: "code-station/test-\(index)")
         }
         let worktrees = removal { .failure(GitWorktree.Failure(message: "Worktree is busy")) }
 
@@ -207,7 +207,7 @@ struct ProjectRemovalTests {
         for index in 0..<2 {
             _ = store.newSession(in: task.id,
                                  worktreePath: "/worktrees/sweep-\(index)",
-                                 worktreeBranch: "conductor/test-\(index)")
+                                 worktreeBranch: "code-station/test-\(index)")
         }
         let worktrees = removal { .failure(GitWorktree.Failure(message: "Worktree is busy")) }
 
@@ -242,7 +242,7 @@ struct ProjectRemovalTests {
         let project = addProject(named: "checkout", to: store)
         let session = store.newSession(in: project.id,
                                        worktreePath: "/worktrees/checkout",
-                                       worktreeBranch: "conductor/test")
+                                       worktreeBranch: "code-station/test")
         let dialogs = DialogPresenter()
         ProjectRemoval.confirm(project, in: store, runner: SessionRunner(),
                                shortcuts: makeShortcuts(), dialogs: dialogs,
@@ -263,7 +263,7 @@ struct ProjectRemovalTests {
         let project = addProject(named: "checkout", to: store)
         _ = store.newSession(in: project.id,
                              worktreePath: "/worktrees/checkout",
-                             worktreeBranch: "conductor/test")
+                             worktreeBranch: "code-station/test")
         let dialogs = DialogPresenter()
         ProjectRemoval.confirm(
             project, in: store, runner: SessionRunner(), shortcuts: makeShortcuts(),
@@ -320,7 +320,7 @@ struct ProjectRemovalTests {
 
     private func temporaryDirectory() -> URL {
         FileManager.default.temporaryDirectory
-            .appendingPathComponent("conductor-project-removal-\(UUID().uuidString)")
+            .appendingPathComponent("code-station-project-removal-\(UUID().uuidString)")
     }
 
     private func addProject(named name: String, to store: ProjectStore) -> Project {

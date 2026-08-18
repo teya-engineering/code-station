@@ -73,7 +73,7 @@ enum GitFreshness {
     // queue rather than the shared serial git lane, which a fetch would otherwise block
     // for every other read. The queue does not bound its own width: `checkAll` caps how
     // many checks it submits at once, and a lone `check` adds at most one more.
-    private static let queue = DispatchQueue(label: "com.teya.conductor.git.freshness",
+    private static let queue = DispatchQueue(label: "com.teya.code-station.git.freshness",
                                              qos: .userInitiated, attributes: .concurrent)
 
     // Each in-flight check holds a thread while git blocks on the network, so only a

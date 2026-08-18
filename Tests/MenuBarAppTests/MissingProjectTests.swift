@@ -20,7 +20,7 @@ struct MissingProjectTests {
 
     private func temporaryRoot() -> URL {
         FileManager.default.temporaryDirectory
-            .appendingPathComponent("conductor-missing-project-tests-\(UUID().uuidString)")
+            .appendingPathComponent("code-station-missing-project-tests-\(UUID().uuidString)")
     }
 
     @Test func reportsAProjectAsMissingOnceItsFolderIsGone() throws {

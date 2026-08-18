@@ -104,7 +104,7 @@ struct OldSessionSweepTests {
 
     @Test func deletesAStillEligibleSessionAfterTheWarningHour() async throws {
         let store = ProjectStore(storeURL: FileManager.default.temporaryDirectory
-            .appendingPathComponent("conductor-old-session-sweep-\(UUID().uuidString).json"))
+            .appendingPathComponent("code-station-old-session-sweep-\(UUID().uuidString).json"))
         let project = try #require(store.addProject(at: FileManager.default.temporaryDirectory
             .appendingPathComponent("project-\(UUID().uuidString)")))
         let old = store.newSession(in: project.id)
@@ -131,7 +131,7 @@ struct OldSessionSweepTests {
     // way must protect it just as opening it before the sweep starts does.
     @Test func keepsASessionOpenedWhileItsWorktreeIsBeingChecked() async throws {
         let store = ProjectStore(storeURL: FileManager.default.temporaryDirectory
-            .appendingPathComponent("conductor-old-session-sweep-\(UUID().uuidString).json"))
+            .appendingPathComponent("code-station-old-session-sweep-\(UUID().uuidString).json"))
         let project = try #require(store.addProject(at: FileManager.default.temporaryDirectory
             .appendingPathComponent("project-\(UUID().uuidString)")))
         let worktree = try folderOnDisk()

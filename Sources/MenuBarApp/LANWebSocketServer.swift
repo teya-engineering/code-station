@@ -142,7 +142,7 @@ final class LANWebSocketServer: @unchecked Sendable {
         }
     }
 
-    private let queue = DispatchQueue(label: "conductor.mobile-access")
+    private let queue = DispatchQueue(label: "code-station.mobile-access")
     private let page: Data
     private let onOpen: @Sendable (ConnectionID, String) -> Void
     private let onMessage: @Sendable (ConnectionID, String) -> Void

@@ -229,8 +229,8 @@ struct TroubleshootProjectTests {
 
     @Test func multiProjectDiagnosisStartsInANewWorkspace() throws {
         let storeURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("conductor-troubleshoot-tests-\(UUID().uuidString).json")
-        setenv("CONDUCTOR_STORE", storeURL.path, 1)
+            .appendingPathComponent("code-station-troubleshoot-tests-\(UUID().uuidString).json")
+        setenv("CODE_STATION_STORE", storeURL.path, 1)
         defer {
             try? FileManager.default.removeItem(at: storeURL)
             try? FileManager.default.removeItem(

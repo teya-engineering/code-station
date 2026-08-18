@@ -40,7 +40,7 @@ enum GitWorktree {
         let suffix = String(sessionID.uuidString.prefix(8)).lowercased()
         let name = safeName(projectName)
         return Created(path: baseDirectory.appendingPathComponent("\(name)-\(suffix)").path,
-                       branch: "conductor/\(suffix)")
+                       branch: "code-station/\(suffix)")
     }
 
     // Workspace checkouts share a session folder. The project id suffix prevents two
@@ -50,7 +50,7 @@ enum GitWorktree {
         let projectSuffix = String(projectID.uuidString.prefix(8)).lowercased()
         let folder = baseDirectory.appendingPathComponent(sessionSuffix, isDirectory: true)
         return Created(path: folder.appendingPathComponent("\(safeName(projectName))-\(projectSuffix)").path,
-                       branch: "conductor/\(sessionSuffix)")
+                       branch: "code-station/\(sessionSuffix)")
     }
 
     private static func safeName(_ projectName: String) -> String {

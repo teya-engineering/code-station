@@ -111,7 +111,7 @@ struct TaskScheduleTests {
 struct ScheduledTaskExecutionTests {
     @Test func scheduledRunUsesSavedInputsPersistsProgressAndHonoursTheMaximum() throws {
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("conductor-task-schedule-tests-\(UUID().uuidString)")
+            .appendingPathComponent("code-station-task-schedule-tests-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }
         let storeURL = root.appendingPathComponent("projects.json")
         let store = ProjectStore(storeURL: storeURL)

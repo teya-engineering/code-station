@@ -18,7 +18,7 @@ struct SessionLifecycleTests {
                 #expect(receivedID == sessionID)
                 #expect(base == "origin/main")
                 return .success(GitWorktree.Created(path: "/worktrees/project",
-                                                    branch: "conductor/test"))
+                                                    branch: "code-station/test"))
             },
             addWorkspaceProject: { _, _, _, _, _ in
                 .failure(GitWorktree.Failure(message: "Unexpected workspace operation"))
@@ -39,7 +39,7 @@ struct SessionLifecycleTests {
         #expect(session.agent == .codex)
         #expect(session.settings?.model == "gpt-5.6-terra")
         #expect(session.agentAvatarName == "agent-avatar-2.png")
-        #expect(store.session(sessionID)?.worktreeBranch == "conductor/test")
+        #expect(store.session(sessionID)?.worktreeBranch == "code-station/test")
     }
 
     @Test func rollsBackWorkspaceWorktreesWhenCreationFails() async {
@@ -66,7 +66,7 @@ struct SessionLifecycleTests {
                     return .failure(GitWorktree.Failure(message: "Second checkout failed"))
                 }
                 return .success(GitWorktree.Created(path: "/worktrees/first",
-                                                    branch: "conductor/test"))
+                                                    branch: "code-station/test"))
             },
             remove: { path, _, _ in
                 await recorder.record(path)
@@ -109,7 +109,7 @@ struct SessionLifecycleTests {
             addWorkspaceProject: { _, name, _, _, base in
                 await recorder.record(name: name, base: base)
                 return .success(GitWorktree.Created(path: "/worktrees/\(name)",
-                                                    branch: "conductor/test"))
+                                                    branch: "code-station/test"))
             },
             remove: { _, _, _ in
                 .failure(GitWorktree.Failure(message: "Unexpected removal"))
@@ -134,7 +134,7 @@ struct SessionLifecycleTests {
         let worktrees = WorktreeOperations(
             addProject: { _, _, _, _ in
                 .success(GitWorktree.Created(path: "/worktrees/project",
-                                             branch: "conductor/test"))
+                                             branch: "code-station/test"))
             },
             addWorkspaceProject: { _, _, _, _, _ in
                 .failure(GitWorktree.Failure(message: "Unexpected workspace operation"))
@@ -164,7 +164,7 @@ struct SessionLifecycleTests {
         let project = addProject(named: "project", to: store)
         let session = store.newSession(in: project.id,
                                        worktreePath: "/worktrees/project",
-                                       worktreeBranch: "conductor/test")
+                                       worktreeBranch: "code-station/test")
         let worktrees = operationsForRemoval {
             .failure(GitWorktree.Failure(message: "Checkout is still in use"))
         }
@@ -277,7 +277,7 @@ struct SessionLifecycleTests {
         let project = addProject(named: "project", to: store)
         let session = store.newSession(in: project.id,
                                        worktreePath: "/worktrees/project",
-                                       worktreeBranch: "conductor/test")
+                                       worktreeBranch: "code-station/test")
         let worktrees = operationsForRemoval { .success(()) }
 
         let result = await SessionLifecycle.remove(
@@ -292,8 +292,8 @@ struct SessionLifecycleTests {
 
     private func makeStore() -> ProjectStore {
         let path = FileManager.default.temporaryDirectory
-            .appendingPathComponent("conductor-tests-\(UUID().uuidString).json").path
-        setenv("CONDUCTOR_STORE", path, 1)
+            .appendingPathComponent("code-station-tests-\(UUID().uuidString).json").path
+        setenv("CODE_STATION_STORE", path, 1)
         return ProjectStore()
     }
 

@@ -150,7 +150,7 @@ struct AttachmentTests {
 
     // Two screenshots share a folder, and naming it twice would only make the command longer.
     @Test func namesEachOutsideFolderOnce() {
-        let folder = URL(fileURLWithPath: "/tmp/conductor-attachments")
+        let folder = URL(fileURLWithPath: "/tmp/code-station-attachments")
         let attachments = [Attachment(url: folder.appendingPathComponent("one.png")),
                            Attachment(url: folder.appendingPathComponent("two.png"))]
 

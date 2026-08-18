@@ -72,7 +72,7 @@ enum SiteConfigurationImporter {
         }
 
         let checkout = FileManager.default.temporaryDirectory
-            .appendingPathComponent("conductor-site-configuration-\(UUID().uuidString)",
+            .appendingPathComponent("code-station-site-configuration-\(UUID().uuidString)",
                                     isDirectory: true)
         defer { try? FileManager.default.removeItem(at: checkout) }
 

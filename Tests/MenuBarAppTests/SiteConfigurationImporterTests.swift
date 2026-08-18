@@ -113,7 +113,7 @@ struct SiteConfigurationImporterTests {
           "dispatch": {
             "oauth": {
               "tokenURL": "https://id.example/token",
-              "clientID": "conductor"
+              "clientID": "code-station"
             },
             "requests": [
               { "name": "Health", "method": "GET", "url": "https://api.example/health" }
@@ -137,7 +137,7 @@ struct SiteConfigurationImporterTests {
 
         #expect(dispatch.requests.map(\.name) == ["Health"])
         #expect(shortcuts.shortcuts.map(\.name) == ["Run service"])
-        #expect(auth.staging.clientID == "conductor")
+        #expect(auth.staging.clientID == "code-station")
         #expect(auth.production.tokenURL == "https://id.example/token")
         _ = auth.save()
     }

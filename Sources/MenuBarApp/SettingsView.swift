@@ -527,7 +527,7 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Start at login")
                         .font(.system(size: 13, weight: .semibold))
-                    Text("Opens Teya Conductor when you log in, so sessions are there waiting.")
+                    Text("Opens Teya Code Station when you log in, so sessions are there waiting.")
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -984,7 +984,7 @@ enum SettingsTab: CaseIterable {
 
     var note: String {
         switch self {
-        case .general: "Settings for Teya Conductor."
+        case .general: "Settings for Teya Code Station."
         case .agents: "Choose an agent and set how it runs."
         case .experimental: "Try features that are still in development."
         }

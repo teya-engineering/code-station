@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="color-scheme" content="light dark">
-  <title>Conductor</title>
+  <title>Code Station</title>
   <style>
     /* The palette is the Mac app's own, so the phone reads as the same program seen
        narrow. Sizes are the 300px-wide design scaled by 1.3 for a ~390px viewport. */
@@ -667,7 +667,7 @@
     <header>
       <div class="head-copy">
         <div id="list-title" class="head-title">Connecting…</div>
-        <div id="list-where" class="head-where">Teya Conductor</div>
+        <div id="list-where" class="head-where">Teya Code Station</div>
       </div>
       <span id="list-light" class="light" aria-label="Disconnected"></span>
     </header>
@@ -679,7 +679,7 @@
       <button id="back" type="button" aria-label="Back to the list" hidden>‹</button>
       <div class="head-copy">
         <div id="title" class="head-title">Connecting…</div>
-        <div id="where" class="head-where">Teya Conductor</div>
+        <div id="where" class="head-where">Teya Code Station</div>
       </div>
       <span id="light" class="light" aria-label="Disconnected"></span>
     </header>
@@ -708,7 +708,7 @@
     (() => {
       const pairingID = location.pathname.split('/').filter(Boolean).pop();
       const fragment = new URLSearchParams(location.hash.slice(1));
-      const storageKey = `conductor-pairing-${pairingID}`;
+      const storageKey = `code-station-pairing-${pairingID}`;
       const scannedSecret = fragment.get('secret');
       if (scannedSecret) sessionStorage.setItem(storageKey, scannedSecret);
       const secret = scannedSecret || sessionStorage.getItem(storageKey);
@@ -919,7 +919,7 @@
         if (running) parts.push(`${running} running`);
         if (waiting) parts.push(`${waiting} needs you`);
         listWhere.textContent = parts.join(' · ').toUpperCase();
-        document.title = `${payload.title} · Conductor`;
+        document.title = `${payload.title} · Code Station`;
 
         const groups = payload.projects.map(projectGroup);
         if (!groups.length) {
@@ -1072,7 +1072,7 @@
         title.textContent = next.title;
         where.textContent = next.branch ? `${next.project} · ${next.branch}`
                                         : `${next.project} · ${next.agent}`;
-        document.title = `${next.title} · Conductor`;
+        document.title = `${next.title} · Code Station`;
 
         const running = next.state === 'RUNNING';
         light.className = `light ${running ? 'running' : next.state === 'IDLE' ? '' : 'attention'}`;

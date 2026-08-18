@@ -39,7 +39,8 @@ final class DispatchStore {
 
     private static func defaultStoreURL() -> URL {
         let environment = ProcessInfo.processInfo.environment
-        if let path = environment["CONDUCTOR_DISPATCH_STORE"]
+        if let path = environment["CODE_STATION_DISPATCH_STORE"]
+            ?? environment["CONDUCTOR_DISPATCH_STORE"]
             ?? environment["CONDUCTOR_POSTMAN_STORE"] {
             return URL(fileURLWithPath: path)
         }

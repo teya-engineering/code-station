@@ -6,7 +6,7 @@ import Testing
 struct TaskTests {
     @Test func createsANamedTaskWithItsPromptInANewEmptyDirectory() throws {
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("conductor-task-tests-\(UUID().uuidString)")
+            .appendingPathComponent("code-station-task-tests-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }
         let storeURL = root.appendingPathComponent("projects.json")
         let tasksURL = root.appendingPathComponent("tasks", isDirectory: true)
@@ -27,7 +27,7 @@ struct TaskTests {
 
     @Test func rejectsATaskWithoutANameBeforeCreatingItsDirectory() {
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("conductor-task-tests-\(UUID().uuidString)")
+            .appendingPathComponent("code-station-task-tests-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }
         let store = ProjectStore(storeURL: root.appendingPathComponent("projects.json"))
 
@@ -74,7 +74,7 @@ struct TaskTests {
 
     @Test func reworksThePromptBetweenRuns() throws {
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("conductor-task-tests-\(UUID().uuidString)")
+            .appendingPathComponent("code-station-task-tests-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }
         let storeURL = root.appendingPathComponent("projects.json")
         let store = ProjectStore(storeURL: storeURL)
@@ -90,7 +90,7 @@ struct TaskTests {
 
     @Test func ignoresATaskSpecOnANormalProject() throws {
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("conductor-task-tests-\(UUID().uuidString)")
+            .appendingPathComponent("code-station-task-tests-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }
         try FileManager.default.createDirectory(at: root.appendingPathComponent("repo"),
                                                 withIntermediateDirectories: true)
@@ -104,7 +104,7 @@ struct TaskTests {
 
     @Test func runningATaskStartsASessionWithTheSavedPrompt() throws {
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("conductor-task-tests-\(UUID().uuidString)")
+            .appendingPathComponent("code-station-task-tests-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }
         let store = ProjectStore(storeURL: root.appendingPathComponent("projects.json"))
         let task = try store.addTask(named: "Sweep", prompt: "Do the thing.",
@@ -122,7 +122,7 @@ struct TaskTests {
 
     @Test func runningATaskUsesItsOwnAgentOverTheAppDefault() throws {
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("conductor-task-tests-\(UUID().uuidString)")
+            .appendingPathComponent("code-station-task-tests-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }
         let store = ProjectStore(storeURL: root.appendingPathComponent("projects.json"))
         let task = try store.addTask(named: "Sweep", prompt: "Do the thing.",
@@ -143,7 +143,7 @@ struct TaskTests {
 
     @Test func deletingATaskRemovesItsFolderFromDisk() throws {
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("conductor-task-tests-\(UUID().uuidString)")
+            .appendingPathComponent("code-station-task-tests-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }
         let store = ProjectStore(storeURL: root.appendingPathComponent("projects.json"))
         let task = try store.addTask(named: "Sweep", prompt: "Do the thing.",

@@ -217,5 +217,5 @@ enum DiffText {
 extension NSAttributedString.Key {
     // The colour of the band behind a diff row. Painted by the view rather than through
     // .backgroundColor, which stops at the last glyph instead of the pane's edge.
-    static let diffRowBackground = NSAttributedString.Key("conductorDiffRowBackground")
+    static let diffRowBackground = NSAttributedString.Key("codeStationDiffRowBackground")
 }

@@ -8,21 +8,21 @@ struct DockerContainerTests {
 
     private let line = """
     {"Command":"\\"postgres\\"","ID":"7660d8b05f60","Image":"postgres:17-alpine",\
-    "Labels":"com.docker.compose.project=conductor,com.docker.compose.service=db",\
-    "Mounts":"conductor_data","Names":"conductor-db","Networks":"conductor_default",\
+    "Labels":"com.docker.compose.project=code-station,com.docker.compose.service=db",\
+    "Mounts":"code-station_data","Names":"code-station-db","Networks":"code-station_default",\
     "Ports":"0.0.0.0:15432->5432/tcp","Size":"12kB (virtual 420MB)","Status":"Up 2 seconds"}
     """
 
     @Test func readsTheFieldsTheRowShows() {
         let container = DockerContainer(line: line)
         #expect(container?.id == "7660d8b05f60")
-        #expect(container?.name == "conductor-db")
+        #expect(container?.name == "code-station-db")
         #expect(container?.image == "postgres:17-alpine")
         #expect(container?.status == "Up 2 seconds")
-        #expect(container?.composeProject == "conductor")
+        #expect(container?.composeProject == "code-station")
         #expect(container?.composeService == "db")
-        #expect(container?.networks == "conductor_default")
-        #expect(container?.mounts == "conductor_data")
+        #expect(container?.networks == "code-station_default")
+        #expect(container?.mounts == "code-station_data")
         #expect(container?.size == "12kB (virtual 420MB)")
     }
 
@@ -64,24 +64,24 @@ struct DockerContainerTests {
     }
 
     @Test func readsNetworkDetailsAndComposeProject() {
-        let line = #"{"CreatedAt":"2026-08-09 15:52:09 +0000 UTC","Driver":"bridge","ID":"92fa21892961ce","IPv6":"true","Internal":"false","Labels":"com.docker.compose.network=default,com.docker.compose.project=conductor","Name":"conductor_default","Scope":"local"}"#
+        let line = #"{"CreatedAt":"2026-08-09 15:52:09 +0000 UTC","Driver":"bridge","ID":"92fa21892961ce","IPv6":"true","Internal":"false","Labels":"com.docker.compose.network=default,com.docker.compose.project=code-station","Name":"code-station_default","Scope":"local"}"#
         let network = DockerNetwork(line: line)
 
-        #expect(network?.name == "conductor_default")
+        #expect(network?.name == "code-station_default")
         #expect(network?.driver == "bridge")
-        #expect(network?.composeProject == "conductor")
+        #expect(network?.composeProject == "code-station")
         #expect(network?.supportsIPv6 == true)
         #expect(network?.created == "2026-08-09 15:52:09")
     }
 
     @Test func readsVolumeDetailsAndComposeLabels() {
-        let line = #"{"Driver":"local","Labels":"com.docker.compose.volume=postgres_data,com.docker.compose.project=conductor","Mountpoint":"/var/lib/docker/volumes/conductor_postgres_data/_data","Name":"conductor_postgres_data","Scope":"local","Size":"N/A"}"#
+        let line = #"{"Driver":"local","Labels":"com.docker.compose.volume=postgres_data,com.docker.compose.project=code-station","Mountpoint":"/var/lib/docker/volumes/code-station_postgres_data/_data","Name":"code-station_postgres_data","Scope":"local","Size":"N/A"}"#
         let volume = DockerVolume(line: line)
 
-        #expect(volume?.id == "conductor_postgres_data")
-        #expect(volume?.composeProject == "conductor")
+        #expect(volume?.id == "code-station_postgres_data")
+        #expect(volume?.composeProject == "code-station")
         #expect(volume?.composeVolume == "postgres_data")
-        #expect(volume?.mountpoint == "/var/lib/docker/volumes/conductor_postgres_data/_data")
+        #expect(volume?.mountpoint == "/var/lib/docker/volumes/code-station_postgres_data/_data")
     }
 }
 

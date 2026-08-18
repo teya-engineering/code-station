@@ -3,8 +3,8 @@
 set -euo pipefail
 
 CONFIG="${1:-release}"
-APP_NAME="Teya Conductor"
-BUNDLE_ID="com.teya.conductor"
+APP_NAME="Teya Code Station"
+BUNDLE_ID="com.teya.code-station"
 
 # The organisation settings folded into the bundle. Override this path to select another
 # file; a build with no file is left unconfigured.
@@ -50,7 +50,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>NSPrincipalClass</key><string>NSApplication</string>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSLocalNetworkUsageDescription</key>
-    <string>Open a selected Conductor session on a phone connected to the same Wi-Fi.</string>
+    <string>Open a selected Code Station session on a phone connected to the same Wi-Fi.</string>
 </dict>
 </plist>
 PLIST

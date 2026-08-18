@@ -1049,7 +1049,7 @@ final class SessionRunner {
         }
 
         let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("conductor-mcp-\(UUID().uuidString).json")
+            .appendingPathComponent("code-station-mcp-\(UUID().uuidString).json")
         guard FileManager.default.createFile(
             atPath: url.path, contents: data, attributes: [.posixPermissions: 0o600]) else {
             throw Failure("Could not prepare the filtered MCP server configuration.")

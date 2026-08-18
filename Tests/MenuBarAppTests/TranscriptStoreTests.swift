@@ -10,8 +10,8 @@ struct TranscriptStoreTests {
 
     private func makeStore() -> ProjectStore {
         let path = FileManager.default.temporaryDirectory
-            .appendingPathComponent("conductor-tests-\(UUID().uuidString).json").path
-        setenv("CONDUCTOR_STORE", path, 1)
+            .appendingPathComponent("code-station-tests-\(UUID().uuidString).json").path
+        setenv("CODE_STATION_STORE", path, 1)
         return ProjectStore()
     }
 
@@ -314,7 +314,7 @@ struct TranscriptStoreTests {
         let session = try #require(store.newSession(
             in: workspace.id,
             projects: [
-                SessionProject(projectID: api.id, worktreePath: "/work/api", worktreeBranch: "conductor/1"),
+                SessionProject(projectID: api.id, worktreePath: "/work/api", worktreeBranch: "code-station/1"),
                 SessionProject(projectID: web.id, worktreePath: nil, worktreeBranch: nil),
             ],
             agentAvatarName: AgentAvatarSelection.nonBotName))
@@ -411,7 +411,7 @@ struct TranscriptStoreTests {
     // the conversations into their own files and derives the missing summaries.
     @Test func movesConversationsOutOfAFileThatKeptThemInline() throws {
         let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("conductor-legacy-\(UUID().uuidString)")
+            .appendingPathComponent("code-station-legacy-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let path = directory.appendingPathComponent("projects.json")
 
@@ -441,7 +441,7 @@ struct TranscriptStoreTests {
         }
         """
         try legacy.write(to: path, atomically: true, encoding: .utf8)
-        setenv("CONDUCTOR_STORE", path.path, 1)
+        setenv("CODE_STATION_STORE", path.path, 1)
 
         let store = ProjectStore()
 

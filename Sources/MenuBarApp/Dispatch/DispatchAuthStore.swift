@@ -96,7 +96,8 @@ final class DispatchAuthStore {
 
     private static func defaultStoreURL() -> URL {
         let environment = ProcessInfo.processInfo.environment
-        if let path = environment["CONDUCTOR_DISPATCH_AUTH"]
+        if let path = environment["CODE_STATION_DISPATCH_AUTH"]
+            ?? environment["CONDUCTOR_DISPATCH_AUTH"]
             ?? environment["CONDUCTOR_POSTMAN_AUTH"] {
             return URL(fileURLWithPath: path)
         }

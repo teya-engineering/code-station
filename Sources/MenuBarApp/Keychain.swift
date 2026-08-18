@@ -66,15 +66,18 @@ enum Keychain {
         try write(rawValues)
     }
 
-    // Earlier releases used a different feature name, and older ones kept each value in
-    // its own item. Gather every shape into the current combined item before cleanup.
+    // Every item is filed under a service named after the bundle, so the rename left the
+    // previous service holding what the user signed in with. Earlier releases also used a
+    // different feature name, and older ones kept each value in its own item. Gather every
+    // shape into the current combined item before cleanup.
     private static func migrateLegacyItems() throws -> [String: String] {
-        var gathered = try read(legacyStore).map {
-            normalizedValues(try JSONDecoder().decode([String: String].self, from: $0))
-        } ?? [:]
+        var gathered = try combinedItem(store, service: AppPaths.previousBundleID)
+            ?? combinedItem(legacyStore)
+            ?? combinedItem(legacyStore, service: AppPaths.previousBundleID)
+            ?? [:]
         for (legacy, current) in legacyNames {
             for name in [current, legacy] where gathered[current] == nil {
-                if let data = try read(name),
+                if let data = try read(name) ?? read(name, service: AppPaths.previousBundleID),
                    let value = String(data: data, encoding: .utf8), !value.isEmpty {
                     gathered[current] = value
                 }
@@ -86,7 +89,16 @@ enum Keychain {
         for item in oldItems {
             try delete(item)
         }
+        for item in [store, legacyStore] + legacyNames.flatMap({ [$0.key, $0.value] }) {
+            try delete(item, service: AppPaths.previousBundleID)
+        }
         return gathered
+    }
+
+    private static func combinedItem(_ account: String,
+                                     service: String = AppPaths.bundleID) throws -> [String: String]? {
+        guard let data = try read(account, service: service) else { return nil }
+        return normalizedValues(try JSONDecoder().decode([String: String].self, from: data))
     }
 
     // A value stored by an earlier release is folded onto the name used now. Anything
@@ -107,15 +119,15 @@ enum Keychain {
         "postman.production.token": Account.productionToken.name
     ]
 
-    private static func delete(_ account: String) throws {
-        let status = SecItemDelete(query(account) as CFDictionary)
+    private static func delete(_ account: String, service: String = AppPaths.bundleID) throws {
+        let status = SecItemDelete(query(account, service: service) as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else {
             throw Failure(operation: "remove an old item", status: status)
         }
     }
 
-    private static func read(_ account: String) throws -> Data? {
-        var query = query(account)
+    private static func read(_ account: String, service: String = AppPaths.bundleID) throws -> Data? {
+        var query = query(account, service: service)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
 
@@ -157,9 +169,10 @@ enum Keychain {
         }
     }
 
-    private static func query(_ account: String) -> [String: Any] {
+    private static func query(_ account: String,
+                             service: String = AppPaths.bundleID) -> [String: Any] {
         [kSecClass as String: kSecClassGenericPassword,
-         kSecAttrService as String: AppPaths.bundleID,
+         kSecAttrService as String: service,
          kSecAttrAccount as String: account]
     }
 }

@@ -66,7 +66,7 @@ final class TerminalSession: Identifiable {
 
         var environment = ProcessInfo.processInfo.environment
         environment["TERM"] = "xterm-256color"
-        environment["TERM_PROGRAM"] = "TeyaConductor"
+        environment["TERM_PROGRAM"] = "TeyaCodeStation"
         environment["PATH"] = ProcessManager.searchPath
         environment["LANG"] = environment["LANG"] ?? "en_US.UTF-8"
 

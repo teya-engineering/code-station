@@ -105,7 +105,7 @@ struct AppSidebar: View {
                 HStack(spacing: 9) {
                     AppMark()
                         .frame(width: 26, height: 26)
-                    Text("Teya Conductor")
+                    Text("Teya Code Station")
                         .font(.logo(18))
                         .kerning(-0.2)
                         .lineLimit(1)

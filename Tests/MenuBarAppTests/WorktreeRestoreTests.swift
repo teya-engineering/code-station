@@ -15,7 +15,7 @@ struct WorktreeRestoreTests {
         let repo = try Repo()
         let checkout = repo.sandbox.appendingPathComponent("checkout")
 
-        repo.git("worktree", "add", "-q", checkout.path, "-b", "conductor/abc")
+        repo.git("worktree", "add", "-q", checkout.path, "-b", "code-station/abc")
         try "work".write(to: checkout.appendingPathComponent("note.txt"),
                          atomically: true, encoding: .utf8)
         Repo.run(in: checkout, ["add", "."])
@@ -26,14 +26,14 @@ struct WorktreeRestoreTests {
         try FileManager.default.removeItem(at: checkout)
 
         let result = await GitWorktree.restore(worktreePath: checkout.path,
-                                               branch: "conductor/abc",
+                                               branch: "code-station/abc",
                                                projectPath: repo.path, from: .localBranch)
 
         #expect(throwsNothing(result))
         // The point of keeping the branch: the commit is back, not just the folder.
         #expect(repo.read("note.txt", in: checkout) == "work")
         #expect(Repo.output(in: checkout, ["log", "-1", "--pretty=%s"]) == "the work")
-        #expect(Repo.output(in: checkout, ["rev-parse", "--abbrev-ref", "HEAD"]) == "conductor/abc")
+        #expect(Repo.output(in: checkout, ["rev-parse", "--abbrev-ref", "HEAD"]) == "code-station/abc")
     }
 
     // The regression `restore` exists for. Git keeps its registration when only the folder is
@@ -43,14 +43,14 @@ struct WorktreeRestoreTests {
         let repo = try Repo()
         let checkout = repo.sandbox.appendingPathComponent("checkout")
 
-        repo.git("worktree", "add", "-q", checkout.path, "-b", "conductor/ghi")
+        repo.git("worktree", "add", "-q", checkout.path, "-b", "code-station/ghi")
         try FileManager.default.removeItem(at: checkout)
 
         // What a plain `worktree add` would do here, and it does not work.
-        #expect(Repo.status(in: repo.url, ["worktree", "add", checkout.path, "conductor/ghi"]) != 0)
+        #expect(Repo.status(in: repo.url, ["worktree", "add", checkout.path, "code-station/ghi"]) != 0)
 
         let result = await GitWorktree.restore(worktreePath: checkout.path,
-                                               branch: "conductor/ghi",
+                                               branch: "code-station/ghi",
                                                projectPath: repo.path, from: .localBranch)
 
         #expect(throwsNothing(result))
@@ -66,8 +66,8 @@ struct WorktreeRestoreTests {
         let mine = repo.sandbox.appendingPathComponent("mine")
         let other = repo.sandbox.appendingPathComponent("other")
 
-        repo.git("worktree", "add", "-q", mine.path, "-b", "conductor/mine")
-        repo.git("worktree", "add", "-q", other.path, "-b", "conductor/other")
+        repo.git("worktree", "add", "-q", mine.path, "-b", "code-station/mine")
+        repo.git("worktree", "add", "-q", other.path, "-b", "code-station/other")
         try FileManager.default.removeItem(at: mine)
         // Moved rather than deleted, the way an unmounted volume leaves it: gone as far as
         // git can tell, and coming back later.
@@ -75,7 +75,7 @@ struct WorktreeRestoreTests {
                                          to: repo.sandbox.appendingPathComponent("parked"))
 
         let result = await GitWorktree.restore(worktreePath: mine.path,
-                                               branch: "conductor/mine",
+                                               branch: "code-station/mine",
                                                projectPath: repo.path, from: .localBranch)
 
         #expect(throwsNothing(result))
@@ -89,23 +89,23 @@ struct WorktreeRestoreTests {
         let repo = try Repo(withRemote: true)
         let checkout = repo.sandbox.appendingPathComponent("checkout")
 
-        repo.git("worktree", "add", "-q", checkout.path, "-b", "conductor/pushed")
+        repo.git("worktree", "add", "-q", checkout.path, "-b", "code-station/pushed")
         try "work".write(to: checkout.appendingPathComponent("note.txt"),
                          atomically: true, encoding: .utf8)
         Repo.run(in: checkout, ["add", "."])
         Repo.run(in: checkout, ["commit", "-qm", "precious work"])
-        Repo.run(in: checkout, ["push", "-q", "origin", "conductor/pushed"])
+        Repo.run(in: checkout, ["push", "-q", "origin", "code-station/pushed"])
 
         try FileManager.default.removeItem(at: checkout)
         repo.git("worktree", "prune")
-        repo.git("branch", "-qD", "conductor/pushed")
+        repo.git("branch", "-qD", "code-station/pushed")
 
-        let source = await GitWorktree.restoreSource(of: "conductor/pushed",
+        let source = await GitWorktree.restoreSource(of: "code-station/pushed",
                                                      projectPath: repo.path)
-        #expect(source == .remoteBranch("refs/remotes/origin/conductor/pushed"))
+        #expect(source == .remoteBranch("refs/remotes/origin/code-station/pushed"))
 
         let result = await GitWorktree.restore(worktreePath: checkout.path,
-                                               branch: "conductor/pushed",
+                                               branch: "code-station/pushed",
                                                projectPath: repo.path,
                                                from: try #require(source))
 
@@ -113,7 +113,7 @@ struct WorktreeRestoreTests {
         #expect(Repo.output(in: checkout, ["log", "-1", "--pretty=%s"]) == "precious work")
         // Tracking the remote it came from, so the next push is not a diverged branch.
         #expect(Repo.output(in: checkout, ["rev-parse", "--abbrev-ref", "@{upstream}"])
-            == "origin/conductor/pushed")
+            == "origin/code-station/pushed")
     }
 
     // The case the confirmation has to be honest about: the folder comes back, the work does
@@ -122,20 +122,20 @@ struct WorktreeRestoreTests {
         let repo = try Repo()
         let checkout = repo.sandbox.appendingPathComponent("checkout")
 
-        repo.git("worktree", "add", "-q", checkout.path, "-b", "conductor/def")
+        repo.git("worktree", "add", "-q", checkout.path, "-b", "code-station/def")
         try FileManager.default.removeItem(at: checkout)
         repo.git("worktree", "prune")
-        repo.git("branch", "-qD", "conductor/def")
+        repo.git("branch", "-qD", "code-station/def")
 
         let result = await GitWorktree.restore(worktreePath: checkout.path,
-                                               branch: "conductor/def",
+                                               branch: "code-station/def",
                                                projectPath: repo.path, from: .projectHead)
 
         #expect(throwsNothing(result))
         // Forked from the project's own checkout, so it holds the first commit and nothing
         // that was only ever on the branch.
         #expect(Repo.output(in: checkout, ["log", "-1", "--pretty=%s"]) == "first")
-        #expect(Repo.output(in: checkout, ["rev-parse", "--abbrev-ref", "HEAD"]) == "conductor/def")
+        #expect(Repo.output(in: checkout, ["rev-parse", "--abbrev-ref", "HEAD"]) == "code-station/def")
     }
 
     // `--force` waives two of git's checks and only one of them is ours to waive. A branch
@@ -146,10 +146,10 @@ struct WorktreeRestoreTests {
         let mine = repo.sandbox.appendingPathComponent("mine")
         let elsewhere = repo.sandbox.appendingPathComponent("elsewhere")
 
-        repo.git("worktree", "add", "-q", elsewhere.path, "-b", "conductor/shared")
+        repo.git("worktree", "add", "-q", elsewhere.path, "-b", "code-station/shared")
 
         let result = await GitWorktree.restore(worktreePath: mine.path,
-                                               branch: "conductor/shared",
+                                               branch: "code-station/shared",
                                                projectPath: repo.path, from: .localBranch)
 
         #expect(message(of: result)?.contains("already checked out") == true)
@@ -164,7 +164,7 @@ struct WorktreeRestoreTests {
 
         let result = await GitWorktree.restore(
             worktreePath: root.appendingPathComponent("checkout").path,
-            branch: "conductor/jkl",
+            branch: "code-station/jkl",
             projectPath: root.appendingPathComponent("project").path, from: .localBranch)
 
         #expect(message(of: result)?.contains("project folder") == true)
@@ -174,24 +174,24 @@ struct WorktreeRestoreTests {
 
     @Test func readsWhereTheCommitsWouldComeFromWithoutChangingAnything() async throws {
         let repo = try Repo()
-        repo.git("branch", "conductor/mno")
+        repo.git("branch", "code-station/mno")
 
-        #expect(await GitWorktree.restoreSource(of: "conductor/mno",
+        #expect(await GitWorktree.restoreSource(of: "code-station/mno",
                                                 projectPath: repo.path) == .localBranch)
-        #expect(await GitWorktree.restoreSource(of: "conductor/nope",
+        #expect(await GitWorktree.restoreSource(of: "code-station/nope",
                                                 projectPath: repo.path) == .projectHead)
         // Not the same answer as "the branch is gone": there is no way to tell from here, and
         // saying it is gone would promise a fresh checkout this cannot make.
-        #expect(await GitWorktree.restoreSource(of: "conductor/mno", projectPath: "/nowhere") == nil)
+        #expect(await GitWorktree.restoreSource(of: "code-station/mno", projectPath: "/nowhere") == nil)
     }
 
     // A tag of the same name must not stand in for the branch: checking one out leaves a
     // detached head on a checkout whose session records a branch.
     @Test func doesNotMistakeATagForTheBranch() async throws {
         let repo = try Repo()
-        repo.git("tag", "conductor/tagged")
+        repo.git("tag", "code-station/tagged")
 
-        #expect(await GitWorktree.restoreSource(of: "conductor/tagged",
+        #expect(await GitWorktree.restoreSource(of: "code-station/tagged",
                                                 projectPath: repo.path) == .projectHead)
     }
 
@@ -199,16 +199,16 @@ struct WorktreeRestoreTests {
     // forking from the project instead would lose the commits most quietly.
     @Test func prefersOriginWhenTwoRemotesCarryTheBranch() async throws {
         let repo = try Repo(withRemote: true)
-        repo.git("branch", "conductor/two")
-        repo.git("push", "-q", "origin", "conductor/two")
+        repo.git("branch", "code-station/two")
+        repo.git("push", "-q", "origin", "code-station/two")
         // Named "backup" so it sorts before origin: git lists refs by name, and picking the
         // first would land on the wrong remote without anyone noticing.
         repo.git("remote", "add", "backup", try repo.addBare(named: "backup"))
-        repo.git("push", "-q", "backup", "conductor/two")
-        repo.git("branch", "-qD", "conductor/two")
+        repo.git("push", "-q", "backup", "code-station/two")
+        repo.git("branch", "-qD", "code-station/two")
 
-        #expect(await GitWorktree.restoreSource(of: "conductor/two", projectPath: repo.path)
-            == .remoteBranch("refs/remotes/origin/conductor/two"))
+        #expect(await GitWorktree.restoreSource(of: "code-station/two", projectPath: repo.path)
+            == .remoteBranch("refs/remotes/origin/code-station/two"))
     }
 
     // MARK: - What the session offers
@@ -217,7 +217,7 @@ struct WorktreeRestoreTests {
         let scene = try Scene()
         let present = try scene.folder("checkout")
         let session = scene.store.newSession(in: scene.project.id, worktreePath: present.path,
-                                             worktreeBranch: "conductor/stu")
+                                             worktreeBranch: "code-station/stu")
 
         #expect(SessionLifecycle.missingDirectories(of: session, in: scene.store).isEmpty)
 
@@ -231,9 +231,9 @@ struct WorktreeRestoreTests {
         let lost = scene.root.appendingPathComponent("gone").path
 
         let rebuildable = scene.store.newSession(in: scene.project.id, worktreePath: lost,
-                                                 worktreeBranch: "conductor/pqr")
+                                                 worktreeBranch: "code-station/pqr")
         #expect(SessionLifecycle.rebuildableCheckouts(of: rebuildable, in: scene.store)
-            == [LostCheckout(path: lost, branch: "conductor/pqr",
+            == [LostCheckout(path: lost, branch: "code-station/pqr",
                              projectPath: scene.project.path)])
 
         // No branch recorded is nothing to rebuild from.
@@ -271,12 +271,12 @@ struct WorktreeRestoreTests {
 
     @Test func pairsEachCheckoutWithWhereItsCommitsAre() async throws {
         let checkouts = [
-            LostCheckout(path: "/gone/one", branch: "conductor/one", projectPath: "/repo"),
-            LostCheckout(path: "/gone/two", branch: "conductor/two", projectPath: "/repo")
+            LostCheckout(path: "/gone/one", branch: "code-station/one", projectPath: "/repo"),
+            LostCheckout(path: "/gone/two", branch: "code-station/two", projectPath: "/repo")
         ]
 
         let plan = await SessionLifecycle.planRebuild(checkouts) { branch, _ in
-            branch == "conductor/one" ? .localBranch : .projectHead
+            branch == "code-station/one" ? .localBranch : .projectHead
         }
 
         #expect(plan == [PlannedRebuild(checkout: checkouts[0], source: .localBranch),
@@ -286,7 +286,7 @@ struct WorktreeRestoreTests {
     // "Cannot ask" is not "the branch is gone". Told as the latter, the confirmation promises
     // a fresh checkout that the rebuild then refuses to make.
     @Test func dropsACheckoutGitCannotAnswerFor() async throws {
-        let checkouts = [LostCheckout(path: "/gone", branch: "conductor/yza", projectPath: "/repo")]
+        let checkouts = [LostCheckout(path: "/gone", branch: "code-station/yza", projectPath: "/repo")]
 
         #expect(await SessionLifecycle.planRebuild(checkouts) { _, _ in nil }.isEmpty)
     }
@@ -295,7 +295,7 @@ struct WorktreeRestoreTests {
         let scene = try Scene()
         let lost = scene.root.appendingPathComponent("gone").path
         let session = scene.store.newSession(in: scene.project.id, worktreePath: lost,
-                                             worktreeBranch: "conductor/pqr")
+                                             worktreeBranch: "code-station/pqr")
         let plan = await SessionLifecycle.planRebuild(
             SessionLifecycle.rebuildableCheckouts(of: session, in: scene.store)) { _, _ in .localBranch }
 
@@ -307,11 +307,11 @@ struct WorktreeRestoreTests {
         // The record was right all along, so nothing about it should have moved.
         let after = try #require(scene.store.session(session.id))
         #expect(after.worktreePath == lost)
-        #expect(after.worktreeBranch == "conductor/pqr")
+        #expect(after.worktreeBranch == "code-station/pqr")
     }
 
     @Test func reportsAFailingRebuildRatherThanReadingAsDone() async throws {
-        let plan = [PlannedRebuild(checkout: LostCheckout(path: "/gone", branch: "conductor/vwx",
+        let plan = [PlannedRebuild(checkout: LostCheckout(path: "/gone", branch: "code-station/vwx",
                                                           projectPath: "/repo"),
                                    source: .localBranch)]
 
@@ -327,17 +327,17 @@ struct WorktreeRestoreTests {
     // MARK: - What the confirmation says
 
     @Test func namesWhereTheCommitsAreComingFrom() {
-        let checkout = LostCheckout(path: "/gone", branch: "conductor/abc", projectPath: "/repo")
+        let checkout = LostCheckout(path: "/gone", branch: "code-station/abc", projectPath: "/repo")
 
         let local = SessionLifecycle.rebuildMessage(
             for: [PlannedRebuild(checkout: checkout, source: .localBranch)])
-        #expect(local.contains("conductor/abc is still on this machine"))
+        #expect(local.contains("code-station/abc is still on this machine"))
 
         let remote = SessionLifecycle.rebuildMessage(
             for: [PlannedRebuild(checkout: checkout,
-                                 source: .remoteBranch("refs/remotes/origin/conductor/abc"))])
+                                 source: .remoteBranch("refs/remotes/origin/code-station/abc"))])
         // The name git shows everywhere else, not the full ref.
-        #expect(remote.contains("origin/conductor/abc"))
+        #expect(remote.contains("origin/code-station/abc"))
         #expect(!remote.contains("refs/remotes"))
 
         // The one case where work is lost has to say so rather than lead with the folder.
@@ -350,7 +350,7 @@ struct WorktreeRestoreTests {
     @Test func separatesWhatComesBackFromWhatStartsOverWhenThereAreSeveral() {
         let plan = ["one", "two", "three"].enumerated().map { index, name in
             PlannedRebuild(checkout: LostCheckout(path: "/gone/\(name)",
-                                                  branch: "conductor/\(name)",
+                                                  branch: "code-station/\(name)",
                                                   projectPath: "/repo"),
                            source: index == 2 ? .projectHead : .localBranch)
         }
@@ -391,7 +391,7 @@ struct WorktreeRestoreTests {
             root = FileManager.default.temporaryDirectory
                 .appendingPathComponent("restore-scene-\(UUID().uuidString)", isDirectory: true)
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-            setenv("CONDUCTOR_STORE", root.appendingPathComponent("projects.json").path, 1)
+            setenv("CODE_STATION_STORE", root.appendingPathComponent("projects.json").path, 1)
             store = ProjectStore()
             project = try Scene.add(named: "repo", root: root, store: store)
         }

@@ -10,8 +10,8 @@ struct ClearContextTests {
 
     private func makeStore() -> ProjectStore {
         let path = FileManager.default.temporaryDirectory
-            .appendingPathComponent("conductor-tests-\(UUID().uuidString).json").path
-        setenv("CONDUCTOR_STORE", path, 1)
+            .appendingPathComponent("code-station-tests-\(UUID().uuidString).json").path
+        setenv("CODE_STATION_STORE", path, 1)
         return ProjectStore()
     }
 

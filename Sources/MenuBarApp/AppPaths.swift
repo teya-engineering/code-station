@@ -6,12 +6,49 @@ import Foundation
 enum AppPaths {
     // Bundle.main has no identifier when the binary is run straight from the build folder,
     // which is how the app runs in development.
-    static let bundleID = Bundle.main.bundleIdentifier ?? "com.teya.conductor"
+    static let bundleID = Bundle.main.bundleIdentifier ?? "com.teya.code-station"
+
+    // The identifier the app answered to before it was renamed. Everything the app owns is
+    // filed under the identifier - the data folder, the logs, the preferences and the
+    // Keychain items - so the old one has to stay readable or an upgrade looks like a
+    // fresh install. Keychain.swift reads it for the same reason.
+    static let previousBundleID = "com.teya.conductor"
+
+    private static var supportBase: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent("Library/Application Support")
+    }
 
     static var support: URL {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support")
-        return base.appendingPathComponent(bundleID)
+        _ = adoptedPreviousBundle
+        return supportBase.appendingPathComponent(bundleID)
+    }
+
+    // Carries what the old identifier owns over to the new one. A `static let` runs once
+    // per launch and before any path below is handed out, so nothing has been created
+    // under the new name yet and the moves below still see an empty destination.
+    private static let adoptedPreviousBundle: Void = {
+        guard bundleID != previousBundleID else { return }
+        move(supportBase.appendingPathComponent(previousBundleID),
+             to: supportBase.appendingPathComponent(bundleID))
+        move(logsBase.appendingPathComponent(previousBundleID),
+             to: logsBase.appendingPathComponent(bundleID))
+        adoptDefaults(of: previousBundleID)
+    }()
+
+    // Preferences live in a domain named after the bundle, so the renamed app would start
+    // with none of the choices the user made. A key already answered here wins, so this
+    // can never undo a newer answer, and the marker keeps a later launch from reviving a
+    // preference the user has since cleared.
+    static func adoptDefaults(of domain: String, into store: UserDefaults = .standard) {
+        let marker = "adoptedDefaultsFrom-\(domain)"
+        guard !store.bool(forKey: marker) else { return }
+        store.set(true, forKey: marker)
+        guard let previous = store.persistentDomain(forName: domain) else { return }
+        for (key, value) in previous where store.object(forKey: key) == nil {
+            store.set(value, forKey: key)
+        }
     }
 
     // A file the app owns, moved out of the directory an earlier version used if it is
@@ -39,7 +76,8 @@ enum AppPaths {
         try? files.moveItem(at: legacy, to: url)
     }
 
-    // Where an earlier version kept everything, in the XDG style.
+    // Where an earlier version kept everything, in the XDG style. The name is the one that
+    // release wrote, so it stays as it is however the app is called now.
     static func legacy(_ name: String) -> URL {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".config/claude-conductor/\(name)")
@@ -48,10 +86,14 @@ enum AppPaths {
     // Logs go where macOS keeps logs rather than in Application Support, so Console and
     // the usual "collect the logs" habits find them without being told where to look.
     static var logs: URL {
-        let url = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Logs/\(bundleID)")
+        _ = adoptedPreviousBundle
+        let url = logsBase.appendingPathComponent(bundleID)
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
+    }
+
+    private static var logsBase: URL {
+        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs")
     }
 
     // Worktrees are git checkouts holding work that is not committed yet, so they cannot
