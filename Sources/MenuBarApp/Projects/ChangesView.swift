@@ -118,7 +118,11 @@ struct ChangesView: View {
 
                 if !files.isEmpty && mode == .changes {
                     headerAction("Commit", icon: "checkmark.circle") {
-                        committing.toggle()
+                        if committing {
+                            committing = false
+                        } else {
+                            beginCommit()
+                        }
                     }
                 }
                 if snapshot.upstream != nil {
@@ -399,7 +403,9 @@ struct ChangesView: View {
         }
         .buttonStyle(.plain)
         .appContextMenu {
-            [.item("Reveal in Finder") { reveal(file) },
+            [.item("Commit This File…") { beginCommit(with: file) },
+             .separator,
+             .item("Reveal in Finder") { reveal(file) },
              .item("Copy Path") {
                  NSPasteboard.general.clearContents()
                  NSPasteboard.general.setString(fileURL(file).path, forType: .string)
@@ -407,6 +413,15 @@ struct ChangesView: View {
              .separator,
              .item("Discard Changes", kind: .destructive) { confirmDiscard(file) }]
         }
+    }
+
+    private func beginCommit(with file: GitChange? = nil) {
+        if let file {
+            excluded = Set(files.lazy.map(\.id))
+            excluded.remove(file.id)
+        }
+        committing = true
+        commitFocused = true
     }
 
     @ViewBuilder private func counts(_ file: GitChange) -> some View {
