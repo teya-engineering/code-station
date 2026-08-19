@@ -273,18 +273,24 @@ struct TroubleshootView: View {
             .appTooltip { Tooltip(title: name, subtitle: description(of: name)) }
     }
 
-    // Dashed and wordless, like the one on the session's shortcut strip, so the control
-    // that adds a skill does not read as a skill of its own.
+    // Dashed rather than filled, so the control that adds a skill does not read as a
+    // skill of its own. The whole pill opens the menu, not just the sign.
     private var addSkillButton: some View {
-        Image(systemName: "plus")
-            .font(.system(size: 9, weight: .bold))
-            .foregroundStyle(.secondary)
-            .frame(width: 22, height: 22)
-            .overlay(RoundedRectangle(cornerRadius: 7)
-                .strokeBorder(Theme.border, style: StrokeStyle(lineWidth: 1, dash: [3, 3])))
-            .appMenu { skillMenu }
-            .appTooltip("Add a skill to the diagnosis")
-            .accessibilityLabel("Add skill")
+        HStack(spacing: 5) {
+            Image(systemName: "plus")
+                .font(.system(size: 9, weight: .bold))
+            Text("Add")
+                .font(.system(size: 12, weight: .semibold))
+        }
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 9)
+        .frame(height: 22)
+        .overlay(RoundedRectangle(cornerRadius: 7)
+            .strokeBorder(Theme.border, style: StrokeStyle(lineWidth: 1, dash: [3, 3])))
+        .contentShape(RoundedRectangle(cornerRadius: 7))
+        .appMenu { skillMenu }
+        .appTooltip("Add a skill to the diagnosis")
+        .accessibilityLabel("Add skill")
     }
 
     private var skillMenu: [MenuEntry] {
