@@ -381,7 +381,8 @@ private struct InlineMarkdownText: View {
                 LinkAwareText(
                     attributed: attributed,
                     font: resolvedNSFont,
-                    color: secondary ? .secondaryLabelColor : .labelColor)
+                    color: secondary ? .secondaryLabelColor : .labelColor,
+                    openLink: { openURL($0) })
             } else {
                 Text(attributed)
                     .font(.system(size: size * textScale, weight: weight, design: design))
@@ -429,11 +430,14 @@ private struct InlineMarkdownText: View {
 }
 
 // NSTextView keeps the pointing-hand cursor over link ranges and the I-beam elsewhere,
-// which SwiftUI's Text cannot do — it exposes no per-run hover geometry.
+// which SwiftUI's Text cannot do, since it exposes no per-run hover geometry.
 private struct LinkAwareText: NSViewRepresentable {
     let attributed: AttributedString
     let font: NSFont
     let color: NSColor
+    let openLink: (URL) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(openLink: openLink) }
 
     func makeNSView(context: Context) -> NSTextView {
         let view = NSTextView(usingTextLayoutManager: false)
@@ -447,8 +451,9 @@ private struct LinkAwareText: NSViewRepresentable {
         view.textContainer?.heightTracksTextView = false
         view.isHorizontallyResizable = false
         view.isVerticallyResizable = true
+        view.delegate = context.coordinator
         view.linkTextAttributes = [
-            .foregroundColor: NSColor.linkColor,
+            .foregroundColor: Theme.accentNSColor,
             .underlineStyle: NSUnderlineStyle.single.rawValue,
             .cursor: NSCursor.pointingHand,
         ]
@@ -456,14 +461,14 @@ private struct LinkAwareText: NSViewRepresentable {
     }
 
     func updateNSView(_ view: NSTextView, context: Context) {
+        context.coordinator.openLink = openLink
         view.textStorage?.setAttributedString(makeNSAttributedString())
         view.invalidateIntrinsicContentSize()
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, nsView view: NSTextView, context: Context) -> CGSize? {
         guard let container = view.textContainer, let layoutManager = view.layoutManager else { return nil }
-        let width = proposal.width ?? 10_000
-        guard width.isFinite, width > 0 else { return nil }
+        guard let width = proposal.width, width.isFinite, width > 0 else { return nil }
         container.containerSize = CGSize(width: width, height: .greatestFiniteMagnitude)
         layoutManager.ensureLayout(for: container)
         let used = layoutManager.usedRect(for: container)
@@ -471,20 +476,19 @@ private struct LinkAwareText: NSViewRepresentable {
     }
 
     private func makeNSAttributedString() -> NSAttributedString {
-        let manager = NSFontManager.shared
         let result = NSMutableAttributedString()
         for run in attributed.runs {
             let piece = String(attributed[run.range].characters)
-            var runFont = font
             let intent = run.inlinePresentationIntent ?? []
-            if intent.contains(.stronglyEmphasized) {
-                runFont = manager.convert(runFont, toHaveTrait: .boldFontMask)
-            }
-            if intent.contains(.emphasized) {
-                runFont = manager.convert(runFont, toHaveTrait: .italicFontMask)
-            }
-            if intent.contains(.code) {
-                runFont = NSFont.monospacedSystemFont(ofSize: font.pointSize, weight: .regular)
+            var runFont = intent.contains(.code)
+                ? NSFont.monospacedSystemFont(ofSize: font.pointSize, weight: .regular)
+                : font
+            var traits: NSFontDescriptor.SymbolicTraits = []
+            if intent.contains(.stronglyEmphasized) { traits.insert(.bold) }
+            if intent.contains(.emphasized) { traits.insert(.italic) }
+            if !traits.isEmpty {
+                let descriptor = runFont.fontDescriptor.withSymbolicTraits(traits)
+                runFont = NSFont(descriptor: descriptor, size: runFont.pointSize) ?? runFont
             }
             var attrs: [NSAttributedString.Key: Any] = [.font: runFont]
             if let link = run.link {
@@ -495,6 +499,24 @@ private struct LinkAwareText: NSViewRepresentable {
             result.append(NSAttributedString(string: piece, attributes: attrs))
         }
         return result
+    }
+
+    // A click inside an AppKit view never reaches SwiftUI's openURL environment, so the
+    // link is handed back to it by hand. That is what keeps a "path:line" link opening
+    // the enclosing folder in Finder rather than whatever app owns the file type.
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        var openLink: (URL) -> Void
+
+        init(openLink: @escaping (URL) -> Void) {
+            self.openLink = openLink
+        }
+
+        func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
+            let url = (link as? URL) ?? (link as? String).flatMap { URL(string: $0) }
+            guard let url else { return false }
+            openLink(url)
+            return true
+        }
     }
 }
 

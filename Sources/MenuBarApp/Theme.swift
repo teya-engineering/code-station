@@ -41,9 +41,10 @@ enum Theme {
     // Filled controls stay deep enough for white labels. The adaptive accent is used on
     // surfaces, where the same deep green would not have enough contrast in dark mode.
     static let accentFill = Color(red: 0.184, green: 0.290, blue: 0.200)
-    static let accent = adaptive(
+    static let accentNSColor = adaptiveNSColor(
         light: NSColor(srgbRed: 0.184, green: 0.290, blue: 0.200, alpha: 1),
         dark: NSColor(srgbRed: 0.58, green: 0.76, blue: 0.60, alpha: 1))
+    static let accent = Color(nsColor: accentNSColor)
     static let dotOn = Color(red: 0.243, green: 0.478, blue: 0.275)
     static let dotOff = Color(red: 0.66, green: 0.66, blue: 0.63)
     static let secret = Color(red: 0.72, green: 0.52, blue: 0.20)
