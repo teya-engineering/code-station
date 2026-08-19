@@ -777,7 +777,6 @@ struct SessionRow: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .layoutPriority(1)
 
             VStack(alignment: .trailing, spacing: 6) {
                 DiffPair(added: session.summary.added,
