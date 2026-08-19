@@ -59,7 +59,7 @@ struct MessageView: View, Equatable {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .transcriptCopyButton(for: message.text)
         case .instructions:
-            instructionBubble
+            InstructionBubble(text: message.text)
                 .transcriptCopyButton(for: message.text)
         }
     }
@@ -106,22 +106,6 @@ struct MessageView: View, Equatable {
             // grows with the text so a bubble holds about the same number of words at
             // every size.
             .frame(maxWidth: 600 * textScale, alignment: .trailing)
-        }
-    }
-
-    private var instructionBubble: some View {
-        HStack(spacing: 0) {
-            Spacer(minLength: 80)
-            Text(message.text)
-                .scaledText(13)
-                .textSelection(.enabled)
-                .multilineTextAlignment(.leading)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.leading, 14)
-                .padding(.trailing, 42)
-                .padding(.vertical, 10)
-                .background(RoundedRectangle(cornerRadius: 12).fill(Theme.secret.opacity(0.14)))
-                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.secret.opacity(0.30)))
         }
     }
 
@@ -188,6 +172,52 @@ struct MessageView: View, Equatable {
                 }
             }
         }
+    }
+}
+
+// The instructions carried alongside a prompt. They are the same on every turn of a
+// session, so the bubble starts shut and only opens when someone wants to check them.
+private struct InstructionBubble: View {
+    let text: String
+    @State private var expanded = false
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Spacer(minLength: 80)
+            VStack(alignment: .leading, spacing: 6) {
+                Button { expanded.toggle() } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 9, weight: .semibold))
+                            .rotationEffect(.degrees(expanded ? 90 : 0))
+                            .frame(width: 10)
+                        Text(expanded ? "Instructions" : "Instructions\u{2026} click to expand")
+                            .scaledText(13)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .appTooltip(expanded ? "Hide instructions" : "Show instructions")
+
+                if expanded {
+                    Text(text)
+                        .scaledText(13)
+                        .textSelection(.enabled)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.leading, 18)
+                        .transition(.fadeIn)
+                }
+            }
+            .padding(.leading, 14)
+            .padding(.trailing, 42)
+            .padding(.vertical, 10)
+            .background(RoundedRectangle(cornerRadius: 12).fill(Theme.secret.opacity(0.14)))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.secret.opacity(0.30)))
+        }
+        .smoothlyResizes(when: expanded)
     }
 }
 
