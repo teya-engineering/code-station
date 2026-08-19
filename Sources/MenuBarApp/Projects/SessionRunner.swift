@@ -582,6 +582,19 @@ final class SessionRunner {
         return next
     }
 
+    // Extra system prompt appended to every Claude Code session started by the app.
+    // The app renders interactive choices as a modal, and the CLI's default is to write
+    // options as an inline numbered list instead of calling AskUserQuestion — so tell it
+    // to prefer the tool whenever the choice is a small closed set.
+    nonisolated static let appendedSystemPrompt = """
+        When you need the user to pick between 2-4 mutually exclusive options before \
+        proceeding, use the AskUserQuestion tool. Do not present the options as an inline \
+        numbered list ending in "Which?" or similar — the host renders AskUserQuestion as \
+        a modal with clickable choices, while inline lists have no clickable options and \
+        no "Other" escape hatch. Prose questions are only for open-ended clarifications \
+        where a fixed option set doesn't fit.
+        """
+
     // Everything the CLI is run with for one turn. The session's own choices win, the app
     // defaults fill the gaps for mutable run controls, and anything neither has chosen is
     // left off rather than sent as a guess. A choice that does not belong to this agent
@@ -610,7 +623,8 @@ final class SessionRunner {
             // stdin. Without it a prompt is auto-denied and the turn carries on half-done.
             var arguments = ["-p", "--output-format", "stream-json", "--input-format", "stream-json",
                              "--permission-prompt-tool", "stdio", "--verbose",
-                             "--permission-mode", permissionMode]
+                             "--permission-mode", permissionMode,
+                             "--append-system-prompt", Self.appendedSystemPrompt]
             if let model { arguments += ["--model", model] }
             if let effort { arguments += ["--effort", effort] }
             if settings.mcpServersEnabled == false {
