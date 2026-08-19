@@ -144,10 +144,10 @@ struct TroubleshootView: View {
             Divider().overlay(Theme.hairline)
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
+                    skillsBar
                     if environment == .prod { productionNotice }
                     problemSection
                     optionsSection
-                    skillsSection
                     projectsSection
                 }
                 .padding(20)
@@ -212,88 +212,119 @@ struct TroubleshootView: View {
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.deletion.opacity(0.18)))
     }
 
-    // The skills the diagnosis is told to use. Only what the chosen agent already has
-    // installed is offered, since naming anything else just sends it looking.
-    private var skillsSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 10) {
-                SectionLabel(text: "SKILLS")
-                Spacer()
-                if !chosenSkills.isEmpty {
-                    Text("\(chosenSkills.count) selected")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                }
-                Button {
-                    showingSkills = true
-                } label: {
-                    HStack(spacing: 5) {
-                        Text("Manage skills")
-                        Image(systemName: "arrow.up.right")
-                            .font(.system(size: 9, weight: .semibold))
-                    }
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(Theme.accent)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityHint("Opens Skills to install or enable a skill")
-            }
+    // The skills the diagnosis is told to use, as a row of pills above everything else:
+    // what the agent is told to read is the first thing decided and the first thing seen.
+    // The + adds one from what the chosen agent has installed, and a right-click on a
+    // pill takes it off. With nothing picked the bar turns amber, since an agent left to
+    // guess at Grafana or Postgres is rarely what was wanted.
+    private var skillsBar: some View {
+        HStack(spacing: 9) {
+            Image(systemName: needsSkill ? "exclamationmark.triangle.fill" : "sparkles")
+                .font(.system(size: needsSkill ? 11 : 10.5, weight: .semibold))
+                .foregroundStyle(needsSkill ? AnyShapeStyle(Theme.attentionText)
+                                            : AnyShapeStyle(.tertiary))
+                .accessibilityLabel("Skills")
 
-            Group {
-                if !skills.hasLoaded || skills.isRefreshing {
-                    HStack(spacing: 6) {
-                        ProgressView().controlSize(.small)
-                        Text("Reading the skills \(selectedAgent.title) has installed…")
-                            .font(.system(size: 12.5))
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(14)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                } else if skills.hostFailure(skillHost) != nil {
-                    skillsNotice("The \(selectedAgent.title) plugin status could not be read, so no skill can be offered. Open Skills to retry.")
-                } else if availableSkills.isEmpty {
-                    skillsNotice("No skill is installed for \(selectedAgent.title). The diagnosis runs without one until you install skills.")
-                } else {
-                    ScrollView {
-                        VStack(spacing: 0) {
-                            ForEach(availableSkills) { plugin in
-                                Toggle(isOn: skillSelection(plugin.name)) {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(plugin.name)
-                                            .font(.system(size: 13, weight: .medium))
-                                        Text(plugin.description)
-                                            .font(.system(size: 11))
-                                            .foregroundStyle(.secondary)
-                                            .lineLimit(1)
-                                    }
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                }
-                                .toggleStyle(.appCheckbox)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 9)
-
-                                if plugin.id != availableSkills.last?.id {
-                                    Divider().overlay(Theme.hairline).padding(.leading, 36)
-                                }
-                            }
+            if chosenSkills.isEmpty {
+                Text(emptySkillsMessage)
+                    .font(.system(size: 11.5, weight: needsSkill ? .medium : .regular))
+                    .foregroundStyle(needsSkill ? AnyShapeStyle(Theme.attentionText)
+                                                : AnyShapeStyle(.secondary))
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 8)
+                addSkillButton
+            } else {
+                ScrollView(.horizontal) {
+                    HStack(spacing: 7) {
+                        ForEach(chosenSkills, id: \.self) { name in
+                            skillPill(name)
                         }
+                        addSkillButton
                     }
-                    .frame(maxHeight: 150)
+                    .padding(.vertical, 1)
                 }
+                .scrollIndicators(.hidden)
             }
-            .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
         }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .background(RoundedRectangle(cornerRadius: 10)
+            .fill(needsSkill ? Theme.attention.opacity(0.10) : Theme.field))
+        .overlay(RoundedRectangle(cornerRadius: 10)
+            .stroke(needsSkill ? Theme.attention.opacity(0.45) : Theme.border))
     }
 
-    private func skillsNotice(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 12.5))
+    private func skillPill(_ name: String) -> some View {
+        Text(name)
+            .font(.system(size: 12, weight: .semibold))
+            .lineLimit(1)
+            .padding(.horizontal, 9)
+            .frame(height: 22)
+            .background(RoundedRectangle(cornerRadius: 7).fill(Theme.card))
+            .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.border))
+            .contentShape(RoundedRectangle(cornerRadius: 7))
+            .appContextMenu {
+                [
+                    .item("Remove", kind: .destructive) { selectedSkills.remove(name) },
+                    .separator,
+                    .item("Manage skills…") { showingSkills = true },
+                ]
+            }
+            .appTooltip { Tooltip(title: name, subtitle: description(of: name)) }
+    }
+
+    // Dashed and wordless, like the one on the session's shortcut strip, so the control
+    // that adds a skill does not read as a skill of its own.
+    private var addSkillButton: some View {
+        Image(systemName: "plus")
+            .font(.system(size: 9, weight: .bold))
             .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(14)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(width: 22, height: 22)
+            .overlay(RoundedRectangle(cornerRadius: 7)
+                .strokeBorder(Theme.border, style: StrokeStyle(lineWidth: 1, dash: [3, 3])))
+            .appMenu { skillMenu }
+            .appTooltip("Add a skill to the diagnosis")
+            .accessibilityLabel("Add skill")
+    }
+
+    private var skillMenu: [MenuEntry] {
+        var entries: [MenuEntry] = []
+        let items = availableSkills.map { plugin in
+            MenuItem(label: plugin.name,
+                     checked: selectedSkills.contains(plugin.name),
+                     subtitle: plugin.description,
+                     handler: { toggleSkill(plugin.name) })
+        }
+        if items.count > 6 {
+            entries.append(.searchable(items,
+                                       prompt: "Filter skills by name",
+                                       noResults: "No skill matches this filter."))
+        } else {
+            entries.append(contentsOf: items.map { MenuEntry.item($0) })
+        }
+        if !entries.isEmpty { entries.append(.separator) }
+        entries.append(.item("Manage skills…", icon: "sparkles") { showingSkills = true })
+        return entries
+    }
+
+    // Amber is for something to put right: no skill is installed, or none of the ones
+    // that are has been picked. While the installed set is still being read there is
+    // nothing to put right yet.
+    private var needsSkill: Bool {
+        chosenSkills.isEmpty && skills.hasLoaded && !skills.isRefreshing
+    }
+
+    private var emptySkillsMessage: String {
+        guard skills.hasLoaded, !skills.isRefreshing else {
+            return "Reading the skills \(selectedAgent.title) has installed…"
+        }
+        if skills.hostFailure(skillHost) != nil {
+            return "The \(selectedAgent.title) plugin status could not be read, so no skill can be offered."
+        }
+        if availableSkills.isEmpty {
+            return "No skill is installed for \(selectedAgent.title). The diagnosis runs without one."
+        }
+        return "No skill picked. The agent diagnoses without any of them."
     }
 
     private var skillHost: SkillHost {
@@ -313,15 +344,16 @@ struct TroubleshootView: View {
         availableSkills.map(\.name).filter { selectedSkills.contains($0) }
     }
 
-    private func skillSelection(_ name: String) -> Binding<Bool> {
-        Binding(get: { selectedSkills.contains(name) },
-                set: { selected in
-                    if selected {
-                        selectedSkills.insert(name)
-                    } else {
-                        selectedSkills.remove(name)
-                    }
-                })
+    private func description(of skill: String) -> String? {
+        availableSkills.first { $0.name == skill }?.description
+    }
+
+    private func toggleSkill(_ name: String) {
+        if selectedSkills.contains(name) {
+            selectedSkills.remove(name)
+        } else {
+            selectedSkills.insert(name)
+        }
     }
 
     private var problemSection: some View {
