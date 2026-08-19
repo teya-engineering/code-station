@@ -355,22 +355,146 @@ enum TranscriptLink {
 
 private struct InlineMarkdownText: View {
     @Environment(\.openURL) private var openURL
+    @Environment(\.textScale) private var textScale
 
     private let attributed: AttributedString
+    private let size: CGFloat
+    private let weight: Font.Weight
+    private let design: Font.Design
+    private let secondary: Bool
 
-    init(_ text: String) {
-        attributed = .inlineMarkdown(text)
+    init(_ text: String,
+         size: CGFloat,
+         weight: Font.Weight = .regular,
+         design: Font.Design = .default,
+         secondary: Bool = false) {
+        self.attributed = .inlineMarkdown(text)
+        self.size = size
+        self.weight = weight
+        self.design = design
+        self.secondary = secondary
     }
 
     var body: some View {
-        Text(attributed)
-            .appTooltip {
-                guard let url = attributed.runs.compactMap(\.link).first(where: \.isFileURL)
-                else { return Tooltip(title: "") }
-                return Tooltip(title: TranscriptLink.finderToolTip) {
-                    openURL(url)
-                }
+        Group {
+            if attributed.runs.contains(where: { $0.link != nil }) {
+                LinkAwareText(
+                    attributed: attributed,
+                    font: resolvedNSFont,
+                    color: secondary ? .secondaryLabelColor : .labelColor)
+            } else {
+                Text(attributed)
+                    .font(.system(size: size * textScale, weight: weight, design: design))
+                    .foregroundStyle(secondary ? Color.secondary : Color.primary)
             }
+        }
+        .appTooltip {
+            guard let url = attributed.runs.compactMap(\.link).first(where: \.isFileURL)
+            else { return Tooltip(title: "") }
+            return Tooltip(title: TranscriptLink.finderToolTip) {
+                openURL(url)
+            }
+        }
+    }
+
+    private var resolvedNSFont: NSFont {
+        let point = size * textScale
+        let nsWeight = InlineMarkdownText.nsWeight(from: weight)
+        switch design {
+        case .serif:
+            let base = NSFont.systemFont(ofSize: point, weight: nsWeight)
+            if let descriptor = base.fontDescriptor.withDesign(.serif),
+               let font = NSFont(descriptor: descriptor, size: point) {
+                return font
+            }
+            return base
+        case .monospaced:
+            return NSFont.monospacedSystemFont(ofSize: point, weight: nsWeight)
+        default:
+            return NSFont.systemFont(ofSize: point, weight: nsWeight)
+        }
+    }
+
+    private static func nsWeight(from weight: Font.Weight) -> NSFont.Weight {
+        if weight == .ultraLight { return .ultraLight }
+        if weight == .thin { return .thin }
+        if weight == .light { return .light }
+        if weight == .medium { return .medium }
+        if weight == .semibold { return .semibold }
+        if weight == .bold { return .bold }
+        if weight == .heavy { return .heavy }
+        if weight == .black { return .black }
+        return .regular
+    }
+}
+
+// NSTextView keeps the pointing-hand cursor over link ranges and the I-beam elsewhere,
+// which SwiftUI's Text cannot do — it exposes no per-run hover geometry.
+private struct LinkAwareText: NSViewRepresentable {
+    let attributed: AttributedString
+    let font: NSFont
+    let color: NSColor
+
+    func makeNSView(context: Context) -> NSTextView {
+        let view = NSTextView(usingTextLayoutManager: false)
+        view.isEditable = false
+        view.isSelectable = true
+        view.drawsBackground = false
+        view.backgroundColor = .clear
+        view.textContainerInset = .zero
+        view.textContainer?.lineFragmentPadding = 0
+        view.textContainer?.widthTracksTextView = true
+        view.textContainer?.heightTracksTextView = false
+        view.isHorizontallyResizable = false
+        view.isVerticallyResizable = true
+        view.linkTextAttributes = [
+            .foregroundColor: NSColor.linkColor,
+            .underlineStyle: NSUnderlineStyle.single.rawValue,
+            .cursor: NSCursor.pointingHand,
+        ]
+        return view
+    }
+
+    func updateNSView(_ view: NSTextView, context: Context) {
+        view.textStorage?.setAttributedString(makeNSAttributedString())
+        view.invalidateIntrinsicContentSize()
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView view: NSTextView, context: Context) -> CGSize? {
+        guard let container = view.textContainer, let layoutManager = view.layoutManager else { return nil }
+        let width = proposal.width ?? 10_000
+        guard width.isFinite, width > 0 else { return nil }
+        container.containerSize = CGSize(width: width, height: .greatestFiniteMagnitude)
+        layoutManager.ensureLayout(for: container)
+        let used = layoutManager.usedRect(for: container)
+        return CGSize(width: width, height: ceil(used.height))
+    }
+
+    private func makeNSAttributedString() -> NSAttributedString {
+        let manager = NSFontManager.shared
+        let result = NSMutableAttributedString()
+        for run in attributed.runs {
+            let piece = String(attributed[run.range].characters)
+            var runFont = font
+            let intent = run.inlinePresentationIntent ?? []
+            if intent.contains(.stronglyEmphasized) {
+                runFont = manager.convert(runFont, toHaveTrait: .boldFontMask)
+            }
+            if intent.contains(.emphasized) {
+                runFont = manager.convert(runFont, toHaveTrait: .italicFontMask)
+            }
+            if intent.contains(.code) {
+                runFont = NSFont.monospacedSystemFont(ofSize: font.pointSize, weight: .regular)
+            }
+            var attrs: [NSAttributedString.Key: Any] = [.font: runFont]
+            if let link = run.link {
+                attrs[.link] = link
+            } else {
+                attrs[.foregroundColor] = color
+            }
+            result.append(NSAttributedString(string: piece, attributes: attrs))
+        }
+        return result
     }
 }
 
@@ -388,8 +512,11 @@ struct MarkdownBlockView: View, Equatable {
         case .paragraph(let text):
             paragraph(text)
         case .heading(let level, let text):
-            InlineMarkdownText(text)
-                .font(headingFont(level))
+            let heading = headingSpec(level)
+            InlineMarkdownText(text,
+                               size: heading.size,
+                               weight: heading.weight,
+                               design: heading.design)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -402,8 +529,7 @@ struct MarkdownBlockView: View, Equatable {
                     HStack(alignment: .firstTextBaseline, spacing: 9) {
                         marker(item)
                             .frame(minWidth: 14, alignment: .trailing)
-                        InlineMarkdownText(item.text)
-                            .scaledText(13.5)
+                        InlineMarkdownText(item.text, size: 13.5)
                             .lineSpacing(2)
                             .textSelection(.enabled)
                             .multilineTextAlignment(.leading)
@@ -414,9 +540,7 @@ struct MarkdownBlockView: View, Equatable {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         case .quote(let text):
-            InlineMarkdownText(text)
-                .scaledText(13)
-                .foregroundStyle(.secondary)
+            InlineMarkdownText(text, size: 13, secondary: true)
                 .textSelection(.enabled)
                 .multilineTextAlignment(.leading)
                 .fixedSize(horizontal: false, vertical: true)
@@ -459,8 +583,7 @@ struct MarkdownBlockView: View, Equatable {
     }
 
     private func paragraphText(_ text: String) -> some View {
-        InlineMarkdownText(text)
-            .scaledText(13)
+        InlineMarkdownText(text, size: 13)
             .textSelection(.enabled)
             .multilineTextAlignment(.leading)
             .fixedSize(horizontal: false, vertical: true)
@@ -485,12 +608,12 @@ struct MarkdownBlockView: View, Equatable {
 
     // Sizes step down the way the app's own headers do: serif for the two big
     // levels, plain semibold below.
-    private func headingFont(_ level: Int) -> Font {
+    private func headingSpec(_ level: Int) -> (size: CGFloat, weight: Font.Weight, design: Font.Design) {
         switch level {
-        case 1: .serif(18 * textScale)
-        case 2: .serif(15.5 * textScale)
-        case 3: .system(size: 14 * textScale, weight: .semibold)
-        default: .system(size: 13 * textScale, weight: .semibold)
+        case 1: (18, .semibold, .serif)
+        case 2: (15.5, .semibold, .serif)
+        case 3: (14, .semibold, .default)
+        default: (13, .semibold, .default)
         }
     }
 }
@@ -578,8 +701,7 @@ private struct MarkdownTableView: View {
     private func cell(_ text: String, column: Int, header: Bool) -> some View {
         let alignment = table.alignments.indices.contains(column)
             ? table.alignments[column] : .leading
-        return InlineMarkdownText(text)
-            .scaledText(12.5, header ? .semibold : .regular)
+        return InlineMarkdownText(text, size: 12.5, weight: header ? .semibold : .regular)
             .textSelection(.enabled)
             .multilineTextAlignment(textAlignment(alignment))
             .fixedSize(horizontal: false, vertical: true)
