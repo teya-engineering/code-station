@@ -35,14 +35,16 @@ struct TroubleshootRequest {
     let problem: String
     let environment: TroubleshootEnvironment
     let projects: [String]
+    let skills: [String]
     let mcpServersEnabled: Bool
     let mcpServerNames: [String]
 
     init(problem: String, environment: TroubleshootEnvironment, projects: [String],
-         mcpServersEnabled: Bool, mcpServerNames: [String] = []) {
+         skills: [String] = [], mcpServersEnabled: Bool, mcpServerNames: [String] = []) {
         self.problem = problem
         self.environment = environment
         self.projects = projects
+        self.skills = skills
         self.mcpServersEnabled = mcpServersEnabled
         self.mcpServerNames = mcpServerNames
     }
@@ -67,6 +69,15 @@ struct TroubleshootRequest {
             MCP servers are enabled: \(names). Their tools may be deferred from the initial tool list. Search the available tool catalogue for these server names before concluding that a server or tool is unavailable.
             """
         }
+        let skillText: String
+        if skills.isEmpty {
+            skillText = "No skills were picked for this diagnosis."
+        } else {
+            let names = skills.sorted().map { "`\($0)`" }.joined(separator: ", ")
+            skillText = """
+            Skills to use: \(names). Load each one before the first step it covers, whatever the agent calls skills.
+            """
+        }
         let productionText = environment == .prod
             ? " Treat production as live: do not mutate data, configuration, deployments, or running services."
             : ""
@@ -75,7 +86,7 @@ struct TroubleshootRequest {
         Troubleshooting context:
         - Environment: \(environment.promptTitle)
         - Projects: \(projectText)
-        - For Grafana queries, follow the `grafana-mcp` skill from the `grafana-specialist` plugin. Load it before the first query, whatever the agent calls skills.
+        - \(skillText)
         - \(mcpText)
 
         Investigate the problem and use read-only checks first. Do not change code or configuration.\(productionText) Explain the likely root cause, cite the evidence you found, and give concrete next steps. If a fix is needed, propose it and wait for a follow-up before applying it.
@@ -100,8 +111,6 @@ struct TroubleshootMCPConfiguration: Equatable {
 // A focused front door for incident investigation. Submitting creates a regular session,
 // so the evidence, answer, and any follow-up questions stay with the selected projects.
 struct TroubleshootView: View {
-    private static let requiredSkillName = "grafana-specialist"
-
     @Environment(\.dismiss) private var dismiss
     @Environment(ProjectStore.self) private var store
     @Environment(SessionRunner.self) private var runner
@@ -117,6 +126,7 @@ struct TroubleshootView: View {
     @State private var selectedProjects: Set<UUID> = []
     @State private var projectFilter = ""
     @State private var environment = TroubleshootEnvironment.dev
+    @State private var selectedSkills = Preferences.troubleshootSkills
     @State private var mcpServersEnabled = true
     @State private var agent: AgentKind?
     @State private var dropTargeted = false
@@ -134,18 +144,11 @@ struct TroubleshootView: View {
             Divider().overlay(Theme.hairline)
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    if requiredSkillState != .available {
-                        requiredSkillNotice
-                    }
-                    Group {
-                        if environment == .prod { productionNotice }
-                        problemSection
-                        optionsSection
-                        projectsSection
-                    }
-                    .disabled(requiredSkillState != .available)
-                    .allowsHitTesting(requiredSkillState == .available)
-                    .opacity(requiredSkillState == .available ? 1 : 0.5)
+                    if environment == .prod { productionNotice }
+                    problemSection
+                    optionsSection
+                    skillsSection
+                    projectsSection
                 }
                 .padding(20)
             }
@@ -155,11 +158,11 @@ struct TroubleshootView: View {
         .background(Theme.background)
         .onAppear {
             refreshMCPConfiguration()
-            problemFocused = requiredSkillState == .available
+            problemFocused = true
         }
         .task { await skills.refresh() }
-        .onChange(of: requiredSkillState) { _, state in
-            if state == .available { problemFocused = true }
+        .onChange(of: selectedSkills) { _, chosen in
+            Preferences.troubleshootSkills = chosen
         }
         .sheet(isPresented: $showingSkills) {
             SkillsView(manager: skills).appOverlays()
@@ -209,75 +212,116 @@ struct TroubleshootView: View {
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.deletion.opacity(0.18)))
     }
 
-    private var requiredSkillNotice: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Group {
-                if requiredSkillState == .checking {
-                    ProgressView().controlSize(.small)
-                } else {
-                    Image(systemName: "exclamationmark.triangle.fill")
+    // The skills the diagnosis is told to use. Only what the chosen agent already has
+    // installed is offered, since naming anything else just sends it looking.
+    private var skillsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                SectionLabel(text: "SKILLS")
+                Spacer()
+                if !chosenSkills.isEmpty {
+                    Text("\(chosenSkills.count) selected")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
                 }
-            }
-            .frame(width: 16, height: 16)
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(requiredSkillTitle)
-                    .font(.system(size: 12.5, weight: .semibold))
-                Text(requiredSkillDetail)
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Spacer(minLength: 12)
-
-            if requiredSkillState != .checking {
                 Button {
                     showingSkills = true
                 } label: {
                     HStack(spacing: 5) {
-                        Text("Open Skills")
+                        Text("Manage skills")
                         Image(systemName: "arrow.up.right")
                             .font(.system(size: 9, weight: .semibold))
                     }
-                    .font(.system(size: 11.5, weight: .semibold))
+                    .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(Theme.accent)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityHint("Opens the Skills menu to install grafana-specialist")
+                .accessibilityHint("Opens Skills to install or enable a skill")
             }
+
+            Group {
+                if !skills.hasLoaded || skills.isRefreshing {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.small)
+                        Text("Reading the skills \(selectedAgent.title) has installed…")
+                            .font(.system(size: 12.5))
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(14)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                } else if skills.hostFailure(skillHost) != nil {
+                    skillsNotice("The \(selectedAgent.title) plugin status could not be read, so no skill can be offered. Open Skills to retry.")
+                } else if availableSkills.isEmpty {
+                    skillsNotice("No skill is installed for \(selectedAgent.title). The diagnosis runs without one until you install skills.")
+                } else {
+                    ScrollView {
+                        VStack(spacing: 0) {
+                            ForEach(availableSkills) { plugin in
+                                Toggle(isOn: skillSelection(plugin.name)) {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(plugin.name)
+                                            .font(.system(size: 13, weight: .medium))
+                                        Text(plugin.description)
+                                            .font(.system(size: 11))
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(1)
+                                    }
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                                .toggleStyle(.appCheckbox)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 9)
+
+                                if plugin.id != availableSkills.last?.id {
+                                    Divider().overlay(Theme.hairline).padding(.leading, 36)
+                                }
+                            }
+                        }
+                    }
+                    .frame(maxHeight: 150)
+                }
+            }
+            .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
         }
-        .foregroundStyle(Theme.secret)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 11)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.secret.opacity(0.10)))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.secret.opacity(0.25)))
     }
 
-    private var requiredSkillTitle: String {
-        switch requiredSkillState {
-        case .checking: "Checking the Grafana specialist skill"
-        case .available: ""
-        case .missing: "Grafana specialist skill required"
-        case .disabled: "Grafana specialist skill is disabled"
-        case .unavailable: "Could not check the Grafana specialist skill"
+    private func skillsNotice(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 12.5))
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var skillHost: SkillHost {
+        switch selectedAgent {
+        case .claudeCode: .claude
+        case .codex: .codex
         }
     }
 
-    private var requiredSkillDetail: String {
-        switch requiredSkillState {
-        case .checking:
-            "Troubleshoot will unlock when the required skill check is complete."
-        case .available:
-            ""
-        case .missing:
-            "Install grafana-specialist for \(selectedAgent.title) in Skills before using Troubleshoot."
-        case .disabled:
-            "Enable grafana-specialist for \(selectedAgent.title) in Skills before using Troubleshoot."
-        case .unavailable:
-            "Troubleshoot is locked because the \(selectedAgent.title) plugin status could not be read. Open Skills to retry."
-        }
+    private var availableSkills: [SkillMarketplace.Plugin] {
+        skills.plugins.filter { skills.installation(of: $0, on: skillHost)?.enabled == true }
+    }
+
+    // A skill picked for one agent stays picked while the other is selected, so switching
+    // agents and back keeps the choice. Only what this agent can load is sent to it.
+    private var chosenSkills: [String] {
+        availableSkills.map(\.name).filter { selectedSkills.contains($0) }
+    }
+
+    private func skillSelection(_ name: String) -> Binding<Bool> {
+        Binding(get: { selectedSkills.contains(name) },
+                set: { selected in
+                    if selected {
+                        selectedSkills.insert(name)
+                    } else {
+                        selectedSkills.remove(name)
+                    }
+                })
     }
 
     private var problemSection: some View {
@@ -631,24 +675,11 @@ struct TroubleshootView: View {
 
     private var canDiagnose: Bool {
         !isStarting
-            && requiredSkillState == .available
             && mcpConfigurationState == .ready
             && !selectedProjects.isEmpty
             && (!problem.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 || !attachments.isEmpty)
             && runner.isAvailable(selectedAgent)
-    }
-
-    private var requiredSkillState: RequiredSkillState {
-        guard skills.hasLoaded, !skills.isRefreshing else { return .checking }
-        let host: SkillHost = switch selectedAgent {
-        case .claudeCode: .claude
-        case .codex: .codex
-        }
-        guard skills.hostFailure(host) == nil else { return .unavailable }
-        guard let installation = skills.installation(named: Self.requiredSkillName, on: host)
-        else { return .missing }
-        return installation.enabled ? .available : .disabled
     }
 
     private var agentMenu: [MenuEntry] {
@@ -752,6 +783,7 @@ struct TroubleshootView: View {
         isStarting = true
         let chosenAgent = selectedAgent
         let chosenEnvironment = environment
+        let chosenSkillNames = chosenSkills
         let enableMCPServers = mcpServersEnabled
 
         Task {
@@ -817,6 +849,7 @@ struct TroubleshootView: View {
                 problem: problem,
                 environment: chosenEnvironment,
                 projects: projects.map(\.name),
+                skills: chosenSkillNames,
                 mcpServersEnabled: enableMCPServers,
                 mcpServerNames: enableMCPServers ? selectedServers.map(\.name) : [])
             runner.send(request.userInput,
@@ -832,14 +865,6 @@ struct TroubleshootView: View {
         guard let current = store.selectedProjectID,
               let lead = selected.first(where: { $0.id == current }) else { return selected }
         return [lead] + selected.filter { $0.id != current }
-    }
-
-    private enum RequiredSkillState: Equatable {
-        case checking
-        case available
-        case missing
-        case disabled
-        case unavailable
     }
 
     private enum MCPConfigurationState: Equatable {

@@ -8,6 +8,7 @@ struct TroubleshootTests {
             problem: "Payments return 503 after deployment",
             environment: .prod,
             projects: ["payments-api", "merchant-web"],
+            skills: ["postgres-specialist", "grafana-specialist"],
             mcpServersEnabled: true,
             mcpServerNames: ["grafana-shared-shared", "grafana-platform-prd"])
 
@@ -16,7 +17,7 @@ struct TroubleshootTests {
         #expect(request.customInstructions.contains("production (prod)"))
         #expect(request.customInstructions.contains("payments-api, merchant-web"))
         #expect(request.customInstructions.contains(
-            "follow the `grafana-mcp` skill from the `grafana-specialist` plugin"))
+            "Skills to use: `grafana-specialist`, `postgres-specialist`"))
         #expect(request.customInstructions.contains("whatever the agent calls skills"))
         #expect(request.customInstructions.contains("MCP servers are enabled"))
         #expect(request.customInstructions.contains("grafana-platform-prd, grafana-shared-shared"))
@@ -35,6 +36,21 @@ struct TroubleshootTests {
 
         #expect(request.userInput == "Troubleshoot the problem shown in the attached files.")
         #expect(request.customInstructions.contains("MCP servers are disabled for this diagnosis"))
+        #expect(request.customInstructions.contains("No skills were picked for this diagnosis"))
+    }
+
+    @Test func chosenSkillsSurviveTheAppBeingClosed() {
+        let suite = "troubleshoot-skills-\(UUID().uuidString)"
+        let store = UserDefaults(suiteName: suite)!
+        defer { store.removePersistentDomain(forName: suite) }
+
+        Preferences.setTroubleshootSkills(["grafana-specialist", "java-specialist"], in: store)
+        #expect(Preferences.troubleshootSkills(in: store) == [
+            "grafana-specialist", "java-specialist",
+        ])
+
+        Preferences.setTroubleshootSkills([], in: store)
+        #expect(Preferences.troubleshootSkills(in: store).isEmpty)
     }
 
     @Test func queuedDiagnosisSeparatesTheTranscriptAndKeepsTheAgentPromptTogether() {

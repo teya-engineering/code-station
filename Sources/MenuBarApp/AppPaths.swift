@@ -241,6 +241,25 @@ enum Preferences {
         store.set(date, forKey: "skillsLastRefresh")
     }
 
+    // The skills a diagnosis is told to use. The choice belongs to the person rather than
+    // to any one problem, so the next Troubleshoot opens with the last one already made.
+    static var troubleshootSkills: Set<String> {
+        get { troubleshootSkills(in: store) }
+        set { setTroubleshootSkills(newValue, in: store) }
+    }
+
+    static func troubleshootSkills(in store: UserDefaults) -> Set<String> {
+        Set(store.array(forKey: "troubleshootSkills") as? [String] ?? [])
+    }
+
+    static func setTroubleshootSkills(_ skills: Set<String>, in store: UserDefaults) {
+        guard !skills.isEmpty else {
+            store.removeObject(forKey: "troubleshootSkills")
+            return
+        }
+        store.set(skills.sorted(), forKey: "troubleshootSkills")
+    }
+
     static var skillsMarketplace: SkillMarketplaceConfiguration? {
         get { skillsMarketplace(in: store) }
         set { setSkillsMarketplace(newValue, in: store) }
