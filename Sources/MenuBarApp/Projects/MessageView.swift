@@ -368,27 +368,9 @@ private struct CodeBlock: View {
     let segment: MessageSegment
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            if let language = segment.language {
-                Text(language.uppercased())
-                    .scaledText(10, .semibold)
-                    .kerning(0.6)
-                    .foregroundStyle(.secondary)
-            }
-            // Code lines are long; scrolling sideways beats wrapping them.
-            ScrollView(.horizontal, showsIndicators: false) {
-                Text(CodeHighlight.highlight(segment.text, tag: segment.language))
-                    .scaledMono(12)
-                    .textSelection(.enabled)
-                    // Keeps lines that fit clear of the copy button. A longer line still
-                    // scrolls under it, where the pill's solid fill keeps it readable.
-                    .padding(.trailing, 32)
-            }
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.field))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
-        .transcriptCopyButton(for: segment.text, tooltip: "Copy code", inset: 6)
+        // The shared block keeps file previews and transcripts visually aligned. Chat adds
+        // its own copy affordance because the preview already supports text selection.
+        MarkdownCodeBlock(segment: segment)
+            .transcriptCopyButton(for: segment.text, tooltip: "Copy code", inset: 6)
     }
 }

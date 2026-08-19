@@ -14,6 +14,19 @@ struct FileTreeTests {
         return url
     }
 
+    @Test func offersRenderedPreviewForMarkdownFiles() {
+        let markdown = FileNode(url: URL(fileURLWithPath: "/project/README.MD"),
+                                name: "README.MD", isDirectory: false, size: 0)
+        let longExtension = FileNode(url: URL(fileURLWithPath: "/project/guide.markdown"),
+                                     name: "guide.markdown", isDirectory: false, size: 0)
+        let text = FileNode(url: URL(fileURLWithPath: "/project/notes.txt"),
+                            name: "notes.txt", isDirectory: false, size: 0)
+
+        #expect(markdown.supportsMarkdownPreview)
+        #expect(longExtension.supportsMarkdownPreview)
+        #expect(!text.supportsMarkdownPreview)
+    }
+
     @Test func textKeepsTabsAndLongLines() async throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }

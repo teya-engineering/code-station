@@ -495,6 +495,57 @@ struct MarkdownBlockView: View, Equatable {
     }
 }
 
+// A complete Markdown page shared by chat and file previews. Fenced code is separated
+// before block parsing because the prose parser deliberately handles prose only.
+struct MarkdownDocumentView: View, Equatable {
+    let text: String
+    let basePath: String
+    let textScale: CGFloat
+
+    var body: some View {
+        LazyVStack(alignment: .leading, spacing: 12) {
+            ForEach(MessageSegment.split(text)) { segment in
+                if segment.isCode {
+                    MarkdownCodeBlock(segment: segment)
+                } else {
+                    ForEach(MarkdownBlock.parse(segment.text)) { block in
+                        MarkdownBlockView(block: block,
+                                          projectPath: basePath,
+                                          textScale: textScale)
+                            .equatable()
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+struct MarkdownCodeBlock: View {
+    let segment: MessageSegment
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let language = segment.language {
+                Text(language.uppercased())
+                    .scaledText(10, .semibold)
+                    .kerning(0.6)
+                    .foregroundStyle(.secondary)
+            }
+            ScrollView(.horizontal, showsIndicators: false) {
+                Text(CodeHighlight.highlight(segment.text, tag: segment.language))
+                    .scaledMono(12)
+                    .textSelection(.enabled)
+                    .padding(.trailing, 32)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.field))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
+    }
+}
+
 private struct MarkdownTableView: View {
     let table: MarkdownTable
 

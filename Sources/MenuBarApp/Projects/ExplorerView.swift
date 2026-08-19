@@ -21,6 +21,7 @@ struct ExplorerView: View {
     @State private var selected: FileNode?
     @State private var preview: FilePreview?
     @State private var loadingPreview = false
+    @State private var renderingMarkdown = false
     @State private var showHidden = true
     @State private var language: CodeLanguage?
 
@@ -238,6 +239,15 @@ struct ExplorerView: View {
                     Spacer()
                     if loadingPreview || saving { ProgressView().controlSize(.small) }
                     if dirty { saveButtons(node) }
+                    if node.supportsMarkdownPreview {
+                        Button(renderingMarkdown ? "Edit" : "Preview") {
+                            resetFind()
+                            renderingMarkdown.toggle()
+                        }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Theme.accent)
+                    }
                     Button("Open") { NSWorkspace.shared.open(node.url) }
                         .buttonStyle(.plain)
                         .font(.system(size: 12, weight: .semibold))
@@ -282,11 +292,22 @@ struct ExplorerView: View {
     @ViewBuilder private func fileBody(_ node: FileNode) -> some View {
         switch preview {
         case .text, .empty:
-            CodeEditorView(documentID: node.path,
-                           text: $draft,
-                           language: language,
-                           matches: findPresented ? findResult.matches : [],
-                           currentMatch: findPresented ? currentFindMatch : nil)
+            if renderingMarkdown, node.supportsMarkdownPreview {
+                ScrollView {
+                    MarkdownDocumentView(text: draft,
+                                         basePath: node.url.deletingLastPathComponent().path,
+                                         textScale: 1)
+                        .padding(28)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .background(Theme.background)
+            } else {
+                CodeEditorView(documentID: node.path,
+                               text: $draft,
+                               language: language,
+                               matches: findPresented ? findResult.matches : [],
+                               currentMatch: findPresented ? currentFindMatch : nil)
+            }
         case .image(let data):
             if let image = NSImage(data: data) {
                 VStack(spacing: 10) {
@@ -342,7 +363,7 @@ struct ExplorerView: View {
             .buttonStyle(.plain)
             .keyboardShortcut("f", modifiers: .control)
             .opacity(0)
-            .disabled(!isEditable)
+            .disabled(!isEditable || renderingMarkdown)
             .accessibilityHidden(true)
     }
 
@@ -521,6 +542,7 @@ struct ExplorerView: View {
         expanded = []
         selected = nil
         preview = nil
+        renderingMarkdown = false
         language = nil
         draft = ""
         original = ""
@@ -623,6 +645,7 @@ struct ExplorerView: View {
         resetFind()
         selected = node
         preview = nil
+        renderingMarkdown = false
         language = nil
         draft = ""
         original = ""

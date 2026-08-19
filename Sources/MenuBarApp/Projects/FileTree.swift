@@ -11,6 +11,7 @@ struct FileNode: Identifiable, Sendable, Equatable {
     var id: String { url.path }
     var path: String { url.path }
     var kind: String { url.pathExtension.lowercased() }
+    var supportsMarkdownPreview: Bool { kind == "md" || kind == "markdown" }
 }
 
 // What the explorer can show for one file. A file it cannot draw is still worth an entry:
