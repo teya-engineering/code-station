@@ -21,6 +21,9 @@ struct WorkspaceDetailView: View {
     // The repositories a requested fix - a branch switch, a pull - is still moving.
     // Their chips show the work instead of a verdict that is about to change.
     @State private var updating: Set<UUID> = []
+    // The project row under the pointer. Only one row can be hovered, so the id is
+    // enough and each row does not need state of its own.
+    @State private var hoveredProjectID: UUID?
 
     private var terminalScope: TerminalScope { .project(workspaceID) }
 
@@ -122,7 +125,7 @@ struct WorkspaceDetailView: View {
     // for.
     private func leadTag(_ project: Project) -> some View {
         let branch = freshness[project.id]?.currentBranch
-        return Button { store.selectProject(project.id) } label: {
+        return Button { open(project) } label: {
             HStack(spacing: 7) {
                 ProjectDot(tint: Theme.projectTint(for: project.name), size: 7)
                 Text(project.name)
@@ -247,6 +250,19 @@ struct WorkspaceDetailView: View {
             GlyphButton(icon: "ellipsis")
                 .appMenu { projectMenu(project, workspace: workspace, isLead: true) }
         }
+        // The hover fill wants room around the row, but the row's place in the card is
+        // set by the card's own padding, so the inset is given straight back.
+        .padding(.horizontal, 11)
+        .padding(.vertical, 9)
+        .background(RoundedRectangle(cornerRadius: 10)
+            .fill(hoveredProjectID == project.id ? Theme.field : .clear))
+        .contentShape(RoundedRectangle(cornerRadius: 10))
+        .onTapGesture { open(project) }
+        .animation(.easeOut(duration: 0.12), value: hoveredProjectID)
+        .onHover { hovering(project, $0) }
+        .appTooltip("Open \(project.name)")
+        .padding(.horizontal, -11)
+        .padding(.vertical, -9)
     }
 
     private func attachedRow(_ project: Project, workspace: ProjectWorkspace) -> some View {
@@ -289,7 +305,27 @@ struct WorkspaceDetailView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 11)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.sunken))
+        .background(RoundedRectangle(cornerRadius: 10)
+            .fill(hoveredProjectID == project.id ? Theme.field : Theme.sunken))
+        .contentShape(RoundedRectangle(cornerRadius: 10))
+        .onTapGesture { open(project) }
+        .animation(.easeOut(duration: 0.12), value: hoveredProjectID)
+        .onHover { hovering(project, $0) }
+        .appTooltip("Open \(project.name)")
+    }
+
+    private func hovering(_ project: Project, _ isInside: Bool) {
+        if isInside {
+            hoveredProjectID = project.id
+        } else if hoveredProjectID == project.id {
+            hoveredProjectID = nil
+        }
+    }
+
+    // Leaving a workspace for one of its projects means leaving the rail's place in the
+    // list as well, so the project screen opens with its row scrolled into view.
+    private func open(_ project: Project) {
+        store.selectProject(project.id, revealingInSidebar: true)
     }
 
     // Answers "is this project on main and up to date?" at a glance, next to the name.
@@ -449,7 +485,7 @@ struct WorkspaceDetailView: View {
     private func projectMenu(_ project: Project, workspace: ProjectWorkspace,
                              isLead: Bool) -> [MenuEntry] {
         var entries: [MenuEntry] = [
-            .item("Open project") { store.selectProject(project.id) },
+            .item("Open project") { open(project) },
             .item("Reveal in Finder") { reveal(project) }
         ]
         if !isLead {

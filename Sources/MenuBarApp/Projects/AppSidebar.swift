@@ -29,7 +29,6 @@ struct AppSidebar: View {
     // A session opened away from its sidebar card and not brought into view yet. A card
     // clicked in the sidebar is already under the pointer, so it does not need this.
     @State private var sessionToReveal: UUID?
-    @State private var projectToReveal: UUID?
     @State private var sessionVisibility = SidebarSessionVisibility()
     @State private var filterText = ""
     @State private var oldSessionSummary = OldSessionSummary()
@@ -425,7 +424,7 @@ struct AppSidebar: View {
                         .animation(.easeOut(duration: 0.22), value: filterText)
                     }
                     .task(id: sessionToReveal) { await reveal(with: scroller) }
-                    .task(id: projectToReveal) { await revealProject(with: scroller) }
+                    .task(id: store.projectToReveal) { await revealProject(with: scroller) }
                 }
             }
         }
@@ -821,13 +820,18 @@ struct AppSidebar: View {
         sessionToReveal = nil
     }
 
+    // Brings a project opened away from the rail into view. The row has to be drawn
+    // before it can be scrolled to, so a filter narrow enough to hide it is dropped and
+    // a folded section is unfolded first.
     private func revealProject(with scroller: ScrollViewProxy) async {
-        guard let id = projectToReveal, store.project(id) != nil else { return }
+        guard let id = store.projectToReveal, store.project(id) != nil else { return }
+        if !orderedItems.contains(where: { $0.id == id }) { filterText = "" }
+        showGroup(containing: id)
         await Task.yield()
         withAnimation(.easeOut(duration: 0.26)) {
             scroller.scrollTo(id, anchor: .top)
         }
-        projectToReveal = nil
+        store.projectToReveal = nil
     }
 
     // MARK: - Creating and removing sessions
@@ -1231,8 +1235,7 @@ struct AppSidebar: View {
         guard let id = added?.id ?? store.selectedProjectID else { return }
         setExpanded(true, for: id)
         filterText = ""
-        store.selectProject(id)
-        projectToReveal = id
+        store.selectProject(id, revealingInSidebar: true)
     }
 
     // Creating a task lands on its screen rather than in a session: the task is the
@@ -1242,8 +1245,7 @@ struct AppSidebar: View {
         case .success(let project):
             setExpanded(true, for: project.id)
             filterText = ""
-            store.selectProject(project.id)
-            projectToReveal = project.id
+            store.selectProject(project.id, revealingInSidebar: true)
             if draft.runNow { runTask(project) }
         case .failure(let failure):
             dialogs.show(Dialog(

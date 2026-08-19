@@ -48,6 +48,12 @@ final class ProjectStore {
     }
     var selectedProjectID: UUID?
 
+    // A project opened from somewhere other than the rail, and not brought into view
+    // there yet. The rail scrolls to it and clears this, so asking for the same project
+    // again still moves the list. A row clicked in the rail is already under the pointer,
+    // so it never sets this.
+    var projectToReveal: UUID?
+
     // Sessions that ended a turn while the user was not reading them on either screen.
     // This is about live attention rather than the conversation, so it is not saved: a
     // relaunch is not something to catch up on.
@@ -167,10 +173,11 @@ final class ProjectStore {
 
     // Choosing a project is different from opening a conversation. Keeping the two
     // actions separate leaves the project screen available until a session is chosen.
-    func selectProject(_ id: UUID) {
+    func selectProject(_ id: UUID, revealingInSidebar: Bool = false) {
         guard project(id) != nil else { return }
         selectedProjectID = id
         selection = nil
+        if revealingInSidebar { projectToReveal = id }
         scheduleIndexSave()
     }
 
