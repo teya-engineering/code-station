@@ -130,6 +130,19 @@ struct SessionSettingsTests {
         #expect(pair(arguments, after: "--permission-mode") == "acceptEdits")
     }
 
+    // The app draws the choices itself, so every Claude session is asked to reach for the
+    // tool that puts them on screen. Codex has no such tool and would refuse the flag.
+    @Test func asksClaudeToUseTheModalChooser() {
+        let claude = SessionRunner.arguments(settings: SessionSettings(), defaults: appDefaults)
+        #expect(pair(claude, after: "--append-system-prompt")
+            == SessionRunner.appendedSystemPrompt)
+
+        let codex = SessionRunner.arguments(agent: .codex,
+                                            settings: SessionSettings(),
+                                            defaults: appDefaults)
+        #expect(!codex.contains("--append-system-prompt"))
+    }
+
     private func pair(_ arguments: [String], after flag: String) -> String? {
         guard let i = arguments.firstIndex(of: flag), i + 1 < arguments.count else { return nil }
         return arguments[i + 1]
