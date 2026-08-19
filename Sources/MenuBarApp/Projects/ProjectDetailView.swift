@@ -708,10 +708,11 @@ struct ProjectDetailView: View {
 
 // One session as a row. Project and Workspace share it, so the two screens cannot drift
 // apart on what a session is: state and title on the left, what it is doing and where in
-// the middle, its diff and last activity on the right, and one way in.
+// the middle, and its diff, last activity and menu on the right. The row itself opens the
+// session, leaving the scarce trailing space for actions that are not available elsewhere.
 struct SessionRow: View {
     // Where the session's files live. A single project says it in one line; a workspace
-    // has one chip per repository, so mixed checkout modes are visible at a glance.
+    // names its first repositories and keeps the complete checkout detail in a tooltip.
     enum Detail {
         case location(String)
         case repositories([Repository])
@@ -719,7 +720,8 @@ struct SessionRow: View {
 
     struct Repository: Identifiable {
         let id: UUID
-        let label: String
+        let name: String
+        let usesWorktree: Bool
         let tint: Theme.ProjectTint
     }
 
@@ -755,7 +757,7 @@ struct SessionRow: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
-            .frame(width: 320, alignment: .leading)
+            .frame(minWidth: 220, idealWidth: 280, maxWidth: 320, alignment: .leading)
 
             VStack(alignment: .leading, spacing: 6) {
                 Text(activity)
@@ -771,22 +773,11 @@ struct SessionRow: View {
                         .lineLimit(1)
                         .truncationMode(.middle)
                 case .repositories(let repositories):
-                    HStack(spacing: 7) {
-                        ForEach(repositories) { repository in
-                            HStack(spacing: 5) {
-                                ProjectDot(tint: repository.tint, size: 5)
-                                Text(repository.label)
-                                    .font(.mono(10))
-                                    .foregroundStyle(.secondary)
-                            }
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 2)
-                            .background(RoundedRectangle(cornerRadius: 5).fill(Theme.field))
-                        }
-                    }
+                    repositoryDetails(repositories)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .layoutPriority(1)
 
             VStack(alignment: .trailing, spacing: 6) {
                 DiffPair(added: session.summary.added,
@@ -796,13 +787,11 @@ struct SessionRow: View {
                     .foregroundStyle(.tertiary)
             }
 
-            HStack(spacing: 7) {
-                ActionButton(title: "Open", height: 30, size: 12, action: onOpen)
-                // Destructive actions live in the menu: a bare bin in a row is one
-                // mis-click from losing a conversation.
-                GlyphButton(icon: "ellipsis")
-                    .appMenu(menu)
-            }
+            // Destructive actions live in the menu: a bare bin in a row is one
+            // mis-click from losing a conversation.
+            GlyphButton(icon: "ellipsis")
+                .appMenu(menu)
+                .appTooltip("More session actions")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
@@ -812,7 +801,100 @@ struct SessionRow: View {
             .stroke(tone.ring, lineWidth: tone.ringWidth))
         .contentShape(RoundedRectangle(cornerRadius: 12))
         .onTapGesture(perform: onOpen)
+        .accessibilityAction(named: "Open session", onOpen)
         .animation(.easeOut(duration: 0.12), value: hovering)
         .onHover { hovering = $0 }
+    }
+
+    @ViewBuilder
+    private func repositoryDetails(_ repositories: [Repository]) -> some View {
+        if repositories.isEmpty {
+            Text("No repositories")
+                .font(.mono(10.5))
+                .foregroundStyle(.tertiary)
+        } else {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 7) {
+                    ForEach(Array(repositories.prefix(2))) { repository in
+                        repositoryChip(repository,
+                                       showsMode: hasMixedCheckoutModes(repositories))
+                    }
+                    if repositories.count > 2 {
+                        MonoChip(text: "+\(repositories.count - 2)", size: 9.5)
+                    }
+                    if !hasMixedCheckoutModes(repositories) {
+                        Text(checkoutSummary(repositories))
+                            .font(.mono(9.5, .semibold))
+                            .foregroundStyle(.tertiary)
+                            .fixedSize()
+                    }
+                }
+                .fixedSize(horizontal: true, vertical: false)
+
+                HStack(spacing: 7) {
+                    ProjectDot(tint: repositories[0].tint, size: 5)
+                    Text("\(repositories.count) repositories")
+                    Text("·")
+                        .foregroundStyle(.tertiary)
+                    Text(checkoutSummary(repositories))
+                }
+                .font(.mono(10))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+
+                Text("\(repositories.count) repositories · \(checkoutSummary(repositories))")
+                    .font(.mono(10))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            .appTooltip {
+                Tooltip(
+                    title: "Repositories in this session",
+                    rows: repositories.map {
+                        Tooltip.Row(label: $0.name,
+                                    value: $0.usesWorktree ? "Worktree" : "Folder")
+                    })
+            }
+        }
+    }
+
+    private func repositoryChip(_ repository: Repository, showsMode: Bool) -> some View {
+        HStack(spacing: 5) {
+            ProjectDot(tint: repository.tint, size: 5)
+            Text(repository.name)
+                .font(.mono(10))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+            if showsMode {
+                Text("· \(repository.usesWorktree ? "worktree" : "folder")")
+                    .font(.mono(9.5, .semibold))
+                    .foregroundStyle(.tertiary)
+                    .fixedSize()
+            }
+        }
+        .padding(.horizontal, 7)
+        .padding(.vertical, 2)
+        .background(RoundedRectangle(cornerRadius: 5).fill(Theme.field))
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private func hasMixedCheckoutModes(_ repositories: [Repository]) -> Bool {
+        repositories.contains(where: \.usesWorktree)
+            && repositories.contains { !$0.usesWorktree }
+    }
+
+    private func checkoutSummary(_ repositories: [Repository]) -> String {
+        let worktrees = repositories.count(where: \.usesWorktree)
+        let folders = repositories.count - worktrees
+        if folders == 0 { return count(worktrees, singular: "worktree") }
+        if worktrees == 0 { return count(folders, singular: "folder") }
+        return "\(count(worktrees, singular: "worktree")) · \(count(folders, singular: "folder"))"
+    }
+
+    private func count(_ value: Int, singular: String) -> String {
+        "\(value) \(singular)\(value == 1 ? "" : "s")"
     }
 }

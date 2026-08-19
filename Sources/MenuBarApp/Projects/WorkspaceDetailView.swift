@@ -546,15 +546,15 @@ struct WorkspaceDetailView: View {
         }
     }
 
-    // One chip per repository, saying which mode that repository was opened in, because a
-    // workspace session can mix worktrees and plain folders in the same conversation.
+    // The row shows a compact repository summary. It keeps the mode on each value so the
+    // full mapping remains available when a workspace mixes worktrees and plain folders.
     private func repositories(_ session: ChatSession) -> [SessionRow.Repository] {
         store.checkoutProjects(for: session).compactMap { checkout in
             guard let project = store.project(checkout.projectID) else { return nil }
-            let short = project.name.split(separator: " ").first.map(String.init) ?? project.name
             return SessionRow.Repository(
                 id: project.id,
-                label: "\(short.lowercased()) · \(checkout.worktreePath == nil ? "folder" : "worktree")",
+                name: project.name.lowercased(),
+                usesWorktree: checkout.worktreePath != nil,
                 tint: Theme.projectTint(for: project.name))
         }
     }
