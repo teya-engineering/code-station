@@ -328,6 +328,9 @@ private struct TranscriptCopyButton: ViewModifier {
 
     func body(content: Content) -> some View {
         content
+            // The pill can sit beyond the rendered text in a full-width frame. Keep the
+            // transparent space on the path to it inside the owner's hover area.
+            .contentShape(Rectangle())
             // Read before our own flag is merged in below, so this sees descendants
             // only and a pill never hides itself.
             .onPreferenceChange(DescendantCopyHoverKey.self) { descendantHovering = $0 }
