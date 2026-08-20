@@ -174,7 +174,11 @@ struct SessionView: View {
                                              in: session) ?? workingDirectory
             VStack(spacing: 0) {
                 header(session: session, project: project)
-                statusStrip(session, project: project)
+                // The facts card hangs off the strip and over whatever is under it. A
+                // VStack draws its children in order, so without this the card would be
+                // covered by the transcript it opens across.
+                statusStrip(session)
+                    .zIndex(1)
                 warningStrip(session: session, project: project)
                 if store.checkoutProjects(for: session).count > 1, tab != .chat {
                     workspaceProjectBar(session)
@@ -262,8 +266,8 @@ struct SessionView: View {
 
     // Where you are and what you are looking at, and nothing else: colour dot, container,
     // title, then the view switcher right-aligned. Everything that describes the state of
-    // the session - what it is doing, what it has changed, its branch, its pull request,
-    // its window - reads on the strip under this one.
+    // the session - what it is doing, what it has changed, and the facts behind the chip -
+    // reads on the strip under this one.
     private func header(session: ChatSession, project: Project) -> some View {
         let workspace = session.workspaceID.flatMap(store.workspace)
         let container = workspace?.name ?? project.name
@@ -319,77 +323,82 @@ struct SessionView: View {
 
     // MARK: - Status strip
 
-    // Everything that describes the session rather than names it, on one thin line and
-    // always in the same order: what it is doing, what it has changed, the commands it
-    // has to hand, then the branch, the pull request and how full the window is. Reading
-    // it is a glance along a line instead of a hunt across a header and a footer.
+    // Everything that describes the session rather than names it, on one thin line that
+    // holds exactly three things: what it is doing, what it has changed, and one chip for
+    // the facts it is looked up by. Reading it is a glance along a line rather than a hunt
+    // across a header and a footer, and it stays a glance however much a session collects
+    // - the chip is one width whether or not there is a pull request behind it.
     //
-    // The shortcuts belong on this line rather than on one of their own. They are the
-    // same kind of thing as the rest of it - what this session is and what it can do -
-    // and a band of their own would cost every session a second rule to read past.
-    private func statusStrip(_ session: ChatSession, project: Project) -> some View {
+    // How full the window is runs along the bottom edge as a hairline. It is the reading
+    // that moves every turn, so it stays in sight, but it is a line rather than words: a
+    // window filling up needs nothing done about it until it is nearly full, and then the
+    // composer says so in words.
+    private func statusStrip(_ session: ChatSession) -> some View {
         // The lead checkout is the one this line speaks for, the same root the stats
         // refresh puts first. The cache only ever holds snapshots of a readable
         // repository, so having one is the same as the repository being ready.
         let repository = store.workingDirectories(for: session).first
             .flatMap { gitStats.snapshot(at: $0) }
-        // A worktree session knows its branch from creation, so the branch can draw on
-        // the first frame instead of waiting for git and shifting the row.
-        let branch = repository?.branch
-            ?? session.worktreeBranch
-            ?? session.sessionProjects?.compactMap(\.worktreeBranch).first
+        let facts = facts(session, repository: repository)
         return HStack(spacing: 14) {
             state(session)
             diffStats(session)
-
-            // Ad-hoc tasks run in a private folder the app made for one prompt, so there
-            // is nothing there worth saving a command against.
-            if project.kind == .project {
-                StatusRule()
-                // The chips take the middle of the row rather than a spacer, so a long
-                // list of them scrolls in place instead of pushing the readings apart.
-                SessionShortcutChips(session: session,
-                                     openRun: $openShortcutRun,
-                                     edit: { shortcutEditor = $0 })
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
-                Spacer(minLength: 12)
-            }
-
-            // The trailing group is laid out before anything flexible gets a say. An
-            // HStack splits what is left evenly between its children, so without this
-            // the meter is offered a share of the free room, decides it does not fit,
-            // and drops its bar while the chips sit on space the bar would have used.
-            HStack(spacing: 12) {
-                if let branch, !branch.isEmpty {
-                    branchTag(branch: branch, repository: repository)
-                }
-                if let pullRequest = session.pullRequest { pullRequestTag(pullRequest) }
-                if appSettings.showsCost(for: session.agent),
-                   let cost = session.usage?.costUSD, cost > 0 {
-                    spentTag(cost)
-                }
-                if let usage = session.usage,
-                   let fraction = usage.contextFraction(for: session.agent) {
-                    contextMeter(fraction: fraction, usage: usage, agent: session.agent)
-                }
-            }
-            .fixedSize(horizontal: true, vertical: false)
-            .layoutPriority(1)
+            Spacer(minLength: 12)
+            SessionFactsChip(facts: facts,
+                             openChanges: openChanges,
+                             contextActions: contextActions,
+                             usageTooltip: {
+                                 guard let usage = session.usage else { return Tooltip(title: "") }
+                                 return usageTooltip(usage, agent: session.agent,
+                                                     clearable: !contextActions().isEmpty)
+                             })
         }
         .statusBand(padding: 20)
+        .overlay(alignment: .bottom) {
+            if let fraction = facts.context {
+                ContextHairline(fraction: fraction,
+                                colour: SessionFacts.contextColour(fraction,
+                                                                   agent: session.agent))
+            }
+        }
     }
 
-    // "RUNNING", "NEEDS YOU · 3m", "IDLE · 2h": the state and how long it has been in it.
+    // A worktree session knows its branch from creation, so the branch can draw on the
+    // first frame instead of waiting for git and shifting the chip.
+    private func facts(_ session: ChatSession, repository: GitSnapshot?) -> SessionFacts {
+        let cost = session.usage?.costUSD ?? 0
+        return SessionFacts(
+            branch: repository?.branch
+                ?? session.worktreeBranch
+                ?? session.sessionProjects?.compactMap(\.worktreeBranch).first,
+            pullRequest: session.pullRequest,
+            model: session.usage?.model(for: session.agent).map { ModelChoice.shortName(of: $0) },
+            cost: appSettings.showsCost(for: session.agent) && cost > 0 ? cost : nil,
+            context: session.usage?.contextFraction(for: session.agent),
+            agent: session.agent)
+    }
+
+    // "RUNNING · 4m", "NEEDS YOU · 3m", "IDLE · 2h": the state and how long it has been
+    // in it. A running turn counts up from its own start rather than from the session's
+    // last activity, which is what makes it the age of the work in flight.
     private func state(_ session: ChatSession) -> some View {
         let tone = SessionTone(sessionID, store: store, runner: runner)
+        let since = tone == .running ? runner.turnStarted(sessionID) : session.lastActivity
         return HStack(spacing: 7) {
             StateLight(tone: tone, size: 6)
             StatusCaps(text: tone.word,
                        tint: tone == .idle ? Color.secondary : tone.colour)
-            if tone != .running {
+            if let since {
                 StatusDot()
-                StatusValue(text: RelativeTime.short(session.lastActivity))
+                // A running turn has to keep counting when nothing arrives to redraw it,
+                // which is most of a long one.
+                if tone == .running {
+                    TimelineView(.periodic(from: .now, by: 1)) { _ in
+                        StatusValue(text: RelativeTime.duration(since: since))
+                    }
+                } else {
+                    StatusValue(text: RelativeTime.short(since))
+                }
             }
         }
         .fixedSize()
@@ -1066,7 +1075,7 @@ struct SessionView: View {
         let canSend = !blocked && !runner.draft(sessionID).isEmpty
 
         return VStack(alignment: .leading, spacing: 8) {
-            runChoices(session)
+            runChoices(session, project: project)
             contextNudge(session)
             queueStrip(busy: busy, blocked: blocked)
             attachmentStrip
@@ -1154,7 +1163,12 @@ struct SessionView: View {
     // hitting send: the session's fixed agent, its model, and the rest of the run
     // controls. What the session has done and where belongs on the status strip, not
     // here - this line is only ever about what happens next.
-    @ViewBuilder private func runChoices(_ session: ChatSession) -> some View {
+    //
+    // The saved commands sit at the end of it for the same reason. Running the tests for
+    // what was just written is the next thing that happens as much as sending another
+    // prompt is, and docking them here keeps them off a status strip that has to stay one
+    // glance wide however many commands a project collects.
+    @ViewBuilder private func runChoices(_ session: ChatSession, project: Project) -> some View {
         let agent = session.agent
         HStack(spacing: 10) {
             if session.settings?.mcpServersEnabled == false {
@@ -1174,7 +1188,16 @@ struct SessionView: View {
             } else {
                 codexAccessMenu(agent: agent)
             }
-            Spacer(minLength: 8)
+
+            Spacer(minLength: 12)
+
+            // Ad-hoc tasks run in a private folder the app made for one prompt, so there
+            // is nothing there worth saving a command against.
+            if project.kind == .project {
+                SessionShortcutChips(session: session,
+                                     openRun: $openShortcutRun,
+                                     edit: { shortcutEditor = $0 })
+            }
         }
     }
 
@@ -1327,82 +1350,6 @@ struct SessionView: View {
         .appTooltip(overridden ? "\(help) Overridden for this session." : help)
     }
 
-    // Where the work went. It appears the moment the agent opens one, and it is the only
-    // thing on this line that leads out of the app, so it opens in the browser.
-    private func pullRequestTag(_ pullRequest: PullRequest) -> some View {
-        Button {
-            guard let url = URL(string: pullRequest.url) else { return }
-            NSWorkspace.shared.open(url)
-        } label: {
-            // Verbatim, or the interpolated number is read as a localised one and comes
-            // out grouped: PR #2,395.
-            Text(verbatim: "PR #\(pullRequest.number)")
-                .font(.mono(11, .semibold))
-                .foregroundStyle(Theme.accent)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .appTooltip {
-            Tooltip(title: "Pull request #\(pullRequest.number)",
-                    subtitle: pullRequest.url,
-                    note: "Opens in the browser.")
-        }
-    }
-
-    // The branch the working tree is on, which for a session without a worktree is the
-    // branch the agent is committing to. The snapshot is nil until git has answered;
-    // only the hint depends on it.
-    private func branchTag(branch: String, repository: GitSnapshot?) -> some View {
-        Button { tab = .changes } label: {
-            HStack(spacing: 5) {
-                Image(systemName: "arrow.triangle.branch")
-                    .font(.system(size: 9.5, weight: .semibold))
-                Text(branch)
-                    .font(.mono(10.5))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-            .foregroundStyle(.secondary)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .appTooltip {
-            guard let repository else { return Tooltip(title: "Opens Changes.") }
-            return Tooltip(title: repository.files.isEmpty
-                           ? "The working tree is clean. Opens Changes."
-                           : "Uncommitted work on this branch. Opens Changes.")
-        }
-    }
-
-    // What the session has cost so far. Codex reports no cost, so the figure only
-    // appears once there is one, rather than showing a $0.00 that reads as free.
-    private func spentTag(_ cost: Double) -> some View {
-        Text(Money.short(cost))
-            .font(.mono(10.5))
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
-            .fixedSize()
-            .appTooltip("What this session has spent.")
-    }
-
-    // The meter is the one thing on this row that says the session is getting heavy, so
-    // it is also where the window is dealt with. It only opens a menu while there is a
-    // conversation to work on and nothing running that still holds it; the rest of the
-    // time it stays the read-only reading it has always been.
-    @ViewBuilder private func contextMeter(fraction: Double, usage: SessionUsage,
-                                           agent: AgentKind) -> some View {
-        let actions = contextActions()
-        if actions.isEmpty {
-            contextReading(fraction, clearable: false, agent: agent)
-                .appTooltip { usageTooltip(usage, agent: agent, clearable: false) }
-        } else {
-            contextReading(fraction, clearable: true, agent: agent)
-                .contentShape(Rectangle())
-                .appMenu { actions }
-                .appTooltip { usageTooltip(usage, agent: agent, clearable: true) }
-        }
-    }
-
     // Manual compaction is a Claude Code action. Clearing remains available for either
     // agent as a deliberate fresh start, even though Codex makes room automatically.
     private func contextActions() -> [MenuEntry] {
@@ -1435,57 +1382,6 @@ struct SessionView: View {
                 },
                 .init(label: "Cancel", kind: .cancel),
             ]))
-    }
-
-    // The bar is the first thing to give up when the row runs out of room: it restates
-    // the number beside it, which is the part actually being read.
-    private func contextReading(_ fraction: Double, clearable: Bool,
-                                agent: AgentKind) -> some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 10) {
-                contextLabel(agent)
-                Meter(fraction: fraction,
-                      colour: contextColour(fraction, agent: agent), height: 5)
-                    .frame(width: 110)
-                contextPercent(fraction, clearable: clearable, agent: agent)
-            }
-            HStack(spacing: 10) {
-                contextLabel(agent)
-                contextPercent(fraction, clearable: clearable, agent: agent)
-            }
-        }
-    }
-
-    private func contextLabel(_ agent: AgentKind) -> some View {
-        Text(agent == .codex ? "WINDOW" : "CONTEXT")
-            .font(.mono(10.5))
-            .kerning(0.6)
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
-            .fixedSize()
-    }
-
-    private func contextPercent(_ fraction: Double, clearable: Bool,
-                                agent: AgentKind) -> some View {
-        HStack(spacing: 4) {
-            Text("\(Int((fraction * 100).rounded()))% USED")
-                .font(.mono(11, .semibold))
-            if clearable {
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 7, weight: .semibold))
-            }
-        }
-        .foregroundStyle(contextColour(fraction, agent: agent))
-        .lineLimit(1)
-        .fixedSize()
-    }
-
-    private func contextColour(_ fraction: Double, agent: AgentKind) -> Color {
-        switch Int((fraction * 100).rounded()) {
-        case 85...: agent == .codex ? Theme.attention : Theme.deletion
-        case 70...: Theme.attention
-        default: Theme.dotOn
-        }
     }
 
     // The percentage says how much of the window is in use but not where it went, and the

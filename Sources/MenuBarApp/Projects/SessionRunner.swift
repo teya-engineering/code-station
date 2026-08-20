@@ -144,6 +144,9 @@ final class SessionRunner {
     // between a slow turn and one that has stopped moving.
     func lastActivity(_ sessionID: UUID) -> Date? { turns[sessionID]?.lastActivity }
 
+    // When the turn this session is running now began, for the strip that counts it up.
+    func turnStarted(_ sessionID: UUID) -> Date? { turns[sessionID]?.startedAt }
+
     // What this session is waiting on the person for, if anything.
     func question(_ sessionID: UUID) -> PermissionRequest? { asked[sessionID]?.first }
 
@@ -1695,6 +1698,9 @@ final class SessionRunner {
         // Moved on every read off the CLI's stdout, so it measures silence rather than
         // progress: a turn deep in a long build still counts as alive.
         var lastActivity = Date()
+        // Fixed at the moment the turn began, which is what the status strip counts from
+        // while it runs. `lastActivity` cannot answer that: it moves all turn.
+        let startedAt = Date()
 
         // One line down the pipe the CLI is reading. False when it could not be sent: the
         // process is gone, or its end of the pipe is shut.

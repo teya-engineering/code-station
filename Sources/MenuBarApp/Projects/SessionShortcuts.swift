@@ -1,10 +1,11 @@
 import Foundation
 import SwiftUI
 
-// The commands available to a project, sitting in the session's own status row rather
-// than on a strip of their own. They belong beside the other readings because they are
-// the same kind of thing: what this session is, on one line. A command run here uses this
-// session's worktree, so the tests it runs are the tests for the branch on the same row.
+// The commands available to a project, docked at the end of the composer's own row
+// rather than on a strip of their own. They belong there because running the tests for
+// what was just written is the next thing that happens as much as sending another prompt
+// is. A command run here uses this session's worktree, so the tests it runs are the tests
+// for the branch this session is on.
 //
 // Every checkout's commands are here at once. A session with several of them tints each
 // chip with its project, rather than making the reader switch, since a command saved
@@ -18,12 +19,10 @@ struct SessionShortcutChips: View {
     let edit: (ShortcutEditorRequest) -> Void
 
     var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "bolt.fill")
-                .font(.system(size: 9))
-                .foregroundStyle(.tertiary)
-                .accessibilityLabel("Shortcuts")
-
+        HStack(spacing: 7) {
+            // The commands sit against the right of the row and scroll from there, so
+            // the last one saved is the one in view and the control that makes another
+            // is always beside it.
             ScrollView(.horizontal) {
                 HStack(spacing: 7) {
                     ForEach(placements) { placement in
@@ -31,10 +30,15 @@ struct SessionShortcutChips: View {
                             chip(placement.shortcut, in: entry)
                         }
                     }
-                    newButton
                 }
+                .padding(.vertical, 1)
             }
             .scrollIndicators(.hidden)
+            .defaultScrollAnchor(.trailing)
+
+            // Outside the scroll: it makes something new rather than being one of the
+            // saved commands, and it cannot be the control that scrolls out of reach.
+            newButton
         }
     }
 
