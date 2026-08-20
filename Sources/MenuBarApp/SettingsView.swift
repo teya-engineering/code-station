@@ -239,6 +239,7 @@ struct SettingsView: View {
         switch tab {
         case .general:
             VStack(alignment: .leading, spacing: 24) {
+                SiteConfigurationSection()
                 oldSessions
                 skillRefresh
                 botImage

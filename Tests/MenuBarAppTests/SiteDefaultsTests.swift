@@ -234,6 +234,43 @@ struct SiteDefaultsTests {
         #expect(SiteDefaults.bundledURL == nil)
     }
 
+    // Settings reads this off the file already in place, so it has to hold for defaults
+    // that were never a freshly loaded selection, including the empty ones.
+    @Test func theSummaryCountsWhatTheDefaultsHold() throws {
+        let url = try file("""
+        {
+          "dispatch": {
+            "requests": [
+              { "name": "Health", "url": "https://api.example/health" },
+              { "name": "Version", "url": "https://api.example/version" }
+            ]
+          },
+          "grafana": {
+            "presets": [
+              { "scope": "platform", "environment": "prd", "url": "https://grafana.example" }
+            ]
+          },
+          "skills": { "name": "team", "marketplace": "org/skills", "repository": "org/skills" }
+        }
+        """)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let summary = SiteDefaults.load([url]).summary
+
+        #expect(summary.contains("2 starter requests"))
+        #expect(summary.contains("1 Grafana preset"))
+        #expect(summary.contains("0 shortcuts"))
+        #expect(summary.contains("a skills marketplace"))
+    }
+
+    @Test func theSummaryOfEmptyDefaultsSaysEverythingIsMissing() {
+        let summary = SiteDefaults().summary
+
+        #expect(summary.contains("0 starter requests"))
+        #expect(summary.contains("0 Grafana presets"))
+        #expect(summary.contains("no skills marketplace"))
+    }
+
     @Test func serverNamesAreReadBackWithoutTheSiteFile() {
         #expect(Grafana.environment(from: "grafana-platform-dev") == "dev")
         #expect(Grafana.environment(from: "grafana-shared-shared") == "shared")

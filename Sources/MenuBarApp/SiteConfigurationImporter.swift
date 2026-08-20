@@ -5,15 +5,7 @@ struct SiteConfigurationSelection: Sendable {
     let sourceName: String
     let defaults: SiteDefaults
 
-    var summary: String {
-        let requests = defaults.dispatchRequests.count
-        let grafana = defaults.grafanaPresets.count
-        let shortcuts = defaults.commandShortcuts.count
-        let marketplace = defaults.skills == nil ? "no skills marketplace" : "a skills marketplace"
-        return "\(requests) starter request\(requests == 1 ? "" : "s"), "
-            + "\(grafana) Grafana preset\(grafana == 1 ? "" : "s"), "
-            + "\(shortcuts) shortcut\(shortcuts == 1 ? "" : "s"), and \(marketplace)."
-    }
+    var summary: String { defaults.summary }
 }
 
 enum SiteConfigurationImporter {

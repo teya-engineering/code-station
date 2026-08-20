@@ -300,6 +300,18 @@ extension SiteDefaults {
                            digest[12], digest[13], digest[14], digest[15]))
     }
 
+    // What a file turned out to hold, for the two places that offer one before and after
+    // it is installed.
+    var summary: String {
+        let requests = dispatchRequests.count
+        let presets = grafanaPresets.count
+        let commands = commandShortcuts.count
+        let marketplace = skills == nil ? "no skills marketplace" : "a skills marketplace"
+        return "\(requests) starter request\(requests == 1 ? "" : "s"), "
+            + "\(presets) Grafana preset\(presets == 1 ? "" : "s"), "
+            + "\(commands) shortcut\(commands == 1 ? "" : "s"), and \(marketplace)."
+    }
+
     var grafanaPresets: [Grafana.Preset] { grafana?.presets ?? [] }
 
     func grafanaPreset(named name: String) -> Grafana.Preset? {
