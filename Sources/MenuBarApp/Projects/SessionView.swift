@@ -148,6 +148,9 @@ struct SessionView: View {
     // False until this session's transcript has been scrolled to its end. The pane is
     // rebuilt per session, so it starts false on every switch without being reset.
     @State private var opened = false
+    // Set by choosing to keep waiting, and cleared when the wait ends, so the next turn
+    // that parks itself asks again rather than inheriting an answer about another task.
+    @State private var waitNoticeDismissed = false
     // Which of this session's folders are gone, and which of those can be built again.
     // Sampled at the moments listed on `sampleMissingFolders` and held here rather than
     // asked while drawing: the file system is what the warning strip is about and SwiftUI
@@ -378,21 +381,27 @@ struct SessionView: View {
             agent: session.agent)
     }
 
-    // "RUNNING · 4m", "NEEDS YOU · 3m", "IDLE · 2h": the state and how long it has been
+    // "RUNNING · 4m", "WAITING · 12m", "IDLE · 2h": the state and how long it has been
     // in it. A running turn counts up from its own start rather than from the session's
-    // last activity, which is what makes it the age of the work in flight.
+    // last activity, which is what makes it the age of the work in flight. A waiting one
+    // counts from where the work stopped, so the number is the length of the wait rather
+    // than of the turn that is still holding it.
     private func state(_ session: ChatSession) -> some View {
         let tone = SessionTone(sessionID, store: store, runner: runner)
-        let since = tone == .running ? runner.turnStarted(sessionID) : session.lastActivity
+        let since: Date? = switch tone {
+        case .running: runner.turnStarted(sessionID)
+        case .waiting: runner.waitingSince(sessionID) ?? session.lastActivity
+        default: session.lastActivity
+        }
         return HStack(spacing: 7) {
             StateLight(tone: tone, size: 6)
             StatusCaps(text: tone.word,
                        tint: tone == .idle ? Color.secondary : tone.colour)
             if let since {
                 StatusDot()
-                // A running turn has to keep counting when nothing arrives to redraw it,
-                // which is most of a long one.
-                if tone == .running {
+                // A live turn has to keep counting when nothing arrives to redraw it,
+                // which is most of a long one and all of a wait.
+                if tone == .running || tone == .waiting {
                     TimelineView(.periodic(from: .now, by: 1)) { _ in
                         StatusValue(text: RelativeTime.duration(since: since))
                     }
@@ -749,7 +758,10 @@ struct SessionView: View {
             }
             .onChange(of: session.messages.last?.tools.count ?? 0) { scrollToBottom(proxy, animated: true) }
             .onChange(of: session.messages.last?.thinking?.count ?? 0) { scrollToBottom(proxy, animated: true) }
-            .onChange(of: state) { scrollToBottom(proxy, animated: true) }
+            .onChange(of: state) { _, state in
+                if state != .waiting { waitNoticeDismissed = false }
+                scrollToBottom(proxy, animated: true)
+            }
             .onChange(of: runner.question(sessionID)?.id) { scrollToBottom(proxy, animated: true) }
         }
     }
@@ -825,7 +837,18 @@ struct SessionView: View {
                            avatarSequence: runner.avatarSequence(sessionID) ?? 0,
                            avatarName: session.agentAvatarName,
                            agentTitle: session.agent.title,
-                           waitingOnTasks: state == .waiting)
+                           tasks: runner.backgroundTasks(sessionID),
+                           waitingSince: runner.waitingSince(sessionID))
+                    .transition(.fadeIn)
+            }
+
+            if state == .waiting, !waitNoticeDismissed,
+               let waitingSince = runner.waitingSince(sessionID) {
+                WaitingNotice(since: waitingSince,
+                              tasks: runner.backgroundTasks(sessionID),
+                              agentTitle: session.agent.title,
+                              onKeepWaiting: { waitNoticeDismissed = true },
+                              onEnd: { runner.endWait(sessionID) })
                     .transition(.fadeIn)
             }
 
@@ -1066,6 +1089,14 @@ struct SessionView: View {
                 set: { text in runner.editDraft(sessionID) { $0.text = text } })
     }
 
+    private func placeholder(state: SessionState) -> String {
+        switch state {
+        case .waiting: "Say what to do next…"
+        case _ where state.isBusy: "Queue what comes next…"
+        default: "Ask for a change"
+        }
+    }
+
     private func composer(session: ChatSession, project: Project) -> some View {
         let workingDirectory = session.worktreePath ?? project.path
         let blocked = !FileManager.default.fileExists(atPath: workingDirectory)
@@ -1082,10 +1113,12 @@ struct SessionView: View {
 
             HStack(alignment: .bottom, spacing: 10) {
                 // Typing during a turn is allowed: what is written goes to the back of the
-                // queue instead of waiting for the agent to be free.
+                // queue instead of waiting for the agent to be free. A turn parked on a
+                // background task is the one case where it does not queue at all - the
+                // pipe is open, so it goes straight to the agent.
                 ComposerField(text: draft,
                               isFocused: $composerFocused,
-                              placeholder: busy ? "Queue what comes next…" : "Ask for a change",
+                              placeholder: placeholder(state: state),
                               isEnabled: !blocked,
                               onSubmit: send,
                               onOversizedPaste: offerTextFile,
@@ -1619,9 +1652,14 @@ private struct WorkingRow: View {
     let avatarSequence: Int
     let avatarName: String?
     let agentTitle: String
-    // The agent has answered and is being held open for a background task it started.
-    // Silence is the expected thing here, not a worry.
-    var waitingOnTasks = false
+    // The tasks holding the turn open, if that is why it is still here. Naming one is the
+    // whole point of the row in that state: silence is expected, and what decides whether
+    // it will ever end is what is running, not how long it has been quiet.
+    var tasks: [BackgroundTask] = []
+    // When the wait began, which is what the row counts while it is waiting.
+    var waitingSince: Date?
+
+    private var waiting: Bool { waitingSince != nil }
 
     // Below this a gap is just the model thinking, and a clock ticking on every turn would
     // be noise. Past the second one it is long enough to be worth doubting.
@@ -1643,7 +1681,7 @@ private struct WorkingRow: View {
             let quiet = context.date.timeIntervalSince(since)
             let avatar = currentAvatar
             let personality = avatar?.personality ?? .standard
-            let word = waitingOnTasks ? "Waiting" : words.word(after: context.date.timeIntervalSince(started))
+            let word = waiting ? "Waiting" : words.word(after: context.date.timeIntervalSince(started))
             HStack(spacing: 8) {
                 if let avatar {
                     AgentAvatarView(image: avatar.image, size: 20)
@@ -1659,12 +1697,20 @@ private struct WorkingRow: View {
                     // fades in, so it cannot linger as the row moves down the transcript.
                     .id(word)
                     .transition(.fadeIn)
-                if waitingOnTasks {
-                    Text("for a background task to finish")
+                if let waitingSince {
+                    Text("for \(BackgroundTaskPhrase.of(tasks))")
                         .font(.mono(12))
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    // The same clock the strip runs, so the row and the header agree on
+                    // how long this has been going on.
+                    Text(RelativeTime.duration(since: waitingSince))
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
                 }
-                if quiet >= Self.showQuietAfter, !waitingOnTasks {
+                if quiet >= Self.showQuietAfter, !waiting {
                     Text("silent for \(elapsed(quiet))")
                         .font(.system(size: 11))
                         .foregroundStyle(quiet >= Self.concerningAfter
@@ -1681,7 +1727,12 @@ private struct WorkingRow: View {
             // Only worth a hint once the silence is long enough to worry about; the
             // empty one shows nothing.
             .appTooltip {
-                guard quiet >= Self.concerningAfter, !waitingOnTasks else { return Tooltip(title: "") }
+                if waiting {
+                    guard !tasks.isEmpty else { return Tooltip(title: "") }
+                    return Tooltip(title: "\(agentTitle) has answered and is holding the turn open.",
+                                   note: tasks.map(\.label).joined(separator: "\n"))
+                }
+                guard quiet >= Self.concerningAfter else { return Tooltip(title: "") }
                 return Tooltip(title: "\(agentTitle) has sent nothing for a while.",
                                note: "The log in Settings says what it last did.")
             }
@@ -1702,5 +1753,66 @@ private struct WorkingRow: View {
         let whole = Int(seconds)
         guard whole >= 60 else { return "\(whole)s" }
         return "\(whole / 60)m \(whole % 60)s"
+    }
+}
+
+// The way out of a wait that has no end of its own. A held-open turn is correct behaviour
+// and usually short, but nothing bounds it: a dev server or a watcher keeps the turn alive
+// for as long as it runs, and from the outside that is indistinguishable from a hang. Past
+// a few minutes the wait names itself and offers the only two answers there are.
+private struct WaitingNotice: View {
+    let since: Date
+    let tasks: [BackgroundTask]
+    let agentTitle: String
+    let onKeepWaiting: () -> Void
+    let onEnd: () -> Void
+
+    // Short waits are ordinary - a build, a test run - and a card under every one of them
+    // would be noise. This is about the ones that are not going to end on their own.
+    private static let showAfter: TimeInterval = 3 * 60
+
+    var body: some View {
+        // Five seconds is fine for something that appears once after minutes, and it keeps
+        // the transcript from redrawing every second for a card that is not counting.
+        TimelineView(.periodic(from: .now, by: 5)) { context in
+            if context.date.timeIntervalSince(since) >= Self.showAfter {
+                card
+            }
+        }
+    }
+
+    private var card: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "clock")
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Still waiting for \(BackgroundTaskPhrase.of(tasks))")
+                        .fontWeight(.semibold)
+                    Text("\(agentTitle) answered \(RelativeTime.duration(since: since)) ago and the turn "
+                        + "is being held open so the task can wake it again. Type to carry on in the same "
+                        + "turn. Ending it stops the tasks it started.")
+                        .fixedSize(horizontal: false, vertical: true)
+                    if tasks.count > 1 {
+                        ForEach(tasks) { task in
+                            Text("· \(task.label)")
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            HStack(spacing: 8) {
+                Spacer(minLength: 0)
+                ActionButton(title: "Keep waiting", tone: .outlined,
+                             height: 28, size: 11.5, action: onKeepWaiting)
+                ActionButton(title: "End turn", height: 28, size: 11.5, action: onEnd)
+            }
+        }
+        .font(.system(size: 12, weight: .medium))
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
     }
 }

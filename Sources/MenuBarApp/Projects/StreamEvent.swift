@@ -35,11 +35,31 @@ enum StreamEvent: Sendable {
     // Which background tasks the CLI still has running, sent whole whenever the set
     // changes. A turn that ends while this is not empty is not really over: the CLI runs
     // a follow-up turn when a task finishes, but only if its process is still alive.
-    case backgroundTasks(ids: [String])
+    case backgroundTasks([BackgroundTask])
     // The transport dropped but the CLI is still running and may reconnect on its own.
     // This is status, not the result of the turn.
     case streamError(String)
     case finished(isError: Bool, message: String?)
+}
+
+// A command or agent the CLI started and left running behind the turn. The description is
+// the CLI's own words for it, and it is the only thing that tells a build that will end
+// apart from a server that never will, so it is carried rather than counted.
+struct BackgroundTask: Identifiable, Equatable, Sendable {
+    let id: String
+    // What the CLI calls the kind of task: "local_bash" for a shell command, "local_agent"
+    // for an agent it spawned. New kinds appear over time, so it is kept as it arrived.
+    let kind: String?
+    let description: String?
+
+    var label: String {
+        if let description, !description.isEmpty { return description }
+        return switch kind {
+        case "local_bash": "a command"
+        case "local_agent": "an agent"
+        default: "a background task"
+        }
+    }
 }
 
 extension StreamEvent {
@@ -77,8 +97,10 @@ extension StreamEvent {
             "context tokens=\(tokens)"
         case .compacted(let preTokens, let postTokens):
             "compacted pre=\(preTokens.map(String.init) ?? "unknown") post=\(postTokens.map(String.init) ?? "unknown")"
-        case .backgroundTasks(let ids):
-            "background tasks count=\(ids.count)"
+        case .backgroundTasks(let tasks):
+            // The descriptions are the CLI's own words about what it is running and can
+            // name files or commands, so only how many there are goes in the log.
+            "background tasks count=\(tasks.count)"
         case .streamError(let message):
             "stream error category=\(Self.streamErrorCategory(message)) "
                 + "messageBytes=\(message.utf8.count)"
@@ -151,7 +173,13 @@ extension StreamEvent {
                 return [.initialized(claudeSessionID: id)]
             case "background_tasks_changed":
                 let tasks = (object["tasks"] as? [Any])?.compactMap { $0 as? [String: Any] } ?? []
-                return [.backgroundTasks(ids: tasks.compactMap { $0["task_id"] as? String })]
+                return [.backgroundTasks(tasks.compactMap { task in
+                    (task["task_id"] as? String).map {
+                        BackgroundTask(id: $0,
+                                       kind: task["task_type"] as? String,
+                                       description: task["description"] as? String)
+                    }
+                })]
             case "compact_boundary":
                 // The stream spells these with underscores and the CLI's own history file
                 // spells the same fields in camel case, so both are accepted rather than

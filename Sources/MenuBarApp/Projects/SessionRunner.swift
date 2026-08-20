@@ -54,6 +54,10 @@ final class SessionRunner {
     private var compactNotices: [UUID: UUID] = [:]
     // Sessions whose current context-limit nudge has been dismissed.
     private var nudgeDismissals: Set<UUID> = []
+    // What a held-open turn is waiting for. Kept beside the turn rather than on it: a turn
+    // is a class, so a task list changing inside one is not a change any screen would be
+    // told about, and the rows that name the wait would go stale.
+    private var waits: [UUID: Wait] = [:]
 
     @ObservationIgnored private var paths: [AgentKind: String]
     @ObservationIgnored private let discoversPaths: Bool
@@ -147,6 +151,30 @@ final class SessionRunner {
     // When the turn this session is running now began, for the strip that counts it up.
     func turnStarted(_ sessionID: UUID) -> Date? { turns[sessionID]?.startedAt }
 
+    // The tasks a held-open turn is waiting for, which is what the wait can be named
+    // after. Empty for every other state, including a turn that started a task and is
+    // still working alongside it.
+    func backgroundTasks(_ sessionID: UUID) -> [BackgroundTask] { waits[sessionID]?.tasks ?? [] }
+
+    // When the wait began, so a parked session counts from the moment it stopped working
+    // rather than from the start of the turn.
+    func waitingSince(_ sessionID: UUID) -> Date? { waits[sessionID]?.since }
+
+    // Lets go of a turn that is only being held open for its tasks. The tasks are the
+    // CLI's own children, so there is no way to keep them and end the turn: closing the
+    // input is an ordinary end of turn, and the CLI stops them on its way out. The wait is
+    // dropped on the click rather than on the exit that follows, so nothing on screen goes
+    // on offering to end something that is already ending.
+    func endWait(_ sessionID: UUID) {
+        guard let wait = waits[sessionID], let turn = turns[sessionID] else { return }
+        SessionLog.note("wait ended by hand with \(wait.tasks.count) tasks running",
+                        session: sessionID)
+        waits[sessionID] = nil
+        turn.waitingOnTasks = false
+        turn.needsFreshReply = false
+        turn.closeInput()
+    }
+
     // What this session is waiting on the person for, if anything.
     func question(_ sessionID: UUID) -> PermissionRequest? { asked[sessionID]?.first }
 
@@ -176,6 +204,14 @@ final class SessionRunner {
                                               in: sessionID, continuing: turn.messageID) {
             turn.messageID = carriesOn
         }
+    }
+
+    // A turn that has answered and is being held open for the tasks it started.
+    private struct Wait {
+        var tasks: [BackgroundTask]
+        // When the answer landed. The turn's own start says nothing about this: most of a
+        // held-open turn can be work, or none of it can.
+        let since: Date
     }
 
     // A prompt waiting for its turn to start.
@@ -773,6 +809,7 @@ final class SessionRunner {
         codexContextRefreshes.removeValue(forKey: sessionID)?.task.cancel()
         states[sessionID] = nil
         runningTools[sessionID] = nil
+        waits[sessionID] = nil
         asked[sessionID] = nil
         queues[sessionID] = nil
         drafts[sessionID] = nil
@@ -1292,8 +1329,11 @@ final class SessionRunner {
                     }
                 }
 
-            case .backgroundTasks(let ids):
-                turn.pendingTasks = Set(ids)
+            case .backgroundTasks(let tasks):
+                turn.pendingTasks = tasks
+                // A wait can outlast the task that started it: one of several ending is
+                // not the end of the wait, and the row has to say what is left.
+                if turn.waitingOnTasks { waits[sessionID]?.tasks = tasks }
 
             case .streamError(let message):
                 turn.lastStreamError = message
@@ -1312,9 +1352,10 @@ final class SessionRunner {
                 // while its process is alive, so the input pipe is held open until the
                 // last task is done and the turn after it has answered.
                 if !isError, !turn.pendingTasks.isEmpty {
-                    SessionLog.note("holding turn open for background tasks \(turn.pendingTasks.sorted())",
+                    SessionLog.note("holding turn open for background tasks \(turn.pendingTasks.map(\.id).sorted())",
                                     session: sessionID)
                     turn.waitingOnTasks = true
+                    waits[sessionID] = Wait(tasks: turn.pendingTasks, since: Date())
                     turn.needsFreshReply = true
                     setState(.waiting, for: sessionID)
                     // A prompt typed while the agent was working can go down the open
@@ -1430,6 +1471,7 @@ final class SessionRunner {
         guard turn.needsFreshReply else { return }
         turn.needsFreshReply = false
         turn.waitingOnTasks = false
+        waits[sessionID] = nil
         // The bubble being left behind is normally full, but a turn that said nothing
         // would leave an empty one sitting in the transcript for good.
         if store.transcript(of: sessionID).first(where: { $0.id == turn.messageID })?.isEmpty ?? false {
@@ -1463,6 +1505,7 @@ final class SessionRunner {
         turn.avatarSequence = nextAvatarSequence(for: sessionID)
         turn.needsFreshReply = false
         turn.waitingOnTasks = false
+        waits[sessionID] = nil
         setState(.streaming, for: sessionID)
     }
 
@@ -1523,6 +1566,7 @@ final class SessionRunner {
               let status = turn.exitStatus else { return }
         turns[sessionID] = nil
         runningTools[sessionID] = nil
+        waits[sessionID] = nil
         // The process that parked them is gone, so nothing is listening for an answer.
         asked[sessionID] = nil
         cleanUp(turn)
@@ -1683,8 +1727,8 @@ final class SessionRunner {
         var stdoutOpen = true
         var stderrOpen = true
         var exitStatus: Int32?
-        // The background tasks the CLI says are still running, by id.
-        var pendingTasks: Set<String> = []
+        // The background tasks the CLI says are still running, in the order it sent them.
+        var pendingTasks: [BackgroundTask] = []
         // True from a result that left tasks running until the CLI moves again or a
         // prompt is sent into the open pipe. This is what holds the input open.
         var waitingOnTasks = false

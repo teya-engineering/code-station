@@ -316,6 +316,8 @@ struct AppSidebar: View {
                 ? "question · \(question.title.lowercased())"
                 : "permission · \(question.toolName.lowercased())"
         case .running:
+            let tasks = runner.backgroundTasks(session.id)
+            if !tasks.isEmpty { return "waiting for " + BackgroundTaskPhrase.of(tasks) }
             return session.summary.lastTool ?? "running"
         case .finished:
             let files = session.summary.added + session.summary.removed
@@ -542,6 +544,7 @@ struct AppSidebar: View {
                                 SessionCard(session: session,
                                             selected: selected,
                                             busy: busy,
+                                            waiting: runner.state(session.id) == .waiting,
                                             needsInput: runner.question(session.id) != nil,
                                             finished: finished,
                                             activity: activitySummary(session, project: lead,
@@ -657,6 +660,7 @@ struct AppSidebar: View {
                             SessionCard(session: session,
                                         selected: selected,
                                         busy: busy,
+                                        waiting: runner.state(session.id) == .waiting,
                                         needsInput: runner.question(session.id) != nil,
                                         finished: finished,
                                         activity: activitySummary(session, project: project,
@@ -1010,6 +1014,8 @@ struct AppSidebar: View {
     // else reads from the saved summary, so the rail never observes transcript writes.
     private func activitySummary(_ session: ChatSession, project: Project,
                                  busy: Bool, finished: Bool) -> String? {
+        let tasks = runner.backgroundTasks(session.id)
+        if !tasks.isEmpty { return "waiting for " + BackgroundTaskPhrase.of(tasks) }
         if busy, let running = runner.runningTool(session.id) {
             let root = folder(session, project: project)
             return ToolPresentationCache.presentation(for: running, projectPath: root).label
@@ -1700,6 +1706,7 @@ private struct SessionCard: View {
     let session: ChatSession
     let selected: Bool
     let busy: Bool
+    let waiting: Bool
     let needsInput: Bool
     let finished: Bool
     let activity: String?
@@ -1720,7 +1727,7 @@ private struct SessionCard: View {
     @FocusState private var focused: Bool
 
     private var tone: SessionTone {
-        SessionTone(busy: busy, needsInput: needsInput, finished: finished)
+        SessionTone(busy: busy, needsInput: needsInput, finished: finished, waiting: waiting)
     }
 
     var body: some View {

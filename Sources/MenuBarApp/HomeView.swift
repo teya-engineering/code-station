@@ -219,6 +219,7 @@ struct HomeView: View {
 
     private func describe(_ session: ChatSession, busy: Bool,
                           permission: PermissionRequest?, finished: Bool) -> HomeLive {
+        let waiting = runner.state(session.id) == .waiting
         let workspace = session.workspaceID.flatMap(store.workspace)
         let project = store.project(session.projectID)
         let name = workspace?.name ?? project?.name ?? "Unknown project"
@@ -227,18 +228,22 @@ struct HomeView: View {
             session: session,
             containerName: name,
             tint: workspace == nil ? Theme.projectTint(for: name) : Theme.workspaceTint,
-            tone: SessionTone(busy: busy, needsInput: permission != nil, finished: finished),
+            tone: SessionTone(busy: busy, needsInput: permission != nil, finished: finished,
+                              waiting: waiting),
             activity: SessionActivity.line(
                 permission: permission,
                 runningTool: busy ? runner.runningTool(session.id) : nil,
                 root: store.workingDirectory(for: session) ?? "",
                 lastTool: session.summary.lastTool,
-                finished: finished),
+                finished: finished,
+                backgroundTasks: runner.backgroundTasks(session.id)),
             location: location(session, checkouts: checkouts),
             // Nothing reports how far through a turn is, so how full the context window
             // has become is the honest stand-in: it is the one number that only ever grows
-            // while a turn runs.
-            progress: busy ? (session.usage?.contextFraction(for: session.agent) ?? 0.05) : nil,
+            // while a turn runs. A turn parked on a task is not filling it any more, and a
+            // bar creeping along would be claiming work that has stopped.
+            progress: busy && !waiting
+                ? (session.usage?.contextFraction(for: session.agent) ?? 0.05) : nil,
             permission: permission)
     }
 

@@ -6,13 +6,18 @@ import SwiftUI
 
 // MARK: - State
 
-// What a session is doing, as the one word and colour the whole app agrees on.
+// What a session is doing, as the one word and colour the whole app agrees on. Waiting is
+// its own state rather than a kind of running: the turn is alive and will pick itself up,
+// but nothing is being worked on, and a row that says RUNNING for an hour of that is the
+// row that sends someone looking for a hang.
 enum SessionTone {
-    case running, needsYou, idle
+    case running, waiting, needsYou, idle
 
-    init(busy: Bool, needsInput: Bool = false, finished: Bool = false) {
+    init(busy: Bool, needsInput: Bool = false, finished: Bool = false, waiting: Bool = false) {
         if needsInput || finished {
             self = .needsYou
+        } else if waiting {
+            self = .waiting
         } else if busy {
             self = .running
         } else {
@@ -23,14 +28,17 @@ enum SessionTone {
     var word: String {
         switch self {
         case .running: "RUNNING"
+        case .waiting: "WAITING"
         case .needsYou: "NEEDS YOU"
         case .idle: "IDLE"
         }
     }
 
+    // Waiting shares the live colour with running and is told apart by its light, which
+    // does not breathe. Colour says the session is alive; the pulse says it is moving.
     var colour: Color {
         switch self {
-        case .running: Theme.dotOn
+        case .running, .waiting: Theme.dotOn
         case .needsYou: Theme.attention
         case .idle: Color.secondary
         }
@@ -41,6 +49,7 @@ enum SessionTone {
     var ring: Color {
         switch self {
         case .running: Theme.dotOn.opacity(0.45)
+        case .waiting: Theme.dotOn.opacity(0.3)
         case .needsYou: Theme.attention.opacity(0.5)
         case .idle: Theme.border
         }
