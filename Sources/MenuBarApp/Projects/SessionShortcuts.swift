@@ -35,6 +35,7 @@ struct SessionShortcutChips: View {
             }
             .scrollIndicators(.hidden)
             .defaultScrollAnchor(.trailing)
+            .scrollClipDisabled()
 
             // Outside the scroll: it makes something new rather than being one of the
             // saved commands, and it cannot be the control that scrolls out of reach.
@@ -169,6 +170,7 @@ private struct ShortcutChip: View {
     let toggle: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var hovering = false
 
     var body: some View {
         Button(action: toggle) {
@@ -187,11 +189,16 @@ private struct ShortcutChip: View {
             }
             .padding(.horizontal, 9)
             .frame(height: 22)
-            .background(RoundedRectangle(cornerRadius: 7).fill(Theme.card))
+            .background(RoundedRectangle(cornerRadius: 7).fill(backgroundColour))
             .overlay(RoundedRectangle(cornerRadius: 7).stroke(borderColour))
+            .shadow(color: emphasisColour.opacity(hovering ? 0.32 : 0),
+                    radius: hovering ? 6 : 0)
+            .scaleEffect(hovering && !reduceMotion ? 1.04 : 1)
             .contentShape(RoundedRectangle(cornerRadius: 7))
         }
         .buttonStyle(.plain)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: hovering)
+        .onHover { hovering = $0 }
         .accessibilityLabel(state.isActive ? "Stop \(shortcut.name)" : "Run \(shortcut.name)")
         .appTooltip { Tooltip(title: tooltip, subtitle: shortcut.command) }
     }
@@ -230,9 +237,18 @@ private struct ShortcutChip: View {
     }
 
     private var borderColour: Color {
-        if state.isFailure { return Theme.deletion.opacity(0.55) }
+        if hovering { return emphasisColour.opacity(0.75) }
+        if state.isFailure { return emphasisColour.opacity(0.55) }
         if open || state.isActive { return Theme.accent.opacity(0.55) }
         return Theme.border
+    }
+
+    private var backgroundColour: Color {
+        hovering ? emphasisColour.opacity(0.1) : Theme.card
+    }
+
+    private var emphasisColour: Color {
+        state.isFailure ? Theme.deletion : Theme.accent
     }
 }
 
