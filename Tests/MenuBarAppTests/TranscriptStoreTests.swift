@@ -108,6 +108,9 @@ struct TranscriptStoreTests {
 
         let second = store.newSession(in: project.id)
         store.selection = .session(second.id)
+        // Closing a session does not stop to write it, so the messages go once the write
+        // they owe has landed rather than inside the click that closed them.
+        #expect(store.save())
 
         #expect(!store.isTranscriptLoaded(first.id))
         #expect(store.session(first.id)?.messages.isEmpty == true)
@@ -141,17 +144,43 @@ struct TranscriptStoreTests {
     }
 
     // Whatever streamed in last has to reach the disk before the messages are dropped,
-    // debounce or no debounce.
-    @Test func writesWhatIsPendingBeforeDroppingIt() {
+    // debounce or no debounce. Encoding a conversation is too much to put inside the
+    // click that closed it, so the messages wait in memory for the write instead.
+    @Test func keepsWhatIsPendingUntilItHasBeenWritten() {
         let store = makeStore()
-        let project = project(in: store)
-        let session = store.newSession(in: project.id)
+        let session = store.newSession(in: project(in: store).id)
         store.append(ChatMessage(role: .assistant, text: "half a reply"), to: session.id)
 
-        store.selection = .session(store.newSession(in: project.id).id)
+        store.selectHome()
+        #expect(store.isTranscriptLoaded(session.id))
+
+        #expect(store.save())
 
         let written = try? String(contentsOf: transcriptFile(store, session.id), encoding: .utf8)
         #expect(written?.contains("half a reply") == true)
+        #expect(!store.isTranscriptLoaded(session.id))
+    }
+
+    // Opening a session reads its conversation off the main actor, so the click that
+    // opened it returns before the messages are there.
+    @Test func readsAnOpenedConversationWithoutBlockingTheClick() async {
+        let store = makeStore()
+        let project = project(in: store)
+        let session = store.newSession(in: project.id)
+        store.append(ChatMessage(role: .user, text: "hello there"), to: session.id)
+        store.selection = .session(store.newSession(in: project.id).id)
+        #expect(store.save())
+        #expect(!store.isTranscriptLoaded(session.id))
+
+        store.selection = .session(session.id)
+
+        #expect(store.isTranscriptLoading(session.id))
+        #expect(store.session(session.id)?.messages.isEmpty == true)
+
+        await store.transcriptReady(session.id)
+
+        #expect(!store.isTranscriptLoading(session.id))
+        #expect(store.session(session.id)?.messages.first?.text == "hello there")
     }
 
     // The sidebar draws every session, including the ones whose conversation is not in
@@ -165,12 +194,35 @@ struct TranscriptStoreTests {
                      to: session.id)
 
         store.selection = .session(store.newSession(in: project.id).id)
+        #expect(store.save())
 
         let summary = store.session(session.id)?.summary
         #expect(summary?.added == 1)
         #expect(summary?.removed == 1)
         #expect(summary?.lastTool == "Edit · /tmp/x.swift")
         #expect(store.session(session.id)?.lastActivity == sent)
+    }
+
+    // A closed session is usually opened again, and building the diff of every edit in it
+    // is the expensive half of drawing one. What was built to draw it stays behind.
+    @Test func keepsToolPresentationsAfterTheConversationGoes() {
+        let store = makeStore()
+        let project = project(in: store)
+        let session = store.newSession(in: project.id)
+        let callID = "kept-\(UUID().uuidString)"
+        store.append(ChatMessage(role: .assistant, tools: [edit(id: callID)]), to: session.id)
+
+        store.selection = .session(store.newSession(in: project.id).id)
+        #expect(store.save())
+        #expect(!store.isTranscriptLoaded(session.id))
+
+        // The same call id carrying nothing: a rebuilt presentation would have no file to
+        // name, a kept one still says what the call did.
+        let again = ToolPresentationCache.presentation(
+            for: ToolUse(id: callID, name: "Edit", input: "{}", result: "ok"),
+            projectPath: project.path)
+        #expect(again.argument == "/tmp/x.swift")
+        #expect(again.added == 1)
     }
 
     @Test func sidebarCopyTracksMetadataWithoutCarryingTheTranscript() throws {

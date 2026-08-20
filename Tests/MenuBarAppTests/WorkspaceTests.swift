@@ -45,6 +45,8 @@ struct WorkspaceTests {
         store.append(ChatMessage(role: .user, text: "hello"), to: session.id)
 
         store.selectWorkspace(workspace.id)
+        // The messages go once the write they owe lands, not inside the click.
+        #expect(store.save())
 
         #expect(store.selection == .workspace(workspace.id))
         #expect(!store.isTranscriptLoaded(session.id))

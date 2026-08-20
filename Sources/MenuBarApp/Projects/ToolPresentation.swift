@@ -161,37 +161,84 @@ struct ToolPresentation: Sendable {
 // The transcript and the sidebar both redraw on every streamed token, while summaries
 // are derived on the persistence queue. Inputs are immutable once the call exists, so
 // one locked cache avoids parsing the same JSON and diff on either path.
+//
+// Entries outlive the conversation they were built from. A call's id is unique and its
+// input never changes, so a kept entry can never be the wrong answer, and reopening a
+// session is common enough that rebuilding every diff again is the expensive half of
+// drawing one. What bounds the cache is its own size rather than what is on screen.
 enum ToolPresentationCache {
+    // An edit's entry carries the lines it changed, so lines are what the cache is
+    // measured in. Enough for several long conversations at once, and far short of what
+    // holding every call the app has ever drawn would cost.
+    static let lineBudget = 200_000
+
     private static let storage = Storage()
 
     static func presentation(for tool: ToolUse, projectPath: String) -> ToolPresentation {
         storage.presentation(for: tool, projectPath: projectPath)
     }
 
-    // Dropped when the conversation they were built from leaves memory. An entry for an
-    // edit holds the lines it changed, so keeping them for every call the app has ever
-    // drawn would undo the point of letting the conversation go.
+    // For calls that will never be drawn again: a deleted session, or turns a checkpoint
+    // has wound back. Everything else is left to the budget.
     static func forget(_ toolIDs: some Sequence<String>) {
         storage.forget(toolIDs)
     }
 
     private final class Storage: @unchecked Sendable {
+        private struct Entry {
+            let presentation: ToolPresentation
+            let lines: Int
+            var lastUsed: Int
+        }
+
         private let lock = NSLock()
-        private var values: [String: ToolPresentation] = [:]
+        private var values: [String: Entry] = [:]
+        private var lines = 0
+        private var clock = 0
 
         func presentation(for tool: ToolUse, projectPath: String) -> ToolPresentation {
-            if let cached = withLock({ values[tool.id] }) { return cached }
+            if let cached = withLock({ used(tool.id) }) { return cached }
             let fresh = ToolPresentation(tool: tool, projectPath: projectPath)
             return withLock {
-                if let cached = values[tool.id] { return cached }
-                values[tool.id] = fresh
+                if let cached = used(tool.id) { return cached }
+                clock += 1
+                let entry = Entry(presentation: fresh,
+                                  lines: 1 + fresh.diff.count,
+                                  lastUsed: clock)
+                values[tool.id] = entry
+                lines += entry.lines
+                trim()
                 return fresh
             }
         }
 
         func forget(_ toolIDs: some Sequence<String>) {
             withLock {
-                for id in toolIDs { values.removeValue(forKey: id) }
+                for id in toolIDs { drop(id) }
+            }
+        }
+
+        // Called holding the lock.
+        private func used(_ id: String) -> ToolPresentation? {
+            guard let entry = values[id] else { return nil }
+            clock += 1
+            values[id]?.lastUsed = clock
+            return entry.presentation
+        }
+
+        private func drop(_ id: String) {
+            guard let entry = values.removeValue(forKey: id) else { return }
+            lines -= entry.lines
+        }
+
+        // Over budget, the calls nobody has looked at for longest go first. A whole
+        // conversation is usually drawn in one go, so this drops the sessions that have
+        // been closed longest rather than picking rows out of the one on screen.
+        private func trim() {
+            guard lines > ToolPresentationCache.lineBudget else { return }
+            for id in values.sorted(by: { $0.value.lastUsed < $1.value.lastUsed }).map(\.key) {
+                drop(id)
+                if lines <= ToolPresentationCache.lineBudget { return }
             }
         }
 

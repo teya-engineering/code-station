@@ -235,6 +235,8 @@ struct SessionView: View {
                 sampleMissingFolders()
                 refreshStats(workingDirectories, reusingRecent: true)
                 runner.refreshContext(sessionID, store: store)
+                // Scanning a conversation means having it, and it is still being read in.
+                await store.transcriptReady(sessionID)
                 store.findPullRequest(in: sessionID)
             }
             // These folders only go missing while another program has the keyboard, so
@@ -744,6 +746,11 @@ struct SessionView: View {
             .task(id: sessionID) {
                 transcriptWindow.reset()
                 transcriptPinnedToBottom = true
+                // The conversation is read off the main actor, so the pane is on screen
+                // before the messages are. Waiting here is what keeps that off screen:
+                // it fades in once, already full and already at its end, rather than
+                // arriving empty and filling in.
+                await store.transcriptReady(sessionID)
                 await Task.yield()
                 proxy.scrollTo(bottomAnchor, anchor: .bottom)
                 withAnimation(reduceMotion ? nil : .easeOut(duration: 0.16)) { opened = true }
@@ -777,7 +784,9 @@ struct SessionView: View {
                                    state: SessionState, projectPath: String,
                                    loadEarlier: @escaping () -> Void) -> some View {
         VStack(alignment: .leading, spacing: 18) {
-            if session.messages.isEmpty {
+            // Only for a session that has nothing to say yet, never for one whose
+            // conversation is still being read in.
+            if session.messages.isEmpty, !store.isTranscriptLoading(sessionID) {
                 Text("Ask for a change. \(session.agent.title) runs in the project folder, so what it edits is your working tree.")
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)

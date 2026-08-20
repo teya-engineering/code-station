@@ -78,6 +78,12 @@ final class ProjectStore {
     enum TranscriptHold: Hashable { case open, running, remote }
 
     private var holds: [UUID: Set<TranscriptHold>] = [:]
+    // Conversations being read in. One read at a time per session, and cancelled if the
+    // hold that asked for it is given back before it lands.
+    private var transcriptLoads: [UUID: Task<Void, Never>] = [:]
+    // Conversations nothing holds any more that still owe a write. They go once the
+    // bytes are on disk.
+    private var evictWhenWritten: Set<UUID> = []
 
     private struct Persisted: Codable {
         var projects: [Project]
@@ -639,10 +645,11 @@ final class ProjectStore {
 
     // Sessions that opened a pull request before the app watched for them, and sessions
     // resumed from a transcript the app did not see arrive. Run when a session is opened,
-    // so the strip is right whatever the conversation has been through.
+    // so the strip is right whatever the conversation has been through. Reads what is in
+    // memory rather than fetching it: the caller waits for the conversation it opened.
     func findPullRequest(in sessionID: UUID) {
-        guard let i = index(sessionID), sessions[i].pullRequest == nil else { return }
-        loadTranscript(i)
+        guard let i = index(sessionID), sessions[i].pullRequest == nil,
+              sessions[i].transcriptLoaded else { return }
         guard let found = PullRequestScanner.find(in: sessions[i]) else { return }
         sessions[i].pullRequest = found
         saveIndex()
@@ -774,6 +781,9 @@ final class ProjectStore {
     private func clearSessionMemory(_ sessionID: UUID) {
         finished.remove(sessionID)
         holds[sessionID] = nil
+        transcriptLoads[sessionID]?.cancel()
+        transcriptLoads[sessionID] = nil
+        evictWhenWritten.remove(sessionID)
         dirtyTranscripts.remove(sessionID)
         transcriptRevisions[sessionID] = nil
         transcriptLoadErrors[sessionID] = nil
@@ -800,28 +810,48 @@ final class ProjectStore {
     // Says this conversation is needed and reads it in if it is not already there. Every
     // hold has to be given back, but the same reason twice is one hold: a turn that
     // starts while the session is already running does not add a second.
+    //
+    // Opening a session is the one hold that can wait a moment for its messages, so it
+    // takes them off the main actor: a long conversation is tens of milliseconds of
+    // decoding, and paying that inside the click is what makes the click feel slow. A
+    // turn and the remote both write into the conversation as soon as they have it, so
+    // they read it in on the spot.
     func hold(_ sessionID: UUID, for reason: TranscriptHold) {
         guard let i = index(sessionID) else { return }
         if reason == .remote { finished.remove(sessionID) }
         holds[sessionID, default: []].insert(reason)
-        loadTranscript(i)
+        evictWhenWritten.remove(sessionID)
+        if reason == .open {
+            startTranscriptLoad(sessionID)
+        } else {
+            loadTranscript(i)
+        }
     }
 
     func release(_ sessionID: UUID, for reason: TranscriptHold) {
         holds[sessionID]?.remove(reason)
         if holds[sessionID]?.isEmpty ?? false { holds[sessionID] = nil }
-        guard holds[sessionID] == nil, let i = index(sessionID),
-              sessions[i].transcriptLoaded else { return }
-        // Nothing may be dropped that is not on disk yet: the debounced write may still
-        // be waiting on a turn that has just ended.
+        guard holds[sessionID] == nil else { return }
+        // A read that nothing is waiting for any more has nowhere to land.
+        transcriptLoads[sessionID]?.cancel()
+        transcriptLoads[sessionID] = nil
+        guard let i = index(sessionID), sessions[i].transcriptLoaded else { return }
+        // Nothing may be dropped that is not on disk yet, and waiting here for the write
+        // would put encoding a whole conversation inside the click that closed it. The
+        // messages stay until the write that is already owed lands.
         if dirtyTranscripts.contains(sessionID) {
-            save()
-            // A failed write leaves the only copy in memory.
-            guard !dirtyTranscripts.contains(sessionID) else { return }
+            evictWhenWritten.insert(sessionID)
+            save(waiting: false)
+            return
         }
-        // The presentations were built from calls that are about to go, and the cache
-        // has no other reason to hold on to them.
-        ToolPresentationCache.forget(sessions[i].messages.flatMap(\.tools).map(\.id))
+        evict(sessionID, at: i)
+    }
+
+    // Drops the messages of a session nothing is holding. Their presentations are left in
+    // the cache: they are keyed by call id and a call never changes, so the same session
+    // opened again reads them back instead of building every diff a second time.
+    private func evict(_ sessionID: UUID, at i: Int) {
+        evictWhenWritten.remove(sessionID)
         sessions[i].messages = []
         sessions[i].transcriptLoaded = false
     }
@@ -832,33 +862,76 @@ final class ProjectStore {
         index(sessionID).map { sessions[$0].transcriptLoaded } ?? false
     }
 
+    // Whether the conversation is on its way in. What is on screen reads this to tell an
+    // empty conversation apart from one that has not arrived yet.
+    func isTranscriptLoading(_ sessionID: UUID) -> Bool {
+        transcriptLoads[sessionID] != nil
+    }
+
+    // Waits for a conversation being read in, and returns at once if there is none.
+    func transcriptReady(_ sessionID: UUID) async {
+        await transcriptLoads[sessionID]?.value
+    }
+
+    // Reads the conversation on the writer queue, which keeps it behind any write of the
+    // same file, and hands the messages back on the main actor.
+    private func startTranscriptLoad(_ sessionID: UUID) {
+        guard let i = index(sessionID), !sessions[i].transcriptLoaded,
+              transcriptLoads[sessionID] == nil else { return }
+        let url = transcriptURL(sessionID)
+        let files = files
+        transcriptLoads[sessionID] = Task { [weak self] in
+            let outcome = await withCheckedContinuation { continuation in
+                Self.writer.async {
+                    continuation.resume(returning: Self.readTranscript(at: url, files: files))
+                }
+            }
+            guard !Task.isCancelled else { return }
+            self?.finishTranscriptLoad(sessionID, outcome: outcome)
+        }
+    }
+
+    private func finishTranscriptLoad(_ sessionID: UUID, outcome: TranscriptRead) {
+        transcriptLoads[sessionID] = nil
+        // Something needing the messages sooner will have read them in on the spot, and
+        // whatever it found is the answer rather than this one.
+        guard holds[sessionID] != nil, let i = index(sessionID),
+              !sessions[i].transcriptLoaded else { return }
+        transcriptLoadErrors[sessionID] = outcome.error
+        sessions[i].messages = outcome.messages
+        sessions[i].transcriptLoaded = true
+    }
+
     // A transcript nobody asked for still has to be read before it can be changed, so
     // every mutation below goes through here first. A missing file is an empty
     // conversation. A file that cannot be read stays protected from later writes.
     private func loadTranscript(_ i: Int) {
         guard !sessions[i].transcriptLoaded else { return }
-        sessions[i].messages = readTranscript(sessions[i].id)
+        let sessionID = sessions[i].id
+        transcriptLoads[sessionID]?.cancel()
+        transcriptLoads[sessionID] = nil
+        let outcome = Self.readTranscript(at: transcriptURL(sessionID), files: files)
+        transcriptLoadErrors[sessionID] = outcome.error
+        sessions[i].messages = outcome.messages
         sessions[i].transcriptLoaded = true
     }
 
-    private func readTranscript(_ sessionID: UUID) -> [ChatMessage] {
-        let url = transcriptURL(sessionID)
+    private struct TranscriptRead: @unchecked Sendable {
+        var messages: [ChatMessage] = []
+        var error: String?
+    }
+
+    private nonisolated static func readTranscript(at url: URL,
+                                                   files: PersistentFileClient) -> TranscriptRead {
         do {
-            guard let data = try files.readIfPresent(url) else {
-                transcriptLoadErrors[sessionID] = nil
-                return []
-            }
+            guard let data = try files.readIfPresent(url) else { return TranscriptRead() }
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
-            let messages = try decoder.decode([ChatMessage].self, from: data)
-            transcriptLoadErrors[sessionID] = nil
-            return messages
+            return TranscriptRead(messages: try decoder.decode([ChatMessage].self, from: data))
         } catch let error as DecodingError {
-            transcriptLoadErrors[sessionID] = PersistentFile.decodeMessage(for: url, error: error)
-            return []
+            return TranscriptRead(error: PersistentFile.decodeMessage(for: url, error: error))
         } catch {
-            transcriptLoadErrors[sessionID] = PersistentFile.loadMessage(for: url, error: error)
-            return []
+            return TranscriptRead(error: PersistentFile.loadMessage(for: url, error: error))
         }
     }
 
@@ -1275,11 +1348,24 @@ final class ProjectStore {
         if completion.indexSucceeded, completion.indexRevision == indexRevision {
             indexDirty = false
         }
+        // A closed conversation whose write has landed. One that failed to write stays in
+        // memory, where it is the only copy there is.
+        for sessionID in evictWhenWritten where !dirtyTranscripts.contains(sessionID) {
+            guard let i = index(sessionID), sessions[i].transcriptLoaded else {
+                evictWhenWritten.remove(sessionID)
+                continue
+            }
+            evict(sessionID, at: i)
+        }
         if asynchronous {
             asynchronousWriteInFlight = false
             if saveAfterCurrentWrite {
                 saveAfterCurrentWrite = false
-                if !dirtyTranscripts.isEmpty || indexDirty { scheduleSave() }
+                if !dirtyTranscripts.isEmpty || indexDirty {
+                    // Messages waiting on a write are held in memory until it lands, so
+                    // the one they wait for is not left sitting behind the debounce.
+                    if evictWhenWritten.isEmpty { scheduleSave() } else { save(waiting: false) }
+                }
             }
         }
         guard completion.generation >= lastCompletedGeneration else { return }
