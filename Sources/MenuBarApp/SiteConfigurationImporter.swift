@@ -6,6 +6,9 @@ struct SiteConfigurationSelection: Sendable {
     let defaults: SiteDefaults
 
     var summary: String { defaults.summary }
+
+    // What the file offers, one pickable part at a time.
+    var plan: SiteConfigurationPlan { SiteConfigurationPlan(defaults) }
 }
 
 enum SiteConfigurationImporter {
@@ -106,8 +109,26 @@ enum SiteConfigurationImporter {
 
     @discardableResult
     static func install(_ selection: SiteConfigurationSelection) throws -> SiteDefaults {
+        try write(selection.data)
+    }
+
+    // Keeping only some of a file rewrites it, so what lands on disk is the setup the app
+    // is actually running rather than a document with parts of it quietly ignored. Taking
+    // everything writes the file untouched, which leaves a full import byte for byte the
+    // file the team published.
+    @discardableResult
+    static func install(_ selection: SiteConfigurationSelection,
+                        keeping chosen: Set<SiteConfigurationItem>) throws -> SiteDefaults {
+        guard !chosen.isEmpty else {
+            throw ImportError("Choose at least one part of the configuration to use.")
+        }
+        guard chosen != selection.plan.everything else { return try install(selection) }
+        return try write(SiteConfigurationPlan.filter(selection.data, keeping: chosen))
+    }
+
+    private static func write(_ data: Data) throws -> SiteDefaults {
         do {
-            try PersistentFile.write(selection.data, to: destination)
+            try PersistentFile.write(data, to: destination)
         } catch {
             throw ImportError("The configuration could not be saved: \(error.localizedDescription)")
         }

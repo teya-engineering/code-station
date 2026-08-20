@@ -12,6 +12,8 @@ struct SiteConfigurationSection: View {
 
     @State private var loaded = SiteDefaults.current
     @State private var pending: SiteConfigurationSelection?
+    @State private var chosen: Set<SiteConfigurationItem> = []
+    @State private var reviewing = false
     @State private var repositoryURL = ""
     @State private var loading = false
     @State private var failure: String?
@@ -81,26 +83,103 @@ struct SiteConfigurationSection: View {
     // Loading only reads the file. Nothing is written until this is confirmed, so a file
     // that turns out to be the wrong one costs a look rather than the setup in place.
     private func preview(_ selection: SiteConfigurationSelection) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(selection.sourceName)
-                    .font(.system(size: 12.5, weight: .semibold))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Text(selection.summary)
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+        let plan = selection.plan
+        return VStack(alignment: .leading, spacing: 11) {
+            HStack(alignment: .top, spacing: 10) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(selection.sourceName)
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Text(reviewing ? chosenCount(plan) : selection.summary)
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+                if !plan.isEmpty {
+                    ActionButton(title: reviewing ? "Hide" : "Review", tone: .outlined) {
+                        reviewing.toggle()
+                    }
+                }
+                ActionButton(title: hasConfiguration ? "Replace" : "Use") {
+                    install(selection)
+                }
+                .disabled(chosen.isEmpty)
+                .opacity(chosen.isEmpty ? 0.5 : 1)
             }
-            Spacer(minLength: 0)
-            ActionButton(title: hasConfiguration ? "Replace" : "Use") {
-                install(selection)
-            }
+            if reviewing { review(plan) }
         }
         .padding(11)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 9).fill(Theme.addition.opacity(0.08)))
         .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.addition.opacity(0.28)))
+    }
+
+    // A file is one document, but its parts are unrelated: a team's Grafana instances can
+    // be worth taking on a machine where the starter requests would bury the ones already
+    // saved. Everything starts ticked, so reviewing costs nothing to whoever wants it all.
+    private func review(_ plan: SiteConfigurationPlan) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Divider().overlay(Theme.border)
+            ForEach(plan.groups) { group in
+                VStack(alignment: .leading, spacing: 7) {
+                    HStack(spacing: 8) {
+                        Text(group.title.uppercased())
+                            .font(.system(size: 10, weight: .semibold))
+                            .kerning(0.6)
+                            .foregroundStyle(.secondary)
+                        Spacer(minLength: 0)
+                        Button(allChosen(in: group) ? "Clear" : "All") {
+                            toggle(group, on: !allChosen(in: group))
+                        }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Theme.accent)
+                    }
+                    ForEach(group.items) { item in
+                        Toggle(isOn: binding(for: item.id)) {
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(item.title)
+                                    .font(.system(size: 12, weight: .medium))
+                                Text(item.detail)
+                                    .font(.mono(10.5))
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .toggleStyle(.appCheckbox)
+                    }
+                }
+            }
+        }
+    }
+
+    private func chosenCount(_ plan: SiteConfigurationPlan) -> String {
+        let total = plan.items.count
+        let word = "part\(total == 1 ? "" : "s")"
+        return chosen.count == total
+            ? "All \(total) \(word) will be used."
+            : "\(chosen.count) of \(total) \(word) will be used."
+    }
+
+    private func allChosen(in group: SiteConfigurationPlan.Group) -> Bool {
+        group.items.allSatisfy { chosen.contains($0.id) }
+    }
+
+    private func toggle(_ group: SiteConfigurationPlan.Group, on: Bool) {
+        for item in group.items {
+            if on { chosen.insert(item.id) } else { chosen.remove(item.id) }
+        }
+    }
+
+    private func binding(for item: SiteConfigurationItem) -> Binding<Bool> {
+        Binding(get: { chosen.contains(item) },
+                set: { keep in
+                    if keep { chosen.insert(item) } else { chosen.remove(item) }
+                })
     }
 
     private func warning(_ message: String, tone: Color) -> some View {
@@ -140,7 +219,7 @@ struct SiteConfigurationSection: View {
         pending = nil
         Task {
             do {
-                pending = try await SiteConfigurationImporter.load(gitHubRepository: repository)
+                offer(try await SiteConfigurationImporter.load(gitHubRepository: repository))
             } catch {
                 failure = error.localizedDescription
             }
@@ -150,7 +229,7 @@ struct SiteConfigurationSection: View {
 
     private func record(_ load: () throws -> SiteConfigurationSelection) {
         do {
-            pending = try load()
+            offer(try load())
             failure = nil
         } catch {
             pending = nil
@@ -158,16 +237,24 @@ struct SiteConfigurationSection: View {
         }
     }
 
+    private func offer(_ selection: SiteConfigurationSelection) {
+        pending = selection
+        chosen = selection.plan.everything
+        reviewing = false
+    }
+
     // The stores hold their own copy of what the file said, so they are handed the new
     // one rather than left showing the setup that has just been replaced.
     private func install(_ selection: SiteConfigurationSelection) {
         do {
-            let defaults = try SiteConfigurationImporter.install(selection)
+            let defaults = try SiteConfigurationImporter.install(selection, keeping: chosen)
             dispatch.applySiteDefaults(defaults)
             dispatchAuth.applySiteDefaults(defaults)
             shortcuts.applySiteDefaults(defaults)
             loaded = defaults
             pending = nil
+            chosen = []
+            reviewing = false
             repositoryURL = ""
             failure = nil
         } catch {

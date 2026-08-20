@@ -81,6 +81,8 @@ The first-launch wizard explains what the site configuration controls. It offers
 
 Teya users can enter [github.com/example/site-settings](https://github.com/example/site-settings) to load the shared Teya configuration.
 
+Settings offers the same two sources at any time, for an install that finished onboarding before its team had a file, or before the file grew a section. Loading one only reads it: **Review** lists what it holds - the sign-in provider, each starter request, each Grafana preset, the skills marketplace, each shortcut - with everything ticked, so you can clear the parts you do not want before anything is written.
+
 Code Station validates an imported file and copies it to:
 
 ```text
