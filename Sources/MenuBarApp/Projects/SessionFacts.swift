@@ -320,12 +320,14 @@ struct ContextHairline: View {
             let clamped = min(1, max(0, fraction))
             let width = max(2, geometry.size.width * clamped)
             ZStack(alignment: .bottomLeading) {
-                Rectangle()
-                    .fill(LinearGradient(
+                LinearGradient(
                         colors: [Theme.dotOn, Theme.attention, Theme.deletion],
                         startPoint: .leading,
-                        endPoint: .trailing))
-                    .frame(width: width, height: 2)
+                        endPoint: .trailing)
+                    .frame(width: geometry.size.width, height: 2)
+                    .mask(alignment: .leading) {
+                        Rectangle().frame(width: width, height: 2)
+                    }
 
                 if Self.showsFuse(at: fraction) {
                     if reduceMotion {
