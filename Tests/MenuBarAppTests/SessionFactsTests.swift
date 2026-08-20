@@ -3,30 +3,25 @@ import Testing
 @testable import MenuBarApp
 
 // The chip is the only thing left of these facts while it is shut, so what it says has to
-// be the most identifying thing the session has.
+// be the one reading that is worth watching rather than looking up.
 @MainActor
 struct SessionFactsTests {
-    @Test func namesTheBranchAndThePullRequest() {
+    @Test func readsOutTheWindow() {
         let facts = SessionFacts(branch: "lantern/billing-split",
                                  pullRequest: PullRequest(number: 482,
-                                                          url: "https://github.com/a/b/pull/482"))
+                                                          url: "https://github.com/a/b/pull/482"),
+                                 model: "Opus",
+                                 context: 0.38)
 
-        #expect(facts.summary == "billing-split · #482")
+        #expect(facts.summary == "38%")
     }
 
-    // A team that starts every branch with the same word would otherwise fill the chip
-    // with the part that never differs.
-    @Test func dropsTheBranchPrefix() {
-        #expect(SessionFacts(branch: "feature/teams/split-worker").summary == "split-worker")
-        #expect(SessionFacts(branch: "main").summary == "main")
-    }
-
-    // A session on the project's own checkout has no branch of its own until git answers,
-    // so the chip falls back to what it is running rather than disappearing.
-    @Test func fallsBackToTheModelThenTheWindow() {
-        #expect(SessionFacts(model: "Opus", context: 0.38).summary == "Opus")
-        #expect(SessionFacts(context: 0.38).summary == "38%")
-        #expect(SessionFacts(cost: 12.5).summary == "$12.50")
+    // A session that has not taken a turn yet has no window to read, so the chip offers
+    // the card rather than standing in for it with a fact nobody is watching.
+    @Test func offersTheCardBeforeTheFirstTurn() {
+        #expect(SessionFacts(branch: "main").summary == "Details")
+        #expect(SessionFacts(model: "Opus").summary == "Details")
+        #expect(SessionFacts(cost: 12.5).summary == "Details")
     }
 
     // Nothing to say means no chip at all, rather than an empty one.

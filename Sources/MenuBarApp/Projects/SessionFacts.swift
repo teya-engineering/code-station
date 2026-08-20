@@ -1,11 +1,12 @@
 import AppKit
 import SwiftUI
 
-// The facts a session is looked up by rather than watched: the branch it is on, the pull
-// request it opened, what it runs on and how full its window is. Spread along the status
-// strip they crowd out the two readings that are actually watched - what the session is
-// doing and what it has changed - and none of them move often enough to earn the room, so
-// they are collapsed into one chip that opens when it is asked a question.
+// What a session is besides its name: the branch it is on, the pull request it opened,
+// what it runs on and how full its window is. Spread along the status strip they crowd
+// out the two readings that are actually watched - what the session is doing and what it
+// has changed - so they are collapsed into one chip that opens when it is asked a
+// question. The chip keeps the window reading, which is the only one of them that moves
+// on its own; the rest are looked up when something needs doing about them.
 struct SessionFacts: Equatable {
     var branch: String?
     var pullRequest: PullRequest?
@@ -16,23 +17,20 @@ struct SessionFacts: Equatable {
     var context: Double?
     var agent: AgentKind = .claudeCode
 
-    // What the chip says while it is shut, in the order the facts are asked for. The
-    // branch loses its prefix: a team that starts every branch with the same word would
-    // otherwise fill the chip with the part that never differs.
+    // What the chip says while it is shut. How full the window is, since that is the one
+    // fact behind the chip that moves every turn and the only one worth a glance rather
+    // than a lookup - the branch, the pull request and the rest are asked for once and
+    // then known. Before the first turn there is no window to read, so the chip says what
+    // it is instead of what it holds.
     var summary: String? {
-        var parts: [String] = []
-        if let branchLeaf { parts.append(branchLeaf) }
-        if let pullRequest { parts.append("#\(pullRequest.number)") }
-        if !parts.isEmpty { return parts.joined(separator: " · ") }
-        if let model { return model }
         if let context { return Self.percent(context) }
-        if let cost { return Money.short(cost) }
-        return nil
+        return isEmpty ? nil : "Details"
     }
 
-    var branchLeaf: String? {
-        guard let branch, !branch.isEmpty else { return nil }
-        return branch.split(separator: "/").last.map(String.init)
+    // Nothing to open the card for.
+    var isEmpty: Bool {
+        (branch ?? "").isEmpty && pullRequest == nil && model == nil && cost == nil
+            && context == nil
     }
 
     static func percent(_ fraction: Double) -> String {
@@ -84,7 +82,9 @@ struct SessionFactsChip: View {
             Button { pinned.toggle() } label: { chip(summary) }
                 .buttonStyle(.plain)
                 .onHover { pointerOnChip = $0; pointerMoved() }
-                .accessibilityLabel("Session facts: \(summary)")
+                .accessibilityLabel(facts.context == nil
+                    ? "Session details"
+                    : "Session details, \(facts.agent == .codex ? "window" : "context") \(summary) full")
                 .overlay(alignment: .topTrailing) {
                     if isOpen { hoverCard }
                 }
@@ -110,11 +110,20 @@ struct SessionFactsChip: View {
         }
     }
 
+    // A window that is filling is the one thing on this strip worth being pulled towards,
+    // so on the chip it wears the colour it has on the card. Below that it stays as quiet
+    // as everything else on the line.
+    private var summaryTint: Color {
+        guard let context = facts.context else { return .secondary }
+        let colour = SessionFacts.contextColour(context, agent: facts.agent)
+        return colour == Theme.dotOn ? .secondary : colour
+    }
+
     private func chip(_ summary: String) -> some View {
         HStack(spacing: 6) {
             Text(summary)
                 .font(.mono(10.5, .semibold))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(summaryTint)
                 .lineLimit(1)
                 .truncationMode(.middle)
             Image(systemName: "chevron.down")
