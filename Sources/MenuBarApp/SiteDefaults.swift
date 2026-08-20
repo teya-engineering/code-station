@@ -2,8 +2,8 @@ import CryptoKit
 import Foundation
 
 // The parts of the app that belong to one organisation rather than to the app itself:
-// the identity provider its APIs sign in against, the calls worth starting from, what its
-// environments are named, its Grafana instances, the skills marketplace its agents install
+// the identity provider its APIs sign in against, the calls worth starting from, the
+// deployments it runs, its Grafana instances, the skills marketplace its agents install
 // from, and the commands worth having on hand. Keeping them in a file rather than in code
 // means each team points the same build at its own setup, and a build with no file at all
 // still runs with every one of them empty.
@@ -20,6 +20,7 @@ import Foundation
 // that is already set up.
 struct SiteDefaults: Decodable, Sendable {
     var dispatch: DispatchConfig? = nil
+    var environments: [Environment]? = nil
     var grafana: Grafana? = nil
     var skills: Skills? = nil
     var shortcuts: [Shortcut]? = nil
@@ -30,17 +31,19 @@ struct SiteDefaults: Decodable, Sendable {
     var sourceURL: URL? = nil
 
     private enum CodingKeys: String, CodingKey {
-        case dispatch, grafana, skills, shortcuts
+        case dispatch, environments, grafana, skills, shortcuts
         case legacyHTTPClient = "postman"
     }
 
     init(dispatch: DispatchConfig? = nil,
+         environments: [Environment]? = nil,
          grafana: Grafana? = nil,
          skills: Skills? = nil,
          shortcuts: [Shortcut]? = nil,
          loadFailure: String? = nil,
          sourceURL: URL? = nil) {
         self.dispatch = dispatch
+        self.environments = environments
         self.grafana = grafana
         self.skills = skills
         self.shortcuts = shortcuts
@@ -53,9 +56,34 @@ struct SiteDefaults: Decodable, Sendable {
         let dispatch = try values.decodeIfPresent(DispatchConfig.self, forKey: .dispatch)
         let legacy = try values.decodeIfPresent(DispatchConfig.self, forKey: .legacyHTTPClient)
         self.dispatch = dispatch ?? legacy
+        environments = try values.decodeIfPresent([Environment].self, forKey: .environments)
         grafana = try values.decodeIfPresent(Grafana.self, forKey: .grafana)
         skills = try values.decodeIfPresent(Skills.self, forKey: .skills)
         shortcuts = try values.decodeIfPresent([Shortcut].self, forKey: .shortcuts)
+    }
+
+    // The deployments an organisation runs. Every MCP server is tagged with one of these,
+    // and a troubleshooting session offers a server only for the environment it is tagged
+    // with, so a dev diagnosis cannot reach into production by accident.
+    struct Environment: Decodable, Sendable, Equatable, Identifiable {
+        var name: String
+        var title: String?
+        var danger: Bool?
+
+        init(name: String, title: String? = nil, danger: Bool? = nil) {
+            self.name = name
+            self.title = title
+            self.danger = danger
+        }
+
+        var id: String { name }
+
+        // What the pills show. A file that names no title reads well enough capitalised.
+        var label: String { title ?? name.capitalized }
+
+        // Whether a session here is told to keep every check read-only. Set on anything
+        // a mistake would be felt in, which is usually production but need not only be.
+        var isDangerous: Bool { danger ?? false }
     }
 
     struct DispatchConfig: Decodable, Sendable {
@@ -96,15 +124,14 @@ struct SiteDefaults: Decodable, Sendable {
 
         struct Preset: Decodable, Sendable, Equatable, Identifiable {
             var scope: String
+            // Doubles as the environment tag a server added from this preset starts with.
             var environment: String
             var url: String
-            private var serves: [String]?
 
-            init(scope: String, environment: String, url: String, serves: [String]? = nil) {
+            init(scope: String, environment: String, url: String) {
                 self.scope = scope
                 self.environment = environment
                 self.url = url
-                self.serves = serves
             }
 
             var id: String { name }
@@ -113,13 +140,6 @@ struct SiteDefaults: Decodable, Sendable {
             // and the troubleshooting prompt refer to it by name, so it has to be built
             // the same way every time.
             var name: String { "\(Grafana.namePrefix)\(scope)-\(environment)" }
-
-            // Which environment a troubleshooting session offers this instance for. An
-            // instance that lists none is offered for all of them.
-            func serves(_ environment: String) -> Bool {
-                guard let serves, !serves.isEmpty else { return true }
-                return serves.contains(environment)
-            }
         }
     }
 
@@ -303,13 +323,31 @@ extension SiteDefaults {
     // What a file turned out to hold, for the two places that offer one before and after
     // it is installed.
     var summary: String {
+        let named = environments?.count ?? 0
         let requests = dispatchRequests.count
         let presets = grafanaPresets.count
         let commands = commandShortcuts.count
         let marketplace = skills == nil ? "no skills marketplace" : "a skills marketplace"
-        return "\(requests) starter request\(requests == 1 ? "" : "s"), "
+        return "\(named) environment\(named == 1 ? "" : "s"), "
+            + "\(requests) starter request\(requests == 1 ? "" : "s"), "
             + "\(presets) Grafana preset\(presets == 1 ? "" : "s"), "
             + "\(commands) shortcut\(commands == 1 ? "" : "s"), and \(marketplace)."
+    }
+
+    // The environments to offer. A file that names none leaves the app on the two most
+    // deployments have, so there is always something to tag a server with and pick from.
+    static let ownEnvironments = [
+        Environment(name: "staging", title: "Staging"),
+        Environment(name: "production", title: "Production", danger: true),
+    ]
+
+    var deployEnvironments: [Environment] {
+        let named = (environments ?? []).filter { !$0.name.isEmpty }
+        return named.isEmpty ? Self.ownEnvironments : named
+    }
+
+    func deployEnvironment(named name: String) -> Environment? {
+        deployEnvironments.first { $0.name == name }
     }
 
     var grafanaPresets: [Grafana.Preset] { grafana?.presets ?? [] }

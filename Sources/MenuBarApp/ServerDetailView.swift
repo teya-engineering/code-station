@@ -66,6 +66,7 @@ struct ServerDetailView: View {
                             .font(.system(size: 12.5))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
+                        environmentPill(server)
                     }
                 }
                 Spacer(minLength: 12)
@@ -108,6 +109,29 @@ struct ServerDetailView: View {
         .overlay(alignment: .bottom) {
             Rectangle().fill(Theme.hairline).frame(height: 1)
         }
+    }
+
+    // Which diagnoses offer this server. It sits by the name because it decides where the
+    // server turns up rather than how it connects, and it is one click from anywhere in
+    // the page since the header does not scroll away.
+    private func environmentPill(_ server: Server) -> some View {
+        let title = ServerEnvironmentChoice.title(for: server.environmentTag)
+        return HStack(spacing: 4) {
+            Text(title).font(.mono(11))
+            Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold))
+        }
+        .foregroundStyle(.secondary)
+        .fixedSize()
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3)
+        .background(Capsule().fill(Color.black.opacity(0.05)))
+        .contentShape(Capsule())
+        .appMenu {
+            ServerEnvironmentChoice.menu(selected: server.environmentTag) { tag in
+                store.setEnvironment(tag, for: serverID)
+            }
+        }
+        .appTooltip("The environment a diagnosis offers this server for")
     }
 
     // MARK: - Credential

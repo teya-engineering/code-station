@@ -1,33 +1,49 @@
 import AppKit
 import SwiftUI
 
-enum TroubleshootEnvironment: String, CaseIterable, Identifiable {
-    case dev
-    case prod
+// One of the deployments the site file names, as a diagnosis sees it.
+struct TroubleshootEnvironment: Identifiable, Equatable, Sendable {
+    let name: String
+    let title: String
+    let isDangerous: Bool
 
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .dev: "Dev"
-        case .prod: "Prod"
-        }
+    init(name: String, title: String, isDangerous: Bool = false) {
+        self.name = name
+        self.title = title
+        self.isDangerous = isDangerous
     }
 
+    init(_ environment: SiteDefaults.Environment) {
+        self.init(name: environment.name,
+                  title: environment.label,
+                  isDangerous: environment.isDangerous)
+    }
+
+    var id: String { name }
+
+    // The prompt gets the name the deployment goes by as well as its label, since "prd"
+    // is what the agent will meet in URLs and namespaces while "Prod" is only on screen.
     var promptTitle: String {
-        switch self {
-        case .dev: "development (dev)"
-        case .prod: "production (prod)"
-        }
+        title.lowercased() == name.lowercased() ? name : "\(title) (\(name))"
     }
 
-    // A server the site file does not know about is left in, since there is nothing to
-    // say which environment it belongs to.
+    // A server tagged with an environment the site file no longer names is left in rather
+    // than hidden everywhere, the same way a server nobody has tagged is.
     func includes(_ server: Server, in defaults: SiteDefaults = .current) -> Bool {
-        guard let preset = defaults.grafanaPreset(named: server.name) else {
-            return true
-        }
-        return preset.serves(rawValue)
+        guard let tag = server.deployEnvironment else { return true }
+        guard defaults.deployEnvironment(named: tag) != nil else { return true }
+        return tag == name
+    }
+
+    static func all(in defaults: SiteDefaults = .current) -> [TroubleshootEnvironment] {
+        defaults.deployEnvironments.map(TroubleshootEnvironment.init)
+    }
+
+    // Never nil: a file that names no environment leaves the app on its own two.
+    static func first(in defaults: SiteDefaults = .current) -> TroubleshootEnvironment {
+        all(in: defaults).first ?? TroubleshootEnvironment(name: "production",
+                                                           title: "Production",
+                                                           isDangerous: true)
     }
 }
 
@@ -78,8 +94,8 @@ struct TroubleshootRequest {
             Skills to use: \(names). Load each one before the first step it covers, whatever the agent calls skills.
             """
         }
-        let productionText = environment == .prod
-            ? " Treat production as live: do not mutate data, configuration, deployments, or running services."
+        let dangerText = environment.isDangerous
+            ? " Treat this environment as live: do not mutate data, configuration, deployments, or running services."
             : ""
 
         return """
@@ -89,7 +105,7 @@ struct TroubleshootRequest {
         - \(skillText)
         - \(mcpText)
 
-        Investigate the problem and use read-only checks first. Do not change code or configuration.\(productionText) Explain the likely root cause, cite the evidence you found, and give concrete next steps. If a fix is needed, propose it and wait for a follow-up before applying it.
+        Investigate the problem and use read-only checks first. Do not change code or configuration.\(dangerText) Explain the likely root cause, cite the evidence you found, and give concrete next steps. If a fix is needed, propose it and wait for a follow-up before applying it.
         """
     }
 }
@@ -125,7 +141,7 @@ struct TroubleshootView: View {
     @State private var attachments: [Attachment] = []
     @State private var selectedProjects: Set<UUID> = []
     @State private var projectFilter = ""
-    @State private var environment = TroubleshootEnvironment.dev
+    @State private var environment = TroubleshootEnvironment.first()
     @State private var selectedSkills = Preferences.troubleshootSkills
     @State private var mcpServersEnabled = true
     @State private var agent: AgentKind?
@@ -145,7 +161,7 @@ struct TroubleshootView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     skillsBar
-                    if environment == .prod { productionNotice }
+                    if environment.isDangerous { dangerNotice }
                     problemSection
                     optionsSection
                     projectsSection
@@ -195,10 +211,12 @@ struct TroubleshootView: View {
         .headerBand()
     }
 
-    private var productionNotice: some View {
+    // Named after the environment rather than after production, since a file can mark
+    // anything a mistake would be felt in.
+    private var dangerNotice: some View {
         HStack(spacing: 9) {
             Circle().fill(Theme.deletion).frame(width: 7, height: 7)
-            Text("PRODUCTION")
+            Text(environment.title.uppercased())
                 .font(.mono(10.5, .bold))
                 .kerning(0.8)
                 .foregroundStyle(Theme.deletion)
@@ -442,7 +460,7 @@ struct TroubleshootView: View {
             VStack(alignment: .leading, spacing: 8) {
                 SectionLabel(text: "ENVIRONMENT")
                 HStack(spacing: 6) {
-                    ForEach(TroubleshootEnvironment.allCases) { option in
+                    ForEach(TroubleshootEnvironment.all()) { option in
                         ChoicePill(title: option.title, selected: environment == option) {
                             environment = option
                         }

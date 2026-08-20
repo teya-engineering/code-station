@@ -5,6 +5,7 @@ struct AddJSONServerView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var text = ""
+    @State private var environment = ""
     @State private var error: String?
 
     private static let placeholder = """
@@ -24,6 +25,15 @@ struct AddJSONServerView: View {
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+
+            VStack(alignment: .leading, spacing: 8) {
+                SectionLabel(text: "ENVIRONMENT")
+                ServerEnvironmentPills(tag: $environment)
+                Text("Which diagnoses offer these servers. JSON that names its own \"environment\" keeps it.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             SectionLabel(text: "JSON")
             ZStack(alignment: .topLeading) {
@@ -71,7 +81,7 @@ struct AddJSONServerView: View {
                 .keyboardShortcut(.cancelAction)
                 Button {
                     do {
-                        try store.importJSON(text)
+                        try store.importJSON(text, environment: environment)
                         dismiss()
                     } catch {
                         self.error = error.localizedDescription

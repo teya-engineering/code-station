@@ -118,10 +118,11 @@ A `swift run` development build has no bundle to fold a file into, so use the fi
 
 | Field | What it does |
 | --- | --- |
+| `environments` | The deployments you run, each a `name`, an optional `title` for the screen, and `danger: true` on the ones a mistake would be felt in, which are told to keep every check read-only. Every MCP server is tagged with one of these names, and a troubleshooting session offers a server only for the environment it is tagged with. A server tagged with nothing, or with a name this list does not hold, is offered in all of them. Left out, the app uses `staging` and `production`. |
 | `dispatch.oauth` | The identity provider both API environments sign in against. `grant` is `authorizationCodePKCE` or `clientCredentials`. `authURL`, `tokenURL`, `clientID`, `scope`, and `callbackURL` are the usual OAuth values. Anything you leave out keeps the app's own default. |
 | `dispatch.environments` | What `{{env}}` stands for on each side of the sheet: a `staging` and a `production` word. Left out, they are `dev` and `prd`. |
 | `dispatch.requests` | The saved requests a first run starts with, each a `name`, a `method`, and a `url`. `{{env}}` in a URL is replaced with the word above for the environment the request is sent from. |
-| `grafana.presets` | The instances offered in the Add server sheet. A preset is a `scope`, an `environment`, and a `url`. The agents know each one as `grafana-<scope>-<environment>`. `serves` lists which troubleshooting environments (`dev`, `prod`) offer it, and a preset that lists none is offered for all of them. |
+| `grafana.presets` | The instances offered in the Add server sheet. A preset is a `scope`, an `environment`, and a `url`. The agents know each one as `grafana-<scope>-<environment>`, and a server added from a preset starts tagged with its `environment`. |
 | `skills` | The marketplace the Skills screen starts with: its `name` on screen, its `marketplace` name as the agent CLIs know it, and the `repository` it is cloned from. The Skills screen can also use a Git repository or a local marketplace JSON file selected on that Mac. |
 | `shortcuts` | The command shortcuts a first run starts with, each a `name` and a `command`. They run from your home folder, since the file cannot know which projects you have added. Everyone can then add their own, including ones filed under a project, which are saved per install and never overwritten by this file. |
 

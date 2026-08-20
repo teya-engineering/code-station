@@ -76,6 +76,7 @@ struct AddServerView: View {
                 SectionLabel(text: "PREVIEW")
                 labeled("name", name)
                 labeled("url", url)
+                labeled("environment", ServerEnvironmentChoice.title(for: preset?.environment ?? ""))
             }
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -126,7 +127,7 @@ struct AddServerView: View {
 
     private func labeled(_ key: String, _ value: String) -> some View {
         HStack(alignment: .top, spacing: 10) {
-            Text(key).font(.mono(12, .semibold)).foregroundStyle(.secondary).frame(width: 40, alignment: .leading)
+            Text(key).font(.mono(12, .semibold)).foregroundStyle(.secondary).frame(width: 84, alignment: .leading)
             Text(value).font(.mono(12)).textSelection(.enabled)
         }
     }

@@ -1,4 +1,9 @@
 {
+  "environments": [
+    { "name": "dev", "title": "Dev" },
+    { "name": "prd", "title": "Prod", "danger": true },
+    { "name": "shared", "title": "Shared" }
+  ],
   "dispatch": {
     "oauth": {
       "grant": "authorizationCodePKCE",
@@ -30,20 +35,17 @@
       {
         "scope": "platform",
         "environment": "dev",
-        "url": "https://grafana.platform-dev.example.com",
-        "serves": ["dev"]
+        "url": "https://grafana.platform-dev.example.com"
       },
       {
         "scope": "platform",
         "environment": "prd",
-        "url": "https://grafana.platform-prd.example.com",
-        "serves": ["prod"]
+        "url": "https://grafana.platform-prd.example.com"
       },
       {
         "scope": "shared",
         "environment": "shared",
-        "url": "https://grafana.shared.example.com",
-        "serves": ["dev", "prod"]
+        "url": "https://grafana.shared.example.com"
       }
     ]
   },

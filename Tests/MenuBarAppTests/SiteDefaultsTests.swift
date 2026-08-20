@@ -16,6 +16,10 @@ struct SiteDefaultsTests {
     @Test func readsEverySection() throws {
         let url = try file("""
         {
+          "environments": [
+            { "name": "dev", "title": "Dev" },
+            { "name": "prd", "title": "Prod", "danger": true }
+          ],
           "dispatch": {
             "oauth": {
               "grant": "clientCredentials",
@@ -31,7 +35,7 @@ struct SiteDefaultsTests {
           "grafana": {
             "presets": [
               { "scope": "platform", "environment": "dev",
-                "url": "https://grafana.example", "serves": ["dev"] }
+                "url": "https://grafana.example" }
             ]
           },
           "skills": {
@@ -57,6 +61,11 @@ struct SiteDefaultsTests {
         #expect(defaults.dispatchRequests.count == 1)
         #expect(defaults.dispatchRequests[0].name == "List things")
         #expect(defaults.dispatchRequests[0].method == .post)
+
+        #expect(defaults.deployEnvironments.map(\.name) == ["dev", "prd"])
+        #expect(defaults.deployEnvironments.map(\.label) == ["Dev", "Prod"])
+        #expect(defaults.deployEnvironment(named: "prd")?.isDangerous == true)
+        #expect(defaults.deployEnvironment(named: "dev")?.isDangerous == false)
 
         #expect(defaults.grafanaPresets.count == 1)
         #expect(defaults.grafanaPresets[0].name == "grafana-platform-dev")
@@ -179,34 +188,20 @@ struct SiteDefaultsTests {
                                          bundledURL: nil).count { $0 == selected } == 1)
     }
 
-    @Test func anInstanceServesTheEnvironmentsItLists() throws {
-        let url = try file("""
-        {
-          "grafana": {
-            "presets": [
-              { "scope": "platform", "environment": "prd", "url": "https://a.example",
-                "serves": ["prod"] },
-              { "scope": "shared", "environment": "shared", "url": "https://b.example",
-                "serves": ["dev", "prod"] },
-              { "scope": "edge", "environment": "dev", "url": "https://c.example" }
-            ]
-          }
-        }
-        """)
-        let defaults = SiteDefaults.load([url])
+    // A build with no file still has to offer somewhere to diagnose in, and a file that
+    // names an environment badly must not leave the picker empty either.
+    @Test func environmentsFallBackToTheAppsOwn() throws {
+        #expect(SiteDefaults().deployEnvironments.map(\.name) == ["staging", "production"])
+        #expect(SiteDefaults().deployEnvironment(named: "production")?.isDangerous == true)
 
-        let platform = try #require(defaults.grafanaPreset(named: "grafana-platform-prd"))
-        #expect(platform.serves("prod"))
-        #expect(!platform.serves("dev"))
+        let empty = try file(#"{ "environments": [] }"#)
+        #expect(SiteDefaults.load([empty]).deployEnvironments.map(\.name)
+            == ["staging", "production"])
 
-        let shared = try #require(defaults.grafanaPreset(named: "grafana-shared-shared"))
-        #expect(shared.serves("dev"))
-        #expect(shared.serves("prod"))
-
-        // Listing nothing means the instance is offered everywhere.
-        let edge = try #require(defaults.grafanaPreset(named: "grafana-edge-dev"))
-        #expect(edge.serves("dev"))
-        #expect(edge.serves("prod"))
+        let unnamed = try file(#"{ "environments": [{ "name": "" }, { "name": "sbx" }] }"#)
+        #expect(SiteDefaults.load([unnamed]).deployEnvironments.map(\.name) == ["sbx"])
+        // A file that names no title still reads as a label rather than as a raw tag.
+        #expect(SiteDefaults.load([unnamed]).deployEnvironments.map(\.label) == ["Sbx"])
     }
 
     // The example is intended to be copied into deployments, so it must stay loadable
@@ -224,6 +219,10 @@ struct SiteDefaultsTests {
         #expect(!defaults.dispatchOAuth.clientID.isEmpty)
         #expect(!defaults.dispatchRequests.isEmpty)
         #expect(!defaults.grafanaPresets.isEmpty)
+        // A preset whose environment nothing names would add servers no diagnosis filters.
+        for preset in defaults.grafanaPresets {
+            #expect(defaults.deployEnvironment(named: preset.environment) != nil)
+        }
         #expect(defaults.skills != nil)
         #expect(!defaults.commandShortcuts.isEmpty)
     }
@@ -257,6 +256,7 @@ struct SiteDefaultsTests {
 
         let summary = SiteDefaults.load([url]).summary
 
+        #expect(summary.contains("0 environments"))
         #expect(summary.contains("2 starter requests"))
         #expect(summary.contains("1 Grafana preset"))
         #expect(summary.contains("0 shortcuts"))
@@ -266,6 +266,7 @@ struct SiteDefaultsTests {
     @Test func theSummaryOfEmptyDefaultsSaysEverythingIsMissing() {
         let summary = SiteDefaults().summary
 
+        #expect(summary.contains("0 environments"))
         #expect(summary.contains("0 starter requests"))
         #expect(summary.contains("0 Grafana presets"))
         #expect(summary.contains("no skills marketplace"))

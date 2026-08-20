@@ -5,6 +5,10 @@ import Testing
 struct SiteConfigurationPlanTests {
     private let file = """
     {
+      "environments": [
+        { "name": "dev", "title": "Dev" },
+        { "name": "prd", "title": "Prod", "danger": true }
+      ],
       "dispatch": {
         "oauth": { "tokenURL": "https://id.example/token", "clientID": "code-station" },
         "environments": { "staging": "sbx", "production": "live" },
@@ -37,11 +41,15 @@ struct SiteConfigurationPlanTests {
         let plan = SiteConfigurationPlan(try defaults(file))
 
         #expect(plan.groups.map(\.title)
-            == ["API access", "Starter requests", "Grafana presets", "Skills marketplace", "Shortcuts"])
-        #expect(plan.items.count == 8)
-        #expect(plan.everything.count == 8)
-        #expect(plan.groups[1].items.map(\.title) == ["Health", "Orders"])
-        #expect(plan.groups[2].items.map(\.title) == ["grafana-platform-prd", "grafana-edge-prd"])
+            == ["Environments", "API access", "Starter requests", "Grafana presets",
+                "Skills marketplace", "Shortcuts"])
+        #expect(plan.items.count == 10)
+        #expect(plan.everything.count == 10)
+        #expect(plan.groups[0].items.map(\.title) == ["Dev", "Prod"])
+        #expect(plan.groups[0].items.map(\.detail)
+            == ["Tagged dev", "Tagged prd, and treated as live"])
+        #expect(plan.groups[2].items.map(\.title) == ["Health", "Orders"])
+        #expect(plan.groups[3].items.map(\.title) == ["grafana-platform-prd", "grafana-edge-prd"])
     }
 
     @Test func skipsSectionsAFileLeavesOut() throws {
@@ -52,8 +60,9 @@ struct SiteConfigurationPlanTests {
     }
 
     @Test func keepsOnlyTheChosenItems() throws {
-        let kept = try filtered([.request(1), .grafanaPreset(0), .shortcut(0)])
+        let kept = try filtered([.environment(1), .request(1), .grafanaPreset(0), .shortcut(0)])
 
+        #expect(kept.deployEnvironments.map(\.name) == ["prd"])
         #expect(kept.dispatchRequests.map(\.name) == ["Orders"])
         #expect(kept.grafanaPresets.map(\.name) == ["grafana-platform-prd"])
         #expect(kept.commandShortcuts.map(\.name) == ["Run service"])
@@ -66,6 +75,9 @@ struct SiteConfigurationPlanTests {
     @Test func dropsASectionNothingWasKeptFrom() throws {
         let kept = try filtered([.skills])
 
+        // Nothing kept leaves the app on its own environments rather than on an empty list.
+        #expect(kept.environments == nil)
+        #expect(kept.deployEnvironments.map(\.name) == ["staging", "production"])
         #expect(kept.dispatch == nil)
         #expect(kept.grafana == nil)
         #expect(kept.shortcuts == nil)
@@ -76,6 +88,7 @@ struct SiteConfigurationPlanTests {
         let plan = SiteConfigurationPlan(try defaults(file))
         let kept = try filtered(plan.everything)
 
+        #expect(kept.deployEnvironments.map(\.name) == ["dev", "prd"])
         #expect(kept.dispatchRequests.map(\.name) == ["Health", "Orders"])
         #expect(kept.grafanaPresets.count == 2)
         #expect(kept.dispatchEnvValues == ("sbx", "live"))

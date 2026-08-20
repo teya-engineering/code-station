@@ -3,10 +3,20 @@ import Testing
 @testable import MenuBarApp
 
 struct TroubleshootTests {
+    private static let site = SiteDefaults(environments: [
+        .init(name: "dev", title: "Dev"),
+        .init(name: "prd", title: "Prod", danger: true),
+        .init(name: "shared", title: "Shared"),
+    ])
+    private static let dev = TroubleshootEnvironment(name: "dev", title: "Dev")
+    private static let prod = TroubleshootEnvironment(name: "prd", title: "Prod",
+                                                      isDangerous: true)
+    private static let shared = TroubleshootEnvironment(name: "shared", title: "Shared")
+
     @Test func promptCarriesTheProblemAndSelectedContext() {
         let request = TroubleshootRequest(
             problem: "Payments return 503 after deployment",
-            environment: .prod,
+            environment: Self.prod,
             projects: ["payments-api", "merchant-web"],
             skills: ["postgres-specialist", "grafana-specialist"],
             mcpServersEnabled: true,
@@ -14,7 +24,7 @@ struct TroubleshootTests {
 
         #expect(request.userInput == "Payments return 503 after deployment")
         #expect(!request.customInstructions.contains(request.userInput))
-        #expect(request.customInstructions.contains("production (prod)"))
+        #expect(request.customInstructions.contains("Prod (prd)"))
         #expect(request.customInstructions.contains("payments-api, merchant-web"))
         #expect(request.customInstructions.contains(
             "Skills to use: `grafana-specialist`, `postgres-specialist`"))
@@ -23,6 +33,7 @@ struct TroubleshootTests {
         #expect(request.customInstructions.contains("grafana-platform-prd, grafana-shared-shared"))
         #expect(request.customInstructions.contains("Search the available tool catalogue"))
         #expect(request.customInstructions.contains("before concluding that a server or tool is unavailable"))
+        #expect(request.customInstructions.contains("Treat this environment as live"))
         #expect(request.customInstructions.contains("do not mutate data, configuration, deployments, or running services"))
         #expect(request.customInstructions.contains("wait for a follow-up before applying it"))
     }
@@ -30,7 +41,7 @@ struct TroubleshootTests {
     @Test func attachmentOnlyDiagnosisStillHasAnInstruction() {
         let request = TroubleshootRequest(
             problem: "  \n",
-            environment: .dev,
+            environment: Self.dev,
             projects: ["api"],
             mcpServersEnabled: false)
 
@@ -89,39 +100,53 @@ struct TroubleshootTests {
         #expect(arguments.contains("mcp_servers.node_repl.enabled=false"))
     }
 
-    @Test func environmentKeepsSharedAndUnscopedServers() {
-        let defaults = SiteDefaults(grafana: .init(presets: [
-            .init(scope: "platform", environment: "dev",
-                  url: "https://grafana.example", serves: ["dev"]),
-            .init(scope: "platform", environment: "prd",
-                  url: "https://grafana.example", serves: ["prod"]),
-            .init(scope: "shared", environment: "shared",
-                  url: "https://grafana.example", serves: ["dev", "prod"]),
-        ]))
+    @Test func anEnvironmentOffersOnlyTheServersTaggedForIt() {
         let servers = [
-            server("grafana-platform-dev"),
-            server("grafana-platform-prd"),
-            server("grafana-shared-shared"),
+            server("grafana-platform-dev", tag: "dev"),
+            server("grafana-platform-prd", tag: "prd"),
+            server("grafana-shared-shared", tag: "shared"),
             server("node_repl"),
         ]
 
-        #expect(servers.filter { TroubleshootEnvironment.dev.includes($0, in: defaults) }
-            .map(\.name) == [
-                "grafana-platform-dev", "grafana-shared-shared", "node_repl",
-            ])
-        #expect(servers.filter { TroubleshootEnvironment.prod.includes($0, in: defaults) }
-            .map(\.name) == [
-                "grafana-platform-prd", "grafana-shared-shared", "node_repl",
-            ])
+        #expect(servers.filter { Self.dev.includes($0, in: Self.site) }.map(\.name)
+            == ["grafana-platform-dev", "node_repl"])
+        #expect(servers.filter { Self.prod.includes($0, in: Self.site) }.map(\.name)
+            == ["grafana-platform-prd", "node_repl"])
+        #expect(servers.filter { Self.shared.includes($0, in: Self.site) }.map(\.name)
+            == ["grafana-shared-shared", "node_repl"])
+    }
+
+    // A tag the file no longer names says nothing about where the server belongs, so
+    // hiding it everywhere would lose it without telling anybody.
+    @Test func aTagNothingNamesLeavesTheServerInEveryEnvironment() {
+        let servers = [server("grafana-sandbox-sbx", tag: "sbx"), server("node_repl")]
+
+        #expect(servers.filter { Self.dev.includes($0, in: Self.site) }.map(\.name)
+            == ["grafana-sandbox-sbx", "node_repl"])
+        #expect(servers.filter { Self.prod.includes($0, in: Self.site) }.map(\.name)
+            == ["grafana-sandbox-sbx", "node_repl"])
     }
 
     // With no site file there is nothing saying which environment a server belongs to,
     // so filtering must not quietly drop every one of them.
     @Test func everyServerSurvivesWithoutASiteFile() {
-        let servers = [server("grafana-platform-dev"), server("node_repl")]
+        let servers = [server("grafana-platform-dev", tag: "dev"), server("node_repl")]
+        let environment = TroubleshootEnvironment.first(in: SiteDefaults())
 
-        #expect(servers.filter { TroubleshootEnvironment.prod.includes($0, in: SiteDefaults()) }
-            .map(\.name) == ["grafana-platform-dev", "node_repl"])
+        #expect(environment.name == "staging")
+        #expect(servers.filter { environment.includes($0, in: SiteDefaults()) }.map(\.name)
+            == ["grafana-platform-dev", "node_repl"])
+    }
+
+    // The pills come from the file, and the prompt names the deployment the way the
+    // agent will meet it rather than only the way it reads on screen.
+    @Test func thePickerAndThePromptFollowTheSiteFile() {
+        #expect(TroubleshootEnvironment.all(in: Self.site).map(\.title)
+            == ["Dev", "Prod", "Shared"])
+        #expect(TroubleshootEnvironment.first(in: Self.site) == Self.dev)
+        #expect(Self.prod.promptTitle == "Prod (prd)")
+        #expect(Self.dev.promptTitle == "dev")
+        #expect(!Self.shared.isDangerous)
     }
 
     @Test func claudeUsesTheFilteredMCPConfiguration() {
@@ -185,9 +210,9 @@ struct TroubleshootTests {
         #expect(!configuration.isAvailable)
     }
 
-    private func server(_ name: String) -> Server {
-        Server(name: name, command: "mcp", args: [], url: nil, type: nil,
-               env: [], headers: [], disabled: false)
+    private func server(_ name: String, tag: String = "") -> Server {
+        Server(name: name, environmentTag: tag, command: "mcp", args: [], url: nil,
+               type: nil, env: [], headers: [], disabled: false)
     }
 
     private func pair(_ arguments: [String], after flag: String) -> String? {

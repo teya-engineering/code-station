@@ -6,7 +6,8 @@ import Foundation
 // file's own array, which is what lets a choice be applied back to the raw JSON.
 enum SiteConfigurationItem: Hashable, Sendable {
     case oauth
-    case environments
+    case dispatchEnvironments
+    case environment(Int)
     case request(Int)
     case grafanaPreset(Int)
     case skills
@@ -37,6 +38,18 @@ struct SiteConfigurationPlan: Sendable {
     init(_ defaults: SiteDefaults) {
         var groups: [Group] = []
 
+        let environments = defaults.environments ?? []
+        if !environments.isEmpty {
+            groups.append(Group(title: "Environments",
+                                items: environments.enumerated().map { index, environment in
+                Item(id: .environment(index),
+                     title: environment.label,
+                     detail: environment.isDangerous
+                         ? "Tagged \(environment.name), and treated as live"
+                         : "Tagged \(environment.name)")
+            }))
+        }
+
         var access: [Item] = []
         if let oauth = defaults.dispatch?.oauth {
             let detail = [oauth.clientID, oauth.tokenURL ?? oauth.authURL]
@@ -49,7 +62,7 @@ struct SiteConfigurationPlan: Sendable {
         if let environments = defaults.dispatch?.environments,
            environments.staging != nil || environments.production != nil {
             let values = defaults.dispatchEnvValues
-            access.append(Item(id: .environments,
+            access.append(Item(id: .dispatchEnvironments,
                                title: "Environment names",
                                detail: "staging is \(values.staging), production is \(values.production)"))
         }
@@ -109,12 +122,19 @@ extension SiteConfigurationPlan {
         let dispatchKey = root["dispatch"] != nil ? "dispatch" : "postman"
         if var dispatch = root[dispatchKey] as? [String: Any] {
             if !chosen.contains(.oauth) { dispatch.removeValue(forKey: "oauth") }
-            if !chosen.contains(.environments) { dispatch.removeValue(forKey: "environments") }
+            if !chosen.contains(.dispatchEnvironments) {
+                dispatch.removeValue(forKey: "environments")
+            }
             if let requests = dispatch["requests"] as? [Any] {
                 put(keep(requests) { chosen.contains(.request($0)) },
                     at: "requests", in: &dispatch)
             }
             put(dispatch.isEmpty ? nil : dispatch, at: dispatchKey, in: &root)
+        }
+
+        if let environments = root["environments"] as? [Any] {
+            put(keep(environments) { chosen.contains(.environment($0)) },
+                at: "environments", in: &root)
         }
 
         if var grafana = root["grafana"] as? [String: Any] {

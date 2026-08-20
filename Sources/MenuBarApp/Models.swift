@@ -33,6 +33,9 @@ struct EnvVar: Identifiable, Equatable {
 struct Server: Identifiable, Equatable {
     var id: String { name }
     var name: String
+    // Which deployment this server talks to, as one of the site file's environment names.
+    // Empty means every one of them, which is where a server nobody has tagged belongs.
+    var environmentTag: String = ""
     var command: String?
     var args: [String]
     var url: String?
@@ -54,7 +57,7 @@ struct Server: Identifiable, Equatable {
         command == Grafana.command || name.hasPrefix(SiteDefaults.Grafana.namePrefix)
     }
 
-    var deployEnvironment: String? { Grafana.environment(from: name) }
+    var deployEnvironment: String? { environmentTag.isEmpty ? nil : environmentTag }
 
     var description: String {
         if let preset = SiteDefaults.current.grafanaPreset(named: name) {
@@ -82,5 +85,6 @@ struct ConfigFile: Codable {
         var env: [String: String]?
         var headers: [String: String]?
         var disabled: Bool?
+        var environment: String?
     }
 }

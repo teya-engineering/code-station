@@ -76,9 +76,17 @@ final class ConfigStore {
         if selected == nil { selectedID = servers.first?.id }
     }
 
-    private func server(named name: String, from entry: ConfigFile.Entry) -> Server {
+    // A file written before servers carried a tag says nothing about the environment, so
+    // one is read out of the Grafana naming convention instead. That guess is written
+    // back on the next save, and after that the file is the only thing that decides.
+    private func server(named name: String, from entry: ConfigFile.Entry,
+                        environment: String? = nil) -> Server {
         Server(
             name: name,
+            environmentTag: entry.environment
+                ?? environment
+                ?? Grafana.environment(from: name)
+                ?? "",
             command: entry.command,
             args: entry.args ?? [],
             url: entry.url,
@@ -150,8 +158,13 @@ final class ConfigStore {
         }
     }
 
+    // The environment tag is this app's own bookkeeping. It belongs in this app's file,
+    // where an empty value has to be written out so a deliberate "every environment" is
+    // not read back as a server nobody has tagged yet. It is left out of the copy handed
+    // to an agent, which should only ever see the keys its own loader expects.
     nonisolated static func mcpConfigurationData(from servers: [Server],
-                                                 allowing names: [String]) -> Data? {
+                                                 allowing names: [String],
+                                                 taggingEnvironments: Bool = true) -> Data? {
         let allowed = Set(names)
         var map: [String: ConfigFile.Entry] = [:]
         for server in servers where allowed.contains(server.name) {
@@ -166,7 +179,8 @@ final class ConfigStore {
                 type: server.type,
                 env: env.isEmpty ? nil : env,
                 headers: headers.isEmpty ? nil : headers,
-                disabled: server.disabled ? true : nil
+                disabled: server.disabled ? true : nil,
+                environment: taggingEnvironments ? server.environmentTag : nil
             )
         }
 
@@ -191,8 +205,10 @@ final class ConfigStore {
         ]
         if let i = servers.firstIndex(where: { $0.name == name }) {
             servers[i].env = vars
+            servers[i].environmentTag = preset.environment
         } else {
-            servers.append(Server(name: name, command: Grafana.command, args: [],
+            servers.append(Server(name: name, environmentTag: preset.environment,
+                                  command: Grafana.command, args: [],
                                   url: nil, type: nil, env: vars, headers: [], disabled: false))
             servers.sort { $0.name < $1.name }
         }
@@ -200,10 +216,18 @@ final class ConfigStore {
         save()
     }
 
+    func setEnvironment(_ tag: String, for id: Server.ID) {
+        guard let i = servers.firstIndex(where: { $0.id == id }),
+              servers[i].environmentTag != tag else { return }
+        servers[i].environmentTag = tag
+        save()
+    }
+
     // Import one or more servers pasted as JSON. Accepts either the full
-    // { "mcpServers": { ... } } shape or a bare { "<name>": { ... } } map.
+    // { "mcpServers": { ... } } shape or a bare { "<name>": { ... } } map. The chosen
+    // environment covers every server in the paste that does not name one itself.
     @discardableResult
-    func importJSON(_ text: String) throws -> Int {
+    func importJSON(_ text: String, environment: String? = nil) throws -> Int {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw ImportError("Paste a server JSON first.") }
         guard let root = try? JSONSerialization.jsonObject(with: Data(trimmed.utf8)) else {
@@ -227,7 +251,7 @@ final class ConfigStore {
         }
 
         for (name, entry) in entries {
-            let built = server(named: name, from: entry)
+            let built = server(named: name, from: entry, environment: environment)
             if let i = servers.firstIndex(where: { $0.name == name }) {
                 servers[i] = built
             } else {

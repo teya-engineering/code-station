@@ -1061,7 +1061,8 @@ final class SessionRunner {
               let allowedNames = session.settings?.allowedMCPServerNames else { return nil }
         guard let configs,
               let data = ConfigStore.mcpConfigurationData(
-                from: configs.servers, allowing: allowedNames) else {
+                from: configs.servers, allowing: allowedNames,
+                taggingEnvironments: false) else {
             throw Failure("Could not prepare the filtered MCP server configuration.")
         }
 
