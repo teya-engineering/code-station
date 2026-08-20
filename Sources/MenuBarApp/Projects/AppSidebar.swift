@@ -382,7 +382,11 @@ struct AppSidebar: View {
                 let workspaceGroups = groupedWorkspaceSessions
                 ScrollViewReader { scroller in
                     ScrollView {
-                        VStack(alignment: .leading, spacing: 1) {
+                        // Lazy so the rail costs what is on screen rather than what the
+                        // app holds. Every card carries a hint, a menu and hover of its
+                        // own, and off-screen ones would still be built and laid out on
+                        // each redraw - a streaming reply redraws the rail on every token.
+                        LazyVStack(alignment: .leading, spacing: 1) {
                             ForEach(sections) { section in
                                 if let group = section.group {
                                     SectionHeading(title: group.title,
@@ -1382,7 +1386,7 @@ private struct SectionHeading: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .onHover { hovering = $0 }
+        .onPointerHover { hovering = $0 }
         .animation(.easeOut(duration: 0.15), value: hovering)
         .appTooltip(collapsed ? "Show \(title.lowercased())" : "Hide \(title.lowercased())")
     }
@@ -1452,7 +1456,7 @@ private struct WorkspaceHeaderRow: View {
                 rows: [Tooltip.Row(label: "Sessions", value: "\(sessionCount)"),
                        Tooltip.Row(label: "Projects", value: "\(projects.count)")])
         }
-        .onHover { hovering = $0 }
+        .onPointerHover { hovering = $0 }
         .onChange(of: isRenaming, initial: true) { _, renaming in
             guard renaming else { return }
             draft = workspace.name
@@ -1594,7 +1598,7 @@ private struct ProjectHeaderRow: View {
             }
         }
         .appTooltip { tooltip }
-        .onHover { hovering = $0 }
+        .onPointerHover { hovering = $0 }
         .onChange(of: isRenaming, initial: true) { _, renaming in
             guard renaming else { return }
             draft = project.name
@@ -1811,7 +1815,7 @@ private struct SessionCard: View {
         .animation(.easeOut(duration: 0.25), value: [busy, finished])
         .animation(.easeOut(duration: 0.15), value: selected)
         .appTooltip { tooltip }
-        .onHover { hovering = $0 }
+        .onPointerHover { hovering = $0 }
         .onChange(of: isRenaming, initial: true) { _, renaming in
             guard renaming else { return }
             draft = session.title
@@ -1892,7 +1896,7 @@ private struct SeeMoreCard: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .onHover { hovering = $0 }
+        .onPointerHover { hovering = $0 }
     }
 }
 

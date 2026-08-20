@@ -158,7 +158,9 @@ private struct AppTooltip: ViewModifier {
     func body(content: Content) -> some View {
         content
             .background(TooltipAnchorView(anchor: anchor))
-            .onHover { inside in
+            // A hint belongs to the pointer resting on something. Rows sliding past
+            // under a scroll are not that, and a hint is taken down by a scroll anyway.
+            .onPointerHover { inside in
                 pending?.cancel()
                 guard inside else {
                     presenter.hide(owner: id)
