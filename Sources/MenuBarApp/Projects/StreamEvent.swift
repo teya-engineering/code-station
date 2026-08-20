@@ -67,6 +67,19 @@ extension StreamEvent {
     // very long output is cut down before it reaches the store.
     static let maxToolOutput = 20_000
 
+    // Whether this is the turn answering rather than the CLI reporting on itself. A
+    // result that arrives before any of these has answered nothing, which is what tells
+    // a turn the app did not ask for apart from the one it is reading.
+    var isAnswering: Bool {
+        switch self {
+        case .text, .thinking, .agentText, .toolUse, .toolResult, .permissionRequest,
+             .compacted:
+            true
+        default:
+            false
+        }
+    }
+
     // Logs describe the protocol without copying prompts, source code, tool input, or
     // command output into a second long-lived file.
     var logSummary: String {

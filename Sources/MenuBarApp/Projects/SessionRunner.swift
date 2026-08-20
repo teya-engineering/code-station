@@ -1197,6 +1197,7 @@ final class SessionRunner {
             setState(.streaming, for: sessionID)
         }
         for event in events {
+            if event.isAnswering { turn.answered = true }
             switch event {
             case .initialized(let claudeSessionID):
                 // Saved right away, before the turn can fail: this id is what resuming
@@ -1340,6 +1341,21 @@ final class SessionRunner {
                 setState(.reconnecting(message), for: sessionID)
 
             case .finished(let isError, let message):
+                // A resumed process hands over whatever the one before it left queued -
+                // the wake-up for a background task it never got to report - and that
+                // handover is a turn of its own, ending in an empty result before this
+                // turn has said a word. Reading it as the answer closes the input on a
+                // turn that has not started, and an input already closed cannot be held
+                // open later: the CLI reaches the end of the real turn and tears down,
+                // killing the very tasks the turn was to be held open for.
+                // Only Claude Code hands over this way, and only it says something in
+                // every result it means: Codex ends a turn with no message at all.
+                if turn.agent == .claudeCode, !isError, !turn.answered,
+                   message?.isEmpty ?? true {
+                    SessionLog.note("ignored a result that arrived before the turn answered",
+                                    session: sessionID)
+                    continue
+                }
                 turn.receivedCompletion = true
                 if isError {
                     turn.failure = message ?? "\(turn.agent.title) reported an error."
@@ -1720,6 +1736,9 @@ final class SessionRunner {
         var failure: String?
         var lastStreamError: String?
         var receivedCompletion = false
+        // Whether anything the turn said has come through yet. A result before that
+        // belongs to a turn the app never asked for, so it is not this turn ending.
+        var answered = false
         var stopRequested = false
         var stopFailure: String?
         var restartAfterStop = false

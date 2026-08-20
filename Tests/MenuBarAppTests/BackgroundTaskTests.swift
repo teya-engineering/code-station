@@ -181,6 +181,43 @@ struct BackgroundTaskTests {
         #expect(fixture.runner.waitingSince(fixture.session.id) == nil)
     }
 
+    // A resumed process starts by handing over the wake-up the one before it left queued,
+    // and that handover ends in an empty result of its own. The turn the app asked for is
+    // the one after it, so the hold has to survive the first result rather than close the
+    // input on it and leave the CLI with nowhere to report back to.
+    @MainActor @Test func aResultBeforeTheTurnAnsweredIsNotTheAnswer() async throws {
+        let fixture = try turn(script: """
+        printf '%s\\n' '{"type":"result","subtype":"success","is_error":false,"result":""}'
+        printf '%s\\n' '{"type":"system","subtype":"init","session_id":"abc-123"}'
+        printf '%s\\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"on it"}]}}'
+        """ + Self.reportsTwoTasks + """
+        cat > /dev/null
+        """)
+        defer { fixture.tearDown() }
+
+        #expect(await fixture.waitUntil { fixture.runner.state(fixture.session.id) == .waiting })
+        // The hold is only real if the input is still open. A fake CLI whose input was
+        // closed on the first result reaches its last line and exits, so the wait that
+        // was there a moment ago is gone by the time it is looked at again.
+        try? await Task.sleep(for: .milliseconds(300))
+        #expect(fixture.runner.state(fixture.session.id) == .waiting)
+        #expect(BackgroundTaskPhrase.of(fixture.runner.backgroundTasks(fixture.session.id))
+                == "2 background tasks")
+    }
+
+    // The guard is only for a result that answered nothing: once the turn has spoken, an
+    // empty result is an ordinary end of turn and has to let the process go.
+    @MainActor @Test func anEmptyResultAfterTheTurnSpokeStillEndsIt() async throws {
+        let fixture = try turn(script: """
+        printf '%s\\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"done"}]}}'
+        printf '%s\\n' '{"type":"result","subtype":"success","is_error":false,"result":""}'
+        cat > /dev/null
+        """)
+        defer { fixture.tearDown() }
+
+        #expect(await fixture.waitUntil { fixture.runner.state(fixture.session.id) == .idle })
+    }
+
     // A fake CLI that reports two tasks, answers, and then waits on its input the way the
     // real one does while a task of its own is still running.
     @MainActor
