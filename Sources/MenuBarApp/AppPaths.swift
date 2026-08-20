@@ -147,6 +147,24 @@ enum Preferences {
         set { setSidebarExpansion(newValue, in: store) }
     }
 
+    static var sidebarSessionLimit: Int {
+        get { sidebarSessionLimit(in: store) }
+        set { setSidebarSessionLimit(newValue, in: store) }
+    }
+
+    static func sidebarSessionLimit(in store: UserDefaults) -> Int {
+        guard store.object(forKey: "sidebarSessionLimit") != nil else {
+            return SidebarSessionVisibility.defaultLimit
+        }
+        return SidebarSessionVisibility.resolvedLimit(
+            store.integer(forKey: "sidebarSessionLimit"))
+    }
+
+    static func setSidebarSessionLimit(_ limit: Int, in store: UserDefaults) {
+        store.set(SidebarSessionVisibility.resolvedLimit(limit),
+                  forKey: "sidebarSessionLimit")
+    }
+
     // Which agent runs the sessions. Everything else about an agent lives in its own
     // config; this is only the app's choice between them.
     static var agent: AgentKind {

@@ -778,13 +778,16 @@ struct AppSidebar: View {
         Preferences.collapsedSidebarGroups = collapsedGroups
     }
 
-    // A list stays capped at its newest four sessions unless the user unfolded it with
+    // A list stays capped at its chosen number of sessions unless the user unfolded it with
     // see-more, so a new session pushes the last visible one below the fold. A filtered
     // list is drawn whole instead: it is already short, and a match left under see-more
     // reads as the filter having missed it.
     private func visibleSessions(_ sessions: [ChatSession], in containerID: UUID) -> [ChatSession] {
         let filter = self.filter
-        guard filter.isActive else { return sessionVisibility.visible(sessions, in: containerID) }
+        guard filter.isActive else {
+            return sessionVisibility.visible(
+                sessions, in: containerID, limit: appSettings.sidebarSessionLimit)
+        }
         return filter.matchingSessions(in: sessions)
     }
 

@@ -41,6 +41,17 @@ final class AppSettings {
     @ObservationIgnored private let preferences: UserDefaults
     private var hasExplicitNonBotDefault: Bool
 
+    var sidebarSessionLimit: Int {
+        didSet {
+            let resolved = SidebarSessionVisibility.resolvedLimit(sidebarSessionLimit)
+            guard resolved == sidebarSessionLimit else {
+                sidebarSessionLimit = resolved
+                return
+            }
+            Preferences.setSidebarSessionLimit(sidebarSessionLimit, in: preferences)
+        }
+    }
+
     var oldSessionDays = Preferences.oldSessionDays {
         didSet { Preferences.oldSessionDays = oldSessionDays }
     }
@@ -94,6 +105,7 @@ final class AppSettings {
          preferences: UserDefaults = .standard) {
         self.agentAvatarURL = agentAvatarURL
         self.preferences = preferences
+        sidebarSessionLimit = Preferences.sidebarSessionLimit(in: preferences)
         hasCompletedOnboarding = Preferences.hasCompletedOnboarding(in: preferences)
         costShown = Dictionary(uniqueKeysWithValues: AgentKind.allCases.map {
             ($0, Preferences.showCost(for: $0))
@@ -240,6 +252,7 @@ struct SettingsView: View {
         case .general:
             VStack(alignment: .leading, spacing: 24) {
                 SiteConfigurationSection()
+                sidebar
                 oldSessions
                 skillRefresh
                 botImage
@@ -260,6 +273,47 @@ struct SettingsView: View {
                 mobileAccess
             }
             .transition(.fadeIn)
+        }
+    }
+
+    private var sidebar: some View {
+        ChoiceBlock("SIDEBAR") {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Sessions shown")
+                        .font(.system(size: 13, weight: .semibold))
+                    Text("How many recent sessions each project and workspace lists before See more.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+                HStack(spacing: 8) {
+                    Text("\(settings.sidebarSessionLimit)")
+                        .font(.system(size: 13, weight: .medium))
+                        .monospacedDigit()
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 12)
+                .frame(height: 34)
+                .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
+                .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
+                .contentShape(Rectangle())
+                .appMenu(matchWidth: true) {
+                    SidebarSessionVisibility.limitRange.map { limit in
+                        .item("\(limit)", checked: settings.sidebarSessionLimit == limit) {
+                            settings.sidebarSessionLimit = limit
+                        }
+                    }
+                }
+                .accessibilityLabel("Sessions shown per sidebar list: \(settings.sidebarSessionLimit)")
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 9).fill(Theme.card))
+            .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
         }
     }
 

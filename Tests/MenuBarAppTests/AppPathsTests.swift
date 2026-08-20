@@ -167,6 +167,46 @@ struct AppPathsTests {
         #expect(Preferences.oldSessionDays(in: defaults) == 365)
     }
 
+    @Test func defaultsAndClampsTheSidebarSessionLimit() throws {
+        let suite = "code-station-sidebar-session-limit-tests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        #expect(Preferences.sidebarSessionLimit(in: defaults) == 4)
+
+        for limit in SidebarSessionVisibility.limitRange {
+            Preferences.setSidebarSessionLimit(limit, in: defaults)
+            #expect(Preferences.sidebarSessionLimit(in: defaults) == limit)
+        }
+
+        Preferences.setSidebarSessionLimit(1, in: defaults)
+        #expect(Preferences.sidebarSessionLimit(in: defaults) == 2)
+
+        Preferences.setSidebarSessionLimit(11, in: defaults)
+        #expect(Preferences.sidebarSessionLimit(in: defaults) == 10)
+    }
+
+    @Test @MainActor func appSettingsPersistsTheSidebarSessionLimit() throws {
+        let suite = "code-station-app-sidebar-session-limit-tests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let avatar = root.appendingPathComponent("avatar.png")
+        let settings = AppSettings(agentAvatarURL: avatar, preferences: defaults)
+
+        #expect(settings.sidebarSessionLimit == 4)
+
+        settings.sidebarSessionLimit = 8
+        #expect(Preferences.sidebarSessionLimit(in: defaults) == 8)
+
+        settings.sidebarSessionLimit = 20
+        #expect(settings.sidebarSessionLimit == 10)
+
+        let restored = AppSettings(agentAvatarURL: avatar, preferences: defaults)
+        #expect(restored.sidebarSessionLimit == 10)
+    }
+
     @Test func storesAndResetsAnExternalSiteConfigurationPath() throws {
         let suite = "code-station-site-defaults-tests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))

@@ -14,11 +14,26 @@ struct SidebarSessionVisibilityTests {
         (0..<count).map { _ in Session(id: UUID()) }
     }
 
-    @Test func initiallyShowsFourSessions() {
+    @Test func initiallyUsesTheDefaultLimit() {
         let visibility = SidebarSessionVisibility()
         let all = sessions(12)
 
         #expect(visibility.visible(all, in: projectID).map(\.id) == all.prefix(4).map(\.id))
+    }
+
+    @Test func usesTheConfiguredLimit() {
+        let visibility = SidebarSessionVisibility()
+        let all = sessions(12)
+
+        #expect(visibility.visible(all, in: projectID, limit: 7).map(\.id)
+                == all.prefix(7).map(\.id))
+    }
+
+    @Test func clampsTheConfiguredLimitToTheSupportedRange() {
+        let visibility = SidebarSessionVisibility()
+
+        #expect(visibility.visible(sessions(12), in: projectID, limit: 1).count == 2)
+        #expect(visibility.visible(sessions(12), in: projectID, limit: 11).count == 10)
     }
 
     @Test func staysCappedWhenSessionsAreAdded() {
@@ -28,7 +43,7 @@ struct SidebarSessionVisibilityTests {
         #expect(visibility.visible(sessions(5), in: projectID).count == 4)
     }
 
-    @Test func showsFewerWhenThereAreFewerThanFour() {
+    @Test func showsFewerWhenThereAreFewerThanTheDefaultLimit() {
         let visibility = SidebarSessionVisibility()
 
         #expect(visibility.visible(sessions(2), in: projectID).count == 2)
@@ -68,7 +83,7 @@ struct SidebarSessionVisibilityTests {
         #expect(visibility.visible(all, in: projectID).count == 4)
     }
 
-    @Test func resetReturnsToTheInitialLimit() {
+    @Test func resetReturnsToTheDefaultLimit() {
         var visibility = SidebarSessionVisibility()
         let all = sessions(15)
         visibility.showAll(projectID)

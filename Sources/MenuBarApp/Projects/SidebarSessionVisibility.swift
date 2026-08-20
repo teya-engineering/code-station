@@ -1,7 +1,8 @@
 import Foundation
 
 struct SidebarSessionVisibility {
-    static let initialLimit = 4
+    static let limitRange = 2...10
+    static let defaultLimit = 4
 
     private var showingAll: Set<UUID> = []
     private var pinned: [UUID: UUID] = [:]
@@ -10,16 +11,21 @@ struct SidebarSessionVisibility {
     // when it sits below the fold. Opening a session is not a reason to unfold the whole
     // list behind it, so the tail stays under see-more.
     func visible<Session: Identifiable>(_ sessions: [Session],
-                                        in containerID: UUID) -> [Session]
+                                        in containerID: UUID,
+                                        limit: Int = Self.defaultLimit) -> [Session]
     where Session.ID == UUID {
         guard !showingAll.contains(containerID) else { return sessions }
-        let head = sessions.prefix(Self.initialLimit)
+        let head = sessions.prefix(Self.resolvedLimit(limit))
         guard let pinnedID = pinned[containerID],
               !head.contains(where: { $0.id == pinnedID }),
               let session = sessions.first(where: { $0.id == pinnedID }) else {
             return Array(head)
         }
         return Array(head) + [session]
+    }
+
+    static func resolvedLimit(_ limit: Int) -> Int {
+        min(max(limit, limitRange.lowerBound), limitRange.upperBound)
     }
 
     mutating func showAll(_ containerID: UUID) {
