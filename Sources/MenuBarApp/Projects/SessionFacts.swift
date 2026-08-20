@@ -301,20 +301,109 @@ struct SessionFactsChip: View {
 // MARK: - The hairline
 
 // How full the window is, read along the bottom edge of the status strip rather than as
-// words on it. It is the one fact behind the chip that moves every turn, so it stays
-// visible - but as a line, since nothing has to be done about it until it is nearly full,
-// and the composer says that in words when it is.
+// words on it. The line always runs from green to red, so its length remains the reading
+// and its colour is decoration rather than a second warning scale. Near the end, its tip
+// burns like a fuse to make a window that needs attention hard to miss.
 struct ContextHairline: View {
+    static let fuseThreshold = 0.8
+
     let fraction: Double
-    let colour: Color
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    static func showsFuse(at fraction: Double) -> Bool {
+        fraction > fuseThreshold
+    }
 
     var body: some View {
         GeometryReader { geometry in
-            Rectangle()
-                .fill(colour)
-                .frame(width: max(2, geometry.size.width * min(1, max(0, fraction))))
+            let clamped = min(1, max(0, fraction))
+            let width = max(2, geometry.size.width * clamped)
+            ZStack(alignment: .bottomLeading) {
+                Rectangle()
+                    .fill(LinearGradient(
+                        colors: [Theme.dotOn, Theme.attention, Theme.deletion],
+                        startPoint: .leading,
+                        endPoint: .trailing))
+                    .frame(width: width, height: 2)
+
+                if Self.showsFuse(at: fraction) {
+                    if reduceMotion {
+                        FuseSpark(progressWidth: width, phase: 0.35, intensity: clamped)
+                    } else {
+                        TimelineView(.animation(minimumInterval: 1.0 / 24.0)) { timeline in
+                            FuseSpark(
+                                progressWidth: width,
+                                phase: timeline.date.timeIntervalSinceReferenceDate,
+                                intensity: clamped)
+                        }
+                    }
+                }
+            }
         }
-        .frame(height: 2)
+        .frame(height: 10)
+        .allowsHitTesting(false)
         .accessibilityHidden(true)
+    }
+}
+
+private struct FuseSpark: View {
+    let progressWidth: CGFloat
+    let phase: TimeInterval
+    let intensity: Double
+
+    private static let embers = [
+        Ember(angle: -2.55, distance: 5.2, size: 1.2, speed: 1.31, offset: 0.08),
+        Ember(angle: -2.02, distance: 7.2, size: 1.0, speed: 1.73, offset: 0.43),
+        Ember(angle: -1.57, distance: 6.2, size: 1.4, speed: 1.49, offset: 0.71),
+        Ember(angle: -1.12, distance: 7.7, size: 0.9, speed: 1.91, offset: 0.24),
+        Ember(angle: -0.66, distance: 5.5, size: 1.1, speed: 1.57, offset: 0.59),
+    ]
+
+    var body: some View {
+        Canvas { context, size in
+            let tip = CGPoint(x: min(size.width - 1, progressWidth), y: size.height - 1)
+            let heat = min(1, max(0, (intensity - ContextHairline.fuseThreshold)
+                / (1 - ContextHairline.fuseThreshold)))
+
+            context.drawLayer { glow in
+                glow.addFilter(.blur(radius: 2.4))
+                glow.opacity = 0.55 + heat * 0.25
+                glow.fill(
+                    Path(ellipseIn: CGRect(x: tip.x - 3.5, y: tip.y - 3.5,
+                                          width: 7, height: 7)),
+                    with: .color(Theme.attention))
+            }
+
+            context.fill(
+                Path(ellipseIn: CGRect(x: tip.x - 1.6, y: tip.y - 1.6,
+                                      width: 3.2, height: 3.2)),
+                with: .color(Theme.deletion))
+
+            for ember in Self.embers {
+                let life = (phase * ember.speed * (1 + heat * 0.65) + ember.offset)
+                    .truncatingRemainder(dividingBy: 1)
+                let fade = pow(1 - life, 1.7)
+                let distance = ember.distance * life
+                let point = CGPoint(
+                    x: tip.x + cos(ember.angle) * distance,
+                    y: tip.y + sin(ember.angle) * distance - life * life * 1.5)
+                let diameter = ember.size * (0.55 + fade * 0.7)
+                context.opacity = fade
+                context.fill(
+                    Path(ellipseIn: CGRect(x: point.x - diameter / 2,
+                                          y: point.y - diameter / 2,
+                                          width: diameter, height: diameter)),
+                    with: .color(life < 0.45 ? Theme.attention : Theme.deletion))
+            }
+        }
+    }
+
+    private struct Ember {
+        let angle: Double
+        let distance: Double
+        let size: Double
+        let speed: Double
+        let offset: Double
     }
 }

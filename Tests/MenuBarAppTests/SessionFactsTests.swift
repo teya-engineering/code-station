@@ -40,4 +40,9 @@ struct SessionFactsTests {
         // rather than a turn that will not start.
         #expect(SessionFacts.contextColour(0.9, agent: .codex) == Theme.attention)
     }
+
+    @Test func lightsTheFuseAboveEightyPercent() {
+        #expect(!ContextHairline.showsFuse(at: 0.8))
+        #expect(ContextHairline.showsFuse(at: 0.801))
+    }
 }

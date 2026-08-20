@@ -359,9 +359,7 @@ struct SessionView: View {
         .statusBand(padding: 20)
         .overlay(alignment: .bottom) {
             if let fraction = facts.context {
-                ContextHairline(fraction: fraction,
-                                colour: SessionFacts.contextColour(fraction,
-                                                                   agent: session.agent))
+                ContextHairline(fraction: fraction)
             }
         }
     }
