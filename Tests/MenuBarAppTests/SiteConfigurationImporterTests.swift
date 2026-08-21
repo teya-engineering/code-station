@@ -155,7 +155,7 @@ struct SiteConfigurationImporterTests {
         let dispatchURL = root.appendingPathComponent("dispatch.json")
         try JSONEncoder().encode(SavedRequestCollection(folders: [.default]))
             .write(to: dispatchURL)
-        let dispatch = DispatchStore(storeURL: dispatchURL)
+        let dispatch = DispatchStore(storeURL: dispatchURL, siteDefaults: SiteDefaults())
 
         let shortcutsURL = root.appendingPathComponent("shortcuts.json")
         try Data(#"{ "shortcuts": [] }"#.utf8).write(to: shortcutsURL)
@@ -180,7 +180,8 @@ struct SiteConfigurationImporterTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let defaults = try importedDefaults(in: root)
 
-        let dispatch = DispatchStore(storeURL: root.appendingPathComponent("dispatch.json"))
+        let dispatch = DispatchStore(storeURL: root.appendingPathComponent("dispatch.json"),
+                                     siteDefaults: SiteDefaults())
         let shortcuts = ShortcutStore(storageURL: root.appendingPathComponent("shortcuts.json"))
 
         dispatch.applySiteDefaults(defaults)
@@ -198,7 +199,7 @@ struct SiteConfigurationImporterTests {
         let dispatchURL = root.appendingPathComponent("dispatch.json")
         try JSONEncoder().encode(SavedRequestCollection(folders: [.default]))
             .write(to: dispatchURL)
-        let dispatch = DispatchStore(storeURL: dispatchURL)
+        let dispatch = DispatchStore(storeURL: dispatchURL, siteDefaults: SiteDefaults())
         dispatch.add(SavedRequest(name: "Personal", url: "https://personal.example"))
 
         let shortcutsURL = root.appendingPathComponent("shortcuts.json")
@@ -235,5 +236,22 @@ struct SiteConfigurationImporterTests {
             == ["Personal", "Health"])
         #expect(ShortcutStore(storageURL: shortcutsURL).shortcuts.map(\.name)
             == ["Personal", "Run service"])
+    }
+
+    @Test @MainActor func importsPersistedSiteRequestsOnlyOnce() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let defaults = try importedDefaults(in: root)
+        let dispatchURL = root.appendingPathComponent("dispatch.json")
+        try JSONEncoder().encode(SavedRequestCollection(folders: [.default]))
+            .write(to: dispatchURL)
+
+        let imported = DispatchStore(storeURL: dispatchURL, siteDefaults: defaults)
+        #expect(imported.requests.map(\.name) == ["Health"])
+
+        imported.remove(try #require(imported.requests.first?.id))
+
+        let reloaded = DispatchStore(storeURL: dispatchURL, siteDefaults: defaults)
+        #expect(reloaded.requests.isEmpty)
     }
 }

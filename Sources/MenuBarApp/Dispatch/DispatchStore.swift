@@ -11,6 +11,7 @@ final class DispatchStore {
     private(set) var folders: [RequestFolder] = []
     var selectedID: UUID?
     private var expandedFolderIDs: Set<UUID> = []
+    private var importedSiteRequestIDs: Set<UUID> = []
 
     // One height for the whole tool, so the pane keeps its size across requests.
     // It lives here rather than in the view, which is remade on every selection.
@@ -22,9 +23,9 @@ final class DispatchStore {
 
     var selected: SavedRequest? { requests.first { $0.id == selectedID } }
 
-    init(storeURL: URL? = nil) {
+    init(storeURL: URL? = nil, siteDefaults: SiteDefaults = .current) {
         self.storeURL = storeURL ?? Self.defaultStoreURL()
-        load()
+        load(siteDefaults)
     }
 
     func applySiteDefaults(_ defaults: SiteDefaults) {
@@ -39,23 +40,26 @@ final class DispatchStore {
                 request.folderID = RequestFolder.defaultID
                 return request
             }
+            importedSiteRequestIDs = Set(siteRequests.map(\.id))
             if !requests.isEmpty { expandedFolderIDs.insert(RequestFolder.defaultID) }
             save()
             return
         }
 
-        var added = false
+        var changed = false
         for var request in siteRequests {
+            guard importedSiteRequestIDs.insert(request.id).inserted else { continue }
             let alreadySaved = requests.contains {
                 $0.name == request.name && $0.method == request.method && $0.url == request.url
             }
-            guard !alreadySaved else { continue }
-            request.folderID = RequestFolder.defaultID
-            requests.append(request)
-            added = true
+            if !alreadySaved {
+                request.folderID = RequestFolder.defaultID
+                requests.append(request)
+            }
+            changed = true
         }
-        guard added else { return }
-        expandedFolderIDs.insert(RequestFolder.defaultID)
+        guard changed else { return }
+        if !siteRequests.isEmpty { expandedFolderIDs.insert(RequestFolder.defaultID) }
         save()
     }
 
@@ -220,8 +224,12 @@ final class DispatchStore {
             // Written in folder order rather than set order, so a save that changes
             // nothing writes the same bytes every time.
             let openFolderIDs = folders.map(\.id).filter(expandedFolderIDs.contains)
+            let importedIDs = importedSiteRequestIDs.sorted {
+                $0.uuidString < $1.uuidString
+            }
             let data = try encoder.encode(SavedRequestCollection(folders: folders,
                                                                   requests: requests,
+                                                                  importedSiteRequestIDs: importedIDs,
                                                                   expandedFolderIDs: openFolderIDs))
             try PersistentFile.write(data, to: storeURL)
             saveError = nil
@@ -232,7 +240,7 @@ final class DispatchStore {
         }
     }
 
-    private func load() {
+    private func load(_ defaults: SiteDefaults) {
         let data: Data?
         do {
             data = try PersistentFile.readIfPresent(storeURL)
@@ -246,11 +254,13 @@ final class DispatchStore {
         guard let data else {
             loadError = nil
             folders = [.default]
-            requests = Self.examples.map { request in
+            let examples = defaults.dispatchRequests
+            requests = examples.map { request in
                 var request = request
                 request.folderID = RequestFolder.defaultID
                 return request
             }
+            importedSiteRequestIDs = Set(examples.map(\.id))
             return
         }
 
@@ -259,10 +269,12 @@ final class DispatchStore {
         if let saved = try? decoder.decode(SavedRequestCollection.self, from: data) {
             folders = saved.folders
             requests = saved.requests
+            importedSiteRequestIDs = Set(saved.importedSiteRequestIDs)
             openFolderIDs = saved.expandedFolderIDs
         } else if let saved = try? decoder.decode([SavedRequest].self, from: data) {
             folders = []
             requests = saved
+            importedSiteRequestIDs = []
         } else {
             loadError = "The request file at \(storeURL.path) could not be parsed. Fix or remove it before saving changes."
             folders = [.default]
@@ -286,6 +298,7 @@ final class DispatchStore {
         // Folders open closed. Only the ones the user left open come back open, and a
         // folder that has since been deleted is dropped.
         expandedFolderIDs = Set(openFolderIDs).intersection(folderIDs)
+        applySiteDefaults(defaults)
     }
 
     private func validFolderID(_ folderID: UUID?) -> UUID {
@@ -295,7 +308,4 @@ final class DispatchStore {
         return folderID
     }
 
-    // An empty screen gives you nothing to copy, so a first run starts with whatever
-    // calls the site file lists.
-    private static var examples: [SavedRequest] { SiteDefaults.current.dispatchRequests }
 }

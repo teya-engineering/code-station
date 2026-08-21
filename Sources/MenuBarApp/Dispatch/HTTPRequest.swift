@@ -220,15 +220,21 @@ struct SavedRequest: Identifiable, Codable, Equatable {
 struct SavedRequestCollection: Codable, Equatable {
     var folders: [RequestFolder]
     var requests: [SavedRequest]
+    // A starter request is marked when first offered, even if an identical request was
+    // already saved. Deleting it later is then a lasting choice rather than a reason for
+    // the site file to put it back on every launch.
+    var importedSiteRequestIDs: [UUID]
     // The folders the user has opened. A folder starts closed, so one that is missing
     // here stays closed the next time the tool opens.
     var expandedFolderIDs: [UUID]
 
     init(folders: [RequestFolder] = [],
          requests: [SavedRequest] = [],
+         importedSiteRequestIDs: [UUID] = [],
          expandedFolderIDs: [UUID] = []) {
         self.folders = folders
         self.requests = requests
+        self.importedSiteRequestIDs = importedSiteRequestIDs
         self.expandedFolderIDs = expandedFolderIDs
     }
 
@@ -236,6 +242,8 @@ struct SavedRequestCollection: Codable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         folders = try container.decodeIfPresent([RequestFolder].self, forKey: .folders) ?? []
         requests = try container.decodeIfPresent([SavedRequest].self, forKey: .requests) ?? []
+        importedSiteRequestIDs = try container.decodeIfPresent(
+            [UUID].self, forKey: .importedSiteRequestIDs) ?? []
         expandedFolderIDs = try container.decodeIfPresent([UUID].self,
                                                           forKey: .expandedFolderIDs) ?? []
     }

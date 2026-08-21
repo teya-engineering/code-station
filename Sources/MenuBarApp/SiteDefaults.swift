@@ -287,7 +287,13 @@ extension SiteDefaults {
 
     var dispatchRequests: [SavedRequest] {
         (dispatch?.requests ?? []).map {
-            SavedRequest(name: $0.name, method: $0.method ?? .get, url: $0.url)
+            let method = $0.method ?? .get
+            return SavedRequest(
+                id: Self.identity(of: "dispatch\n\($0.name)\n\(method.rawValue)\n\($0.url)"),
+                name: $0.name,
+                method: method,
+                url: $0.url
+            )
         }
     }
 
