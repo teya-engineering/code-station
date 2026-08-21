@@ -20,21 +20,21 @@ struct ShortcutStoreTests {
     @Test func persistsAddsAndEdits() throws {
         let url = temporaryFile()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        let store = ShortcutStore(storageURL: url)
+        let store = emptyStore(url)
 
         let id = try #require(store.add(
             name: "  API server  ", command: "  ./gradlew bootRun  "))
         store.update(CommandShortcut(id: id, name: "Service", command: "./gradlew run",
                                      availableInAllProjects: true))
 
-        let reloaded = ShortcutStore(storageURL: url)
+        let reloaded = emptyStore(url)
         #expect(reloaded.shortcuts == [
             CommandShortcut(id: id, name: "Service", command: "./gradlew run",
                             availableInAllProjects: true)
         ])
 
         reloaded.remove(id)
-        #expect(ShortcutStore(storageURL: url).shortcuts.isEmpty)
+        #expect(emptyStore(url).shortcuts.isEmpty)
     }
 
     // A shortcut saved before shortcuts could belong to a project is the Mac's own.
@@ -48,7 +48,7 @@ struct ShortcutStoreTests {
         { "shortcuts": [ { "id": "\(id.uuidString)", "name": "Prune", "command": "docker system prune" } ] }
         """.utf8).write(to: url)
 
-        let store = ShortcutStore(storageURL: url)
+        let store = emptyStore(url)
 
         #expect(store.loadError == nil)
         #expect(store.shortcuts == [
@@ -85,7 +85,7 @@ struct ShortcutStoreTests {
     @Test func groupsShortcutsByOwner() throws {
         let url = temporaryFile()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        let store = ShortcutStore(storageURL: url)
+        let store = emptyStore(url)
         let lantern = UUID()
         let other = UUID()
 
@@ -110,7 +110,7 @@ struct ShortcutStoreTests {
     @Test func placesASharedShortcutOnceInAWorkspace() throws {
         let url = temporaryFile()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        let store = ShortcutStore(storageURL: url)
+        let store = emptyStore(url)
         let lead = UUID()
         let attached = UUID()
 
@@ -131,7 +131,7 @@ struct ShortcutStoreTests {
     @Test func countsRunsOnlyForTheListDoingTheAsking() async throws {
         let url = temporaryFile()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        let store = ShortcutStore(storageURL: url)
+        let store = emptyStore(url)
         let lantern = UUID()
         let owned = try #require(store.add(name: "Lint", command: "exit 1",
                                            projectID: lantern))
@@ -152,7 +152,7 @@ struct ShortcutStoreTests {
         let original = Data("not json".utf8)
         try original.write(to: url)
 
-        let store = ShortcutStore(storageURL: url)
+        let store = emptyStore(url)
         #expect(store.loadError != nil)
 
         store.add(name: "Build", command: "swift build")
@@ -164,7 +164,7 @@ struct ShortcutStoreTests {
     @Test func runsACommandAndCapturesBothOutputStreams() async throws {
         let url = temporaryFile()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        let store = ShortcutStore(storageURL: url)
+        let store = emptyStore(url)
         let id = try #require(store.add(
             name: "Output",
             command: "printf 'standard output'; printf 'error output' >&2"
@@ -183,7 +183,7 @@ struct ShortcutStoreTests {
     @Test func reportsTheExitCodeOfACommandThatFails() async throws {
         let url = temporaryFile()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        let store = ShortcutStore(storageURL: url)
+        let store = emptyStore(url)
         let id = try #require(store.add(name: "Lint", command: "exit 3"))
         let run = ShortcutRun(id, in: FileManager.default.temporaryDirectory.path)
 
@@ -212,7 +212,7 @@ struct ShortcutStoreTests {
         }
         defer { try? FileManager.default.removeItem(at: root) }
 
-        let store = ShortcutStore(storageURL: url)
+        let store = emptyStore(url)
         let id = try #require(store.add(name: "Where", command: "pwd"))
         let one = ShortcutRun(id, in: first.path)
         let two = ShortcutRun(id, in: second.path)
@@ -233,7 +233,7 @@ struct ShortcutStoreTests {
     @Test func forgetsRunsWhenAShortcutIsEdited() async throws {
         let url = temporaryFile()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        let store = ShortcutStore(storageURL: url)
+        let store = emptyStore(url)
         let id = try #require(store.add(name: "Say", command: "echo hello"))
         let run = ShortcutRun(id, in: FileManager.default.temporaryDirectory.path)
 
@@ -245,6 +245,10 @@ struct ShortcutStoreTests {
 
         #expect(store.state(run) == .stopped)
         #expect(store.log(run).isEmpty)
+    }
+
+    private func emptyStore(_ url: URL) -> ShortcutStore {
+        ShortcutStore(storageURL: url, siteDefaults: SiteDefaults())
     }
 
     private func settle(_ store: ShortcutStore, _ run: ShortcutRun) async throws {

@@ -123,28 +123,62 @@ struct SiteConfigurationImporterTests {
         }
     }
 
-    @Test func validatesEditedConfigurationWithoutRewritingIt() throws {
-        let text = """
-        {
-          "environments": [{ "name": "dev", "title": "Development" }],
-          "future": { "kept": true }
-        }
-        """
+    @Test func encodesTheCurrentConfigurationWithoutRuntimeMetadata() throws {
+        let defaults = SiteDefaults(
+            environments: [.init(name: "dev", title: "Development")],
+            skills: .init(name: "Team", marketplace: "team", repository: "example/skills"),
+            loadFailure: "old failure",
+            sourceURL: URL(fileURLWithPath: "/tmp/source.json"))
 
-        let data = try SiteConfigurationImporter.editedData(text)
+        let data = try SiteConfigurationImporter.configurationData(for: defaults)
         let root = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
 
-        #expect(String(decoding: data, as: UTF8.self) == text)
-        #expect((root["future"] as? [String: Bool])?["kept"] == true)
+        #expect(root["environments"] != nil)
+        #expect(root["skills"] != nil)
+        #expect(root["loadFailure"] == nil)
+        #expect(root["sourceURL"] == nil)
+        #expect(data.last == 0x0A)
     }
 
-    @Test func rejectsEmptyAndMalformedEdits() {
-        #expect(throws: ImportError.self) {
-            try SiteConfigurationImporter.editedData("  \n")
+    @Test func exportedJSONIncludesTheEnvironmentsTheAppIsUsing() throws {
+        let data = try SiteConfigurationImporter.configurationData(for: SiteDefaults())
+        let exported = try SiteDefaults.decode(data, from: URL(fileURLWithPath: "/tmp/export.json"))
+
+        #expect(exported.environments == SiteDefaults.ownEnvironments)
+    }
+
+    @Test func resetWritesACompleteMergeOfSelectedAndCurrentAspects() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let destination = root.appendingPathComponent("current.json")
+        let current = try SiteDefaults.decode(Data("""
+        {
+          "environments": [{ "name": "local" }],
+          "skills": { "name": "Personal", "marketplace": "personal", "repository": "personal/repo" },
+          "shortcuts": [{ "name": "Personal", "command": "make personal" }]
         }
-        #expect(throws: ImportError.self) {
-            try SiteConfigurationImporter.editedData(#"{ "environments": [ }"#)
-        }
+        """.utf8), from: destination)
+        let selection = try SiteConfigurationImporter.load(file: {
+            let file = root.appendingPathComponent("team.json")
+            try Data("""
+            {
+              "skills": { "name": "Team", "marketplace": "team", "repository": "team/repo" },
+              "shortcuts": [{ "name": "Team", "command": "make team" }]
+            }
+            """.utf8).write(to: file)
+            return file
+        }())
+
+        let reset = try SiteConfigurationImporter.reset(selection,
+                                                        aspects: [.skills],
+                                                        current: current,
+                                                        at: destination)
+        let written = SiteDefaults.load([destination])
+
+        #expect(reset.environments?.map(\.name) == ["local"])
+        #expect(reset.skills?.name == "Team")
+        #expect(reset.commandShortcuts.map(\.name) == ["Personal"])
+        #expect(written == reset)
     }
 
     @Test @MainActor func appliesImportedDefaultsToEmptyPersistedStores() throws {
@@ -232,7 +266,8 @@ struct SiteConfigurationImporterTests {
         #expect(auth.staging.state == "personal-state")
         #expect(auth.staging.headerPrefix == "Token")
         #expect(auth.staging.clientAuth == .basicHeader)
-        #expect(DispatchStore(storeURL: dispatchURL).requests.map(\.name)
+        #expect(DispatchStore(storeURL: dispatchURL,
+                              siteDefaults: SiteDefaults()).requests.map(\.name)
             == ["Personal", "Health"])
         #expect(ShortcutStore(storageURL: shortcutsURL).shortcuts.map(\.name)
             == ["Personal", "Run service"])
@@ -253,5 +288,51 @@ struct SiteConfigurationImporterTests {
 
         let reloaded = DispatchStore(storeURL: dispatchURL, siteDefaults: defaults)
         #expect(reloaded.requests.isEmpty)
+    }
+
+    @Test @MainActor func explicitResetReplacesSiteRequestsAndKeepsPersonalOnes() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let first = try SiteDefaults.decode(Data("""
+        { "dispatch": { "requests": [
+          { "name": "First", "url": "https://first.example" }
+        ] } }
+        """.utf8), from: root.appendingPathComponent("first.json"))
+        let second = try SiteDefaults.decode(Data("""
+        { "dispatch": { "requests": [
+          { "name": "Second", "url": "https://second.example" }
+        ] } }
+        """.utf8), from: root.appendingPathComponent("second.json"))
+        let store = DispatchStore(storeURL: root.appendingPathComponent("dispatch.json"),
+                                  siteDefaults: first)
+        store.applySiteDefaults(first)
+        store.add(SavedRequest(name: "Personal", url: "https://personal.example"))
+
+        #expect(store.siteConfigurationRequests.map(\.name) == ["First"])
+
+        store.resetSiteRequests(to: second)
+
+        #expect(store.requests.map(\.name) == ["Personal", "Second"])
+        #expect(store.siteConfigurationRequests.map(\.name) == ["Second"])
+    }
+
+    @Test @MainActor func explicitResetReplacesSiteShortcutsAndKeepsPersonalOnes() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let first = SiteDefaults(shortcuts: [.init(name: "First", command: "make first")])
+        let second = SiteDefaults(shortcuts: [.init(name: "Second", command: "make second")])
+        let url = root.appendingPathComponent("shortcuts.json")
+        let store = ShortcutStore(storageURL: url)
+        store.applySiteDefaults(first)
+        _ = store.add(name: "Personal", command: "make personal")
+
+        #expect(store.siteConfigurationShortcuts.map(\.name) == ["First"])
+
+        store.resetSiteShortcuts(to: second)
+
+        #expect(store.shortcuts.map(\.name) == ["Personal", "Second"])
+        #expect(store.siteConfigurationShortcuts.map(\.name) == ["Second"])
+        #expect(ShortcutStore(storageURL: url).shortcuts.map(\.name)
+            == ["Personal", "Second"])
     }
 }

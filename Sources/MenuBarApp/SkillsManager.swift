@@ -17,7 +17,7 @@ struct SkillMarketplace: Decodable, Equatable, Sendable {
 }
 
 struct SkillMarketplaceConfiguration: Codable, Equatable, Sendable {
-    enum SourceKind: String, Codable, Sendable {
+    enum SourceKind: String, Codable, Equatable, Sendable {
         case gitRepository
         case localFile
     }
@@ -35,7 +35,7 @@ struct SkillMarketplaceConfiguration: Codable, Equatable, Sendable {
 
     static func siteDefault(_ skills: SiteDefaults.Skills) -> Self {
         Self(source: skills.repository,
-             sourceKind: .gitRepository,
+             sourceKind: skills.sourceKind ?? .gitRepository,
              marketplace: skills.marketplace,
              label: skills.name)
     }

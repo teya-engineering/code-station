@@ -105,6 +105,7 @@ final class ShortcutStore {
 
     private struct Persisted: Codable {
         var shortcuts: [CommandShortcut]
+        var importedSiteShortcutIDs: [UUID]?
     }
 
     private struct InvalidFile: LocalizedError {
@@ -118,16 +119,21 @@ final class ShortcutStore {
     private(set) var logs: [ShortcutRun: String] = [:]
     private(set) var loadError: String?
     private(set) var saveError: String?
+    private var importedSiteShortcutIDs = Set(SiteDefaults.current.commandShortcuts.map(\.id))
 
     let storageURL: URL
     private let files: PersistentFileClient
     @ObservationIgnored private var tasks: [ShortcutRun: Task<Void, Never>] = [:]
     @ObservationIgnored private var runTokens: [ShortcutRun: UUID] = [:]
 
-    init(storageURL: URL? = nil, files: PersistentFileClient = .live) {
+    init(storageURL: URL? = nil,
+         files: PersistentFileClient = .live,
+         siteDefaults: SiteDefaults = .current) {
         self.storageURL = storageURL ?? AppPaths.supportFile("shortcuts.json")
         self.files = files
-        load()
+        shortcuts = siteDefaults.commandShortcuts
+        importedSiteShortcutIDs = Set(siteDefaults.commandShortcuts.map(\.id))
+        load(siteDefaults: siteDefaults)
     }
 
     func applySiteDefaults(_ defaults: SiteDefaults) {
@@ -136,17 +142,34 @@ final class ShortcutStore {
         // a saved collection, imports merge into it instead of replacing personal commands.
         guard FileManager.default.fileExists(atPath: storageURL.path) else {
             shortcuts = siteShortcuts
+            importedSiteShortcutIDs = Set(siteShortcuts.map(\.id))
             save()
             return
         }
 
         var savedIDs = Set(shortcuts.map(\.id))
         var added = false
-        for shortcut in siteShortcuts where savedIDs.insert(shortcut.id).inserted {
-            shortcuts.append(shortcut)
-            added = true
+        for shortcut in siteShortcuts {
+            importedSiteShortcutIDs.insert(shortcut.id)
+            if savedIDs.insert(shortcut.id).inserted {
+                shortcuts.append(shortcut)
+                added = true
+            }
         }
-        guard added else { return }
+        if added { save() }
+    }
+
+    // Site shortcuts have stable IDs derived from their contents, which lets a reset
+    // replace only that collection and preserve personal and project shortcuts.
+    func resetSiteShortcuts(to defaults: SiteDefaults) {
+        let removed = importedSiteShortcutIDs
+        for id in removed { stopEveryRun(of: id) }
+        shortcuts.removeAll { removed.contains($0.id) }
+        for id in removed { forgetRuns(of: id) }
+
+        let siteShortcuts = defaults.commandShortcuts
+        importedSiteShortcutIDs = Set(siteShortcuts.map(\.id))
+        shortcuts.append(contentsOf: siteShortcuts)
         save()
     }
 
@@ -175,6 +198,13 @@ final class ShortcutStore {
     // order they were added in, so a list never reshuffles itself under the reader.
     var macShortcuts: [CommandShortcut] {
         shortcuts.filter { $0.projectID == nil }
+    }
+
+    var siteConfigurationShortcuts: [SiteDefaults.Shortcut] {
+        shortcuts.compactMap { shortcut in
+            guard importedSiteShortcutIDs.contains(shortcut.id) else { return nil }
+            return SiteDefaults.Shortcut(name: shortcut.name, command: shortcut.command)
+        }
     }
 
     func shortcuts(for projectID: UUID) -> [CommandShortcut] {
@@ -207,7 +237,7 @@ final class ShortcutStore {
 
     // MARK: - Persistence
 
-    func load() {
+    func load(siteDefaults: SiteDefaults = .current) {
         let data: Data?
         do {
             data = try files.readIfPresent(storageURL)
@@ -217,7 +247,8 @@ final class ShortcutStore {
         }
 
         guard let data else {
-            shortcuts = SiteDefaults.current.commandShortcuts
+            shortcuts = siteDefaults.commandShortcuts
+            importedSiteShortcutIDs = Set(shortcuts.map(\.id))
             loadError = nil
             saveError = nil
             return
@@ -234,6 +265,8 @@ final class ShortcutStore {
                 throw InvalidFile()
             }
             shortcuts = persisted.shortcuts
+            importedSiteShortcutIDs = Set(persisted.importedSiteShortcutIDs
+                ?? siteDefaults.commandShortcuts.map(\.id))
             loadError = nil
             saveError = nil
         } catch {
@@ -251,7 +284,9 @@ final class ShortcutStore {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         do {
-            let data = try encoder.encode(Persisted(shortcuts: shortcuts))
+            let importedIDs = importedSiteShortcutIDs.sorted { $0.uuidString < $1.uuidString }
+            let data = try encoder.encode(Persisted(shortcuts: shortcuts,
+                                                    importedSiteShortcutIDs: importedIDs))
             try files.write(data, storageURL)
             saveError = nil
             return true

@@ -110,6 +110,13 @@ final class DispatchAuthStore {
 
     func applySiteDefaults(_ defaults: SiteDefaults) {
         guard defaults.dispatch?.oauth != nil else { return }
+        resetSiteAccess(to: defaults)
+    }
+
+    // Unlike startup seeding, an explicit reset is allowed to clear shared provider
+    // fields. Secrets and the few personal transport choices never belong to the shared
+    // configuration and remain untouched.
+    func resetSiteAccess(to defaults: SiteDefaults) {
         let oauth = defaults.dispatchOAuth
         var staging = oauth
         var production = oauth

@@ -74,6 +74,19 @@ struct SkillsManagerTests {
         #expect(marketplace.plugins.map(\.name) == ["backend-specialist"])
     }
 
+    @Test func siteConfigurationKeepsALocalMarketplaceSource() {
+        let skills = SiteDefaults.Skills(name: "Local Engineering",
+                                         marketplace: "local-engineering",
+                                         repository: "/tmp/marketplace.json",
+                                         sourceKind: .localFile)
+
+        #expect(SkillMarketplaceConfiguration.siteDefault(skills)
+            == SkillMarketplaceConfiguration(source: "/tmp/marketplace.json",
+                                              sourceKind: .localFile,
+                                              marketplace: "local-engineering",
+                                              label: "Local Engineering"))
+    }
+
     @Test func rejectsInvalidLocalMarketplaceFile() throws {
         let url = try file(#"{ "plugins": [] }"#)
         defer { try? FileManager.default.removeItem(at: url) }

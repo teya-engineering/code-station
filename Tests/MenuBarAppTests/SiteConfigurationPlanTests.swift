@@ -32,111 +32,85 @@ struct SiteConfigurationPlanTests {
         try SiteDefaults.decode(Data(text.utf8), from: URL(fileURLWithPath: "/tmp/site.json"))
     }
 
-    private func filtered(_ chosen: Set<SiteConfigurationItem>) throws -> SiteDefaults {
-        let data = try SiteConfigurationPlan.filter(Data(file.utf8), keeping: chosen)
-        return try SiteDefaults.decode(data, from: URL(fileURLWithPath: "/tmp/site.json"))
-    }
-
-    @Test func listsEveryPartOfAFileOnceEach() throws {
+    @Test func listsEveryResettableAspectOnce() throws {
         let plan = SiteConfigurationPlan(try defaults(file))
 
-        #expect(plan.groups.map(\.title)
-            == ["Environments", "API access", "Starter requests", "Grafana presets",
-                "Skills marketplace", "Shortcuts"])
-        #expect(plan.items.count == 10)
-        #expect(plan.everything.count == 10)
-        #expect(plan.groups[0].items.map(\.title) == ["Dev", "Prod"])
-        #expect(plan.groups[0].items.map(\.detail)
-            == ["Tagged dev", "Tagged prd, and treated as live"])
-        #expect(plan.groups[2].items.map(\.title) == ["Health", "Orders"])
-        #expect(plan.groups[3].items.map(\.title) == ["grafana-platform-prd", "grafana-edge-prd"])
+        #expect(plan.aspects == [.environments, .apiAccess, .requests, .grafana,
+                                 .skills, .shortcuts])
+        #expect(plan.everything == Set(SiteConfigurationAspect.allCases))
     }
 
-    @Test func skipsSectionsAFileLeavesOut() throws {
-        let plan = SiteConfigurationPlan(try defaults(#"{ "shortcuts": [{ "name": "Build", "command": "make" }] }"#))
+    @Test func includesAnExplicitlyEmptyAspect() throws {
+        let plan = SiteConfigurationPlan(try defaults(
+            #"{ "environments": [], "shortcuts": [] }"#))
 
-        #expect(plan.groups.map(\.title) == ["Shortcuts"])
-        #expect(plan.items.map(\.id) == [.shortcut(0)])
+        #expect(plan.aspects == [.environments, .shortcuts])
+        #expect(SiteConfigurationAspect.shortcuts.detail(in: try defaults(
+            #"{ "shortcuts": [] }"#)) == "0 shortcuts")
     }
 
-    @Test func keepsOnlyTheChosenItems() throws {
-        let kept = try filtered([.environment(1), .request(1), .grafanaPreset(0), .shortcut(0)])
-
-        #expect(kept.deployEnvironments.map(\.name) == ["prd"])
-        #expect(kept.dispatchRequests.map(\.name) == ["Orders"])
-        #expect(kept.grafanaPresets.map(\.name) == ["grafana-platform-prd"])
-        #expect(kept.commandShortcuts.map(\.name) == ["Run service"])
-        #expect(kept.skills == nil)
-        #expect(kept.dispatch?.oauth == nil)
-        // An unpicked section keeps the app's own values rather than the file's.
-        #expect(kept.dispatchEnvValues == ("dev", "prd"))
-    }
-
-    @Test func dropsASectionNothingWasKeptFrom() throws {
-        let kept = try filtered([.skills])
-
-        // Nothing kept leaves the app on its own environments rather than on an empty list.
-        #expect(kept.environments == nil)
-        #expect(kept.deployEnvironments.map(\.name) == ["staging", "production"])
-        #expect(kept.dispatch == nil)
-        #expect(kept.grafana == nil)
-        #expect(kept.shortcuts == nil)
-        #expect(kept.skills?.name == "Team")
-    }
-
-    @Test func keepingEverythingMatchesTheFileItself() throws {
-        let plan = SiteConfigurationPlan(try defaults(file))
-        let kept = try filtered(plan.everything)
-
-        #expect(kept.deployEnvironments.map(\.name) == ["dev", "prd"])
-        #expect(kept.dispatchRequests.map(\.name) == ["Health", "Orders"])
-        #expect(kept.grafanaPresets.count == 2)
-        #expect(kept.dispatchEnvValues == ("sbx", "live"))
-        #expect(kept.dispatchOAuth.clientID == "code-station")
-        #expect(kept.commandShortcuts.count == 1)
-        #expect(kept.skills != nil)
-    }
-
-    // A file written before the HTTP client was renamed still names the section "postman".
-    @Test func filtersTheOlderNameForTheRequestSection() throws {
-        let legacy = """
+    @Test func resettingSelectedAspectsKeepsEverythingElseCurrent() throws {
+        let current = try defaults("""
         {
-          "postman": {
-            "requests": [
-              { "name": "Health", "url": "https://api.example/health" },
-              { "name": "Orders", "url": "https://api.example/orders" }
-            ]
+          "environments": [{ "name": "local", "title": "Local" }],
+          "dispatch": {
+            "oauth": { "clientID": "personal" },
+            "requests": [{ "name": "Personal", "url": "https://personal.example" }]
+          },
+          "skills": { "name": "Personal", "marketplace": "personal", "repository": "personal/repo" },
+          "shortcuts": [{ "name": "Personal", "command": "make personal" }]
+        }
+        """)
+        let imported = try defaults(file)
+
+        let reset = SiteConfigurationPlan.resetting([.skills, .shortcuts],
+                                                    in: current,
+                                                    to: imported)
+
+        #expect(reset.environments?.map(\.name) == ["local"])
+        #expect(reset.dispatch?.oauth?.clientID == "personal")
+        #expect(reset.dispatchRequests.map(\.name) == ["Personal"])
+        #expect(reset.skills?.name == "Team")
+        #expect(reset.commandShortcuts.map(\.name) == ["Run service"])
+    }
+
+    @Test func apiAccessAndRequestsResetIndependently() throws {
+        let current = try defaults("""
+        {
+          "dispatch": {
+            "oauth": { "clientID": "personal" },
+            "environments": { "staging": "local", "production": "prod" },
+            "requests": [{ "name": "Personal", "url": "https://personal.example" }]
           }
         }
-        """
-        let data = try SiteConfigurationPlan.filter(Data(legacy.utf8), keeping: [.request(0)])
-        let kept = try SiteDefaults.decode(data, from: URL(fileURLWithPath: "/tmp/site.json"))
+        """)
+        let imported = try defaults(file)
 
-        #expect(kept.dispatchRequests.map(\.name) == ["Health"])
+        let access = SiteConfigurationPlan.resetting([.apiAccess],
+                                                     in: current,
+                                                     to: imported)
+        #expect(access.dispatch?.oauth?.clientID == "code-station")
+        #expect(access.dispatchEnvValues == ("sbx", "live"))
+        #expect(access.dispatchRequests.map(\.name) == ["Personal"])
+
+        let requests = SiteConfigurationPlan.resetting([.requests],
+                                                       in: current,
+                                                       to: imported)
+        #expect(requests.dispatch?.oauth?.clientID == "personal")
+        #expect(requests.dispatchEnvValues == ("local", "prod"))
+        #expect(requests.dispatchRequests.map(\.name) == ["Health", "Orders"])
     }
 
-    // The app only reads some of what a file may carry, so an import that keeps a section
-    // has to hand the section over whole.
-    @Test func leavesUnknownKeysInAKeptSection() throws {
-        let extended = """
-        { "grafana": { "presets": [ { "scope": "a", "environment": "prd", "url": "https://a.example" } ],
-                       "notes": "kept" },
-          "future": { "anything": true } }
-        """
-        let data = try SiteConfigurationPlan.filter(Data(extended.utf8), keeping: [.grafanaPreset(0)])
-        let root = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+    @Test func anEmptyImportedCollectionClearsOnlyThatCollection() throws {
+        let current = try defaults(file)
+        let imported = try defaults(#"{ "shortcuts": [] }"#)
 
-        #expect((root["grafana"] as? [String: Any])?["notes"] as? String == "kept")
-        #expect(root["future"] != nil)
-    }
+        let reset = SiteConfigurationPlan.resetting([.shortcuts],
+                                                    in: current,
+                                                    to: imported)
 
-    @Test func refusesAnEmptyChoice() throws {
-        let selection = SiteConfigurationSelection(data: Data(file.utf8),
-                                                   sourceName: "team.json",
-                                                   defaults: try defaults(file))
-
-        #expect(throws: ImportError.self) {
-            try SiteConfigurationImporter.install(selection, keeping: [])
-        }
+        #expect(reset.shortcuts?.isEmpty == true)
+        #expect(reset.skills?.name == "Team")
+        #expect(reset.grafanaPresets.count == 2)
     }
 }

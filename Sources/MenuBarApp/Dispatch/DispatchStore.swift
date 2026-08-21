@@ -23,6 +23,15 @@ final class DispatchStore {
 
     var selected: SavedRequest? { requests.first { $0.id == selectedID } }
 
+    var siteConfigurationRequests: [SiteDefaults.DispatchConfig.Request] {
+        requests.compactMap { request in
+            guard importedSiteRequestIDs.contains(request.id) else { return nil }
+            return SiteDefaults.DispatchConfig.Request(name: request.name,
+                                                       method: request.method,
+                                                       url: request.url)
+        }
+    }
+
     init(storeURL: URL? = nil, siteDefaults: SiteDefaults = .current) {
         self.storeURL = storeURL ?? Self.defaultStoreURL()
         load(siteDefaults)
@@ -59,6 +68,25 @@ final class DispatchStore {
             changed = true
         }
         guard changed else { return }
+        if !siteRequests.isEmpty { expandedFolderIDs.insert(RequestFolder.defaultID) }
+        save()
+    }
+
+    // A reset replaces the requests owned by site configuration and leaves requests the
+    // user created in Dispatch alone. The tracked IDs also include site requests the user
+    // deleted, so a reset can restore them without mistaking personal requests for defaults.
+    func resetSiteRequests(to defaults: SiteDefaults) {
+        for id in importedSiteRequestIDs {
+            if selectedID == id { selectedID = nil }
+        }
+        requests.removeAll { importedSiteRequestIDs.contains($0.id) }
+
+        let siteRequests = defaults.dispatchRequests
+        importedSiteRequestIDs = Set(siteRequests.map(\.id))
+        for var request in siteRequests {
+            request.folderID = RequestFolder.defaultID
+            requests.append(request)
+        }
         if !siteRequests.isEmpty { expandedFolderIDs.insert(RequestFolder.defaultID) }
         save()
     }

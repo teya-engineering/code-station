@@ -1,176 +1,120 @@
 import Foundation
 
-// One thing a settings file offers. A file arrives as a single document, but the parts of
-// it are unrelated: an organisation's Grafana instances are worth taking even when its
-// starter requests would bury the ones already saved. The index is the position in the
-// file's own array, which is what lets a choice be applied back to the raw JSON.
-enum SiteConfigurationItem: Hashable, Sendable {
-    case oauth
-    case dispatchEnvironments
-    case environment(Int)
-    case request(Int)
-    case grafanaPreset(Int)
+// A configuration file is useful as a baseline without being an all-or-nothing import.
+// Each aspect can be reset on its own, while everything not selected stays as it is.
+enum SiteConfigurationAspect: String, CaseIterable, Hashable, Identifiable, Sendable {
+    case environments
+    case apiAccess
+    case requests
+    case grafana
     case skills
-    case shortcut(Int)
+    case shortcuts
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .environments: "Environments"
+        case .apiAccess: "API access"
+        case .requests: "Starter requests"
+        case .grafana: "Grafana presets"
+        case .skills: "Skills marketplace"
+        case .shortcuts: "Shortcuts"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .environments: "server.rack"
+        case .apiAccess: "key"
+        case .requests: "arrow.up.right"
+        case .grafana: "chart.xyaxis.line"
+        case .skills: "shippingbox"
+        case .shortcuts: "terminal"
+        }
+    }
+
+    func detail(in defaults: SiteDefaults) -> String {
+        switch self {
+        case .environments:
+            let count = defaults.environments?.count ?? 0
+            return count == 1 ? "1 environment" : "\(count) environments"
+        case .apiAccess:
+            let oauth = defaults.dispatch?.oauth
+            let names = defaults.dispatch?.environments
+            if let clientID = oauth?.clientID, !clientID.isEmpty { return clientID }
+            if oauth != nil && names != nil { return "Sign-in provider and environment names" }
+            if oauth != nil { return "Sign-in provider" }
+            return "Environment names"
+        case .requests:
+            let count = defaults.dispatch?.requests?.count ?? 0
+            return count == 1 ? "1 starter request" : "\(count) starter requests"
+        case .grafana:
+            let count = defaults.grafana?.presets?.count ?? 0
+            return count == 1 ? "1 Grafana preset" : "\(count) Grafana presets"
+        case .skills:
+            return defaults.skills?.name ?? "No marketplace"
+        case .shortcuts:
+            let count = defaults.shortcuts?.count ?? 0
+            return count == 1 ? "1 shortcut" : "\(count) shortcuts"
+        }
+    }
 }
 
-// What a loaded file holds, listed so it can be reviewed before any of it is kept.
 struct SiteConfigurationPlan: Sendable {
-    struct Item: Identifiable, Sendable {
-        let id: SiteConfigurationItem
-        let title: String
-        let detail: String
-    }
+    let aspects: [SiteConfigurationAspect]
 
-    struct Group: Identifiable, Sendable {
-        let title: String
-        let items: [Item]
-
-        var id: String { title }
-    }
-
-    let groups: [Group]
-
-    var items: [Item] { groups.flatMap(\.items) }
-    var everything: Set<SiteConfigurationItem> { Set(items.map(\.id)) }
-    var isEmpty: Bool { groups.isEmpty }
+    var everything: Set<SiteConfigurationAspect> { Set(aspects) }
+    var isEmpty: Bool { aspects.isEmpty }
 
     init(_ defaults: SiteDefaults) {
-        var groups: [Group] = []
-
-        let environments = defaults.environments ?? []
-        if !environments.isEmpty {
-            groups.append(Group(title: "Environments",
-                                items: environments.enumerated().map { index, environment in
-                Item(id: .environment(index),
-                     title: environment.label,
-                     detail: environment.isDangerous
-                         ? "Tagged \(environment.name), and treated as live"
-                         : "Tagged \(environment.name)")
-            }))
-        }
-
-        var access: [Item] = []
-        if let oauth = defaults.dispatch?.oauth {
-            let detail = [oauth.clientID, oauth.tokenURL ?? oauth.authURL]
-                .compactMap { $0 }
-                .joined(separator: " at ")
-            access.append(Item(id: .oauth,
-                               title: "Sign-in provider",
-                               detail: detail.isEmpty ? "The provider API calls sign in against" : detail))
-        }
-        if let environments = defaults.dispatch?.environments,
-           environments.staging != nil || environments.production != nil {
-            let values = defaults.dispatchEnvValues
-            access.append(Item(id: .dispatchEnvironments,
-                               title: "Environment names",
-                               detail: "staging is \(values.staging), production is \(values.production)"))
-        }
-        if !access.isEmpty {
-            groups.append(Group(title: "API access", items: access))
-        }
-
-        let requests = defaults.dispatch?.requests ?? []
-        if !requests.isEmpty {
-            groups.append(Group(title: "Starter requests",
-                                items: requests.enumerated().map { index, request in
-                Item(id: .request(index),
-                     title: request.name,
-                     detail: "\((request.method ?? .get).rawValue) \(request.url)")
-            }))
-        }
-
-        let presets = defaults.grafanaPresets
-        if !presets.isEmpty {
-            groups.append(Group(title: "Grafana presets",
-                                items: presets.enumerated().map { index, preset in
-                Item(id: .grafanaPreset(index), title: preset.name, detail: preset.url)
-            }))
-        }
-
-        if let skills = defaults.skills {
-            groups.append(Group(title: "Skills marketplace",
-                                items: [Item(id: .skills,
-                                             title: skills.name,
-                                             detail: skills.repository)]))
-        }
-
-        let shortcuts = defaults.shortcuts ?? []
-        if !shortcuts.isEmpty {
-            groups.append(Group(title: "Shortcuts",
-                                items: shortcuts.enumerated().map { index, shortcut in
-                Item(id: .shortcut(index), title: shortcut.name, detail: shortcut.command)
-            }))
-        }
-
-        self.groups = groups
-    }
-}
-
-extension SiteConfigurationPlan {
-    // The chosen parts written back as a settings file. The file's own JSON is edited
-    // rather than re-encoded from the decoded values, so anything the app does not read
-    // yet - a newer key, a field only one section uses - survives an import that keeps
-    // the section holding it.
-    static func filter(_ data: Data, keeping chosen: Set<SiteConfigurationItem>) throws -> Data {
-        let object = try? JSONSerialization.jsonObject(with: data)
-        guard var root = object as? [String: Any] else {
-            throw ImportError("The configuration is not a JSON object.")
-        }
-
-        // A file may still name this section the way the HTTP client used to be called.
-        let dispatchKey = root["dispatch"] != nil ? "dispatch" : "postman"
-        if var dispatch = root[dispatchKey] as? [String: Any] {
-            if !chosen.contains(.oauth) { dispatch.removeValue(forKey: "oauth") }
-            if !chosen.contains(.dispatchEnvironments) {
-                dispatch.removeValue(forKey: "environments")
+        aspects = SiteConfigurationAspect.allCases.filter { aspect in
+            switch aspect {
+            case .environments:
+                defaults.environments != nil
+            case .apiAccess:
+                defaults.dispatch?.oauth != nil || defaults.dispatch?.environments != nil
+            case .requests:
+                defaults.dispatch?.requests != nil
+            case .grafana:
+                defaults.grafana != nil
+            case .skills:
+                defaults.skills != nil
+            case .shortcuts:
+                defaults.shortcuts != nil
             }
-            if let requests = dispatch["requests"] as? [Any] {
-                put(keep(requests) { chosen.contains(.request($0)) },
-                    at: "requests", in: &dispatch)
-            }
-            put(dispatch.isEmpty ? nil : dispatch, at: dispatchKey, in: &root)
-        }
-
-        if let environments = root["environments"] as? [Any] {
-            put(keep(environments) { chosen.contains(.environment($0)) },
-                at: "environments", in: &root)
-        }
-
-        if var grafana = root["grafana"] as? [String: Any] {
-            if let presets = grafana["presets"] as? [Any] {
-                put(keep(presets) { chosen.contains(.grafanaPreset($0)) },
-                    at: "presets", in: &grafana)
-            }
-            put(grafana.isEmpty ? nil : grafana, at: "grafana", in: &root)
-        }
-
-        if !chosen.contains(.skills) { root.removeValue(forKey: "skills") }
-
-        if let shortcuts = root["shortcuts"] as? [Any] {
-            put(keep(shortcuts) { chosen.contains(.shortcut($0)) }, at: "shortcuts", in: &root)
-        }
-
-        do {
-            return try JSONSerialization.data(withJSONObject: root,
-                                              options: [.prettyPrinted, .sortedKeys])
-        } catch {
-            throw ImportError("The chosen parts could not be saved: \(error.localizedDescription)")
         }
     }
 
-    // An emptied list is dropped rather than left behind, so a section nobody kept reads
-    // as absent instead of as one that deliberately offers nothing.
-    private static func keep(_ values: [Any], where isChosen: (Int) -> Bool) -> [Any]? {
-        let kept = values.enumerated().filter { isChosen($0.offset) }.map(\.element)
-        return kept.isEmpty ? nil : kept
-    }
+    static func resetting(_ chosen: Set<SiteConfigurationAspect>,
+                          in current: SiteDefaults,
+                          to imported: SiteDefaults) -> SiteDefaults {
+        var result = current
 
-    private static func put(_ value: Any?, at key: String, in dictionary: inout [String: Any]) {
-        if let value {
-            dictionary[key] = value
-        } else {
-            dictionary.removeValue(forKey: key)
+        if chosen.contains(.environments) {
+            result.environments = imported.deployEnvironments
         }
+
+        if chosen.contains(.apiAccess) || chosen.contains(.requests) {
+            var dispatch = result.dispatch ?? SiteDefaults.DispatchConfig()
+            if chosen.contains(.apiAccess) {
+                dispatch.oauth = imported.dispatch?.oauth
+                dispatch.environments = imported.dispatch?.environments
+            }
+            if chosen.contains(.requests) {
+                dispatch.requests = imported.dispatch?.requests
+            }
+            result.dispatch = dispatch.oauth == nil
+                && dispatch.environments == nil
+                && dispatch.requests == nil ? nil : dispatch
+        }
+
+        if chosen.contains(.grafana) { result.grafana = imported.grafana }
+        if chosen.contains(.skills) { result.skills = imported.skills }
+        if chosen.contains(.shortcuts) { result.shortcuts = imported.shortcuts }
+
+        result.loadFailure = nil
+        result.sourceURL = nil
+        return result
     }
 }

@@ -8,17 +8,18 @@ import Foundation
 // means each team points the same build at its own setup, and a build with no file at all
 // still runs with every one of them empty.
 //
-// The file is read from the first of these that can be parsed:
+// The current configuration is read from the first of these that can be parsed:
 //
 //   1. $CODE_STATION_SITE_DEFAULTS
 //   2. A saved external configuration path
 //   3. <application support>/site-defaults.json
 //   4. site-defaults.json inside the app bundle
 //
-// None of it is compiled in. `site-defaults.example.json` shows the shape, and the build
-// script can fold a chosen settings file into the bundle so a team can hand out an app
-// that is already set up.
-struct SiteDefaults: Decodable, Sendable {
+// Once the user changes or resets any part, the application-support file is updated and
+// is also what the settings screen exports. `site-defaults.example.json` shows the shape,
+// and the build script can fold a chosen settings file into the bundle so a team can hand
+// out an app that is already set up.
+struct SiteDefaults: Codable, Sendable, Equatable {
     var dispatch: DispatchConfig? = nil
     var environments: [Environment]? = nil
     var grafana: Grafana? = nil
@@ -62,10 +63,19 @@ struct SiteDefaults: Decodable, Sendable {
         shortcuts = try values.decodeIfPresent([Shortcut].self, forKey: .shortcuts)
     }
 
+    func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encodeIfPresent(dispatch, forKey: .dispatch)
+        try values.encodeIfPresent(environments, forKey: .environments)
+        try values.encodeIfPresent(grafana, forKey: .grafana)
+        try values.encodeIfPresent(skills, forKey: .skills)
+        try values.encodeIfPresent(shortcuts, forKey: .shortcuts)
+    }
+
     // The deployments an organisation runs. Every MCP server is tagged with one of these,
     // and a troubleshooting session offers a server only for the environment it is tagged
     // with, so a dev diagnosis cannot reach into production by accident.
-    struct Environment: Decodable, Sendable, Equatable, Identifiable {
+    struct Environment: Codable, Sendable, Equatable, Identifiable {
         var name: String
         var title: String?
         var danger: Bool?
@@ -86,43 +96,80 @@ struct SiteDefaults: Decodable, Sendable {
         var isDangerous: Bool { danger ?? false }
     }
 
-    struct DispatchConfig: Decodable, Sendable {
+    struct DispatchConfig: Codable, Sendable, Equatable {
         var oauth: OAuth?
         var requests: [Request]?
         var environments: Environments?
 
+        init(oauth: OAuth? = nil,
+             requests: [Request]? = nil,
+             environments: Environments? = nil) {
+            self.oauth = oauth
+            self.requests = requests
+            self.environments = environments
+        }
+
         // What {{env}} stands for on each side of the sheet. Named here because the same
         // deployment is "dev" to one organisation and "staging" to the next.
-        struct Environments: Decodable, Sendable {
+        struct Environments: Codable, Sendable, Equatable {
             var staging: String?
             var production: String?
+
+            init(staging: String? = nil, production: String? = nil) {
+                self.staging = staging
+                self.production = production
+            }
         }
 
         // Only the fields that identify a provider. The client secret and the tokens are
         // the user's own and live in the Keychain, so they are never written here.
-        struct OAuth: Decodable, Sendable {
+        struct OAuth: Codable, Sendable, Equatable {
             var grant: GrantType?
             var authURL: String?
             var tokenURL: String?
             var clientID: String?
             var scope: String?
             var callbackURL: String?
+
+            init(grant: GrantType? = nil,
+                 authURL: String? = nil,
+                 tokenURL: String? = nil,
+                 clientID: String? = nil,
+                 scope: String? = nil,
+                 callbackURL: String? = nil) {
+                self.grant = grant
+                self.authURL = authURL
+                self.tokenURL = tokenURL
+                self.clientID = clientID
+                self.scope = scope
+                self.callbackURL = callbackURL
+            }
         }
 
-        struct Request: Decodable, Sendable {
+        struct Request: Codable, Sendable, Equatable {
             var name: String
             var method: HTTPMethod?
             var url: String
+
+            init(name: String, method: HTTPMethod? = nil, url: String) {
+                self.name = name
+                self.method = method
+                self.url = url
+            }
         }
     }
 
-    struct Grafana: Decodable, Sendable {
+    struct Grafana: Codable, Sendable, Equatable {
         // Every instance is named after this, both here and in the agents' config files.
         static let namePrefix = "grafana-"
 
         var presets: [Preset]?
 
-        struct Preset: Decodable, Sendable, Equatable, Identifiable {
+        init(presets: [Preset]? = nil) {
+            self.presets = presets
+        }
+
+        struct Preset: Codable, Sendable, Equatable, Identifiable {
             var scope: String
             // Doubles as the environment tag a server added from this preset starts with.
             var environment: String
@@ -143,17 +190,33 @@ struct SiteDefaults: Decodable, Sendable {
         }
     }
 
-    struct Skills: Decodable, Sendable {
+    struct Skills: Codable, Sendable, Equatable {
         var name: String
         var marketplace: String
         var repository: String
+        var sourceKind: SkillMarketplaceConfiguration.SourceKind?
+
+        init(name: String,
+             marketplace: String,
+             repository: String,
+             sourceKind: SkillMarketplaceConfiguration.SourceKind? = nil) {
+            self.name = name
+            self.marketplace = marketplace
+            self.repository = repository
+            self.sourceKind = sourceKind
+        }
     }
 
     // A command a fresh install starts with, for the ones a whole team runs often enough
     // to be worth handing over rather than typing out.
-    struct Shortcut: Decodable, Sendable {
+    struct Shortcut: Codable, Sendable, Equatable {
         var name: String
         var command: String
+
+        init(name: String, command: String) {
+            self.name = name
+            self.command = command
+        }
     }
 }
 
@@ -167,6 +230,15 @@ extension SiteDefaults {
         let defaults = load()
         storage.write(defaults)
         return defaults
+    }
+
+    @discardableResult
+    static func setCurrent(_ defaults: SiteDefaults, sourceURL: URL) -> SiteDefaults {
+        var current = defaults
+        current.loadFailure = nil
+        current.sourceURL = sourceURL
+        storage.write(current)
+        return current
     }
 
     static func decode(_ data: Data, from url: URL) throws -> SiteDefaults {

@@ -1,13 +1,12 @@
 import Foundation
 
 struct SiteConfigurationSelection: Sendable {
-    let data: Data
     let sourceName: String
     let defaults: SiteDefaults
 
     var summary: String { defaults.summary }
 
-    // What the file offers, one pickable part at a time.
+    // What the file offers, one independently resettable aspect at a time.
     var plan: SiteConfigurationPlan { SiteConfigurationPlan(defaults) }
 }
 
@@ -109,55 +108,60 @@ enum SiteConfigurationImporter {
 
     @discardableResult
     static func install(_ selection: SiteConfigurationSelection) throws -> SiteDefaults {
-        try write(selection.data)
+        try install(selection.defaults)
     }
 
-    // Editing keeps the document as text rather than rebuilding it from SiteDefaults.
-    // That preserves fields a newer site file may carry before this build reads them.
-    static func editedData(_ text: String, sourceURL: URL = destination) throws -> Data {
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw ImportError("The configuration cannot be empty. Use an empty JSON object if no shared settings are needed.")
+    static func configurationData(for defaults: SiteDefaults) throws -> Data {
+        // Environments always have a resolved value in the app. Materialising that value
+        // keeps an export from claiming there are none while the UI offers its built-ins.
+        var current = defaults
+        current.environments = defaults.deployEnvironments
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        do {
+            var data = try encoder.encode(current)
+            data.append(0x0A)
+            return data
+        } catch {
+            throw ImportError("The configuration could not be encoded: \(error.localizedDescription)")
         }
-        let data = Data(text.utf8)
-        _ = try selection(data: data,
-                          sourceName: SiteDefaults.fileName,
-                          sourceURL: sourceURL)
-        return data
     }
 
     @discardableResult
-    static func install(editedText text: String, at url: URL = destination) throws -> SiteDefaults {
-        let data = try editedData(text, sourceURL: url)
+    static func install(_ defaults: SiteDefaults, at url: URL = destination) throws -> SiteDefaults {
+        let data = try configurationData(for: defaults)
         do {
             try PersistentFile.write(data, to: url)
         } catch {
             throw ImportError("The configuration could not be saved: \(error.localizedDescription)")
         }
-        return SiteDefaults.reload()
+        let written = try SiteDefaults.decode(data, from: url)
+        if url.standardizedFileURL == destination.standardizedFileURL {
+            Preferences.siteDefaultsURL = nil
+            return SiteDefaults.setCurrent(written, sourceURL: url)
+        }
+        return written
     }
 
-    // Keeping only some of a file rewrites it, so what lands on disk is the setup the app
-    // is actually running rather than a document with parts of it quietly ignored. Taking
-    // everything writes the file untouched, which leaves a full import byte for byte the
-    // file the team published.
+    // Resetting imports selected aspects into the current document. The parts that were
+    // not selected are encoded beside them unchanged, so the file on disk is always the
+    // complete configuration the app is using and can be exported as-is.
     @discardableResult
-    static func install(_ selection: SiteConfigurationSelection,
-                        keeping chosen: Set<SiteConfigurationItem>) throws -> SiteDefaults {
+    static func reset(_ selection: SiteConfigurationSelection,
+                      aspects chosen: Set<SiteConfigurationAspect>,
+                      current: SiteDefaults = .current,
+                      at url: URL = destination) throws -> SiteDefaults {
         guard !chosen.isEmpty else {
-            throw ImportError("Choose at least one part of the configuration to use.")
+            throw ImportError("Choose at least one aspect to reset.")
         }
-        guard chosen != selection.plan.everything else { return try install(selection) }
-        return try write(SiteConfigurationPlan.filter(selection.data, keeping: chosen))
-    }
-
-    private static func write(_ data: Data) throws -> SiteDefaults {
-        do {
-            try PersistentFile.write(data, to: destination)
-        } catch {
-            throw ImportError("The configuration could not be saved: \(error.localizedDescription)")
+        let offered = selection.plan.everything
+        guard chosen.isSubset(of: offered) else {
+            throw ImportError("The file does not contain every selected aspect.")
         }
-        Preferences.siteDefaultsURL = nil
-        return SiteDefaults.reload()
+        let reset = SiteConfigurationPlan.resetting(chosen,
+                                                    in: current,
+                                                    to: selection.defaults)
+        return try install(reset, at: url)
     }
 
     static func configurationFile(in repository: URL) throws -> URL {
@@ -187,8 +191,7 @@ enum SiteConfigurationImporter {
         -> SiteConfigurationSelection {
         do {
             let defaults = try SiteDefaults.decode(data, from: sourceURL)
-            return SiteConfigurationSelection(data: data,
-                                              sourceName: sourceName,
+            return SiteConfigurationSelection(sourceName: sourceName,
                                               defaults: defaults)
         } catch {
             throw ImportError("The configuration is not valid: \(error.localizedDescription)")

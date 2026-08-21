@@ -82,7 +82,9 @@ The first-launch wizard explains what the site configuration controls. It offers
 
 Teya users can enter [github.com/example/site-settings](https://github.com/example/site-settings) to load the shared Teya configuration.
 
-Settings > Advanced offers the same two sources at any time, for an install that finished onboarding before its team had a file, or before the file grew a section. Loading one only reads it: **Review** lists what it holds - the sign-in provider, each starter request, each Grafana preset, the skills marketplace, each shortcut - with everything ticked, so you can clear the parts you do not want before anything is written. The same screen can edit the active JSON directly. Edits are validated before they replace the file, and fields from newer versions are left intact.
+Settings > Advanced shows the current environments, API access, starter requests, Grafana presets, skills marketplace, and shortcuts in typed forms. It also offers the same two import sources at any time. Loading a file only previews it. You can then reset any combination of those six aspects while leaving every unchecked aspect unchanged.
+
+The JSON on that screen is read-only and generated from the current configuration. It can be copied or exported as a reset file, so the UI and the exported document cannot drift apart.
 
 Code Station validates an imported file and copies it to:
 
