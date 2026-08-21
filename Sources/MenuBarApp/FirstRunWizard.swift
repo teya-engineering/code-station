@@ -605,8 +605,10 @@ struct FirstRunWizard: View {
                 move(to: .configuration)
                 return
             }
+            // Stores already read bundled defaults during startup. They only need another
+            // application pass when this wizard installed a different file.
+            onSiteConfigurationLoaded()
         }
-        onSiteConfigurationLoaded()
         runner.refreshAvailableAgents()
         if runner.isAvailable(selectedAgent) {
             runner.agent = selectedAgent

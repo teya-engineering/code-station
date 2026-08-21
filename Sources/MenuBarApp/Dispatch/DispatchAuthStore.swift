@@ -109,14 +109,23 @@ final class DispatchAuthStore {
     }
 
     func applySiteDefaults(_ defaults: SiteDefaults) {
-        guard !FileManager.default.fileExists(atPath: storeURL.path) else { return }
+        guard defaults.dispatch?.oauth != nil else { return }
         let oauth = defaults.dispatchOAuth
         var staging = oauth
         var production = oauth
+        // These fields are personal or are not represented by the site file. Importing
+        // shared provider settings must not silently reset them.
         staging.clientSecret = self.staging.clientSecret
+        staging.state = self.staging.state
+        staging.headerPrefix = self.staging.headerPrefix
+        staging.clientAuth = self.staging.clientAuth
         production.clientSecret = self.production.clientSecret
+        production.state = self.production.state
+        production.headerPrefix = self.production.headerPrefix
+        production.clientAuth = self.production.clientAuth
         self.staging = staging
         self.production = production
+        save()
     }
 
     func config(for env: ApiEnvironment) -> OAuthConfig {

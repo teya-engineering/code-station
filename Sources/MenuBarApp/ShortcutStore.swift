@@ -131,8 +131,23 @@ final class ShortcutStore {
     }
 
     func applySiteDefaults(_ defaults: SiteDefaults) {
-        guard !FileManager.default.fileExists(atPath: storageURL.path) else { return }
-        shortcuts = defaults.commandShortcuts
+        let siteShortcuts = defaults.commandShortcuts
+        // Unsaved shortcuts came from the previously loaded site file. Once the user has
+        // a saved collection, imports merge into it instead of replacing personal commands.
+        guard FileManager.default.fileExists(atPath: storageURL.path) else {
+            shortcuts = siteShortcuts
+            save()
+            return
+        }
+
+        var savedIDs = Set(shortcuts.map(\.id))
+        var added = false
+        for shortcut in siteShortcuts where savedIDs.insert(shortcut.id).inserted {
+            shortcuts.append(shortcut)
+            added = true
+        }
+        guard added else { return }
+        save()
     }
 
     // Counted over the shortcuts the asking screen shows rather than over every saved

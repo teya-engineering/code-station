@@ -10,6 +10,25 @@ struct SiteConfigurationImporterTests {
         return url
     }
 
+    private func importedDefaults(in root: URL) throws -> SiteDefaults {
+        try SiteDefaults.decode(Data("""
+        {
+          "dispatch": {
+            "oauth": {
+              "tokenURL": "https://id.example/token",
+              "clientID": "code-station"
+            },
+            "requests": [
+              { "name": "Health", "method": "GET", "url": "https://api.example/health" }
+            ]
+          },
+          "shortcuts": [
+            { "name": "Run service", "command": "./gradlew bootRun" }
+          ]
+        }
+        """.utf8), from: root.appendingPathComponent("team.json"))
+    }
+
     @Test func acceptsARepositoryURLAndNormalisesItsCloneAddress() throws {
         let full = try SiteConfigurationImporter.GitHubRepository(
             "https://github.com/example/site-settings")
@@ -128,29 +147,19 @@ struct SiteConfigurationImporterTests {
         }
     }
 
-    @Test @MainActor func appliesImportedDefaultsToEmptyFirstRunStores() throws {
+    @Test @MainActor func appliesImportedDefaultsToEmptyPersistedStores() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
-        let source = root.appendingPathComponent("team.json")
-        let defaults = try SiteDefaults.decode(Data("""
-        {
-          "dispatch": {
-            "oauth": {
-              "tokenURL": "https://id.example/token",
-              "clientID": "code-station"
-            },
-            "requests": [
-              { "name": "Health", "method": "GET", "url": "https://api.example/health" }
-            ]
-          },
-          "shortcuts": [
-            { "name": "Run service", "command": "./gradlew bootRun" }
-          ]
-        }
-        """.utf8), from: source)
+        let defaults = try importedDefaults(in: root)
 
-        let dispatch = DispatchStore(storeURL: root.appendingPathComponent("dispatch.json"))
-        let shortcuts = ShortcutStore(storageURL: root.appendingPathComponent("shortcuts.json"))
+        let dispatchURL = root.appendingPathComponent("dispatch.json")
+        try JSONEncoder().encode(SavedRequestCollection(folders: [.default]))
+            .write(to: dispatchURL)
+        let dispatch = DispatchStore(storeURL: dispatchURL)
+
+        let shortcutsURL = root.appendingPathComponent("shortcuts.json")
+        try Data(#"{ "shortcuts": [] }"#.utf8).write(to: shortcutsURL)
+        let shortcuts = ShortcutStore(storageURL: shortcutsURL)
         let keychain = KeychainClient(read: { [:] }, write: { _ in })
         let auth = DispatchAuthStore(storeURL: root.appendingPathComponent("auth.json"),
                                      keychain: keychain)
@@ -164,5 +173,67 @@ struct SiteConfigurationImporterTests {
         #expect(auth.staging.clientID == "code-station")
         #expect(auth.production.tokenURL == "https://id.example/token")
         _ = auth.save()
+    }
+
+    @Test @MainActor func replacesUnsavedDefaultsWhenNoStoreExists() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let defaults = try importedDefaults(in: root)
+
+        let dispatch = DispatchStore(storeURL: root.appendingPathComponent("dispatch.json"))
+        let shortcuts = ShortcutStore(storageURL: root.appendingPathComponent("shortcuts.json"))
+
+        dispatch.applySiteDefaults(defaults)
+        shortcuts.applySiteDefaults(defaults)
+
+        #expect(dispatch.requests.map(\.name) == ["Health"])
+        #expect(shortcuts.shortcuts.map(\.name) == ["Run service"])
+    }
+
+    @Test @MainActor func mergesImportedDefaultsIntoExistingStoresOnce() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let defaults = try importedDefaults(in: root)
+
+        let dispatchURL = root.appendingPathComponent("dispatch.json")
+        try JSONEncoder().encode(SavedRequestCollection(folders: [.default]))
+            .write(to: dispatchURL)
+        let dispatch = DispatchStore(storeURL: dispatchURL)
+        dispatch.add(SavedRequest(name: "Personal", url: "https://personal.example"))
+
+        let shortcutsURL = root.appendingPathComponent("shortcuts.json")
+        try Data(#"{ "shortcuts": [] }"#.utf8).write(to: shortcutsURL)
+        let shortcuts = ShortcutStore(storageURL: shortcutsURL)
+        _ = shortcuts.add(name: "Personal", command: "make personal")
+
+        let authURL = root.appendingPathComponent("auth.json")
+        let keychain = KeychainClient(read: { [:] }, write: { _ in })
+        let auth = DispatchAuthStore(storeURL: authURL, keychain: keychain)
+        var staging = auth.staging
+        staging.clientID = "personal"
+        staging.clientSecret = "staging-secret"
+        staging.state = "personal-state"
+        staging.headerPrefix = "Token"
+        staging.clientAuth = .basicHeader
+        auth.setConfig(staging, for: .staging)
+        _ = auth.save()
+
+        for _ in 0..<2 {
+            dispatch.applySiteDefaults(defaults)
+            shortcuts.applySiteDefaults(defaults)
+            auth.applySiteDefaults(defaults)
+        }
+
+        #expect(dispatch.requests.map(\.name) == ["Personal", "Health"])
+        #expect(shortcuts.shortcuts.map(\.name) == ["Personal", "Run service"])
+        #expect(auth.staging.clientID == "code-station")
+        #expect(auth.staging.clientSecret == "staging-secret")
+        #expect(auth.staging.state == "personal-state")
+        #expect(auth.staging.headerPrefix == "Token")
+        #expect(auth.staging.clientAuth == .basicHeader)
+        #expect(DispatchStore(storeURL: dispatchURL).requests.map(\.name)
+            == ["Personal", "Health"])
+        #expect(ShortcutStore(storageURL: shortcutsURL).shortcuts.map(\.name)
+            == ["Personal", "Run service"])
     }
 }

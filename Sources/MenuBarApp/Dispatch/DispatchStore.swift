@@ -28,13 +28,35 @@ final class DispatchStore {
     }
 
     func applySiteDefaults(_ defaults: SiteDefaults) {
-        guard !FileManager.default.fileExists(atPath: storeURL.path) else { return }
-        folders = [.default]
-        requests = defaults.dispatchRequests.map { request in
-            var request = request
-            request.folderID = RequestFolder.defaultID
-            return request
+        let siteRequests = defaults.dispatchRequests
+        // Without a saved collection, the requests in memory came from the previously
+        // loaded site file and can be replaced. A saved collection belongs to the user,
+        // so an explicit import adds only starter requests it does not already contain.
+        guard FileManager.default.fileExists(atPath: storeURL.path) else {
+            folders = [.default]
+            requests = siteRequests.map { request in
+                var request = request
+                request.folderID = RequestFolder.defaultID
+                return request
+            }
+            if !requests.isEmpty { expandedFolderIDs.insert(RequestFolder.defaultID) }
+            save()
+            return
         }
+
+        var added = false
+        for var request in siteRequests {
+            let alreadySaved = requests.contains {
+                $0.name == request.name && $0.method == request.method && $0.url == request.url
+            }
+            guard !alreadySaved else { continue }
+            request.folderID = RequestFolder.defaultID
+            requests.append(request)
+            added = true
+        }
+        guard added else { return }
+        expandedFolderIDs.insert(RequestFolder.defaultID)
+        save()
     }
 
     private static func defaultStoreURL() -> URL {
