@@ -300,4 +300,17 @@ struct CodeEditorTests {
         #expect(hasTextPixel)
     }
 
+    @Test func verticalScrollingReachesTheEndOfTheDocument() throws {
+        let pane = Pane(String(repeating: "let a = 1\n", count: 400))
+        let textView = pane.textView
+
+        let bottom = textView.frame.height - pane.scrollView.contentSize.height
+        pane.scrollView.contentView.scroll(to: NSPoint(x: 0, y: bottom))
+        pane.scrollView.reflectScrolledClipView(pane.scrollView.contentView)
+
+        #expect(textView.frame.height > pane.scrollView.contentSize.height)
+        let last = try #require(gutter(pane).visibleLabels().last)
+        #expect(last.number == 401)
+    }
+
 }

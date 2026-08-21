@@ -122,9 +122,9 @@ struct CodeEditorView: NSViewRepresentable {
             let storage = NSTextStorage()
             storage.delegate = self
             let layoutManager = NSLayoutManager()
-            // Only what is on screen is laid out. Without this a long file is measured end
-            // to end before its first line can appear.
-            layoutManager.allowsNonContiguousLayout = true
+            // The scroll view needs the complete document height before it can expose the
+            // full vertical range. Syntax colouring remains limited to the viewport.
+            layoutManager.allowsNonContiguousLayout = false
             storage.addLayoutManager(layoutManager)
             let container = NSTextContainer(size: NSSize(width: CGFloat.greatestFiniteMagnitude,
                                                          height: CGFloat.greatestFiniteMagnitude))
@@ -230,6 +230,9 @@ struct CodeEditorView: NSViewRepresentable {
             textView.textStorage?.setAttributes(
                 CodeEditorStyle.base,
                 range: NSRange(location: 0, length: (text as NSString).length))
+            if let container = textView.textContainer {
+                textView.layoutManager?.ensureLayout(for: container)
+            }
             textView.undoManager?.removeAllActions()
             textView.setContentWidth(MonoMetrics.width(ofLongestIn: text))
             reindex(text)
