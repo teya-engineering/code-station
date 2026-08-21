@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 414 414" role="img" aria-label="Code Station">
+  <rect width="414" height="414" rx="100" fill="#DDE048"/>
+  <g fill="#A5A74C">
+    <circle cx="123.5" cy="122.5" r="37"/>
+    <circle cx="207" cy="122.5" r="37"/>
+    <circle cx="123.5" cy="207" r="37"/>
+    <circle cx="207" cy="207" r="37"/>
+    <circle cx="290.5" cy="207" r="37"/>
+    <circle cx="123.5" cy="291.5" r="37"/>
+    <circle cx="207" cy="291.5" r="37"/>
+    <circle cx="290.5" cy="291.5" r="37"/>
+  </g>
+  <circle cx="290.5" cy="122.5" r="37" fill="#151615"/>
+</svg>

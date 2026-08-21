@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Teya Code Station - a headquarters for your coding agents</title>
+<meta name="description" content="A macOS app for running Codex and Claude Code across local projects. Conversation, changes, files, Git, and a terminal in one window.">
+<link rel="canonical" href="https://teya-engineering.github.io/code-station/">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Teya Code Station">
+<meta property="og:description" content="Run Codex and Claude Code across every project - conversation, changes, files, and terminal in one window.">
+<meta property="og:url" content="https://teya-engineering.github.io/code-station/">
+<meta property="og:image" content="https://teya-engineering.github.io/code-station/assets/og.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#f5f2e8">
+<link rel="icon" href="assets/mark.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="assets/icon-512.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<main>
+
+<section class="band band--light">
+  <header class="masthead">
+    <a class="brand" href="./"><img src="assets/mark.svg" alt="" width="32" height="32">Code Station</a>
+    <nav>
+      <a href="#features">Features</a>
+      <a href="#get-started">Get started</a>
+      <a href="https://github.com/teya-engineering/code-station">GitHub</a>
+    </nav>
+    <span class="platform">FOR macOS</span>
+  </header>
+
+  <div class="pitch">
+    <h1>Your agents just got<br><em>a headquarters.</em></h1>
+    <p>Run Codex and Claude Code across every project - conversation, changes, files, and terminal in one window.</p>
+    <div class="actions">
+      <a class="btn btn--primary" href="#get-started">Build the app</a>
+      <a class="btn btn--ghost" href="https://github.com/teya-engineering/code-station">View source</a>
+    </div>
+  </div>
+
+  <img class="shot shot--wide" fetchpriority="high" decoding="async" src="assets/shot-hero.webp" width="2200" height="1175"
+       alt="Code Station with a project sidebar on the left and an agent session open in Chat, showing the prompt, the files the agent read and edited, and its summary.">
+</section>
+
+<section class="band band--night" id="features">
+  <div class="pitch">
+    <h2>Codex and Claude Code.<br><em>No favorites.</em></h2>
+    <p>Pick the agent, model, and effort per session, then run them in parallel, each in its own Git worktree.</p>
+  </div>
+  <img class="shot shot--wide" loading="lazy" decoding="async" src="assets/shot-agents.webp" width="2200" height="1144"
+       alt="Two projects in the sidebar with three sessions running at once, one waiting for an answer, each labelled with the worktree it runs in.">
+</section>
+
+<section class="band band--light">
+  <div class="pitch">
+    <h2>Three repos.<br><em>One conversation.</em></h2>
+    <p>Group projects into a workspace. The lead is the working directory and the rest join the same conversation.</p>
+  </div>
+  <img class="shot shot--wide" loading="lazy" decoding="async" src="assets/shot-workspaces.webp" width="2200" height="1120"
+       alt="A workspace screen with a lead project marked as the working directory and two more projects attached to the same conversation.">
+</section>
+
+<section class="band band--night">
+  <div class="pitch">
+    <h2>Ship the endpoint.<br><em>Then poke it.</em></h2>
+    <p>A built-in HTTP client with staging and production environments, OAuth in the Keychain, and <code>{{env}}</code> that resolves itself.</p>
+  </div>
+  <img class="shot shot--mid" loading="lazy" decoding="async" src="assets/shot-dispatch.webp" width="1733" height="1218"
+       alt="The Dispatch screen sending a saved GET request against the staging environment and showing a 200 OK JSON response.">
+</section>
+
+<section class="band band--light">
+  <div class="pitch">
+    <h2>Bad deploy?<br><em>Send in the agent.</em></h2>
+    <p>Guided troubleshooting with skills, MCP servers, and read-only guard rails when the environment is live.</p>
+  </div>
+  <img class="shot shot--narrow" loading="lazy" decoding="async" src="assets/shot-troubleshoot.webp" width="1368" height="1224"
+       alt="The Troubleshoot sheet with the problem written out, log files attached, production selected, and MCP servers enabled.">
+</section>
+
+<section class="band band--night band--flat">
+  <div class="pitch">
+    <h2>And the rest of<br><em>the window.</em></h2>
+    <p>The parts you reach for between prompts, in the same place as the conversation.</p>
+  </div>
+
+  <div class="grid">
+    <div class="cell">
+      <h3>Worktree sessions</h3>
+      <p>Run in the project folder when changes should land there, or in an isolated checkout and branch when they should not. Worktree sessions run side by side without touching the same files.</p>
+    </div>
+    <div class="cell">
+      <h3>Review and commit</h3>
+      <p>Pick exactly the files that go into a commit, amend the last one while it is still unpushed, and read recent commits with their full diffs.</p>
+    </div>
+    <div class="cell">
+      <h3>Code that reads as code</h3>
+      <p>Chat code blocks, file previews, and diffs are syntax highlighted, with no extra dependencies.</p>
+    </div>
+    <div class="cell">
+      <h3>Rewind and fork</h3>
+      <p>Take a Claude Code conversation back to an earlier prompt and send it again, or fork it into a new session from that point.</p>
+    </div>
+    <div class="cell">
+      <h3>Cost and context</h3>
+      <p>Every session shows its spend next to the context meter. Any agent's settings can hide the figure.</p>
+    </div>
+    <div class="cell">
+      <h3>Notifications</h3>
+      <p>A system notification when a session finishes a turn or stops to ask something. Clicking it opens that session.</p>
+    </div>
+    <div class="cell">
+      <h3>MCP servers</h3>
+      <p>Configure servers once and register them with Codex, Claude Code, or both. Tag each one with the environment it belongs to.</p>
+    </div>
+    <div class="cell">
+      <h3>Skills</h3>
+      <p>Install and update agent skills from your organisation's marketplace.</p>
+    </div>
+    <div class="cell">
+      <h3>Shortcuts and Docker</h3>
+      <p>Save, run, and stop shell commands from the status row, and inspect or stop running containers without leaving the app.</p>
+    </div>
+  </div>
+</section>
+
+<section class="band band--light band--flat" id="get-started">
+  <div class="pitch">
+    <h2>Clone it.<br><em>Run it.</em></h2>
+    <p>The build script makes a double-clickable, ad-hoc signed bundle you can drop in Applications.</p>
+  </div>
+
+  <div class="wrap columns">
+    <div>
+      <p class="eyebrow">What you need</p>
+      <ul class="checklist">
+        <li>macOS 14 or later</li>
+        <li>Xcode 16 or another Swift 6 toolchain</li>
+        <li>Git</li>
+        <li>At least one agent installed and signed in: <code>codex</code> or <code>claude</code></li>
+      </ul>
+    </div>
+
+    <div class="terminal">
+      <header>
+        <span class="lights"><i style="background:#e0655b"></i><i style="background:#e0b155"></i><i style="background:#5fb85f"></i></span>
+        build-app.sh
+        <button type="button" data-copy>Copy</button>
+      </header>
+<pre><code><span class="sigil">$ </span>git clone https://github.com/teya-engineering/code-station.git
+<span class="sigil">$ </span>cd code-station
+<span class="sigil">$ </span>./build-app.sh
+<span class="sigil">$ </span>open "build/Teya Code Station.app"</code></pre>
+    </div>
+  </div>
+
+  <div class="wrap prose">
+    <h3>Make it yours</h3>
+    <p>The parts that belong to your organisation rather than to the app - the identity provider your APIs sign in against, your environments, your Grafana instances, the skills marketplace, the commands worth having on hand - all live in one optional settings file the app reads at startup. Every section is optional, and so is the file.</p>
+    <p>The first-launch wizard can read it from a local file or clone it from a Git repository, and <code>build-app.sh</code> can fold it into the bundle so the app you hand to your team is already set up. See the <a href="https://github.com/teya-engineering/code-station#site-configuration">site configuration guide</a> and <a href="https://github.com/teya-engineering/code-station/blob/main/site-defaults.example.json">the blank-slate example</a>.</p>
+  </div>
+</section>
+
+</main>
+
+<footer class="site-foot">
+  <div class="wrap">
+    <span>Teya Code Station</span>
+    <nav>
+      <a href="https://github.com/teya-engineering/code-station">GitHub</a>
+      <a href="https://github.com/teya-engineering/code-station/blob/main/CONTRIBUTING.md">Contributing</a>
+      <a href="https://github.com/teya-engineering/code-station/blob/main/LICENSE">Licence</a>
+    </nav>
+  </div>
+</footer>
+
+<script>
+  document.querySelector('[data-copy]')?.addEventListener('click', async (event) => {
+    const button = event.currentTarget;
+    const lines = button.closest('.terminal').querySelector('code').innerText;
+    try {
+      await navigator.clipboard.writeText(lines.replace(/^\$ /gm, ''));
+      button.textContent = 'Copied';
+      setTimeout(() => { button.textContent = 'Copy'; }, 1600);
+    } catch {
+      button.textContent = 'Press Cmd C';
+    }
+  });
+</script>
+
+</body>
+</html>
