@@ -104,6 +104,30 @@ struct SiteConfigurationImporterTests {
         }
     }
 
+    @Test func validatesEditedConfigurationWithoutRewritingIt() throws {
+        let text = """
+        {
+          "environments": [{ "name": "dev", "title": "Development" }],
+          "future": { "kept": true }
+        }
+        """
+
+        let data = try SiteConfigurationImporter.editedData(text)
+        let root = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+
+        #expect(String(decoding: data, as: UTF8.self) == text)
+        #expect((root["future"] as? [String: Bool])?["kept"] == true)
+    }
+
+    @Test func rejectsEmptyAndMalformedEdits() {
+        #expect(throws: ImportError.self) {
+            try SiteConfigurationImporter.editedData("  \n")
+        }
+        #expect(throws: ImportError.self) {
+            try SiteConfigurationImporter.editedData(#"{ "environments": [ }"#)
+        }
+    }
+
     @Test @MainActor func appliesImportedDefaultsToEmptyFirstRunStores() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }

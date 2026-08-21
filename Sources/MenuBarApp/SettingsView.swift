@@ -251,7 +251,6 @@ struct SettingsView: View {
         switch tab {
         case .general:
             VStack(alignment: .leading, spacing: 24) {
-                SiteConfigurationSection()
                 sidebar
                 oldSessions
                 skillRefresh
@@ -266,6 +265,11 @@ struct SettingsView: View {
         case .agents:
             VStack(alignment: .leading, spacing: 24) {
                 AgentSettingsView(selectedAgent: runner.agent)
+            }
+            .transition(.fadeIn)
+        case .advanced:
+            VStack(alignment: .leading, spacing: 24) {
+                SiteConfigurationSection()
             }
             .transition(.fadeIn)
         case .experimental:
@@ -323,6 +327,8 @@ struct SettingsView: View {
             Text(SettingsTab.general.note).transition(.fadeIn)
         case .agents:
             Text(SettingsTab.agents.note).transition(.fadeIn)
+        case .advanced:
+            Text(SettingsTab.advanced.note).transition(.fadeIn)
         case .experimental:
             Text(SettingsTab.experimental.note).transition(.fadeIn)
         }
@@ -1027,12 +1033,14 @@ private struct DayField: View {
 enum SettingsTab: CaseIterable {
     case general
     case agents
+    case advanced
     case experimental
 
     var title: String {
         switch self {
         case .general: "General"
         case .agents: "Agents"
+        case .advanced: "Advanced"
         case .experimental: "Experimental"
         }
     }
@@ -1041,6 +1049,7 @@ enum SettingsTab: CaseIterable {
         switch self {
         case .general: "Settings for Teya Code Station."
         case .agents: "Choose an agent and set how it runs."
+        case .advanced: "Manage shared configuration and other advanced settings."
         case .experimental: "Try features that are still in development."
         }
     }

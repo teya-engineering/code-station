@@ -17,12 +17,13 @@ struct SiteConfigurationSection: View {
     @State private var repositoryURL = ""
     @State private var loading = false
     @State private var failure: String?
+    @State private var editing = false
 
     private var hasConfiguration: Bool { loaded.sourceURL != nil }
 
     var body: some View {
         ChoiceBlock("SITE CONFIGURATION",
-                    note: "The shared file behind your starter requests, Grafana instances, skills marketplace and shortcuts. A repository can provide site-defaults.json, teya-defaults.json, or one root-level JSON file.") {
+                    note: "The shared file behind your environments, starter requests, Grafana instances, skills marketplace and shortcuts. Import a team file or edit the JSON kept on this Mac.") {
             VStack(alignment: .leading, spacing: 10) {
                 current
                 sources
@@ -35,25 +36,36 @@ struct SiteConfigurationSection: View {
             .background(RoundedRectangle(cornerRadius: 9).fill(Theme.card))
             .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
         }
+        .sheet(isPresented: $editing) {
+            SiteConfigurationEditorView(defaults: loaded, onSave: apply)
+                .appOverlays()
+        }
     }
 
     private var current: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(hasConfiguration ? "Loaded" : "No configuration loaded")
-                .font(.system(size: 13, weight: .semibold))
-            Text(hasConfiguration
-                 ? loaded.summary
-                 : "The app is running on its own empty defaults, so anything the file would fill in is missing.")
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            if let source = loaded.sourceURL {
-                Text(source.path.abbreviatedPath)
-                    .font(.mono(11))
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(hasConfiguration ? "Loaded" : "No configuration loaded")
+                    .font(.system(size: 13, weight: .semibold))
+                Text(hasConfiguration
+                     ? loaded.summary
+                     : "The app is running on its own empty defaults, so anything the file would fill in is missing.")
+                    .font(.system(size: 12))
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let source = loaded.sourceURL {
+                    Text(source.path.abbreviatedPath)
+                        .font(.mono(11))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
             }
+            Spacer(minLength: 0)
+            ActionButton(title: hasConfiguration ? "Edit JSON…" : "Create JSON…",
+                         tone: .outlined,
+                         icon: "curlybraces",
+                         action: { editing = true })
         }
     }
 
@@ -248,10 +260,7 @@ struct SiteConfigurationSection: View {
     private func install(_ selection: SiteConfigurationSelection) {
         do {
             let defaults = try SiteConfigurationImporter.install(selection, keeping: chosen)
-            dispatch.applySiteDefaults(defaults)
-            dispatchAuth.applySiteDefaults(defaults)
-            shortcuts.applySiteDefaults(defaults)
-            loaded = defaults
+            apply(defaults)
             pending = nil
             chosen = []
             reviewing = false
@@ -259,6 +268,131 @@ struct SiteConfigurationSection: View {
             failure = nil
         } catch {
             failure = error.localizedDescription
+        }
+    }
+
+    private func apply(_ defaults: SiteDefaults) {
+        dispatch.applySiteDefaults(defaults)
+        dispatchAuth.applySiteDefaults(defaults)
+        shortcuts.applySiteDefaults(defaults)
+        loaded = defaults
+    }
+}
+
+// The site document is deliberately edited as JSON. Several of its values have focused
+// editors elsewhere, while others are only shared defaults, and keeping one source here
+// avoids two forms that can disagree. Saving validates everything the app understands and
+// leaves unknown fields intact for newer versions.
+private struct SiteConfigurationEditorView: View {
+    @Environment(\.dismiss) private var dismiss
+
+    private let destination: URL
+    private let sourceName: String
+    private let onSave: (SiteDefaults) -> Void
+
+    @State private var text: String
+    @State private var savedText: String
+    @State private var failure: String?
+
+    init(defaults: SiteDefaults, onSave: @escaping (SiteDefaults) -> Void) {
+        let destination = Self.editDestination(defaults)
+        let initial = Self.load(defaults, destination: destination)
+        self.destination = destination
+        sourceName = destination.path
+        self.onSave = onSave
+        _text = State(initialValue: initial.text)
+        _savedText = State(initialValue: initial.text)
+        _failure = State(initialValue: initial.failure)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Edit site configuration").font(.serif(16))
+                Text("Changes are validated and saved to this Mac. Personal secrets do not belong in this file.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 20)
+            .headerBand()
+
+            VStack(alignment: .leading, spacing: 10) {
+                Text(sourceName.abbreviatedPath)
+                    .font(.mono(11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+
+                CodeEditorView(documentID: sourceName,
+                               text: $text,
+                               language: .json,
+                               matches: [],
+                               currentMatch: nil)
+                    .frame(height: 440)
+                    .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
+                    .clipShape(RoundedRectangle(cornerRadius: 9))
+                    .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
+
+                if let failure {
+                    Label(failure, systemImage: "exclamationmark.triangle.fill")
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(Theme.deletion)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(20)
+
+            SheetFooter(save: SheetSave(enabled: text != savedText, action: save),
+                        done: { dismiss() }) {
+                if text != savedText {
+                    Text("Unsaved changes. Done leaves without keeping them.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .frame(width: 720)
+        .background(Theme.background)
+    }
+
+    private func save() {
+        do {
+            let defaults = try SiteConfigurationImporter.install(editedText: text,
+                                                                  at: destination)
+            savedText = text
+            failure = nil
+            onSave(defaults)
+        } catch {
+            failure = error.localizedDescription
+        }
+    }
+
+    private static func editDestination(_ defaults: SiteDefaults) -> URL {
+        if let environment = SiteDefaults.environmentURL {
+            return environment
+        }
+        guard let source = defaults.sourceURL else {
+            return SiteConfigurationImporter.destination
+        }
+        if source.standardizedFileURL == SiteDefaults.bundledURL?.standardizedFileURL {
+            return SiteConfigurationImporter.destination
+        }
+        return source
+    }
+
+    private static func load(_ defaults: SiteDefaults,
+                             destination: URL) -> (text: String, failure: String?) {
+        let source = FileManager.default.fileExists(atPath: destination.path)
+            ? destination : defaults.sourceURL
+        guard let source else { return ("{}\n", nil) }
+        do {
+            let data = try Data(contentsOf: source)
+            guard let text = String(data: data, encoding: .utf8) else {
+                return ("{}\n", "The configuration is not UTF-8 text and cannot be edited here.")
+            }
+            return (text, nil)
+        } catch {
+            return ("{}\n", "The configuration could not be read: \(error.localizedDescription)")
         }
     }
 }

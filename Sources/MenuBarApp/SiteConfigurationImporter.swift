@@ -112,6 +112,30 @@ enum SiteConfigurationImporter {
         try write(selection.data)
     }
 
+    // Editing keeps the document as text rather than rebuilding it from SiteDefaults.
+    // That preserves fields a newer site file may carry before this build reads them.
+    static func editedData(_ text: String, sourceURL: URL = destination) throws -> Data {
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw ImportError("The configuration cannot be empty. Use an empty JSON object if no shared settings are needed.")
+        }
+        let data = Data(text.utf8)
+        _ = try selection(data: data,
+                          sourceName: SiteDefaults.fileName,
+                          sourceURL: sourceURL)
+        return data
+    }
+
+    @discardableResult
+    static func install(editedText text: String, at url: URL = destination) throws -> SiteDefaults {
+        let data = try editedData(text, sourceURL: url)
+        do {
+            try PersistentFile.write(data, to: url)
+        } catch {
+            throw ImportError("The configuration could not be saved: \(error.localizedDescription)")
+        }
+        return SiteDefaults.reload()
+    }
+
     // Keeping only some of a file rewrites it, so what lands on disk is the setup the app
     // is actually running rather than a document with parts of it quietly ignored. Taking
     // everything writes the file untouched, which leaves a full import byte for byte the
