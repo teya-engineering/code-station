@@ -93,7 +93,7 @@ struct RootView: View {
         .sheet(isPresented: $configuringServers) { ConfigManagerView().appOverlays() }
         .sheet(isPresented: $showingSkills) { SkillsView(manager: skills).appOverlays() }
         .sheet(isPresented: $showingDocker) { DockerView().appOverlays() }
-        .sheet(isPresented: $showingSettings) { SettingsView().appOverlays() }
+        .sheet(isPresented: $showingSettings) { SettingsView(skills: skills).appOverlays() }
         .sheet(isPresented: $showingDispatch) { DispatchView().appOverlays() }
         .sheet(isPresented: $showingShortcuts) { ShortcutsView().appOverlays() }
         .sheet(isPresented: $showingTroubleshoot) {

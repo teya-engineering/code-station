@@ -24,6 +24,7 @@ struct SkillsView: View {
     @State private var filter = RepertoireFilter.all
     @State private var repositorySource = ""
     @State private var setupFailure: String?
+    @State private var configuringMarketplace = false
 
     init(manager: SkillsManager) {
         _manager = State(initialValue: manager)
@@ -42,6 +43,9 @@ struct SkillsView: View {
         .frame(width: 960, height: 660)
         .background(Theme.background)
         .task { await manager.refresh() }
+        .sheet(isPresented: $configuringMarketplace) {
+            marketplaceConfiguration.appOverlays()
+        }
     }
 
     private var header: some View {
@@ -76,6 +80,20 @@ struct SkillsView: View {
                 .buttonStyle(.plain)
                 .disabled(manager.isUpdatingAll || manager.isRefreshing)
             }
+            ActionButton(title: "Configure",
+                         tone: .outlined,
+                         height: 30,
+                         size: 11.5,
+                         icon: "gearshape") {
+                let configuration = manager.marketplaceConfiguration
+                repositorySource = configuration?.sourceKind == .gitRepository
+                    ? configuration?.source ?? ""
+                    : ""
+                setupFailure = nil
+                configuringMarketplace = true
+            }
+            .disabled(manager.isRefreshing || manager.isUpdatingAll)
+            .appTooltip("Configure marketplace location")
             if manager.isConfigured {
                 Button {
                     Task { await manager.refresh() }
@@ -168,41 +186,7 @@ struct SkillsView: View {
                     .frame(maxWidth: 560)
             }
 
-            HStack(alignment: .top, spacing: 12) {
-                setupCard(icon: "arrow.triangle.branch",
-                          title: "Git repository",
-                          detail: "Clone a repository and refresh it with Git.") {
-                    VStack(alignment: .leading, spacing: 8) {
-                        TextField("https://github.com/org/marketplace.git",
-                                  text: $repositorySource)
-                            .textFieldStyle(.plain)
-                            .font(.mono(11.5))
-                            .padding(.horizontal, 10)
-                            .frame(height: 34)
-                            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.field))
-                            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
-                            .onSubmit(loadRepository)
-                        ActionButton(title: manager.isRefreshing ? "Loading…" : "Load repository",
-                                     tone: .outlined,
-                                     icon: manager.isRefreshing ? nil : "arrow.down.circle",
-                                     action: loadRepository)
-                            .disabled(manager.isRefreshing || trimmedRepository.isEmpty)
-                            .opacity(manager.isRefreshing ? 0.6 : 1)
-                    }
-                }
-
-                setupCard(icon: "doc.badge.plus",
-                          title: "Local file",
-                          detail: "Read a marketplace JSON file already on this Mac.") {
-                    ActionButton(title: "Choose marketplace file",
-                                 tone: .outlined,
-                                 icon: "folder",
-                                 action: chooseMarketplaceFile)
-                        .disabled(manager.isRefreshing)
-                        .opacity(manager.isRefreshing ? 0.6 : 1)
-                }
-            }
-            .frame(maxWidth: 680)
+            marketplaceChoices
 
             Text("Repository sources must contain .claude-plugin/marketplace.json.")
                 .font(.system(size: 11))
@@ -210,6 +194,103 @@ struct SkillsView: View {
         }
         .padding(40)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var marketplaceConfiguration: some View {
+        VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Marketplace location").font(.serif(16))
+                Text("Choose where Repertoire loads its skills marketplace.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 20)
+            .headerBand()
+
+            VStack(alignment: .leading, spacing: 18) {
+                currentMarketplaceLocation
+                marketplaceChoices
+                if let setupFailure {
+                    Text(setupFailure)
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(Theme.deletion)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Text("Git repositories must contain .claude-plugin/marketplace.json. Local sources must be marketplace JSON files.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(20)
+
+            SheetFooter { configuringMarketplace = false }
+        }
+        .frame(width: 720)
+        .background(Theme.background)
+    }
+
+    private var currentMarketplaceLocation: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Caption(text: "CURRENT LOCATION")
+            if let configuration = manager.marketplaceConfiguration {
+                HStack(spacing: 8) {
+                    Image(systemName: configuration.isLocalFile
+                          ? "doc.text" : "arrow.triangle.branch")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Theme.accent)
+                    Text(configuration.source)
+                        .font(.mono(11.5))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                }
+            } else {
+                Text("No marketplace is configured.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
+        .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
+    }
+
+    private var marketplaceChoices: some View {
+        HStack(alignment: .top, spacing: 12) {
+            setupCard(icon: "arrow.triangle.branch",
+                      title: "Git repository",
+                      detail: "Clone a repository and refresh it with Git.") {
+                VStack(alignment: .leading, spacing: 8) {
+                    TextField("https://github.com/org/marketplace.git",
+                              text: $repositorySource)
+                        .textFieldStyle(.plain)
+                        .font(.mono(11.5))
+                        .padding(.horizontal, 10)
+                        .frame(height: 34)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.field))
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
+                        .onSubmit(loadRepository)
+                    ActionButton(title: manager.isRefreshing ? "Loading…" : "Load repository",
+                                 tone: .outlined,
+                                 icon: manager.isRefreshing ? nil : "arrow.down.circle",
+                                 action: loadRepository)
+                        .disabled(manager.isRefreshing || trimmedRepository.isEmpty)
+                        .opacity(manager.isRefreshing ? 0.6 : 1)
+                }
+            }
+
+            setupCard(icon: "doc.badge.plus",
+                      title: "Local file",
+                      detail: "Read a marketplace JSON file already on this Mac.") {
+                ActionButton(title: "Choose marketplace file",
+                             tone: .outlined,
+                             icon: "folder",
+                             action: chooseMarketplaceFile)
+                    .disabled(manager.isRefreshing)
+                    .opacity(manager.isRefreshing ? 0.6 : 1)
+            }
+        }
+        .frame(maxWidth: 680)
     }
 
     private func setupCard<Content: View>(
@@ -251,6 +332,7 @@ struct SkillsView: View {
         Task {
             do {
                 try await manager.configure(gitRepository: repository)
+                configuringMarketplace = false
             } catch {
                 setupFailure = error.localizedDescription
             }
@@ -272,6 +354,7 @@ struct SkillsView: View {
         Task {
             do {
                 try await manager.configure(localFile: url)
+                configuringMarketplace = false
             } catch {
                 setupFailure = error.localizedDescription
             }

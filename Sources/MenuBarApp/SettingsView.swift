@@ -213,6 +213,8 @@ struct SettingsView: View {
     @Environment(DialogPresenter.self) private var dialogs
     @Environment(\.dismiss) private var dismiss
 
+    let skills: SkillsManager
+
     @State private var reviewingOldSessions = false
     @State private var showingLog = false
     @State private var tab = SettingsTab.general
@@ -269,7 +271,7 @@ struct SettingsView: View {
             .transition(.fadeIn)
         case .advanced:
             VStack(alignment: .leading, spacing: 24) {
-                SiteConfigurationSection()
+                SiteConfigurationSection(skills: skills)
             }
             .transition(.fadeIn)
         case .experimental:

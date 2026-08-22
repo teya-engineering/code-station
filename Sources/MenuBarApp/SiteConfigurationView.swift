@@ -7,6 +7,8 @@ struct SiteConfigurationSection: View {
     @Environment(DispatchAuthStore.self) private var dispatchAuth
     @Environment(ShortcutStore.self) private var shortcuts
 
+    let skills: SkillsManager
+
     @State private var loaded = SiteDefaults.current
     @State private var pending: SiteConfigurationSelection?
     @State private var chosen: Set<SiteConfigurationAspect> = []
@@ -16,6 +18,7 @@ struct SiteConfigurationSection: View {
     @State private var editor: SiteConfigurationAspect?
     @State private var showingDispatch = false
     @State private var showingGrafana = false
+    @State private var showingSkills = false
     @State private var showingShortcuts = false
     @State private var showingJSON = false
 
@@ -35,6 +38,9 @@ struct SiteConfigurationSection: View {
         }
         .sheet(isPresented: $showingGrafana) {
             ConfigManagerView().appOverlays()
+        }
+        .sheet(isPresented: $showingSkills, onDismiss: refreshConfiguration) {
+            SkillsView(manager: skills).appOverlays()
         }
         .sheet(isPresented: $showingShortcuts, onDismiss: refreshConfiguration) {
             ShortcutsView().appOverlays()
@@ -115,7 +121,7 @@ struct SiteConfigurationSection: View {
 
     private func actionTitle(for aspect: SiteConfigurationAspect) -> String {
         switch aspect {
-        case .requests, .grafana, .shortcuts: "Open"
+        case .requests, .grafana, .skills, .shortcuts: "Open"
         default: "Configure"
         }
     }
@@ -126,6 +132,8 @@ struct SiteConfigurationSection: View {
             showingDispatch = true
         case .grafana:
             showingGrafana = true
+        case .skills:
+            showingSkills = true
         case .shortcuts:
             showingShortcuts = true
         default:

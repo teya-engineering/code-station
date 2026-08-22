@@ -172,6 +172,8 @@ final class SkillsManager {
 
     var marketplaceName: String { configuration?.marketplace ?? "" }
 
+    var marketplaceConfiguration: SkillMarketplaceConfiguration? { configuration }
+
     // What the marketplace is called on screen. A build with no marketplace still has to
     // put something under the Skills heading.
     var marketplaceLabel: String { configuration?.label ?? "No marketplace" }
