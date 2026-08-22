@@ -431,6 +431,25 @@ private struct InlineMarkdownText: View {
 
 // NSTextView keeps the pointing-hand cursor over link ranges and the I-beam elsewhere,
 // which SwiftUI's Text cannot do, since it exposes no per-run hover geometry.
+private final class LinkTextView: NSTextView {
+    // NSTextView reports no baseline by default. SwiftUI needs the real first-line
+    // baseline to align link-bearing text with list markers and neighbouring text.
+    override var firstBaselineOffsetFromTop: CGFloat {
+        guard let textContainer, let layoutManager else {
+            return super.firstBaselineOffsetFromTop
+        }
+        layoutManager.ensureLayout(for: textContainer)
+        let glyphRange = layoutManager.glyphRange(for: textContainer)
+        guard glyphRange.length > 0 else { return super.firstBaselineOffsetFromTop }
+
+        let lineFragment = layoutManager.lineFragmentRect(
+            forGlyphAt: glyphRange.location,
+            effectiveRange: nil)
+        let glyphLocation = layoutManager.location(forGlyphAt: glyphRange.location)
+        return textContainerOrigin.y + lineFragment.minY + glyphLocation.y
+    }
+}
+
 private struct LinkAwareText: NSViewRepresentable {
     let attributed: AttributedString
     let font: NSFont
@@ -440,7 +459,7 @@ private struct LinkAwareText: NSViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(openLink: openLink) }
 
     func makeNSView(context: Context) -> NSTextView {
-        let view = NSTextView(usingTextLayoutManager: false)
+        let view = LinkTextView(usingTextLayoutManager: false)
         view.isEditable = false
         view.isSelectable = true
         view.drawsBackground = false
