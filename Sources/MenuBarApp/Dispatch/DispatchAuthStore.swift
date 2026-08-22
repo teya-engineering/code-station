@@ -2,17 +2,18 @@ import AppKit
 import Foundation
 import Observation
 
-// The two environments' OAuth setups and whatever token each currently holds, plus the
-// password of every request that signs in with basic auth. A send borrows the active
-// environment's token from here; switching environments never touches the other side's
-// token, so flipping back does not mean signing in again. Every secret in the app is
-// written from here, which is what keeps one Keychain item from being written twice.
+// The configured environments' OAuth setups and whatever token each currently holds,
+// plus the password of every request that signs in with basic auth. A send borrows the
+// active environment's token from here; switching environments never touches another
+// environment's token. Every secret in the app is written from here, which is what keeps
+// one Keychain item from being written twice.
 @MainActor
 @Observable
 final class DispatchAuthStore {
     var active: ApiEnvironment { didSet { if active != oldValue { scheduleSave() } } }
-    var staging: OAuthConfig { didSet { if staging != oldValue { scheduleSave() } } }
-    var production: OAuthConfig { didSet { if production != oldValue { scheduleSave() } } }
+    private(set) var environments: [ApiEnvironment]
+    private var configurations: [ApiEnvironment: OAuthConfig]
+    private var siteOAuth: OAuthConfig
 
     private(set) var tokens: [ApiEnvironment: OAuthToken] = [:]
     private(set) var basicPasswords: [UUID: String] = [:]
@@ -29,20 +30,31 @@ final class DispatchAuthStore {
     private(set) var saveError: String?
 
     private struct Persisted: Codable {
-        var active: ApiEnvironment
+        var active: String
+        var configurations: [String: OAuthConfig]
+    }
+
+    private struct LegacyPersisted: Codable {
+        var active: String
         var staging: OAuthConfig
         var production: OAuthConfig
     }
 
-    init(storeURL: URL? = nil, keychain: KeychainClient = .live) {
+    init(storeURL: URL? = nil, keychain: KeychainClient = .live,
+         siteDefaults: SiteDefaults = .current) {
         self.storeURL = storeURL ?? Self.defaultStoreURL()
         self.keychain = keychain
 
         var loadFailures: [String] = []
         var saved: Persisted?
+        var legacySaved: LegacyPersisted?
         do {
             if let data = try PersistentFile.readIfPresent(self.storeURL) {
-                saved = try JSONDecoder.oauth.decode(Persisted.self, from: data)
+                do {
+                    saved = try JSONDecoder.oauth.decode(Persisted.self, from: data)
+                } catch {
+                    legacySaved = try JSONDecoder.oauth.decode(LegacyPersisted.self, from: data)
+                }
             }
         } catch let error as DecodingError {
             loadFailures.append(PersistentFile.decodeMessage(for: self.storeURL, error: error))
@@ -50,10 +62,28 @@ final class DispatchAuthStore {
             loadFailures.append(PersistentFile.loadMessage(for: self.storeURL, error: error))
         }
 
-        // A first run starts from whatever provider the site file names, so nobody has to
-        // type the same identity provider into both environments before signing in.
-        var staging = saved?.staging ?? SiteDefaults.current.dispatchOAuth
-        var production = saved?.production ?? SiteDefaults.current.dispatchOAuth
+        let environments = siteDefaults.deployEnvironments.map(ApiEnvironment.init)
+        let legacyNames = siteDefaults.dispatchEnvValues
+        let legacyStagingEnvironment = environments.first { $0.name == legacyNames.staging }
+            ?? environments.first { !$0.isDangerous }
+            ?? environments[0]
+        let legacyProductionEnvironment = environments.first { $0.name == legacyNames.production }
+            ?? environments.first { $0.isDangerous }
+            ?? environments.last!
+        var configurations: [ApiEnvironment: OAuthConfig] =
+            (saved?.configurations ?? [:]).reduce(into: [:]) { result, entry in
+            let environment = environments.first { $0.name == entry.key }
+                ?? ApiEnvironment(name: entry.key)
+            result[environment] = entry.value
+        }
+        if let legacySaved {
+            configurations[legacyStagingEnvironment] = legacySaved.staging
+            configurations[legacyProductionEnvironment] = legacySaved.production
+        }
+        for environment in environments where configurations[environment] == nil {
+            configurations[environment] = siteDefaults.dispatchOAuth
+        }
+
         var tokens: [ApiEnvironment: OAuthToken] = [:]
         var keychainValues: [Keychain.Account: String] = [:]
 
@@ -64,13 +94,22 @@ final class DispatchAuthStore {
         } catch {
             loadFailures.append(error.localizedDescription)
         }
-        for env in ApiEnvironment.allCases {
-            if let secret = keychainValues[env.secretAccount] {
-                if env == .staging { staging.clientSecret = secret }
-                else { production.clientSecret = secret }
+        for env in environments {
+            let legacySecret = env == legacyStagingEnvironment
+                ? keychainValues[.stagingClientSecret]
+                : env == legacyProductionEnvironment
+                    ? keychainValues[.productionClientSecret]
+                    : nil
+            if let secret = keychainValues[env.secretAccount] ?? legacySecret {
+                configurations[env]?.clientSecret = secret
             }
 
-            if let json = keychainValues[env.tokenAccount] {
+            let legacyToken = env == legacyStagingEnvironment
+                ? keychainValues[.stagingToken]
+                : env == legacyProductionEnvironment
+                    ? keychainValues[.productionToken]
+                    : nil
+            if let json = keychainValues[env.tokenAccount] ?? legacyToken {
                 do {
                     let token = try JSONDecoder.oauth.decode(OAuthToken.self,
                                                               from: Data(json.utf8))
@@ -81,9 +120,19 @@ final class DispatchAuthStore {
             }
         }
 
-        active = saved?.active ?? .staging
-        self.staging = staging
-        self.production = production
+        let activeName: String?
+        if let saved {
+            activeName = saved.active
+        } else if let legacySaved {
+            activeName = legacySaved.active == "production"
+                ? legacyProductionEnvironment.name : legacyStagingEnvironment.name
+        } else {
+            activeName = nil
+        }
+        active = environments.first { $0.name == activeName } ?? environments[0]
+        self.environments = environments
+        self.configurations = configurations
+        siteOAuth = siteDefaults.dispatchOAuth
         self.tokens = tokens
         basicPasswords = keychainValues.reduce(into: [:]) { passwords, entry in
             if let requestID = entry.key.basicPasswordRequestID {
@@ -109,38 +158,64 @@ final class DispatchAuthStore {
     }
 
     func applySiteDefaults(_ defaults: SiteDefaults) {
-        guard defaults.dispatch?.oauth != nil else { return }
-        resetSiteAccess(to: defaults)
+        updateEnvironments(from: defaults)
+        guard defaults.dispatch?.oauth != nil else {
+            save()
+            return
+        }
+        resetSiteAccess(to: defaults, updatingEnvironments: false)
+    }
+
+    func applyEnvironments(from defaults: SiteDefaults) {
+        updateEnvironments(from: defaults)
+        save()
     }
 
     // Unlike startup seeding, an explicit reset is allowed to clear shared provider
     // fields. Secrets and the few personal transport choices never belong to the shared
     // configuration and remain untouched.
     func resetSiteAccess(to defaults: SiteDefaults) {
+        resetSiteAccess(to: defaults, updatingEnvironments: true)
+    }
+
+    private func resetSiteAccess(to defaults: SiteDefaults, updatingEnvironments: Bool) {
+        if updatingEnvironments { updateEnvironments(from: defaults) }
         let oauth = defaults.dispatchOAuth
-        var staging = oauth
-        var production = oauth
+        siteOAuth = oauth
         // These fields are personal or are not represented by the site file. Importing
         // shared provider settings must not silently reset them.
-        staging.clientSecret = self.staging.clientSecret
-        staging.state = self.staging.state
-        staging.headerPrefix = self.staging.headerPrefix
-        staging.clientAuth = self.staging.clientAuth
-        production.clientSecret = self.production.clientSecret
-        production.state = self.production.state
-        production.headerPrefix = self.production.headerPrefix
-        production.clientAuth = self.production.clientAuth
-        self.staging = staging
-        self.production = production
+        for environment in environments {
+            let current = config(for: environment)
+            var reset = oauth
+            reset.clientSecret = current.clientSecret
+            reset.state = current.state
+            reset.headerPrefix = current.headerPrefix
+            reset.clientAuth = current.clientAuth
+            configurations[environment] = reset
+        }
         save()
     }
 
     func config(for env: ApiEnvironment) -> OAuthConfig {
-        env == .staging ? staging : production
+        configurations[env] ?? siteOAuth
     }
 
     func setConfig(_ config: OAuthConfig, for env: ApiEnvironment) {
-        if env == .staging { staging = config } else { production = config }
+        guard configurations[env] != config else { return }
+        configurations[env] = config
+        scheduleSave()
+    }
+
+    private func updateEnvironments(from defaults: SiteDefaults) {
+        let updated = defaults.deployEnvironments.map(ApiEnvironment.init)
+        let removed = Set(environments).subtracting(updated)
+        for environment in removed { cancelAuthentication(environment) }
+        for environment in updated where configurations[environment] == nil {
+            configurations[environment] = defaults.dispatchOAuth
+        }
+        active = updated.first { $0.name == active.name } ?? updated[0]
+        environments = updated
+        siteOAuth = defaults.dispatchOAuth
     }
 
     func isAuthenticated(for env: ApiEnvironment) -> Bool {
@@ -509,7 +584,7 @@ final class DispatchAuthStore {
         }
 
         var encodingFailures: [String] = []
-        for env in ApiEnvironment.allCases {
+        for env in environments {
             let secret = config(for: env).clientSecret
             keychainValues[env.secretAccount] = secret.isEmpty ? nil : secret
 
@@ -539,9 +614,13 @@ final class DispatchAuthStore {
             }
         }
 
-        var onDisk = Persisted(active: active, staging: staging, production: production)
-        onDisk.staging.clientSecret = ""
-        onDisk.production.clientSecret = ""
+        let cleanConfigurations = configurations.reduce(into: [String: OAuthConfig]()) {
+            result, entry in
+            var config = entry.value
+            config.clientSecret = ""
+            result[entry.key.name] = config
+        }
+        let onDisk = Persisted(active: active.name, configurations: cleanConfigurations)
         do {
             try PersistentFile.write(encoder.encode(onDisk), to: storeURL)
             saveError = nil
@@ -555,10 +634,10 @@ final class DispatchAuthStore {
 
 private extension ApiEnvironment {
     var secretAccount: Keychain.Account {
-        self == .staging ? .stagingClientSecret : .productionClientSecret
+        .dispatchClientSecret(for: name)
     }
     var tokenAccount: Keychain.Account {
-        self == .staging ? .stagingToken : .productionToken
+        .dispatchToken(for: name)
     }
 }
 

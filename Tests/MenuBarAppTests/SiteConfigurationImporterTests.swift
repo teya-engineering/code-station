@@ -140,6 +140,25 @@ struct SiteConfigurationImporterTests {
         #expect(data.last == 0x0A)
     }
 
+    @Test func exportedJSONDropsPreviousDispatchEnvironmentAliases() throws {
+        let defaults = try SiteDefaults.decode(Data("""
+        {
+          "environments": [{ "name": "dev" }, { "name": "prd", "danger": true }],
+          "dispatch": {
+            "environments": { "staging": "dev", "production": "prd" },
+            "requests": [{ "name": "Health", "url": "https://api.{{env}}.example" }]
+          }
+        }
+        """.utf8), from: URL(fileURLWithPath: "/tmp/old.json"))
+
+        let data = try SiteConfigurationImporter.configurationData(for: defaults)
+        let root = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let dispatch = try #require(root["dispatch"] as? [String: Any])
+
+        #expect(dispatch["environments"] == nil)
+        #expect((root["environments"] as? [[String: Any]])?.count == 2)
+    }
+
     @Test func exportedJSONIncludesTheEnvironmentsTheAppIsUsing() throws {
         let data = try SiteConfigurationImporter.configurationData(for: SiteDefaults())
         let exported = try SiteDefaults.decode(data, from: URL(fileURLWithPath: "/tmp/export.json"))
@@ -196,7 +215,8 @@ struct SiteConfigurationImporterTests {
         let shortcuts = ShortcutStore(storageURL: shortcutsURL)
         let keychain = KeychainClient(read: { [:] }, write: { _ in })
         let auth = DispatchAuthStore(storeURL: root.appendingPathComponent("auth.json"),
-                                     keychain: keychain)
+                                     keychain: keychain,
+                                     siteDefaults: SiteDefaults())
 
         dispatch.applySiteDefaults(defaults)
         shortcuts.applySiteDefaults(defaults)
@@ -204,8 +224,8 @@ struct SiteConfigurationImporterTests {
 
         #expect(dispatch.requests.map(\.name) == ["Health"])
         #expect(shortcuts.shortcuts.map(\.name) == ["Run service"])
-        #expect(auth.staging.clientID == "code-station")
-        #expect(auth.production.tokenURL == "https://id.example/token")
+        #expect(auth.config(for: auth.environments[0]).clientID == "code-station")
+        #expect(auth.config(for: auth.environments[1]).tokenURL == "https://id.example/token")
         _ = auth.save()
     }
 
@@ -243,14 +263,17 @@ struct SiteConfigurationImporterTests {
 
         let authURL = root.appendingPathComponent("auth.json")
         let keychain = KeychainClient(read: { [:] }, write: { _ in })
-        let auth = DispatchAuthStore(storeURL: authURL, keychain: keychain)
-        var staging = auth.staging
-        staging.clientID = "personal"
-        staging.clientSecret = "staging-secret"
-        staging.state = "personal-state"
-        staging.headerPrefix = "Token"
-        staging.clientAuth = .basicHeader
-        auth.setConfig(staging, for: .staging)
+        let auth = DispatchAuthStore(storeURL: authURL,
+                                     keychain: keychain,
+                                     siteDefaults: SiteDefaults())
+        let environment = auth.environments[0]
+        var config = auth.config(for: environment)
+        config.clientID = "personal"
+        config.clientSecret = "staging-secret"
+        config.state = "personal-state"
+        config.headerPrefix = "Token"
+        config.clientAuth = .basicHeader
+        auth.setConfig(config, for: environment)
         _ = auth.save()
 
         for _ in 0..<2 {
@@ -261,11 +284,11 @@ struct SiteConfigurationImporterTests {
 
         #expect(dispatch.requests.map(\.name) == ["Personal", "Health"])
         #expect(shortcuts.shortcuts.map(\.name) == ["Personal", "Run service"])
-        #expect(auth.staging.clientID == "code-station")
-        #expect(auth.staging.clientSecret == "staging-secret")
-        #expect(auth.staging.state == "personal-state")
-        #expect(auth.staging.headerPrefix == "Token")
-        #expect(auth.staging.clientAuth == .basicHeader)
+        #expect(auth.config(for: environment).clientID == "code-station")
+        #expect(auth.config(for: environment).clientSecret == "staging-secret")
+        #expect(auth.config(for: environment).state == "personal-state")
+        #expect(auth.config(for: environment).headerPrefix == "Token")
+        #expect(auth.config(for: environment).clientAuth == .basicHeader)
         #expect(DispatchStore(storeURL: dispatchURL,
                               siteDefaults: SiteDefaults()).requests.map(\.name)
             == ["Personal", "Health"])

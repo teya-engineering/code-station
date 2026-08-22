@@ -94,13 +94,14 @@ struct BasicAuthTests {
         let vault = Vault()
         let request = UUID()
         let store = authStore(in: directory, keychain: vault)
-        var staging = store.staging
-        staging.clientSecret = "client-secret"
-        store.setConfig(staging, for: .staging)
+        let environment = store.environments[0]
+        var config = store.config(for: environment)
+        config.clientSecret = "client-secret"
+        store.setConfig(config, for: environment)
         store.setBasicPassword("s3cr3t", for: request)
 
         #expect(store.save())
-        #expect(vault[.stagingClientSecret] == "client-secret")
+        #expect(vault[.dispatchClientSecret(for: "staging")] == "client-secret")
         #expect(vault[.basicPassword(for: request)] == "s3cr3t")
     }
 
@@ -127,7 +128,9 @@ struct BasicAuthTests {
     }
 
     private func authStore(in directory: URL, keychain: Vault) -> DispatchAuthStore {
-        DispatchAuthStore(storeURL: storeURL(in: directory), keychain: keychain.client)
+        DispatchAuthStore(storeURL: storeURL(in: directory),
+                          keychain: keychain.client,
+                          siteDefaults: SiteDefaults())
     }
 
     private func storeURL(in directory: URL) -> URL {

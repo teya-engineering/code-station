@@ -116,6 +116,7 @@ enum SiteConfigurationImporter {
         // keeps an export from claiming there are none while the UI offers its built-ins.
         var current = defaults
         current.environments = defaults.deployEnvironments
+        current.dispatch?.environments = nil
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         do {

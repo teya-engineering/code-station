@@ -2,6 +2,8 @@ import Foundation
 import Testing
 @testable import MenuBarApp
 
+private let testEnvironment = ApiEnvironment(name: "test")
+
 @Suite(.serialized)
 struct DispatchRunnerTests {
     @MainActor
@@ -12,9 +14,9 @@ struct DispatchRunnerTests {
                                    sessionConfiguration: stubConfiguration())
         let request = SavedRequest(name: "large", url: "https://example.test/large")
 
-        await runner.send(request, environment: .staging)
+        await runner.send(request, environment: testEnvironment)
 
-        let result = try #require(runner.result(request.id, in: .staging))
+        let result = try #require(runner.result(request.id, in: testEnvironment))
         #expect(result.body == String(repeating: "a", count: 32))
         #expect(result.byteCount == 100)
         #expect(result.isTruncated)
@@ -32,12 +34,12 @@ struct DispatchRunnerTests {
         }
 
         for request in requests {
-            await runner.send(request, environment: .staging)
+            await runner.send(request, environment: testEnvironment)
         }
 
-        #expect(runner.result(requests[0].id, in: .staging) == nil)
-        #expect(runner.result(requests[1].id, in: .staging) != nil)
-        #expect(runner.result(requests[2].id, in: .staging) != nil)
+        #expect(runner.result(requests[0].id, in: testEnvironment) == nil)
+        #expect(runner.result(requests[1].id, in: testEnvironment) != nil)
+        #expect(runner.result(requests[2].id, in: testEnvironment) != nil)
     }
 
     @MainActor
@@ -47,17 +49,17 @@ struct DispatchRunnerTests {
                                    maxRetainedResultBytes: 64,
                                    sessionConfiguration: stubConfiguration())
         let request = SavedRequest(name: "slow", url: "https://example.test/slow")
-        let sending = Task { await runner.send(request, environment: .staging) }
+        let sending = Task { await runner.send(request, environment: testEnvironment) }
 
-        while !runner.isRunning(request.id, in: .staging) {
+        while !runner.isRunning(request.id, in: testEnvironment) {
             await Task.yield()
         }
-        runner.cancel(request.id, in: .staging)
+        runner.cancel(request.id, in: testEnvironment)
         await sending.value
 
-        let result = try #require(runner.result(request.id, in: .staging))
+        let result = try #require(runner.result(request.id, in: testEnvironment))
         #expect(result.failure == "Cancelled.")
-        #expect(!runner.isRunning(request.id, in: .staging))
+        #expect(!runner.isRunning(request.id, in: testEnvironment))
     }
 
     // Foundation puts an unusable header name on the wire without complaint, so the
@@ -73,9 +75,9 @@ struct DispatchRunnerTests {
                                    headers: [HeaderField(key: "Authorization: Basic",
                                                          value: "dGVrdG9u")])
 
-        await runner.send(request, environment: .staging)
+        await runner.send(request, environment: testEnvironment)
 
-        let result = try #require(runner.result(request.id, in: .staging))
+        let result = try #require(runner.result(request.id, in: testEnvironment))
         let failure = try #require(result.failure)
         #expect(failure.contains("\"Authorization: Basic\" is not a header name"))
         #expect(result.status == 0)
@@ -91,9 +93,9 @@ struct DispatchRunnerTests {
                                    headers: [HeaderField(key: "Authorization",
                                                          value: "Basic dGVrdG9u")])
 
-        await runner.send(request, environment: .staging)
+        await runner.send(request, environment: testEnvironment)
 
-        let result = try #require(runner.result(request.id, in: .staging))
+        let result = try #require(runner.result(request.id, in: testEnvironment))
         #expect(result.failure == nil)
         #expect(result.body == "ok")
     }

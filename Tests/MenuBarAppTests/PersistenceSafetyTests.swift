@@ -152,12 +152,15 @@ struct PersistenceSafetyTests {
         let malformed = Data("not oauth json".utf8)
         try malformed.write(to: file)
 
-        let store = DispatchAuthStore(storeURL: file, keychain: .empty)
+        let store = DispatchAuthStore(storeURL: file,
+                                      keychain: .empty,
+                                      siteDefaults: SiteDefaults())
         #expect(store.loadError != nil)
 
-        var staging = store.staging
-        staging.clientID = "edited"
-        store.setConfig(staging, for: .staging)
+        let environment = store.environments[0]
+        var config = store.config(for: environment)
+        config.clientID = "edited"
+        store.setConfig(config, for: environment)
 
         #expect(!store.save())
         #expect(try Data(contentsOf: file) == malformed)
@@ -170,10 +173,12 @@ struct PersistenceSafetyTests {
         keychain.shouldFailWrites = true
         let store = DispatchAuthStore(
             storeURL: directory.appendingPathComponent("dispatch-auth.json"),
-            keychain: keychain.client)
-        var staging = store.staging
-        staging.clientSecret = "secret"
-        store.setConfig(staging, for: .staging)
+            keychain: keychain.client,
+            siteDefaults: SiteDefaults())
+        let environment = store.environments[0]
+        var config = store.config(for: environment)
+        config.clientSecret = "secret"
+        store.setConfig(config, for: environment)
 
         #expect(!store.save())
         #expect(store.saveError != nil)
@@ -184,7 +189,7 @@ struct PersistenceSafetyTests {
         #expect(store.save())
         #expect(store.saveError == nil)
         #expect(keychain.writeAttempts == 2)
-        #expect(keychain.value(for: .stagingClientSecret) == "secret")
+        #expect(keychain.value(for: .dispatchClientSecret(for: "staging")) == "secret")
     }
 
     @Test func readsTheCombinedKeychainItemOnce() throws {
@@ -197,11 +202,12 @@ struct PersistenceSafetyTests {
 
         let store = DispatchAuthStore(
             storeURL: directory.appendingPathComponent("dispatch-auth.json"),
-            keychain: keychain.client)
+            keychain: keychain.client,
+            siteDefaults: SiteDefaults())
 
         #expect(keychain.readAttempts == 1)
-        #expect(store.staging.clientSecret == "staging-secret")
-        #expect(store.production.clientSecret == "production-secret")
+        #expect(store.config(for: store.environments[0]).clientSecret == "staging-secret")
+        #expect(store.config(for: store.environments[1]).clientSecret == "production-secret")
     }
 
     @Test func mapsPreviousKeychainAccountsToDispatch() {
@@ -221,18 +227,110 @@ struct PersistenceSafetyTests {
         let keychain = KeychainStub()
         let store = DispatchAuthStore(
             storeURL: directory.appendingPathComponent("dispatch-auth.json"),
-            keychain: keychain.client)
-        var staging = store.staging
-        staging.clientSecret = "staging-secret"
-        store.setConfig(staging, for: .staging)
-        var production = store.production
-        production.clientSecret = "production-secret"
-        store.setConfig(production, for: .production)
+            keychain: keychain.client,
+            siteDefaults: SiteDefaults())
+        let staging = store.environments[0]
+        var stagingConfig = store.config(for: staging)
+        stagingConfig.clientSecret = "staging-secret"
+        store.setConfig(stagingConfig, for: staging)
+        let production = store.environments[1]
+        var productionConfig = store.config(for: production)
+        productionConfig.clientSecret = "production-secret"
+        store.setConfig(productionConfig, for: production)
 
         #expect(store.save())
         #expect(keychain.writeAttempts == 1)
-        #expect(keychain.value(for: .stagingClientSecret) == "staging-secret")
-        #expect(keychain.value(for: .productionClientSecret) == "production-secret")
+        #expect(keychain.value(for: .dispatchClientSecret(for: "staging")) == "staging-secret")
+        #expect(keychain.value(for: .dispatchClientSecret(for: "production")) == "production-secret")
+    }
+
+    @Test func keepsSettingsForEveryConfiguredEnvironment() throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("dispatch-auth.json")
+        let keychain = KeychainStub()
+        let defaults = SiteDefaults(
+            dispatch: .init(oauth: .init(tokenURL: "https://id.example/token",
+                                         clientID: "shared-client")),
+            environments: [
+                .init(name: "dev", title: "Development"),
+                .init(name: "prd", title: "Production", danger: true),
+                .init(name: "shared", title: "Shared")
+            ])
+        let store = DispatchAuthStore(storeURL: file,
+                                      keychain: keychain.client,
+                                      siteDefaults: defaults)
+
+        #expect(store.environments.map(\.name) == ["dev", "prd", "shared"])
+        #expect(store.environments.map(\.label) == ["Development", "Production", "Shared"])
+        #expect(store.environments.map(\.isDangerous) == [false, true, false])
+
+        let shared = try #require(store.environments.first { $0.name == "shared" })
+        var sharedConfig = store.config(for: shared)
+        sharedConfig.clientID = "shared-environment-client"
+        sharedConfig.clientSecret = "shared-secret"
+        store.setConfig(sharedConfig, for: shared)
+        store.active = shared
+
+        #expect(store.save())
+        #expect(keychain.value(for: .dispatchClientSecret(for: "shared")) == "shared-secret")
+
+        let restored = DispatchAuthStore(storeURL: file,
+                                         keychain: keychain.client,
+                                         siteDefaults: defaults)
+        let restoredShared = try #require(restored.environments.first { $0.name == "shared" })
+        #expect(restored.active == restoredShared)
+        #expect(restored.config(for: restoredShared).clientID == "shared-environment-client")
+        #expect(restored.config(for: restoredShared).clientSecret == "shared-secret")
+
+        var changedDefaults = defaults
+        changedDefaults.environments = [
+            .init(name: "sandbox", title: "Sandbox"),
+            .init(name: "live", title: "Live", danger: true)
+        ]
+        restored.applyEnvironments(from: changedDefaults)
+
+        #expect(restored.environments.map(\.name) == ["sandbox", "live"])
+        #expect(restored.active.name == "sandbox")
+        #expect(restored.config(for: restored.active).clientID == "shared-client")
+    }
+
+    @Test func migratesFixedOAuthSlotsToConfiguredEnvironmentNames() throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let file = directory.appendingPathComponent("dispatch-auth.json")
+        try JSONEncoder().encode(PreviousDispatchAuth(
+            active: "production",
+            staging: OAuthConfig(clientID: "development-client"),
+            production: OAuthConfig(clientID: "production-client")))
+            .write(to: file)
+        let keychain = KeychainStub(values: [
+            .stagingClientSecret: "development-secret",
+            .productionClientSecret: "production-secret"
+        ])
+        let defaults = SiteDefaults(
+            dispatch: .init(oauth: .init(clientID: "shared-client"),
+                            environments: .init(staging: "dev", production: "prd")),
+            environments: [
+                .init(name: "dev", title: "Development"),
+                .init(name: "prd", title: "Production", danger: true),
+                .init(name: "shared", title: "Shared")
+            ])
+
+        let store = DispatchAuthStore(storeURL: file,
+                                      keychain: keychain.client,
+                                      siteDefaults: defaults)
+        let dev = try #require(store.environments.first { $0.name == "dev" })
+        let prd = try #require(store.environments.first { $0.name == "prd" })
+        let shared = try #require(store.environments.first { $0.name == "shared" })
+
+        #expect(store.active == prd)
+        #expect(store.config(for: dev).clientID == "development-client")
+        #expect(store.config(for: dev).clientSecret == "development-secret")
+        #expect(store.config(for: prd).clientID == "production-client")
+        #expect(store.config(for: prd).clientSecret == "production-secret")
+        #expect(store.config(for: shared).clientID == "shared-client")
     }
 
     @Test func queuedWriteCannotRecreateADeletedTranscript() async throws {
@@ -376,6 +474,12 @@ private extension Result {
         if case .success(let value) = self { return value }
         return nil
     }
+}
+
+private struct PreviousDispatchAuth: Codable {
+    var active: String
+    var staging: OAuthConfig
+    var production: OAuthConfig
 }
 
 private extension KeychainClient {

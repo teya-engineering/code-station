@@ -87,22 +87,17 @@ struct SiteDefaultsTests {
         #expect(defaults.dispatchOAuth == OAuthConfig())
     }
 
-    // {{env}} still has to resolve to something on a build with no file, since the sheet
-    // sends requests either way.
-    @Test func environmentNamesFallBackToTheAppsOwn() throws {
+    @Test func previousDispatchAliasesBecomeSharedEnvironments() throws {
         let named = try file("""
         { "dispatch": { "environments": { "staging": "test", "production": "live" } } }
         """)
-        let values = SiteDefaults.load([named]).dispatchEnvValues
-        #expect(values.staging == "test")
-        #expect(values.production == "live")
+        let migrated = SiteDefaults.load([named]).deployEnvironments
+        #expect(migrated.map(\.name) == ["test", "live"])
+        #expect(migrated.map(\.label) == ["Staging", "Production"])
+        #expect(migrated.map(\.isDangerous) == [false, true])
 
         let half = try file(#"{ "dispatch": { "environments": { "staging": "test" } } }"#)
-        #expect(SiteDefaults.load([half]).dispatchEnvValues.production == "prd")
-
-        let none = SiteDefaults().dispatchEnvValues
-        #expect(none.staging == "dev")
-        #expect(none.production == "prd")
+        #expect(SiteDefaults.load([half]).deployEnvironments.map(\.name) == ["test", "prd"])
     }
 
     // The file names no IDs. A shortcut still has to come back as the same one on the

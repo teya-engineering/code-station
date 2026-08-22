@@ -58,6 +58,19 @@ struct SiteDefaults: Codable, Sendable, Equatable {
         let legacy = try values.decodeIfPresent(DispatchConfig.self, forKey: .legacyHTTPClient)
         self.dispatch = dispatch ?? legacy
         environments = try values.decodeIfPresent([Environment].self, forKey: .environments)
+        // Earlier site files kept two Dispatch-only aliases instead of using the shared
+        // environment list. A file with only that shape is upgraded in memory so every
+        // feature sees the same deployments.
+        if environments == nil, let legacyNames = self.dispatch?.environments {
+            let staging = legacyNames.staging ?? "dev"
+            let production = legacyNames.production ?? "prd"
+            environments = [Environment(name: staging, title: "Staging")]
+            if production != staging {
+                environments?.append(Environment(name: production,
+                                                 title: "Production",
+                                                 danger: true))
+            }
+        }
         grafana = try values.decodeIfPresent(Grafana.self, forKey: .grafana)
         skills = try values.decodeIfPresent(Skills.self, forKey: .skills)
         shortcuts = try values.decodeIfPresent([Shortcut].self, forKey: .shortcuts)
@@ -99,6 +112,8 @@ struct SiteDefaults: Codable, Sendable, Equatable {
     struct DispatchConfig: Codable, Sendable, Equatable {
         var oauth: OAuth?
         var requests: [Request]?
+        // Read only for migrating site and OAuth settings written before Dispatch used
+        // the shared top-level environment list. New configuration files omit this field.
         var environments: Environments?
 
         init(oauth: OAuth? = nil,
@@ -109,8 +124,7 @@ struct SiteDefaults: Codable, Sendable, Equatable {
             self.environments = environments
         }
 
-        // What {{env}} stands for on each side of the sheet. Named here because the same
-        // deployment is "dev" to one organisation and "staging" to the next.
+        // The two aliases used by older configuration files.
         struct Environments: Codable, Sendable, Equatable {
             var staging: String?
             var production: String?
@@ -343,7 +357,7 @@ extension SiteDefaults {
 
     // MARK: - What the rest of the app reads
 
-    // The provider both API environments start from. Everything else about the setup,
+    // The provider every API environment starts from. Everything else about the setup,
     // including the callback, keeps the app's own defaults.
     var dispatchOAuth: OAuthConfig {
         guard let oauth = dispatch?.oauth else { return OAuthConfig() }
@@ -369,8 +383,8 @@ extension SiteDefaults {
         }
     }
 
-    // What {{env}} resolves to on each side. These are also the app's own values, so a
-    // file that names neither still sends requests somewhere sensible.
+    // Used only to map OAuth settings saved by versions with fixed staging and production
+    // slots onto the matching configured environments.
     var dispatchEnvValues: (staging: String, production: String) {
         let named = dispatch?.environments
         return (named?.staging ?? "dev", named?.production ?? "prd")

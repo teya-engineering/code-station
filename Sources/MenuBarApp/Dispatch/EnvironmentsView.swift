@@ -1,7 +1,7 @@
 import SwiftUI
 
-// The OAuth setup that differs between the two environments. The requests are shared;
-// this sheet holds what a send in each environment signs in with.
+// The OAuth setup that can differ between configured environments. The requests are
+// shared; this sheet holds what a send in each environment signs in with.
 struct EnvironmentsView: View {
     @Environment(DispatchAuthStore.self) private var auth
     @Environment(\.dismiss) private var dismiss
@@ -13,7 +13,7 @@ struct EnvironmentsView: View {
 
     // Edits land in a draft per environment and only reach the store on Save, so a
     // half-typed credential is never what a send signs in with. Switching tabs keeps
-    // both drafts.
+    // every draft.
     @State private var drafts: [ApiEnvironment: OAuthConfig] = [:]
 
     var body: some View {
@@ -84,7 +84,7 @@ struct EnvironmentsView: View {
                     // first rather than silently signing in with the old values.
                     EnvironmentTokenControls(env: shown, beforeAuthenticate: save)
 
-                    Text("Both environments hold the same fields; only the values differ. Switching re-authenticates against that environment's setup and re-resolves every {{env}} in the request list.")
+                    Text("Every environment holds the same fields; only the values differ. Switching re-authenticates against that environment's setup and re-resolves every {{env}} in the request list.")
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -113,13 +113,13 @@ struct EnvironmentsView: View {
     }
 
     private var hasChanges: Bool {
-        ApiEnvironment.allCases.contains { env in
+        auth.environments.contains { env in
             drafts[env].map { $0 != auth.config(for: env) } ?? false
         }
     }
 
     private func save() {
-        for env in ApiEnvironment.allCases {
+        for env in auth.environments {
             if let draft = drafts[env], draft != auth.config(for: env) {
                 auth.setConfig(draft, for: env)
             }
@@ -129,7 +129,7 @@ struct EnvironmentsView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Environments").font(.serif(16))
-            Text("Two sets of credentials, one set of requests. The switch at the top of Dispatch picks which one a send uses.")
+            Text("One set of requests, with separate credentials for every configured environment. The switch at the top of Dispatch picks which one a send uses.")
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -141,30 +141,35 @@ struct EnvironmentsView: View {
     }
 
     private var tabs: some View {
-        HStack(spacing: 6) {
-            ForEach(ApiEnvironment.allCases) { env in
-                Button {
-                    selected = env
-                } label: {
-                    HStack(spacing: 6) {
-                        Text(env.label)
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(env == shown ? Color.white : Color.primary)
-                        Text(env.envValue)
-                            .font(.mono(10, .medium))
-                            .foregroundStyle(env == shown ? Color.white.opacity(0.72) : Color.secondary)
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(auth.environments) { env in
+                    Button {
+                        selected = env
+                    } label: {
+                        HStack(spacing: 6) {
+                            Text(env.label)
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(env == shown ? Color.white : Color.primary)
+                            if env.label != env.name {
+                                Text(env.name)
+                                    .font(.mono(10, .medium))
+                                    .foregroundStyle(env == shown
+                                                     ? Color.white.opacity(0.72)
+                                                     : Color.secondary)
+                            }
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(RoundedRectangle(cornerRadius: 9)
+                            .fill(env == shown ? env.accentFill : Theme.field))
+                        .overlay(RoundedRectangle(cornerRadius: 9)
+                            .stroke(env == shown ? .clear : Theme.border))
+                        .contentShape(Rectangle())
                     }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .background(RoundedRectangle(cornerRadius: 9)
-                        .fill(env == shown ? env.accentFill : Theme.field))
-                    .overlay(RoundedRectangle(cornerRadius: 9)
-                        .stroke(env == shown ? .clear : Theme.border))
-                    .contentShape(Rectangle())
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             }
-            Spacer()
         }
     }
 

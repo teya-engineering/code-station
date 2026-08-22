@@ -11,7 +11,6 @@ struct SiteConfigurationPlanTests {
       ],
       "dispatch": {
         "oauth": { "tokenURL": "https://id.example/token", "clientID": "code-station" },
-        "environments": { "staging": "sbx", "production": "live" },
         "requests": [
           { "name": "Health", "method": "GET", "url": "https://api.example/health" },
           { "name": "Orders", "method": "POST", "url": "https://api.example/orders" }
@@ -79,7 +78,6 @@ struct SiteConfigurationPlanTests {
         {
           "dispatch": {
             "oauth": { "clientID": "personal" },
-            "environments": { "staging": "local", "production": "prod" },
             "requests": [{ "name": "Personal", "url": "https://personal.example" }]
           }
         }
@@ -90,14 +88,14 @@ struct SiteConfigurationPlanTests {
                                                      in: current,
                                                      to: imported)
         #expect(access.dispatch?.oauth?.clientID == "code-station")
-        #expect(access.dispatchEnvValues == ("sbx", "live"))
+        #expect(access.deployEnvironments.map(\.name) == ["staging", "production"])
         #expect(access.dispatchRequests.map(\.name) == ["Personal"])
 
         let requests = SiteConfigurationPlan.resetting([.requests],
                                                        in: current,
                                                        to: imported)
         #expect(requests.dispatch?.oauth?.clientID == "personal")
-        #expect(requests.dispatchEnvValues == ("local", "prod"))
+        #expect(requests.deployEnvironments.map(\.name) == ["staging", "production"])
         #expect(requests.dispatchRequests.map(\.name) == ["Health", "Orders"])
     }
 

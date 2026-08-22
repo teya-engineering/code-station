@@ -41,11 +41,9 @@ enum SiteConfigurationAspect: String, CaseIterable, Hashable, Identifiable, Send
             return count == 1 ? "1 environment" : "\(count) environments"
         case .apiAccess:
             let oauth = defaults.dispatch?.oauth
-            let names = defaults.dispatch?.environments
             if let clientID = oauth?.clientID, !clientID.isEmpty { return clientID }
-            if oauth != nil && names != nil { return "Sign-in provider and environment names" }
             if oauth != nil { return "Sign-in provider" }
-            return "Environment names"
+            return "No sign-in provider"
         case .requests:
             let count = defaults.dispatch?.requests?.count ?? 0
             return count == 1 ? "1 starter request" : "\(count) starter requests"
@@ -73,7 +71,7 @@ struct SiteConfigurationPlan: Sendable {
             case .environments:
                 defaults.environments != nil
             case .apiAccess:
-                defaults.dispatch?.oauth != nil || defaults.dispatch?.environments != nil
+                defaults.dispatch?.oauth != nil
             case .requests:
                 defaults.dispatch?.requests != nil
             case .grafana:
@@ -99,13 +97,11 @@ struct SiteConfigurationPlan: Sendable {
             var dispatch = result.dispatch ?? SiteDefaults.DispatchConfig()
             if chosen.contains(.apiAccess) {
                 dispatch.oauth = imported.dispatch?.oauth
-                dispatch.environments = imported.dispatch?.environments
             }
             if chosen.contains(.requests) {
                 dispatch.requests = imported.dispatch?.requests
             }
             result.dispatch = dispatch.oauth == nil
-                && dispatch.environments == nil
                 && dispatch.requests == nil ? nil : dispatch
         }
 

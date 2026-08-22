@@ -2,6 +2,8 @@ import Foundation
 import Testing
 @testable import MenuBarApp
 
+private let testEnvironment = ApiEnvironment(name: "test")
+
 struct CurlCommandTests {
     @Test func writesMethodHeadersAndBody() {
         let request = SavedRequest(
@@ -12,7 +14,7 @@ struct CurlCommandTests {
             bodyType: .json,
             body: #"{"name":"thing"}"#)
 
-        let command = CurlCommand.text(for: request, environment: .staging,
+        let command = CurlCommand.text(for: request, environment: testEnvironment,
                                        authorization: "Bearer token")
 
         #expect(command == """
@@ -29,7 +31,7 @@ struct CurlCommandTests {
     @Test func leavesGetImplicitAndSendsNoBody() {
         let request = SavedRequest(name: "read", method: .get, url: "https://example.test/things")
 
-        let command = CurlCommand.text(for: request, environment: .staging, authorization: nil)
+        let command = CurlCommand.text(for: request, environment: testEnvironment, authorization: nil)
 
         #expect(command == "curl \\\n  'https://example.test/things'")
     }
@@ -41,9 +43,9 @@ struct CurlCommandTests {
             queryParams: [HeaderField(key: "q", value: "a b")],
             pathParams: [HeaderField(key: "id", value: "42")])
 
-        let command = CurlCommand.text(for: request, environment: .staging, authorization: nil)
+        let command = CurlCommand.text(for: request, environment: testEnvironment, authorization: nil)
 
-        let expected = "https://host.\(ApiEnvironment.staging.envValue).test/things/42?q=a%20b"
+        let expected = "https://host.\(testEnvironment.envValue).test/things/42?q=a%20b"
         #expect(command.contains("'\(expected)'"))
     }
 
@@ -51,7 +53,7 @@ struct CurlCommandTests {
         let request = SavedRequest(name: "quote", method: .post, url: "https://example.test",
                                    bodyType: .text, body: "it's $HOME")
 
-        let command = CurlCommand.text(for: request, environment: .staging, authorization: nil)
+        let command = CurlCommand.text(for: request, environment: testEnvironment, authorization: nil)
 
         #expect(command.contains(#"--data-raw 'it'\''s $HOME'"#))
     }
@@ -59,7 +61,7 @@ struct CurlCommandTests {
     @Test func skipsTheTokenWhenTheRequestDoesNotUseAuth() {
         let request = SavedRequest(name: "open", url: "https://example.test", authMode: .none)
 
-        let command = CurlCommand.text(for: request, environment: .staging,
+        let command = CurlCommand.text(for: request, environment: testEnvironment,
                                        authorization: "Bearer token")
 
         #expect(!command.contains("Authorization"))
@@ -74,7 +76,7 @@ struct CurlCommandTests {
             bodyType: .json,
             body: "{}")
 
-        let command = CurlCommand.text(for: request, environment: .staging, authorization: nil)
+        let command = CurlCommand.text(for: request, environment: testEnvironment, authorization: nil)
 
         #expect(command.contains("-H 'content-type: application/vnd.api+json'"))
         #expect(!command.contains("application/json'"))
@@ -86,7 +88,7 @@ struct CurlCommandTests {
             url: "https://example.test",
             headers: [HeaderField(key: "Authorization", value: "Bearer typed")])
 
-        let command = CurlCommand.text(for: request, environment: .staging,
+        let command = CurlCommand.text(for: request, environment: testEnvironment,
                                        authorization: "Bearer collection")
 
         #expect(command.contains("-H 'Authorization: Bearer typed'"))
@@ -99,7 +101,7 @@ struct CurlCommandTests {
             url: "https://example.test",
             headers: [HeaderField(key: "X-Parked", value: "no", enabled: false)])
 
-        let command = CurlCommand.text(for: request, environment: .staging, authorization: nil)
+        let command = CurlCommand.text(for: request, environment: testEnvironment, authorization: nil)
 
         #expect(!command.contains("X-Parked"))
     }

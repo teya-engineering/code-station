@@ -5,8 +5,8 @@ import Security
 // Everything sits in one keychain item as a JSON dictionary: each item carries its own
 // access prompt, so one item means at most one prompt instead of one per secret.
 enum Keychain {
-    // What a secret is filed under. The OAuth ones are fixed, but a request that signs in
-    // with a password needs a name of its own, so the set is open rather than a list.
+    // What a secret is filed under. Each environment and each request needs a name of its
+    // own, so the set is open rather than a fixed list.
     struct Account: Hashable, Sendable {
         let name: String
 
@@ -15,8 +15,17 @@ enum Keychain {
         static let productionClientSecret = Account(name: "dispatch.production.client-secret")
         static let productionToken = Account(name: "dispatch.production.token")
 
+        private static let environmentPrefix = "dispatch.environment."
         private static let requestPrefix = "dispatch.request."
         private static let passwordSuffix = ".basic-password"
+
+        static func dispatchClientSecret(for environment: String) -> Account {
+            Account(name: environmentPrefix + environment + ".client-secret")
+        }
+
+        static func dispatchToken(for environment: String) -> Account {
+            Account(name: environmentPrefix + environment + ".token")
+        }
 
         static func basicPassword(for requestID: UUID) -> Account {
             Account(name: requestPrefix + requestID.uuidString + passwordSuffix)

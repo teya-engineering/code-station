@@ -59,7 +59,7 @@ Add tests for behavior and business logic. Trivial view wiring, accessors, and f
 
 ## Site defaults
 
-Anything that belongs to one organisation rather than to the app lives in `site-defaults.json`: the identity provider the API environments sign in against, the saved requests a first run starts with, what `{{env}}` stands for on each side, the Grafana instances offered in the Add server sheet, the skills marketplace, and the command shortcuts a first run starts with. `SiteDefaults` reads the first valid file from these locations:
+Anything that belongs to one organisation rather than to the app lives in `site-defaults.json`: the environments Dispatch and troubleshooting use, the identity provider the APIs sign in against, the saved requests a first run starts with, the Grafana instances offered in the Add server sheet, the skills marketplace, and the command shortcuts a first run starts with. `SiteDefaults` reads the first valid file from these locations:
 
 1. `$CODE_STATION_SITE_DEFAULTS`
 2. A saved external configuration path

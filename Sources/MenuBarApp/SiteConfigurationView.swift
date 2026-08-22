@@ -151,7 +151,7 @@ struct SiteConfigurationSection: View {
             let count = loaded.deployEnvironments.count
             return count == 1 ? "1 environment" : "\(count) environments"
         case .apiAccess:
-            guard loaded.dispatch?.oauth != nil || loaded.dispatch?.environments != nil else {
+            guard loaded.dispatch?.oauth != nil else {
                 return "Not configured"
             }
             return aspect.detail(in: loaded)
@@ -336,7 +336,11 @@ struct SiteConfigurationSection: View {
 
     private func apply(_ defaults: SiteDefaults, changed: Set<SiteConfigurationAspect>) {
         if changed.contains(.requests) { dispatch.resetSiteRequests(to: defaults) }
-        if changed.contains(.apiAccess) { dispatchAuth.resetSiteAccess(to: defaults) }
+        if changed.contains(.apiAccess) {
+            dispatchAuth.resetSiteAccess(to: defaults)
+        } else if changed.contains(.environments) {
+            dispatchAuth.applyEnvironments(from: defaults)
+        }
         if changed.contains(.shortcuts) { shortcuts.resetSiteShortcuts(to: defaults) }
         if changed.contains(.skills) { Preferences.skillsMarketplace = nil }
         loaded = defaults
@@ -423,9 +427,9 @@ private struct SiteConfigurationEditorView: View {
     private var editorNote: String {
         switch aspect {
         case .environments:
-            "Name the deployments used to tag servers and scope troubleshooting."
+            "Name the deployments used by Dispatch, server tags, and troubleshooting. The name is what {{env}} resolves to."
         case .apiAccess:
-            "Set the shared sign-in provider and the values used for {{env}}. Secrets stay in the Keychain."
+            "Set the sign-in provider used as the starting point for every environment. Secrets stay in the Keychain."
         case .requests:
             "Keep the small set of API requests that a configured install should start with."
         case .grafana:
@@ -454,7 +458,7 @@ private struct SiteConfigurationEditorView: View {
                 let environment = environmentBinding(at: index)
                 editorCard {
                     HStack(alignment: .top, spacing: 10) {
-                        SiteConfigurationField(caption: "NAME",
+                        SiteConfigurationField(caption: "NAME / {{env}}",
                                                placeholder: "production",
                                                text: environment.name)
                         SiteConfigurationField(caption: "LABEL",
@@ -509,21 +513,6 @@ private struct SiteConfigurationEditorView: View {
                 }
             }
 
-            editorCard {
-                Toggle("Configure API environment names", isOn: dispatchEnvironmentsEnabled)
-                    .toggleStyle(.appSwitch)
-                    .font(.system(size: 12.5, weight: .semibold))
-                if dispatchEnvironmentsEnabled.wrappedValue {
-                    HStack(alignment: .top, spacing: 10) {
-                        SiteConfigurationField(caption: "STAGING {{env}}",
-                                               placeholder: "dev",
-                                               text: dispatchEnvironmentText(\.staging))
-                        SiteConfigurationField(caption: "PRODUCTION {{env}}",
-                                               placeholder: "prd",
-                                               text: dispatchEnvironmentText(\.production))
-                    }
-                }
-            }
         }
     }
 
@@ -726,29 +715,6 @@ private struct SiteConfigurationEditorView: View {
         })
     }
 
-    private var dispatchEnvironmentsEnabled: Binding<Bool> {
-        Binding(get: { draft.dispatch?.environments != nil }, set: { enabled in
-            var dispatch = draft.dispatch ?? SiteDefaults.DispatchConfig()
-            dispatch.environments = enabled
-                ? (dispatch.environments ?? SiteDefaults.DispatchConfig.Environments(
-                    staging: "dev", production: "prd")) : nil
-            draft.dispatch = dispatch
-        })
-    }
-
-    private func dispatchEnvironmentText(
-        _ keyPath: WritableKeyPath<SiteDefaults.DispatchConfig.Environments, String?>
-    ) -> Binding<String> {
-        Binding(get: { draft.dispatch?.environments?[keyPath: keyPath] ?? "" }, set: { value in
-            var dispatch = draft.dispatch ?? SiteDefaults.DispatchConfig()
-            var environments = dispatch.environments
-                ?? SiteDefaults.DispatchConfig.Environments()
-            environments[keyPath: keyPath] = value
-            dispatch.environments = environments
-            draft.dispatch = dispatch
-        })
-    }
-
     private var skillsEnabled: Binding<Bool> {
         Binding(get: { draft.skills != nil }, set: { enabled in
             draft.skills = enabled
@@ -901,14 +867,6 @@ private enum SiteConfigurationForm {
                     throw ImportError("Fill in \(config.missing.joined(separator: ", ")).")
                 }
             }
-            if var environments = result.dispatch?.environments {
-                environments.staging = optional(environments.staging)
-                environments.production = optional(environments.production)
-                guard environments.staging != nil, environments.production != nil else {
-                    throw ImportError("Both API environment names are required.")
-                }
-                result.dispatch?.environments = environments
-            }
             removeEmptyDispatch(from: &result)
 
         case .requests:
@@ -976,7 +934,7 @@ private enum SiteConfigurationForm {
 
     private static func removeEmptyDispatch(from defaults: inout SiteDefaults) {
         guard let dispatch = defaults.dispatch else { return }
-        if dispatch.oauth == nil && dispatch.environments == nil && dispatch.requests == nil {
+        if dispatch.oauth == nil && dispatch.requests == nil {
             defaults.dispatch = nil
         }
     }

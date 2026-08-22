@@ -1,8 +1,8 @@
 import SwiftUI
 
 // A small HTTP client for the services a session is working on: the saved requests on
-// the left, the one being edited and its answer on the right. Two environments share the
-// one request list; the active one picks the credentials, the {{env}} value and the
+// the left, the one being edited and its answer on the right. Every configured environment
+// shares one request list; the active one picks the credentials, the {{env}} value and the
 // colour of the chrome, so where a send lands is legible at a glance.
 struct DispatchView: View {
     @Environment(DispatchStore.self) private var store
@@ -26,9 +26,9 @@ struct DispatchView: View {
                 detail
             }
             SheetFooter(done: { dismiss() }) {
-                Text(environment == .production
-                     ? "Production asks once per send. Staging never asks."
-                     : "Requests are shared by both environments. Each environment keeps its own credentials and its own responses.")
+                Text(environment.isDangerous
+                     ? "Live environments ask for confirmation before every send."
+                     : "Requests are shared by all environments. Each environment keeps its own credentials and responses.")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
@@ -47,12 +47,12 @@ struct DispatchView: View {
             Text("\(store.requests.count) request\(store.requests.count == 1 ? "" : "s")")
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
-            if environment == .production {
+            if environment.isDangerous {
                 Circle()
                     .fill(Theme.deletion)
                     .frame(width: 7, height: 7)
                     .padding(.leading, 2)
-                Text("PRODUCTION")
+                Text(environment.label.uppercased())
                     .font(.mono(11, .bold))
                     .kerning(1)
                     .foregroundStyle(Theme.deletion)
@@ -66,19 +66,22 @@ struct DispatchView: View {
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 10)
-        .background(environment == .production ? Theme.deletion.opacity(0.10) : Theme.card)
+        .background(environment.isDangerous ? Theme.deletion.opacity(0.10) : Theme.card)
     }
 
     private var environmentSwitch: some View {
-        HStack(spacing: 2) {
-            ForEach(ApiEnvironment.allCases) { env in
-                EnvironmentSegment(env: env, selected: env == environment) {
-                    auth.active = env
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 2) {
+                ForEach(auth.environments) { env in
+                    EnvironmentSegment(env: env, selected: env == environment) {
+                        auth.active = env
+                    }
                 }
             }
+            .padding(3)
         }
-        .padding(3)
         .background(RoundedRectangle(cornerRadius: 10).fill(Color.black.opacity(0.05)))
+        .frame(maxWidth: 500)
     }
 
     // MARK: - Sidebar
@@ -795,7 +798,7 @@ private struct RequestDetail: View {
                                    text: basicPassword,
                                    accent: environment.accent,
                                    secret: true)
-                    authNote("Adds Authorization: Basic <username:password>. The pair is the same in both environments, and base64 hides nothing from anything on the way, so this belongs on https only. An Authorization header of your own still wins.")
+                    authNote("Adds Authorization: Basic <username:password>. The pair is the same in every environment, and base64 hides nothing from anything on the way, so this belongs on https only. An Authorization header of your own still wins.")
                 }
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -888,21 +891,26 @@ private struct RequestDetail: View {
         // the store, so the run is built from it rather than from the saved copy.
         let request = draft
         let env = environment
-        guard env == .production else {
+        guard env.isDangerous else {
             fire(request, in: env)
             return
         }
-        // Production asks once per send. There is no way to stop it asking; the prompt
-        // is the guard.
+        // A live environment asks once per send. There is no way to stop it asking; the
+        // prompt is the guard.
+        var actions = [
+            Dialog.Action(label: "Send", kind: .destructive) { fire(request, in: env) }
+        ]
+        if let safe = auth.environments.first(where: { !$0.isDangerous }) {
+            actions.append(Dialog.Action(label: "Switch to \(safe.label)") {
+                auth.active = safe
+            })
+        }
+        actions.append(Dialog.Action(label: "Cancel", kind: .cancel))
         dialogs.show(Dialog(
-            title: "Send to production?",
+            title: "Send to \(env.label)?",
             message: consequence(of: request.method),
-            content: AnyView(ResolvedRequestBox(request: request)),
-            actions: [
-                .init(label: "Send", kind: .destructive) { fire(request, in: env) },
-                .init(label: "Switch to staging") { auth.active = .staging },
-                .init(label: "Cancel", kind: .cancel)
-            ],
+            content: AnyView(ResolvedRequestBox(request: request, environment: env)),
+            actions: actions,
             width: 400))
     }
 
@@ -950,10 +958,10 @@ private struct RequestDetail: View {
 
     private func consequence(of method: HTTPMethod) -> String {
         switch method {
-        case .delete: "This deletes real data. Switch to staging if you meant to test."
-        case .post: "This creates real data. Switch to staging if you meant to test."
-        case .put, .patch: "This changes real data. Switch to staging if you meant to test."
-        case .get, .head: "This runs against live data. Switch to staging if you meant to test."
+        case .delete: "This deletes live data. Switch to a non-live environment if you meant to test."
+        case .post: "This creates live data. Switch to a non-live environment if you meant to test."
+        case .put, .patch: "This changes live data. Switch to a non-live environment if you meant to test."
+        case .get, .head: "This runs against live data. Switch to a non-live environment if you meant to test."
         }
     }
 }
@@ -961,13 +969,14 @@ private struct RequestDetail: View {
 // Exactly what the confirmation is about: the method and the URL as it will be sent.
 private struct ResolvedRequestBox: View {
     let request: SavedRequest
+    let environment: ApiEnvironment
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(request.method.rawValue)
                 .font(.mono(11, .bold))
                 .foregroundStyle(Theme.deletion)
-            resolvedText(request.expandedURL, env: .production, size: 11, base: .primary)
+            resolvedText(request.expandedURL, env: environment, size: 11, base: .primary)
                 .lineLimit(2)
                 .truncationMode(.middle)
         }

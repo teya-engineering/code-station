@@ -158,7 +158,7 @@ final class DispatchRunner {
     nonisolated static func resolve(_ request: SavedRequest, environment: ApiEnvironment,
                                     authorization: String?) -> ResolvedRequest {
         // {{env}} is substituted at the last moment, so the saved request stays a
-        // template and the same list serves both environments.
+        // template and the same list serves every environment.
         let url = environment.resolve(request.expandedURL)
             .trimmingCharacters(in: .whitespacesAndNewlines)
 

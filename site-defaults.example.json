@@ -13,10 +13,6 @@
       "scope": "openid",
       "callbackURL": "http://127.0.0.1:8234/callback"
     },
-    "environments": {
-      "staging": "dev",
-      "production": "prd"
-    },
     "requests": [
       {
         "name": "List orders",
