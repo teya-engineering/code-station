@@ -82,6 +82,7 @@ struct DispatchView: View {
         }
         .background(RoundedRectangle(cornerRadius: 10).fill(Color.black.opacity(0.05)))
         .frame(maxWidth: 500)
+        .fixedSize(horizontal: true, vertical: false)
     }
 
     // MARK: - Sidebar
