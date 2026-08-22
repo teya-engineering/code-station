@@ -576,17 +576,8 @@ struct ProjectDetailView: View {
 
     // MARK: - Creating and removing
 
-    // A git repository gets the folder-or-worktree choice; a plain folder can start
-    // directly because there is no checkout choice to make.
     private func requestNewSession(in project: Project) {
         guard !store.isMissing(project) else { return }
-        guard project.isGitRepository else {
-            startSession(.folder(agent: runner.agent,
-                                 model: runner.defaults.model,
-                                 agentAvatarName: appSettings.defaultAgentAvatarName),
-                         in: project)
-            return
-        }
         choosingSessionKind = project
     }
 

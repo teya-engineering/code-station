@@ -847,16 +847,7 @@ struct AppSidebar: View {
 
     // MARK: - Creating and removing sessions
 
-    // A git repository gets the folder-or-worktree choice; a plain folder has no
-    // worktrees to offer, so the session is just created.
     private func requestNewSession(in project: Project) {
-        guard project.isGitRepository else {
-            startSession(.folder(agent: runner.agent,
-                                 model: runner.defaults.model,
-                                 agentAvatarName: appSettings.defaultAgentAvatarName),
-                         in: project)
-            return
-        }
         choosingSessionKind = project
     }
 

@@ -1,9 +1,8 @@
 import SwiftUI
 
-// Where a new session will do its work. This is the one choice made before a session
-// exists and it cannot be changed afterwards, so it is a screen rather than a dialog:
-// both options say what they mean for the working tree, and each shows the branch and
-// folder it would actually use.
+// Where a new session will do its work. A git repository can use its own worktree or the
+// project folder, while a plain folder is fixed to that folder. The screen is still shown
+// for a plain folder because the agent and bot are choices made before the session exists.
 struct NewSessionView: View {
     let project: Project
     let onCreate: (NewSessionChoice) -> Void
@@ -16,7 +15,7 @@ struct NewSessionView: View {
     // Picked up front so the branch and folder shown here are the ones the session is
     // created with, rather than a guess at what they will look like.
     @State private var sessionID = UUID()
-    @State private var useWorktree = true
+    @State private var useWorktree: Bool
     // How the checkout relates to the default branch and its remote. It arrives in two
     // passes: what the local refs already say, then the same read again after a fetch,
     // so the sheet is honest immediately and accurate a moment later.
@@ -24,7 +23,7 @@ struct NewSessionView: View {
     // The fetch pass is still running. Creating waits for it, so a session cannot start
     // from an answer that was about to change, and so the warning a fetch turns up is
     // seen before the choice is made rather than after.
-    @State private var fetching = true
+    @State private var fetching: Bool
     // Where the session should start when the checkout is stale. The three states are
     // shown as choices instead of making an unchecked pair of boxes mean a third answer.
     @State private var startPoint: SessionStartPoint = .currentCheckout
@@ -49,6 +48,13 @@ struct NewSessionView: View {
         GitWorktree.plan(projectName: project.name, sessionID: sessionID)
     }
 
+    init(project: Project, onCreate: @escaping (NewSessionChoice) -> Void) {
+        self.project = project
+        self.onCreate = onCreate
+        _useWorktree = State(initialValue: project.isGitRepository)
+        _fetching = State(initialValue: project.isGitRepository)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             header
@@ -62,21 +68,23 @@ struct NewSessionView: View {
                 .transition(.fadeIn)
             }
             VStack(spacing: 10) {
-                OptionCard(
-                    title: "Use a git worktree",
-                    badge: "Runs in parallel",
-                    badgeTint: Theme.accent,
-                    detail: "An isolated checkout on its own branch, so several sessions of this project can run at once.",
-                    branch: planned.branch,
-                    path: planned.path.abbreviatedPath,
-                    selected: useWorktree) { selectWorktree() }
+                if project.isGitRepository {
+                    OptionCard(
+                        title: "Use a git worktree",
+                        badge: "Runs in parallel",
+                        badgeTint: Theme.accent,
+                        detail: "An isolated checkout on its own branch, so several sessions of this project can run at once.",
+                        branch: planned.branch,
+                        path: planned.path.abbreviatedPath,
+                        selected: useWorktree) { selectWorktree() }
+                }
 
                 OptionCard(
                     title: "Work in the project folder",
                     badge: "One at a time",
                     badgeTint: Theme.secret,
                     detail: "Edits your working tree directly. Sessions that share a folder cannot run together.",
-                    branch: GitHead.branch(at: project.path),
+                    branch: project.isGitRepository ? GitHead.branch(at: project.path) : nil,
                     path: project.collapsedPath,
                     selected: !useWorktree) { selectProjectFolder() }
             }
@@ -90,6 +98,7 @@ struct NewSessionView: View {
         .interactiveDismissDisabled(pulling)
         .onAppear { selectInitialAvatar() }
         .task {
+            guard project.isGitRepository else { return }
             let local = await GitFreshness.check(at: project.path, fetch: false)
             withAnimation(.easeOut(duration: 0.2)) { freshness = local }
             let fetched = await GitFreshness.check(at: project.path, fetch: true)
@@ -106,6 +115,7 @@ struct NewSessionView: View {
         // for. Past this the sheet gives up waiting rather than becoming a dead end; a
         // report that lands afterwards is still shown.
         .task {
+            guard project.isGitRepository else { return }
             try? await Task.sleep(for: Self.longestWait)
             withAnimation(.easeOut(duration: 0.2)) { fetching = false }
         }
@@ -116,7 +126,9 @@ struct NewSessionView: View {
             Text("New session in \(project.name)")
                 .font(.serif(19))
                 .lineLimit(2)
-            Text("\(project.name) is a git repository, so this session can have a checkout of its own.")
+            Text(project.isGitRepository
+                 ? "\(project.name) is a git repository, so this session can have a checkout of its own."
+                 : "This folder is not a git repository, so the session works in it directly.")
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
