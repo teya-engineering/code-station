@@ -17,15 +17,29 @@ struct DesignView: View {
     @State private var composerFocused = false
     @State private var dropTargeted = false
     @State private var viewport = DesignViewport.fit
+    @State private var conversationWidth = DesignSplitLayout.defaultConversationWidth
+    @State private var dragStartConversationWidth: CGFloat?
 
     var body: some View {
         if let session = store.session(sessionID),
            let artifactURL = store.designArtifactURL(for: session) {
-            HStack(spacing: 0) {
-                conversation(session)
-                    .frame(width: 340)
-                Divider().overlay(Theme.hairline)
-                canvas(artifactURL)
+            GeometryReader { geometry in
+                let width = DesignSplitLayout.conversationWidth(
+                    conversationWidth, availableWidth: geometry.size.width)
+
+                ZStack(alignment: .leading) {
+                    HStack(spacing: 0) {
+                        conversation(session, width: width)
+                            .frame(width: width)
+                            .clipped()
+                        Divider().overlay(Theme.hairline)
+                        canvas(artifactURL)
+                    }
+
+                    splitHandle(conversationWidth: width,
+                                availableWidth: geometry.size.width)
+                        .offset(x: width - DesignSplitLayout.handleWidth / 2)
+                }
             }
             .onAppear {
                 store.hold(sessionID, for: .open)
@@ -45,7 +59,7 @@ struct DesignView: View {
 
     // MARK: - Conversation
 
-    private func conversation(_ session: ChatSession) -> some View {
+    private func conversation(_ session: ChatSession, width: CGFloat) -> some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
                 Image(systemName: "paintbrush.pointed.fill")
@@ -64,7 +78,7 @@ struct DesignView: View {
                 Rectangle().fill(Theme.hairline).frame(height: 1)
             }
 
-            designTranscript(session)
+            designTranscript(session, width: width)
             Divider().overlay(Theme.hairline)
             designComposer(session)
         }
@@ -82,7 +96,7 @@ struct DesignView: View {
         .fixedSize()
     }
 
-    private func designTranscript(_ session: ChatSession) -> some View {
+    private func designTranscript(_ session: ChatSession, width: CGFloat) -> some View {
         let state = runner.state(sessionID)
         let projectPath = store.workingDirectory(for: session) ?? ""
         return ScrollViewReader { proxy in
@@ -107,7 +121,8 @@ struct DesignView: View {
                                     isTurnActive: state.isBusy
                                         && message.id == session.messages.last?.id,
                                     textScale: textScale,
-                                    openChanges: {})
+                                    openChanges: {},
+                                    availableWidth: width - 32)
                             .equatable()
                     }
 
@@ -166,6 +181,40 @@ struct DesignView: View {
                 proxy.scrollTo("design-transcript-bottom", anchor: .bottom)
             }
         }
+    }
+
+    private func splitHandle(conversationWidth: CGFloat,
+                             availableWidth: CGFloat) -> some View {
+        Color.clear
+            .frame(width: DesignSplitLayout.handleWidth)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(coordinateSpace: .global)
+                    .onChanged { value in
+                        let start = dragStartConversationWidth ?? conversationWidth
+                        dragStartConversationWidth = start
+                        self.conversationWidth = DesignSplitLayout.conversationWidth(
+                            start + value.translation.width,
+                            availableWidth: availableWidth)
+                    }
+                    .onEnded { _ in dragStartConversationWidth = nil })
+            .onHover { inside in
+                if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+            }
+            .appTooltip("Drag to resize")
+            .accessibilityElement()
+            .accessibilityLabel("Resize Design conversation")
+            .accessibilityValue("\(Int(conversationWidth)) points wide")
+            .accessibilityAdjustableAction { direction in
+                let change: CGFloat = switch direction {
+                case .increment: 32
+                case .decrement: -32
+                @unknown default: 0
+                }
+                self.conversationWidth = DesignSplitLayout.conversationWidth(
+                    conversationWidth + change,
+                    availableWidth: availableWidth)
+            }
     }
 
     private func designComposer(_ session: ChatSession) -> some View {
@@ -398,6 +447,23 @@ struct DesignView: View {
                 return
             }
         }
+    }
+}
+
+enum DesignSplitLayout {
+    static let defaultConversationWidth: CGFloat = 340
+    static let minimumConversationWidth: CGFloat = 280
+    static let minimumCanvasWidth: CGFloat = 320
+    static let dividerWidth: CGFloat = 1
+    static let handleWidth: CGFloat = 9
+
+    static func conversationWidth(_ proposedWidth: CGFloat,
+                                  availableWidth: CGFloat) -> CGFloat {
+        let paneWidth = max(0, availableWidth - dividerWidth)
+        let halfWidth = paneWidth / 2
+        let minimum = min(minimumConversationWidth, halfWidth)
+        let maximum = max(minimum, paneWidth - min(minimumCanvasWidth, halfWidth))
+        return min(max(proposedWidth, minimum), maximum)
     }
 }
 

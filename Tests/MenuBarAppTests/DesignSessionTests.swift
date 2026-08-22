@@ -14,6 +14,13 @@ struct DesignSessionTests {
         return (root, store, project)
     }
 
+    @Test func designSplitKeepsBothPanesVisible() {
+        #expect(DesignSplitLayout.conversationWidth(340, availableWidth: 900) == 340)
+        #expect(DesignSplitLayout.conversationWidth(100, availableWidth: 900) == 280)
+        #expect(DesignSplitLayout.conversationWidth(800, availableWidth: 900) == 579)
+        #expect(DesignSplitLayout.conversationWidth(400, availableWidth: 500) == 249.5)
+    }
+
     @Test func designHasItsOwnConversationOnTheSameCheckout() throws {
         let fixture = try fixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }

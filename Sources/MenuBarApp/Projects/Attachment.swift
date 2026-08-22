@@ -289,17 +289,17 @@ struct InlineImageView: View {
 
     let url: URL
     var label: String?
+    var maximumWidth: CGFloat = 280
 
     @State private var thumbnail: ImageThumbnail?
     @State private var failed = false
 
-    private static let maxWidth: CGFloat = 280
     private static let maxHeight: CGFloat = 200
 
     var body: some View {
         Group {
             if let thumbnail {
-                let size = Self.fit(thumbnail)
+                let size = fit(thumbnail)
                 Button {
                     showPreview(aspectRatio: thumbnail.aspectRatio)
                 } label: {
@@ -327,7 +327,8 @@ struct InlineImageView: View {
                             .font(.system(size: 18, weight: .light))
                             .foregroundStyle(.secondary)
                     }
-                    .frame(width: 220, height: 140)
+                    .frame(width: min(220, maximumWidth),
+                           height: min(140, maximumWidth / 220 * 140))
             }
         }
         .task(id: url) {
@@ -343,8 +344,9 @@ struct InlineImageView: View {
     }
 
     // Fits the reading box without blowing a small image up past its own pixels.
-    private static func fit(_ thumbnail: ImageThumbnail) -> CGSize {
-        let width = min(maxWidth, maxHeight * thumbnail.aspectRatio, CGFloat(thumbnail.image.width))
+    private func fit(_ thumbnail: ImageThumbnail) -> CGSize {
+        let width = min(maximumWidth, Self.maxHeight * thumbnail.aspectRatio,
+                        CGFloat(thumbnail.image.width))
         return CGSize(width: width, height: width / thumbnail.aspectRatio)
     }
 

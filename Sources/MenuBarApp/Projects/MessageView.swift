@@ -22,6 +22,7 @@ struct MessageView: View, Equatable {
     let isTurnActive: Bool
     let textScale: CGFloat
     let openChanges: () -> Void
+    var availableWidth: CGFloat?
     // The right-click menu on the user's own prompt. Its entries are built when the
     // menu opens, so what it offers reflects the session as it is then.
     var promptMenu: (() -> [MenuEntry])?
@@ -34,6 +35,7 @@ struct MessageView: View, Equatable {
     nonisolated static func == (a: MessageView, b: MessageView) -> Bool {
         a.message == b.message && a.projectPath == b.projectPath
             && a.isTurnActive == b.isTurnActive && a.textScale == b.textScale
+            && a.availableWidth == b.availableWidth
     }
 
     var body: some View {
@@ -66,7 +68,7 @@ struct MessageView: View, Equatable {
 
     private var userBubble: some View {
         HStack(spacing: 0) {
-            Spacer(minLength: 80)
+            Spacer(minLength: userBubbleLeadingSpace)
             VStack(alignment: .leading, spacing: 8) {
                 if let paths = message.attachments, !paths.isEmpty {
                     // An image that is still on disk shows itself; anything else - other
@@ -75,7 +77,7 @@ struct MessageView: View, Equatable {
                         let url = URL(fileURLWithPath: path)
                         if Attachment(url: url).isImage,
                            FileManager.default.fileExists(atPath: url.path) {
-                            InlineImageView(url: url)
+                            InlineImageView(url: url, maximumWidth: userBubbleContentWidth)
                         } else {
                             AttachmentChip(url: url)
                         }
@@ -90,6 +92,7 @@ struct MessageView: View, Equatable {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
+            .frame(maxWidth: userBubbleContentWidth, alignment: .leading)
             .padding(.leading, 15)
             .padding(.trailing, message.text.isEmpty ? 15 : 42)
             .padding(.vertical, 11)
@@ -105,8 +108,23 @@ struct MessageView: View, Equatable {
             // can wrap; the bubble itself hugs the text instead of filling the cap. It
             // grows with the text so a bubble holds about the same number of words at
             // every size.
-            .frame(maxWidth: 600 * textScale, alignment: .trailing)
+            .frame(maxWidth: userBubbleWidth, alignment: .trailing)
         }
+    }
+
+    private var userBubbleLeadingSpace: CGFloat {
+        availableWidth == nil ? 80 : 16
+    }
+
+    private var userBubbleWidth: CGFloat {
+        let readableWidth = 600 * textScale
+        guard let availableWidth else { return readableWidth }
+        return min(readableWidth, max(0, availableWidth - userBubbleLeadingSpace))
+    }
+
+    private var userBubbleContentWidth: CGFloat {
+        let horizontalPadding: CGFloat = message.text.isEmpty ? 30 : 57
+        return max(0, userBubbleWidth - horizontalPadding)
     }
 
     // The last block of work in a turn that is still going. The model can say a great deal
