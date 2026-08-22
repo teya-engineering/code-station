@@ -668,6 +668,52 @@ struct CodexTests {
         #expect(await waitUntil { fixture.runner.state(fixture.session.id) == .idle })
     }
 
+    // Codex says nothing about a file written by a command it ran, exactly as Claude Code
+    // says nothing. Both streams meet in the same handler, and this is what shows that the
+    // change is measured off the working tree for Codex too.
+    //
+    // The turn here ends the instant the command reports in, which is what a real turn does
+    // when its last act is to write. The change is worked out after that, so this also
+    // stands for every change that outlives the turn that made it.
+    @MainActor @Test func seesWhatACodexCommandWroteThroughTheShell() async throws {
+        let fixture = try codexFixture(script: """
+        input=$(cat)
+        folder=$(dirname "$0")
+        printf '%s\\n' '{"type":"thread.started","thread_id":"thread-1"}'
+        printf '%s\\n' '{"type":"item.started","item":{"id":"command-1","item_type":"command_execution","command":"cat > notes.md"}}'
+        while [ ! -f "$folder/go" ]; do sleep 0.02; done
+        printf 'first\\nsecond\\n' > notes.md
+        printf '%s\\n' '{"type":"item.completed","item":{"id":"command-1","item_type":"command_execution","command":"cat > notes.md","aggregated_output":"","exit_code":0,"status":"completed"}}'
+        printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":2}}'
+        """)
+        defer {
+            fixture.runner.stop(fixture.session.id, store: fixture.store)
+            try? FileManager.default.removeItem(at: fixture.directory)
+        }
+        try fixture.makeProjectARepository()
+
+        fixture.runner.send("write the notes", sessionID: fixture.session.id, store: fixture.store)
+
+        // Snapshots run in order on one queue, so waiting on one of our own is waiting for
+        // the turn's baseline to have been taken. Only then is the fixture let write, which
+        // is what a real agent's seconds of thinking does for free.
+        await fixture.waitForBaseline()
+        try Data().write(to: fixture.directory.appendingPathComponent("go"))
+
+        #expect(await waitUntil { fixture.writtenChange != nil })
+        let change = try #require(fixture.writtenChange)
+        #expect(change.files == 1)
+        #expect(change.added == 2)
+        #expect(try #require(change.patch).contains("notes.md"))
+
+        // And it reaches the row as a diff, which is the whole point of measuring it.
+        let tool = try #require(fixture.store.transcript(of: fixture.session.id)
+            .flatMap(\.tools).first { $0.name == "Bash" })
+        let presentation = ToolPresentation(tool: tool, projectPath: "")
+        #expect(presentation.changes.map(\.name) == ["notes.md"])
+        #expect(presentation.changes[0].lines.map(\.text) == ["first", "second"])
+    }
+
     @Test func aCompletedReasoningItemBecomesThinking() {
         let events = StreamEvent.parseCodex("""
         {"type":"item.completed","item":{"id":"item_5","item_type":"reasoning","text":"weighing options"}}
@@ -775,5 +821,38 @@ struct CodexTests {
         let store: ProjectStore
         let session: ChatSession
         let runner: SessionRunner
+
+        var projectURL: URL { directory.appendingPathComponent("project", isDirectory: true) }
+
+        // Snapshots only mean anything inside a repository, so a fixture that expects one
+        // has to make the project folder into a repository first.
+        func makeProjectARepository() throws {
+            for arguments in [["init", "-q", "-b", "main"],
+                              ["config", "user.email", "test@example.com"],
+                              ["config", "user.name", "Test"],
+                              ["commit", "-q", "--allow-empty", "-m", "start"]] {
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+                process.arguments = arguments
+                process.currentDirectoryURL = projectURL
+                process.standardOutput = Pipe()
+                process.standardError = Pipe()
+                try process.run()
+                process.waitUntilExit()
+            }
+        }
+
+        func waitForBaseline() async {
+            let git = GitInspector.GitTool(path: "/usr/bin/git", searchPath: "/usr/bin:/bin")
+            _ = await withCheckedContinuation { continuation in
+                TreeSnapshots.shared.change(at: projectURL.path, using: git) {
+                    continuation.resume(returning: $0)
+                }
+            }
+        }
+
+        @MainActor var writtenChange: WrittenChange? {
+            store.transcript(of: session.id).flatMap(\.tools).compactMap(\.written).first
+        }
     }
 }
