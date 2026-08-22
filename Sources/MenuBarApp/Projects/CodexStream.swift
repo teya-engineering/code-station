@@ -55,6 +55,26 @@ extension StreamEvent {
 
     // MARK: - Private
 
+    // What Codex did to the file, said in the words the rest of the app already uses for
+    // it. Its own kinds are add, delete and update.
+    private static func editVerb(_ kind: String?) -> String {
+        switch kind {
+        case "add": "Write"
+        case "delete": "Delete"
+        default: "Edit"
+        }
+    }
+
+    // Codex sends an edit as fields rather than as JSON, while the app reads every call's
+    // input as the JSON object Claude Code sends. Encoding it here is what lets one
+    // presentation cover both agents.
+    private static func json(_ fields: [String: String]) -> String {
+        guard let data = try? JSONSerialization.data(withJSONObject: fields),
+              let text = String(data: data, encoding: .utf8)
+        else { return fields["file_path"] ?? "" }
+        return text
+    }
+
     // Items are Codex's tool calls and messages. A command starts and later completes,
     // so it maps onto a tool call and its result. A message only matters once it is
     // complete: the completed item carries the whole text again, so acting on the
@@ -86,16 +106,24 @@ extension StreamEvent {
                                 isError: isError)]
 
         case "file_change":
-            // Codex reports its edits whole rather than as separate calls, so the one
-            // item becomes a finished tool call listing what changed.
+            // Codex reports every file it touched in one item, so the item becomes one
+            // finished call per file - the shape Claude Code's edits already arrive in,
+            // and the only shape that gives each file a diff of its own. Codex works out
+            // that diff itself and sends it along, so nothing here has to.
             guard completed else { return [] }
             let changes = (item["changes"] as? [Any])?.compactMap { $0 as? [String: Any] } ?? []
-            let listed = changes.compactMap { change -> String? in
-                guard let path = change["path"] as? String else { return nil }
-                return (change["kind"] as? String).map { "\($0) \(path)" } ?? path
-            }.joined(separator: "\n")
-            return [.toolUse(ToolUse(id: id, name: "Edit", input: listed)),
-                    .toolResult(id: id, output: "", isError: failed)]
+            return changes.enumerated().flatMap { index, change -> [StreamEvent] in
+                guard let path = change["path"] as? String else { return [] }
+                var fields: [String: String] = ["file_path": path]
+                if let diff = change["diff"] as? String, !diff.isEmpty { fields["diff"] = diff }
+                // One item, several calls: the item's own id belongs to the first of them
+                // and the rest are numbered off it, so every call still has an id of its
+                // own for its result to land on.
+                let callID = index == 0 ? id : "\(id)#\(index)"
+                let tool = ToolUse(id: callID, name: editVerb(change["kind"] as? String),
+                                   input: json(fields))
+                return [.toolUse(tool), .toolResult(id: callID, output: "", isError: failed)]
+            }
 
         case "mcp_tool_call":
             let name = [item["server"] as? String, item["tool"] as? String]

@@ -140,24 +140,52 @@ private struct SpineRow: View {
     let onToggle: () -> Void
     let openChanges: () -> Void
 
+    // An edit's own diff is the point of its row, so it is drawn without being asked
+    // for. Clicking such a row puts it away again rather than opening anything further:
+    // what a row would otherwise open is the call's input, which for an edit is the diff
+    // already on screen.
+    @State private var diffPutAway = false
+
     private var tool: ToolUse { node.tool }
+
+    private var showsDiff: Bool {
+        !presentation.diff.isEmpty && !tool.isError && node.children.isEmpty && !diffPutAway
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Button(action: onToggle) {
+            Button(action: hasDiff ? { diffPutAway.toggle() } : onToggle) {
                 row
                     .padding(.vertical, 4)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
 
-            if isExpanded {
+            if showsDiff {
+                EditDiffCard(presentation: presentation,
+                             language: language,
+                             openChanges: openChanges)
+                    .padding(.bottom, 8)
+                    .transition(.fadeIn)
+            } else if isExpanded {
                 detail
                     .padding(.bottom, 8)
                     .transition(.fadeIn)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .smoothlyResizes(when: diffPutAway)
+    }
+
+    private var hasDiff: Bool {
+        !presentation.diff.isEmpty && !tool.isError && node.children.isEmpty
+    }
+
+    // Code reads as code in the diff, the way it does everywhere else in the app. What
+    // language it is follows from the file the edit named.
+    private var language: CodeLanguage? {
+        guard let fileName = presentation.fileName else { return nil }
+        return CodeLanguage(fileExtension: (fileName as NSString).pathExtension)
     }
 
     // The verb sits in a column of its own so a run of calls reads down the left edge as
@@ -236,8 +264,6 @@ private struct SpineRow: View {
             agentWork
         } else if tool.isError, let result = tool.result, !result.isEmpty {
             outputBox(result, tinted: true)
-        } else if !presentation.diff.isEmpty {
-            EditDiffCard(presentation: presentation, openChanges: openChanges)
         } else {
             if !tool.input.isEmpty { outputBox(tool.input, tinted: false) }
             if let result = tool.result, !result.isEmpty { outputBox(result, tinted: false) }
@@ -295,7 +321,10 @@ private struct SpineRow: View {
 // The change an edit made, shown as a small inline diff. This is a preview of the
 // call's own input; the full working tree diff lives behind "Open in Changes".
 private struct EditDiffCard: View {
+    @Environment(\.textScale) private var textScale
+
     let presentation: ToolPresentation
+    let language: CodeLanguage?
     let openChanges: () -> Void
 
     private static let visibleLines = 120
@@ -334,18 +363,18 @@ private struct EditDiffCard: View {
         .padding(.vertical, 8)
     }
 
+    // The gutter is sized for the highest line the diff reaches, so the numbers stay in
+    // a column and the code starts in the same place on every row.
+    private var gutterWidth: CGFloat {
+        let highest = presentation.diff.compactMap(\.number).max() ?? 0
+        guard highest > 0 else { return 0 }
+        return CGFloat(max(2, String(highest).count)) * 7 * textScale
+    }
+
     private var lines: some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(presentation.diff.prefix(Self.visibleLines)) { line in
-                Text(line.marker + " " + line.text)
-                    .scaledMono(11)
-                    .foregroundStyle(color(line.kind))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 1)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(background(line.kind))
+                row(line)
             }
             if presentation.diff.count > Self.visibleLines {
                 Text("… \(presentation.diff.count - Self.visibleLines) more lines")
@@ -358,11 +387,59 @@ private struct EditDiffCard: View {
         .padding(.vertical, 6)
     }
 
-    private func color(_ kind: ToolPresentation.Line.Kind) -> Color {
+    @ViewBuilder private func row(_ line: ToolPresentation.Line) -> some View {
+        if line.kind == .gap {
+            // The lines a diff skipped between two hunks. Nothing to say about them but
+            // that they are there.
+            Text("⋯")
+                .scaledMono(11)
+                .foregroundStyle(.tertiary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            HStack(alignment: .top, spacing: 6) {
+                if gutterWidth > 0 {
+                    Text(line.number.map(String.init) ?? "")
+                        .scaledMono(11)
+                        .foregroundStyle(.tertiary)
+                        .frame(width: gutterWidth, alignment: .trailing)
+                }
+                Text(line.marker)
+                    .scaledMono(11, .semibold)
+                    .foregroundStyle(markerColor(line.kind))
+                code(line)
+            }
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 1)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(background(line.kind))
+        }
+    }
+
+    // The band says added or removed; the code itself keeps its syntax colours, so a
+    // diff reads as code first and as a change second. Each line is coloured on its own,
+    // since an edit can start in the middle of anything and carrying state between its
+    // lines would guess wrong as often as right.
+    @ViewBuilder private func code(_ line: ToolPresentation.Line) -> some View {
+        if let language, line.text.utf8.count <= CodeHighlight.sizeLimit {
+            Text(CodeHighlight.highlight(line.text, language: language))
+                .scaledMono(11)
+                .foregroundStyle(.primary)
+        } else {
+            Text(line.text)
+                .scaledMono(11)
+                .foregroundStyle(.primary)
+        }
+    }
+
+    private func markerColor(_ kind: ToolPresentation.Line.Kind) -> Color {
         switch kind {
         case .addition: Theme.addition
         case .deletion: Theme.deletion
-        case .context: .primary
+        case .context, .gap: .secondary
         }
     }
 
@@ -370,7 +447,7 @@ private struct EditDiffCard: View {
         switch kind {
         case .addition: Theme.dotOn.opacity(0.14)
         case .deletion: Theme.deletion.opacity(0.10)
-        case .context: .clear
+        case .context, .gap: .clear
         }
     }
 }

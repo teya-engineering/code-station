@@ -212,6 +212,11 @@ struct ToolUse: Identifiable, Codable, Equatable, Sendable {
     // The last thing an agent said while it worked, kept only for the call that started
     // it. A fan-out can run for many minutes with nothing else to show for it.
     var status: String?
+    // Where in the file an edit landed, counted from 1. Neither CLI says, so it is read
+    // off disk the moment the call reports in, while what is on disk is still what the
+    // call wrote. Nil when the file could not be read or the call was not an edit, which
+    // is what leaves a diff without a line gutter.
+    var editStartLine: Int?
 
     var isRunning: Bool { result == nil }
 

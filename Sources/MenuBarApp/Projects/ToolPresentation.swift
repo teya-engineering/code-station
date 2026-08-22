@@ -5,16 +5,22 @@ import Foundation
 // which the CLI sends complete and never changes afterwards.
 struct ToolPresentation: Sendable {
     struct Line: Identifiable, Equatable, Sendable {
-        enum Kind: Equatable, Sendable { case addition, deletion, context }
+        // A gap stands for the lines between two hunks of the same file, which a diff
+        // skips over.
+        enum Kind: Equatable, Sendable { case addition, deletion, context, gap }
         let id: Int
         let kind: Kind
         let text: String
+        // Which line of the file this is, counted from 1, on the side it belongs to: the
+        // file before the edit for a deletion, after it for everything else. Nil when
+        // nothing said where the change landed.
+        var number: Int?
 
         var marker: String {
             switch kind {
             case .addition: "+"
             case .deletion: "-"
-            case .context: " "
+            case .context, .gap: " "
             }
         }
     }
@@ -48,17 +54,14 @@ struct ToolPresentation: Sendable {
         switch tool.name {
         case "Read":
             notesResultLineCount = true
-        case "Edit":
-            let change = Self.diff(old: input["old_string"] as? String ?? "",
-                                   new: input["new_string"] as? String ?? "")
+        case "Edit", "Write", "Delete":
+            let change = Self.change(tool: tool, input: input)
             diff = change.lines
             added = change.added
             removed = change.removed
-        case "Write":
-            let change = Self.diff(old: "", new: input["content"] as? String ?? "")
-            diff = change.lines
-            added = change.added
-            removed = change.removed
+            // Codex used to name its edits as a line of prose rather than as arguments,
+            // and conversations written then are still read back.
+            if fileName == nil { argument = Self.singleLine(tool.input) }
         case "Bash":
             // Claude wraps shell input in JSON, while Codex sends the command itself.
             argument = Self.singleLine(input["command"] as? String ?? tool.input)
@@ -89,11 +92,31 @@ struct ToolPresentation: Sendable {
 
     // MARK: - Diffing an edit
 
+    typealias Change = (lines: [Line], added: Int, removed: Int)
+
+    // The two shapes an edit arrives in. Codex hands over a unified diff it has already
+    // worked out; Claude Code hands over the strings it swapped, which have to be
+    // compared here.
+    private static func change(tool: ToolUse, input: [String: Any]) -> Change {
+        if let unified = input["diff"] as? String, !unified.isEmpty {
+            return Self.unified(unified)
+        }
+        if tool.name == "Write" {
+            return Self.diff(old: "", new: input["content"] as? String ?? "", startLine: 1)
+        }
+        return Self.diff(old: input["old_string"] as? String ?? "",
+                         new: input["new_string"] as? String ?? "",
+                         startLine: tool.editStartLine)
+    }
+
     // A cheap line diff: lines shared at the start and end of both strings are context,
     // everything between is a straight remove-then-add. Edit inputs are written as the
     // changed lines plus a little surrounding context, so this reads like a real diff
     // without needing a diff algorithm.
-    private static func diff(old: String, new: String) -> (lines: [Line], added: Int, removed: Int) {
+    //
+    // startLine is where in the file the two strings begin. Both sides are identical up
+    // to that point, so one number numbers the whole diff.
+    private static func diff(old: String, new: String, startLine: Int?) -> Change {
         let oldLines = old.isEmpty ? [] : old.components(separatedBy: "\n")
         let newLines = new.isEmpty ? [] : new.components(separatedBy: "\n")
 
@@ -115,14 +138,96 @@ struct ToolPresentation: Sendable {
         let newChange = newLines[prefixCount..<(newLines.count - suffixCount)]
 
         var lines: [Line] = []
-        func append(_ kind: Line.Kind, _ text: String) {
-            lines.append(Line(id: lines.count, kind: kind, text: text))
+        func append(_ kind: Line.Kind, _ text: String, _ number: Int?) {
+            lines.append(Line(id: lines.count, kind: kind, text: text, number: number))
         }
-        for text in oldLines[..<prefixCount].suffix(2) { append(.context, text) }
-        for text in oldChange { append(.deletion, text) }
-        for text in newChange { append(.addition, text) }
-        for text in oldLines[(oldLines.count - suffixCount)...].prefix(2) { append(.context, text) }
+
+        // Only as much of the shared prefix as is shown gets numbered, so the count runs
+        // from the first context line actually on screen up to the change itself.
+        let shownPrefix = oldLines[..<prefixCount].suffix(2)
+        var oldNumber = startLine.map { $0 + prefixCount - shownPrefix.count }
+        var newNumber = oldNumber
+        func step(_ number: inout Int?) -> Int? {
+            defer { number = number.map { $0 + 1 } }
+            return number
+        }
+        for text in shownPrefix {
+            append(.context, text, step(&newNumber))
+            _ = step(&oldNumber)
+        }
+        for text in oldChange { append(.deletion, text, step(&oldNumber)) }
+        for text in newChange { append(.addition, text, step(&newNumber)) }
+        for text in oldLines[(oldLines.count - suffixCount)...].prefix(2) {
+            append(.context, text, step(&newNumber))
+        }
         return (lines, newChange.count, oldChange.count)
+    }
+
+    // A unified diff read back into rows. Only the hunk headers and the marked lines
+    // matter: the file headers name a file the row already names, and the numbering the
+    // headers carry is the whole reason to prefer this over comparing strings.
+    private static func unified(_ text: String) -> Change {
+        var lines: [Line] = []
+        var added = 0
+        var removed = 0
+        var oldNumber = 0
+        var newNumber = 0
+        var inHunk = false
+
+        // A diff usually ends in a newline, which would otherwise read back as one more
+        // blank line of file.
+        let body = text.hasSuffix("\n") ? String(text.dropLast()) : text
+        for row in body.split(separator: "\n", omittingEmptySubsequences: false) {
+            guard lines.count < GitInspector.diffLineLimit else { break }
+            func append(_ kind: Line.Kind, _ body: Substring, _ number: Int?) {
+                lines.append(Line(id: lines.count, kind: kind, text: String(body), number: number))
+            }
+
+            if row.hasPrefix("@@") {
+                guard let header = HunkHeader(row) else { continue }
+                // Everything between two hunks is untouched file the diff skipped.
+                if inHunk { append(.gap, "", nil) }
+                oldNumber = header.oldStart
+                newNumber = header.newStart
+                inHunk = true
+                continue
+            }
+            guard inHunk else { continue }
+
+            if row.hasPrefix("+") {
+                append(.addition, row.dropFirst(), newNumber)
+                newNumber += 1
+                added += 1
+            } else if row.hasPrefix("-") {
+                append(.deletion, row.dropFirst(), oldNumber)
+                oldNumber += 1
+                removed += 1
+            } else if row.hasPrefix("\\") {
+                // "\ No newline at end of file" describes the line above it.
+                continue
+            } else {
+                append(.context, row.dropFirst(), newNumber)
+                oldNumber += 1
+                newNumber += 1
+            }
+        }
+        return (lines, added, removed)
+    }
+
+    // The line each side of a hunk starts on, out of "@@ -12,7 +12,9 @@".
+    private struct HunkHeader {
+        let oldStart: Int
+        let newStart: Int
+
+        init?(_ row: Substring) {
+            let counts = row.split(separator: " ").compactMap { field -> Int? in
+                guard field.hasPrefix("-") || field.hasPrefix("+") else { return nil }
+                return Int(field.dropFirst().prefix { $0.isNumber })
+            }
+            guard counts.count >= 2 else { return nil }
+            oldStart = counts[0]
+            newStart = counts[1]
+        }
     }
 
     // MARK: - Helpers
@@ -166,6 +271,10 @@ struct ToolPresentation: Sendable {
 // input never changes, so a kept entry can never be the wrong answer, and reopening a
 // session is common enough that rebuilding every diff again is the expensive half of
 // drawing one. What bounds the cache is its own size rather than what is on screen.
+//
+// The one part of a call that does change is where an edit landed, which is only known
+// once the call reports in. An entry built before that is kept apart from the entry
+// built after, so a diff drawn while the edit ran does not keep its missing gutter.
 enum ToolPresentationCache {
     // An edit's entry carries the lines it changed, so lines are what the cache is
     // measured in. Enough for several long conversations at once, and far short of what
@@ -187,6 +296,7 @@ enum ToolPresentationCache {
     private final class Storage: @unchecked Sendable {
         private struct Entry {
             let presentation: ToolPresentation
+            let startLine: Int?
             let lines: Int
             var lastUsed: Int
         }
@@ -197,12 +307,14 @@ enum ToolPresentationCache {
         private var clock = 0
 
         func presentation(for tool: ToolUse, projectPath: String) -> ToolPresentation {
-            if let cached = withLock({ used(tool.id) }) { return cached }
+            if let cached = withLock({ used(tool) }) { return cached }
             let fresh = ToolPresentation(tool: tool, projectPath: projectPath)
             return withLock {
-                if let cached = used(tool.id) { return cached }
+                if let cached = used(tool) { return cached }
+                drop(tool.id)
                 clock += 1
                 let entry = Entry(presentation: fresh,
+                                  startLine: tool.editStartLine,
                                   lines: 1 + fresh.diff.count,
                                   lastUsed: clock)
                 values[tool.id] = entry
@@ -219,10 +331,11 @@ enum ToolPresentationCache {
         }
 
         // Called holding the lock.
-        private func used(_ id: String) -> ToolPresentation? {
-            guard let entry = values[id] else { return nil }
+        private func used(_ tool: ToolUse) -> ToolPresentation? {
+            guard let entry = values[tool.id], entry.startLine == tool.editStartLine
+            else { return nil }
             clock += 1
-            values[id]?.lastUsed = clock
+            values[tool.id]?.lastUsed = clock
             return entry.presentation
         }
 

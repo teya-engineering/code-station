@@ -1261,6 +1261,12 @@ final class SessionRunner {
                     // anything, and its last words are in the result.
                     message.tools[i].status = nil
                     command = message.tools[i].input
+                    // This is the only moment the file holds what the edit wrote and
+                    // nothing later, so it is the only moment the diff can be placed.
+                    if !isError {
+                        message.tools[i].editStartLine = EditLocation.startLine(
+                            name: message.tools[i].name, input: command)
+                    }
                 }
                 // The only moment a pull request announces itself is in the output of the
                 // command that opened it.

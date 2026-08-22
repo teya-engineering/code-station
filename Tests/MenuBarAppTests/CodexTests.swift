@@ -295,20 +295,35 @@ struct CodexTests {
         #expect(text == "Hallo!")
     }
 
-    @Test func anEditArrivesAsAFinishedToolCall() {
+    @Test func eachEditedFileArrivesAsAFinishedToolCallOfItsOwn() throws {
         let events = StreamEvent.parseCodex("""
         {"type":"item.completed","item":{"id":"item_4","item_type":"file_change","status":"completed",\
-        "changes":[{"path":"Sources/App.swift","kind":"update"},{"path":"README.md","kind":"add"}]}}
+        "changes":[{"path":"Sources/App.swift","kind":"update","diff":"@@ -1,2 +1,2 @@\\n-old\\n+new\\n"},\
+        {"path":"README.md","kind":"add"}]}}
         """)
-        #expect(events.count == 2)
-        guard case .toolUse(let tool)? = events.first else {
+        #expect(events.count == 4)
+
+        guard case .toolUse(let edit)? = events.first else {
             Issue.record("expected a tool call, got \(events)")
             return
         }
-        #expect(tool.name == "Edit")
-        #expect(tool.input == "update Sources/App.swift\nadd README.md")
+        #expect(edit.id == "item_4")
+        #expect(edit.name == "Edit")
+        let fields = try #require(try JSONSerialization.jsonObject(with: Data(edit.input.utf8))
+            as? [String: String])
+        #expect(fields["file_path"] == "Sources/App.swift")
+        #expect(fields["diff"] == "@@ -1,2 +1,2 @@\n-old\n+new\n")
+
+        // The item's own id belongs to the first call, so the rest need ids of their own.
+        guard case .toolUse(let write)? = events.dropFirst(2).first else {
+            Issue.record("expected a second tool call, got \(events)")
+            return
+        }
+        #expect(write.id == "item_4#1")
+        #expect(write.name == "Write")
+
         if case .toolResult(let id, _, let isError)? = events.last {
-            #expect(id == "item_4")
+            #expect(id == "item_4#1")
             #expect(!isError)
         } else {
             Issue.record("expected the call to finish, got \(events)")
