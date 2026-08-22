@@ -265,7 +265,7 @@ img { display: block; max-width: 100%; height: auto; }
 }
 .terminal .sigil { color: var(--green-soft); user-select: none; }
 
-.prose { margin: clamp(52px, 6vw, 76px) auto 0 0; max-width: 62ch; text-align: left; }
+.prose { margin: clamp(52px, 6vw, 76px) auto 0; max-width: 62ch; text-align: center; }
 .prose h3 { margin: 0 0 12px; font-size: 20px; font-weight: 700; letter-spacing: -0.015em; }
 .prose p { margin: 0 0 14px; color: var(--ink-muted); }
 .prose a { color: var(--green); text-underline-offset: 3px; }
