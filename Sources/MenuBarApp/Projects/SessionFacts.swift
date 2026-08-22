@@ -353,6 +353,8 @@ struct ContextHairline: View {
                     }
                 }
             }
+            .frame(width: geometry.size.width, height: geometry.size.height,
+                   alignment: .bottomLeading)
         }
         .frame(height: 10)
         .allowsHitTesting(false)
