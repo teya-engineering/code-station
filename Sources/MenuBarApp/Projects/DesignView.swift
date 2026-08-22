@@ -15,7 +15,6 @@ struct DesignView: View {
     @State private var reloadGeneration = 0
     @State private var composerFocused = false
     @State private var dropTargeted = false
-    @State private var viewport = DesignViewport.fit
     @State private var conversationWidth = DesignSplitLayout.defaultConversationWidth
     @State private var dragStartConversationWidth: CGFloat?
 
@@ -360,14 +359,6 @@ struct DesignView: View {
 
                 Spacer(minLength: 10)
 
-                HStack(spacing: 4) {
-                    ForEach(DesignViewport.allCases) { option in
-                        ChoicePill(title: option.title, selected: viewport == option) {
-                            viewport = option
-                        }
-                    }
-                }
-
                 if artifactRevision != nil {
                     Button { reloadGeneration += 1 } label: {
                         Image(systemName: "arrow.clockwise")
@@ -408,32 +399,12 @@ struct DesignView: View {
         }
     }
 
-    @ViewBuilder
     private func canvasPreview(_ url: URL, revision: DesignArtifactRevision) -> some View {
-        GeometryReader { geometry in
-            if let width = viewport.width {
-                ScrollView([.horizontal, .vertical]) {
-                    DesignWebView(url: url,
-                                  revision: revision,
-                                  reloadGeneration: reloadGeneration)
-                        .frame(width: width,
-                               height: max(geometry.size.height - 32, viewport.minimumHeight))
-                        .background(Color.white)
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
-                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
-                        .shadow(color: .black.opacity(0.10), radius: 14, y: 5)
-                        .padding(16)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Theme.sunken)
-            } else {
-                DesignWebView(url: url,
-                              revision: revision,
-                              reloadGeneration: reloadGeneration)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(Color.white)
-            }
-        }
+        DesignWebView(url: url,
+                      revision: revision,
+                      reloadGeneration: reloadGeneration)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color.white)
     }
 
     private func watchArtifact(_ url: URL) async {
@@ -463,38 +434,6 @@ enum DesignSplitLayout {
         let minimum = min(minimumConversationWidth, halfWidth)
         let maximum = max(minimum, paneWidth - min(minimumCanvasWidth, halfWidth))
         return min(max(proposedWidth, minimum), maximum)
-    }
-}
-
-private enum DesignViewport: String, CaseIterable, Identifiable {
-    case fit
-    case tablet
-    case phone
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .fit: "Fit"
-        case .tablet: "Tablet"
-        case .phone: "Phone"
-        }
-    }
-
-    var width: CGFloat? {
-        switch self {
-        case .fit: nil
-        case .tablet: 768
-        case .phone: 390
-        }
-    }
-
-    var minimumHeight: CGFloat {
-        switch self {
-        case .fit: 0
-        case .tablet: 900
-        case .phone: 844
-        }
     }
 }
 
