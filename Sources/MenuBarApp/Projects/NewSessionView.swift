@@ -359,20 +359,15 @@ struct DesignModeOption: View {
 
     var body: some View {
         Toggle(isOn: $isEnabled) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Design mode")
-                    .font(.system(size: 13.5, weight: .semibold))
-                Text("Starts with a live visual canvas beside the conversation instead of Chat.")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            Text("Design mode")
+                .font(.system(size: 12.5, weight: .medium))
+                .foregroundStyle(.secondary)
         }
         .toggleStyle(.appSwitch)
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 11).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 11).stroke(Theme.border))
+        .fixedSize()
+        .appTooltip("Start with a live visual canvas beside the conversation.")
+        .accessibilityHint("Starts the session with Design instead of Chat")
+        .frame(maxWidth: .infinity, alignment: .trailing)
     }
 }
 
