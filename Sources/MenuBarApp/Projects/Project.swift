@@ -217,6 +217,10 @@ struct ToolUse: Identifiable, Codable, Equatable, Sendable {
     // call wrote. Nil when the file could not be read or the call was not an edit, which
     // is what leaves a diff without a line gutter.
     var editStartLine: Int?
+    // What the call left behind on disk, for a call whose own input does not say. Filled
+    // in once the snapshot behind it comes back, which is a beat after the result. Nil for
+    // an edit, which describes its own change, and for a call that changed nothing.
+    var written: WrittenChange?
 
     var isRunning: Bool { result == nil }
 
@@ -225,6 +229,23 @@ struct ToolUse: Identifiable, Codable, Equatable, Sendable {
     static let agentTools: Set<String> = ["Task", "Agent", "Workflow"]
 
     var startsAgents: Bool { Self.agentTools.contains(name) }
+
+    // Calls that arrive carrying the change they are about to make. Everything else has to
+    // be measured against the working tree to know what it did.
+    static let editTools: Set<String> = ["Edit", "Write", "Delete"]
+}
+
+// A change git saw a call make, worked out by comparing the working tree before and after
+// it ran. Kept with the call rather than derived again on demand: the trees it came from
+// are unreachable the moment they are taken, and the worktree itself may be gone by the
+// time anyone reads the conversation back.
+struct WrittenChange: Codable, Equatable, Sendable {
+    var files = 0
+    var added = 0
+    var removed = 0
+    // The change itself, as a unified patch covering every file. Nil when it was too large
+    // to be worth reading inline, which leaves the counts above and nothing to unfold.
+    var patch: String?
 }
 
 // One call and everything that ran inside it. A turn's calls are stored flat, in the

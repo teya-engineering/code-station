@@ -679,13 +679,18 @@ enum GitInspector {
     // process from launching at all.
     static func run(_ tool: GitTool, _ arguments: [String], in directory: URL? = nil,
                     timeout: TimeInterval? = nil,
-                    captureByteLimit: Int = GitInspector.outputByteLimit) -> CommandOutput {
+                    captureByteLimit: Int = GitInspector.outputByteLimit,
+                    environment extra: [String: String] = [:]) -> CommandOutput {
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = tool.searchPath
         // No tty here, so make sure git can never sit waiting for a password or an editor.
         environment["GIT_TERMINAL_PROMPT"] = "0"
         environment["GIT_OPTIONAL_LOCKS"] = "0"
         environment["GIT_PAGER"] = "cat"
+        // Only TreeSnapshots sends anything, and what it sends is GIT_INDEX_FILE: an index
+        // of its own to record into, so that recording cannot disturb the one the reader's
+        // own staged work lives in.
+        environment.merge(extra) { _, override in override }
 
         var result = CommandOutput()
         do {

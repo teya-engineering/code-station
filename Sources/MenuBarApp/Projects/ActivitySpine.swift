@@ -148,13 +148,15 @@ private struct SpineRow: View {
 
     private var tool: ToolUse { node.tool }
 
-    private var showsDiff: Bool {
-        !presentation.diff.isEmpty && !tool.isError && node.children.isEmpty && !diffPutAway
+    private var hasDiff: Bool {
+        !presentation.changes.isEmpty && !tool.isError && node.children.isEmpty
     }
+
+    private var showsDiff: Bool { hasDiff && !diffPutAway }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Button(action: hasDiff ? { diffPutAway.toggle() } : onToggle) {
+            Button(action: putsDiffAway ? { diffPutAway.toggle() } : onToggle) {
                 row
                     .padding(.vertical, 4)
                     .contentShape(Rectangle())
@@ -162,12 +164,17 @@ private struct SpineRow: View {
             .buttonStyle(.plain)
 
             if showsDiff {
-                EditDiffCard(presentation: presentation,
-                             language: language,
-                             openChanges: openChanges)
-                    .padding(.bottom, 8)
-                    .transition(.fadeIn)
-            } else if isExpanded {
+                // A command that changed several files gets a diff for each, in the order
+                // git listed them.
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(presentation.changes) { change in
+                        EditDiffCard(change: change, openChanges: openChanges)
+                    }
+                }
+                .padding(.bottom, 8)
+                .transition(.fadeIn)
+            }
+            if isExpanded {
                 detail
                     .padding(.bottom, 8)
                     .transition(.fadeIn)
@@ -177,16 +184,9 @@ private struct SpineRow: View {
         .smoothlyResizes(when: diffPutAway)
     }
 
-    private var hasDiff: Bool {
-        !presentation.diff.isEmpty && !tool.isError && node.children.isEmpty
-    }
-
-    // Code reads as code in the diff, the way it does everywhere else in the app. What
-    // language it is follows from the file the edit named.
-    private var language: CodeLanguage? {
-        guard let fileName = presentation.fileName else { return nil }
-        return CodeLanguage(fileExtension: (fileName as NSString).pathExtension)
-    }
+    // A command's diff was measured off the working tree rather than sent with the call,
+    // so the command itself is still worth opening and the diff stays where it is.
+    private var putsDiffAway: Bool { hasDiff && presentation.diffIsTheInput }
 
     // The verb sits in a column of its own so a run of calls reads down the left edge as
     // a list of what was done, with the targets lining up beside it.
@@ -243,7 +243,16 @@ private struct SpineRow: View {
         } else if tool.isError {
             failed
         } else if let added = presentation.added, let removed = presentation.removed {
-            DiffPair(added: added, removed: removed, size: 10.5)
+            HStack(spacing: 6) {
+                // A command can change a whole set of files at once, and how many is as
+                // much of the story as how many lines moved.
+                if presentation.changedFiles > 1 {
+                    Text("\(presentation.changedFiles) files")
+                        .scaledMono(10.5)
+                        .foregroundStyle(.tertiary)
+                }
+                DiffPair(added: added, removed: removed, size: 10.5)
+            }
         } else if presentation.notesResultLineCount, let result = tool.result {
             // A command that printed nothing is worth saying out loud: without it the row
             // is indistinguishable from one whose output is simply collapsed.
@@ -318,13 +327,12 @@ private struct SpineRow: View {
     }
 }
 
-// The change an edit made, shown as a small inline diff. This is a preview of the
-// call's own input; the full working tree diff lives behind "Open in Changes".
+// One file's worth of what a call changed, shown as a small inline diff. This is a
+// preview: the full working tree diff lives behind "Open in Changes".
 private struct EditDiffCard: View {
     @Environment(\.textScale) private var textScale
 
-    let presentation: ToolPresentation
-    let language: CodeLanguage?
+    let change: ToolPresentation.FileChange
     let openChanges: () -> Void
 
     private static let visibleLines = 120
@@ -342,17 +350,15 @@ private struct EditDiffCard: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            Text(presentation.fileName ?? presentation.argument)
+            Text(change.name)
                 .scaledMono(12, .semibold)
                 .lineLimit(1)
                 .truncationMode(.middle)
-            if let added = presentation.added, let removed = presentation.removed {
-                HStack(spacing: 5) {
-                    Text("+\(added)").foregroundStyle(Theme.addition)
-                    Text("-\(removed)").foregroundStyle(Theme.deletion)
-                }
-                .scaledMono(11, .medium)
+            HStack(spacing: 5) {
+                Text("+\(change.added)").foregroundStyle(Theme.addition)
+                Text("-\(change.removed)").foregroundStyle(Theme.deletion)
             }
+            .scaledMono(11, .medium)
             Spacer(minLength: 8)
             Button("Open in Changes", action: openChanges)
                 .buttonStyle(.plain)
@@ -366,18 +372,18 @@ private struct EditDiffCard: View {
     // The gutter is sized for the highest line the diff reaches, so the numbers stay in
     // a column and the code starts in the same place on every row.
     private var gutterWidth: CGFloat {
-        let highest = presentation.diff.compactMap(\.number).max() ?? 0
+        let highest = change.lines.compactMap(\.number).max() ?? 0
         guard highest > 0 else { return 0 }
         return CGFloat(max(2, String(highest).count)) * 7 * textScale
     }
 
     private var lines: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ForEach(presentation.diff.prefix(Self.visibleLines)) { line in
+            ForEach(change.lines.prefix(Self.visibleLines)) { line in
                 row(line)
             }
-            if presentation.diff.count > Self.visibleLines {
-                Text("… \(presentation.diff.count - Self.visibleLines) more lines")
+            if change.lines.count > Self.visibleLines {
+                Text("… \(change.lines.count - Self.visibleLines) more lines")
                     .scaledText(11)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 12)
@@ -424,7 +430,7 @@ private struct EditDiffCard: View {
     // since an edit can start in the middle of anything and carrying state between its
     // lines would guess wrong as often as right.
     @ViewBuilder private func code(_ line: ToolPresentation.Line) -> some View {
-        if let language, line.text.utf8.count <= CodeHighlight.sizeLimit {
+        if let language = change.language, line.text.utf8.count <= CodeHighlight.sizeLimit {
             Text(CodeHighlight.highlight(line.text, language: language))
                 .scaledMono(11)
                 .foregroundStyle(.primary)

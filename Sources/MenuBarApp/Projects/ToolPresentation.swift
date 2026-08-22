@@ -25,6 +25,24 @@ struct ToolPresentation: Sendable {
         }
     }
 
+    // One file's worth of a change, drawn as a diff of its own. An edit changes a single
+    // file, while a command can change any number at once.
+    struct FileChange: Identifiable, Sendable {
+        let id: Int
+        // What the diff prints above itself: the file's own name for an edit, which the
+        // row it sits under already places, and the path inside the repository for a
+        // change git worked out, which may well name a file nothing else mentions.
+        let name: String
+        var lines: [Line] = []
+        var added = 0
+        var removed = 0
+
+        // Code reads as code in a diff, the way it does everywhere else in the app.
+        var language: CodeLanguage? {
+            CodeLanguage(fileExtension: (name as NSString).pathExtension)
+        }
+    }
+
     let verb: String
     var argument = ""
 
@@ -36,7 +54,14 @@ struct ToolPresentation: Sendable {
     var fileName: String?
     var added: Int?
     var removed: Int?
-    var diff: [Line] = []
+    var changes: [FileChange] = []
+    // How many files the call changed. Not always the number of diffs below it: a change
+    // too large to keep the patch for has this and nothing else to show for itself.
+    var changedFiles = 0
+    // Whether the diff is the whole of what the call said. An edit's input is the change
+    // itself, so a row showing it has nothing further to open. A command's change was
+    // measured off the tree afterwards, and the command that made it is still worth a look.
+    var diffIsTheInput = false
     // Whether the collapsed row should say how much came back. True for the calls whose
     // output is the point of making them: a finished row with no note at all reads as a
     // call that did nothing, when it may only be one nobody has expanded.
@@ -56,12 +81,18 @@ struct ToolPresentation: Sendable {
             notesResultLineCount = true
         case "Edit", "Write", "Delete":
             let change = Self.change(tool: tool, input: input)
-            diff = change.lines
             added = change.added
             removed = change.removed
+            diffIsTheInput = true
             // Codex used to name its edits as a line of prose rather than as arguments,
             // and conversations written then are still read back.
             if fileName == nil { argument = Self.singleLine(tool.input) }
+            if !change.lines.isEmpty {
+                changes = [FileChange(id: 0, name: fileName ?? argument,
+                                      lines: change.lines,
+                                      added: change.added, removed: change.removed)]
+                changedFiles = 1
+            }
         case "Bash":
             // Claude wraps shell input in JSON, while Codex sends the command itself.
             argument = Self.singleLine(input["command"] as? String ?? tool.input)
@@ -87,6 +118,17 @@ struct ToolPresentation: Sendable {
             }
         default:
             if argument.isEmpty { argument = Self.singleLine(tool.input) }
+        }
+
+        // A call that wrote without saying so has its change measured off the working tree
+        // instead. The counts stand even when the change was too large to keep the patch
+        // for, which is what tells a reader that a call did a great deal.
+        if let change = tool.written {
+            added = change.added
+            removed = change.removed
+            changedFiles = change.files
+            changes = change.patch.map(Self.files(inPatch:)) ?? []
+            notesResultLineCount = false
         }
     }
 
@@ -214,6 +256,51 @@ struct ToolPresentation: Sendable {
         return (lines, added, removed)
     }
 
+    // A patch git wrote, cut back into the files it covers. One command can touch several,
+    // and each of them is a diff in its own right with its own numbering, so they are read
+    // apart rather than run together.
+    //
+    // A "diff --git" line can only ever start a file: every line inside a hunk carries a
+    // marker in front of it, even a line whose own content is a patch.
+    private static func files(inPatch text: String) -> [FileChange] {
+        var files: [FileChange] = []
+        var name: String?
+        var body: [Substring] = []
+        // Once the hunks start, a line beginning "+++" or "---" is a line of the file with
+        // its marker in front of it, not the header naming the file.
+        var namesRead = false
+
+        func close() {
+            guard let name, !body.isEmpty else { return }
+            let change = unified(body.joined(separator: "\n"))
+            guard !change.lines.isEmpty else { return }
+            files.append(FileChange(id: files.count, name: name, lines: change.lines,
+                                    added: change.added, removed: change.removed))
+        }
+
+        for row in text.split(separator: "\n", omittingEmptySubsequences: false) {
+            if row.hasPrefix("diff --git ") {
+                close()
+                name = nil
+                body = []
+                namesRead = false
+                continue
+            }
+            if row.hasPrefix("@@") { namesRead = true }
+            // The path is taken off the header rather than the "diff --git" line, since
+            // that line runs both paths together and gives no way to tell where one ends.
+            // A deleted file has no new side, so it keeps the name it had.
+            if !namesRead, row.hasPrefix("+++ ") || row.hasPrefix("--- ") {
+                let path = row.dropFirst(4)
+                if path != "/dev/null" { name = String(path.dropFirst(2)) }
+                continue
+            }
+            body.append(row)
+        }
+        close()
+        return files
+    }
+
     // The line each side of a hunk starts on, out of "@@ -12,7 +12,9 @@".
     private struct HunkHeader {
         let oldStart: Int
@@ -297,6 +384,10 @@ enum ToolPresentationCache {
         private struct Entry {
             let presentation: ToolPresentation
             let startLine: Int?
+            // What git saw the call write, which lands later still. Held as its size
+            // rather than itself, since a patch only ever appears once and comparing whole
+            // patches on every cache hit would cost more than building one.
+            let writtenSize: Int?
             let lines: Int
             var lastUsed: Int
         }
@@ -315,7 +406,8 @@ enum ToolPresentationCache {
                 clock += 1
                 let entry = Entry(presentation: fresh,
                                   startLine: tool.editStartLine,
-                                  lines: 1 + fresh.diff.count,
+                                  writtenSize: Self.writtenSize(tool),
+                                  lines: 1 + fresh.changes.reduce(0) { $0 + $1.lines.count },
                                   lastUsed: clock)
                 values[tool.id] = entry
                 lines += entry.lines
@@ -330,9 +422,17 @@ enum ToolPresentationCache {
             }
         }
 
+        // A call whose change was measured but was too large to keep is still a call the
+        // app knows something new about, so "nothing written" and "written, no patch" have
+        // to read differently here.
+        private static func writtenSize(_ tool: ToolUse) -> Int? {
+            tool.written.map { $0.patch?.count ?? 0 }
+        }
+
         // Called holding the lock.
         private func used(_ tool: ToolUse) -> ToolPresentation? {
-            guard let entry = values[tool.id], entry.startLine == tool.editStartLine
+            guard let entry = values[tool.id], entry.startLine == tool.editStartLine,
+                  entry.writtenSize == Self.writtenSize(tool)
             else { return nil }
             clock += 1
             values[tool.id]?.lastUsed = clock
