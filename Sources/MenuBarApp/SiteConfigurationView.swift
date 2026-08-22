@@ -15,6 +15,7 @@ struct SiteConfigurationSection: View {
     @State private var failure: String?
     @State private var editor: SiteConfigurationAspect?
     @State private var showingDispatch = false
+    @State private var showingGrafana = false
     @State private var showingShortcuts = false
     @State private var showingJSON = false
 
@@ -31,6 +32,9 @@ struct SiteConfigurationSection: View {
         }
         .sheet(isPresented: $showingDispatch, onDismiss: refreshConfiguration) {
             DispatchView().appOverlays()
+        }
+        .sheet(isPresented: $showingGrafana) {
+            ConfigManagerView().appOverlays()
         }
         .sheet(isPresented: $showingShortcuts, onDismiss: refreshConfiguration) {
             ShortcutsView().appOverlays()
@@ -111,7 +115,7 @@ struct SiteConfigurationSection: View {
 
     private func actionTitle(for aspect: SiteConfigurationAspect) -> String {
         switch aspect {
-        case .requests, .shortcuts: "Open"
+        case .requests, .grafana, .shortcuts: "Open"
         default: "Configure"
         }
     }
@@ -120,6 +124,8 @@ struct SiteConfigurationSection: View {
         switch aspect {
         case .requests:
             showingDispatch = true
+        case .grafana:
+            showingGrafana = true
         case .shortcuts:
             showingShortcuts = true
         default:
