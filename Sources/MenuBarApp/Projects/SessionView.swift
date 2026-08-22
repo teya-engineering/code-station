@@ -238,6 +238,9 @@ struct SessionView: View {
             .onChange(of: terminalFocused) { _, focused in
                 if focused { composerFocused = false }
             }
+            .onChange(of: appSettings.designEnabled) { _, enabled in
+                if !enabled && tab == .design { tab = .chat }
+            }
             .task(id: sessionID) {
                 selectedProjectID = session.projectID
                 openShortcutRun = nil
@@ -322,10 +325,7 @@ struct SessionView: View {
                 HeaderTabToggle(selection: Binding(
                     get: { tab },
                     set: { selectTab($0, from: session) }),
-                                options: [("Chat", .chat),
-                                          ("Design", .design),
-                                          ("Changes", .changes),
-                                          ("Explorer", .explorer)])
+                                options: headerTabs)
                 TerminalToggle(isOpen: terminals.isOpen(terminalScope),
                                directory: session.worktreePath ?? project.path) {
                     toggleTerminal(directory: session.worktreePath ?? project.path)
@@ -338,7 +338,15 @@ struct SessionView: View {
         .headerBand()
     }
 
+    private var headerTabs: [(label: String, value: Tab)] {
+        var tabs: [(label: String, value: Tab)] = [("Chat", .chat)]
+        if appSettings.designEnabled { tabs.append(("Design", .design)) }
+        tabs.append(contentsOf: [("Changes", .changes), ("Explorer", .explorer)])
+        return tabs
+    }
+
     private func selectTab(_ selected: Tab, from session: ChatSession) {
+        guard selected != .design || appSettings.designEnabled else { return }
         guard selected == .design else {
             tab = selected
             return

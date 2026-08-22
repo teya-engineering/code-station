@@ -89,6 +89,10 @@ final class AppSettings {
         didSet { Preferences.textSize = textSize }
     }
 
+    var designEnabled = Preferences.designEnabled {
+        didSet { Preferences.designEnabled = designEnabled }
+    }
+
     var mobileAccessEnabled = Preferences.mobileAccessEnabled {
         didSet { Preferences.mobileAccessEnabled = mobileAccessEnabled }
     }
@@ -276,7 +280,7 @@ struct SettingsView: View {
             .transition(.fadeIn)
         case .experimental:
             VStack(alignment: .leading, spacing: 24) {
-                mobileAccess
+                experimentalFeatures
             }
             .transition(.fadeIn)
         }
@@ -608,24 +612,42 @@ struct SettingsView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var mobileAccess: some View {
+    private var experimentalFeatures: some View {
         @Bindable var settings = settings
         return ChoiceBlock("EXPERIMENTAL") {
-            Toggle(isOn: $settings.mobileAccessEnabled) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Mobile access")
-                        .font(.system(size: 13, weight: .semibold))
-                    Text("Puts a QR code on Home, on every project and on every session. A phone on the same trusted Wi-Fi can read and run whatever the code it scanned covers.")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 10) {
+                Toggle(isOn: $settings.designEnabled) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Design")
+                            .font(.system(size: 13, weight: .semibold))
+                        Text("Adds a Design tab to every session for creating and refining visual ideas.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
+                .toggleStyle(.appSwitch)
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(RoundedRectangle(cornerRadius: 9).fill(Theme.card))
+                .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
+
+                Toggle(isOn: $settings.mobileAccessEnabled) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Mobile access")
+                            .font(.system(size: 13, weight: .semibold))
+                        Text("Puts a QR code on Home, on every project and on every session. A phone on the same trusted Wi-Fi can read and run whatever the code it scanned covers.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .toggleStyle(.appSwitch)
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(RoundedRectangle(cornerRadius: 9).fill(Theme.card))
+                .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
             }
-            .toggleStyle(.appSwitch)
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 9).fill(Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
         }
     }
 

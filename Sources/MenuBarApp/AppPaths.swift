@@ -361,6 +361,15 @@ enum Preferences {
         set { store.set(newValue.rawValue, forKey: "textSize") }
     }
 
+    static var designEnabled: Bool {
+        get { designEnabled(in: store) }
+        set { store.set(newValue, forKey: "designEnabled") }
+    }
+
+    static func designEnabled(in store: UserDefaults) -> Bool {
+        store.bool(forKey: "designEnabled")
+    }
+
     // Mobile access exposes live session control to another device, so it stays off until
     // someone deliberately opts into the experimental surface.
     static var mobileAccessEnabled: Bool {

@@ -186,6 +186,16 @@ struct AppPathsTests {
         #expect(Preferences.sidebarSessionLimit(in: defaults) == 10)
     }
 
+    @Test func designStaysOffUntilItIsEnabled() throws {
+        let suite = "code-station-design-setting-tests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        #expect(!Preferences.designEnabled(in: defaults))
+        defaults.set(true, forKey: "designEnabled")
+        #expect(Preferences.designEnabled(in: defaults))
+    }
+
     @Test @MainActor func appSettingsPersistsTheSidebarSessionLimit() throws {
         let suite = "code-station-app-sidebar-session-limit-tests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
