@@ -79,7 +79,13 @@ struct SessionFactsChip: View {
 
     var body: some View {
         if let summary = facts.summary {
-            Button { pinned.toggle() } label: { chip(summary) }
+            Button {
+                if pinned {
+                    closeCard()
+                } else {
+                    pinned = true
+                }
+            } label: { chip(summary) }
                 .buttonStyle(.plain)
                 .onHover { pointerOnChip = $0; pointerMoved() }
                 .accessibilityLabel(facts.context == nil
@@ -289,12 +295,17 @@ struct SessionFactsChip: View {
     private func acting(_ perform: @escaping () -> Void) -> () -> Void {
         {
             perform()
-            closing?.cancel()
-            pinned = false
-            pointerOnCard = false
-            pointerOnChip = false
-            hovering = false
+            closeCard()
         }
+    }
+
+    private func closeCard() {
+        closing?.cancel()
+        pinned = false
+        // An explicit close wins over hover until AppKit reports a fresh pointer entry.
+        pointerOnCard = false
+        pointerOnChip = false
+        hovering = false
     }
 }
 
