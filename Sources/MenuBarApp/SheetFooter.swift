@@ -7,18 +7,18 @@ struct SheetSave {
 }
 
 // macOS puts the button that closes a window at the bottom right, so every sheet ends
-// with this bar instead of parking Done up in its title area where it reads like part of
-// the toolbar. Escape closes as well, since Done never does anything but leave.
+// with this bar instead of parking its closing action in the title area where it reads
+// like part of the toolbar. Escape triggers the same action.
 //
-// A sheet that edits something can put a Save next to Done. It only lights up while
-// there are unsaved changes, and answers to Cmd-S and Ctrl-S as well.
+// A sheet that edits something puts Save next to Cancel. Save only lights up while there
+// are unsaved changes, and answers to Cmd-S and Ctrl-S as well.
 struct SheetFooter<Leading: View>: View {
-    private let title: String
+    private let title: String?
     private let leading: Leading
     private let done: () -> Void
     private let save: SheetSave?
 
-    init(title: String = "Done",
+    init(title: String? = nil,
          save: SheetSave? = nil,
          done: @escaping () -> Void,
          @ViewBuilder leading: () -> Leading) {
@@ -59,7 +59,7 @@ struct SheetFooter<Leading: View>: View {
                     )
                 }
                 Button(action: done) {
-                    Text(title)
+                    Text(title ?? (save == nil ? "Done" : "Cancel"))
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(.white)
                         .padding(.horizontal, 18)
@@ -78,7 +78,7 @@ struct SheetFooter<Leading: View>: View {
 }
 
 extension SheetFooter where Leading == EmptyView {
-    init(title: String = "Done", save: SheetSave? = nil, done: @escaping () -> Void) {
+    init(title: String? = nil, save: SheetSave? = nil, done: @escaping () -> Void) {
         self.init(title: title, save: save, done: done) { EmptyView() }
     }
 }

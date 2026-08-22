@@ -396,7 +396,7 @@ private struct SiteConfigurationEditorView: View {
                 } else {
                     Text(draft == saved
                          ? "Changes are written to the current configuration file."
-                         : "Unsaved changes. Done leaves without keeping them.")
+                         : "Unsaved changes. Cancel leaves without keeping them.")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }

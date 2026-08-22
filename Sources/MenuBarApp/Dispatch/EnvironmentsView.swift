@@ -95,7 +95,7 @@ struct EnvironmentsView: View {
             SheetFooter(save: SheetSave(enabled: hasChanges, action: save),
                         done: { dismiss() }) {
                 Text(hasChanges
-                     ? "Unsaved changes. Done leaves without keeping them."
+                     ? "Unsaved changes. Cancel leaves without keeping them."
                      : "Secrets are stored in the Keychain, never in the request file.")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
