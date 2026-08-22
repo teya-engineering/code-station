@@ -14,6 +14,8 @@ struct SiteConfigurationSection: View {
     @State private var loading = false
     @State private var failure: String?
     @State private var editor: SiteConfigurationAspect?
+    @State private var showingDispatch = false
+    @State private var showingShortcuts = false
     @State private var showingJSON = false
 
     var body: some View {
@@ -27,10 +29,16 @@ struct SiteConfigurationSection: View {
             }
             .appOverlays()
         }
+        .sheet(isPresented: $showingDispatch, onDismiss: refreshConfiguration) {
+            DispatchView().appOverlays()
+        }
+        .sheet(isPresented: $showingShortcuts, onDismiss: refreshConfiguration) {
+            ShortcutsView().appOverlays()
+        }
         .sheet(isPresented: $showingJSON) {
             SiteConfigurationJSONView(defaults: loaded).appOverlays()
         }
-        .onAppear { loaded = currentConfiguration() }
+        .onAppear(perform: refreshConfiguration)
     }
 
     private var configuration: some View {
@@ -89,13 +97,38 @@ struct SiteConfigurationSection: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 0)
-            ActionButton(title: "Configure", tone: .sunken, height: 28, size: 11.5) {
-                editor = aspect
+            ActionButton(title: actionTitle(for: aspect),
+                         tone: .sunken,
+                         height: 28,
+                         size: 11.5) {
+                open(aspect)
             }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
         .contentShape(Rectangle())
+    }
+
+    private func actionTitle(for aspect: SiteConfigurationAspect) -> String {
+        switch aspect {
+        case .requests, .shortcuts: "Open"
+        default: "Configure"
+        }
+    }
+
+    private func open(_ aspect: SiteConfigurationAspect) {
+        switch aspect {
+        case .requests:
+            showingDispatch = true
+        case .shortcuts:
+            showingShortcuts = true
+        default:
+            editor = aspect
+        }
+    }
+
+    private func refreshConfiguration() {
+        loaded = currentConfiguration()
     }
 
     private func currentDetail(for aspect: SiteConfigurationAspect) -> String {
