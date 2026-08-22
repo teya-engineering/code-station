@@ -25,7 +25,7 @@
 <main>
 
 <section class="band band--light">
-  <header class="masthead">
+  <header class="masthead" data-reveal="fade">
     <a class="brand" href="./"><img src="assets/mark.svg" alt="" width="32" height="32">Code Station</a>
     <nav>
       <a href="#features">Features</a>
@@ -36,94 +36,104 @@
   </header>
 
   <div class="pitch">
-    <h1>Your agents just got<br><em>a headquarters.</em></h1>
-    <p>Run Codex and Claude Code across every project - conversation, changes, files, and terminal in one window.</p>
-    <div class="actions">
+    <h1 data-reveal>Your agents just got<br><em>a headquarters.</em></h1>
+    <p class="reveal--delay-1" data-reveal>Run Codex and Claude Code across every project - conversation, changes, files, and terminal in one window.</p>
+    <div class="actions reveal--delay-2" data-reveal>
       <a class="btn btn--primary" href="#get-started">Build the app</a>
       <a class="btn btn--ghost" href="https://github.com/teya-engineering/code-station">View source</a>
     </div>
   </div>
 
-  <img class="shot shot--wide" fetchpriority="high" decoding="async" src="assets/shot-hero.webp" width="2200" height="1175"
-       alt="Code Station with a project sidebar on the left and an agent session open in Chat, showing the prompt, the files the agent read and edited, and its summary.">
+  <div class="shot-frame shot--wide" data-reveal="shot">
+    <img class="shot" data-parallax fetchpriority="high" decoding="async" src="assets/shot-hero.webp" width="2200" height="1175"
+         alt="Code Station with a project sidebar on the left and an agent session open in Chat, showing the prompt, the files the agent read and edited, and its summary.">
+  </div>
 </section>
 
 <section class="band band--night" id="features">
   <div class="pitch">
-    <h2>Codex and Claude Code.<br><em>No favorites.</em></h2>
-    <p>Pick the agent, model, and effort per session, then run them in parallel, each in its own Git worktree.</p>
+    <h2 data-reveal>Codex and Claude Code.<br><em>No favorites.</em></h2>
+    <p class="reveal--delay-1" data-reveal>Pick the agent, model, and effort per session, then run them in parallel, each in its own Git worktree.</p>
   </div>
-  <img class="shot shot--wide" loading="lazy" decoding="async" src="assets/shot-agents.webp" width="2200" height="1144"
-       alt="Two projects in the sidebar with three sessions running at once, one waiting for an answer, each labelled with the worktree it runs in.">
+  <div class="shot-frame shot--wide" data-reveal="shot">
+    <img class="shot" data-parallax loading="lazy" decoding="async" src="assets/shot-agents.webp" width="2200" height="1144"
+         alt="Two projects in the sidebar with three sessions running at once, one waiting for an answer, each labelled with the worktree it runs in.">
+  </div>
 </section>
 
 <section class="band band--light">
   <div class="pitch">
-    <h2>Three repos.<br><em>One conversation.</em></h2>
-    <p>Group projects into a workspace. The lead is the working directory and the rest join the same conversation.</p>
+    <h2 data-reveal>Three repos.<br><em>One conversation.</em></h2>
+    <p class="reveal--delay-1" data-reveal>Group projects into a workspace. The lead is the working directory and the rest join the same conversation.</p>
   </div>
-  <img class="shot shot--wide" loading="lazy" decoding="async" src="assets/shot-workspaces.webp" width="2200" height="1120"
-       alt="A workspace screen with a lead project marked as the working directory and two more projects attached to the same conversation.">
+  <div class="shot-frame shot--wide" data-reveal="shot">
+    <img class="shot" data-parallax loading="lazy" decoding="async" src="assets/shot-workspaces.webp" width="2200" height="1120"
+         alt="A workspace screen with a lead project marked as the working directory and two more projects attached to the same conversation.">
+  </div>
 </section>
 
 <section class="band band--night">
   <div class="pitch">
-    <h2>Ship the endpoint.<br><em>Then poke it.</em></h2>
-    <p>A built-in HTTP client with staging and production environments, OAuth in the Keychain, and <code>{{env}}</code> that resolves itself.</p>
+    <h2 data-reveal>Ship the endpoint.<br><em>Then poke it.</em></h2>
+    <p class="reveal--delay-1" data-reveal>A built-in HTTP client with staging and production environments, OAuth in the Keychain, and <code>{{env}}</code> that resolves itself.</p>
   </div>
-  <img class="shot shot--mid" loading="lazy" decoding="async" src="assets/shot-dispatch.webp" width="1733" height="1218"
-       alt="The Dispatch screen sending a saved GET request against the staging environment and showing a 200 OK JSON response.">
+  <div class="shot-frame shot--mid" data-reveal="shot">
+    <img class="shot" data-parallax loading="lazy" decoding="async" src="assets/shot-dispatch.webp" width="1733" height="1218"
+         alt="The Dispatch screen sending a saved GET request against the staging environment and showing a 200 OK JSON response.">
+  </div>
 </section>
 
 <section class="band band--light">
   <div class="pitch">
-    <h2>Bad deploy?<br><em>Send in the agent.</em></h2>
-    <p>Guided troubleshooting with skills, MCP servers, and read-only guard rails when the environment is live.</p>
+    <h2 data-reveal>Bad deploy?<br><em>Send in the agent.</em></h2>
+    <p class="reveal--delay-1" data-reveal>Guided troubleshooting with skills, MCP servers, and read-only guard rails when the environment is live.</p>
   </div>
-  <img class="shot shot--narrow" loading="lazy" decoding="async" src="assets/shot-troubleshoot.webp" width="1368" height="1224"
-       alt="The Troubleshoot sheet with the problem written out, log files attached, production selected, and MCP servers enabled.">
+  <div class="shot-frame shot--narrow" data-reveal="shot">
+    <img class="shot" data-parallax loading="lazy" decoding="async" src="assets/shot-troubleshoot.webp" width="1368" height="1224"
+         alt="The Troubleshoot sheet with the problem written out, log files attached, production selected, and MCP servers enabled.">
+  </div>
 </section>
 
 <section class="band band--night band--flat">
   <div class="pitch">
-    <h2>And the rest of<br><em>the window.</em></h2>
-    <p>The parts you reach for between prompts, in the same place as the conversation.</p>
+    <h2 data-reveal>And the rest of<br><em>the window.</em></h2>
+    <p class="reveal--delay-1" data-reveal>The parts you reach for between prompts, in the same place as the conversation.</p>
   </div>
 
   <div class="grid">
-    <div class="cell">
+    <div class="cell" data-reveal>
       <h3>Worktree sessions</h3>
       <p>Run in the project folder when changes should land there, or in an isolated checkout and branch when they should not. Worktree sessions run side by side without touching the same files.</p>
     </div>
-    <div class="cell">
+    <div class="cell" data-reveal>
       <h3>Review and commit</h3>
       <p>Pick exactly the files that go into a commit, amend the last one while it is still unpushed, and read recent commits with their full diffs.</p>
     </div>
-    <div class="cell">
+    <div class="cell" data-reveal>
       <h3>Code that reads as code</h3>
       <p>Chat code blocks, file previews, and diffs are syntax highlighted, with no extra dependencies.</p>
     </div>
-    <div class="cell">
+    <div class="cell" data-reveal>
       <h3>Rewind and fork</h3>
       <p>Take a Claude Code conversation back to an earlier prompt and send it again, or fork it into a new session from that point.</p>
     </div>
-    <div class="cell">
+    <div class="cell" data-reveal>
       <h3>Cost and context</h3>
       <p>Every session shows its spend next to the context meter. Any agent's settings can hide the figure.</p>
     </div>
-    <div class="cell">
+    <div class="cell" data-reveal>
       <h3>Notifications</h3>
       <p>A system notification when a session finishes a turn or stops to ask something. Clicking it opens that session.</p>
     </div>
-    <div class="cell">
+    <div class="cell" data-reveal>
       <h3>MCP servers</h3>
       <p>Configure servers once and register them with Codex, Claude Code, or both. Tag each one with the environment it belongs to.</p>
     </div>
-    <div class="cell">
+    <div class="cell" data-reveal>
       <h3>Skills</h3>
       <p>Install and update agent skills from your organisation's marketplace.</p>
     </div>
-    <div class="cell">
+    <div class="cell" data-reveal>
       <h3>Shortcuts and Docker</h3>
       <p>Save, run, and stop shell commands from the status row, and inspect or stop running containers without leaving the app.</p>
     </div>
@@ -132,12 +142,12 @@
 
 <section class="band band--light band--flat" id="get-started">
   <div class="pitch">
-    <h2>Clone it.<br><em>Run it.</em></h2>
-    <p>The build script makes a double-clickable, ad-hoc signed bundle you can drop in Applications.</p>
+    <h2 data-reveal>Clone it.<br><em>Run it.</em></h2>
+    <p class="reveal--delay-1" data-reveal>The build script makes a double-clickable, ad-hoc signed bundle you can drop in Applications.</p>
   </div>
 
   <div class="wrap columns">
-    <div>
+    <div data-reveal="left">
       <p class="eyebrow">What you need</p>
       <ul class="checklist">
         <li>macOS 14 or later</li>
@@ -147,7 +157,7 @@
       </ul>
     </div>
 
-    <div class="terminal">
+    <div class="terminal" data-reveal="right">
       <header>
         <span class="lights"><i style="background:#e0655b"></i><i style="background:#e0b155"></i><i style="background:#5fb85f"></i></span>
         build-app.sh
@@ -160,7 +170,7 @@
     </div>
   </div>
 
-  <div class="wrap prose">
+  <div class="wrap prose" data-reveal>
     <h3>Make it yours</h3>
     <p>The parts that belong to your organisation rather than to the app - the identity provider your APIs sign in against, your environments, your Grafana instances, the skills marketplace, the commands worth having on hand - all live in one optional settings file the app reads at startup. Every section is optional, and so is the file.</p>
     <p>The first-launch wizard can read it from a local file or clone it from a Git repository, and <code>build-app.sh</code> can fold it into the bundle so the app you hand to your team is already set up. See the <a href="https://github.com/teya-engineering/code-station#site-configuration">site configuration guide</a> and <a href="https://github.com/teya-engineering/code-station/blob/main/site-defaults.example.json">the blank-slate example</a>.</p>
@@ -170,7 +180,7 @@
 </main>
 
 <footer class="site-foot">
-  <div class="wrap">
+  <div class="wrap" data-reveal="fade">
     <span>Teya Code Station</span>
     <nav>
       <a href="https://github.com/teya-engineering/code-station">GitHub</a>
@@ -181,6 +191,71 @@
 </footer>
 
 <script>
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+  const revealElements = document.querySelectorAll('[data-reveal]');
+  let revealObserver;
+
+  function startRevealAnimations() {
+    if (reducedMotion.matches || !('IntersectionObserver' in window)) return;
+
+    document.documentElement.classList.add('motion-ready');
+    revealObserver = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting) return;
+
+        entry.target.classList.add('is-visible');
+        revealObserver.unobserve(entry.target);
+      });
+    }, { rootMargin: '0px 0px -10% 0px', threshold: 0.08 });
+
+    revealElements.forEach((element) => revealObserver.observe(element));
+  }
+
+  function stopRevealAnimations() {
+    revealObserver?.disconnect();
+    revealObserver = undefined;
+    document.documentElement.classList.remove('motion-ready');
+  }
+
+  const parallaxImages = document.querySelectorAll('[data-parallax]');
+  let parallaxFrame;
+
+  function updateParallax() {
+    parallaxFrame = undefined;
+
+    if (reducedMotion.matches || window.innerWidth <= 860) {
+      parallaxImages.forEach((image) => image.style.removeProperty('--parallax-y'));
+      return;
+    }
+
+    const viewportHeight = window.innerHeight;
+    parallaxImages.forEach((image) => {
+      const bounds = image.parentElement.getBoundingClientRect();
+      if (bounds.bottom < -100 || bounds.top > viewportHeight + 100) return;
+
+      const elementCenter = bounds.top + bounds.height / 2;
+      const travelRange = (viewportHeight + bounds.height) / 2;
+      const progress = Math.max(-1, Math.min(1, (viewportHeight / 2 - elementCenter) / travelRange));
+      image.style.setProperty('--parallax-y', `${(progress * 22).toFixed(2)}px`);
+    });
+  }
+
+  function requestParallaxUpdate() {
+    if (parallaxFrame !== undefined) return;
+    parallaxFrame = window.requestAnimationFrame(updateParallax);
+  }
+
+  startRevealAnimations();
+  requestParallaxUpdate();
+  window.addEventListener('scroll', requestParallaxUpdate, { passive: true });
+  window.addEventListener('resize', requestParallaxUpdate);
+  window.addEventListener('load', requestParallaxUpdate, { once: true });
+  reducedMotion.addEventListener('change', () => {
+    stopRevealAnimations();
+    startRevealAnimations();
+    requestParallaxUpdate();
+  });
+
   document.querySelector('[data-copy]')?.addEventListener('click', async (event) => {
     const button = event.currentTarget;
     const lines = button.closest('.terminal').querySelector('code').innerText;
