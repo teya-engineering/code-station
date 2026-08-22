@@ -20,6 +20,7 @@ struct NewWorkspaceSessionView: View {
     @State private var worktrees: Set<UUID>
     @State private var selectedAgent: AgentKind?
     @State private var selectedAvatarName = AgentAvatarSelection.nonBotName
+    @State private var designMode = false
     // One report per repository, arriving in two passes: what the local refs already
     // say, then the same read again after a fetch, so the cards are honest immediately
     // and accurate a moment later.
@@ -89,6 +90,10 @@ struct NewWorkspaceSessionView: View {
                             .stroke(Theme.border, style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
                         .contentShape(Rectangle())
                         .appMenu { attachMenu }
+                    }
+
+                    if appSettings.designEnabled {
+                        DesignModeOption(isEnabled: $designMode)
                     }
                 }
                 .padding(.horizontal, 20)
@@ -431,7 +436,8 @@ struct NewWorkspaceSessionView: View {
         onCreate(WorkspaceSessionChoice(sessionID: sessionID, projects: choices,
                                         agent: agent,
                                         model: runner.defaults(for: agent).model,
-                                        agentAvatarName: selectedAvatarName))
+                                        agentAvatarName: selectedAvatarName,
+                                        mode: designMode ? .design : .chat))
         dismiss()
     }
 
@@ -448,6 +454,7 @@ struct WorkspaceSessionChoice: Equatable {
     var agent: AgentKind
     var model: String? = nil
     var agentAvatarName: String? = nil
+    var mode: SessionMode = .chat
 }
 
 struct WorkspaceProjectChoice: Equatable {

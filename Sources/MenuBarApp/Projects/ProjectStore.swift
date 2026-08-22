@@ -139,6 +139,16 @@ final class ProjectStore {
         sessions.first { $0.designSourceSessionID == sourceSessionID }
     }
 
+    func designConversation(for sessionID: UUID) -> ChatSession? {
+        guard let session = session(sessionID) else { return nil }
+        if session.mode == .design { return session }
+        return designSession(for: sessionID)
+    }
+
+    func isDesignMode(_ session: ChatSession) -> Bool {
+        session.mode == .design || designSession(for: session.id) != nil
+    }
+
     // Design conversations live behind the session that opened them. Anything that
     // navigates or asks for attention must point at that visible session, since the
     // companion itself does not have a row in the app.
@@ -452,54 +462,12 @@ final class ProjectStore {
 
     // MARK: - Sessions
 
-    @discardableResult
-    func createDesignSession(for sourceSessionID: UUID)
-        -> Result<ChatSession, PersistenceFailure> {
-        if let existing = designSession(for: sourceSessionID) { return .success(existing) }
-        guard let source = session(sourceSessionID), !source.isDesignSession else {
-            return .failure(PersistenceFailure(
-                message: "The source session is no longer in the app."))
-        }
-
-        var design = ChatSession(projectID: source.projectID, agent: source.agent)
-        design.title = "Design"
-        design.designSourceSessionID = source.id
-        design.worktreePath = source.worktreePath
-        design.worktreeBranch = source.worktreeBranch
-        design.workspaceID = source.workspaceID
-        design.sessionProjects = source.sessionProjects
-        design.settings = source.settings
-        design.agentAvatarName = source.agentAvatarName
-        design.transcriptLoaded = true
-
-        let directory = designDirectory(for: design)
-        do {
-            try FileManager.default.createDirectory(at: directory,
-                                                    withIntermediateDirectories: true)
-        } catch {
-            return .failure(PersistenceFailure(
-                message: "The design canvas could not be created: \(error.localizedDescription)"))
-        }
-
-        sessions.append(design)
-        publishSidebarSessions()
-        markIndexDirty()
-        guard save() else {
-            sessions.removeAll { $0.id == design.id }
-            publishSidebarSessions()
-            markIndexDirty()
-            try? FileManager.default.removeItem(at: directory)
-            return .failure(persistenceFailure("The design session could not be saved."))
-        }
-        return .success(design)
-    }
-
     func designDirectory(for session: ChatSession) -> URL {
         designsURL.appendingPathComponent(session.id.uuidString, isDirectory: true)
     }
 
     func designArtifactURL(for session: ChatSession) -> URL? {
-        guard session.isDesignSession else { return nil }
+        guard session.mode == .design else { return nil }
         return designDirectory(for: session).appendingPathComponent("index.html")
     }
 
@@ -508,8 +476,10 @@ final class ProjectStore {
                     worktreePath: String? = nil, worktreeBranch: String? = nil,
                     agent: AgentKind = .claudeCode, model: String? = nil,
                     agentAvatarName: String? = nil,
+                    mode: SessionMode = .chat,
                     isTroubleshooting: Bool = false) -> ChatSession {
         var session = ChatSession(id: id, projectID: projectID, agent: agent)
+        session.mode = mode
         session.worktreePath = worktreePath
         session.worktreeBranch = worktreeBranch
         session.settings = SessionSettings(model: ModelChoice.valid(model, for: agent))
@@ -529,6 +499,7 @@ final class ProjectStore {
     func newSession(in workspaceID: UUID, id: UUID = UUID(),
                     projects: [SessionProject], agent: AgentKind = .claudeCode,
                     model: String? = nil, agentAvatarName: String? = nil,
+                    mode: SessionMode = .chat,
                     isTroubleshooting: Bool = false) -> ChatSession? {
         guard let workspace = workspace(workspaceID),
               projects.count >= 2,
@@ -537,6 +508,7 @@ final class ProjectStore {
               projects.allSatisfy({ project($0.projectID) != nil }) else { return nil }
 
         var session = ChatSession(id: id, projectID: workspace.leadProjectID, agent: agent)
+        session.mode = mode
         session.workspaceID = workspaceID
         session.sessionProjects = projects
         session.worktreePath = projects.first?.worktreePath
@@ -557,6 +529,7 @@ final class ProjectStore {
                        worktreePath: String? = nil, worktreeBranch: String? = nil,
                        agent: AgentKind = .claudeCode, model: String? = nil,
                        agentAvatarName: String? = nil,
+                       mode: SessionMode = .chat,
                        isTroubleshooting: Bool = false)
         -> Result<ChatSession, PersistenceFailure> {
         let previousSelection = selection
@@ -567,6 +540,7 @@ final class ProjectStore {
                                  agent: agent,
                                  model: model,
                                  agentAvatarName: agentAvatarName,
+                                 mode: mode,
                                  isTroubleshooting: isTroubleshooting)
         guard save() else {
             rollBackSessionInsertion(session.id, selection: previousSelection,
@@ -579,6 +553,7 @@ final class ProjectStore {
     func insertSession(in workspaceID: UUID, id: UUID = UUID(),
                        projects: [SessionProject], agent: AgentKind = .claudeCode,
                        model: String? = nil, agentAvatarName: String? = nil,
+                       mode: SessionMode = .chat,
                        isTroubleshooting: Bool = false)
         -> Result<ChatSession, PersistenceFailure> {
         let previousSelection = selection
@@ -586,6 +561,7 @@ final class ProjectStore {
         guard let session = newSession(in: workspaceID, id: id, projects: projects,
                                        agent: agent, model: model,
                                        agentAvatarName: agentAvatarName,
+                                       mode: mode,
                                        isTroubleshooting: isTroubleshooting) else {
             return .failure(PersistenceFailure(
                 message: "The workspace no longer has a valid lead project."))
@@ -825,7 +801,7 @@ final class ProjectStore {
 
         removeSessionFromMemory(sessionID)
         let transcriptResult = deleteTranscript(sessionID)
-        let designResult = pending.session.isDesignSession
+        let designResult = pending.session.mode == .design
             ? deleteDesignDirectory(pending.session)
             : .success(())
         markIndexDirty()

@@ -134,9 +134,9 @@ struct SessionView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let sessionID: UUID
 
-    private enum Tab: Hashable { case chat, design, changes, explorer }
+    private enum Tab: Hashable { case conversation, changes, explorer }
 
-    @State private var tab: Tab = .chat
+    @State private var tab: Tab = .conversation
     @State private var dropTargeted = false
     @State private var terminalFocused = false
     @State private var composerFocused = false
@@ -189,17 +189,13 @@ struct SessionView: View {
                 }
 
                 switch tab {
-                case .chat:
-                    transcript(session)
-                    Divider().overlay(Theme.hairline)
-                    composer(session: session, project: project)
-                case .design:
-                    if let design = store.designSession(for: session.id) {
+                case .conversation:
+                    if let design = store.designConversation(for: session.id) {
                         DesignView(sessionID: design.id)
                     } else {
-                        PaneMessage(icon: "paintbrush.pointed",
-                                    title: "Design is unavailable",
-                                    detail: "Return to Chat and open Design again.")
+                        transcript(session)
+                        Divider().overlay(Theme.hairline)
+                        composer(session: session, project: project)
                     }
                 case .changes:
                     ChangesView(root: visibleDirectory)
@@ -237,9 +233,6 @@ struct SessionView: View {
             .background(stopShortcut)
             .onChange(of: terminalFocused) { _, focused in
                 if focused { composerFocused = false }
-            }
-            .onChange(of: appSettings.designEnabled) { _, enabled in
-                if !enabled && tab == .design { tab = .chat }
             }
             .task(id: sessionID) {
                 selectedProjectID = session.projectID
@@ -322,10 +315,7 @@ struct SessionView: View {
                 if appSettings.mobileAccessEnabled {
                     MobileAccessButton(scope: .session(sessionID))
                 }
-                HeaderTabToggle(selection: Binding(
-                    get: { tab },
-                    set: { selectTab($0, from: session) }),
-                                options: headerTabs)
+                HeaderTabToggle(selection: $tab, options: headerTabs(for: session))
                 TerminalToggle(isOpen: terminals.isOpen(terminalScope),
                                directory: session.worktreePath ?? project.path) {
                     toggleTerminal(directory: session.worktreePath ?? project.path)
@@ -338,28 +328,11 @@ struct SessionView: View {
         .headerBand()
     }
 
-    private var headerTabs: [(label: String, value: Tab)] {
-        var tabs: [(label: String, value: Tab)] = [("Chat", .chat)]
-        if appSettings.designEnabled { tabs.append(("Design", .design)) }
-        tabs.append(contentsOf: [("Changes", .changes), ("Explorer", .explorer)])
-        return tabs
-    }
-
-    private func selectTab(_ selected: Tab, from session: ChatSession) {
-        guard selected != .design || appSettings.designEnabled else { return }
-        guard selected == .design else {
-            tab = selected
-            return
-        }
-        switch store.createDesignSession(for: session.id) {
-        case .success:
-            tab = .design
-        case .failure(let failure):
-            dialogs.show(Dialog(
-                title: "Could not open Design",
-                message: failure.message,
-                actions: [.init(label: "OK", kind: .cancel)]))
-        }
+    private func headerTabs(for session: ChatSession) -> [(label: String, value: Tab)] {
+        [(store.isDesignMode(session) ? SessionMode.design.title : SessionMode.chat.title,
+          .conversation),
+         ("Changes", .changes),
+         ("Explorer", .explorer)]
     }
 
     // MARK: - Status strip

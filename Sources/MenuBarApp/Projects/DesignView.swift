@@ -2,9 +2,8 @@ import AppKit
 import SwiftUI
 import WebKit
 
-// A Design conversation keeps the ordinary agent loop on the left and turns its durable
-// HTML artifact into a live canvas on the right. The conversation is separate from Chat,
-// but both point at the same checkout through their session records.
+// A Design conversation keeps the agent loop on the left and turns its durable HTML
+// artifact into a live canvas on the right.
 struct DesignView: View {
     @Environment(ProjectStore.self) private var store
     @Environment(SessionRunner.self) private var runner
@@ -53,7 +52,7 @@ struct DesignView: View {
         } else {
             PaneMessage(icon: "paintbrush.pointed",
                         title: "This Design session is gone",
-                        detail: "Return to Chat and open Design again.")
+                        detail: "Choose another session from the sidebar.")
         }
     }
 

@@ -30,7 +30,7 @@ struct SessionLifecycleTests {
         let result = await SessionLifecycle.createWorktreeSession(
             in: project, id: sessionID, base: "origin/main",
             agent: .codex, model: "gpt-5.6-terra",
-            agentAvatarName: "agent-avatar-2.png", store: store,
+            agentAvatarName: "agent-avatar-2.png", mode: .design, store: store,
             worktrees: worktrees)
 
         let session = try result.get()
@@ -39,6 +39,7 @@ struct SessionLifecycleTests {
         #expect(session.agent == .codex)
         #expect(session.settings?.model == "gpt-5.6-terra")
         #expect(session.agentAvatarName == "agent-avatar-2.png")
+        #expect(session.mode == .design)
         #expect(store.session(sessionID)?.worktreeBranch == "code-station/test")
     }
 
@@ -101,7 +102,8 @@ struct SessionLifecycleTests {
                                        base: "origin/main"),
                 WorkspaceProjectChoice(projectID: second.id, useWorktree: true)
             ],
-            agent: .claudeCode)
+            agent: .claudeCode,
+            mode: .design)
         let worktrees = WorktreeOperations(
             addProject: { _, _, _, _ in
                 .failure(GitWorktree.Failure(message: "Unexpected project operation"))
@@ -118,7 +120,8 @@ struct SessionLifecycleTests {
         let result = await SessionLifecycle.createWorkspaceSession(
             choice, in: workspace, store: store, worktrees: worktrees)
 
-        _ = try result.get()
+        let session = try result.get()
+        #expect(session.mode == .design)
         #expect(await recorder.bases() == ["first": "origin/main", "second": nil])
     }
 

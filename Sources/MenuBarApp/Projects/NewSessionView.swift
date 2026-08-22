@@ -1,8 +1,8 @@
 import SwiftUI
 
-// Where a new session will do its work. A git repository can use its own worktree or the
-// project folder, while a plain folder is fixed to that folder. The screen is still shown
-// for a plain folder because the agent and bot are choices made before the session exists.
+// Where a new session will do its work and which kind of conversation it starts. These
+// choices cannot change after creation. A plain folder still shows this screen so the
+// conversation mode, agent and bot remain explicit choices.
 struct NewSessionView: View {
     let project: Project
     let onCreate: (NewSessionChoice) -> Void
@@ -16,6 +16,7 @@ struct NewSessionView: View {
     // created with, rather than a guess at what they will look like.
     @State private var sessionID = UUID()
     @State private var useWorktree: Bool
+    @State private var designMode = false
     // How the checkout relates to the default branch and its remote. It arrives in two
     // passes: what the local refs already say, then the same read again after a fetch,
     // so the sheet is honest immediately and accurate a moment later.
@@ -44,10 +45,6 @@ struct NewSessionView: View {
     // is wrong rather than busy.
     private static let longestWait: Duration = .seconds(12)
 
-    private var planned: GitWorktree.Created {
-        GitWorktree.plan(projectName: project.name, sessionID: sessionID)
-    }
-
     init(project: Project, onCreate: @escaping (NewSessionChoice) -> Void) {
         self.project = project
         self.onCreate = onCreate
@@ -55,10 +52,15 @@ struct NewSessionView: View {
         _fetching = State(initialValue: project.isGitRepository)
     }
 
+    private var planned: GitWorktree.Created {
+        GitWorktree.plan(projectName: project.name, sessionID: sessionID)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             header
-            if let report = freshness, report.isStale || (useWorktree && report.dirty) {
+            if project.isGitRepository,
+               let report = freshness, report.isStale || (useWorktree && report.dirty) {
                 FreshnessNotice(report: report, forWorktree: useWorktree,
                                 startPoint: $startPoint) {
                     startPointWasChosen = true
@@ -77,16 +79,29 @@ struct NewSessionView: View {
                         branch: planned.branch,
                         path: planned.path.abbreviatedPath,
                         selected: useWorktree) { selectWorktree() }
+
+                    OptionCard(
+                        title: "Work in the project folder",
+                        badge: "One at a time",
+                        badgeTint: Theme.secret,
+                        detail: "Edits your working tree directly. Sessions that share a folder cannot run together.",
+                        branch: GitHead.branch(at: project.path),
+                        path: project.collapsedPath,
+                        selected: !useWorktree) { selectProjectFolder() }
+                } else {
+                    OptionCard(
+                        title: "Work in the project folder",
+                        badge: "Direct",
+                        badgeTint: Theme.secret,
+                        detail: "Uses this folder directly for the session.",
+                        branch: nil,
+                        path: project.collapsedPath,
+                        selected: true) { selectProjectFolder() }
                 }
 
-                OptionCard(
-                    title: "Work in the project folder",
-                    badge: "One at a time",
-                    badgeTint: Theme.secret,
-                    detail: "Edits your working tree directly. Sessions that share a folder cannot run together.",
-                    branch: project.isGitRepository ? GitHead.branch(at: project.path) : nil,
-                    path: project.collapsedPath,
-                    selected: !useWorktree) { selectProjectFolder() }
+                if appSettings.designEnabled {
+                    DesignModeOption(isEnabled: $designMode)
+                }
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 20)
@@ -152,9 +167,9 @@ struct NewSessionView: View {
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                 } else {
-                    Text(useWorktree
+                    Text(project.isGitRepository && useWorktree
                          ? "A worktree is removed when its session is deleted."
-                         : "Changes land straight in your working tree.")
+                         : "Changes land straight in your project folder.")
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                 }
@@ -313,11 +328,12 @@ struct NewSessionView: View {
         guard let agent = chosenAgent else { return }
         let base = startPoint == .remote ? freshness?.remoteRef : nil
         let model = runner.defaults(for: agent).model
+        let mode: SessionMode = designMode ? .design : .chat
         onCreate(useWorktree
                  ? .worktree(sessionID, base: base, agent: agent, model: model,
-                             agentAvatarName: selectedAvatarName)
+                             agentAvatarName: selectedAvatarName, mode: mode)
                  : .folder(agent: agent, model: model,
-                           agentAvatarName: selectedAvatarName))
+                           agentAvatarName: selectedAvatarName, mode: mode))
         dismiss()
     }
 }
@@ -334,8 +350,30 @@ enum SessionStartPoint: Equatable {
 // model become part of the session record. Any requested pull has already run by then.
 enum NewSessionChoice: Equatable {
     case worktree(UUID, base: String?, agent: AgentKind, model: String?,
-                  agentAvatarName: String?)
-    case folder(agent: AgentKind, model: String?, agentAvatarName: String?)
+                  agentAvatarName: String?, mode: SessionMode)
+    case folder(agent: AgentKind, model: String?, agentAvatarName: String?, mode: SessionMode)
+}
+
+struct DesignModeOption: View {
+    @Binding var isEnabled: Bool
+
+    var body: some View {
+        Toggle(isOn: $isEnabled) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Design mode")
+                    .font(.system(size: 13.5, weight: .semibold))
+                Text("Starts with a live visual canvas beside the conversation instead of Chat.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .toggleStyle(.appSwitch)
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 11).fill(Theme.card))
+        .overlay(RoundedRectangle(cornerRadius: 11).stroke(Theme.border))
+    }
 }
 
 // Says when the checkout a session would fork from is not the default branch at its

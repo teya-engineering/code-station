@@ -21,50 +21,30 @@ struct DesignSessionTests {
         #expect(DesignSplitLayout.conversationWidth(400, availableWidth: 500) == 249.5)
     }
 
-    @Test func designHasItsOwnConversationOnTheSameCheckout() throws {
+    @Test func designModeUsesTheSessionConversationAndCheckout() throws {
         let fixture = try fixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
-        let source = fixture.store.newSession(
+        let design = fixture.store.newSession(
             in: fixture.project.id,
             worktreePath: "/tmp/code-station-shared-worktree",
             worktreeBranch: "code-station/design-test",
             agent: .codex,
-            model: "gpt-5.6-terra")
+            model: "gpt-5.6-terra",
+            mode: .design)
 
-        let design = try fixture.store.createDesignSession(for: source.id).get()
-
-        #expect(design.id != source.id)
-        #expect(design.designSourceSessionID == source.id)
-        #expect(design.agent == source.agent)
-        #expect(design.settings == source.settings)
-        #expect(design.worktreePath == source.worktreePath)
-        #expect(design.worktreeBranch == source.worktreeBranch)
+        #expect(design.mode == .design)
+        #expect(fixture.store.designConversation(for: design.id)?.id == design.id)
+        #expect(fixture.store.isDesignMode(design))
         #expect(fixture.store.workingDirectories(for: design)
-            == fixture.store.workingDirectories(for: source))
-        #expect(fixture.store.sessions.count == 2)
-        #expect(fixture.store.userSessions.map(\.id) == [source.id])
-        #expect(fixture.store.sidebarSessions.map(\.id) == [source.id])
-        #expect(fixture.store.standaloneSessions(for: fixture.project.id).map(\.id) == [source.id])
-        let repeated = try fixture.store.createDesignSession(for: source.id).get()
-        #expect(repeated.id == design.id)
-        #expect(fixture.store.userFacingSessionID(for: design.id) == source.id)
-
-        fixture.store.selectSession(design.id)
-        #expect(fixture.store.selection == .session(source.id))
-        fixture.store.noteTurnEnded(for: design.id)
-        #expect(fixture.store.hasFinished(source.id))
-        #expect(!fixture.store.hasFinished(design.id))
-        fixture.store.hold(design.id, for: .open)
-        #expect(!fixture.store.hasFinished(source.id))
-        fixture.store.noteTurnEnded(for: design.id)
-        #expect(!fixture.store.hasFinished(source.id))
-        fixture.store.release(design.id, for: .open)
-        fixture.store.noteTurnEnded(for: design.id)
-        #expect(fixture.store.hasFinished(source.id))
+            == ["/tmp/code-station-shared-worktree"])
+        #expect(fixture.store.sessions.map(\.id) == [design.id])
+        #expect(fixture.store.userSessions.map(\.id) == [design.id])
+        #expect(fixture.store.sidebarSessions.map(\.id) == [design.id])
+        #expect(fixture.store.standaloneSessions(for: fixture.project.id).map(\.id) == [design.id])
 
         let restored = ProjectStore(storeURL: fixture.store.storeURL)
-        #expect(restored.designSession(for: source.id)?.id == design.id)
-        #expect(restored.designSession(for: source.id)?.codexSessionID == nil)
+        #expect(restored.session(design.id)?.mode == .design)
+        #expect(restored.designConversation(for: design.id)?.id == design.id)
     }
 
     @Test func workspaceDesignKeepsEveryCheckout() throws {
@@ -83,27 +63,24 @@ struct DesignSessionTests {
             SessionProject(projectID: attached.id,
                            worktreePath: "/tmp/design-attached", worktreeBranch: "attached"),
         ]
-        let source = try #require(fixture.store.newSession(
-            in: workspace.id, projects: projects, agent: .claudeCode))
+        let design = try #require(fixture.store.newSession(
+            in: workspace.id, projects: projects, agent: .claudeCode, mode: .design))
 
-        let design = try fixture.store.createDesignSession(for: source.id).get()
-
+        #expect(design.mode == .design)
         #expect(design.workspaceID == workspace.id)
         #expect(design.sessionProjects == projects)
         #expect(fixture.store.workingDirectories(for: design)
             == ["/tmp/design-lead", "/tmp/design-attached"])
-        #expect(fixture.store.sessions(in: workspace.id).map(\.id) == [source.id])
+        #expect(fixture.store.sessions(in: workspace.id).map(\.id) == [design.id])
     }
 
-    @Test func designArtifactIsPrivateToTheCompanionAndRemovedWithIt() throws {
+    @Test func designArtifactIsPrivateToTheSessionAndRemovedWithIt() throws {
         let fixture = try fixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
-        let source = fixture.store.newSession(
-            in: fixture.project.id,
-            worktreePath: "/tmp/code-station-owned-by-source",
-            worktreeBranch: "code-station/source")
-        let design = try fixture.store.createDesignSession(for: source.id).get()
+        let design = fixture.store.newSession(in: fixture.project.id, mode: .design)
         let artifact = try #require(fixture.store.designArtifactURL(for: design))
+        try FileManager.default.createDirectory(
+            at: artifact.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data("<html>design</html>".utf8).write(to: artifact)
 
         let pending = try fixture.store.prepareSessionRemoval(design.id).get()
@@ -112,21 +89,23 @@ struct DesignSessionTests {
         if case .failure(let failure) = fixture.store.finishSessionRemoval(design.id) {
             Issue.record("Expected Design removal to succeed: \(failure.message)")
         }
-        #expect(fixture.store.session(source.id) != nil)
+        #expect(fixture.store.session(design.id) == nil)
         #expect(!FileManager.default.fileExists(atPath: artifact.path))
     }
 
-    @Test func deletingTheSourceAlsoDeletesItsDesignConversation() throws {
-        let fixture = try fixture()
-        defer { try? FileManager.default.removeItem(at: fixture.root) }
-        let source = fixture.store.newSession(in: fixture.project.id)
-        let design = try fixture.store.createDesignSession(for: source.id).get()
+    @Test func sessionsWithoutAModeDecodeAsChat() throws {
+        let id = UUID()
+        let projectID = UUID()
+        let data = Data("""
+            {
+              "id": "\(id.uuidString)",
+              "projectID": "\(projectID.uuidString)"
+            }
+            """.utf8)
 
-        if case .failure(let failure) = fixture.store.removeSession(source.id) {
-            Issue.record("Expected session removal to succeed: \(failure.message)")
-        }
-        #expect(fixture.store.session(source.id) == nil)
-        #expect(fixture.store.session(design.id) == nil)
+        let session = try JSONDecoder().decode(ChatSession.self, from: data)
+
+        #expect(session.mode == .chat)
     }
 
     @Test func bothAgentsReceiveDesignAsAPrivilegedInstruction() throws {

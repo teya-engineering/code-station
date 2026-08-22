@@ -620,7 +620,7 @@ struct SettingsView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Design")
                             .font(.system(size: 13, weight: .semibold))
-                        Text("Adds a Design tab to every session for creating and refining visual ideas.")
+                        Text("Offers Design mode when creating a session for visual ideas and prototypes.")
                             .font(.system(size: 12))
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)

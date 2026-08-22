@@ -847,6 +847,8 @@ struct AppSidebar: View {
 
     // MARK: - Creating and removing sessions
 
+    // Every session chooses its conversation mode up front. Git repositories also offer
+    // an isolated worktree, while plain folders show only their direct folder.
     private func requestNewSession(in project: Project) {
         choosingSessionKind = project
     }
@@ -856,12 +858,13 @@ struct AppSidebar: View {
         // is the clearest sign yet that it wants to be open.
         setExpanded(true, for: project.id)
         switch choice {
-        case .worktree(let sessionID, let base, let agent, let model, let agentAvatarName):
+        case .worktree(let sessionID, let base, let agent, let model, let agentAvatarName,
+                       let mode):
             createWorktreeSession(in: project, id: sessionID, base: base, agent: agent,
-                                  model: model, agentAvatarName: agentAvatarName)
-        case .folder(let agent, let model, let agentAvatarName):
+                                  model: model, agentAvatarName: agentAvatarName, mode: mode)
+        case .folder(let agent, let model, let agentAvatarName, let mode):
             switch store.insertSession(in: project.id, agent: agent, model: model,
-                                       agentAvatarName: agentAvatarName) {
+                                       agentAvatarName: agentAvatarName, mode: mode) {
             case .success(let session):
                 sessionToReveal = session.id
             case .failure(let failure):
@@ -963,12 +966,13 @@ struct AppSidebar: View {
     // The session id is chosen up front so the worktree folder and branch can carry
     // it before the session exists, which is also what lets the sheet name both.
     private func createWorktreeSession(in project: Project, id sessionID: UUID, base: String?,
-                                       agent: AgentKind, model: String?, agentAvatarName: String?) {
+                                       agent: AgentKind, model: String?, agentAvatarName: String?,
+                                       mode: SessionMode) {
         Task {
             switch await SessionLifecycle.createWorktreeSession(
                 in: project, id: sessionID, base: base,
                 agent: agent, model: model,
-                agentAvatarName: agentAvatarName, store: store) {
+                agentAvatarName: agentAvatarName, mode: mode, store: store) {
             case .success:
                 sessionToReveal = sessionID
             case .failure(let failure):

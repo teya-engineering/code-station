@@ -576,6 +576,8 @@ struct ProjectDetailView: View {
 
     // MARK: - Creating and removing
 
+    // Every session chooses its conversation mode up front. Git repositories also offer
+    // an isolated worktree, while plain folders show only their direct folder.
     private func requestNewSession(in project: Project) {
         guard !store.isMissing(project) else { return }
         choosingSessionKind = project
@@ -583,12 +585,13 @@ struct ProjectDetailView: View {
 
     private func startSession(_ choice: NewSessionChoice, in project: Project) {
         switch choice {
-        case .worktree(let sessionID, let base, let agent, let model, let agentAvatarName):
+        case .worktree(let sessionID, let base, let agent, let model, let agentAvatarName,
+                       let mode):
             createWorktreeSession(in: project, id: sessionID, base: base, agent: agent,
-                                  model: model, agentAvatarName: agentAvatarName)
-        case .folder(let agent, let model, let agentAvatarName):
+                                  model: model, agentAvatarName: agentAvatarName, mode: mode)
+        case .folder(let agent, let model, let agentAvatarName, let mode):
             switch store.insertSession(in: project.id, agent: agent, model: model,
-                                       agentAvatarName: agentAvatarName) {
+                                       agentAvatarName: agentAvatarName, mode: mode) {
             case .success:
                 break
             case .failure(let failure):
@@ -601,12 +604,13 @@ struct ProjectDetailView: View {
     }
 
     private func createWorktreeSession(in project: Project, id sessionID: UUID, base: String?,
-                                       agent: AgentKind, model: String?, agentAvatarName: String?) {
+                                       agent: AgentKind, model: String?, agentAvatarName: String?,
+                                       mode: SessionMode) {
         Task {
             switch await SessionLifecycle.createWorktreeSession(
                 in: project, id: sessionID, base: base,
                 agent: agent, model: model,
-                agentAvatarName: agentAvatarName, store: store) {
+                agentAvatarName: agentAvatarName, mode: mode, store: store) {
             case .success:
                 break
             case .failure(let failure):
