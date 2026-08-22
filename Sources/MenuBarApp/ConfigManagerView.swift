@@ -8,7 +8,7 @@ struct ConfigManagerView: View {
     @Environment(ClaudeCodeManager.self) private var claude
     @Environment(CodexCodeManager.self) private var codex
     @Environment(\.dismiss) private var dismiss
-    @State private var showingAddGrafana = false
+    @State private var showingAddPreset = false
     @State private var showingAddJSON = false
     @State private var grafanaExpanded = true
     @State private var filter = ""
@@ -47,7 +47,7 @@ struct ConfigManagerView: View {
         }
         .frame(width: 940, height: 640)
         .background(Theme.background)
-        .sheet(isPresented: $showingAddGrafana) { AddServerView() }
+        .sheet(isPresented: $showingAddPreset) { AddServerView() }
         .sheet(isPresented: $showingAddJSON) { AddJSONServerView() }
         .onAppear { refreshIntegrations() }
     }
@@ -202,12 +202,10 @@ struct ConfigManagerView: View {
                     .padding(.vertical, 12)
                     .background(RoundedRectangle(cornerRadius: 10).fill(Color.black.opacity(0.88)))
                     .appMenu {
-                        // Without any instance to point at, the Grafana entry would only
-                        // lead to an empty sheet.
                         var entries: [MenuEntry] = []
-                        if !SiteDefaults.current.grafanaPresets.isEmpty {
-                            entries.append(.item("Add Grafana MCP server") {
-                                showingAddGrafana = true
+                        if !SiteDefaults.current.mcpPresets.isEmpty {
+                            entries.append(.item("Add from preset") {
+                                showingAddPreset = true
                             })
                         }
                         entries.append(.item("Add MCP server") { showingAddJSON = true })
@@ -287,7 +285,13 @@ struct ConfigManagerView: View {
                 .id(server.id)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-            EmptyDetail(hasServers: !store.servers.isEmpty) { showingAddGrafana = true }
+            EmptyDetail(hasServers: !store.servers.isEmpty) {
+                if SiteDefaults.current.mcpPresets.isEmpty {
+                    showingAddJSON = true
+                } else {
+                    showingAddPreset = true
+                }
+            }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
@@ -387,7 +391,7 @@ private struct EmptyDetail: View {
                 .font(.serif(22))
             if !hasServers {
                 Button(action: onAdd) {
-                    Text("Add a Grafana server")
+                    Text("Add an MCP server")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(.white)
                         .padding(.horizontal, 18)

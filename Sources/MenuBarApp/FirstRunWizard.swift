@@ -248,7 +248,7 @@ struct FirstRunWizard: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Add your team's configuration")
                     .font(.serif(25))
-                Text("One JSON file gives Code Station the shared setup that belongs to your organisation: Dispatch sign-in and starter requests, Grafana presets, the skills marketplace, and useful command shortcuts. Personal tokens and passwords are never stored in it.")
+                Text("One JSON file gives Code Station the shared setup that belongs to your organisation: Dispatch sign-in and starter requests, MCP presets, the skills marketplace, and useful command shortcuts. Personal tokens and passwords are never stored in it.")
                     .font(.system(size: 13.5))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

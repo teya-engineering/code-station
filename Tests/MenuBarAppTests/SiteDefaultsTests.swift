@@ -32,10 +32,18 @@ struct SiteDefaultsTests {
               { "name": "List things", "method": "POST", "url": "https://api.example/things" }
             ]
           },
-          "grafana": {
+          "mcp": {
             "presets": [
-              { "scope": "platform", "environment": "dev",
-                "url": "https://grafana.example" }
+              {
+                "name": "grafana-platform-dev",
+                "title": "Grafana platform dev",
+                "environment": "dev",
+                "command": "mcp-grafana",
+                "env": {
+                  "GRAFANA_URL": "https://grafana.example",
+                  "GRAFANA_SERVICE_ACCOUNT_TOKEN": ""
+                }
+              }
             ]
           },
           "skills": {
@@ -67,8 +75,10 @@ struct SiteDefaultsTests {
         #expect(defaults.deployEnvironment(named: "prd")?.isDangerous == true)
         #expect(defaults.deployEnvironment(named: "dev")?.isDangerous == false)
 
-        #expect(defaults.grafanaPresets.count == 1)
-        #expect(defaults.grafanaPresets[0].name == "grafana-platform-dev")
+        #expect(defaults.mcpPresets.count == 1)
+        #expect(defaults.mcpPresets[0].name == "grafana-platform-dev")
+        #expect(defaults.mcpPresets[0].env?.first { $0.key == "GRAFANA_URL" }?.value
+            == "https://grafana.example")
         #expect(defaults.skills?.marketplace == "example-engineering")
 
         #expect(defaults.commandShortcuts.map(\.name) == ["Orders service"])
@@ -81,7 +91,7 @@ struct SiteDefaultsTests {
 
         #expect(defaults.loadFailure == nil)
         #expect(defaults.dispatchRequests.isEmpty)
-        #expect(defaults.grafanaPresets.isEmpty)
+        #expect(defaults.mcpPresets.isEmpty)
         #expect(defaults.skills == nil)
         #expect(defaults.commandShortcuts.isEmpty)
         #expect(defaults.dispatchOAuth == OAuthConfig())
@@ -134,17 +144,17 @@ struct SiteDefaultsTests {
     }
 
     @Test func aBrokenFileIsReportedWhenThereIsNoFallback() throws {
-        let url = try file("{ \"grafana\": { \"presets\": [ { \"scope\": \"platform\" } ] } }")
+        let url = try file("{ \"mcp\": { \"presets\": [ { \"name\": 42 } ] } }")
         let defaults = SiteDefaults.load([url])
 
         #expect(defaults.loadFailure != nil)
         #expect(defaults.loadFailure?.contains("No fallback configuration was available") == true)
         #expect(defaults.sourceURL == nil)
-        #expect(defaults.grafanaPresets.isEmpty)
+        #expect(defaults.mcpPresets.isEmpty)
     }
 
     @Test func aBrokenFileFallsBackToTheNextValidFile() throws {
-        let broken = try file("{ \"grafana\": { \"presets\": [ { \"scope\": \"platform\" } ] } }")
+        let broken = try file("{ \"mcp\": { \"presets\": [ { \"name\": 42 } ] } }")
         let fallback = try file(#"{ "skills": { "name": "Fallback", "marketplace": "fallback", "repository": "https://example.test/fallback" } }"#)
 
         let defaults = SiteDefaults.load([broken, fallback])
@@ -213,10 +223,10 @@ struct SiteDefaultsTests {
         #expect(defaults.loadFailure == nil)
         #expect(!defaults.dispatchOAuth.clientID.isEmpty)
         #expect(!defaults.dispatchRequests.isEmpty)
-        #expect(!defaults.grafanaPresets.isEmpty)
+        #expect(!defaults.mcpPresets.isEmpty)
         // A preset whose environment nothing names would add servers no diagnosis filters.
-        for preset in defaults.grafanaPresets {
-            #expect(defaults.deployEnvironment(named: preset.environment) != nil)
+        for preset in defaults.mcpPresets {
+            #expect(defaults.deployEnvironment(named: preset.environmentTag) != nil)
         }
         #expect(defaults.skills != nil)
         #expect(!defaults.commandShortcuts.isEmpty)
@@ -239,9 +249,9 @@ struct SiteDefaultsTests {
               { "name": "Version", "url": "https://api.example/version" }
             ]
           },
-          "grafana": {
+          "mcp": {
             "presets": [
-              { "scope": "platform", "environment": "prd", "url": "https://grafana.example" }
+              { "name": "metrics", "environment": "prd", "url": "https://mcp.example" }
             ]
           },
           "skills": { "name": "team", "marketplace": "org/skills", "repository": "org/skills" }
@@ -253,7 +263,7 @@ struct SiteDefaultsTests {
 
         #expect(summary.contains("0 environments"))
         #expect(summary.contains("2 starter requests"))
-        #expect(summary.contains("1 Grafana preset"))
+        #expect(summary.contains("1 MCP preset"))
         #expect(summary.contains("0 shortcuts"))
         #expect(summary.contains("a skills marketplace"))
     }
@@ -263,8 +273,36 @@ struct SiteDefaultsTests {
 
         #expect(summary.contains("0 environments"))
         #expect(summary.contains("0 starter requests"))
-        #expect(summary.contains("0 Grafana presets"))
+        #expect(summary.contains("0 MCP presets"))
         #expect(summary.contains("no skills marketplace"))
+    }
+
+    @Test func previousGrafanaPresetsBecomeMCPPresets() throws {
+        let url = try file("""
+        {
+          "grafana": {
+            "presets": [
+              { "scope": "platform", "environment": "dev", "url": "https://grafana.example" }
+            ]
+          }
+        }
+        """)
+
+        let preset = try #require(SiteDefaults.load([url]).mcpPresets.first)
+
+        #expect(preset.name == "grafana-platform-dev")
+        #expect(preset.command == "mcp-grafana")
+        #expect(preset.environmentTag == "dev")
+        #expect(preset.env?.contains {
+            $0.key == "GRAFANA_SERVICE_ACCOUNT_TOKEN" && $0.value.isEmpty
+        } == true)
+
+        let encoded = try SiteConfigurationImporter.configurationData(
+            for: SiteDefaults.load([url]))
+        let root = try #require(try JSONSerialization.jsonObject(with: encoded)
+            as? [String: Any])
+        #expect(root["mcp"] != nil)
+        #expect(root["grafana"] == nil)
     }
 
     @Test func serverNamesAreReadBackWithoutTheSiteFile() {

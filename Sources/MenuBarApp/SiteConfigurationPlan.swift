@@ -6,7 +6,7 @@ enum SiteConfigurationAspect: String, CaseIterable, Hashable, Identifiable, Send
     case environments
     case apiAccess
     case requests
-    case grafana
+    case mcp
     case skills
     case shortcuts
 
@@ -17,7 +17,7 @@ enum SiteConfigurationAspect: String, CaseIterable, Hashable, Identifiable, Send
         case .environments: "Environments"
         case .apiAccess: "API access"
         case .requests: "Starter requests"
-        case .grafana: "Grafana presets"
+        case .mcp: "MCP presets"
         case .skills: "Skills marketplace"
         case .shortcuts: "Shortcuts"
         }
@@ -28,7 +28,7 @@ enum SiteConfigurationAspect: String, CaseIterable, Hashable, Identifiable, Send
         case .environments: "server.rack"
         case .apiAccess: "key"
         case .requests: "arrow.up.right"
-        case .grafana: "chart.xyaxis.line"
+        case .mcp: "point.3.connected.trianglepath.dotted"
         case .skills: "shippingbox"
         case .shortcuts: "terminal"
         }
@@ -47,9 +47,9 @@ enum SiteConfigurationAspect: String, CaseIterable, Hashable, Identifiable, Send
         case .requests:
             let count = defaults.dispatch?.requests?.count ?? 0
             return count == 1 ? "1 starter request" : "\(count) starter requests"
-        case .grafana:
-            let count = defaults.grafana?.presets?.count ?? 0
-            return count == 1 ? "1 Grafana preset" : "\(count) Grafana presets"
+        case .mcp:
+            let count = defaults.mcp?.presets?.count ?? 0
+            return count == 1 ? "1 MCP preset" : "\(count) MCP presets"
         case .skills:
             return defaults.skills?.name ?? "No marketplace"
         case .shortcuts:
@@ -74,8 +74,8 @@ struct SiteConfigurationPlan: Sendable {
                 defaults.dispatch?.oauth != nil
             case .requests:
                 defaults.dispatch?.requests != nil
-            case .grafana:
-                defaults.grafana != nil
+            case .mcp:
+                defaults.mcp != nil
             case .skills:
                 defaults.skills != nil
             case .shortcuts:
@@ -105,7 +105,7 @@ struct SiteConfigurationPlan: Sendable {
                 && dispatch.requests == nil ? nil : dispatch
         }
 
-        if chosen.contains(.grafana) { result.grafana = imported.grafana }
+        if chosen.contains(.mcp) { result.mcp = imported.mcp }
         if chosen.contains(.skills) { result.skills = imported.skills }
         if chosen.contains(.shortcuts) { result.shortcuts = imported.shortcuts }
 

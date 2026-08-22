@@ -26,22 +26,37 @@
       }
     ]
   },
-  "grafana": {
+  "mcp": {
     "presets": [
       {
-        "scope": "platform",
+        "name": "grafana-platform-dev",
+        "title": "Grafana platform dev",
         "environment": "dev",
-        "url": "https://grafana.platform-dev.example.com"
+        "command": "mcp-grafana",
+        "env": {
+          "GRAFANA_URL": "https://grafana.platform-dev.example.com",
+          "GRAFANA_SERVICE_ACCOUNT_TOKEN": ""
+        }
       },
       {
-        "scope": "platform",
+        "name": "grafana-platform-prd",
+        "title": "Grafana platform prod",
         "environment": "prd",
-        "url": "https://grafana.platform-prd.example.com"
+        "command": "mcp-grafana",
+        "env": {
+          "GRAFANA_URL": "https://grafana.platform-prd.example.com",
+          "GRAFANA_SERVICE_ACCOUNT_TOKEN": ""
+        }
       },
       {
-        "scope": "shared",
+        "name": "grafana-shared-shared",
+        "title": "Grafana shared",
         "environment": "shared",
-        "url": "https://grafana.shared.example.com"
+        "command": "mcp-grafana",
+        "env": {
+          "GRAFANA_URL": "https://grafana.shared.example.com",
+          "GRAFANA_SERVICE_ACCOUNT_TOKEN": ""
+        }
       }
     ]
   },

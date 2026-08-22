@@ -66,9 +66,9 @@ The app bundle is recommended for regular use and is required for the Start at L
 
 ## Site configuration
 
-A few features point at things that belong to your organisation rather than to the app: the identity provider your APIs sign in against, the calls worth starting from, what your environments are named, your Grafana instances, the skills marketplace your agents install from, and the commands worth having on hand. None of that is in the code. It is all data, in a settings file the app reads at startup.
+A few features point at things that belong to your organisation rather than to the app: the identity provider your APIs sign in against, the calls worth starting from, what your environments are named, reusable MCP server configurations, the skills marketplace your agents install from, and the commands worth having on hand. None of that is in the code. It is all data, in a settings file the app reads at startup.
 
-Every section is optional, and so is the file itself. Without it the app uses its built-in staging and production environments, with no saved requests, no Grafana presets, no shortcuts, and the Skills screen reporting that no marketplace is set up. Everything else works as normal.
+Every section is optional, and so is the file itself. Without it the app uses its built-in staging and production environments, with no saved requests, no MCP presets, no shortcuts, and the Skills screen reporting that no marketplace is set up. Everything else works as normal.
 
 `site-defaults.example.json` is a blank-slate example. Copy it and fill in your own values. Teya's shared configuration is maintained in the separate [teya-conductor-settings](https://github.com/example/site-settings) repository.
 
@@ -82,7 +82,7 @@ The first-launch wizard explains what the site configuration controls. It offers
 
 Teya users can enter [github.com/example/site-settings](https://github.com/example/site-settings) to load the shared Teya configuration.
 
-Settings > Advanced shows the current environments, API access, starter requests, Grafana presets, skills marketplace, and shortcuts in typed forms. It also offers the same two import sources at any time. Loading a file only previews it. You can then reset any combination of those six aspects while leaving every unchecked aspect unchanged.
+Settings > Advanced shows the current environments, API access, starter requests, MCP presets, skills marketplace, and shortcuts in typed forms. It also offers the same two import sources at any time. Loading a file only previews it. You can then reset any combination of those six aspects while leaving every unchecked aspect unchanged.
 
 The JSON on that screen is read-only and generated from the current configuration. It can be copied or exported as a reset file, so the UI and the exported document cannot drift apart.
 
@@ -124,7 +124,7 @@ A `swift run` development build has no bundle to fold a file into, so use the fi
 | `environments` | The deployments you run, each a `name`, an optional `title` for the screen, and `danger: true` on the ones a mistake would be felt in. Dispatch offers every environment in this list and replaces `{{env}}` with its `name`. Dangerous environments ask before each API send and tell troubleshooting sessions to keep every check read-only. Every MCP server is tagged with one of these names, and a troubleshooting session offers a server only for the environment it is tagged with. A server tagged with nothing, or with a name this list does not hold, is offered in all of them. Left out, the app uses `staging` and `production`. |
 | `dispatch.oauth` | The identity provider the configured API environments sign in against. `grant` is `authorizationCodePKCE` or `clientCredentials`. `authURL`, `tokenURL`, `clientID`, `scope`, and `callbackURL` are the usual OAuth values. Anything you leave out keeps the app's own default. Each environment can then keep its own credentials in the app. |
 | `dispatch.requests` | The saved requests a first run starts with, each a `name`, a `method`, and a `url`. `{{env}}` in a URL is replaced with the selected environment's `name`. |
-| `grafana.presets` | The instances offered in the Add server sheet. A preset is a `scope`, an `environment`, and a `url`. The agents know each one as `grafana-<scope>-<environment>`, and a server added from a preset starts tagged with its `environment`. |
+| `mcp.presets` | Reusable servers offered in the Add server sheet. Each preset has a unique `name`, an optional display `title` and `environment`, and either a stdio `command` with optional `args` and `env`, or a remote `url` with optional `type` and `headers`. An empty environment variable or header value is requested when the preset is added, so shared files can define credentials without storing them. |
 | `skills` | The marketplace the Skills screen starts with: its `name` on screen, its `marketplace` name as the agent CLIs know it, and the `repository` it is cloned from. The Skills screen can also use a Git repository or a local marketplace JSON file selected on that Mac. |
 | `shortcuts` | The command shortcuts a first run starts with, each a `name` and a `command`. They run from your home folder, since the file cannot know which projects you have added. Everyone can then add their own, including ones filed under a project, which are saved per install and never overwritten by this file. |
 

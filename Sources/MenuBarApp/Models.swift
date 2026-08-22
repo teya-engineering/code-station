@@ -4,6 +4,7 @@ import Foundation
 // at. The instances themselves are not the app's to know, so they come from the site
 // file.
 enum Grafana {
+    static let namePrefix = "grafana-"
     static let command = "mcp-grafana"
     static let urlKey = "GRAFANA_URL"
     static let tokenKey = "GRAFANA_SERVICE_ACCOUNT_TOKEN"
@@ -12,7 +13,7 @@ enum Grafana {
     // rather than the site file means a server somebody added by hand is labelled too.
     static func environment(from name: String) -> String? {
         let bits = name.split(separator: "-")
-        guard bits.count == 3, name.hasPrefix(SiteDefaults.Grafana.namePrefix) else { return nil }
+        guard bits.count == 3, name.hasPrefix(namePrefix) else { return nil }
         return String(bits[2])
     }
 }
@@ -54,14 +55,14 @@ struct Server: Identifiable, Equatable {
     }
 
     var isGrafana: Bool {
-        command == Grafana.command || name.hasPrefix(SiteDefaults.Grafana.namePrefix)
+        command == Grafana.command || name.hasPrefix(Grafana.namePrefix)
     }
 
     var deployEnvironment: String? { environmentTag.isEmpty ? nil : environmentTag }
 
     var description: String {
-        if let preset = SiteDefaults.current.grafanaPreset(named: name) {
-            return "Grafana MCP server for the \(preset.scope) scope in \(preset.environment)."
+        if let preset = SiteDefaults.current.mcpPreset(named: name) {
+            return "\(preset.label) MCP server."
         }
         return isRemote ? "Remote \(transport) MCP server." : "MCP server."
     }

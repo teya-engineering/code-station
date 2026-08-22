@@ -4,6 +4,16 @@ import Testing
 
 @MainActor
 struct PersistenceSafetyTests {
+    private var grafanaPreset: SiteDefaults.MCP.Preset {
+        .init(name: "grafana-platform-dev",
+              environment: "dev",
+              command: "mcp-grafana",
+              env: [
+                .init(key: "GRAFANA_URL", value: "https://grafana.example"),
+                .init(key: "GRAFANA_SERVICE_ACCOUNT_TOKEN", value: ""),
+              ])
+    }
+
     @Test func configDecodeFailureDoesNotOverwriteTheFile() throws {
         let directory = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -15,9 +25,8 @@ struct PersistenceSafetyTests {
         let store = ConfigStore(configURL: file)
         #expect(store.loadError != nil)
 
-        store.upsertGrafana(preset: .init(scope: "platform", environment: "dev",
-                                          url: "https://grafana.example"),
-                            token: "must stay in memory")
+        store.upsert(preset: grafanaPreset,
+                     environmentValues: ["GRAFANA_SERVICE_ACCOUNT_TOKEN": "must stay in memory"])
 
         #expect(store.saveError != nil)
         #expect(try Data(contentsOf: file) == malformed)
@@ -31,9 +40,8 @@ struct PersistenceSafetyTests {
         failures.failWrites(to: file)
         let store = ConfigStore(configURL: file, files: failures.client)
 
-        store.upsertGrafana(preset: .init(scope: "platform", environment: "dev",
-                                          url: "https://grafana.example"),
-                            token: "token")
+        store.upsert(preset: grafanaPreset,
+                     environmentValues: ["GRAFANA_SERVICE_ACCOUNT_TOKEN": "token"])
 
         #expect(store.saveError != nil)
         #expect(!FileManager.default.fileExists(atPath: file.path))

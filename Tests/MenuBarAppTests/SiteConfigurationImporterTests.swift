@@ -95,9 +95,11 @@ struct SiteConfigurationImporterTests {
               { "name": "Health", "method": "GET", "url": "https://api.example/health" }
             ]
           },
-          "grafana": {
+          "mcp": {
             "presets": [
-              { "scope": "platform", "environment": "prd", "url": "https://grafana.example" }
+              { "name": "grafana-platform-prd", "environment": "prd",
+                "command": "mcp-grafana",
+                "env": { "GRAFANA_URL": "https://grafana.example" } }
             ]
           }
         }
@@ -107,16 +109,17 @@ struct SiteConfigurationImporterTests {
 
         #expect(selection.sourceName == "team.json")
         #expect(selection.defaults.dispatchRequests.map(\.name) == ["Health"])
-        #expect(selection.defaults.grafanaPresets.map(\.name) == ["grafana-platform-prd"])
+        #expect(selection.defaults.mcpPresets.map(\.name) == ["grafana-platform-prd"])
         #expect(selection.summary.contains("1 starter request"))
-        #expect(selection.summary.contains("1 Grafana preset"))
+        #expect(selection.summary.contains("1 MCP preset"))
     }
 
     @Test func rejectsAMalformedLocalConfiguration() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let file = root.appendingPathComponent("broken.json")
-        try Data(#"{ "grafana": { "presets": [ {} ] } }"#.utf8).write(to: file)
+        try Data(#"{ "mcp": { "presets": [ { "name": "broken" } ] } }"#.utf8)
+            .write(to: file)
 
         #expect(throws: ImportError.self) {
             try SiteConfigurationImporter.load(file: file)

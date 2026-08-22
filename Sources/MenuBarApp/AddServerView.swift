@@ -4,89 +4,89 @@ struct AddServerView: View {
     @Environment(ConfigStore.self) private var store
     @Environment(\.dismiss) private var dismiss
 
-    @State private var scope: String = SiteDefaults.current.grafanaPresets.first?.scope ?? ""
-    @State private var env: String = SiteDefaults.current.grafanaPresets.first?.environment ?? ""
-    @State private var token = ""
+    @State private var presetName = SiteDefaults.current.mcpPresets.first?.name ?? ""
+    @State private var environmentValues: [String: String] = [:]
+    @State private var headerValues: [String: String] = [:]
 
-    private var presets: [SiteDefaults.Grafana.Preset] { SiteDefaults.current.grafanaPresets }
-
-    // One pill per scope, in the order the site file lists them, and only the
-    // environments that scope actually has an instance in.
-    private var scopes: [String] {
-        presets.map(\.scope).reduce(into: []) { unique, scope in
-            if !unique.contains(scope) { unique.append(scope) }
-        }
+    private var presets: [SiteDefaults.MCP.Preset] { SiteDefaults.current.mcpPresets }
+    private var preset: SiteDefaults.MCP.Preset? {
+        presets.first { $0.name == presetName }
     }
-
-    private var environments: [String] {
-        presets.filter { $0.scope == scope }.map(\.environment)
+    private var exists: Bool {
+        guard let preset else { return false }
+        return store.servers.contains { $0.name == preset.name }
     }
-
-    private var preset: SiteDefaults.Grafana.Preset? {
-        presets.first { $0.scope == scope && $0.environment == env }
-    }
-
-    private var name: String { preset?.name ?? "" }
-    private var url: String { preset?.url ?? "" }
-    private var exists: Bool { store.servers.contains { $0.name == name } }
-
     private var incomplete: Bool {
-        preset == nil || token.trimmingCharacters(in: .whitespaces).isEmpty
+        guard let preset, preset.hasConnection else { return true }
+        return requiredValues(in: preset.env).contains {
+            environmentValues[$0.key]?.trimmed.isEmpty != false
+        } || requiredValues(in: preset.headers).contains {
+            headerValues[$0.key]?.trimmed.isEmpty != false
+        }
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
-            Text("Add Grafana server").font(.serif(26, .semibold))
+            Text("Add MCP server from preset").font(.serif(26, .semibold))
 
             VStack(alignment: .leading, spacing: 8) {
-                SectionLabel(text: "SCOPE")
-                HStack(spacing: 4) {
-                    ForEach(scopes, id: \.self) { choice in
-                        ChoicePill(title: choice, selected: scope == choice) {
-                            scope = choice
-                            // The environments differ per scope, so the one picked before
-                            // may not exist under the new scope.
-                            if !environments.contains(env) { env = environments.first ?? "" }
+                SectionLabel(text: "PRESET")
+                ActionButton(title: preset?.label ?? "Choose a preset",
+                             tone: .sunken,
+                             disclosure: true)
+                    .appMenu(matchWidth: true) {
+                        presets.map { choice in
+                            .item(choice.label,
+                                  checked: choice.name == presetName,
+                                  subtitle: choice.name,
+                                  detail: ServerEnvironmentChoice.title(
+                                    for: choice.environmentTag),
+                                  action: { select(choice) })
+                        }
+                    }
+            }
+
+            if let preset {
+                let environment = requiredValues(in: preset.env)
+                let headers = requiredValues(in: preset.headers)
+                if !environment.isEmpty || !headers.isEmpty {
+                    VStack(alignment: .leading, spacing: 12) {
+                        SectionLabel(text: "REQUIRED VALUES")
+                        ForEach(environment) { value in
+                            valueField(value,
+                                       text: dictionaryBinding(value.key,
+                                                               in: $environmentValues))
+                        }
+                        ForEach(headers) { value in
+                            valueField(value,
+                                       text: dictionaryBinding(value.key,
+                                                               in: $headerValues))
                         }
                     }
                 }
-            }
 
-            VStack(alignment: .leading, spacing: 8) {
-                SectionLabel(text: "ENVIRONMENT")
-                HStack(spacing: 4) {
-                    ForEach(environments, id: \.self) { choice in
-                        ChoicePill(title: choice, selected: env == choice) { env = choice }
+                VStack(alignment: .leading, spacing: 6) {
+                    SectionLabel(text: "PREVIEW")
+                    labeled("name", preset.name)
+                    labeled("transport", preset.isRemote ? (preset.type ?? "http") : "stdio")
+                    if let command = preset.command {
+                        labeled("command", ([command] + (preset.args ?? [])).joined(separator: " "))
                     }
+                    if let url = preset.url { labeled("url", url) }
+                    labeled("environment",
+                            ServerEnvironmentChoice.title(for: preset.environmentTag))
                 }
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(RoundedRectangle(cornerRadius: 10).fill(Theme.field))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
             }
-
-            VStack(alignment: .leading, spacing: 8) {
-                SectionLabel(text: "SERVICE ACCOUNT TOKEN")
-                SecureField("glsa_xxxxxxxxxxxxxxxx", text: $token)
-                    .textFieldStyle(.plain)
-                    .font(.mono(13))
-                    .padding(.horizontal, 11)
-                    .padding(.vertical, 9)
-                    .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
-                    .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
-            }
-
-            VStack(alignment: .leading, spacing: 6) {
-                SectionLabel(text: "PREVIEW")
-                labeled("name", name)
-                labeled("url", url)
-                labeled("environment", ServerEnvironmentChoice.title(for: preset?.environment ?? ""))
-            }
-            .padding(14)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 10).fill(Theme.field))
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
 
             if exists {
-                Label("This scope-env already exists. Adding will replace its token and URL.",
+                Label("A server with this name already exists. Adding will replace its configuration.",
                       systemImage: "exclamationmark.triangle")
-                    .font(.system(size: 12)).foregroundStyle(Theme.secret)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.secret)
             }
 
             HStack(spacing: 10) {
@@ -103,7 +103,11 @@ struct AddServerView: View {
                 .buttonStyle(.plain)
                 .keyboardShortcut(.cancelAction)
                 Button {
-                    if let preset { store.upsertGrafana(preset: preset, token: token) }
+                    if let preset {
+                        store.upsert(preset: preset,
+                                     environmentValues: environmentValues,
+                                     headerValues: headerValues)
+                    }
                     dismiss()
                 } label: {
                     Text(exists ? "Replace" : "Add")
@@ -121,13 +125,57 @@ struct AddServerView: View {
             }
         }
         .padding(28)
-        .frame(width: 460)
+        .frame(width: 500)
         .background(Theme.background)
+    }
+
+    private func requiredValues(in values: [SiteDefaults.MCP.Value]?)
+        -> [SiteDefaults.MCP.Value] {
+        (values ?? []).filter { $0.value.isEmpty }
+    }
+
+    private func select(_ preset: SiteDefaults.MCP.Preset) {
+        presetName = preset.name
+        environmentValues = [:]
+        headerValues = [:]
+    }
+
+    @ViewBuilder private func valueField(_ value: SiteDefaults.MCP.Value,
+                                         text: Binding<String>) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            SectionLabel(text: value.key)
+            if EnvVar(key: value.key, value: "").isSecret {
+                SecureField(value.key, text: text)
+                    .textFieldStyle(.plain)
+                    .font(.mono(13))
+                    .padding(.horizontal, 11)
+                    .padding(.vertical, 9)
+                    .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
+                    .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
+            } else {
+                TextField(value.key, text: text)
+                    .textFieldStyle(.plain)
+                    .font(.mono(13))
+                    .padding(.horizontal, 11)
+                    .padding(.vertical, 9)
+                    .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
+                    .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
+            }
+        }
+    }
+
+    private func dictionaryBinding(_ key: String,
+                                   in dictionary: Binding<[String: String]>) -> Binding<String> {
+        Binding(get: { dictionary.wrappedValue[key] ?? "" },
+                set: { dictionary.wrappedValue[key] = $0 })
     }
 
     private func labeled(_ key: String, _ value: String) -> some View {
         HStack(alignment: .top, spacing: 10) {
-            Text(key).font(.mono(12, .semibold)).foregroundStyle(.secondary).frame(width: 84, alignment: .leading)
+            Text(key)
+                .font(.mono(12, .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 84, alignment: .leading)
             Text(value).font(.mono(12)).textSelection(.enabled)
         }
     }

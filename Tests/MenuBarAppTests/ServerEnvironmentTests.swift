@@ -56,11 +56,37 @@ struct ServerEnvironmentTests {
     @Test func aPresetTagsTheServerItAdds() throws {
         let (configs, file) = try store(#"{ "mcpServers": {} }"#)
 
-        configs.upsertGrafana(preset: .init(scope: "shared", environment: "shared",
-                                            url: "https://grafana.example"),
-                              token: "glsa_test")
+        configs.upsert(preset: .init(name: "grafana-shared-shared",
+                                     environment: "shared",
+                                     command: "mcp-grafana",
+                                     env: [
+                                        .init(key: "GRAFANA_URL",
+                                              value: "https://grafana.example"),
+                                        .init(key: "GRAFANA_SERVICE_ACCOUNT_TOKEN", value: ""),
+                                     ]),
+                       environmentValues: ["GRAFANA_SERVICE_ACCOUNT_TOKEN": "glsa_test"])
 
         #expect(ConfigStore(configURL: file).servers.map(\.environmentTag) == ["shared"])
+    }
+
+    @Test func aRemotePresetAddsItsConnectionAndRequestedHeader() throws {
+        let (configs, file) = try store(#"{ "mcpServers": {} }"#)
+
+        configs.upsert(
+            preset: .init(name: "knowledge",
+                          title: "Knowledge base",
+                          environment: "dev",
+                          url: "https://mcp.example/mcp",
+                          type: "http",
+                          headers: [.init(key: "Authorization", value: "")]),
+            headerValues: ["Authorization": "Bearer test"])
+
+        let server = try #require(ConfigStore(configURL: file).servers.first)
+        #expect(server.name == "knowledge")
+        #expect(server.environmentTag == "dev")
+        #expect(server.url == "https://mcp.example/mcp")
+        #expect(server.headers.map(\.key) == ["Authorization"])
+        #expect(server.headers.map(\.value) == ["Bearer test"])
     }
 
     @Test func pastedServersTakeTheChosenEnvironmentUnlessTheyNameOne() throws {

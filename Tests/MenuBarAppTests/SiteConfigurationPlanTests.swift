@@ -16,10 +16,10 @@ struct SiteConfigurationPlanTests {
           { "name": "Orders", "method": "POST", "url": "https://api.example/orders" }
         ]
       },
-      "grafana": {
+      "mcp": {
         "presets": [
-          { "scope": "platform", "environment": "prd", "url": "https://one.example" },
-          { "scope": "edge", "environment": "prd", "url": "https://two.example" }
+          { "name": "one", "environment": "prd", "url": "https://one.example" },
+          { "name": "two", "environment": "prd", "command": "mcp-two" }
         ]
       },
       "skills": { "name": "Team", "marketplace": "team", "repository": "example/skills" },
@@ -34,7 +34,7 @@ struct SiteConfigurationPlanTests {
     @Test func listsEveryResettableAspectOnce() throws {
         let plan = SiteConfigurationPlan(try defaults(file))
 
-        #expect(plan.aspects == [.environments, .apiAccess, .requests, .grafana,
+        #expect(plan.aspects == [.environments, .apiAccess, .requests, .mcp,
                                  .skills, .shortcuts])
         #expect(plan.everything == Set(SiteConfigurationAspect.allCases))
     }
@@ -109,6 +109,6 @@ struct SiteConfigurationPlanTests {
 
         #expect(reset.shortcuts?.isEmpty == true)
         #expect(reset.skills?.name == "Team")
-        #expect(reset.grafanaPresets.count == 2)
+        #expect(reset.mcpPresets.count == 2)
     }
 }

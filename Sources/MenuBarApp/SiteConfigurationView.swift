@@ -17,7 +17,7 @@ struct SiteConfigurationSection: View {
     @State private var failure: String?
     @State private var editor: SiteConfigurationAspect?
     @State private var showingDispatch = false
-    @State private var showingGrafana = false
+    @State private var showingMCP = false
     @State private var showingSkills = false
     @State private var showingShortcuts = false
     @State private var showingJSON = false
@@ -36,7 +36,7 @@ struct SiteConfigurationSection: View {
         .sheet(isPresented: $showingDispatch, onDismiss: refreshConfiguration) {
             DispatchView().appOverlays()
         }
-        .sheet(isPresented: $showingGrafana) {
+        .sheet(isPresented: $showingMCP) {
             ConfigManagerView().appOverlays()
         }
         .sheet(isPresented: $showingSkills, onDismiss: refreshConfiguration) {
@@ -121,7 +121,7 @@ struct SiteConfigurationSection: View {
 
     private func actionTitle(for aspect: SiteConfigurationAspect) -> String {
         switch aspect {
-        case .requests, .grafana, .skills, .shortcuts: "Open"
+        case .requests, .mcp, .skills, .shortcuts: "Open"
         default: "Configure"
         }
     }
@@ -130,8 +130,8 @@ struct SiteConfigurationSection: View {
         switch aspect {
         case .requests:
             showingDispatch = true
-        case .grafana:
-            showingGrafana = true
+        case .mcp:
+            showingMCP = true
         case .skills:
             showingSkills = true
         case .shortcuts:
@@ -157,7 +157,7 @@ struct SiteConfigurationSection: View {
             return aspect.detail(in: loaded)
         case .requests:
             return aspect.detail(in: loaded)
-        case .grafana:
+        case .mcp:
             return aspect.detail(in: loaded)
         case .skills:
             return loaded.skills?.name ?? "Not configured"
@@ -432,8 +432,8 @@ private struct SiteConfigurationEditorView: View {
             "Set the sign-in provider used as the starting point for every environment. Secrets stay in the Keychain."
         case .requests:
             "Keep the small set of API requests that a configured install should start with."
-        case .grafana:
-            "Define the Grafana instances that can be added as MCP servers."
+        case .mcp:
+            "Define reusable MCP server configurations. Empty environment and header values are filled in when a preset is added."
         case .skills:
             "Choose the skills marketplace used by both supported agents."
         case .shortcuts:
@@ -446,7 +446,7 @@ private struct SiteConfigurationEditorView: View {
         case .environments: environmentsEditor
         case .apiAccess: apiAccessEditor
         case .requests: requestsEditor
-        case .grafana: grafanaEditor
+        case .mcp: mcpEditor
         case .skills: skillsEditor
         case .shortcuts: shortcutsEditor
         }
@@ -542,35 +542,125 @@ private struct SiteConfigurationEditorView: View {
         }
     }
 
-    private var grafanaEditor: some View {
+    private var mcpEditor: some View {
         VStack(alignment: .leading, spacing: 12) {
-            ForEach(Array((draft.grafana?.presets ?? []).indices), id: \.self) { index in
+            ForEach(Array((draft.mcp?.presets ?? []).indices), id: \.self) { index in
                 let preset = presetBinding(at: index)
                 editorCard {
                     HStack(alignment: .top, spacing: 10) {
-                        SiteConfigurationField(caption: "SCOPE",
-                                               placeholder: "platform",
-                                               text: preset.scope)
+                        SiteConfigurationField(caption: "NAME",
+                                               placeholder: "service-environment",
+                                               text: preset.name)
+                        SiteConfigurationField(caption: "LABEL",
+                                               placeholder: "Service environment",
+                                               text: optional(preset.title))
+                        removeButton { draft.mcp?.presets?.remove(at: index) }
+                    }
+                    HStack(alignment: .top, spacing: 10) {
                         SiteConfigurationField(caption: "ENVIRONMENT",
                                                placeholder: "production",
-                                               text: preset.environment)
-                        removeButton { draft.grafana?.presets?.remove(at: index) }
+                                               text: optional(preset.environment))
+                        VStack(alignment: .leading, spacing: 6) {
+                            Caption(text: "TRANSPORT")
+                            HStack(spacing: 4) {
+                                ChoicePill(title: "stdio", selected: !preset.wrappedValue.isRemote) {
+                                    preset.command.wrappedValue = preset.wrappedValue.command ?? ""
+                                    preset.url.wrappedValue = nil
+                                    preset.type.wrappedValue = nil
+                                }
+                                ChoicePill(title: "remote", selected: preset.wrappedValue.isRemote) {
+                                    preset.command.wrappedValue = nil
+                                    preset.args.wrappedValue = nil
+                                    preset.url.wrappedValue = preset.wrappedValue.url ?? ""
+                                    preset.type.wrappedValue = preset.wrappedValue.type ?? "http"
+                                }
+                            }
+                            .frame(height: 34)
+                        }
                     }
-                    SiteConfigurationField(caption: "URL",
-                                           placeholder: "https://grafana.example",
-                                           text: preset.url)
+                    if preset.wrappedValue.isRemote {
+                        HStack(alignment: .top, spacing: 10) {
+                            SiteConfigurationField(caption: "URL",
+                                                   placeholder: "https://mcp.example/mcp",
+                                                   text: optional(preset.url))
+                            OptionMenu(caption: "TYPE",
+                                       value: preset.wrappedValue.type ?? "http",
+                                       options: ["http", "sse"].map { type in
+                                           (type, preset.wrappedValue.type == type,
+                                            { preset.type.wrappedValue = type })
+                                       })
+                        }
+                    } else {
+                        SiteConfigurationField(caption: "COMMAND",
+                                               placeholder: "mcp-server",
+                                               text: optional(preset.command))
+                        SiteConfigurationTextArea(caption: "ARGUMENTS - ONE PER LINE",
+                                                  placeholder: "--flag\nvalue",
+                                                  text: arguments(preset))
+                    }
+                    presetValuesEditor("ENVIRONMENT VARIABLES", at: index, keyPath: \.env)
+                    presetValuesEditor("HEADERS", at: index, keyPath: \.headers)
                 }
             }
-            addButton("Add Grafana preset") {
+            addButton("Add MCP preset") {
                 let environment = draft.deployEnvironments.first?.name ?? ""
-                var grafana = draft.grafana ?? SiteDefaults.Grafana()
-                grafana.presets = (grafana.presets ?? [])
-                    + [SiteDefaults.Grafana.Preset(scope: "",
-                                                   environment: environment,
-                                                   url: "")]
-                draft.grafana = grafana
+                var mcp = draft.mcp ?? SiteDefaults.MCP()
+                mcp.presets = (mcp.presets ?? [])
+                    + [SiteDefaults.MCP.Preset(name: "",
+                                               environment: environment,
+                                               command: "")]
+                draft.mcp = mcp
             }
         }
+    }
+
+    @ViewBuilder private func presetValuesEditor(
+        _ title: String,
+        at presetIndex: Int,
+        keyPath: WritableKeyPath<SiteDefaults.MCP.Preset, [SiteDefaults.MCP.Value]?>
+    ) -> some View {
+        let values = draft.mcp?.presets?[presetIndex][keyPath: keyPath] ?? []
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                SectionLabel(text: title)
+                Spacer()
+                Button {
+                    var preset = draft.mcp?.presets?[presetIndex]
+                        ?? SiteDefaults.MCP.Preset(name: "")
+                    var entries = preset[keyPath: keyPath] ?? []
+                    entries.append(.init(key: "", value: ""))
+                    preset[keyPath: keyPath] = entries
+                    draft.mcp?.presets?[presetIndex] = preset
+                } label: {
+                    Label("Add", systemImage: "plus")
+                        .font(.system(size: 11.5, weight: .semibold))
+                        .foregroundStyle(Theme.accent)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+            ForEach(Array(values.indices), id: \.self) { valueIndex in
+                let value = presetValueBinding(at: presetIndex,
+                                               keyPath: keyPath,
+                                               valueIndex: valueIndex)
+                HStack(alignment: .top, spacing: 8) {
+                    SiteConfigurationField(caption: "KEY",
+                                           placeholder: title == "HEADERS"
+                                            ? "Authorization" : "SERVICE_TOKEN",
+                                           text: value.key)
+                    SiteConfigurationField(caption: "VALUE - LEAVE EMPTY TO PROMPT",
+                                           placeholder: "Filled in when added",
+                                           text: value.value)
+                    removeButton {
+                        var preset = draft.mcp?.presets?[presetIndex]
+                            ?? SiteDefaults.MCP.Preset(name: "")
+                        preset[keyPath: keyPath]?.remove(at: valueIndex)
+                        draft.mcp?.presets?[presetIndex] = preset
+                    }
+                }
+            }
+        }
+        .padding(.top, 4)
     }
 
     private var skillsEditor: some View {
@@ -772,11 +862,32 @@ private struct SiteConfigurationEditorView: View {
         }, set: { draft.dispatch?.requests?[index] = $0 })
     }
 
-    private func presetBinding(at index: Int) -> Binding<SiteDefaults.Grafana.Preset> {
+    private func presetBinding(at index: Int) -> Binding<SiteDefaults.MCP.Preset> {
         Binding(get: {
-            draft.grafana?.presets?[index]
-                ?? SiteDefaults.Grafana.Preset(scope: "", environment: "", url: "")
-        }, set: { draft.grafana?.presets?[index] = $0 })
+            draft.mcp?.presets?[index] ?? SiteDefaults.MCP.Preset(name: "")
+        }, set: { draft.mcp?.presets?[index] = $0 })
+    }
+
+    private func presetValueBinding(
+        at presetIndex: Int,
+        keyPath: WritableKeyPath<SiteDefaults.MCP.Preset, [SiteDefaults.MCP.Value]?>,
+        valueIndex: Int
+    ) -> Binding<SiteDefaults.MCP.Value> {
+        Binding(get: {
+            draft.mcp?.presets?[presetIndex][keyPath: keyPath]?[valueIndex]
+                ?? SiteDefaults.MCP.Value(key: "", value: "")
+        }, set: { value in
+            draft.mcp?.presets?[presetIndex][keyPath: keyPath]?[valueIndex] = value
+        })
+    }
+
+    private func arguments(_ preset: Binding<SiteDefaults.MCP.Preset>) -> Binding<String> {
+        Binding(get: { (preset.wrappedValue.args ?? []).joined(separator: "\n") },
+                set: { value in
+                    preset.args.wrappedValue = value.components(separatedBy: .newlines)
+                        .map(\.trimmed)
+                        .filter { !$0.isEmpty }
+                })
     }
 
     private func shortcutBinding(at index: Int) -> Binding<SiteDefaults.Shortcut> {
@@ -817,8 +928,8 @@ private struct SiteConfigurationEditorView: View {
             var dispatch = draft.dispatch ?? SiteDefaults.DispatchConfig()
             if dispatch.requests == nil { dispatch.requests = [] }
             draft.dispatch = dispatch
-        case .grafana:
-            if draft.grafana == nil { draft.grafana = SiteDefaults.Grafana(presets: []) }
+        case .mcp:
+            if draft.mcp == nil { draft.mcp = SiteDefaults.MCP(presets: []) }
         case .skills:
             break
         case .shortcuts:
@@ -882,22 +993,20 @@ private enum SiteConfigurationForm {
             dispatch.requests = requests
             result.dispatch = dispatch
 
-        case .grafana:
-            let presets = (result.grafana?.presets ?? []).map {
-                SiteDefaults.Grafana.Preset(scope: $0.scope.trimmed,
-                                            environment: $0.environment.trimmed,
-                                            url: $0.url.trimmed)
-            }
-            guard presets.allSatisfy({
-                !$0.scope.isEmpty && !$0.environment.isEmpty && !$0.url.isEmpty
-            }) else {
-                throw ImportError("Every Grafana preset needs a scope, environment, and URL.")
+        case .mcp:
+            let presets = (result.mcp?.presets ?? []).map(cleanedPreset)
+            guard presets.allSatisfy({ !$0.name.isEmpty && $0.hasConnection }) else {
+                throw ImportError("Every MCP preset needs a name and either a command or URL.")
             }
             let names = presets.map(\.name)
             guard Set(names).count == names.count else {
-                throw ImportError("Each Grafana scope and environment pair must be unique.")
+                throw ImportError("MCP preset names must be unique.")
             }
-            result.grafana = SiteDefaults.Grafana(presets: presets)
+            for preset in presets {
+                try validateValues(preset.env, in: preset.name)
+                try validateValues(preset.headers, in: preset.name)
+            }
+            result.mcp = SiteDefaults.MCP(presets: presets)
 
         case .skills:
             if let skills = result.skills {
@@ -932,6 +1041,36 @@ private enum SiteConfigurationForm {
         return trimmed.isEmpty ? nil : trimmed
     }
 
+    private static func cleanedPreset(_ preset: SiteDefaults.MCP.Preset)
+        -> SiteDefaults.MCP.Preset {
+        SiteDefaults.MCP.Preset(
+            name: preset.name.trimmed,
+            title: optional(preset.title),
+            environment: optional(preset.environment),
+            command: optional(preset.command),
+            args: preset.args?.map(\.trimmed).filter { !$0.isEmpty },
+            url: optional(preset.url),
+            type: optional(preset.type),
+            env: cleanedValues(preset.env),
+            headers: cleanedValues(preset.headers))
+    }
+
+    private static func cleanedValues(_ values: [SiteDefaults.MCP.Value]?)
+        -> [SiteDefaults.MCP.Value]? {
+        values?.map { .init(key: $0.key.trimmed, value: $0.value.trimmed) }
+    }
+
+    private static func validateValues(_ values: [SiteDefaults.MCP.Value]?,
+                                       in preset: String) throws {
+        let values = values ?? []
+        guard values.allSatisfy({ !$0.key.isEmpty }) else {
+            throw ImportError("Every environment variable and header in \(preset) needs a key.")
+        }
+        guard Set(values.map(\.key)).count == values.count else {
+            throw ImportError("Environment variable and header keys must be unique within \(preset).")
+        }
+    }
+
     private static func removeEmptyDispatch(from defaults: inout SiteDefaults) {
         guard let dispatch = defaults.dispatch else { return }
         if dispatch.oauth == nil && dispatch.requests == nil {
@@ -955,6 +1094,36 @@ private struct SiteConfigurationField: View {
                 .frame(height: 34)
                 .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
                 .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct SiteConfigurationTextArea: View {
+    let caption: String
+    let placeholder: String
+    @Binding var text: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Caption(text: caption)
+            ZStack(alignment: .topLeading) {
+                if text.isEmpty {
+                    Text(placeholder)
+                        .font(.mono(11))
+                        .foregroundStyle(.tertiary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 8)
+                        .allowsHitTesting(false)
+                }
+                TextEditor(text: $text)
+                    .font(.mono(11))
+                    .scrollContentBackground(.hidden)
+                    .padding(2)
+            }
+            .frame(height: 64)
+            .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
+            .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

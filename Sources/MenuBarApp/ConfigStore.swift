@@ -197,19 +197,28 @@ final class ConfigStore {
 
     // MARK: - Mutations
 
-    func upsertGrafana(preset: SiteDefaults.Grafana.Preset, token: String) {
+    func upsert(preset: SiteDefaults.MCP.Preset,
+                environmentValues: [String: String] = [:],
+                headerValues: [String: String] = [:]) {
         let name = preset.name
-        let vars = [
-            EnvVar(key: Grafana.urlKey, value: preset.url),
-            EnvVar(key: Grafana.tokenKey, value: token),
-        ]
+        let server = Server(
+            name: name,
+            environmentTag: preset.environmentTag,
+            command: preset.command,
+            args: preset.args ?? [],
+            url: preset.url,
+            type: preset.type,
+            env: preset.env?.map {
+                EnvVar(key: $0.key, value: environmentValues[$0.key] ?? $0.value)
+            } ?? [],
+            headers: preset.headers?.map {
+                EnvVar(key: $0.key, value: headerValues[$0.key] ?? $0.value)
+            } ?? [],
+            disabled: false)
         if let i = servers.firstIndex(where: { $0.name == name }) {
-            servers[i].env = vars
-            servers[i].environmentTag = preset.environment
+            servers[i] = server
         } else {
-            servers.append(Server(name: name, environmentTag: preset.environment,
-                                  command: Grafana.command, args: [],
-                                  url: nil, type: nil, env: vars, headers: [], disabled: false))
+            servers.append(server)
             servers.sort { $0.name < $1.name }
         }
         selectedID = name

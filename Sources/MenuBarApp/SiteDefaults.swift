@@ -3,7 +3,7 @@ import Foundation
 
 // The parts of the app that belong to one organisation rather than to the app itself:
 // the identity provider its APIs sign in against, the calls worth starting from, the
-// deployments it runs, its Grafana instances, the skills marketplace its agents install
+// deployments it runs, the MCP servers it offers, the skills marketplace its agents install
 // from, and the commands worth having on hand. Keeping them in a file rather than in code
 // means each team points the same build at its own setup, and a build with no file at all
 // still runs with every one of them empty.
@@ -22,7 +22,7 @@ import Foundation
 struct SiteDefaults: Codable, Sendable, Equatable {
     var dispatch: DispatchConfig? = nil
     var environments: [Environment]? = nil
-    var grafana: Grafana? = nil
+    var mcp: MCP? = nil
     var skills: Skills? = nil
     var shortcuts: [Shortcut]? = nil
 
@@ -32,20 +32,21 @@ struct SiteDefaults: Codable, Sendable, Equatable {
     var sourceURL: URL? = nil
 
     private enum CodingKeys: String, CodingKey {
-        case dispatch, environments, grafana, skills, shortcuts
+        case dispatch, environments, mcp, skills, shortcuts
+        case legacyGrafana = "grafana"
         case legacyHTTPClient = "postman"
     }
 
     init(dispatch: DispatchConfig? = nil,
          environments: [Environment]? = nil,
-         grafana: Grafana? = nil,
+         mcp: MCP? = nil,
          skills: Skills? = nil,
          shortcuts: [Shortcut]? = nil,
          loadFailure: String? = nil,
          sourceURL: URL? = nil) {
         self.dispatch = dispatch
         self.environments = environments
-        self.grafana = grafana
+        self.mcp = mcp
         self.skills = skills
         self.shortcuts = shortcuts
         self.loadFailure = loadFailure
@@ -71,7 +72,22 @@ struct SiteDefaults: Codable, Sendable, Equatable {
                                                  danger: true))
             }
         }
-        grafana = try values.decodeIfPresent(Grafana.self, forKey: .grafana)
+        mcp = try values.decodeIfPresent(MCP.self, forKey: .mcp)
+        if mcp == nil,
+           let grafana = try values.decodeIfPresent(LegacyGrafana.self,
+                                                    forKey: .legacyGrafana) {
+            mcp = MCP(presets: grafana.presets?.map { preset in
+                MCP.Preset(
+                    name: preset.name,
+                    title: "Grafana \(preset.scope) \(preset.environment)",
+                    environment: preset.environment,
+                    command: Grafana.command,
+                    env: [
+                        .init(key: Grafana.urlKey, value: preset.url),
+                        .init(key: Grafana.tokenKey, value: ""),
+                    ])
+            })
+        }
         skills = try values.decodeIfPresent(Skills.self, forKey: .skills)
         shortcuts = try values.decodeIfPresent([Shortcut].self, forKey: .shortcuts)
     }
@@ -80,7 +96,7 @@ struct SiteDefaults: Codable, Sendable, Equatable {
         var values = encoder.container(keyedBy: CodingKeys.self)
         try values.encodeIfPresent(dispatch, forKey: .dispatch)
         try values.encodeIfPresent(environments, forKey: .environments)
-        try values.encodeIfPresent(grafana, forKey: .grafana)
+        try values.encodeIfPresent(mcp, forKey: .mcp)
         try values.encodeIfPresent(skills, forKey: .skills)
         try values.encodeIfPresent(shortcuts, forKey: .shortcuts)
     }
@@ -173,10 +189,7 @@ struct SiteDefaults: Codable, Sendable, Equatable {
         }
     }
 
-    struct Grafana: Codable, Sendable, Equatable {
-        // Every instance is named after this, both here and in the agents' config files.
-        static let namePrefix = "grafana-"
-
+    struct MCP: Codable, Sendable, Equatable {
         var presets: [Preset]?
 
         init(presets: [Preset]? = nil) {
@@ -184,23 +197,132 @@ struct SiteDefaults: Codable, Sendable, Equatable {
         }
 
         struct Preset: Codable, Sendable, Equatable, Identifiable {
-            var scope: String
-            // Doubles as the environment tag a server added from this preset starts with.
-            var environment: String
-            var url: String
+            var name: String
+            var title: String?
+            var environment: String?
+            var command: String?
+            var args: [String]?
+            var url: String?
+            var type: String?
+            var env: [Value]?
+            var headers: [Value]?
 
-            init(scope: String, environment: String, url: String) {
-                self.scope = scope
+            init(name: String,
+                 title: String? = nil,
+                 environment: String? = nil,
+                 command: String? = nil,
+                 args: [String]? = nil,
+                 url: String? = nil,
+                 type: String? = nil,
+                 env: [Value]? = nil,
+                 headers: [Value]? = nil) {
+                self.name = name
+                self.title = title
                 self.environment = environment
+                self.command = command
+                self.args = args
                 self.url = url
+                self.type = type
+                self.env = env
+                self.headers = headers
+            }
+
+            private enum CodingKeys: String, CodingKey {
+                case name, title, environment, command, args, url, type, env, headers
+            }
+
+            init(from decoder: Decoder) throws {
+                let values = try decoder.container(keyedBy: CodingKeys.self)
+                name = try values.decode(String.self, forKey: .name)
+                title = try values.decodeIfPresent(String.self, forKey: .title)
+                environment = try values.decodeIfPresent(String.self, forKey: .environment)
+                command = try values.decodeIfPresent(String.self, forKey: .command)
+                args = try values.decodeIfPresent([String].self, forKey: .args)
+                url = try values.decodeIfPresent(String.self, forKey: .url)
+                type = try values.decodeIfPresent(String.self, forKey: .type)
+                env = try Self.decodeValues(.env, from: values)
+                headers = try Self.decodeValues(.headers, from: values)
+
+                guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                      hasConnection else {
+                    throw DecodingError.dataCorruptedError(
+                        forKey: .name,
+                        in: values,
+                        debugDescription: "An MCP preset needs a name and either a command or URL.")
+                }
+            }
+
+            func encode(to encoder: Encoder) throws {
+                var values = encoder.container(keyedBy: CodingKeys.self)
+                try values.encode(name, forKey: .name)
+                try values.encodeIfPresent(title, forKey: .title)
+                try values.encodeIfPresent(environment, forKey: .environment)
+                try values.encodeIfPresent(command, forKey: .command)
+                try values.encodeIfPresent(args, forKey: .args)
+                try values.encodeIfPresent(url, forKey: .url)
+                try values.encodeIfPresent(type, forKey: .type)
+                try Self.encodeValues(env, forKey: .env, to: &values)
+                try Self.encodeValues(headers, forKey: .headers, to: &values)
             }
 
             var id: String { name }
+            var label: String { title ?? name }
+            var environmentTag: String { environment ?? "" }
+            var isRemote: Bool { !hasCommand && hasURL }
+            var hasConnection: Bool { hasCommand != hasURL }
 
-            // The server name the two agents know this instance by. Both the config file
-            // and the troubleshooting prompt refer to it by name, so it has to be built
-            // the same way every time.
-            var name: String { "\(Grafana.namePrefix)\(scope)-\(environment)" }
+            private var hasCommand: Bool {
+                command?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            }
+
+            private var hasURL: Bool {
+                url?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            }
+
+            private static func decodeValues(
+                _ key: CodingKeys,
+                from values: KeyedDecodingContainer<CodingKeys>
+            ) throws -> [Value]? {
+                guard let map = try values.decodeIfPresent([String: String].self, forKey: key)
+                else { return nil }
+                return map.map { Value(key: $0.key, value: $0.value) }
+                    .sorted { $0.key < $1.key }
+            }
+
+            private static func encodeValues(
+                _ entries: [Value]?,
+                forKey key: CodingKeys,
+                to values: inout KeyedEncodingContainer<CodingKeys>
+            ) throws {
+                guard let entries else { return }
+                try values.encode(Dictionary(uniqueKeysWithValues: entries.map {
+                    ($0.key, $0.value)
+                }), forKey: key)
+            }
+        }
+
+        struct Value: Sendable, Equatable, Identifiable {
+            var key: String
+            var value: String
+
+            init(key: String, value: String) {
+                self.key = key
+                self.value = value
+            }
+
+            var id: String { key }
+        }
+    }
+
+    private struct LegacyGrafana: Decodable {
+        var presets: [Preset]?
+
+        struct Preset: Decodable {
+            var scope: String
+            var environment: String
+            var url: String
+
+            var name: String { "grafana-\(scope)-\(environment)" }
         }
     }
 
@@ -417,12 +539,12 @@ extension SiteDefaults {
     var summary: String {
         let named = environments?.count ?? 0
         let requests = dispatchRequests.count
-        let presets = grafanaPresets.count
+        let presets = mcpPresets.count
         let commands = commandShortcuts.count
         let marketplace = skills == nil ? "no skills marketplace" : "a skills marketplace"
         return "\(named) environment\(named == 1 ? "" : "s"), "
             + "\(requests) starter request\(requests == 1 ? "" : "s"), "
-            + "\(presets) Grafana preset\(presets == 1 ? "" : "s"), "
+            + "\(presets) MCP preset\(presets == 1 ? "" : "s"), "
             + "\(commands) shortcut\(commands == 1 ? "" : "s"), and \(marketplace)."
     }
 
@@ -442,9 +564,9 @@ extension SiteDefaults {
         deployEnvironments.first { $0.name == name }
     }
 
-    var grafanaPresets: [Grafana.Preset] { grafana?.presets ?? [] }
+    var mcpPresets: [MCP.Preset] { mcp?.presets ?? [] }
 
-    func grafanaPreset(named name: String) -> Grafana.Preset? {
-        grafanaPresets.first { $0.name == name }
+    func mcpPreset(named name: String) -> MCP.Preset? {
+        mcpPresets.first { $0.name == name }
     }
 }
