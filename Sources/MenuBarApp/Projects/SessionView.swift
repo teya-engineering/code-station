@@ -134,7 +134,7 @@ struct SessionView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let sessionID: UUID
 
-    private enum Tab: Hashable { case chat, changes, explorer }
+    private enum Tab: Hashable { case chat, design, changes, explorer }
 
     @State private var tab: Tab = .chat
     @State private var dropTargeted = false
@@ -183,7 +183,8 @@ struct SessionView: View {
                 statusStrip(session)
                     .zIndex(1)
                 warningStrip(session: session, project: project)
-                if store.checkoutProjects(for: session).count > 1, tab != .chat {
+                if store.checkoutProjects(for: session).count > 1,
+                   tab == .changes || tab == .explorer {
                     workspaceProjectBar(session)
                 }
 
@@ -192,6 +193,14 @@ struct SessionView: View {
                     transcript(session)
                     Divider().overlay(Theme.hairline)
                     composer(session: session, project: project)
+                case .design:
+                    if let design = store.designSession(for: session.id) {
+                        DesignView(sessionID: design.id)
+                    } else {
+                        PaneMessage(icon: "paintbrush.pointed",
+                                    title: "Design is unavailable",
+                                    detail: "Return to Chat and open Design again.")
+                    }
                 case .changes:
                     ChangesView(root: visibleDirectory)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -310,8 +319,11 @@ struct SessionView: View {
                 if appSettings.mobileAccessEnabled {
                     MobileAccessButton(scope: .session(sessionID))
                 }
-                HeaderTabToggle(selection: $tab,
+                HeaderTabToggle(selection: Binding(
+                    get: { tab },
+                    set: { selectTab($0, from: session) }),
                                 options: [("Chat", .chat),
+                                          ("Design", .design),
                                           ("Changes", .changes),
                                           ("Explorer", .explorer)])
                 TerminalToggle(isOpen: terminals.isOpen(terminalScope),
@@ -324,6 +336,22 @@ struct SessionView: View {
         }
         .padding(.horizontal, 20)
         .headerBand()
+    }
+
+    private func selectTab(_ selected: Tab, from session: ChatSession) {
+        guard selected == .design else {
+            tab = selected
+            return
+        }
+        switch store.createDesignSession(for: session.id) {
+        case .success:
+            tab = .design
+        case .failure(let failure):
+            dialogs.show(Dialog(
+                title: "Could not open Design",
+                message: failure.message,
+                actions: [.init(label: "OK", kind: .cancel)]))
+        }
     }
 
     // MARK: - Status strip

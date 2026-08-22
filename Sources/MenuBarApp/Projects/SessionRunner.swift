@@ -186,7 +186,7 @@ final class SessionRunner {
         guard let turn = turns[sessionID],
               asked[sessionID]?.contains(where: { $0.id == request.id }) == true else { return }
         asked[sessionID]?.removeAll { $0.id == request.id }
-        AppNotifier.shared.clear(sessionID: sessionID)
+        AppNotifier.shared.clear(sessionID: store.userFacingSessionID(for: sessionID))
         SessionLog.note("answered \(request.toolName) \(request.id) with \(answer.logLabel)",
                         session: sessionID)
 
@@ -634,6 +634,30 @@ final class SessionRunner {
         where a fixed option set doesn't fit.
         """
 
+    nonisolated static func designSystemPrompt(artifactURL: URL) -> String {
+        """
+        You are working in Design mode. Create and refine the visual result the user asks \
+        for, such as a product screen, interaction flow, prototype, presentation, diagram, \
+        or one-page visual. This is a design workspace, not a normal implementation \
+        session.
+
+        The live canvas always renders this file:
+        \(artifactURL.path)
+
+        On every turn, create or update that file before replying. The result must be a \
+        complete standalone HTML document with its CSS and JavaScript embedded. Do not use \
+        network dependencies. Copy or embed any needed local assets into the artifact's \
+        directory. Build the actual visible design, not a Markdown design brief or a prose \
+        description of one. Make useful interactions work in the canvas.
+
+        Read the relevant code and project instructions before designing. Reuse the \
+        product's real visual language, tokens, components, content patterns, and assets \
+        when they exist. Keep production source files unchanged unless the user explicitly \
+        asks to move from design into implementation. Treat follow-up prompts as revisions \
+        to the current canvas rather than unrelated new files.
+        """
+    }
+
     // Everything the CLI is run with for one turn. The session's own choices win, the app
     // defaults fill the gaps for mutable run controls, and anything neither has chosen is
     // left off rather than sent as a guess. A choice that does not belong to this agent
@@ -642,7 +666,8 @@ final class SessionRunner {
                                       settings: SessionSettings, defaults: SessionSettings,
                                       addDirectories: [String] = [], writableRoots: [String] = [],
                                       resume: String? = nil,
-                                      mcpConfigPath: String? = nil) -> [String] {
+                                      mcpConfigPath: String? = nil,
+                                      additionalSystemPrompt: String? = nil) -> [String] {
         // The model belongs to the session and can be changed explicitly between turns.
         // Falling back to the current app default would change it without the user asking.
         let model = ModelChoice.valid(settings.model, for: agent)
@@ -660,10 +685,13 @@ final class SessionRunner {
             // "--permission-prompt-tool stdio" it puts permission prompts and the agent's
             // own questions on stdout as control requests and waits for an answer on
             // stdin. Without it a prompt is auto-denied and the turn carries on half-done.
+            let systemPrompt = [Self.appendedSystemPrompt, additionalSystemPrompt]
+                .compactMap { $0 }
+                .joined(separator: "\n\n")
             var arguments = ["-p", "--output-format", "stream-json", "--input-format", "stream-json",
                              "--permission-prompt-tool", "stdio", "--verbose",
                              "--permission-mode", permissionMode,
-                             "--append-system-prompt", Self.appendedSystemPrompt]
+                             "--append-system-prompt", systemPrompt]
             if let model { arguments += ["--model", model] }
             if let effort { arguments += ["--effort", effort] }
             if settings.mcpServersEnabled == false {
@@ -690,6 +718,9 @@ final class SessionRunner {
             // for; its exec default leaves them out and the transcript would show no
             // thinking at all.
             arguments += ["-c", "model_reasoning_summary=\"detailed\""]
+            if let additionalSystemPrompt {
+                arguments += ["-c", "developer_instructions=\(tomlQuoted(additionalSystemPrompt))"]
+            }
             switch codexSandbox {
             case .workspaceWrite, .approveForMe:
                 arguments += ["-c", "sandbox_mode=\"workspace-write\""]
@@ -729,6 +760,16 @@ final class SessionRunner {
             arguments.append("-")
             return arguments
         }
+    }
+
+    private nonisolated static func tomlQuoted(_ value: String) -> String {
+        let escaped = value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+            .replacingOccurrences(of: "\n", with: "\\n")
+            .replacingOccurrences(of: "\r", with: "\\r")
+            .replacingOccurrences(of: "\t", with: "\\t")
+        return "\"\(escaped)\""
     }
 
     // Claude Code takes one block of text, so a file goes over as its path and the agent
@@ -919,7 +960,24 @@ final class SessionRunner {
                                            : prompt
         let projectDirectories = Array(workingDirectories.dropFirst())
         let attachmentDirectories = Self.directoriesOutside(workingDirectories, for: attachments)
-        let additionalDirectories = unique(projectDirectories + attachmentDirectories)
+        let designArtifact = store.designArtifactURL(for: session)
+        if let directory = designArtifact?.deletingLastPathComponent() {
+            do {
+                try FileManager.default.createDirectory(at: directory,
+                                                        withIntermediateDirectories: true)
+            } catch {
+                if let mcpConfigURL { try? FileManager.default.removeItem(at: mcpConfigURL) }
+                store.removeMessage(reply.id, from: sessionID)
+                store.release(sessionID, for: .running)
+                setState(.failed(
+                    "Could not prepare the design canvas: \(error.localizedDescription)"),
+                    for: sessionID)
+                return
+            }
+        }
+        let designDirectories = designArtifact.map { [$0.deletingLastPathComponent().path] } ?? []
+        let additionalDirectories = unique(
+            projectDirectories + attachmentDirectories + designDirectories)
         let writableRoots = unique(additionalDirectories + store.gitMetadataDirectories(for: session))
         let processArguments = Self.arguments(
             agent: agent,
@@ -930,7 +988,8 @@ final class SessionRunner {
             addDirectories: additionalDirectories,
             writableRoots: writableRoots,
             resume: resume,
-            mcpConfigPath: mcpConfigURL?.path)
+            mcpConfigPath: mcpConfigURL?.path,
+            additionalSystemPrompt: designArtifact.map(Self.designSystemPrompt))
 
         var env = ProcessInfo.processInfo.environment
         env["PATH"] = ProcessManager.searchPath
@@ -1317,9 +1376,10 @@ final class SessionRunner {
                 setState(.streaming, for: sessionID)
                 asked[sessionID, default: []].append(request)
                 if let session = store.session(sessionID) {
-                    AppNotifier.shared.needsInput(sessionID: sessionID,
-                                                  sessionTitle: session.title,
-                                                  request: request)
+                    AppNotifier.shared.needsInput(
+                        sessionID: store.userFacingSessionID(for: sessionID),
+                        sessionTitle: session.title,
+                        request: request)
                 }
 
             case .permissionWithdrawn(let id):
@@ -1693,8 +1753,9 @@ final class SessionRunner {
             if !state(sessionID).isBusy {
                 store.noteTurnEnded(for: sessionID)
                 if let session = store.session(sessionID) {
-                    AppNotifier.shared.turnEnded(sessionID: sessionID,
-                                                 sessionTitle: session.title, failure: nil)
+                    AppNotifier.shared.turnEnded(
+                        sessionID: store.userFacingSessionID(for: sessionID),
+                        sessionTitle: session.title, failure: nil)
                 }
             }
             return
@@ -1739,8 +1800,9 @@ final class SessionRunner {
         store.release(sessionID, for: .running)
         store.noteTurnEnded(for: sessionID)
         if let session = store.session(sessionID) {
-            AppNotifier.shared.turnEnded(sessionID: sessionID,
-                                         sessionTitle: session.title, failure: message)
+            AppNotifier.shared.turnEnded(
+                sessionID: store.userFacingSessionID(for: sessionID),
+                sessionTitle: session.title, failure: message)
         }
     }
 

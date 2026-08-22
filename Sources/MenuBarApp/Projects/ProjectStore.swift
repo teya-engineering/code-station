@@ -62,6 +62,9 @@ final class ProjectStore {
     let storeURL: URL
     // One file per conversation, named by session id.
     let transcriptsURL: URL
+    // Design output stays beside the conversation store instead of becoming an untracked
+    // file in the repository it is previewing.
+    let designsURL: URL
     let removalJournalURL: URL
     private let files: PersistentFileClient
     private(set) var loadError: String?
@@ -112,6 +115,9 @@ final class ProjectStore {
         transcriptsURL = self.storeURL.deletingLastPathComponent()
             .appendingPathComponent(self.storeURL.deletingPathExtension().lastPathComponent
                 + "-transcripts", isDirectory: true)
+        designsURL = self.storeURL.deletingLastPathComponent()
+            .appendingPathComponent(self.storeURL.deletingPathExtension().lastPathComponent
+                + "-designs", isDirectory: true)
         removalJournalURL = self.storeURL.deletingLastPathComponent()
             .appendingPathComponent(self.storeURL.deletingPathExtension().lastPathComponent
                 + "-removals.json")
@@ -124,6 +130,21 @@ final class ProjectStore {
     func project(_ id: UUID) -> Project? { projects.first { $0.id == id } }
     func workspace(_ id: UUID) -> ProjectWorkspace? { workspaces.first { $0.id == id } }
     func session(_ id: UUID) -> ChatSession? { sessions.first { $0.id == id } }
+
+    // Companion Design conversations are reached through their source session rather
+    // than appearing as duplicate sessions everywhere the app lists conversations.
+    var userSessions: [ChatSession] { sessions.filter { !$0.isDesignSession } }
+
+    func designSession(for sourceSessionID: UUID) -> ChatSession? {
+        sessions.first { $0.designSourceSessionID == sourceSessionID }
+    }
+
+    // Design conversations live behind the session that opened them. Anything that
+    // navigates or asks for attention must point at that visible session, since the
+    // companion itself does not have a row in the app.
+    func userFacingSessionID(for sessionID: UUID) -> UUID {
+        session(sessionID)?.designSourceSessionID ?? sessionID
+    }
 
     var regularProjects: [Project] {
         projects.filter { $0.kind == .project }
@@ -142,12 +163,12 @@ final class ProjectStore {
     }
 
     func standaloneSessions(for projectID: UUID) -> [ChatSession] {
-        sessions.filter { $0.projectID == projectID && $0.workspaceID == nil }
+        userSessions.filter { $0.projectID == projectID && $0.workspaceID == nil }
             .sorted { $0.lastActivity > $1.lastActivity }
     }
 
     func sessions(in workspaceID: UUID) -> [ChatSession] {
-        sessions.filter { $0.workspaceID == workspaceID }
+        userSessions.filter { $0.workspaceID == workspaceID }
             .sorted { $0.lastActivity > $1.lastActivity }
     }
 
@@ -188,9 +209,10 @@ final class ProjectStore {
     }
 
     func selectSession(_ id: UUID) {
-        guard let session = session(id) else { return }
+        let visibleID = userFacingSessionID(for: id)
+        guard let session = session(visibleID) else { return }
         selectedProjectID = session.projectID
-        selection = .session(id)
+        selection = .session(visibleID)
         scheduleIndexSave()
     }
 
@@ -205,10 +227,15 @@ final class ProjectStore {
     // A turn that ended. The session on screen needs no marker, since its result is
     // already being read.
     func noteTurnEnded(for sessionID: UUID) {
-        if case .session(let open) = selection, open == sessionID { return }
+        let visibleID = userFacingSessionID(for: sessionID)
+        if sessionID != visibleID {
+            if holds[sessionID]?.contains(.open) == true { return }
+        } else if case .session(let open) = selection, open == visibleID {
+            return
+        }
         if holds[sessionID]?.contains(.remote) == true { return }
-        guard sessions.contains(where: { $0.id == sessionID }) else { return }
-        finished.insert(sessionID)
+        guard sessions.contains(where: { $0.id == visibleID }) else { return }
+        finished.insert(visibleID)
     }
 
     func hasFinished(_ sessionID: UUID) -> Bool { finished.contains(sessionID) }
@@ -424,6 +451,57 @@ final class ProjectStore {
     }
 
     // MARK: - Sessions
+
+    @discardableResult
+    func createDesignSession(for sourceSessionID: UUID)
+        -> Result<ChatSession, PersistenceFailure> {
+        if let existing = designSession(for: sourceSessionID) { return .success(existing) }
+        guard let source = session(sourceSessionID), !source.isDesignSession else {
+            return .failure(PersistenceFailure(
+                message: "The source session is no longer in the app."))
+        }
+
+        var design = ChatSession(projectID: source.projectID, agent: source.agent)
+        design.title = "Design"
+        design.designSourceSessionID = source.id
+        design.worktreePath = source.worktreePath
+        design.worktreeBranch = source.worktreeBranch
+        design.workspaceID = source.workspaceID
+        design.sessionProjects = source.sessionProjects
+        design.settings = source.settings
+        design.agentAvatarName = source.agentAvatarName
+        design.transcriptLoaded = true
+
+        let directory = designDirectory(for: design)
+        do {
+            try FileManager.default.createDirectory(at: directory,
+                                                    withIntermediateDirectories: true)
+        } catch {
+            return .failure(PersistenceFailure(
+                message: "The design canvas could not be created: \(error.localizedDescription)"))
+        }
+
+        sessions.append(design)
+        publishSidebarSessions()
+        markIndexDirty()
+        guard save() else {
+            sessions.removeAll { $0.id == design.id }
+            publishSidebarSessions()
+            markIndexDirty()
+            try? FileManager.default.removeItem(at: directory)
+            return .failure(persistenceFailure("The design session could not be saved."))
+        }
+        return .success(design)
+    }
+
+    func designDirectory(for session: ChatSession) -> URL {
+        designsURL.appendingPathComponent(session.id.uuidString, isDirectory: true)
+    }
+
+    func designArtifactURL(for session: ChatSession) -> URL? {
+        guard session.isDesignSession else { return nil }
+        return designDirectory(for: session).appendingPathComponent("index.html")
+    }
 
     @discardableResult
     func newSession(in projectID: UUID, id: UUID = UUID(),
@@ -660,6 +738,10 @@ final class ProjectStore {
         if session(id) == nil, !pendingSessionRemovals.contains(where: { $0.id == id }) {
             return .success(())
         }
+        if let design = designSession(for: id),
+           case .failure(let failure) = removeSession(design.id) {
+            return .failure(failure)
+        }
         switch prepareSessionRemoval(id) {
         case .success:
             return finishSessionRemoval(id)
@@ -680,7 +762,7 @@ final class ProjectStore {
             return .failure(persistenceFailure(
                 "The session could not be saved before removal started."))
         }
-        let worktrees = checkoutProjects(for: session).compactMap { checkout in
+        let worktrees = session.isDesignSession ? [] : checkoutProjects(for: session).compactMap { checkout in
             checkout.worktreePath.map { path in
                 PendingSessionRemoval.Worktree(
                     path: path,
@@ -734,7 +816,7 @@ final class ProjectStore {
     }
 
     func finishSessionRemoval(_ sessionID: UUID) -> Result<Void, PersistenceFailure> {
-        guard pendingSessionRemovals.contains(where: { $0.id == sessionID }) else {
+        guard let pending = pendingSessionRemovals.first(where: { $0.id == sessionID }) else {
             return session(sessionID) == nil
                 ? .success(())
                 : .failure(PersistenceFailure(
@@ -743,11 +825,15 @@ final class ProjectStore {
 
         removeSessionFromMemory(sessionID)
         let transcriptResult = deleteTranscript(sessionID)
+        let designResult = pending.session.isDesignSession
+            ? deleteDesignDirectory(pending.session)
+            : .success(())
         markIndexDirty()
         let indexSaved = save()
 
         var failures: [String] = []
         if case .failure(let failure) = transcriptResult { failures.append(failure.message) }
+        if case .failure(let failure) = designResult { failures.append(failure.message) }
         if !indexSaved {
             failures.append(persistenceFailure("The session index could not be saved.").message)
         }
@@ -805,6 +891,19 @@ final class ProjectStore {
         }
     }
 
+    private func deleteDesignDirectory(_ session: ChatSession)
+        -> Result<Void, PersistenceFailure> {
+        let url = designDirectory(for: session)
+        guard FileManager.default.fileExists(atPath: url.path) else { return .success(()) }
+        do {
+            try FileManager.default.removeItem(at: url)
+            return .success(())
+        } catch {
+            return .failure(PersistenceFailure(
+                message: "The design at \(url.path) could not be deleted: \(error.localizedDescription)"))
+        }
+    }
+
     // MARK: - Holding a conversation in memory
 
     // Says this conversation is needed and reads it in if it is not already there. Every
@@ -818,7 +917,9 @@ final class ProjectStore {
     // they read it in on the spot.
     func hold(_ sessionID: UUID, for reason: TranscriptHold) {
         guard let i = index(sessionID) else { return }
-        if reason == .remote { finished.remove(sessionID) }
+        if reason == .open || reason == .remote {
+            finished.remove(userFacingSessionID(for: sessionID))
+        }
         holds[sessionID, default: []].insert(reason)
         evictWhenWritten.remove(sessionID)
         if reason == .open {
@@ -1475,7 +1576,7 @@ final class ProjectStore {
     }
 
     private func publishSidebarSessions() {
-        sidebarSessionCache = sessions.map { session in
+        sidebarSessionCache = userSessions.map { session in
             var card = session
             card.messages = []
             card.transcriptLoaded = false

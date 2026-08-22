@@ -353,7 +353,7 @@ struct SettingsView: View {
     private var oldSessions: some View {
         @Bindable var settings = settings
         let days = settings.oldSessionDays
-        let stale = OldSessions.olderThan(days, in: store.sessions).count
+        let stale = OldSessions.olderThan(days, in: store.userSessions).count
 
         return ChoiceBlock("OLD SESSIONS") {
             VStack(alignment: .leading, spacing: 10) {

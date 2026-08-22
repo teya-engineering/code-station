@@ -485,6 +485,9 @@ struct ChatSession: Identifiable, Codable, Equatable {
     var title: String = "New session"
     var isTroubleshooting = false
     var agent: AgentKind
+    // A Design conversation belongs to another session but has its own agent context and
+    // transcript. It borrows that session's checkout rather than owning another worktree.
+    var designSourceSessionID: UUID?
     // Resume ids written before agents were pinned are kept so those conversations can
     // still be recovered. New sessions only fill the id belonging to their chosen agent.
     var claudeSessionID: String?
@@ -522,6 +525,8 @@ struct ChatSession: Identifiable, Codable, Equatable {
     // When something last happened here, used for the sidebar's relative times.
     var lastActivity: Date { summary.lastMessageAt ?? createdAt }
 
+    var isDesignSession: Bool { designSourceSessionID != nil }
+
     // A resume id proves an older session already started even if its transcript summary
     // came from a version that did not save dates.
     var hasStarted: Bool {
@@ -557,7 +562,7 @@ struct ChatSession: Identifiable, Codable, Equatable {
     // encodes to. It is still decoded: a file written before the split holds every
     // conversation inline, and that is what the store moves out on the first launch.
     private enum CodingKeys: String, CodingKey {
-        case id, projectID, title, isTroubleshooting, agent
+        case id, projectID, title, isTroubleshooting, agent, designSourceSessionID
         case claudeSessionID, codexSessionID, createdAt
         case worktreePath, worktreeBranch
         case workspaceID, sessionProjects, settings, usage, agentAvatarName
@@ -577,6 +582,8 @@ struct ChatSession: Identifiable, Codable, Equatable {
         title = try container.decodeIfPresent(String.self, forKey: .title) ?? "New session"
         isTroubleshooting = try container.decodeIfPresent(Bool.self, forKey: .isTroubleshooting)
             ?? false
+        designSourceSessionID = try container.decodeIfPresent(
+            UUID.self, forKey: .designSourceSessionID)
         claudeSessionID = try container.decodeIfPresent(String.self, forKey: .claudeSessionID)
         codexSessionID = try container.decodeIfPresent(String.self, forKey: .codexSessionID)
         createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
@@ -606,6 +613,7 @@ struct ChatSession: Identifiable, Codable, Equatable {
         try container.encode(title, forKey: .title)
         try container.encode(isTroubleshooting, forKey: .isTroubleshooting)
         try container.encode(agent, forKey: .agent)
+        try container.encodeIfPresent(designSourceSessionID, forKey: .designSourceSessionID)
         try container.encodeIfPresent(claudeSessionID, forKey: .claudeSessionID)
         try container.encodeIfPresent(codexSessionID, forKey: .codexSessionID)
         try container.encode(createdAt, forKey: .createdAt)

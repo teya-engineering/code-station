@@ -49,7 +49,7 @@ enum OldSessionSweep {
                     buffer: inout EligibilityBuffer, now: Date = Date(),
                     inspect: SessionCost.Inspect = SessionCost.live) async -> Int {
         var deleted = 0
-        let eligible = due(days: days, in: store.sessions, now: now,
+        let eligible = due(days: days, in: store.userSessions, now: now,
                            isBusy: { runner.state($0).isBusy },
                            isOpen: { store.selection == .session($0) })
         let due = buffer.ready(eligible, now: now)

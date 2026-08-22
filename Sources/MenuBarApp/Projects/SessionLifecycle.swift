@@ -159,10 +159,28 @@ enum SessionLifecycle {
                        runner: SessionRunner,
                        worktrees: WorktreeOperations = .live) async -> Result<Void, Failure> {
         guard let current = store.session(session.id) else { return .success(()) }
+        let design = current.isDesignSession ? nil : store.designSession(for: current.id)
         guard runner.beginRemoval(current.id) else {
             return .failure(Failure(
                 title: "Could not delete the session",
                 message: "Stop this session before deleting it."))
+        }
+        if let design {
+            guard runner.beginRemoval(design.id) else {
+                runner.cancelRemoval(current.id)
+                return .failure(Failure(
+                    title: "Could not delete the session",
+                    message: "Stop its Design session before deleting it."))
+            }
+            switch store.removeSession(design.id) {
+            case .success:
+                runner.finishRemoval(design.id)
+            case .failure(let failure):
+                runner.cancelRemoval(design.id)
+                runner.cancelRemoval(current.id)
+                return .failure(Failure(title: "Could not delete the Design session",
+                                        message: failure.message))
+            }
         }
         let pending: PendingSessionRemoval
         switch store.prepareSessionRemoval(current.id) {

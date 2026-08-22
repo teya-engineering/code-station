@@ -224,7 +224,7 @@ struct OldSessionsView: View {
     // A session that is running is never old, however long ago its last turn was: it is
     // busy right now, which is the opposite of what this screen is for.
     private func load() async {
-        rows = OldSessions.olderThan(days, in: store.sessions)
+        rows = OldSessions.olderThan(days, in: store.userSessions)
             .filter { !runner.state($0.id).isBusy }
             .map { session in
                 Row(session: session,
