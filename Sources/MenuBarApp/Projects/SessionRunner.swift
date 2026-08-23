@@ -574,6 +574,17 @@ final class SessionRunner {
         runQueue(sessionID, store: store)
     }
 
+    func sendAppCommand(_ prompt: String, attachments: [Attachment] = [],
+                        sessionID: UUID, store: ProjectStore) {
+        guard !removals.contains(sessionID), store.session(sessionID) != nil else { return }
+        queues[sessionID, default: []].append(QueuedPrompt(
+            text: prompt,
+            attachments: attachments,
+            customInstructions: nil,
+            isAppCommand: true))
+        runQueue(sessionID, store: store)
+    }
+
     // Starts the oldest waiting prompt, if the session is free to take it. A prompt that
     // cannot start yet stays at the head of the queue rather than being lost.
     func runQueue(_ sessionID: UUID, store: ProjectStore) {
@@ -650,11 +661,36 @@ final class SessionRunner {
         directory. Build the actual visible design, not a Markdown design brief or a prose \
         description of one. Make useful interactions work in the canvas.
 
+        When the design contains more than one screen, create one standalone HTML file per \
+        screen and write `design.json` in the artifact directory with this shape:
+        {"screens":[{"id":"home","title":"Home","path":"index.html","width":1440,"height":900}]}
+        `index.html` remains the default screen. Keep ids and paths stable across revisions.
+
+        Also maintain `handoff.md` in the artifact directory. Keep it concise and current. \
+        Record the goal, screens and states, interactions, responsive and accessibility \
+        expectations, existing project components and tokens to reuse, decisions, non-goals, \
+        open questions, and acceptance checks. It supports implementation but does not replace \
+        the visible HTML result.
+
         Read the relevant code and project instructions before designing. Reuse the \
         product's real visual language, tokens, components, content patterns, and assets \
         when they exist. Keep production source files unchanged unless the user explicitly \
         asks to move from design into implementation. Treat follow-up prompts as revisions \
         to the current canvas rather than unrelated new files.
+        """
+    }
+
+    nonisolated static func implementationSystemPrompt(referenceURL: URL) -> String {
+        """
+        You are implementing an approved Design in the production project. The immutable \
+        reference materials are in:
+        \(referenceURL.path)
+
+        Read `handoff.md`, `design.json`, and the referenced HTML screens before editing. \
+        Treat them as visual, content, and interaction references rather than production \
+        source to copy blindly. Reuse the project's existing architecture, components, \
+        tokens, assets, and test patterns. Keep the reference files unchanged. Implement \
+        the requested behavior in production source files and run the relevant tests.
         """
     }
 
@@ -960,7 +996,10 @@ final class SessionRunner {
                                            : prompt
         let projectDirectories = Array(workingDirectories.dropFirst())
         let attachmentDirectories = Self.directoriesOutside(workingDirectories, for: attachments)
-        let designArtifact = store.designArtifactURL(for: session)
+        let designArtifact = session.isActivelyDesigning
+            ? store.designArtifactURL(for: session) : nil
+        let implementationReference = session.isImplementingDesign
+            ? store.implementationDesignDirectory(for: session) : nil
         if let directory = designArtifact?.deletingLastPathComponent() {
             do {
                 try FileManager.default.createDirectory(at: directory,
@@ -976,8 +1015,9 @@ final class SessionRunner {
             }
         }
         let designDirectories = designArtifact.map { [$0.deletingLastPathComponent().path] } ?? []
+        let referenceDirectories = implementationReference.map { [$0.path] } ?? []
         let additionalDirectories = unique(
-            projectDirectories + attachmentDirectories + designDirectories)
+            projectDirectories + attachmentDirectories + designDirectories + referenceDirectories)
         let writableRoots = unique(additionalDirectories + store.gitMetadataDirectories(for: session))
         let processArguments = Self.arguments(
             agent: agent,
@@ -989,7 +1029,8 @@ final class SessionRunner {
             writableRoots: writableRoots,
             resume: resume,
             mcpConfigPath: mcpConfigURL?.path,
-            additionalSystemPrompt: designArtifact.map(Self.designSystemPrompt))
+            additionalSystemPrompt: designArtifact.map(Self.designSystemPrompt)
+                ?? implementationReference.map(Self.implementationSystemPrompt))
 
         var env = ProcessInfo.processInfo.environment
         env["PATH"] = ProcessManager.searchPath

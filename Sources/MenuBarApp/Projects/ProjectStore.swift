@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Observation
 import SwiftUI
@@ -141,12 +142,36 @@ final class ProjectStore {
 
     func designConversation(for sessionID: UUID) -> ChatSession? {
         guard let session = session(sessionID) else { return nil }
-        if session.mode == .design { return session }
+        if session.isActivelyDesigning { return session }
         return designSession(for: sessionID)
     }
 
     func isDesignMode(_ session: ChatSession) -> Bool {
-        session.mode == .design || designSession(for: session.id) != nil
+        session.sourceDesignSessionID != nil || designOwner(for: session) != nil
+    }
+
+    func designOwner(for session: ChatSession) -> ChatSession? {
+        if session.ownsDesign { return session }
+        if let source = session.sourceDesignSessionID { return self.session(source) }
+        return designSession(for: session.id)
+    }
+
+    func implementationSessions(for designSessionID: UUID) -> [ChatSession] {
+        userSessions.filter { $0.sourceDesignSessionID == designSessionID }
+            .sorted { $0.createdAt < $1.createdAt }
+    }
+
+    func approvedDesignRevision(for session: ChatSession) -> DesignRevision? {
+        guard let owner = designOwner(for: session),
+              let approved = owner.approvedDesignRevisionID else { return nil }
+        return owner.designRevisions.first { $0.id == approved }
+    }
+
+    func designHasUpdated(for implementation: ChatSession) -> Bool {
+        guard let sourceID = implementation.sourceDesignSessionID,
+              let source = session(sourceID),
+              let approved = source.approvedDesignRevisionID else { return false }
+        return approved != implementation.handedOffDesignRevisionID
     }
 
     // Design conversations live behind the session that opened them. Anything that
@@ -467,12 +492,43 @@ final class ProjectStore {
     }
 
     func designArtifactURL(for session: ChatSession) -> URL? {
-        guard session.mode == .design else { return nil }
+        guard session.ownsDesign || session.isDesignSession else { return nil }
         return designDirectory(for: session).appendingPathComponent("index.html")
     }
 
+    func designReferenceDirectory(for session: ChatSession) -> URL? {
+        guard session.sourceDesignSessionID != nil else { return nil }
+        return designDirectory(for: session).appendingPathComponent("reference", isDirectory: true)
+    }
+
+    func implementationDesignDirectory(for session: ChatSession) -> URL? {
+        if session.ownsDesign,
+           let revision = approvedDesignRevision(for: session) {
+            return DesignArtifacts.materialsDirectory(
+                revision, designDirectory: designDirectory(for: session))
+        }
+        return designReferenceDirectory(for: session)
+    }
+
+    func designPreviewURL(for session: ChatSession) -> URL? {
+        if session.ownsDesign,
+           let revision = approvedDesignRevision(for: session) {
+            let url = DesignArtifacts.previewURL(
+                revision, designDirectory: designDirectory(for: session))
+            return FileManager.default.fileExists(atPath: url.path) ? url : nil
+        }
+        guard let reference = designReferenceDirectory(for: session) else { return nil }
+        let url = reference.appendingPathComponent("preview.png")
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
+    func implementationScreenshotURL(for session: ChatSession) -> URL {
+        designDirectory(for: session).appendingPathComponent("implementation.png")
+    }
+
     func designFilesURL(for session: ChatSession) -> URL? {
-        let design = session.mode == .design ? session : designSession(for: session.id)
+        if let reference = designReferenceDirectory(for: session) { return reference }
+        let design = session.ownsDesign ? session : designSession(for: session.id)
         guard let design,
               let artifact = designArtifactURL(for: design) else { return nil }
         return artifact.deletingLastPathComponent()
@@ -501,6 +557,7 @@ final class ProjectStore {
                     isTroubleshooting: Bool = false) -> ChatSession {
         var session = ChatSession(id: id, projectID: projectID, agent: agent)
         session.mode = mode
+        session.designPhase = mode == .design ? .designing : nil
         session.worktreePath = worktreePath
         session.worktreeBranch = worktreeBranch
         session.settings = SessionSettings(model: ModelChoice.valid(model, for: agent))
@@ -530,6 +587,7 @@ final class ProjectStore {
 
         var session = ChatSession(id: id, projectID: workspace.leadProjectID, agent: agent)
         session.mode = mode
+        session.designPhase = mode == .design ? .designing : nil
         session.workspaceID = workspaceID
         session.sessionProjects = projects
         session.worktreePath = projects.first?.worktreePath
@@ -654,6 +712,203 @@ final class ProjectStore {
         guard sessions[i].settings != settings else { return }
         sessions[i].settings = settings
         saveIndex()
+    }
+
+    func approveDesign(_ sessionID: UUID, screenshot: Data?,
+                       sourceRevisions: [String: String])
+        -> Result<DesignRevision, PersistenceFailure> {
+        guard let i = index(sessionID), sessions[i].ownsDesign else {
+            return .failure(PersistenceFailure(message: "The Design session is no longer available."))
+        }
+        let directory = designDirectory(for: sessions[i])
+        let manifest = DesignManifest.read(from: directory)
+        let revision = DesignRevision(
+            id: UUID(),
+            number: (sessions[i].designRevisions.map(\.number).max() ?? 0) + 1,
+            createdAt: Date(),
+            sourceRevisions: sourceRevisions,
+            screens: manifest.screens)
+        let fallback = fallbackHandoff(for: sessions[i], revision: revision)
+        do {
+            try DesignArtifacts.saveRevision(revision, from: directory,
+                                             screenshot: screenshot,
+                                             fallbackHandoff: fallback)
+        } catch {
+            return .failure(PersistenceFailure(message: error.localizedDescription))
+        }
+
+        let previousApprovedRevisionID = sessions[i].approvedDesignRevisionID
+        sessions[i].designRevisions.append(revision)
+        sessions[i].approvedDesignRevisionID = revision.id
+        publishSidebarSessions()
+        markIndexDirty()
+        guard save() else {
+            try? FileManager.default.removeItem(
+                at: DesignArtifacts.revisionDirectory(revision, designDirectory: directory))
+            sessions[i].designRevisions.removeAll { $0.id == revision.id }
+            sessions[i].approvedDesignRevisionID = previousApprovedRevisionID
+            markIndexDirty()
+            return .failure(persistenceFailure("The approved Design could not be saved."))
+        }
+        return .success(revision)
+    }
+
+    func beginImplementation(_ sessionID: UUID, revisionID: UUID)
+        -> Result<Void, PersistenceFailure> {
+        guard let i = index(sessionID), sessions[i].ownsDesign,
+              sessions[i].designRevisions.contains(where: { $0.id == revisionID }) else {
+            return .failure(PersistenceFailure(message: "The approved Design is no longer available."))
+        }
+        let previousApprovedRevisionID = sessions[i].approvedDesignRevisionID
+        let previousPhase = sessions[i].designPhase
+        sessions[i].approvedDesignRevisionID = revisionID
+        sessions[i].designPhase = .implementing
+        publishSidebarSessions()
+        markIndexDirty()
+        guard save() else {
+            sessions[i].approvedDesignRevisionID = previousApprovedRevisionID
+            sessions[i].designPhase = previousPhase
+            publishSidebarSessions()
+            markIndexDirty()
+            return .failure(persistenceFailure("The implementation handoff could not be saved."))
+        }
+        return .success(())
+    }
+
+    func linkImplementation(_ implementationID: UUID, to designSessionID: UUID,
+                            revisionID: UUID) -> Result<Void, PersistenceFailure> {
+        guard let implementationIndex = index(implementationID),
+              let design = session(designSessionID), design.ownsDesign,
+              let revision = design.designRevisions.first(where: { $0.id == revisionID }) else {
+            return .failure(PersistenceFailure(message: "The approved Design is no longer available."))
+        }
+        let destination = designDirectory(for: sessions[implementationIndex])
+            .appendingPathComponent("reference", isDirectory: true)
+        do {
+            try DesignArtifacts.copyReference(
+                revision,
+                from: designDirectory(for: design),
+                to: destination)
+        } catch {
+            return .failure(PersistenceFailure(message: error.localizedDescription))
+        }
+        sessions[implementationIndex].sourceDesignSessionID = designSessionID
+        sessions[implementationIndex].handedOffDesignRevisionID = revisionID
+        markIndexDirty()
+        guard save() else {
+            sessions[implementationIndex].sourceDesignSessionID = nil
+            sessions[implementationIndex].handedOffDesignRevisionID = nil
+            try? FileManager.default.removeItem(at: destination)
+            markIndexDirty()
+            return .failure(persistenceFailure("The implementation handoff could not be saved."))
+        }
+        return .success(())
+    }
+
+    func syncDesignReference(for implementationID: UUID)
+        -> Result<DesignRevision, PersistenceFailure> {
+        guard let implementationIndex = index(implementationID),
+              let sourceID = sessions[implementationIndex].sourceDesignSessionID,
+              let design = session(sourceID),
+              let revision = approvedDesignRevision(for: design) else {
+            return .failure(PersistenceFailure(message: "There is no newer approved Design."))
+        }
+        let destination = designDirectory(for: sessions[implementationIndex])
+            .appendingPathComponent("reference", isDirectory: true)
+        do {
+            try DesignArtifacts.copyReference(
+                revision,
+                from: designDirectory(for: design),
+                to: destination)
+        } catch {
+            return .failure(PersistenceFailure(message: error.localizedDescription))
+        }
+        let previousRevisionID = sessions[implementationIndex].handedOffDesignRevisionID
+        sessions[implementationIndex].handedOffDesignRevisionID = revision.id
+        markIndexDirty()
+        guard save() else {
+            sessions[implementationIndex].handedOffDesignRevisionID = previousRevisionID
+            if let previousRevisionID,
+               let previous = design.designRevisions.first(where: { $0.id == previousRevisionID }) {
+                try? DesignArtifacts.copyReference(
+                    previous,
+                    from: designDirectory(for: design),
+                    to: destination)
+            }
+            markIndexDirty()
+            return .failure(persistenceFailure("The updated Design reference could not be saved."))
+        }
+        return .success(revision)
+    }
+
+    func restoreDesignRevision(_ revisionID: UUID, for sessionID: UUID)
+        -> Result<Void, PersistenceFailure> {
+        guard let i = index(sessionID), sessions[i].ownsDesign,
+              let revision = sessions[i].designRevisions.first(where: { $0.id == revisionID }) else {
+            return .failure(PersistenceFailure(message: "The Design revision is no longer available."))
+        }
+        do {
+            try DesignArtifacts.restore(revision, in: designDirectory(for: sessions[i]))
+            sessions[i].designPhase = .designing
+            saveIndex()
+            return .success(())
+        } catch {
+            return .failure(PersistenceFailure(message: error.localizedDescription))
+        }
+    }
+
+    func saveImplementationScreenshot(_ source: URL, for sessionID: UUID)
+        -> Result<URL, PersistenceFailure> {
+        guard let session = session(sessionID), session.isImplementingDesign,
+              let image = NSImage(contentsOf: source),
+              let png = DesignArtifacts.pngData(image) else {
+            return .failure(PersistenceFailure(message: "The selected file is not a readable image."))
+        }
+        let destination = implementationScreenshotURL(for: session)
+        do {
+            try FileManager.default.createDirectory(
+                at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try png.write(to: destination, options: .atomic)
+            return .success(destination)
+        } catch {
+            return .failure(PersistenceFailure(
+                message: "The implementation screenshot could not be saved: \(error.localizedDescription)"))
+        }
+    }
+
+    func implementationReferenceAttachments(for session: ChatSession) -> [Attachment] {
+        guard let directory = implementationDesignDirectory(for: session) else { return [] }
+        return ["index.html", "handoff.md", "preview.png"].compactMap { name in
+            let url = directory.appendingPathComponent(name)
+            return FileManager.default.fileExists(atPath: url.path) ? Attachment(url: url) : nil
+        }
+    }
+
+    private func fallbackHandoff(for session: ChatSession,
+                                 revision: DesignRevision) -> String {
+        let request = transcript(of: session.id).last(where: { $0.role == .user })?.text
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let goal = request?.isEmpty == false ? request! : session.title
+        return """
+        # \(revision.title) implementation handoff
+
+        ## Goal
+
+        \(goal)
+
+        ## Reference
+
+        Open `index.html` and `design.json` in this folder. Treat the HTML as a visual and \
+        interaction reference. Reuse the production project's existing components, tokens, \
+        patterns, and architecture.
+
+        ## Acceptance
+
+        - Match the approved visual hierarchy and content.
+        - Implement the interactions represented in the Design.
+        - Cover responsive and accessible behavior appropriate to the product.
+        - Run the project's relevant tests before finishing.
+        """
     }
 
     // A title the person typed is also what stops the first prompt from taking the title
@@ -822,9 +1077,7 @@ final class ProjectStore {
 
         removeSessionFromMemory(sessionID)
         let transcriptResult = deleteTranscript(sessionID)
-        let designResult = pending.session.mode == .design
-            ? deleteDesignDirectory(pending.session)
-            : .success(())
+        let designResult = deleteDesignDirectory(pending.session)
         markIndexDirty()
         let indexSaved = save()
 

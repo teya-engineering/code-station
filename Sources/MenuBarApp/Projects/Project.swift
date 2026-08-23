@@ -498,6 +498,16 @@ struct ChatSession: Identifiable, Codable, Equatable {
     var isTroubleshooting = false
     var agent: AgentKind
     var mode: SessionMode = .chat
+    // Design is the origin of a session, while the phase says what the agent is doing
+    // now. Keeping them separate lets implementation retain the approved canvas and its
+    // revisions without continuing to apply the Design-only instructions.
+    var designPhase: DesignPhase?
+    var designRevisions: [DesignRevision] = []
+    var approvedDesignRevisionID: UUID?
+    // A fresh Chat handoff owns its own checkout and immutable copy of the approved
+    // materials. The source id links the two conversations when both still exist.
+    var sourceDesignSessionID: UUID?
+    var handedOffDesignRevisionID: UUID?
     // A hidden Design conversation can borrow another session's checkout without owning
     // its worktree. User-created Design sessions hold their own conversation directly.
     var designSourceSessionID: UUID?
@@ -540,6 +550,16 @@ struct ChatSession: Identifiable, Codable, Equatable {
 
     var isDesignSession: Bool { designSourceSessionID != nil }
 
+    var ownsDesign: Bool { mode == .design }
+
+    var isActivelyDesigning: Bool {
+        ownsDesign && designPhase != .implementing
+    }
+
+    var isImplementingDesign: Bool {
+        designPhase == .implementing || sourceDesignSessionID != nil
+    }
+
     // A resume id proves an older session already started even if its transcript summary
     // came from a version that did not save dates.
     var hasStarted: Bool {
@@ -575,7 +595,9 @@ struct ChatSession: Identifiable, Codable, Equatable {
     // encodes to. It is still decoded: a file written before the split holds every
     // conversation inline, and that is what the store moves out on the first launch.
     private enum CodingKeys: String, CodingKey {
-        case id, projectID, title, isTroubleshooting, agent, mode, designSourceSessionID
+        case id, projectID, title, isTroubleshooting, agent, mode, designPhase
+        case designRevisions, approvedDesignRevisionID, sourceDesignSessionID
+        case handedOffDesignRevisionID, designSourceSessionID
         case claudeSessionID, codexSessionID, createdAt
         case worktreePath, worktreeBranch
         case workspaceID, sessionProjects, settings, usage, agentAvatarName
@@ -599,6 +621,16 @@ struct ChatSession: Identifiable, Codable, Equatable {
             UUID.self, forKey: .designSourceSessionID)
         mode = try container.decodeIfPresent(SessionMode.self, forKey: .mode)
             ?? (designSourceSessionID == nil ? .chat : .design)
+        designPhase = try container.decodeIfPresent(DesignPhase.self, forKey: .designPhase)
+            ?? (mode == .design ? .designing : nil)
+        designRevisions = try container.decodeIfPresent(
+            [DesignRevision].self, forKey: .designRevisions) ?? []
+        approvedDesignRevisionID = try container.decodeIfPresent(
+            UUID.self, forKey: .approvedDesignRevisionID)
+        sourceDesignSessionID = try container.decodeIfPresent(
+            UUID.self, forKey: .sourceDesignSessionID)
+        handedOffDesignRevisionID = try container.decodeIfPresent(
+            UUID.self, forKey: .handedOffDesignRevisionID)
         claudeSessionID = try container.decodeIfPresent(String.self, forKey: .claudeSessionID)
         codexSessionID = try container.decodeIfPresent(String.self, forKey: .codexSessionID)
         createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
@@ -629,6 +661,15 @@ struct ChatSession: Identifiable, Codable, Equatable {
         try container.encode(isTroubleshooting, forKey: .isTroubleshooting)
         try container.encode(agent, forKey: .agent)
         try container.encode(mode, forKey: .mode)
+        try container.encodeIfPresent(designPhase, forKey: .designPhase)
+        if !designRevisions.isEmpty {
+            try container.encode(designRevisions, forKey: .designRevisions)
+        }
+        try container.encodeIfPresent(approvedDesignRevisionID,
+                                      forKey: .approvedDesignRevisionID)
+        try container.encodeIfPresent(sourceDesignSessionID, forKey: .sourceDesignSessionID)
+        try container.encodeIfPresent(handedOffDesignRevisionID,
+                                      forKey: .handedOffDesignRevisionID)
         try container.encodeIfPresent(designSourceSessionID, forKey: .designSourceSessionID)
         try container.encodeIfPresent(claudeSessionID, forKey: .claudeSessionID)
         try container.encodeIfPresent(codexSessionID, forKey: .codexSessionID)

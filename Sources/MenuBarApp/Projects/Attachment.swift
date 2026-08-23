@@ -53,15 +53,20 @@ enum Attachments {
         return Attachment(url: url)
     }
 
-    // A clipboard image arrives as whatever format the app that copied it used, so it is
-    // re-encoded as PNG under a name of our own.
-    private static func write(_ image: NSImage) -> URL? {
+    static func fromImage(_ image: NSImage, prefix: String = "pasted") -> Attachment? {
         guard let tiff = image.tiffRepresentation,
               let bitmap = NSBitmapImageRep(data: tiff),
               let png = bitmap.representation(using: .png, properties: [:]) else { return nil }
-        let url = folder.appendingPathComponent("pasted-\(UUID().uuidString.prefix(8)).png")
+        let url = folder.appendingPathComponent(
+            "\(prefix)-\(UUID().uuidString.prefix(8)).png")
         guard (try? png.write(to: url, options: .atomic)) != nil else { return nil }
-        return url
+        return Attachment(url: url)
+    }
+
+    // A clipboard image arrives as whatever format the app that copied it used, so it is
+    // re-encoded as PNG under a name of our own.
+    private static func write(_ image: NSImage) -> URL? {
+        fromImage(image)?.url
     }
 
     // A pasted file is referenced by path in a conversation that can be resumed later,

@@ -135,7 +135,7 @@ struct SessionView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let sessionID: UUID
 
-    private enum Tab: Hashable { case conversation, changes, explorer }
+    private enum Tab: Hashable { case conversation, design, compare, changes, explorer }
 
     @State private var tab: Tab = .conversation
     @State private var dropTargeted = false
@@ -190,6 +190,9 @@ struct SessionView: View {
                 statusStrip(session)
                     .zIndex(1)
                 warningStrip(session: session, project: project)
+                if store.designHasUpdated(for: session) {
+                    designUpdateStrip(session)
+                }
                 if showsDirectoryBar(for: session, designFilesURL: designFilesURL) {
                     sessionDirectoryBar(session, designFilesURL: designFilesURL)
                 }
@@ -203,6 +206,10 @@ struct SessionView: View {
                         Divider().overlay(Theme.hairline)
                         composer(session: session, project: project)
                     }
+                case .design:
+                    DesignReferenceView(sessionID: session.id)
+                case .compare:
+                    DesignImplementationComparisonView(sessionID: session.id)
                 case .changes:
                     ChangesView(root: projectDirectory)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -339,10 +346,46 @@ struct SessionView: View {
     }
 
     private func headerTabs(for session: ChatSession) -> [(label: String, value: Tab)] {
-        [(store.isDesignMode(session) ? SessionMode.design.title : SessionMode.chat.title,
-          .conversation),
-         (store.isDesignMode(session) ? "Project Changes" : "Changes", .changes),
-         ("Explorer", .explorer)]
+        var tabs: [(label: String, value: Tab)] = [
+            (store.designConversation(for: session.id) == nil ? "Chat" : "Design",
+             .conversation),
+        ]
+        if session.isImplementingDesign {
+            tabs.append(("Design", .design))
+            tabs.append(("Compare", .compare))
+        }
+        tabs.append((store.isDesignMode(session) ? "Project Changes" : "Changes", .changes))
+        tabs.append(("Explorer", .explorer))
+        return tabs
+    }
+
+    private func designUpdateStrip(_ session: ChatSession) -> some View {
+        HStack(spacing: 9) {
+            Image(systemName: "paintbrush.pointed.fill")
+                .font(.system(size: 11, weight: .semibold))
+            Text("A newer approved Design is available.")
+                .font(.system(size: 12, weight: .medium))
+            Spacer(minLength: 10)
+            ActionButton(title: "Send update", tone: .outlined, height: 27, size: 11) {
+                switch DesignHandoffLifecycle.sendLatestDesign(
+                    to: session.id, store: store, runner: runner) {
+                case .success:
+                    tab = .design
+                case .failure(let failure):
+                    dialogs.show(Dialog(
+                        title: failure.title,
+                        message: failure.message,
+                        actions: [.init(label: "OK", kind: .cancel)]))
+                }
+            }
+        }
+        .foregroundStyle(Theme.accent)
+        .padding(.horizontal, 20)
+        .frame(height: 36)
+        .background(Theme.accent.opacity(0.08))
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(Theme.accent.opacity(0.25)).frame(height: 1)
+        }
     }
 
     private func designMaterialExportButton(session: ChatSession, project: Project) -> some View {
@@ -493,7 +536,7 @@ struct SessionView: View {
 
     private func showsDirectoryBar(for session: ChatSession, designFilesURL: URL?) -> Bool {
         switch tab {
-        case .conversation: false
+        case .conversation, .design, .compare: false
         case .changes: store.checkoutProjects(for: session).count > 1
         case .explorer:
             designFilesURL != nil || store.checkoutProjects(for: session).count > 1
