@@ -21,3 +21,7 @@ system.
 
 `assets/mark.svg` is the app icon redrawn as vector, and `assets/icon-512.png` is
 the same mark from `Resources/AppIcon.icns` for the Apple touch icon.
+
+The Design section is a small interactive prototype built directly in
+`index.html` and `assets/style.css`. It mirrors the split conversation and canvas
+in the app without adding a build step or JavaScript dependency.

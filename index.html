@@ -61,6 +61,99 @@
   </div>
 </section>
 
+<section class="band band--design" id="design">
+  <div class="pitch">
+    <h2 data-reveal>Talk it into shape.<br><em>On a live canvas.</em></h2>
+    <p class="reveal--delay-1" data-reveal>Enable the experimental Design mode for a screen, flow, diagram, deck, or prototype. The agent studies the real project, builds beside the conversation, and keeps refining the same interactive artifact.</p>
+  </div>
+
+  <div class="design-window" data-reveal="shot">
+    <div class="design-titlebar">
+      <span class="window-lights" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span>Code Station</span>
+      <span class="design-branch">code-station/design-payment-flow</span>
+    </div>
+
+    <div class="design-shell">
+      <aside class="design-sidebar" aria-label="Example project sidebar">
+        <div class="sidebar-brand"><img src="assets/mark.svg" alt="" width="24" height="24">CODE STATION</div>
+        <p class="sidebar-label">WORKSPACE</p>
+        <div class="sidebar-project"><span class="project-mark">P</span><span><strong>Payments</strong><small>3 projects</small></span></div>
+        <div class="sidebar-session"><span></span>Checkout polish</div>
+        <div class="sidebar-session is-active"><span></span>Payment journey</div>
+        <div class="sidebar-session"><span></span>API review</div>
+        <p class="sidebar-label sidebar-label--tools">TOOLS</p>
+        <div class="sidebar-tool">Changes <small>4</small></div>
+        <div class="sidebar-tool">Files</div>
+        <div class="sidebar-tool">Terminal</div>
+      </aside>
+
+      <section class="design-conversation" aria-label="Design conversation example">
+        <header><span class="design-spark" aria-hidden="true">✦</span><strong>DESIGN</strong><span class="design-state"><i></i> IDLE</span></header>
+        <div class="design-thread">
+          <div class="design-message design-message--user">
+            Map what happens between a customer tapping Pay and the receipt appearing. Make each service explorable.
+          </div>
+          <div class="design-message design-message--agent">
+            <span class="agent-name">CODEX</span>
+            I turned the happy path into an interactive system map. Select any stage to inspect its job, owner, and latency budget.
+            <span class="artifact-write"><i></i> Wrote index.html</span>
+          </div>
+          <div class="design-message design-message--user design-message--revision">
+            Give it a pulse. I want the hand-off between systems to feel alive.
+          </div>
+        </div>
+        <div class="design-composer"><span>Describe the next revision…</span><b aria-hidden="true">✦</b></div>
+      </section>
+
+      <section class="design-canvas" aria-label="Interactive payment journey design example">
+        <header><strong>CANVAS</strong><span class="canvas-file"><i></i> index.html</span><span class="reload" aria-hidden="true">↻</span></header>
+        <div class="prototype">
+          <div class="prototype-head">
+            <div>
+              <p class="prototype-kicker">SYSTEM STORY · 07</p>
+              <h3>The life of a payment</h3>
+              <p>One tap. Six systems. A promise kept in under a second.</p>
+            </div>
+            <span class="prototype-live"><i></i> LIVE PATH</span>
+          </div>
+
+          <div class="prototype-stats">
+            <div><span>AUTH RATE</span><strong>96.8%</strong><small>+0.4 this week</small></div>
+            <div><span>MEDIAN JOURNEY</span><strong>840<em>ms</em></strong><small>inside 1s budget</small></div>
+            <div><span>REVERSIBLE STEPS</span><strong>2<em>/6</em></strong><small>before capture</small></div>
+          </div>
+
+          <div class="payment-flow" role="group" aria-label="Choose a payment stage">
+            <button class="flow-node is-active" type="button" aria-label="Checkout payment stage" aria-pressed="true" data-title="Checkout" data-kicker="01 · THE PROMISE" data-description="Validates the cart, currency, and customer intent before the payment leaves the product boundary." data-stat="12 ms" data-stat-label="LATENCY BUDGET"><span>01</span><i aria-hidden="true">↗</i><strong>Checkout</strong><small>Intent</small></button>
+            <span class="flow-link" aria-hidden="true"><i></i></span>
+            <button class="flow-node" type="button" aria-label="Token vault payment stage" aria-pressed="false" data-title="Token vault" data-kicker="02 · THE HAND-OFF" data-description="Trades card details for a short-lived token, keeping sensitive data away from the rest of the journey." data-stat="24 ms" data-stat-label="LATENCY BUDGET"><span>02</span><i aria-hidden="true">◇</i><strong>Token vault</strong><small>Protect</small></button>
+            <span class="flow-link" aria-hidden="true"><i></i></span>
+            <button class="flow-node" type="button" aria-label="Risk payment stage" aria-pressed="false" data-title="Risk" data-kicker="03 · THE DECISION" data-description="Combines device, account, and network signals into a fast trust decision before money moves." data-stat="38 ms" data-stat-label="LATENCY BUDGET"><span>03</span><i aria-hidden="true">⌁</i><strong>Risk</strong><small>Decide</small></button>
+            <span class="flow-link" aria-hidden="true"><i></i></span>
+            <button class="flow-node" type="button" aria-label="Acquirer payment stage" aria-pressed="false" data-title="Acquirer" data-kicker="04 · THE REQUEST" data-description="Routes the authorization to the right network and carries the issuer's answer back to checkout." data-stat="620 ms" data-stat-label="LATENCY BUDGET"><span>04</span><i aria-hidden="true">⇄</i><strong>Acquirer</strong><small>Authorize</small></button>
+            <span class="flow-link" aria-hidden="true"><i></i></span>
+            <button class="flow-node" type="button" aria-label="Ledger payment stage" aria-pressed="false" data-title="Ledger" data-kicker="05 · THE RECORD" data-description="Records the approved movement as balanced entries so the result can be explained and reconciled." data-stat="84 ms" data-stat-label="LATENCY BUDGET"><span>05</span><i aria-hidden="true">≡</i><strong>Ledger</strong><small>Record</small></button>
+            <span class="flow-link" aria-hidden="true"><i></i></span>
+            <button class="flow-node" type="button" aria-label="Receipt payment stage" aria-pressed="false" data-title="Receipt" data-kicker="06 · THE PROOF" data-description="Turns the final state into a clear confirmation for the customer and a durable reference for support." data-stat="62 ms" data-stat-label="LATENCY BUDGET"><span>06</span><i aria-hidden="true">✓</i><strong>Receipt</strong><small>Confirm</small></button>
+          </div>
+
+          <div class="prototype-detail">
+            <div>
+              <p data-detail-kicker>01 · THE PROMISE</p>
+              <h4 data-detail-title>Checkout</h4>
+              <span data-detail-description>Validates the cart, currency, and customer intent before the payment leaves the product boundary.</span>
+            </div>
+            <div class="detail-stat"><strong data-detail-stat>12 ms</strong><span data-detail-stat-label>LATENCY BUDGET</span></div>
+          </div>
+
+          <div class="prototype-foot"><span><i></i> All systems nominal</span><span>Select a stage to follow the story</span></div>
+        </div>
+      </section>
+    </div>
+  </div>
+</section>
+
 <section class="band band--light">
   <div class="pitch">
     <h2 data-reveal>Three repos.<br><em>One conversation.</em></h2>
@@ -266,6 +359,22 @@
     } catch {
       button.textContent = 'Press Cmd C';
     }
+  });
+
+  const flowNodes = document.querySelectorAll('.flow-node');
+  flowNodes.forEach((node) => {
+    node.addEventListener('click', () => {
+      flowNodes.forEach((candidate) => {
+        const active = candidate === node;
+        candidate.classList.toggle('is-active', active);
+        candidate.setAttribute('aria-pressed', active);
+      });
+      document.querySelector('[data-detail-kicker]').textContent = node.dataset.kicker;
+      document.querySelector('[data-detail-title]').textContent = node.dataset.title;
+      document.querySelector('[data-detail-description]').textContent = node.dataset.description;
+      document.querySelector('[data-detail-stat]').textContent = node.dataset.stat;
+      document.querySelector('[data-detail-stat-label]').textContent = node.dataset.statLabel;
+    });
   });
 </script>
 
