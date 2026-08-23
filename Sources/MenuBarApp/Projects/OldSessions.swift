@@ -58,6 +58,30 @@ enum SessionOutcome: Equatable {
     }
 }
 
+// The whole cost of removing a session. Generated Design files sit outside git, so a clean
+// or absent worktree does not make a session safe to clear on its own.
+struct SessionRemovalCost: Equatable {
+    let worktree: SessionOutcome
+    let deletesDesignArtifacts: Bool
+
+    var label: String {
+        guard deletesDesignArtifacts else { return worktree.label }
+        return worktree.losesWork ? "would delete design and changes" : "would delete design"
+    }
+
+    var losesNothing: Bool {
+        worktree.losesNothing && !deletesDesignArtifacts
+    }
+
+    var canSelect: Bool {
+        worktree.canSelect
+    }
+
+    var losesWork: Bool {
+        worktree.losesWork || deletesDesignArtifacts
+    }
+}
+
 // What deleting a session would cost, as git answers it. The review sheet and the
 // unattended sweep both ask this, so a box that arrives ticked and a session that goes on
 // its own are decided by one rule rather than by two that could drift apart.
@@ -75,6 +99,12 @@ enum SessionCost {
     static func startingOutcome(worktrees: [String]) -> SessionOutcome {
         worktrees.contains { FileManager.default.fileExists(atPath: $0) }
             ? .checking : .historyOnly
+    }
+
+    static func startingCost(worktrees: [String], deletesDesignArtifacts: Bool)
+        -> SessionRemovalCost {
+        SessionRemovalCost(worktree: startingOutcome(worktrees: worktrees),
+                           deletesDesignArtifacts: deletesDesignArtifacts)
     }
 
     // One worktree git could not read is enough to stop here. Silence from git is not the
@@ -95,6 +125,13 @@ enum SessionCost {
             removed += snapshot.totalRemoved
         }
         return hasChanges ? .wouldLoseWork(added: added, removed: removed) : .worktreeRemoved
+    }
+
+    static func settledCost(worktrees: [String], deletesDesignArtifacts: Bool,
+                            inspect: Inspect = live) async -> SessionRemovalCost {
+        let worktree = await settledOutcome(worktrees: worktrees, inspect: inspect)
+        return SessionRemovalCost(worktree: worktree,
+                                  deletesDesignArtifacts: deletesDesignArtifacts)
     }
 }
 

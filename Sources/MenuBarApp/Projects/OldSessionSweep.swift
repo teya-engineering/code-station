@@ -3,8 +3,9 @@ import Foundation
 // Clearing old sessions without being asked each time. This is the only place in the app
 // that deletes a session nobody chose, so the rule it works to is the narrowest one: the
 // session has remained eligible through a full warning hour, it is neither open nor
-// running, and git has said its worktree holds nothing. A worktree with uncommitted work,
-// or one git could not read, is left where it is for a person to decide on.
+// running, it has no generated Design files, and git has said its worktree holds nothing.
+// A session with saved output, uncommitted work, or a worktree git could not read is left
+// where it is for a person to decide on.
 @MainActor
 enum OldSessionSweep {
     static let interval: Duration = .seconds(3_600)
@@ -66,11 +67,14 @@ enum OldSessionSweep {
             guard !Task.isCancelled else { break }
             guard stillStale(session) else { continue }
             let worktrees = store.checkoutProjects(for: session).compactMap(\.worktreePath)
-            let outcome = await SessionCost.settledOutcome(worktrees: worktrees,
-                                                           inspect: inspect)
-            guard outcome.losesNothing, stillStale(session) else { continue }
+            let worktree = await SessionCost.settledOutcome(worktrees: worktrees,
+                                                            inspect: inspect)
+            let cost = SessionRemovalCost(
+                worktree: worktree,
+                deletesDesignArtifacts: store.hasDesignArtifacts(for: session))
+            guard cost.losesNothing, stillStale(session) else { continue }
 
-            SessionLog.note("auto deletion started outcome=\(outcome.label)", session: session.id)
+            SessionLog.note("auto deletion started outcome=\(cost.label)", session: session.id)
             let result = await SessionLifecycle.remove(session, from: store, runner: runner)
             if case .failure(let failure) = result {
                 SessionLog.note("auto deletion failed reason=\(failure.title)", session: session.id)

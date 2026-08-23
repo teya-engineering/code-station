@@ -37,13 +37,21 @@ enum ProjectRemoval {
     // the task takes the folder with it. A folder the user chose always stays.
     static func confirmation(for project: Project, in store: ProjectStore,
                              onConfirm: @escaping () -> Void) -> Dialog {
-        let count = sessions(using: project.id, in: store).count
+        let sessions = sessions(using: project.id, in: store)
+        let count = sessions.count
+        let designs = sessions.count { store.hasDesignArtifacts(for: $0) }
         let isTask = project.kind == .adHoc
+        var message = isTask
+            ? "This drops its \(count) run\(count == 1 ? "" : "s") and deletes the task's folder, including any files the runs left in it."
+            : "This drops \(count) session\(count == 1 ? "" : "s") that use it and removes their worktrees. It is also removed from every workspace. The folder itself stays on disk."
+        if designs > 0 {
+            message += designs == 1
+                ? " One session contains generated Design files that are permanently removed."
+                : " \(designs) sessions contain generated Design files that are permanently removed."
+        }
         return Dialog(
             title: isTask ? "Delete \(project.name)?" : "Remove \(project.name)?",
-            message: isTask
-                ? "This drops its \(count) run\(count == 1 ? "" : "s") and deletes the task's folder, including any files the runs left in it."
-                : "This drops \(count) session\(count == 1 ? "" : "s") that use it and removes their worktrees. It is also removed from every workspace. The folder itself stays on disk.",
+            message: message,
             actions: [
                 .init(label: isTask ? "Delete task" : "Remove project",
                       kind: .destructive, handler: onConfirm),

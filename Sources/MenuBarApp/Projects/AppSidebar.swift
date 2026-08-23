@@ -893,17 +893,28 @@ struct AppSidebar: View {
     private func confirmRemoveSession(_ session: ChatSession) {
         let worktrees = store.checkoutProjects(for: session).compactMap(\.worktreePath)
         let dirty = worktrees.count { workingTrees.isDirty($0) }
-        dialogs.show(Dialog(
-            title: "Delete \"\(session.title)\"?",
-            message: worktrees.isEmpty
-                ? "Its conversation history is removed from the app."
-                : "Its \(worktrees.count) worktree\(worktrees.count == 1 ? "" : "s") go with it."
+        let removesDesign = store.hasDesignArtifacts(for: session)
+        var consequences = ["Its conversation history is removed from the app."]
+        if removesDesign {
+            consequences.append("Its generated Design files are permanently removed.")
+        }
+        if !worktrees.isEmpty {
+            consequences.append(
+                "Its \(worktrees.count) worktree\(worktrees.count == 1 ? "" : "s") go with it."
                     + (dirty > 0
                        ? " \(dirty) \(dirty == 1 ? "has" : "have") uncommitted changes that will be lost."
-                       : " Branches are kept if they have unmerged commits."),
+                       : " Branches are kept if they have unmerged commits."))
+        }
+        let deleteLabel = if removesDesign {
+            worktrees.isEmpty ? "Delete session and Design files" : "Delete session and files"
+        } else {
+            worktrees.isEmpty ? "Delete session" : "Delete session and worktrees"
+        }
+        dialogs.show(Dialog(
+            title: "Delete \"\(session.title)\"?",
+            message: consequences.joined(separator: " "),
             actions: [
-                .init(label: worktrees.isEmpty ? "Delete session" : "Delete session and worktrees",
-                      kind: .destructive) {
+                .init(label: deleteLabel, kind: .destructive) {
                     removeSessions([session])
                 },
                 .init(label: "Cancel", kind: .cancel)
@@ -918,10 +929,16 @@ struct AppSidebar: View {
         guard !idle.isEmpty else { return }
         let worktrees = idle.count { $0.worktreePath != nil }
         let dirty = idle.count { $0.worktreePath.map(workingTrees.isDirty) ?? false }
+        let designs = idle.count { store.hasDesignArtifacts(for: $0) }
         let kept = store.standaloneSessions(for: project.id).count - idle.count
         var message = "Their conversation history is removed from the app."
+        if designs > 0 {
+            message += designs == 1
+                ? " One session contains generated Design files that are permanently removed."
+                : " \(designs) sessions contain generated Design files that are permanently removed."
+        }
         if worktrees > 0 {
-            message = "\(worktrees) of them ran in a worktree. Uncommitted changes there are lost, and branches are kept only where they have unmerged commits."
+            message += " \(worktrees) of them ran in a worktree. Uncommitted changes there are lost, and branches are kept only where they have unmerged commits."
         }
         if dirty > 0 {
             message += " \(dirty) of those worktree\(dirty == 1 ? " has" : "s have") uncommitted changes right now."
@@ -952,9 +969,16 @@ struct AppSidebar: View {
     private func confirmRemoveWorkspace(_ workspace: ProjectWorkspace) {
         let affected = sessions(in: workspace.id)
         let count = affected.count
+        let designs = affected.count { store.hasDesignArtifacts(for: $0) }
+        var message = "This drops \(count) session\(count == 1 ? "" : "s") and removes their worktrees. The \(workspace.projectIDs.count) projects it groups stay."
+        if designs > 0 {
+            message += designs == 1
+                ? " One session contains generated Design files that are permanently removed."
+                : " \(designs) sessions contain generated Design files that are permanently removed."
+        }
         dialogs.show(Dialog(
             title: "Delete \(workspace.name)?",
-            message: "This drops \(count) session\(count == 1 ? "" : "s") and removes their worktrees. The \(workspace.projectIDs.count) projects it groups stay.",
+            message: message,
             actions: [
                 .init(label: "Delete workspace", kind: .destructive) {
                     removeSessions(affected) { store.removeWorkspace(workspace.id) }

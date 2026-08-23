@@ -141,6 +141,7 @@ struct SessionView: View {
     @State private var terminalFocused = false
     @State private var composerFocused = false
     @State private var selectedProjectID: UUID?
+    @State private var explorerShowsDesignFiles = false
     @State private var openShortcutRun: ShortcutRun?
     @State private var shortcutEditor: ShortcutEditorRequest?
     @State private var transcriptWindow = TranscriptWindow()
@@ -173,8 +174,12 @@ struct SessionView: View {
         if let session = store.session(sessionID), let project = store.project(session.projectID) {
             let workingDirectories = store.workingDirectories(for: session)
             let workingDirectory = workingDirectories.first ?? project.path
-            let visibleDirectory = directory(for: selectedProjectID ?? session.projectID,
+            let projectDirectory = directory(for: selectedProjectID ?? session.projectID,
                                              in: session) ?? workingDirectory
+            let designFilesURL = store.designFilesURL(for: session)
+            let explorerDirectory = explorerShowsDesignFiles
+                ? designFilesURL?.path ?? projectDirectory
+                : projectDirectory
             VStack(spacing: 0) {
                 header(session: session, project: project)
                 // The facts card hangs off the strip and over whatever is under it. A
@@ -183,9 +188,8 @@ struct SessionView: View {
                 statusStrip(session)
                     .zIndex(1)
                 warningStrip(session: session, project: project)
-                if store.checkoutProjects(for: session).count > 1,
-                   tab == .changes || tab == .explorer {
-                    workspaceProjectBar(session)
+                if showsDirectoryBar(for: session, designFilesURL: designFilesURL) {
+                    sessionDirectoryBar(session, designFilesURL: designFilesURL)
                 }
 
                 switch tab {
@@ -198,10 +202,10 @@ struct SessionView: View {
                         composer(session: session, project: project)
                     }
                 case .changes:
-                    ChangesView(root: visibleDirectory)
+                    ChangesView(root: projectDirectory)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 case .explorer:
-                    ExplorerView(root: visibleDirectory)
+                    ExplorerView(root: explorerDirectory)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
 
@@ -236,6 +240,7 @@ struct SessionView: View {
             }
             .task(id: sessionID) {
                 selectedProjectID = session.projectID
+                explorerShowsDesignFiles = designFilesURL != nil
                 openShortcutRun = nil
                 sampleMissingFolders()
                 refreshStats(workingDirectories, reusingRecent: true)
@@ -331,7 +336,7 @@ struct SessionView: View {
     private func headerTabs(for session: ChatSession) -> [(label: String, value: Tab)] {
         [(store.isDesignMode(session) ? SessionMode.design.title : SessionMode.chat.title,
           .conversation),
-         ("Changes", .changes),
+         (store.isDesignMode(session) ? "Project Changes" : "Changes", .changes),
          ("Explorer", .explorer)]
     }
 
@@ -422,15 +427,51 @@ struct SessionView: View {
         .fixedSize()
     }
 
-    private func workspaceProjectBar(_ session: ChatSession) -> some View {
+    private func showsDirectoryBar(for session: ChatSession, designFilesURL: URL?) -> Bool {
+        switch tab {
+        case .conversation: false
+        case .changes: store.checkoutProjects(for: session).count > 1
+        case .explorer:
+            designFilesURL != nil || store.checkoutProjects(for: session).count > 1
+        }
+    }
+
+    private func sessionDirectoryBar(_ session: ChatSession, designFilesURL: URL?) -> some View {
         ScrollView(.horizontal) {
             HStack(spacing: 6) {
+                if tab == .explorer, designFilesURL != nil {
+                    Button { explorerShowsDesignFiles = true } label: {
+                        HStack(spacing: 7) {
+                            Image(systemName: "paintbrush.pointed.fill")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(Theme.accent)
+                                .frame(width: 9)
+                            Text("Design files")
+                                .font(.system(size: 12.5, weight: .semibold))
+                                .lineLimit(1)
+                        }
+                        .padding(.horizontal, 12)
+                        .frame(height: 36)
+                        .background(explorerShowsDesignFiles ? Theme.card : Color.clear)
+                        .overlay(alignment: .bottom) {
+                            Rectangle()
+                                .fill(explorerShowsDesignFiles ? Theme.accent : Color.clear)
+                                .frame(height: 2)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
                 ForEach(store.checkoutProjects(for: session)) { checkout in
                     if let project = store.project(checkout.projectID) {
                         let root = checkout.worktreePath ?? project.path
                         let snapshot = gitStats.snapshot(at: root)
                         let selected = selectedProjectID == project.id
-                        Button { selectedProjectID = project.id } label: {
+                            && (tab == .changes || !explorerShowsDesignFiles)
+                        Button {
+                            selectedProjectID = project.id
+                            if tab == .explorer { explorerShowsDesignFiles = false }
+                        } label: {
                             HStack(spacing: 7) {
                                 RoundedRectangle(cornerRadius: 3)
                                     .fill(project.id == session.projectID

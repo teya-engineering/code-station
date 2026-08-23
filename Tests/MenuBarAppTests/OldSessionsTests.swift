@@ -59,6 +59,16 @@ struct OldSessionsTests {
         #expect(!SessionOutcome.checkFailed.canSelect)
     }
 
+    @Test func designArtifactsAreWorkThatDeletionWouldLose() {
+        let design = SessionRemovalCost(worktree: .historyOnly,
+                                        deletesDesignArtifacts: true)
+
+        #expect(!design.losesNothing)
+        #expect(design.losesWork)
+        #expect(design.canSelect)
+        #expect(design.label == "would delete design")
+    }
+
     @Test func saysHowLongAgoTheLastTurnWas() {
         #expect(SessionAge.phrase(since: now.addingTimeInterval(-3_600), now: now) == "today")
         #expect(SessionAge.phrase(since: now.addingTimeInterval(-86_400), now: now) == "yesterday")

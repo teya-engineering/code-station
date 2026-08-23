@@ -79,9 +79,12 @@ struct DesignSessionTests {
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         let design = fixture.store.newSession(in: fixture.project.id, mode: .design)
         let artifact = try #require(fixture.store.designArtifactURL(for: design))
+        #expect(fixture.store.designFilesURL(for: design) == artifact.deletingLastPathComponent())
+        #expect(!fixture.store.hasDesignArtifacts(for: design))
         try FileManager.default.createDirectory(
             at: artifact.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data("<html>design</html>".utf8).write(to: artifact)
+        #expect(fixture.store.hasDesignArtifacts(for: design))
 
         let pending = try fixture.store.prepareSessionRemoval(design.id).get()
 

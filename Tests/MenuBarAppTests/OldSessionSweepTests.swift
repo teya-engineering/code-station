@@ -127,6 +127,38 @@ struct OldSessionSweepTests {
         #expect(store.session(old.id) == nil)
     }
 
+    @Test func keepsAnOldDesignSessionThatContainsGeneratedFiles() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("code-station-old-design-sweep-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let projectURL = root.appendingPathComponent("project", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+        let store = ProjectStore(storeURL: root.appendingPathComponent("projects.json"))
+        let project = try #require(store.addProject(at: projectURL))
+        let old = store.newSession(in: project.id, mode: .design)
+        store.append(ChatMessage(role: .user, text: "Old design",
+                                 date: Date().addingTimeInterval(-8 * 86_400)),
+                     to: old.id)
+        let artifact = try #require(store.designArtifactURL(for: old))
+        try FileManager.default.createDirectory(
+            at: artifact.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("<html>kept</html>".utf8).write(to: artifact)
+        let firstSeen = Date()
+        let runner = SessionRunner(paths: [:])
+        var buffer = OldSessionSweep.EligibilityBuffer()
+
+        let duringWarning = await OldSessionSweep.run(
+            days: 7, store: store, runner: runner, buffer: &buffer, now: firstSeen)
+        let afterWarning = await OldSessionSweep.run(
+            days: 7, store: store, runner: runner, buffer: &buffer,
+            now: firstSeen.addingTimeInterval(OldSessionSweep.gracePeriod))
+
+        #expect(duringWarning == 0)
+        #expect(afterWarning == 0)
+        #expect(store.session(old.id) != nil)
+        #expect(FileManager.default.fileExists(atPath: artifact.path))
+    }
+
     // Git inspection yields to the app. Opening the session while that answer is on its
     // way must protect it just as opening it before the sweep starts does.
     @Test func keepsASessionOpenedWhileItsWorktreeIsBeingChecked() async throws {

@@ -26,7 +26,7 @@ struct OldSessionsView: View {
     private struct Row: Identifiable {
         let session: ChatSession
         let projectName: String
-        var outcome: SessionOutcome
+        var cost: SessionRemovalCost
 
         var id: UUID { session.id }
     }
@@ -49,14 +49,15 @@ struct OldSessionsView: View {
                         SessionChoiceRow(title: row.session.title,
                                          projectName: row.projectName,
                                          detail: detail(row),
-                                         outcome: row.outcome,
+                                         cost: row.cost,
                                          hasWorktree: !worktreePaths(row.session).isEmpty,
                                          ticked: ticked.contains(row.id),
-                                         canToggle: row.outcome.canSelect && !isDeleting,
+                                         canToggle: row.cost.canSelect && !isDeleting,
                                          toggle: { toggle(row) })
                     }
                     if preselectCapped { capNotice }
-                    if losable > 0 { warning }
+                    if designArtifactsAtRisk > 0 { designArtifactsWarning }
+                    if dirtyWorktrees > 0 { dirtyWorktreeWarning }
                 }
                 .padding(20)
             }
@@ -100,14 +101,32 @@ struct OldSessionsView: View {
 
     // The one thing this screen can do that cannot be undone, said before the button is
     // reached rather than in a dialog after it.
-    private var warning: some View {
+    private var dirtyWorktreeWarning: some View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: "exclamationmark.triangle")
                 .font(.system(size: 13))
                 .foregroundStyle(Theme.deletion)
-            Text(losable == 1
+            Text(dirtyWorktrees == 1
                  ? "One session has uncommitted changes in its worktree, so it is left unticked. Deleting it loses those changes; its branch survives if git considers that safe."
-                 : "\(losable) sessions have uncommitted changes in their worktrees, so they are left unticked. Deleting them loses those changes; their branches survive if git considers that safe.")
+                 : "\(dirtyWorktrees) sessions have uncommitted changes in their worktrees, so they are left unticked. Deleting them loses those changes; their branches survive if git considers that safe.")
+                .font(.system(size: 12))
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.deletion.opacity(0.07)))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.deletion.opacity(0.25)))
+    }
+
+    private var designArtifactsWarning: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "paintbrush.pointed")
+                .font(.system(size: 13))
+                .foregroundStyle(Theme.deletion)
+            Text(designArtifactsAtRisk == 1
+                 ? "One Design session contains generated files, so it is left unticked. Deleting it permanently removes its HTML and local assets."
+                 : "\(designArtifactsAtRisk) Design sessions contain generated files, so they are left unticked. Deleting them permanently removes their HTML and local assets.")
                 .font(.system(size: 12))
                 .foregroundStyle(.primary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -177,7 +196,7 @@ struct OldSessionsView: View {
     // is being cleared once there is.
     private var footerNote: String {
         guard let current = deletionProgress?.current, !current.isEmpty else {
-            return "Original project folders stay on disk. Session worktrees are removed."
+            return "Project folders stay on disk. Ticked Design files and session worktrees are removed."
         }
         return "Clearing \(current)…"
     }
@@ -186,12 +205,16 @@ struct OldSessionsView: View {
         deletionProgress != nil
     }
 
-    private var losable: Int {
-        rows.count { $0.outcome.losesWork }
+    private var designArtifactsAtRisk: Int {
+        rows.count { $0.cost.deletesDesignArtifacts }
+    }
+
+    private var dirtyWorktrees: Int {
+        rows.count { $0.cost.worktree.losesWork }
     }
 
     private var preselectCapped: Bool {
-        rows.count { $0.outcome.losesNothing } > Self.preselectLimit
+        rows.count { $0.cost.losesNothing } > Self.preselectLimit
     }
 
     // "last turn 9 days ago · 4 turns · ⑂ code-station/pty-test · clean"
@@ -206,7 +229,7 @@ struct OldSessionsView: View {
                 ? (row.session.worktreeBranch ?? (path as NSString).lastPathComponent)
                 : "\(worktrees.count) worktrees"
             parts.append("⑂ " + label)
-            switch row.outcome {
+            switch row.cost.worktree {
             case .checking: parts.append("checking…")
             case .checkFailed: parts.append("check failed")
             case .wouldLoseWork(let added, let removed):
@@ -230,35 +253,39 @@ struct OldSessionsView: View {
                 Row(session: session,
                     projectName: session.workspaceID.flatMap(store.workspace)?.name
                         ?? store.project(session.projectID)?.name ?? "",
-                    outcome: startingOutcome(session))
+                    cost: startingCost(session))
             }
-        ticked = Set(rows.filter { $0.outcome.losesNothing }
+        ticked = Set(rows.filter { $0.cost.losesNothing }
             .prefix(Self.preselectLimit)
             .map(\.id))
         autoTicked = ticked.count
 
-        for row in rows where row.outcome == .checking {
+        for row in rows where row.cost.worktree == .checking {
             guard !isDeleting else { return }
-            let outcome = await SessionCost.settledOutcome(worktrees: worktreePaths(row.session))
+            let cost = await SessionCost.settledCost(
+                worktrees: worktreePaths(row.session),
+                deletesDesignArtifacts: store.hasDesignArtifacts(for: row.session))
             guard !isDeleting else { return }
-            settle(row.id, on: outcome)
+            settle(row.id, on: cost)
         }
     }
 
-    private func startingOutcome(_ session: ChatSession) -> SessionOutcome {
-        SessionCost.startingOutcome(worktrees: worktreePaths(session))
+    private func startingCost(_ session: ChatSession) -> SessionRemovalCost {
+        SessionCost.startingCost(
+            worktrees: worktreePaths(session),
+            deletesDesignArtifacts: store.hasDesignArtifacts(for: session))
     }
 
     private func worktreePaths(_ session: ChatSession) -> [String] {
         store.checkoutProjects(for: session).compactMap(\.worktreePath)
     }
 
-    private func settle(_ id: UUID, on outcome: SessionOutcome) {
+    private func settle(_ id: UUID, on cost: SessionRemovalCost) {
         guard let i = rows.firstIndex(where: { $0.id == id }) else { return }
-        rows[i].outcome = outcome
+        rows[i].cost = cost
         // Ticking happens here rather than up front, so a box is only ever ticked for the
         // user once git has said the worktree holds nothing.
-        if outcome.losesNothing, autoTicked < Self.preselectLimit {
+        if cost.losesNothing, autoTicked < Self.preselectLimit {
             ticked.insert(id)
             autoTicked += 1
         }
@@ -267,7 +294,7 @@ struct OldSessionsView: View {
     // MARK: - Acting
 
     private func toggle(_ row: Row) {
-        guard row.outcome.canSelect, !isDeleting else { return }
+        guard row.cost.canSelect, !isDeleting else { return }
         if ticked.contains(row.id) {
             ticked.remove(row.id)
         } else {
@@ -276,20 +303,32 @@ struct OldSessionsView: View {
     }
 
     // The sheet is the question for everything that costs nothing but history. Ticking a
-    // row that holds uncommitted work is the one choice worth asking about twice.
+    // row that holds generated files or uncommitted work is worth asking about twice.
     private func confirmDelete() {
         guard !isDeleting else { return }
         let chosen = rows.filter { ticked.contains($0.id) }
-        let losing = chosen.filter { $0.outcome.losesWork }
-        guard !losing.isEmpty else {
+        let designArtifacts = chosen.filter { $0.cost.deletesDesignArtifacts }
+        let dirtyWorktrees = chosen.filter { $0.cost.worktree.losesWork }
+        guard !designArtifacts.isEmpty || !dirtyWorktrees.isEmpty else {
             delete(chosen)
             return
         }
+        var consequences: [String] = []
+        if !designArtifacts.isEmpty {
+            consequences.append(designArtifacts.count == 1
+                ? "One selected Design session contains generated files. Deleting it permanently removes its HTML and local assets."
+                : "\(designArtifacts.count) selected Design sessions contain generated files. Deleting them permanently removes their HTML and local assets.")
+        }
+        if !dirtyWorktrees.isEmpty {
+            consequences.append(dirtyWorktrees.count == 1
+                ? "One selected session has uncommitted work in its worktree. Deleting it loses those changes."
+                : "\(dirtyWorktrees.count) selected sessions have uncommitted work in their worktrees. Deleting them loses those changes.")
+        }
         dialogs.show(Dialog(
-            title: losing.count == 1
-                ? "Delete a session with uncommitted work?"
-                : "Delete \(losing.count) sessions with uncommitted work?",
-            message: "The changes in \(losing.count == 1 ? "its worktree are" : "their worktrees are") not committed anywhere, so deleting takes them with it.",
+            title: chosen.count == 1
+                ? "Delete a session with saved work?"
+                : "Delete sessions with saved work?",
+            message: consequences.joined(separator: "\n\n"),
             actions: [
                 .init(label: deleteLabel, kind: .destructive) { delete(chosen) },
                 .init(label: "Cancel", kind: .cancel)
@@ -341,12 +380,12 @@ struct OldSessionsView: View {
 }
 
 // One session up for deletion: the tick, who it is, and what removing it would cost. The
-// outcome is the point of the row, so it sits at the end where the eye stops.
+// cost is the point of the row, so it sits at the end where the eye stops.
 private struct SessionChoiceRow: View {
     let title: String
     let projectName: String
     let detail: String
-    let outcome: SessionOutcome
+    let cost: SessionRemovalCost
     let hasWorktree: Bool
     let ticked: Bool
     let canToggle: Bool
@@ -401,7 +440,7 @@ private struct SessionChoiceRow: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            Text(outcome.label)
+            Text(cost.label)
                 .font(.mono(11))
                 .foregroundStyle(tint)
                 .lineLimit(1)
@@ -418,7 +457,8 @@ private struct SessionChoiceRow: View {
     // The cost of the row, said in colour as well as in words: nothing to lose reads as
     // grey, a worktree going as amber, work going as red.
     private var tint: Color {
-        switch outcome {
+        if cost.deletesDesignArtifacts { return Theme.deletion }
+        return switch cost.worktree {
         case .historyOnly, .checking: Color.secondary
         case .checkFailed: Theme.deletion
         case .worktreeRemoved: Theme.secret
@@ -427,7 +467,8 @@ private struct SessionChoiceRow: View {
     }
 
     private var border: Color {
-        switch outcome {
+        if cost.deletesDesignArtifacts { return Theme.deletion.opacity(0.45) }
+        return switch cost.worktree {
         case .historyOnly, .checking: Theme.border
         case .checkFailed: Theme.deletion.opacity(0.45)
         case .worktreeRemoved: Theme.secret.opacity(0.35)

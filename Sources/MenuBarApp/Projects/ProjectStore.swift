@@ -471,6 +471,27 @@ final class ProjectStore {
         return designDirectory(for: session).appendingPathComponent("index.html")
     }
 
+    func designFilesURL(for session: ChatSession) -> URL? {
+        let design = session.mode == .design ? session : designSession(for: session.id)
+        guard let design,
+              let artifact = designArtifactURL(for: design) else { return nil }
+        return artifact.deletingLastPathComponent()
+    }
+
+    func hasDesignArtifacts(for session: ChatSession) -> Bool {
+        guard let directory = designFilesURL(for: session) else { return false }
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: directory.path,
+                                             isDirectory: &isDirectory) else { return false }
+        guard isDirectory.boolValue else { return true }
+        // An existing directory that cannot be read is not safe to call empty.
+        guard let entries = try? FileManager.default.contentsOfDirectory(
+            atPath: directory.path) else {
+            return true
+        }
+        return !entries.isEmpty
+    }
+
     @discardableResult
     func newSession(in projectID: UUID, id: UUID = UUID(),
                     worktreePath: String? = nil, worktreeBranch: String? = nil,

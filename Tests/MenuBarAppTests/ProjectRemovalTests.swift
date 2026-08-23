@@ -23,6 +23,21 @@ struct ProjectRemovalTests {
         #expect(dialog.actions.last?.kind == .cancel)
     }
 
+    @Test func saysGeneratedDesignFilesGoWithTheProject() throws {
+        let store = makeStore()
+        let project = addProject(named: "checkout", to: store)
+        let design = store.newSession(in: project.id, mode: .design)
+        let artifact = try #require(store.designArtifactURL(for: design))
+        try FileManager.default.createDirectory(
+            at: artifact.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("<html>design</html>".utf8).write(to: artifact)
+
+        let dialog = ProjectRemoval.confirmation(for: project, in: store) {}
+
+        #expect(dialog.message?.contains(
+            "One session contains generated Design files that are permanently removed") == true)
+    }
+
     @Test func saysThatATaskFolderGoesWithTheTask() throws {
         let store = makeStore()
         let task = try store.addTask(named: "Sweep", prompt: "Do the thing.",
@@ -315,7 +330,8 @@ struct ProjectRemovalTests {
     }
 
     private func makeShortcuts() -> ShortcutStore {
-        ShortcutStore(storageURL: temporaryDirectory().appendingPathComponent("shortcuts.json"))
+        ShortcutStore(storageURL: temporaryDirectory().appendingPathComponent("shortcuts.json"),
+                      siteDefaults: SiteDefaults())
     }
 
     private func temporaryDirectory() -> URL {
