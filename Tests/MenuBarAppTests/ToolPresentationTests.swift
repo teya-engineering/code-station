@@ -134,6 +134,26 @@ struct ToolPresentationTests {
         #expect(presentation.argument == "swift build swift test")
     }
 
+    @Test func keepsPresentationsApartWhenCodexReusesACallID() {
+        let callID = "reused-\(UUID().uuidString)"
+        let frontend = ToolUse(id: callID, name: "Bash",
+                               input: "find ab-testing-frontend-common/src")
+        let codeStation = ToolUse(id: callID, name: "Bash",
+                                  input: "sed -n '420,520p' Sources/MenuBarApp/Projects/OldSessionsView.swift")
+
+        let frontendPresentation = ToolPresentationCache.presentation(
+            for: frontend, projectPath: "/projects/ab-testing-frontend")
+        let codeStationPresentation = ToolPresentationCache.presentation(
+            for: codeStation, projectPath: "/projects/code-station")
+        let frontendAgain = ToolPresentationCache.presentation(
+            for: frontend, projectPath: "/projects/ab-testing-frontend")
+
+        #expect(frontendPresentation.argument == "find ab-testing-frontend-common/src")
+        #expect(codeStationPresentation.argument
+                == "sed -n '420,520p' Sources/MenuBarApp/Projects/OldSessionsView.swift")
+        #expect(frontendAgain.argument == frontendPresentation.argument)
+    }
+
     // MARK: - What a call wrote without saying so
 
     @Test func drawsAShellCommandsChangeOneFileAtATime() {

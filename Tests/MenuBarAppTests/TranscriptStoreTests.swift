@@ -203,9 +203,10 @@ struct TranscriptStoreTests {
         #expect(store.session(session.id)?.lastActivity == sent)
     }
 
-    // A closed session is usually opened again, and building the diff of every edit in it
-    // is the expensive half of drawing one. What was built to draw it stays behind.
-    @Test func keepsToolPresentationsAfterTheConversationGoes() {
+    // Codex starts its short call ids over in later turns. A cached presentation outlives
+    // the closed transcript that made it, so the id alone must not make it appear in a
+    // different conversation.
+    @Test func doesNotReuseAnEvictedConversationsPresentationByCallID() {
         let store = makeStore()
         let project = project(in: store)
         let session = store.newSession(in: project.id)
@@ -216,13 +217,12 @@ struct TranscriptStoreTests {
         #expect(store.save())
         #expect(!store.isTranscriptLoaded(session.id))
 
-        // The same call id carrying nothing: a rebuilt presentation would have no file to
-        // name, a kept one still says what the call did.
-        let again = ToolPresentationCache.presentation(
-            for: ToolUse(id: callID, name: "Edit", input: "{}", result: "ok"),
+        let reused = ToolPresentationCache.presentation(
+            for: ToolUse(id: callID, name: "Bash", input: "swift test", result: "ok"),
             projectPath: project.path)
-        #expect(again.argument == "/tmp/x.swift")
-        #expect(again.added == 1)
+        #expect(reused.argument == "swift test")
+        #expect(reused.added == nil)
+        #expect(reused.removed == nil)
     }
 
     @Test func sidebarCopyTracksMetadataWithoutCarryingTheTranscript() throws {

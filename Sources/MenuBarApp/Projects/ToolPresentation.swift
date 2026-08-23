@@ -354,10 +354,11 @@ struct ToolPresentation: Sendable {
 // are derived on the persistence queue. Inputs are immutable once the call exists, so
 // one locked cache avoids parsing the same JSON and diff on either path.
 //
-// Entries outlive the conversation they were built from. A call's id is unique and its
-// input never changes, so a kept entry can never be the wrong answer, and reopening a
-// session is common enough that rebuilding every diff again is the expensive half of
-// drawing one. What bounds the cache is its own size rather than what is on screen.
+// Entries outlive the conversation they were built from. Codex reuses short call ids in
+// different turns, so the immutable source of the presentation identifies an entry. This
+// keeps one turn from borrowing another one's command or diff while still letting a
+// reopened session reuse work. What bounds the cache is its own size rather than what is
+// on screen.
 //
 // The one part of a call that does change is where an edit landed, which is only known
 // once the call reports in. An entry built before that is kept apart from the entry
@@ -381,6 +382,20 @@ enum ToolPresentationCache {
     }
 
     private final class Storage: @unchecked Sendable {
+        private struct Key: Hashable {
+            let toolID: String
+            let name: String
+            let input: String
+            let projectPath: String
+
+            init(tool: ToolUse, projectPath: String) {
+                toolID = tool.id
+                name = tool.name
+                input = tool.input
+                self.projectPath = projectPath
+            }
+        }
+
         private struct Entry {
             let presentation: ToolPresentation
             let startLine: Int?
@@ -393,23 +408,24 @@ enum ToolPresentationCache {
         }
 
         private let lock = NSLock()
-        private var values: [String: Entry] = [:]
+        private var values: [Key: Entry] = [:]
         private var lines = 0
         private var clock = 0
 
         func presentation(for tool: ToolUse, projectPath: String) -> ToolPresentation {
-            if let cached = withLock({ used(tool) }) { return cached }
+            let key = Key(tool: tool, projectPath: projectPath)
+            if let cached = withLock({ used(key, tool: tool) }) { return cached }
             let fresh = ToolPresentation(tool: tool, projectPath: projectPath)
             return withLock {
-                if let cached = used(tool) { return cached }
-                drop(tool.id)
+                if let cached = used(key, tool: tool) { return cached }
+                drop(key)
                 clock += 1
                 let entry = Entry(presentation: fresh,
                                   startLine: tool.editStartLine,
                                   writtenSize: Self.writtenSize(tool),
                                   lines: 1 + fresh.changes.reduce(0) { $0 + $1.lines.count },
                                   lastUsed: clock)
-                values[tool.id] = entry
+                values[key] = entry
                 lines += entry.lines
                 trim()
                 return fresh
@@ -418,7 +434,9 @@ enum ToolPresentationCache {
 
         func forget(_ toolIDs: some Sequence<String>) {
             withLock {
-                for id in toolIDs { drop(id) }
+                let ids = Set(toolIDs)
+                let keys = values.keys.filter { ids.contains($0.toolID) }
+                for key in keys { drop(key) }
             }
         }
 
@@ -430,17 +448,17 @@ enum ToolPresentationCache {
         }
 
         // Called holding the lock.
-        private func used(_ tool: ToolUse) -> ToolPresentation? {
-            guard let entry = values[tool.id], entry.startLine == tool.editStartLine,
+        private func used(_ key: Key, tool: ToolUse) -> ToolPresentation? {
+            guard let entry = values[key], entry.startLine == tool.editStartLine,
                   entry.writtenSize == Self.writtenSize(tool)
             else { return nil }
             clock += 1
-            values[tool.id]?.lastUsed = clock
+            values[key]?.lastUsed = clock
             return entry.presentation
         }
 
-        private func drop(_ id: String) {
-            guard let entry = values.removeValue(forKey: id) else { return }
+        private func drop(_ key: Key) {
+            guard let entry = values.removeValue(forKey: key) else { return }
             lines -= entry.lines
         }
 
@@ -449,8 +467,8 @@ enum ToolPresentationCache {
         // been closed longest rather than picking rows out of the one on screen.
         private func trim() {
             guard lines > ToolPresentationCache.lineBudget else { return }
-            for id in values.sorted(by: { $0.value.lastUsed < $1.value.lastUsed }).map(\.key) {
-                drop(id)
+            for key in values.sorted(by: { $0.value.lastUsed < $1.value.lastUsed }).map(\.key) {
+                drop(key)
                 if lines <= ToolPresentationCache.lineBudget { return }
             }
         }
