@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 // Long conversations stay fully available to the runner and persistence layer, but the
 // view only builds a bounded tail. Earlier pages are added on demand without changing
@@ -144,6 +145,7 @@ struct SessionView: View {
     @State private var explorerShowsDesignFiles = false
     @State private var openShortcutRun: ShortcutRun?
     @State private var shortcutEditor: ShortcutEditorRequest?
+    @State private var exportingDesignMaterials = false
     @State private var transcriptWindow = TranscriptWindow()
     @State private var transcriptPinnedToBottom = true
     // False until this session's transcript has been scrolled to its end. The pane is
@@ -321,6 +323,9 @@ struct SessionView: View {
                     MobileAccessButton(scope: .session(sessionID))
                 }
                 HeaderTabToggle(selection: $tab, options: headerTabs(for: session))
+                if store.isDesignMode(session) {
+                    designMaterialExportButton(session: session, project: project)
+                }
                 TerminalToggle(isOpen: terminals.isOpen(terminalScope),
                                directory: session.worktreePath ?? project.path) {
                     toggleTerminal(directory: session.worktreePath ?? project.path)
@@ -338,6 +343,65 @@ struct SessionView: View {
           .conversation),
          (store.isDesignMode(session) ? "Project Changes" : "Changes", .changes),
          ("Explorer", .explorer)]
+    }
+
+    private func designMaterialExportButton(session: ChatSession, project: Project) -> some View {
+        Button { exportDesignMaterials(session: session, project: project) } label: {
+            HStack(spacing: 6) {
+                Image(systemName: exportingDesignMaterials ? "hourglass" : "doc.zipper")
+                    .font(.system(size: 11, weight: .semibold))
+                Text("Export")
+                    .font(.system(size: 12, weight: .semibold))
+            }
+            .foregroundStyle(exportingDesignMaterials ? Color.secondary : Theme.accent)
+            .padding(.horizontal, 11)
+            .padding(.vertical, 7)
+            .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(exportingDesignMaterials)
+        .appTooltip(exportingDesignMaterials
+            ? "Exporting Design materials"
+            : "Export Design materials as a ZIP file")
+        .accessibilityLabel(exportingDesignMaterials
+            ? "Exporting Design materials"
+            : "Export Design materials as a ZIP file")
+    }
+
+    private func exportDesignMaterials(session: ChatSession, project: Project) {
+        guard let materialsURL = store.designFilesURL(for: session),
+              store.hasDesignArtifacts(for: session) else {
+            dialogs.show(Dialog(
+                title: "Nothing to export yet",
+                message: "Create a Design first, then export its HTML and supporting files.",
+                actions: [.init(label: "OK", kind: .cancel)]))
+            return
+        }
+
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.zip]
+        panel.canCreateDirectories = true
+        panel.nameFieldStringValue = DesignMaterialExporter.suggestedFileName(
+            projectName: project.name, sessionTitle: session.title)
+        panel.prompt = "Export"
+        panel.message = "Export the Design materials as a ZIP file."
+        guard panel.runModal() == .OK, let destination = panel.url else { return }
+
+        exportingDesignMaterials = true
+        Task {
+            defer { exportingDesignMaterials = false }
+            do {
+                try await DesignMaterialExporter.export(
+                    materialsAt: materialsURL, to: destination)
+            } catch {
+                dialogs.show(Dialog(
+                    title: "Could not export Design materials",
+                    message: error.localizedDescription,
+                    actions: [.init(label: "OK", kind: .cancel)]))
+            }
+        }
     }
 
     // MARK: - Status strip

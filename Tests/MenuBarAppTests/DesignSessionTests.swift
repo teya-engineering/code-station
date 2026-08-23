@@ -96,6 +96,63 @@ struct DesignSessionTests {
         #expect(!FileManager.default.fileExists(atPath: artifact.path))
     }
 
+    @Test func designMaterialsExportAtTheRootOfAZipArchive() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("code-station-design-export-\(UUID().uuidString)",
+                                    isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let materials = root.appendingPathComponent("materials", isDirectory: true)
+        let assets = materials.appendingPathComponent("assets", isDirectory: true)
+        try FileManager.default.createDirectory(at: assets, withIntermediateDirectories: true)
+        try Data("<html>Design</html>".utf8)
+            .write(to: materials.appendingPathComponent("index.html"))
+        try Data("image".utf8).write(to: assets.appendingPathComponent("hero.png"))
+
+        let archive = root.appendingPathComponent("materials.zip")
+        try await DesignMaterialExporter.export(materialsAt: materials, to: archive)
+
+        let extracted = root.appendingPathComponent("extracted", isDirectory: true)
+        try FileManager.default.createDirectory(at: extracted, withIntermediateDirectories: true)
+        let output = try await CommandRunner.run(
+            executable: "/usr/bin/ditto",
+            arguments: ["-x", "-k", archive.path, extracted.path],
+            timeout: .seconds(10))
+        #expect(output.succeeded)
+        #expect(try String(contentsOf: extracted.appendingPathComponent("index.html"),
+                           encoding: .utf8) == "<html>Design</html>")
+        #expect(try String(contentsOf: extracted.appendingPathComponent("assets/hero.png"),
+                           encoding: .utf8) == "image")
+        #expect(!FileManager.default.fileExists(
+            atPath: extracted.appendingPathComponent("materials/index.html").path))
+        #expect(!FileManager.default.fileExists(
+            atPath: extracted.appendingPathComponent("__MACOSX").path))
+    }
+
+    @Test func designMaterialArchiveNameIsPortable() {
+        let name = DesignMaterialExporter.suggestedFileName(
+            projectName: "Checkout/API", sessionTitle: "Landing:\nFirst pass")
+
+        #expect(name == "Checkout API - Landing First pass - Design materials.zip")
+    }
+
+    @Test func emptyDesignMaterialDirectoryCannotBeExported() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("code-station-empty-design-\(UUID().uuidString)",
+                                    isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        do {
+            try await DesignMaterialExporter.export(
+                materialsAt: root, to: root.appendingPathComponent("materials.zip"))
+            Issue.record("Expected an empty Design folder not to be exported")
+        } catch let error as DesignMaterialExporter.ExportError {
+            #expect(error == .noMaterials)
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+    }
+
     @Test func sessionsWithoutAModeDecodeAsChat() throws {
         let id = UUID()
         let projectID = UUID()
