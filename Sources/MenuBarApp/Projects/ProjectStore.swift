@@ -902,6 +902,11 @@ final class ProjectStore {
         interaction reference. Reuse the production project's existing components, tokens, \
         patterns, and architecture.
 
+        Treat this Design as a scoped change to the existing product unless the goal clearly \
+        requires a new or replacement experience. Inspect the current implementation and close \
+        only the gap represented by the goal and Design. Preserve behavior, structure, screens, \
+        and content outside that gap. Anything omitted from the Design remains unchanged.
+
         ## Acceptance
 
         - Match the approved visual hierarchy and content.

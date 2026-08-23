@@ -171,7 +171,11 @@ enum DesignHandoffLifecycle {
                 text: "The implementation reference was updated to \(revision.title)."),
                 to: implementationID)
             runner.sendAppCommand(
-                "Review the updated \(revision.title) reference. Reconcile the current implementation with its changed visual and interaction requirements, then run the relevant tests.",
+                """
+                Review the updated \(revision.title) reference. Reconcile only its changed \
+                visual and interaction requirements with the current implementation, preserve \
+                behavior outside that gap, then run the relevant tests.
+                """,
                 attachments: store.implementationReferenceAttachments(for: implementation),
                 sessionID: implementationID,
                 store: store)
@@ -181,11 +185,18 @@ enum DesignHandoffLifecycle {
 
     private static func implementationPrompt(_ revision: DesignRevision) -> String {
         """
-        Implement the approved \(revision.title) in the production application. Read the \
-        attached handoff and Design materials first. Treat the HTML as a visual and \
-        interaction reference, not production code. Reuse the project's existing components, \
-        tokens, patterns, and architecture. Resolve implementation details from the real code, \
-        cover the important states and accessibility behavior, and run the relevant tests.
+        Implement the scoped change represented by the approved \(revision.title) in the \
+        production application. Inspect the current implementation, then read the attached \
+        handoff and Design materials. Treat the Design as the gap to close, not a complete \
+        specification of the application. Preserve behavior, structure, screens, and content \
+        outside that gap. Anything omitted from the Design remains unchanged. Do not rebuild \
+        or replace an existing application, page, or feature unless the user or handoff \
+        explicitly asks for that scope.
+
+        Treat the HTML as a visual and interaction reference, not production code. Reuse the \
+        project's existing components, tokens, patterns, and architecture. Resolve \
+        implementation details from the real code, cover the important states and \
+        accessibility behavior, and run the relevant tests.
         """
     }
 }

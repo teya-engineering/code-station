@@ -667,10 +667,10 @@ final class SessionRunner {
         `index.html` remains the default screen. Keep ids and paths stable across revisions.
 
         Also maintain `handoff.md` in the artifact directory. Keep it concise and current. \
-        Record the goal, screens and states, interactions, responsive and accessibility \
-        expectations, existing project components and tokens to reuse, decisions, non-goals, \
-        open questions, and acceptance checks. It supports implementation but does not replace \
-        the visible HTML result.
+        Record the goal, the scoped change from the existing product when there is one, screens \
+        and states, interactions, responsive and accessibility expectations, existing project \
+        components and tokens to reuse, decisions, non-goals, open questions, and acceptance \
+        checks. It supports implementation but does not replace the visible HTML result.
 
         Read the relevant code and project instructions before designing. Reuse the \
         product's real visual language, tokens, components, content patterns, and assets \
@@ -685,6 +685,14 @@ final class SessionRunner {
         You are implementing an approved Design in the production project. The immutable \
         reference materials are in:
         \(referenceURL.path)
+
+        Treat the Design as a scoped change to the existing product, not a complete \
+        specification of the application. Inspect the current implementation first and \
+        identify the gap between it, the user's request, and the Design. Preserve working \
+        behavior, structure, screens, and content outside that gap. Anything omitted from \
+        the Design remains unchanged. Prefer the smallest coherent change, and do not rebuild \
+        or replace an existing application, page, or feature unless the user or handoff \
+        explicitly asks for that scope.
 
         Read `handoff.md`, `design.json`, and the referenced HTML screens before editing. \
         Treat them as visual, content, and interaction references rather than production \

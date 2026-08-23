@@ -155,8 +155,12 @@ struct DesignSessionTests {
         #expect(fixture.store.designConversation(for: design.id) == nil)
         #expect(fixture.store.isDesignMode(implementing))
         #expect(fixture.store.designFilesURL(for: implementing) != nil)
-        #expect(fixture.store.implementationReferenceAttachments(for: implementing)
-            .contains { $0.name == "handoff.md" })
+        let handoff = try #require(fixture.store
+            .implementationReferenceAttachments(for: implementing)
+            .first { $0.name == "handoff.md" })
+        let handoffText = try String(contentsOf: handoff.url, encoding: .utf8)
+        #expect(handoffText.contains("scoped change to the existing product"))
+        #expect(handoffText.contains("Anything omitted from the Design remains unchanged"))
 
         let restored = ProjectStore(storeURL: fixture.store.storeURL)
         #expect(restored.session(design.id)?.designPhase == .implementing)
@@ -339,6 +343,8 @@ struct DesignSessionTests {
         let artifact = URL(fileURLWithPath: "/tmp/code-station design/index.html")
         let prompt = SessionRunner.designSystemPrompt(artifactURL: artifact)
 
+        #expect(prompt.contains("scoped change from the existing product"))
+
         let claude = SessionRunner.arguments(
             agent: .claudeCode,
             settings: SessionSettings(),
@@ -367,6 +373,9 @@ struct DesignSessionTests {
 
         #expect(prompt.contains("implementing an approved Design"))
         #expect(prompt.contains(reference.path))
+        #expect(prompt.contains("scoped change to the existing product"))
+        #expect(prompt.contains("Anything omitted from the Design remains unchanged"))
+        #expect(prompt.contains("Prefer the smallest coherent change"))
         #expect(prompt.contains("Keep the reference files unchanged"))
     }
 
