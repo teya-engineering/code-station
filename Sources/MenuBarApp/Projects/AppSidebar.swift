@@ -320,10 +320,7 @@ struct AppSidebar: View {
             if !tasks.isEmpty { return "waiting for " + BackgroundTaskPhrase.of(tasks) }
             return session.summary.lastTool ?? "running"
         case .finished:
-            let files = session.summary.added + session.summary.removed
-            return files > 0
-                ? "finished while away · +\(session.summary.added) −\(session.summary.removed)"
-                : "finished while away"
+            return "finished while away"
         }
     }
 
@@ -553,8 +550,6 @@ struct AppSidebar: View {
                                             finished: finished,
                                             activity: activitySummary(session, project: lead,
                                                                       busy: busy, finished: finished),
-                                            added: session.summary.added,
-                                            removed: session.summary.removed,
                                             branch: workspaceBranch(session),
                                             uncommitted: folders.contains(where: workingTrees.isDirty),
                                             connected: mobileAccess.isConnected(session: session.id),
@@ -669,8 +664,6 @@ struct AppSidebar: View {
                                         finished: finished,
                                         activity: activitySummary(session, project: project,
                                                                   busy: busy, finished: finished),
-                                        added: session.summary.added,
-                                        removed: session.summary.removed,
                                         branch: branch(session, project: project),
                                         uncommitted: workingTrees.isDirty(folder(session, project: project)),
                                         connected: mobileAccess.isConnected(session: session.id),
@@ -1726,8 +1719,8 @@ private struct MobileConnectionMark: View {
     }
 }
 
-// A session as a compact card. It carries the same state, title, activity and changes the
-// session shows on its project and on Home, so it reads the same wherever it is met.
+// A session as a compact card. It carries the same state, title and activity the session
+// shows on its project and on Home, so it reads the same wherever it is met.
 private struct SessionCard: View {
     let session: ChatSession
     let selected: Bool
@@ -1736,8 +1729,6 @@ private struct SessionCard: View {
     let needsInput: Bool
     let finished: Bool
     let activity: String?
-    let added: Int
-    let removed: Int
     let branch: String?
     let uncommitted: Bool
     let connected: Bool
@@ -1776,9 +1767,6 @@ private struct SessionCard: View {
                 // button that replaces them is an overlay, so the card is one size whether
                 // or not the pointer is on it.
                 HStack(spacing: 6) {
-                    if added > 0 || removed > 0 {
-                        DiffPair(added: added, removed: removed, size: 10, spacing: 4)
-                    }
                     Text(RelativeTime.short(session.lastActivity))
                         .font(.mono(9.5))
                         .foregroundStyle(.tertiary)
@@ -1847,9 +1835,6 @@ private struct SessionCard: View {
         var rows = [Tooltip.Row(label: "State", value: tone.word.capitalized)]
         if let branch {
             rows.append(Tooltip.Row(label: "Branch", value: branch))
-        }
-        if added > 0 || removed > 0 {
-            rows.append(Tooltip.Row(label: "Changes", value: "+\(added) -\(removed)"))
         }
         if appSettings.showsCost(for: session.agent),
            let usage = session.usage, usage.turns > 0 {
