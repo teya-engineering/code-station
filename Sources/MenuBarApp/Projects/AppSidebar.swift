@@ -1567,19 +1567,14 @@ private struct ProjectHeaderRow: View {
                 }
                 Spacer(minLength: 6)
 
-                // The count says what the row holds; under the pointer it gives way to the
-                // two things you come to a project row to do. The buttons carry their word
-                // beside the glyph, so they take more room than the count did: the name
-                // gives way while the pointer is on the row, which costs nothing to read
-                // since the pointer is here for the buttons.
+                // The running light gives way under the pointer to the things you come to
+                // a project row to do. The name gives way while the pointer is here for
+                // those actions, so the wider labels do not make the row grow.
                 ZStack(alignment: .trailing) {
-                    HStack(spacing: 6) {
-                        if runningCount > 0 { RunningDot() }
-                        Text("\(sessionCount)")
-                            .font(.mono(10))
-                            .foregroundStyle(.secondary)
+                    if runningCount > 0 {
+                        RunningDot()
+                            .opacity(hovering ? 0 : 1)
                     }
-                    .opacity(hovering ? 0 : 1)
 
                     if hovering {
                         HStack(spacing: 10) {
