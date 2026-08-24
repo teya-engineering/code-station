@@ -231,6 +231,6 @@ enum DesignArtifacts {
     }
 
     private static func reservedLiveEntry(_ name: String) -> Bool {
-        name == "revisions" || name == "reference" || name == "implementation.png"
+        name == "revisions" || name == "reference"
     }
 }

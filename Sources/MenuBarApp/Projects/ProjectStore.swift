@@ -522,10 +522,6 @@ final class ProjectStore {
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
     }
 
-    func implementationScreenshotURL(for session: ChatSession) -> URL {
-        designDirectory(for: session).appendingPathComponent("implementation.png")
-    }
-
     func designFilesURL(for session: ChatSession) -> URL? {
         if let reference = designReferenceDirectory(for: session) { return reference }
         let design = session.ownsDesign ? session : designSession(for: session.id)
@@ -854,25 +850,6 @@ final class ProjectStore {
             return .success(())
         } catch {
             return .failure(PersistenceFailure(message: error.localizedDescription))
-        }
-    }
-
-    func saveImplementationScreenshot(_ source: URL, for sessionID: UUID)
-        -> Result<URL, PersistenceFailure> {
-        guard let session = session(sessionID), session.isImplementingDesign,
-              let image = NSImage(contentsOf: source),
-              let png = DesignArtifacts.pngData(image) else {
-            return .failure(PersistenceFailure(message: "The selected file is not a readable image."))
-        }
-        let destination = implementationScreenshotURL(for: session)
-        do {
-            try FileManager.default.createDirectory(
-                at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try png.write(to: destination, options: .atomic)
-            return .success(destination)
-        } catch {
-            return .failure(PersistenceFailure(
-                message: "The implementation screenshot could not be saved: \(error.localizedDescription)"))
         }
     }
 

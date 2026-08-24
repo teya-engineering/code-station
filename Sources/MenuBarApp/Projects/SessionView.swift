@@ -135,7 +135,7 @@ struct SessionView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let sessionID: UUID
 
-    private enum Tab: Hashable { case conversation, design, compare, changes, explorer }
+    private enum Tab: Hashable { case conversation, design, changes, explorer }
 
     @State private var tab: Tab = .conversation
     @State private var dropTargeted = false
@@ -208,8 +208,6 @@ struct SessionView: View {
                     }
                 case .design:
                     DesignReferenceView(sessionID: session.id)
-                case .compare:
-                    DesignImplementationComparisonView(sessionID: session.id)
                 case .changes:
                     ChangesView(root: projectDirectory)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -352,7 +350,6 @@ struct SessionView: View {
         ]
         if session.isImplementingDesign {
             tabs.append(("Design", .design))
-            tabs.append(("Compare", .compare))
         }
         tabs.append((store.isDesignMode(session) ? "Project Changes" : "Changes", .changes))
         tabs.append(("Explorer", .explorer))
@@ -536,7 +533,7 @@ struct SessionView: View {
 
     private func showsDirectoryBar(for session: ChatSession, designFilesURL: URL?) -> Bool {
         switch tab {
-        case .conversation, .design, .compare: false
+        case .conversation, .design: false
         case .changes: store.checkoutProjects(for: session).count > 1
         case .explorer:
             designFilesURL != nil || store.checkoutProjects(for: session).count > 1
