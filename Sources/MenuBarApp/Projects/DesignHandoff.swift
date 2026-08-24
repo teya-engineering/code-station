@@ -20,10 +20,10 @@ enum DesignHandoffLifecycle {
         return revisions
     }
 
-    static func continueHere(_ designSessionID: UUID, revision: DesignRevision,
-                             store: ProjectStore, runner: SessionRunner)
+    static func startImplementation(_ designSessionID: UUID, revision: DesignRevision,
+                                    store: ProjectStore, runner: SessionRunner)
         -> Result<Void, Failure> {
-        guard let session = store.session(designSessionID) else {
+        guard store.session(designSessionID) != nil else {
             return .failure(Failure(title: "Could not start implementation",
                                     message: "The Design session is no longer available."))
         }
@@ -35,123 +35,21 @@ enum DesignHandoffLifecycle {
             break
         }
 
-        _ = runner.clearContext(designSessionID, store: store)
+        guard let implementation = store.session(designSessionID) else {
+            return .failure(Failure(title: "Could not start implementation",
+                                    message: "The implementation session is no longer available."))
+        }
         store.append(ChatMessage(
             role: .system,
-            text: "Implementation started from \(revision.title). The approved Design remains available in the Design tab."),
+            text: "Implementation started from \(revision.title). Return to the Design tab to refine it and send updates."),
             to: designSessionID)
         runner.sendAppCommand(
             implementationPrompt(revision),
-            attachments: store.implementationReferenceAttachments(for: session),
+            attachments: store.implementationReferenceAttachments(for: implementation),
             sessionID: designSessionID,
             store: store)
         store.selectSession(designSessionID)
         return .success(())
-    }
-
-    static func startFresh(from designSessionID: UUID, revision: DesignRevision,
-                           store: ProjectStore, runner: SessionRunner,
-                           worktrees: WorktreeOperations = .live) async
-        -> Result<ChatSession, Failure> {
-        guard let design = store.session(designSessionID), design.ownsDesign,
-              let project = store.project(design.projectID) else {
-            return .failure(Failure(title: "Could not create the coding session",
-                                    message: "The Design session is no longer available."))
-        }
-
-        let created: Result<ChatSession, Failure>
-        if let workspaceID = design.workspaceID,
-           let workspace = store.workspace(workspaceID) {
-            let sessionID = UUID()
-            var choices: [WorkspaceProjectChoice] = []
-            for checkout in store.checkoutProjects(for: design) {
-                guard let member = store.project(checkout.projectID) else { continue }
-                let path = checkout.worktreePath ?? member.path
-                choices.append(WorkspaceProjectChoice(
-                    projectID: member.id,
-                    useWorktree: checkout.worktreePath != nil,
-                    base: checkout.worktreePath == nil ? nil : await GitRevision.head(at: path)))
-            }
-            let choice = WorkspaceSessionChoice(
-                sessionID: sessionID,
-                projects: choices,
-                agent: design.agent,
-                model: design.settings?.model,
-                agentAvatarName: design.agentAvatarName,
-                mode: .chat)
-            created = switch await SessionLifecycle.createWorkspaceSession(
-                choice, in: workspace, store: store, worktrees: worktrees) {
-            case .success(let session): .success(session)
-            case .failure(let failure): .failure(Failure(
-                title: failure.title, message: failure.message))
-            }
-        } else if design.worktreePath != nil, project.isGitRepository {
-            let sessionID = UUID()
-            let base: String?
-            if let directory = store.workingDirectory(for: design) {
-                base = await GitRevision.head(at: directory)
-            } else {
-                base = nil
-            }
-            created = switch await SessionLifecycle.createWorktreeSession(
-                in: project,
-                id: sessionID,
-                base: base,
-                agent: design.agent,
-                model: design.settings?.model,
-                agentAvatarName: design.agentAvatarName,
-                mode: .chat,
-                store: store,
-                worktrees: worktrees) {
-            case .success(let session): .success(session)
-            case .failure(let failure): .failure(Failure(
-                title: failure.title, message: failure.message))
-            }
-        } else {
-            created = store.insertSession(
-                in: project.id,
-                agent: design.agent,
-                model: design.settings?.model,
-                agentAvatarName: design.agentAvatarName,
-                mode: .chat)
-                .mapError { Failure(title: "Could not create the coding session",
-                                    message: $0.message) }
-        }
-
-        guard case .success(let implementation) = created else { return created }
-        switch store.linkImplementation(implementation.id, to: design.id,
-                                        revisionID: revision.id) {
-        case .failure(let failure):
-            let cleanup = await SessionLifecycle.remove(
-                implementation, from: store, runner: runner, worktrees: worktrees)
-            let cleanupMessage = switch cleanup {
-            case .success: ""
-            case .failure(let cleanupFailure):
-                " The incomplete session also could not be removed: \(cleanupFailure.message)"
-            }
-            return .failure(Failure(
-                title: "Could not create the coding session",
-                message: failure.message + cleanupMessage))
-        case .success:
-            break
-        }
-
-        let title = design.title == "New session"
-            ? "Implement Design" : "Implement \(design.title)"
-        store.renameSession(implementation.id, to: title)
-        if let linked = store.session(implementation.id) {
-            store.append(ChatMessage(
-                role: .system,
-                text: "This coding session was created from \(revision.title) in \"\(design.title)\"."),
-                to: linked.id)
-            runner.sendAppCommand(
-                implementationPrompt(revision),
-                attachments: store.implementationReferenceAttachments(for: linked),
-                sessionID: linked.id,
-                store: store)
-        }
-        store.selectSession(implementation.id)
-        return .success(store.session(implementation.id) ?? implementation)
     }
 
     static func sendLatestDesign(to implementationID: UUID,

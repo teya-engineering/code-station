@@ -199,7 +199,11 @@ struct SessionView: View {
 
                 switch tab {
                 case .conversation:
-                    if let design = store.designConversation(for: session.id) {
+                    if session.isImplementingDesign {
+                        transcript(session)
+                        Divider().overlay(Theme.hairline)
+                        composer(session: session, project: project)
+                    } else if let design = store.designConversation(for: session.id) {
                         DesignView(sessionID: design.id)
                     } else {
                         transcript(session)
@@ -207,7 +211,11 @@ struct SessionView: View {
                         composer(session: session, project: project)
                     }
                 case .design:
-                    DesignReferenceView(sessionID: session.id)
+                    if let design = store.designSession(for: session.id) {
+                        DesignView(sessionID: design.id) { tab = .conversation }
+                    } else {
+                        DesignReferenceView(sessionID: session.id)
+                    }
                 case .changes:
                     ChangesView(root: projectDirectory)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -344,10 +352,10 @@ struct SessionView: View {
     }
 
     private func headerTabs(for session: ChatSession) -> [(label: String, value: Tab)] {
-        var tabs: [(label: String, value: Tab)] = [
-            (store.designConversation(for: session.id) == nil ? "Chat" : "Design",
-             .conversation),
-        ]
+        var tabs: [(label: String, value: Tab)] = session.isImplementingDesign
+            ? [("Build", .conversation)]
+            : [(store.designConversation(for: session.id) == nil ? "Chat" : "Design",
+                .conversation)]
         if session.isImplementingDesign {
             tabs.append(("Design", .design))
         }

@@ -42,6 +42,9 @@ final class SessionRunner {
     // What has been typed but not run yet, oldest first. Everything goes through here, so
     // a prompt typed mid-turn keeps its place behind the ones before it.
     private var queues: [UUID: [QueuedPrompt]] = [:]
+    // Design and Build share one checkout. A turn for one side waits here while the other
+    // side is using it, then starts as soon as that turn releases the directory.
+    private var designWorkflowDirectoryWaits: Set<UUID> = []
     // What is half-written in the composer and not sent yet. The detail pane is built
     // again from nothing every time another session is picked, so this cannot live there
     // without the words going with it.
@@ -604,11 +607,17 @@ final class SessionRunner {
         // Two agents sharing any direct project folder would edit the same files under
         // each other. Workspace sessions therefore conflict when any root overlaps.
         if let other = busySession(sharingDirectoryWith: session, store: store) {
+            if store.sessionsShareDesignWorkflow(sessionID, other.id) {
+                designWorkflowDirectoryWaits.insert(sessionID)
+                setState(.idle, for: sessionID)
+                return
+            }
             setState(.failed(
                 "\"\(other.title)\" is already running in one of these folders. Sessions that share a directory cannot run at the same time - stop that one first, or use worktrees to run in parallel."),
                 for: sessionID)
             return
         }
+        designWorkflowDirectoryWaits.remove(sessionID)
 
         queues[sessionID]?.removeFirst()
         // Where the conversation stands right now, stamped on the prompt so it marks a
@@ -897,6 +906,7 @@ final class SessionRunner {
         waits[sessionID] = nil
         asked[sessionID] = nil
         queues[sessionID] = nil
+        designWorkflowDirectoryWaits.remove(sessionID)
         drafts[sessionID] = nil
         avatarSequences[sessionID] = nil
         compactNotices[sessionID] = nil
@@ -1780,6 +1790,7 @@ final class SessionRunner {
                 setState(.idle, for: sessionID)
             }
             store.release(sessionID, for: .running)
+            resumeDesignWorkflowQueues(after: sessionID, store: store)
             return
         }
 
@@ -1797,6 +1808,7 @@ final class SessionRunner {
             // stop the queue waits to be sent by hand, so the reason it stopped stays on
             // screen long enough to read.
             runQueue(sessionID, store: store)
+            resumeDesignWorkflowQueues(after: sessionID, store: store)
             // A queued prompt starting straight away means the session has not stopped
             // working, and there is nothing to come back to yet.
             if !state(sessionID).isBusy {
@@ -1847,11 +1859,21 @@ final class SessionRunner {
         }
         setState(.failed(message), for: sessionID)
         store.release(sessionID, for: .running)
+        resumeDesignWorkflowQueues(after: sessionID, store: store)
         store.noteTurnEnded(for: sessionID)
         if let session = store.session(sessionID) {
             AppNotifier.shared.turnEnded(
                 sessionID: store.userFacingSessionID(for: sessionID),
                 sessionTitle: session.title, failure: message)
+        }
+    }
+
+    private func resumeDesignWorkflowQueues(after sessionID: UUID, store: ProjectStore) {
+        let waiting = designWorkflowDirectoryWaits.filter {
+            store.sessionsShareDesignWorkflow(sessionID, $0)
+        }
+        for waitingSessionID in waiting {
+            runQueue(waitingSessionID, store: store)
         }
     }
 

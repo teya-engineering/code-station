@@ -11,6 +11,7 @@ struct DesignView: View {
     @Environment(\.textScale) private var textScale
 
     let sessionID: UUID
+    var onOpenImplementation: (() -> Void)? = nil
 
     @State private var artifactRevision: DesignArtifactRevision?
     @State private var reloadGeneration = 0
@@ -362,7 +363,11 @@ struct DesignView: View {
 
     private func canvas(_ session: ChatSession, directory: URL,
                         liveDirectory: URL) -> some View {
-        VStack(spacing: 0) {
+        let implementation = store.implementationSessions(for: session.id).last
+        let needsImplementationUpdate = implementation.map {
+            designNeedsUpdate(session, implementation: $0, liveDirectory: liveDirectory)
+        } ?? false
+        return VStack(spacing: 0) {
             HStack(spacing: 10) {
                 Text("CANVAS")
                     .font(.mono(10, .semibold))
@@ -468,14 +473,37 @@ struct DesignView: View {
                         }
                         .buttonStyle(.plain)
                         .disabled(preparingHandoff || runner.state(sessionID).isBusy)
-                        .appTooltip("Save an approved Design revision")
+                        .appTooltip("Save a Design version")
 
-                        ActionButton(title: preparingHandoff ? "Preparing…" : "Implement",
-                                     tone: .green, height: 28, size: 11,
-                                     icon: preparingHandoff ? "hourglass" : "hammer.fill") {
-                            requestImplementationSnapshot()
+                        if let implementation {
+                            if onOpenImplementation == nil {
+                                ActionButton(title: "Build", tone: .outlined,
+                                             height: 28, size: 11,
+                                             icon: "arrow.right") {
+                                    openImplementation(implementation)
+                                }
+                            }
+
+                            if needsImplementationUpdate {
+                                ActionButton(
+                                    title: preparingHandoff ? "Preparing…" : "Update build",
+                                    tone: .green, height: 28, size: 11,
+                                    icon: preparingHandoff ? "hourglass" : "arrow.triangle.2.circlepath") {
+                                        requestImplementationSnapshot()
+                                    }
+                                    .disabled(preparingHandoff || runner.state(sessionID).isBusy)
+                            } else {
+                                MonoChip(text: "BUILD UP TO DATE", size: 8.5,
+                                         tint: Theme.accent)
+                            }
+                        } else {
+                            ActionButton(title: preparingHandoff ? "Preparing…" : "Implement",
+                                         tone: .green, height: 28, size: 11,
+                                         icon: preparingHandoff ? "hourglass" : "hammer.fill") {
+                                requestImplementationSnapshot()
+                            }
+                            .disabled(preparingHandoff || runner.state(sessionID).isBusy)
                         }
-                        .disabled(preparingHandoff || runner.state(sessionID).isBusy)
                     }
 
                     Button { reloadGeneration += 1 } label: {
@@ -665,10 +693,11 @@ struct DesignView: View {
             return
         }
         let source = await DesignHandoffLifecycle.sourceRevisions(for: session, store: store)
-        switch store.approveDesign(sessionID, screenshot: screenshot, sourceRevisions: source) {
+        switch store.saveDesignRevision(
+            sessionID, screenshot: screenshot, sourceRevisions: source) {
         case .success(let revision):
             store.append(ChatMessage(role: .system,
-                                     text: "Saved \(revision.title) as the approved Design."),
+                                     text: "Saved \(revision.title)."),
                          to: sessionID)
         case .failure(let failure):
             showFailure(title: "Could not save the Design revision", message: failure.message)
@@ -689,34 +718,47 @@ struct DesignView: View {
             showFailure(title: "Could not prepare the Design", message: failure.message)
         case .success(let revision):
             preparingHandoff = false
-            dialogs.show(Dialog(
-                title: "Implement \(revision.title)?",
-                message: "Continue here with a fresh coding context, or create a separate linked coding session.",
-                actions: [
-                    .init(label: "Continue in this session", kind: .primary) {
-                        switch DesignHandoffLifecycle.continueHere(
-                            sessionID, revision: revision, store: store, runner: runner) {
-                        case .success:
-                            break
-                        case .failure(let failure):
-                            showFailure(title: failure.title, message: failure.message)
-                        }
-                    },
-                    .init(label: "Start a new coding session") {
-                        preparingHandoff = true
-                        Task {
-                            let result = await DesignHandoffLifecycle.startFresh(
-                                from: sessionID, revision: revision,
-                                store: store, runner: runner)
-                            preparingHandoff = false
-                            if case .failure(let failure) = result {
-                                showFailure(title: failure.title, message: failure.message)
-                            }
-                        }
-                    },
-                    .init(label: "Cancel", kind: .cancel),
-                ],
-                width: 390))
+            if let implementation = store.implementationSessions(for: sessionID).last {
+                switch DesignHandoffLifecycle.sendLatestDesign(
+                    to: implementation.id, store: store, runner: runner) {
+                case .success:
+                    store.append(ChatMessage(
+                        role: .system,
+                        text: "Sent \(revision.title) to Build."),
+                        to: sessionID)
+                case .failure(let failure):
+                    showFailure(title: failure.title, message: failure.message)
+                }
+            } else {
+                switch DesignHandoffLifecycle.startImplementation(
+                    sessionID, revision: revision, store: store, runner: runner) {
+                case .success:
+                    break
+                case .failure(let failure):
+                    showFailure(title: failure.title, message: failure.message)
+                }
+            }
+        }
+    }
+
+    private func designNeedsUpdate(_ design: ChatSession, implementation: ChatSession,
+                                   liveDirectory: URL) -> Bool {
+        if store.designHasUpdated(for: implementation) { return true }
+        guard let revisionID = implementation.handedOffDesignRevisionID,
+              let revision = design.designRevisions.first(where: { $0.id == revisionID }) else {
+            return true
+        }
+        let handedOff = DesignArtifacts.materialsDirectory(
+            revision, designDirectory: store.designDirectory(for: design))
+        return DesignArtifactRevision.read(liveDirectory)
+            != DesignArtifactRevision.read(handedOff)
+    }
+
+    private func openImplementation(_ implementation: ChatSession) {
+        if let onOpenImplementation {
+            onOpenImplementation()
+        } else {
+            store.selectSession(implementation.id)
         }
     }
 
@@ -787,7 +829,7 @@ struct DesignReferenceView: View {
                     }
                     if let sourceID = session.sourceDesignSessionID,
                        store.session(sourceID) != nil {
-                        ActionButton(title: "Open source", tone: .outlined,
+                        ActionButton(title: "Edit Design", tone: .outlined,
                                      height: 28, size: 11, icon: "arrow.up.right") {
                             store.selectSession(sourceID)
                         }

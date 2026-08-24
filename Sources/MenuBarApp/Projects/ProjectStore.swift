@@ -161,6 +161,16 @@ final class ProjectStore {
             .sorted { $0.createdAt < $1.createdAt }
     }
 
+    func sessionsShareDesignWorkflow(_ firstSessionID: UUID, _ secondSessionID: UUID) -> Bool {
+        guard let first = session(firstSessionID), let second = session(secondSessionID) else {
+            return false
+        }
+        return first.sourceDesignSessionID == second.id
+            || second.sourceDesignSessionID == first.id
+            || first.designSourceSessionID == second.id
+            || second.designSourceSessionID == first.id
+    }
+
     func approvedDesignRevision(for session: ChatSession) -> DesignRevision? {
         guard let owner = designOwner(for: session),
               let approved = owner.approvedDesignRevisionID else { return nil }
@@ -523,6 +533,10 @@ final class ProjectStore {
     }
 
     func designFilesURL(for session: ChatSession) -> URL? {
+        if let design = designSession(for: session.id),
+           let artifact = designArtifactURL(for: design) {
+            return artifact.deletingLastPathComponent()
+        }
         if let reference = designReferenceDirectory(for: session) { return reference }
         let design = session.ownsDesign ? session : designSession(for: session.id)
         guard let design,
@@ -710,8 +724,22 @@ final class ProjectStore {
         saveIndex()
     }
 
+    func saveDesignRevision(_ sessionID: UUID, screenshot: Data?,
+                            sourceRevisions: [String: String])
+        -> Result<DesignRevision, PersistenceFailure> {
+        storeDesignRevision(sessionID, screenshot: screenshot,
+                            sourceRevisions: sourceRevisions, approved: false)
+    }
+
     func approveDesign(_ sessionID: UUID, screenshot: Data?,
                        sourceRevisions: [String: String])
+        -> Result<DesignRevision, PersistenceFailure> {
+        storeDesignRevision(sessionID, screenshot: screenshot,
+                            sourceRevisions: sourceRevisions, approved: true)
+    }
+
+    private func storeDesignRevision(_ sessionID: UUID, screenshot: Data?,
+                                     sourceRevisions: [String: String], approved: Bool)
         -> Result<DesignRevision, PersistenceFailure> {
         guard let i = index(sessionID), sessions[i].ownsDesign else {
             return .failure(PersistenceFailure(message: "The Design session is no longer available."))
@@ -735,7 +763,7 @@ final class ProjectStore {
 
         let previousApprovedRevisionID = sessions[i].approvedDesignRevisionID
         sessions[i].designRevisions.append(revision)
-        sessions[i].approvedDesignRevisionID = revision.id
+        if approved { sessions[i].approvedDesignRevisionID = revision.id }
         publishSidebarSessions()
         markIndexDirty()
         guard save() else {
@@ -752,18 +780,74 @@ final class ProjectStore {
     func beginImplementation(_ sessionID: UUID, revisionID: UUID)
         -> Result<Void, PersistenceFailure> {
         guard let i = index(sessionID), sessions[i].ownsDesign,
-              sessions[i].designRevisions.contains(where: { $0.id == revisionID }) else {
+              let revision = sessions[i].designRevisions.first(where: { $0.id == revisionID }) else {
             return .failure(PersistenceFailure(message: "The approved Design is no longer available."))
         }
-        let previousApprovedRevisionID = sessions[i].approvedDesignRevisionID
-        let previousPhase = sessions[i].designPhase
-        sessions[i].approvedDesignRevisionID = revisionID
-        sessions[i].designPhase = .implementing
+
+        // The visible session becomes Build while Design moves behind its tab. Keeping two
+        // conversations preserves each agent's context without creating another sidebar row.
+        loadTranscript(i)
+        let original = sessions[i]
+        var design = original
+        design.id = UUID()
+        design.title = "Design"
+        design.designSourceSessionID = original.id
+        design.sourceDesignSessionID = nil
+        design.handedOffDesignRevisionID = nil
+        design.approvedDesignRevisionID = revisionID
+
+        var implementation = original
+        implementation.mode = .chat
+        implementation.designPhase = .implementing
+        implementation.designRevisions = []
+        implementation.approvedDesignRevisionID = nil
+        implementation.sourceDesignSessionID = design.id
+        implementation.handedOffDesignRevisionID = revisionID
+        implementation.designSourceSessionID = nil
+        implementation.claudeSessionID = nil
+        implementation.codexSessionID = nil
+        implementation.usage = nil
+        implementation.summary = SessionSummary()
+        implementation.messages = []
+        implementation.transcriptLoaded = true
+
+        let sourceDirectory = designDirectory(for: original)
+        let designStorageDirectory = designDirectory(for: design)
+        let referenceDirectory = designDirectory(for: implementation)
+            .appendingPathComponent("reference", isDirectory: true)
+        do {
+            try FileManager.default.moveItem(at: sourceDirectory, to: designStorageDirectory)
+            try DesignArtifacts.copyReference(
+                revision, from: designStorageDirectory, to: referenceDirectory)
+        } catch {
+            try? FileManager.default.removeItem(at: designDirectory(for: implementation))
+            if FileManager.default.fileExists(atPath: designStorageDirectory.path),
+               !FileManager.default.fileExists(atPath: sourceDirectory.path) {
+                try? FileManager.default.moveItem(at: designStorageDirectory, to: sourceDirectory)
+            }
+            return .failure(PersistenceFailure(message: error.localizedDescription))
+        }
+
+        sessions[i] = implementation
+        sessions.append(design)
+        dirtyTranscripts.insert(implementation.id)
+        dirtyTranscripts.insert(design.id)
+        transcriptRevisions[implementation.id, default: 0] &+= 1
+        transcriptRevisions[design.id, default: 0] &+= 1
         publishSidebarSessions()
         markIndexDirty()
         guard save() else {
-            sessions[i].approvedDesignRevisionID = previousApprovedRevisionID
-            sessions[i].designPhase = previousPhase
+            sessions[i] = original
+            sessions.removeAll { $0.id == design.id }
+            dirtyTranscripts.remove(design.id)
+            transcriptRevisions[design.id] = nil
+            dirtyTranscripts.insert(original.id)
+            transcriptRevisions[original.id, default: 0] &+= 1
+            try? FileManager.default.removeItem(at: designDirectory(for: implementation))
+            if FileManager.default.fileExists(atPath: designStorageDirectory.path),
+               !FileManager.default.fileExists(atPath: sourceDirectory.path) {
+                try? FileManager.default.moveItem(at: designStorageDirectory, to: sourceDirectory)
+            }
             publishSidebarSessions()
             markIndexDirty()
             return .failure(persistenceFailure("The implementation handoff could not be saved."))
