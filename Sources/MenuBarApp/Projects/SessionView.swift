@@ -330,7 +330,7 @@ struct SessionView: View {
                     MobileAccessButton(scope: .session(sessionID))
                 }
                 HeaderTabToggle(selection: $tab, options: headerTabs(for: session))
-                if store.isDesignMode(session) {
+                if store.isDesignMode(session), store.hasDesignArtifacts(for: session) {
                     designMaterialExportButton(session: session, project: project)
                 }
                 TerminalToggle(isOpen: terminals.isOpen(terminalScope),
