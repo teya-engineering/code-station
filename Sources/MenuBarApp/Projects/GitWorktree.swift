@@ -1,7 +1,7 @@
 import Foundation
 
 // Creates and removes the git worktrees a session can run in. Each worktree is an
-// isolated checkout on its own branch, kept in the app's config directory, so several
+// isolated checkout on its own branch, kept in the app's worktree directory, so several
 // sessions of one project can edit files at the same time without racing each other.
 enum GitWorktree {
     struct Created: Sendable {
@@ -24,10 +24,28 @@ enum GitWorktree {
     private static let folder = "worktrees"
     private static let cleanupCommandTimeout: TimeInterval = 30
 
+    private static var storageDirectory: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".code-station", isDirectory: true)
+    }
+
     // Reading where the checkouts go does not create the folder, so the new session sheet
     // can show the path it would use without leaving anything behind if it is cancelled.
     static var baseDirectory: URL {
-        AppPaths.support.appendingPathComponent(folder)
+        storageDirectory.appendingPathComponent(folder, isDirectory: true)
+    }
+
+    // Session records hold their exact checkout paths and can outlive the root used for new
+    // sessions. Every supported root stays owned so those sessions can be restored and
+    // cleaned up without moving a live worktree underneath an agent or terminal.
+    static var legacyBaseDirectory: URL {
+        AppPaths.support.appendingPathComponent(folder, isDirectory: true)
+    }
+
+    private static var ownedBaseDirectories: [URL] { [baseDirectory, legacyBaseDirectory] }
+
+    static func owns(_ path: String) -> Bool {
+        ownedBaseDirectory(containing: path) != nil
     }
 
     // What adding a worktree for this session would produce. The sheet that offers the
@@ -81,7 +99,6 @@ enum GitWorktree {
     static func orphaned(projectPath: String, excluding activePaths: Set<String>) async
         -> [Orphaned] {
         guard let tool = await GitInspector.tool() else { return [] }
-        let base = baseDirectory.standardizedFileURL.path + "/"
         let active = Set(activePaths.map {
             URL(fileURLWithPath: $0).standardizedFileURL.path
         })
@@ -93,7 +110,7 @@ enum GitWorktree {
 
             return parseWorktreeList(output.text).compactMap { checkout in
                 let path = URL(fileURLWithPath: checkout.path).standardizedFileURL.path
-                guard path.hasPrefix(base), !active.contains(path),
+                guard owns(path), !active.contains(path),
                       FileManager.default.fileExists(atPath: path) else { return nil }
                 return Orphaned(path: path,
                                 branch: checkout.branch,
@@ -166,10 +183,20 @@ enum GitWorktree {
     // Kept out of backups: a worktree can be recreated from the repository it came from,
     // and copying every checkout into Time Machine is not worth the room.
     private static func prepareContainingFolder(for path: String) {
-        _ = AppPaths.directory(folder, backedUp: false)
+        if let base = ownedBaseDirectory(containing: path) {
+            _ = AppPaths.directory(at: base, backedUp: false)
+        }
         try? FileManager.default.createDirectory(
             at: URL(fileURLWithPath: path).deletingLastPathComponent(),
             withIntermediateDirectories: true)
+    }
+
+    private static func ownedBaseDirectory(containing path: String) -> URL? {
+        let candidate = URL(fileURLWithPath: path).standardizedFileURL.path
+        return ownedBaseDirectories.first { base in
+            let root = base.standardizedFileURL.path
+            return candidate == root || candidate.hasPrefix(root + "/")
+        }
     }
 
     private static func worktreeAdd(_ tool: GitInspector.GitTool,
@@ -325,7 +352,8 @@ enum GitWorktree {
             // A workspace session keeps its checkouts together in a folder of its own,
             // which is left empty once the last of them goes.
             let parent = URL(fileURLWithPath: worktreePath).deletingLastPathComponent()
-            if parent.deletingLastPathComponent().standardizedFileURL == baseDirectory.standardizedFileURL,
+            let workspaceRoot = parent.deletingLastPathComponent().standardizedFileURL
+            if ownedBaseDirectories.contains(where: { $0.standardizedFileURL == workspaceRoot }),
                (try? FileManager.default.contentsOfDirectory(atPath: parent.path).isEmpty) == true {
                 try? FileManager.default.removeItem(at: parent)
             }

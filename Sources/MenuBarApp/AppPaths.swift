@@ -96,11 +96,15 @@ enum AppPaths {
         FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs")
     }
 
-    // Worktrees are git checkouts holding work that is not committed yet, so they cannot
-    // live in Caches where the system is free to reclaim them. They are kept out of
-    // backups instead, since a checkout is reproducible from the repository it came from.
+    // Creates an app-owned folder and optionally keeps reproducible or short-lived data
+    // out of backups. The caller chooses whether that folder belongs under support or in
+    // another app-owned location.
     static func directory(_ name: String, backedUp: Bool = true) -> URL {
         let url = support.appendingPathComponent(name)
+        return directory(at: url, backedUp: backedUp)
+    }
+
+    static func directory(at url: URL, backedUp: Bool = true) -> URL {
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         if !backedUp {
             var values = URLResourceValues()

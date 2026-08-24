@@ -92,7 +92,7 @@ App-owned data lives under:
 ~/Library/Application Support/com.teya.code-station/
 ```
 
-This includes the project and session index, one transcript file per session, saved HTTP requests, command shortcuts, worktrees, temporary attachments, and the cached skills marketplace. Small UI preferences use `UserDefaults`. OAuth client secrets and tokens use the macOS Keychain. Session logs live under `~/Library/Logs/com.teya.code-station`.
+This includes the project and session index, one transcript file per session, saved HTTP requests, command shortcuts, temporary attachments, and the cached skills marketplace. Managed Git worktrees and their deletion queue live under `~/.code-station/`, which keeps tool working directories short and free of spaces. Small UI preferences use `UserDefaults`. OAuth client secrets and tokens use the macOS Keychain. Session logs live under `~/Library/Logs/com.teya.code-station`.
 
 MCP definitions are read from and written to `~/.config/mcp/config.json`. The app uses those shared definitions when it registers a server in each coding agent's own configuration. Locally started MCP servers, shortcut commands, agent processes, and terminal shells are child processes owned by the app and are stopped when the app quits.
 

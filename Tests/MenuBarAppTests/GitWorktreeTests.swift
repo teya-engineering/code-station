@@ -21,6 +21,25 @@ struct GitWorktreeTests {
         #expect(plan.path.hasPrefix(GitWorktree.baseDirectory.path))
     }
 
+    @Test func keepsToolWorkingDirectoriesOutOfApplicationSupport() {
+        let plan = GitWorktree.plan(projectName: "Project A", sessionID: sessionID)
+
+        #expect(GitWorktree.baseDirectory.path.hasSuffix("/.code-station/worktrees"))
+        #expect(!plan.path.contains("Application Support"))
+        #expect(!plan.path.contains(" "))
+    }
+
+    @Test func ownsCurrentAndLegacyWorktreesAtPathBoundaries() {
+        let current = GitWorktree.baseDirectory.appendingPathComponent("project-12345678").path
+        let legacy = GitWorktree.legacyBaseDirectory
+            .appendingPathComponent("project-12345678").path
+
+        #expect(GitWorktree.owns(current))
+        #expect(GitWorktree.owns(legacy))
+        #expect(!GitWorktree.owns(GitWorktree.baseDirectory.path + "-copy/project"))
+        #expect(!GitWorktree.owns(GitWorktree.legacyBaseDirectory.path + "-copy/project"))
+    }
+
     // A name is a folder name here, so anything that is not a letter or a number becomes
     // a dash rather than a slash or a space in a path.
     @Test func replacesAnythingThatWouldUpsetAPath() {

@@ -15,9 +15,16 @@ enum WorktreeTrash {
     private static let queue = DispatchQueue(label: "\(AppPaths.bundleID).worktree-trash",
                                              qos: .utility)
 
-    // Kept out of backups for the same reason the checkouts are, and more so: nothing here
-    // is worth copying anywhere on its way out.
-    static var directory: URL { AppPaths.directory(folder, backedUp: false) }
+    // Reading either path does not create it. A deletion prepares the current directory,
+    // while startup can inspect both without reviving an empty legacy directory.
+    static var directory: URL {
+        GitWorktree.baseDirectory.deletingLastPathComponent()
+            .appendingPathComponent(folder, isDirectory: true)
+    }
+
+    private static var legacyDirectory: URL {
+        AppPaths.support.appendingPathComponent(folder, isDirectory: true)
+    }
 
     // False when the folder could not be moved - a checkout on another volume, a disk with
     // no room for the entry - which leaves the caller to delete it where it stands.
@@ -29,7 +36,7 @@ enum WorktreeTrash {
         let destination = trash.appendingPathComponent(
             "\(source.lastPathComponent)-\(UUID().uuidString.prefix(8))")
         do {
-            try FileManager.default.createDirectory(at: trash, withIntermediateDirectories: true)
+            _ = AppPaths.directory(at: trash, backedUp: false)
             try FileManager.default.moveItem(at: source, to: destination)
             return true
         } catch {
@@ -40,12 +47,15 @@ enum WorktreeTrash {
     // Nothing here is reported. A folder that survives the pass - because the app quit part
     // way through it, because a file was held open - is taken by the pass at the next
     // launch, and until then it costs disk rather than correctness.
-    static func empty(_ trash: URL = directory) {
+    static func empty(_ trash: URL? = nil) {
+        let directories = trash.map { [$0] } ?? [directory, legacyDirectory]
         queue.async {
             let files = FileManager.default
-            let waiting = (try? files.contentsOfDirectory(at: trash,
-                                                          includingPropertiesForKeys: nil)) ?? []
-            for folder in waiting { try? files.removeItem(at: folder) }
+            for directory in directories {
+                let waiting = (try? files.contentsOfDirectory(
+                    at: directory, includingPropertiesForKeys: nil)) ?? []
+                for folder in waiting { try? files.removeItem(at: folder) }
+            }
         }
     }
 

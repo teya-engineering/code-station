@@ -6,6 +6,11 @@ import Testing
 // tests cover the move, the later unlink, and failures that must remain visible.
 struct WorktreeTrashTests {
 
+    @Test func keepsTheDeletionQueueOutOfApplicationSupport() {
+        #expect(WorktreeTrash.directory.path.hasSuffix("/.code-station/worktrees-trash"))
+        #expect(!WorktreeTrash.directory.path.contains("Application Support"))
+    }
+
     private func temporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("worktree-trash-tests-\(UUID().uuidString)")
