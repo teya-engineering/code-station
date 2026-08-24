@@ -124,7 +124,7 @@ struct PersistenceSafetyTests {
         let malformed = Data("not request json".utf8)
         try malformed.write(to: file)
 
-        let store = DispatchStore(storeURL: file)
+        let store = DispatchStore(storeURL: file, siteDefaults: SiteDefaults())
         #expect(store.loadError != nil)
 
         store.add(SavedRequest(name: "Must stay in memory"))
@@ -137,7 +137,7 @@ struct PersistenceSafetyTests {
         let directory = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let file = directory.appendingPathComponent("dispatch.json")
-        let store = DispatchStore(storeURL: file)
+        let store = DispatchStore(storeURL: file, siteDefaults: SiteDefaults())
 
         try Data("a file where a directory should be".utf8).write(to: directory)
         store.add(SavedRequest(name: "Retained request"))
@@ -149,7 +149,8 @@ struct PersistenceSafetyTests {
 
         #expect(store.save())
         #expect(store.saveError == nil)
-        #expect(DispatchStore(storeURL: file).requests.contains { $0.name == "Retained request" })
+        #expect(DispatchStore(storeURL: file, siteDefaults: SiteDefaults())
+            .requests.contains { $0.name == "Retained request" })
     }
 
     @Test func oauthDecodeFailureDoesNotOverwriteTheFile() throws {

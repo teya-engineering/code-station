@@ -12,7 +12,7 @@ struct SavedRequestFolderTests {
         let oldRequest = SavedRequest(name: "Existing", url: "https://example.test")
         try JSONEncoder().encode([oldRequest]).write(to: file)
 
-        let store = DispatchStore(storeURL: file)
+        let store = DispatchStore(storeURL: file, siteDefaults: SiteDefaults())
 
         #expect(store.folders == [.default])
         #expect(store.requests[0].id == oldRequest.id)
@@ -26,7 +26,7 @@ struct SavedRequestFolderTests {
         defer { try? FileManager.default.removeItem(at: file) }
         try JSONEncoder().encode(SavedRequestCollection()).write(to: file)
 
-        let store = DispatchStore(storeURL: file)
+        let store = DispatchStore(storeURL: file, siteDefaults: SiteDefaults())
         let request = store.add(SavedRequest(name: "Create payment"))
         let folder = store.addFolder(named: "Payments")
         store.move(request.id, to: folder.id)
@@ -53,7 +53,7 @@ struct SavedRequestFolderTests {
             requests: [SavedRequest(name: "Unknown folder", folderID: unknownFolderID)])
         try JSONEncoder().encode(saved).write(to: file)
 
-        let store = DispatchStore(storeURL: file)
+        let store = DispatchStore(storeURL: file, siteDefaults: SiteDefaults())
         let newRequest = store.add()
 
         #expect(store.folders == [.default])
@@ -68,7 +68,7 @@ struct SavedRequestFolderTests {
         defer { try? FileManager.default.removeItem(at: file) }
         try JSONEncoder().encode(SavedRequestCollection()).write(to: file)
 
-        let store = DispatchStore(storeURL: file)
+        let store = DispatchStore(storeURL: file, siteDefaults: SiteDefaults())
         let request = store.add()
 
         store.renameFolder(RequestFolder.defaultID, to: "Other")
@@ -91,14 +91,14 @@ struct SavedRequestFolderTests {
         try JSONEncoder().encode(saved).write(to: file)
 
         // A file written before folders remembered their state opens everything closed.
-        let first = DispatchStore(storeURL: file)
+        let first = DispatchStore(storeURL: file, siteDefaults: SiteDefaults())
         #expect(!first.isExpanded(RequestFolder.defaultID))
         #expect(!first.isExpanded(opened.id))
 
         first.toggleFolder(opened.id)
         first.save()
 
-        let second = DispatchStore(storeURL: file)
+        let second = DispatchStore(storeURL: file, siteDefaults: SiteDefaults())
         #expect(second.isExpanded(opened.id))
         #expect(!second.isExpanded(closed.id))
         #expect(!second.isExpanded(RequestFolder.defaultID))
@@ -110,7 +110,7 @@ struct SavedRequestFolderTests {
         defer { try? FileManager.default.removeItem(at: file) }
         try JSONEncoder().encode(SavedRequestCollection()).write(to: file)
 
-        let store = DispatchStore(storeURL: file)
+        let store = DispatchStore(storeURL: file, siteDefaults: SiteDefaults())
         let folder = store.addFolder(named: "Payments")
         #expect(store.isExpanded(folder.id))
         store.removeFolder(folder.id)
@@ -126,7 +126,7 @@ struct SavedRequestFolderTests {
         defer { try? FileManager.default.removeItem(at: file) }
         try JSONEncoder().encode(SavedRequestCollection()).write(to: file)
 
-        let store = DispatchStore(storeURL: file)
+        let store = DispatchStore(storeURL: file, siteDefaults: SiteDefaults())
         let first = store.add(SavedRequest(name: "First"))
         store.add(SavedRequest(name: "Second"))
         store.selectedID = first.id
