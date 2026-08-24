@@ -43,6 +43,9 @@ struct Tooltip {
 @MainActor
 @Observable
 final class TooltipPresenter {
+    // Long enough that passing over a source shows nothing, but short enough that
+    // resting on it feels answered.
+    static let hoverDelay = Duration.milliseconds(450)
     private static let interactiveDismissalDelay = Duration.milliseconds(250)
 
     private(set) var current: Tooltip?
@@ -147,10 +150,6 @@ private struct AppTooltip: ViewModifier {
     @Environment(TooltipPresenter.self) private var presenter
     let tooltip: () -> Tooltip
 
-    // Long enough that running the pointer across the sidebar puts up nothing, short
-    // enough that resting on a row feels answered rather than delayed.
-    private static let delay = Duration.milliseconds(450)
-
     @State private var id = UUID()
     @State private var anchor = TooltipAnchor()
     @State private var pending: Task<Void, Never>?
@@ -168,7 +167,7 @@ private struct AppTooltip: ViewModifier {
                 }
                 guard !presenter.sourceEntered(owner: id) else { return }
                 pending = Task {
-                    try? await Task.sleep(for: Self.delay)
+                    try? await Task.sleep(for: TooltipPresenter.hoverDelay)
                     guard !Task.isCancelled, let frame = anchor.frame() else { return }
                     let tooltip = tooltip()
                     guard !tooltip.isEmpty else { return }

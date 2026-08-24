@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 import Testing
 @testable import MenuBarApp
 
@@ -166,6 +166,41 @@ struct MarkdownBlockTests {
             "[AGENTS.md](/Users/test/.codex/AGENTS.md)")
 
         #expect(attributed.hasLocalFileLink)
+    }
+
+    @Test @MainActor func findsTheHoveredFileLinksVisualBounds() throws {
+        let textView = NSTextView(usingTextLayoutManager: false)
+        textView.frame = CGRect(x: 0, y: 0, width: 400, height: 30)
+        textView.textContainerInset = .zero
+        textView.textContainer?.lineFragmentPadding = 0
+        textView.textContainer?.containerSize = CGSize(width: 400, height: 30)
+
+        let text = NSMutableAttributedString(
+            string: "Updated contribute.md to:",
+            attributes: [.font: NSFont.systemFont(ofSize: 13)])
+        let linkRange = (text.string as NSString).range(of: "contribute.md")
+        let url = URL(fileURLWithPath: "/tmp/contribute.md")
+        text.addAttribute(.link, value: url, range: linkRange)
+        textView.textStorage?.setAttributedString(text)
+
+        let layoutManager = try #require(textView.layoutManager)
+        let container = try #require(textView.textContainer)
+        layoutManager.ensureLayout(for: container)
+        let glyphs = layoutManager.glyphRange(
+            forCharacterRange: linkRange,
+            actualCharacterRange: nil)
+        let expected = layoutManager.boundingRect(forGlyphRange: glyphs, in: container)
+        let point = CGPoint(x: expected.midX, y: expected.midY)
+
+        let hovered = try #require(TranscriptLink.hoveredLink(in: textView, at: point))
+
+        #expect(hovered.url == url)
+        #expect(abs(hovered.frame.minX - expected.minX) < 0.5)
+        #expect(abs(hovered.frame.maxX - expected.maxX) < 0.5)
+        #expect(hovered.frame.maxX < textView.bounds.midX)
+        #expect(TranscriptLink.hoveredLink(
+            in: textView,
+            at: CGPoint(x: textView.bounds.maxX - 5, y: expected.midY)) == nil)
     }
 
     @Test func leavesAWebLinkUnchanged() {

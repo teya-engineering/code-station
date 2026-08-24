@@ -337,6 +337,11 @@ extension AttributedString {
 enum TranscriptLink {
     static let finderToolTip = "Open in Finder"
 
+    struct Hovered: Equatable {
+        let url: URL
+        let frame: CGRect
+    }
+
     // File links can carry a source line after the path. Finder needs the real path,
     // while web and mail links keep SwiftUI's normal system action.
     static func finderTarget(
@@ -351,10 +356,57 @@ enum TranscriptLink {
         let file = URL(fileURLWithPath: String(url.path[..<suffix.lowerBound]))
         return fileExists(file.path) ? file : url
     }
+
+    // NSTextView fills the available row even when its link is only a few words. Use
+    // the link's glyphs so its hint follows the text instead of the edge of that row.
+    @MainActor
+    static func hoveredLink(in textView: NSTextView, at point: CGPoint) -> Hovered? {
+        guard let storage = textView.textStorage,
+              let container = textView.textContainer,
+              let layoutManager = textView.layoutManager,
+              storage.length > 0 else { return nil }
+
+        layoutManager.ensureLayout(for: container)
+        let origin = textView.textContainerOrigin
+        let containerPoint = CGPoint(x: point.x - origin.x, y: point.y - origin.y)
+        var fraction: CGFloat = 0
+        let glyph = layoutManager.glyphIndex(
+            for: containerPoint,
+            in: container,
+            fractionOfDistanceThroughGlyph: &fraction)
+        guard glyph < layoutManager.numberOfGlyphs else { return nil }
+
+        let glyphRect = layoutManager.boundingRect(
+            forGlyphRange: NSRange(location: glyph, length: 1),
+            in: container)
+        guard glyphRect.insetBy(dx: -1, dy: -1).contains(containerPoint) else { return nil }
+
+        let character = layoutManager.characterIndexForGlyph(at: glyph)
+        guard character < storage.length else { return nil }
+        var linkCharacters = NSRange()
+        guard let value = storage.attribute(.link,
+                                            at: character,
+                                            effectiveRange: &linkCharacters),
+              let url = (value as? URL) ?? (value as? String).flatMap(URL.init(string:))
+        else { return nil }
+
+        let linkGlyphs = layoutManager.glyphRange(
+            forCharacterRange: linkCharacters,
+            actualCharacterRange: nil)
+        var lineGlyphs = NSRange()
+        layoutManager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: &lineGlyphs)
+        let visibleLinkGlyphs = NSIntersectionRange(linkGlyphs, lineGlyphs)
+        guard visibleLinkGlyphs.length > 0 else { return nil }
+
+        let rect = layoutManager.boundingRect(forGlyphRange: visibleLinkGlyphs, in: container)
+            .offsetBy(dx: origin.x, dy: origin.y)
+        return Hovered(url: url, frame: rect)
+    }
 }
 
 private struct InlineMarkdownText: View {
     @Environment(\.openURL) private var openURL
+    @Environment(TooltipPresenter.self) private var tooltipPresenter
     @Environment(\.textScale) private var textScale
 
     private let attributed: AttributedString
@@ -362,6 +414,10 @@ private struct InlineMarkdownText: View {
     private let weight: Font.Weight
     private let design: Font.Design
     private let secondary: Bool
+
+    @State private var tooltipOwner = UUID()
+    @State private var tooltipURL: URL?
+    @State private var pendingTooltip: Task<Void, Never>?
 
     init(_ text: String,
          size: CGFloat,
@@ -384,25 +440,50 @@ private struct InlineMarkdownText: View {
                     attributed: attributed,
                     font: font,
                     color: secondary ? .secondaryLabelColor : .labelColor,
-                    openLink: { openURL($0) })
+                    openLink: { openURL($0) },
+                    linkHoverChanged: linkHoverChanged)
                     // NSViewRepresentable does not pass NSTextView's baseline to SwiftUI.
                     // The font metric keeps linked and native text on the same baseline.
                     .alignmentGuide(.firstTextBaseline) { _ in
                         firstBaseline
                     }
+                    .onDisappear(perform: hideLinkTooltip)
             } else {
                 Text(attributed)
                     .font(.system(size: size * textScale, weight: weight, design: design))
                     .foregroundStyle(secondary ? Color.secondary : Color.primary)
             }
         }
-        .appTooltip {
-            guard let url = attributed.runs.compactMap(\.link).first(where: \.isFileURL)
-            else { return Tooltip(title: "") }
-            return Tooltip(title: TranscriptLink.finderToolTip) {
-                openURL(url)
-            }
+    }
+
+    private func linkHoverChanged(_ hovered: TranscriptLink.Hovered?) {
+        pendingTooltip?.cancel()
+        guard let hovered, hovered.url.isFileURL else {
+            tooltipPresenter.hide(owner: tooltipOwner)
+            return
         }
+
+        if tooltipURL != hovered.url {
+            tooltipPresenter.hide(owner: tooltipOwner)
+            tooltipOwner = UUID()
+            tooltipURL = hovered.url
+        }
+        guard !tooltipPresenter.sourceEntered(owner: tooltipOwner) else { return }
+
+        let owner = tooltipOwner
+        pendingTooltip = Task {
+            try? await Task.sleep(for: TooltipPresenter.hoverDelay)
+            guard !Task.isCancelled else { return }
+            tooltipPresenter.show(
+                Tooltip(title: TranscriptLink.finderToolTip) { openURL(hovered.url) },
+                from: hovered.frame,
+                owner: owner)
+        }
+    }
+
+    private func hideLinkTooltip() {
+        pendingTooltip?.cancel()
+        tooltipPresenter.hide(owner: tooltipOwner)
     }
 
     private var resolvedNSFont: NSFont {
@@ -438,16 +519,78 @@ private struct InlineMarkdownText: View {
 
 // NSTextView keeps the pointing-hand cursor over link ranges and the I-beam elsewhere,
 // which SwiftUI's Text cannot do, since it exposes no per-run hover geometry.
+private final class LinkTextView: NSTextView {
+    var linkHoverChanged: ((TranscriptLink.Hovered?) -> Void)?
+
+    private var linkTrackingArea: NSTrackingArea?
+    private var hoveredLink: TranscriptLink.Hovered?
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let linkTrackingArea { removeTrackingArea(linkTrackingArea) }
+        let trackingArea = NSTrackingArea(
+            rect: .zero,
+            options: [.mouseEnteredAndExited, .mouseMoved, .activeInKeyWindow, .inVisibleRect],
+            owner: self,
+            userInfo: nil)
+        addTrackingArea(trackingArea)
+        linkTrackingArea = trackingArea
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        updateHoveredLink(with: event)
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        updateHoveredLink(with: event)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        setHoveredLink(nil)
+    }
+
+    private func updateHoveredLink(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        let hovered = TranscriptLink.hoveredLink(in: self, at: point).flatMap { link in
+            windowFrame(for: link.frame).map { TranscriptLink.Hovered(url: link.url, frame: $0) }
+        }
+        setHoveredLink(hovered)
+    }
+
+    private func setHoveredLink(_ hovered: TranscriptLink.Hovered?) {
+        guard hovered != hoveredLink else { return }
+        hoveredLink = hovered
+        ScrollActivity.shared.whenRested { [weak self] in
+            guard let self, self.hoveredLink == hovered else { return }
+            self.linkHoverChanged?(hovered)
+        }
+    }
+
+    private func windowFrame(for rect: CGRect) -> CGRect? {
+        guard let content = window?.contentView else { return nil }
+        let converted = convert(rect, to: content)
+        guard !content.isFlipped else { return converted }
+        return CGRect(x: converted.minX,
+                      y: content.bounds.height - converted.maxY,
+                      width: converted.width,
+                      height: converted.height)
+    }
+}
+
 private struct LinkAwareText: NSViewRepresentable {
     let attributed: AttributedString
     let font: NSFont
     let color: NSColor
     let openLink: (URL) -> Void
+    let linkHoverChanged: (TranscriptLink.Hovered?) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(openLink: openLink) }
 
     func makeNSView(context: Context) -> NSTextView {
-        let view = NSTextView(usingTextLayoutManager: false)
+        let view = LinkTextView(usingTextLayoutManager: false)
         view.isEditable = false
         view.isSelectable = true
         view.drawsBackground = false
@@ -464,11 +607,13 @@ private struct LinkAwareText: NSViewRepresentable {
             .underlineStyle: NSUnderlineStyle.single.rawValue,
             .cursor: NSCursor.pointingHand,
         ]
+        view.linkHoverChanged = linkHoverChanged
         return view
     }
 
     func updateNSView(_ view: NSTextView, context: Context) {
         context.coordinator.openLink = openLink
+        (view as? LinkTextView)?.linkHoverChanged = linkHoverChanged
         view.textStorage?.setAttributedString(makeNSAttributedString())
         view.invalidateIntrinsicContentSize()
     }
