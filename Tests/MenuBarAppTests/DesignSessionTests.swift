@@ -254,22 +254,18 @@ struct DesignSessionTests {
         let fixture = try fixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         let executable = fixture.root.appendingPathComponent("codex-fixture")
-        try Data("""
-            #!/bin/sh
+        try FixtureCLI.write("""
             input=$(cat)
-            folder=$(dirname "$0")
             if [ ! -f "$folder/first-started" ]; then
                 touch "$folder/first-started"
-                while [ ! -f "$folder/release" ]; do sleep 0.02; done
+                wait_for "$folder/release"
             else
                 touch "$folder/second-started"
             fi
             printf '%s\n' '{"type":"thread.started","thread_id":"thread-1"}'
             printf '%s\n' '{"type":"item.completed","item":{"id":"answer","item_type":"agent_message","text":"Done"}}'
             printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":2}}'
-            """.utf8).write(to: executable)
-        try FileManager.default.setAttributes([.posixPermissions: 0o700],
-                                              ofItemAtPath: executable.path)
+            """, to: executable)
         let original = fixture.store.newSession(
             in: fixture.project.id, agent: .codex, mode: .design)
         _ = try writeDesign(for: original, in: fixture.store, html: "<html>Design</html>")

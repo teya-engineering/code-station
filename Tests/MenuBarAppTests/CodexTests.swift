@@ -511,19 +511,14 @@ struct CodexTests {
     @MainActor @Test func aReconnectThatCompletesIsSuccessful() async throws {
         let fixture = try codexFixture(script: """
         input=$(cat)
-        folder=$(dirname "$0")
         printf '%s\n' '{"type":"thread.started","thread_id":"thread-1"}'
         printf '%s\n' '{"type":"error","message":"Reconnecting... 1/5"}'
         printf '%s\n' '{"type":"error","message":"Reconnecting... 2/5"}'
-        count=0
-        while [ ! -f "$folder/finish" ] && [ "$count" -lt 200 ]; do
-            sleep 0.05
-            count=$((count + 1))
-        done
+        wait_for "$folder/finish"
         printf '%s\n' '{"type":"item.completed","item":{"id":"answer","item_type":"agent_message","text":"Done"}}'
         printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":2}}'
         """)
-        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        defer { fixture.tearDown() }
 
         fixture.runner.send("finish the work", sessionID: fixture.session.id, store: fixture.store)
 
@@ -543,7 +538,7 @@ struct CodexTests {
         printf '%s\n' '{"type":"thread.started","thread_id":"thread-1"}'
         printf '%s\n' '{"type":"error","message":"Reconnecting... 5/5"}'
         """)
-        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        defer { fixture.tearDown() }
 
         fixture.runner.send("finish the work", sessionID: fixture.session.id, store: fixture.store)
 
@@ -560,7 +555,6 @@ struct CodexTests {
     @MainActor @Test func continueResumesWithoutReplayingTheOriginalPrompt() async throws {
         let fixture = try codexFixture(script: """
         input=$(cat)
-        folder=$(dirname "$0")
         count_file="$folder/count"
         count=0
         if [ -f "$count_file" ]; then count=$(cat "$count_file"); fi
@@ -576,7 +570,7 @@ struct CodexTests {
         printf '%s\n' '{"type":"item.completed","item":{"id":"answer","item_type":"agent_message","text":"Recovered"}}'
         printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":2}}'
         """)
-        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        defer { fixture.tearDown() }
 
         let originalPrompt = "change the production setting"
         fixture.runner.send(originalPrompt, sessionID: fixture.session.id, store: fixture.store)
@@ -602,7 +596,6 @@ struct CodexTests {
     @MainActor @Test func aSilentTurnCanBeRetriedWithoutReplayingItsPrompt() async throws {
         let fixture = try codexFixture(script: """
         input=$(cat)
-        folder=$(dirname "$0")
         count_file="$folder/count"
         count=0
         if [ -f "$count_file" ]; then count=$(cat "$count_file"); fi
@@ -612,15 +605,12 @@ struct CodexTests {
         printf '%s\n' "$@" > "$folder/arguments-$count.txt"
         printf '%s\n' '{"type":"thread.started","thread_id":"thread-1"}'
         if [ "$count" -eq 1 ]; then
-            while true; do sleep 1; done
+            wait_for "$folder/stall-forever"
         fi
         printf '%s\n' '{"type":"item.completed","item":{"id":"answer","item_type":"agent_message","text":"Recovered"}}'
         printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":2}}'
         """, stalledAfter: 0.08, stallCheckInterval: .milliseconds(10))
-        defer {
-            fixture.runner.stop(fixture.session.id, store: fixture.store)
-            try? FileManager.default.removeItem(at: fixture.directory)
-        }
+        defer { fixture.tearDown() }
 
         let originalPrompt = "change the production setting"
         fixture.runner.send(originalPrompt, sessionID: fixture.session.id, store: fixture.store)
@@ -647,17 +637,13 @@ struct CodexTests {
     @MainActor @Test func aSilentRunningCommandDoesNotMarkTheTurnAsStalled() async throws {
         let fixture = try codexFixture(script: """
         input=$(cat)
-        folder=$(dirname "$0")
         printf '%s\n' '{"type":"thread.started","thread_id":"thread-1"}'
         printf '%s\n' '{"type":"item.started","item":{"id":"command-1","item_type":"command_execution","command":"swift test"}}'
-        while [ ! -f "$folder/finish" ]; do sleep 0.02; done
+        wait_for "$folder/finish"
         printf '%s\n' '{"type":"item.completed","item":{"id":"command-1","item_type":"command_execution","command":"swift test","aggregated_output":"passed","exit_code":0,"status":"completed"}}'
         printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":2}}'
         """, stalledAfter: 0.05, stallCheckInterval: .milliseconds(10))
-        defer {
-            fixture.runner.stop(fixture.session.id, store: fixture.store)
-            try? FileManager.default.removeItem(at: fixture.directory)
-        }
+        defer { fixture.tearDown() }
 
         fixture.runner.send("run the tests", sessionID: fixture.session.id, store: fixture.store)
 
@@ -678,18 +664,14 @@ struct CodexTests {
     @MainActor @Test func seesWhatACodexCommandWroteThroughTheShell() async throws {
         let fixture = try codexFixture(script: """
         input=$(cat)
-        folder=$(dirname "$0")
         printf '%s\\n' '{"type":"thread.started","thread_id":"thread-1"}'
         printf '%s\\n' '{"type":"item.started","item":{"id":"command-1","item_type":"command_execution","command":"cat > notes.md"}}'
-        while [ ! -f "$folder/go" ]; do sleep 0.02; done
+        wait_for "$folder/go"
         printf 'first\\nsecond\\n' > notes.md
         printf '%s\\n' '{"type":"item.completed","item":{"id":"command-1","item_type":"command_execution","command":"cat > notes.md","aggregated_output":"","exit_code":0,"status":"completed"}}'
         printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":2}}'
         """)
-        defer {
-            fixture.runner.stop(fixture.session.id, store: fixture.store)
-            try? FileManager.default.removeItem(at: fixture.directory)
-        }
+        defer { fixture.tearDown() }
         try fixture.makeProjectARepository()
 
         fixture.runner.send("write the notes", sessionID: fixture.session.id, store: fixture.store)
@@ -793,9 +775,7 @@ struct CodexTests {
             .appendingPathComponent("codex-reconnect-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let executable = directory.appendingPathComponent("codex-fixture")
-        try Data(("#!/bin/sh\n" + script + "\n").utf8).write(to: executable)
-        try FileManager.default.setAttributes([.posixPermissions: 0o700],
-                                              ofItemAtPath: executable.path)
+        try FixtureCLI.write(script, to: executable)
         let projectURL = directory.appendingPathComponent("project", isDirectory: true)
         try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
         let store = ProjectStore(storeURL: directory.appendingPathComponent("projects.json"))
@@ -823,6 +803,15 @@ struct CodexTests {
         let runner: SessionRunner
 
         var projectURL: URL { directory.appendingPathComponent("project", isDirectory: true) }
+
+        // A test that failed part way through can leave the fake CLI waiting for good, so the
+        // process is let go whatever the test decided. The folder goes afterwards, because a
+        // script still waiting on a marker inside it would never see the marker arrive.
+        @MainActor
+        func tearDown() {
+            runner.stopAll()
+            try? FileManager.default.removeItem(at: directory)
+        }
 
         // Snapshots only mean anything inside a repository, so a fixture that expects one
         // has to make the project folder into a repository first.

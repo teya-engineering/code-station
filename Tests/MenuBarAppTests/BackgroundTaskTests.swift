@@ -232,7 +232,7 @@ struct BackgroundTaskTests {
     @MainActor
     private func turnThatDropsATask() throws -> RunnerFixture {
         try turn(script: Self.reportsTwoTasks + """
-        while [ ! -f "$(dirname "$0")/drop" ]; do sleep 0.02; done
+        wait_for "$folder/drop"
         printf '%s\\n' '{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"t1","task_type":"local_bash","description":"yarn dev"}]}'
         cat > /dev/null
         """)
@@ -250,9 +250,7 @@ struct BackgroundTaskTests {
             .appendingPathComponent("background-tasks-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let executable = directory.appendingPathComponent("claude-fixture")
-        try Data(("#!/bin/sh\n" + script + "\n").utf8).write(to: executable)
-        try FileManager.default.setAttributes([.posixPermissions: 0o700],
-                                              ofItemAtPath: executable.path)
+        try FixtureCLI.write(script, to: executable)
         let projectURL = directory.appendingPathComponent("project", isDirectory: true)
         try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
         let store = ProjectStore(storeURL: directory.appendingPathComponent("projects.json"))
