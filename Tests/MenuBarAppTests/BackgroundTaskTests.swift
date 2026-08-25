@@ -255,7 +255,7 @@ struct BackgroundTaskTests {
         try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
         let store = ProjectStore(storeURL: directory.appendingPathComponent("projects.json"))
         let project = try #require(store.addProject(at: projectURL))
-        let session = try store.insertSession(in: project.id, agent: .claudeCode).get()
+        let session = try store.insertSession(in: project.id, seed: .init(agent: .claudeCode)).get()
         let runner = SessionRunner(paths: [.claudeCode: executable.path])
         runner.send("start", sessionID: session.id, store: store)
         return RunnerFixture(directory: directory, store: store, session: session, runner: runner)

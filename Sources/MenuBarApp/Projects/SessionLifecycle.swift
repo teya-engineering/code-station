@@ -79,13 +79,12 @@ enum SessionLifecycle {
                     message: cleanupMessage("The project is no longer in the app.",
                                             cleanup: cleanup)))
             }
-            switch store.insertSession(in: project.id, id: sessionID,
+            switch store.insertSession(in: project.id,
                                        worktreePath: created.path,
                                        worktreeBranch: created.branch,
-                                       agent: agent,
-                                       model: model,
-                                       agentAvatarName: agentAvatarName,
-                                       mode: mode) {
+                                       seed: .init(id: sessionID, agent: agent, model: model,
+                                                   agentAvatarName: agentAvatarName,
+                                                   mode: mode)) {
             case .success(let session):
                 return .success(session)
             case .failure(let failure):
@@ -142,12 +141,11 @@ enum SessionLifecycle {
                 created: created, worktrees: worktrees)
         }
 
-        switch store.insertSession(in: workspace.id, id: choice.sessionID,
-                                   projects: checkouts,
-                                   agent: choice.agent,
-                                   model: choice.model,
-                                   agentAvatarName: choice.agentAvatarName,
-                                   mode: choice.mode) {
+        switch store.insertSession(in: workspace.id, projects: checkouts,
+                                   seed: .init(id: choice.sessionID, agent: choice.agent,
+                                               model: choice.model,
+                                               agentAvatarName: choice.agentAvatarName,
+                                               mode: choice.mode)) {
         case .success(let session):
             return .success(session)
         case .failure(let failure):

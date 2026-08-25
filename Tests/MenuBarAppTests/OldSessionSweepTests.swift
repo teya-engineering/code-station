@@ -135,7 +135,7 @@ struct OldSessionSweepTests {
         try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
         let store = ProjectStore(storeURL: root.appendingPathComponent("projects.json"))
         let project = try #require(store.addProject(at: projectURL))
-        let old = store.newSession(in: project.id, mode: .design)
+        let old = store.newSession(in: project.id, seed: .init(mode: .design))
         store.append(ChatMessage(role: .user, text: "Old design",
                                  date: Date().addingTimeInterval(-8 * 86_400)),
                      to: old.id)

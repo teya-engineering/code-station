@@ -19,7 +19,7 @@ struct ClearContextTests {
                                 agent: AgentKind = .claudeCode) -> ChatSession {
         let project = store.addProject(at: FileManager.default.temporaryDirectory
             .appendingPathComponent("project-\(UUID().uuidString)"))!
-        let session = store.newSession(in: project.id, agent: agent)
+        let session = store.newSession(in: project.id, seed: .init(agent: agent))
         store.setAgentSessionID("conversation-1", agent: agent, for: session.id)
         store.append(ChatMessage(role: .user, text: "Do the thing"), to: session.id)
         store.recordUsage(TurnUsage(costUSD: 0.5, inputTokens: 1000, contextWindow: 200_000),

@@ -26,7 +26,7 @@ struct ProjectRemovalTests {
     @Test func saysGeneratedDesignFilesGoWithTheProject() throws {
         let store = makeStore()
         let project = addProject(named: "checkout", to: store)
-        let design = store.newSession(in: project.id, mode: .design)
+        let design = store.newSession(in: project.id, seed: .init(mode: .design))
         let artifact = try #require(store.designArtifactURL(for: design))
         try FileManager.default.createDirectory(
             at: artifact.deletingLastPathComponent(), withIntermediateDirectories: true)

@@ -31,8 +31,7 @@ struct TranscriptStoreTests {
     @Test func sessionsPersistTheirAgentAndInitialModel() throws {
         let store = makeStore()
         let session = store.newSession(in: project(in: store).id,
-                                       agent: .codex,
-                                       model: "gpt-5.6-terra")
+                                       seed: .init(agent: .codex, model: "gpt-5.6-terra"))
 
         #expect(session.agent == .codex)
         #expect(session.settings?.model == "gpt-5.6-terra")
@@ -46,8 +45,7 @@ struct TranscriptStoreTests {
     @Test func aStartedSessionCanChangeItsModelWithoutChangingAgent() throws {
         let store = makeStore()
         let session = store.newSession(in: project(in: store).id,
-                                       agent: .codex,
-                                       model: "gpt-5.6-terra")
+                                       seed: .init(agent: .codex, model: "gpt-5.6-terra"))
         store.setSettings(SessionSettings(model: "gpt-5.6-sol"), for: session.id)
         #expect(store.session(session.id)?.settings?.model == "gpt-5.6-sol")
 
@@ -363,13 +361,10 @@ struct TranscriptStoreTests {
         let workspace = try #require(store.addWorkspace(name: "Checkout",
                                                         projectIDs: [web.id, api.id],
                                                         leadProjectID: api.id))
-        let session = try #require(store.newSession(
-            in: workspace.id,
-            projects: [
+        let session = try #require(store.newSession(in: workspace.id, projects: [
                 SessionProject(projectID: api.id, worktreePath: "/work/api", worktreeBranch: "code-station/1"),
                 SessionProject(projectID: web.id, worktreePath: nil, worktreeBranch: nil),
-            ],
-            agentAvatarName: AgentAvatarSelection.nonBotName))
+            ], seed: .init(agentAvatarName: AgentAvatarSelection.nonBotName)))
 
         #expect(session.projectID == api.id)
         #expect(session.agentAvatarName == AgentAvatarSelection.nonBotName)

@@ -868,17 +868,17 @@ struct TroubleshootView: View {
                 let checkouts = projects.map {
                     SessionProject(projectID: $0.id, worktreePath: nil, worktreeBranch: nil)
                 }
-                sessionResult = store.insertSession(in: workspace.id,
-                                                    projects: checkouts,
-                                                    agent: chosenAgent,
-                                                    model: runner.defaults(for: chosenAgent).model,
-                                                    isTroubleshooting: true)
+                sessionResult = store.insertSession(
+                    in: workspace.id, projects: checkouts,
+                    seed: .init(agent: chosenAgent,
+                                model: runner.defaults(for: chosenAgent).model,
+                                isTroubleshooting: true))
             } else {
                 sessionResult = store.insertSession(
                     in: lead.id,
-                    agent: chosenAgent,
-                    model: runner.defaults(for: chosenAgent).model,
-                    isTroubleshooting: true)
+                    seed: .init(agent: chosenAgent,
+                                model: runner.defaults(for: chosenAgent).model,
+                                isTroubleshooting: true))
             }
             let session: ChatSession
             switch sessionResult {

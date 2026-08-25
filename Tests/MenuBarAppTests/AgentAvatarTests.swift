@@ -338,7 +338,7 @@ struct AgentAvatarTests {
         let project = try #require(store.addProject(at: root.appendingPathComponent("project")))
 
         _ = store.newSession(in: project.id,
-                             agentAvatarName: AgentAvatarSelection.nonBotName)
+                             seed: .init(agentAvatarName: AgentAvatarSelection.nonBotName))
         #expect(store.save())
 
         let restored = try #require(ProjectStore(storeURL: index).sessions.first)
@@ -351,9 +351,8 @@ struct AgentAvatarTests {
         let index = root.appendingPathComponent("projects.json")
         let store = ProjectStore(storeURL: index)
         let project = try #require(store.addProject(at: root.appendingPathComponent("project")))
-        let session = store.newSession(
-            in: project.id,
-            agentAvatarName: AgentAvatarSelection.nonBotName)
+        let session = store.newSession(in: project.id,
+                                       seed: .init(agentAvatarName: AgentAvatarSelection.nonBotName))
 
         store.setAgentAvatarName("agent-avatar-2.png", for: session.id)
 

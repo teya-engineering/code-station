@@ -856,8 +856,10 @@ struct AppSidebar: View {
             createWorktreeSession(in: project, id: sessionID, base: base, agent: agent,
                                   model: model, agentAvatarName: agentAvatarName, mode: mode)
         case .folder(let agent, let model, let agentAvatarName, let mode):
-            switch store.insertSession(in: project.id, agent: agent, model: model,
-                                       agentAvatarName: agentAvatarName, mode: mode) {
+            switch store.insertSession(
+                in: project.id,
+                seed: .init(agent: agent, model: model,
+                            agentAvatarName: agentAvatarName, mode: mode)) {
             case .success(let session):
                 sessionToReveal = session.id
             case .failure(let failure):

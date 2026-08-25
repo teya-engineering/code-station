@@ -28,9 +28,7 @@ struct DesignSessionTests {
             in: fixture.project.id,
             worktreePath: "/tmp/code-station-shared-worktree",
             worktreeBranch: "code-station/design-test",
-            agent: .codex,
-            model: "gpt-5.6-terra",
-            mode: .design)
+            seed: .init(agent: .codex, model: "gpt-5.6-terra", mode: .design))
 
         #expect(design.mode == .design)
         #expect(fixture.store.designConversation(for: design.id)?.id == design.id)
@@ -63,8 +61,9 @@ struct DesignSessionTests {
             SessionProject(projectID: attached.id,
                            worktreePath: "/tmp/design-attached", worktreeBranch: "attached"),
         ]
-        let design = try #require(fixture.store.newSession(
-            in: workspace.id, projects: projects, agent: .claudeCode, mode: .design))
+        let design = try #require(fixture.store.newSession(in: workspace.id, projects: projects,
+                                                           seed: .init(agent: .claudeCode,
+                                                                       mode: .design)))
 
         #expect(design.mode == .design)
         #expect(design.workspaceID == workspace.id)
@@ -77,7 +76,7 @@ struct DesignSessionTests {
     @Test func designArtifactIsPrivateToTheSessionAndRemovedWithIt() throws {
         let fixture = try fixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
-        let design = fixture.store.newSession(in: fixture.project.id, mode: .design)
+        let design = fixture.store.newSession(in: fixture.project.id, seed: .init(mode: .design))
         let artifact = try #require(fixture.store.designArtifactURL(for: design))
         #expect(fixture.store.designFilesURL(for: design) == artifact.deletingLastPathComponent())
         #expect(!fixture.store.hasDesignArtifacts(for: design))
@@ -99,7 +98,7 @@ struct DesignSessionTests {
     @Test func approvedRevisionPreservesScreensHandoffAndSourceRevision() throws {
         let fixture = try fixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
-        let design = fixture.store.newSession(in: fixture.project.id, mode: .design)
+        let design = fixture.store.newSession(in: fixture.project.id, seed: .init(mode: .design))
         let directory = try writeDesign(for: design, in: fixture.store,
                                         html: "<html>First</html>")
         try Data("""
@@ -141,7 +140,7 @@ struct DesignSessionTests {
     @Test func implementationKeepsAnEditableDesignBehindTheBuildSession() throws {
         let fixture = try fixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
-        let design = fixture.store.newSession(in: fixture.project.id, mode: .design)
+        let design = fixture.store.newSession(in: fixture.project.id, seed: .init(mode: .design))
         _ = try writeDesign(for: design, in: fixture.store, html: "<html>Approved</html>")
         fixture.store.append(ChatMessage(role: .user, text: "Design a checkout screen"),
                              to: design.id)
@@ -192,7 +191,7 @@ struct DesignSessionTests {
     @Test func savingAVersionDoesNotSendItToBuild() throws {
         let fixture = try fixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
-        let design = fixture.store.newSession(in: fixture.project.id, mode: .design)
+        let design = fixture.store.newSession(in: fixture.project.id, seed: .init(mode: .design))
         _ = try writeDesign(for: design, in: fixture.store, html: "<html>Draft</html>")
 
         let saved = try fixture.store.saveDesignRevision(
@@ -206,7 +205,7 @@ struct DesignSessionTests {
     @Test func buildReceivesLaterRevisionsFromItsEditableDesign() throws {
         let fixture = try fixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
-        let original = fixture.store.newSession(in: fixture.project.id, mode: .design)
+        let original = fixture.store.newSession(in: fixture.project.id, seed: .init(mode: .design))
         _ = try writeDesign(for: original, in: fixture.store,
                             html: "<html>Version one</html>")
         let first = try fixture.store.approveDesign(
@@ -232,7 +231,7 @@ struct DesignSessionTests {
     @Test func removingABuildAlsoRemovesItsHiddenDesign() throws {
         let fixture = try fixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
-        let original = fixture.store.newSession(in: fixture.project.id, mode: .design)
+        let original = fixture.store.newSession(in: fixture.project.id, seed: .init(mode: .design))
         _ = try writeDesign(for: original, in: fixture.store, html: "<html>Design</html>")
         let revision = try fixture.store.approveDesign(
             original.id, screenshot: nil, sourceRevisions: [:]).get()
@@ -266,8 +265,8 @@ struct DesignSessionTests {
             printf '%s\n' '{"type":"item.completed","item":{"id":"answer","item_type":"agent_message","text":"Done"}}'
             printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":2}}'
             """, to: executable)
-        let original = fixture.store.newSession(
-            in: fixture.project.id, agent: .codex, mode: .design)
+        let original = fixture.store.newSession(in: fixture.project.id,
+                                                seed: .init(agent: .codex, mode: .design))
         _ = try writeDesign(for: original, in: fixture.store, html: "<html>Design</html>")
         let revision = try fixture.store.approveDesign(
             original.id, screenshot: nil, sourceRevisions: [:]).get()
@@ -303,12 +302,12 @@ struct DesignSessionTests {
     @Test func linkedCodingSessionKeepsAnImmutableReferenceAndReceivesUpdates() throws {
         let fixture = try fixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
-        let design = fixture.store.newSession(in: fixture.project.id, mode: .design)
+        let design = fixture.store.newSession(in: fixture.project.id, seed: .init(mode: .design))
         let directory = try writeDesign(for: design, in: fixture.store,
                                         html: "<html>Version one</html>")
         let first = try fixture.store.approveDesign(
             design.id, screenshot: Data("one".utf8), sourceRevisions: [:]).get()
-        let coding = fixture.store.newSession(in: fixture.project.id, mode: .chat)
+        let coding = fixture.store.newSession(in: fixture.project.id, seed: .init(mode: .chat))
 
         try fixture.store.linkImplementation(
             coding.id, to: design.id, revisionID: first.id).get()
@@ -348,7 +347,7 @@ struct DesignSessionTests {
     @Test func savedRevisionCanBecomeTheNextLiveDirection() throws {
         let fixture = try fixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
-        let design = fixture.store.newSession(in: fixture.project.id, mode: .design)
+        let design = fixture.store.newSession(in: fixture.project.id, seed: .init(mode: .design))
         let directory = try writeDesign(for: design, in: fixture.store,
                                         html: "<html>Keep me</html>")
         let first = try fixture.store.approveDesign(

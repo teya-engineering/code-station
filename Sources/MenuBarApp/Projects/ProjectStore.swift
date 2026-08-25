@@ -343,15 +343,12 @@ final class ProjectStore {
         projects.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         selectedProjectID = project.id
         markIndexDirty()
-        guard save() else {
+        return saveOrRollBack(project, failure: "The task could not be saved.") {
             projects.removeAll { $0.id == project.id }
             selectedProjectID = previousProjectID
             Preferences.selectedProjectID = previousProjectID
-            markIndexDirty()
             try? FileManager.default.removeItem(at: directory)
-            return .failure(persistenceFailure("The task could not be saved."))
         }
-        return .success(project)
     }
 
     // The prompt can be reworked between runs; the folder and sessions stay.
@@ -555,109 +552,99 @@ final class ProjectStore {
         return !entries.isEmpty
     }
 
-    @discardableResult
-    func newSession(in projectID: UUID, id: UUID = UUID(),
-                    worktreePath: String? = nil, worktreeBranch: String? = nil,
-                    agent: AgentKind = .claudeCode, model: String? = nil,
-                    agentAvatarName: String? = nil,
-                    mode: SessionMode = .chat,
-                    isTroubleshooting: Bool = false) -> ChatSession {
-        var session = ChatSession(id: id, projectID: projectID, agent: agent)
-        session.mode = mode
-        session.designPhase = mode == .design ? .designing : nil
-        session.worktreePath = worktreePath
-        session.worktreeBranch = worktreeBranch
-        session.settings = SessionSettings(model: ModelChoice.valid(model, for: agent))
-        session.agentAvatarName = agentAvatarName
-        session.isTroubleshooting = isTroubleshooting
-        // Nothing has been said yet, and there is no file to go looking for.
-        session.transcriptLoaded = true
-        sessions.append(session)
-        publishSidebarSessions()
-        selectedProjectID = projectID
-        selection = .session(session.id)
-        saveIndex()
-        return session
+    // Everything a new session starts with that does not depend on where it runs. The
+    // place - one project folder, a worktree of it, or a workspace's several checkouts -
+    // is the argument beside this rather than a field in it, because it is the one thing
+    // the two kinds of session do not share.
+    struct SessionSeed {
+        var id = UUID()
+        var agent: AgentKind = .claudeCode
+        var model: String?
+        var agentAvatarName: String?
+        var mode: SessionMode = .chat
+        var isTroubleshooting = false
     }
 
     @discardableResult
-    func newSession(in workspaceID: UUID, id: UUID = UUID(),
-                    projects: [SessionProject], agent: AgentKind = .claudeCode,
-                    model: String? = nil, agentAvatarName: String? = nil,
-                    mode: SessionMode = .chat,
-                    isTroubleshooting: Bool = false) -> ChatSession? {
+    func newSession(in projectID: UUID, worktreePath: String? = nil,
+                    worktreeBranch: String? = nil,
+                    seed: SessionSeed = SessionSeed()) -> ChatSession {
+        var session = made(from: seed, in: projectID)
+        session.worktreePath = worktreePath
+        session.worktreeBranch = worktreeBranch
+        return adopt(session)
+    }
+
+    @discardableResult
+    func newSession(in workspaceID: UUID, projects: [SessionProject],
+                    seed: SessionSeed = SessionSeed()) -> ChatSession? {
         guard let workspace = workspace(workspaceID),
               projects.count >= 2,
               Set(projects.map(\.projectID)).count == projects.count,
               projects.first?.projectID == workspace.leadProjectID,
               projects.allSatisfy({ project($0.projectID) != nil }) else { return nil }
 
-        var session = ChatSession(id: id, projectID: workspace.leadProjectID, agent: agent)
-        session.mode = mode
-        session.designPhase = mode == .design ? .designing : nil
+        var session = made(from: seed, in: workspace.leadProjectID)
         session.workspaceID = workspaceID
         session.sessionProjects = projects
         session.worktreePath = projects.first?.worktreePath
         session.worktreeBranch = projects.first?.worktreeBranch
-        session.settings = SessionSettings(model: ModelChoice.valid(model, for: agent))
-        session.agentAvatarName = agentAvatarName
-        session.isTroubleshooting = isTroubleshooting
+        return adopt(session)
+    }
+
+    private func made(from seed: SessionSeed, in projectID: UUID) -> ChatSession {
+        var session = ChatSession(id: seed.id, projectID: projectID, agent: seed.agent)
+        session.mode = seed.mode
+        session.designPhase = seed.mode == .design ? .designing : nil
+        session.settings = SessionSettings(model: ModelChoice.valid(seed.model, for: seed.agent))
+        session.agentAvatarName = seed.agentAvatarName
+        session.isTroubleshooting = seed.isTroubleshooting
+        // Nothing has been said yet, and there is no file to go looking for.
         session.transcriptLoaded = true
+        return session
+    }
+
+    // Takes the finished session into the app and opens it, which is the same whichever
+    // kind it is.
+    private func adopt(_ session: ChatSession) -> ChatSession {
         sessions.append(session)
         publishSidebarSessions()
-        selectedProjectID = workspace.leadProjectID
+        selectedProjectID = session.projectID
         selection = .session(session.id)
         saveIndex()
         return session
     }
 
-    func insertSession(in projectID: UUID, id: UUID = UUID(),
-                       worktreePath: String? = nil, worktreeBranch: String? = nil,
-                       agent: AgentKind = .claudeCode, model: String? = nil,
-                       agentAvatarName: String? = nil,
-                       mode: SessionMode = .chat,
-                       isTroubleshooting: Bool = false)
+    // The same as newSession, except the session only counts if it reached disk. Anything
+    // that goes on to do work in the session's name - cutting a worktree, starting a turn -
+    // uses this, so it cannot build on a session a later launch would not find.
+    func insertSession(in projectID: UUID, worktreePath: String? = nil,
+                       worktreeBranch: String? = nil,
+                       seed: SessionSeed = SessionSeed())
         -> Result<ChatSession, PersistenceFailure> {
         let previousSelection = selection
         let previousProjectID = selectedProjectID
-        let session = newSession(in: projectID, id: id,
-                                 worktreePath: worktreePath,
-                                 worktreeBranch: worktreeBranch,
-                                 agent: agent,
-                                 model: model,
-                                 agentAvatarName: agentAvatarName,
-                                 mode: mode,
-                                 isTroubleshooting: isTroubleshooting)
-        guard save() else {
+        let session = newSession(in: projectID, worktreePath: worktreePath,
+                                 worktreeBranch: worktreeBranch, seed: seed)
+        return saveOrRollBack(session, failure: "The session could not be saved.") {
             rollBackSessionInsertion(session.id, selection: previousSelection,
                                      projectID: previousProjectID)
-            return .failure(persistenceFailure("The session could not be saved."))
         }
-        return .success(session)
     }
 
-    func insertSession(in workspaceID: UUID, id: UUID = UUID(),
-                       projects: [SessionProject], agent: AgentKind = .claudeCode,
-                       model: String? = nil, agentAvatarName: String? = nil,
-                       mode: SessionMode = .chat,
-                       isTroubleshooting: Bool = false)
+    func insertSession(in workspaceID: UUID, projects: [SessionProject],
+                       seed: SessionSeed = SessionSeed())
         -> Result<ChatSession, PersistenceFailure> {
         let previousSelection = selection
         let previousProjectID = selectedProjectID
-        guard let session = newSession(in: workspaceID, id: id, projects: projects,
-                                       agent: agent, model: model,
-                                       agentAvatarName: agentAvatarName,
-                                       mode: mode,
-                                       isTroubleshooting: isTroubleshooting) else {
+        guard let session = newSession(in: workspaceID, projects: projects, seed: seed) else {
             return .failure(PersistenceFailure(
                 message: "The workspace no longer has a valid lead project."))
         }
-        guard save() else {
+        return saveOrRollBack(session, failure: "The session could not be saved.") {
             rollBackSessionInsertion(session.id, selection: previousSelection,
                                      projectID: previousProjectID)
-            return .failure(persistenceFailure("The session could not be saved."))
         }
-        return .success(session)
     }
 
     private func rollBackSessionInsertion(_ sessionID: UUID, selection: SidebarSelection?,
@@ -763,15 +750,12 @@ final class ProjectStore {
         if approved { sessions[i].approvedDesignRevisionID = revision.id }
         publishSidebarSessions()
         markIndexDirty()
-        guard save() else {
+        return saveOrRollBack(revision, failure: "The approved Design could not be saved.") {
             try? FileManager.default.removeItem(
                 at: DesignArtifacts.revisionDirectory(revision, designDirectory: directory))
             sessions[i].designRevisions.removeAll { $0.id == revision.id }
             sessions[i].approvedDesignRevisionID = previousApprovedRevisionID
-            markIndexDirty()
-            return .failure(persistenceFailure("The approved Design could not be saved."))
         }
-        return .success(revision)
     }
 
     func beginImplementation(_ sessionID: UUID, revisionID: UUID)
@@ -812,16 +796,22 @@ final class ProjectStore {
         let designStorageDirectory = designDirectory(for: design)
         let referenceDirectory = designDirectory(for: implementation)
             .appendingPathComponent("reference", isDirectory: true)
+        // Putting the files back, needed both when the move itself fails partway and when
+        // the index will not take the split that follows it. The move back only happens if
+        // it actually went, so a failure on the first step cannot delete what it never took.
+        let restoreDesignFiles = {
+            try? FileManager.default.removeItem(at: self.designDirectory(for: implementation))
+            if FileManager.default.fileExists(atPath: designStorageDirectory.path),
+               !FileManager.default.fileExists(atPath: sourceDirectory.path) {
+                try? FileManager.default.moveItem(at: designStorageDirectory, to: sourceDirectory)
+            }
+        }
         do {
             try FileManager.default.moveItem(at: sourceDirectory, to: designStorageDirectory)
             try DesignArtifacts.copyReference(
                 revision, from: designStorageDirectory, to: referenceDirectory)
         } catch {
-            try? FileManager.default.removeItem(at: designDirectory(for: implementation))
-            if FileManager.default.fileExists(atPath: designStorageDirectory.path),
-               !FileManager.default.fileExists(atPath: sourceDirectory.path) {
-                try? FileManager.default.moveItem(at: designStorageDirectory, to: sourceDirectory)
-            }
+            restoreDesignFiles()
             return .failure(PersistenceFailure(message: error.localizedDescription))
         }
 
@@ -833,23 +823,17 @@ final class ProjectStore {
         transcriptRevisions[design.id, default: 0] &+= 1
         publishSidebarSessions()
         markIndexDirty()
-        guard save() else {
+        return saveOrRollBack((),
+                              failure: "The implementation handoff could not be saved.") {
             sessions[i] = original
             sessions.removeAll { $0.id == design.id }
             dirtyTranscripts.remove(design.id)
             transcriptRevisions[design.id] = nil
             dirtyTranscripts.insert(original.id)
             transcriptRevisions[original.id, default: 0] &+= 1
-            try? FileManager.default.removeItem(at: designDirectory(for: implementation))
-            if FileManager.default.fileExists(atPath: designStorageDirectory.path),
-               !FileManager.default.fileExists(atPath: sourceDirectory.path) {
-                try? FileManager.default.moveItem(at: designStorageDirectory, to: sourceDirectory)
-            }
+            restoreDesignFiles()
             publishSidebarSessions()
-            markIndexDirty()
-            return .failure(persistenceFailure("The implementation handoff could not be saved."))
         }
-        return .success(())
     }
 
     func linkImplementation(_ implementationID: UUID, to designSessionID: UUID,
@@ -872,14 +856,11 @@ final class ProjectStore {
         sessions[implementationIndex].sourceDesignSessionID = designSessionID
         sessions[implementationIndex].handedOffDesignRevisionID = revisionID
         markIndexDirty()
-        guard save() else {
+        return saveOrRollBack((), failure: "The implementation handoff could not be saved.") {
             sessions[implementationIndex].sourceDesignSessionID = nil
             sessions[implementationIndex].handedOffDesignRevisionID = nil
             try? FileManager.default.removeItem(at: destination)
-            markIndexDirty()
-            return .failure(persistenceFailure("The implementation handoff could not be saved."))
         }
-        return .success(())
     }
 
     func syncDesignReference(for implementationID: UUID)
@@ -903,7 +884,8 @@ final class ProjectStore {
         let previousRevisionID = sessions[implementationIndex].handedOffDesignRevisionID
         sessions[implementationIndex].handedOffDesignRevisionID = revision.id
         markIndexDirty()
-        guard save() else {
+        return saveOrRollBack(revision,
+                              failure: "The updated Design reference could not be saved.") {
             sessions[implementationIndex].handedOffDesignRevisionID = previousRevisionID
             if let previousRevisionID,
                let previous = design.designRevisions.first(where: { $0.id == previousRevisionID }) {
@@ -912,10 +894,7 @@ final class ProjectStore {
                     from: designDirectory(for: design),
                     to: destination)
             }
-            markIndexDirty()
-            return .failure(persistenceFailure("The updated Design reference could not be saved."))
         }
-        return .success(revision)
     }
 
     func restoreDesignRevision(_ revisionID: UUID, for sessionID: UUID)
@@ -1845,6 +1824,22 @@ final class ProjectStore {
 
     private func persistenceFailure(_ fallback: String) -> PersistenceFailure {
         PersistenceFailure(message: saveError ?? fallback)
+    }
+
+    // Writes a change that has already been made in memory, and puts it back if the write
+    // does not land. Everything the app must not appear to have done unless it reached disk
+    // goes through here: the undo is the part that is easy to forget, and a change that
+    // survived a failed write is one the reader would go on seeing until the next launch
+    // quietly dropped it. The index is marked again afterwards because the undo is itself a
+    // change that still owes a write.
+    private func saveOrRollBack<Value>(_ value: Value, failure message: String,
+                                       undo: () -> Void) -> Result<Value, PersistenceFailure> {
+        guard save() else {
+            undo()
+            markIndexDirty()
+            return .failure(persistenceFailure(message))
+        }
+        return .success(value)
     }
 
     func load() {

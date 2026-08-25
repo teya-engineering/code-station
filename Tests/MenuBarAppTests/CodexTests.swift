@@ -780,7 +780,7 @@ struct CodexTests {
         try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
         let store = ProjectStore(storeURL: directory.appendingPathComponent("projects.json"))
         let project = try #require(store.addProject(at: projectURL))
-        let session = try store.insertSession(in: project.id, agent: .codex).get()
+        let session = try store.insertSession(in: project.id, seed: .init(agent: .codex)).get()
         let runner = SessionRunner(paths: [.codex: executable.path],
                                    stalledAfter: stalledAfter,
                                    stallCheckInterval: stallCheckInterval)

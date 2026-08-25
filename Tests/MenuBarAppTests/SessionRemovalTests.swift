@@ -30,7 +30,7 @@ struct SessionRemovalTests {
     @Test func saysGeneratedDesignFilesAreRemoved() throws {
         let store = makeStore()
         let project = addProject(named: "checkout", to: store)
-        let session = store.newSession(in: project.id, mode: .design)
+        let session = store.newSession(in: project.id, seed: .init(mode: .design))
         let artifact = try #require(store.designArtifactURL(for: session))
         try FileManager.default.createDirectory(
             at: artifact.deletingLastPathComponent(), withIntermediateDirectories: true)

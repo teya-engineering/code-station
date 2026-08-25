@@ -43,10 +43,10 @@ enum TaskRun {
             spec.lastValues = values
             store.setTaskSpec(spec, for: task.id)
         }
-        let session = store.insertSession(in: task.id, agent: agent,
-                                          model: model,
-                                          agentAvatarName: spec?.agentAvatarName
-                                              ?? agentAvatarName)
+        let session = store.insertSession(
+            in: task.id,
+            seed: .init(agent: agent, model: model,
+                        agentAvatarName: spec?.agentAvatarName ?? agentAvatarName))
         if case .success(let created) = session {
             var settings = created.settings ?? SessionSettings()
             settings.effort = EffortChoice.valid(spec?.effort, for: agent)

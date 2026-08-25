@@ -292,13 +292,10 @@ struct TroubleshootProjectTests {
             name: "Checkout diagnosis",
             projectIDs: [first.id, second.id],
             leadProjectID: first.id))
-        let session = try #require(store.newSession(
-            in: workspace.id,
-            projects: [
+        let session = try #require(store.newSession(in: workspace.id, projects: [
                 SessionProject(projectID: first.id, worktreePath: nil, worktreeBranch: nil),
                 SessionProject(projectID: second.id, worktreePath: nil, worktreeBranch: nil),
-            ],
-            isTroubleshooting: true))
+            ], seed: .init(isTroubleshooting: true)))
 
         #expect(session.projectID == first.id)
         #expect(session.workspaceID == workspace.id)
