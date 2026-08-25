@@ -281,7 +281,8 @@ struct NewWorkspaceSessionView: View {
                 .keyboardShortcut(.cancelAction)
 
                 SessionBotPicker(avatars: appSettings.agentAvatars,
-                                 selectedName: $selectedAvatarName)
+                                 selectedName: $selectedAvatarName,
+                                 sessionID: sessionID)
 
                 VStack(alignment: .trailing, spacing: 3) {
                     HStack(spacing: 0) {

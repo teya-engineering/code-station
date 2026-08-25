@@ -187,7 +187,8 @@ struct NewSessionView: View {
                 .buttonStyle(.plain)
                 .keyboardShortcut(.cancelAction)
                 SessionBotPicker(avatars: appSettings.agentAvatars,
-                                 selectedName: $selectedAvatarName)
+                                 selectedName: $selectedAvatarName,
+                                 sessionID: sessionID)
                 createButton
             }
             .padding(.horizontal, 20)
@@ -332,7 +333,7 @@ struct NewSessionView: View {
         onCreate(useWorktree
                  ? .worktree(sessionID, base: base, agent: agent, model: model,
                              agentAvatarName: selectedAvatarName, mode: mode)
-                 : .folder(agent: agent, model: model,
+                 : .folder(sessionID, agent: agent, model: model,
                            agentAvatarName: selectedAvatarName, mode: mode))
         dismiss()
     }
@@ -351,7 +352,8 @@ enum SessionStartPoint: Equatable {
 enum NewSessionChoice: Equatable {
     case worktree(UUID, base: String?, agent: AgentKind, model: String?,
                   agentAvatarName: String?, mode: SessionMode)
-    case folder(agent: AgentKind, model: String?, agentAvatarName: String?, mode: SessionMode)
+    case folder(UUID, agent: AgentKind, model: String?, agentAvatarName: String?,
+                mode: SessionMode)
 }
 
 struct DesignModeOption: View {

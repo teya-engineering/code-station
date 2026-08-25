@@ -1003,6 +1003,7 @@ struct SessionView: View {
 
             if showsThinking(state: state) {
                 WorkingRow(since: runner.lastActivity(sessionID) ?? Date(),
+                           sessionID: sessionID,
                            avatarSequence: runner.avatarSequence(sessionID) ?? 0,
                            avatarName: session.agentAvatarName,
                            agentTitle: session.agent.title,
@@ -1294,6 +1295,7 @@ struct SessionView: View {
                               trailingAccessory: {
                                   SessionBotPicker(avatars: appSettings.agentAvatars,
                                                    selectedName: botSelection(for: session),
+                                                   sessionID: sessionID,
                                                    size: 22)
                               })
 
@@ -1813,6 +1815,7 @@ private struct WorkingRow: View {
     @Environment(AppSettings.self) private var appSettings
 
     let since: Date
+    let sessionID: UUID
     let avatarSequence: Int
     let avatarName: String?
     let agentTitle: String
@@ -1848,7 +1851,7 @@ private struct WorkingRow: View {
             let word = waiting ? "Waiting" : words.word(after: context.date.timeIntervalSince(started))
             HStack(spacing: 8) {
                 if let avatar {
-                    AgentAvatarView(image: avatar.image, size: 20)
+                    AgentAvatarView(image: avatar.displayImage(for: sessionID), size: 20)
                         .id(avatar.id)
                         .transition(.fadeIn)
                 } else {

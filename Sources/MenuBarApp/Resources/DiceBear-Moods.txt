@@ -1,0 +1,11 @@
+DiceBear Moods avatar artwork
+
+Source: https://www.dicebear.com/styles/moods/
+Creator: DiceBear
+License: CC0 1.0 Universal
+License details: https://creativecommons.org/publicdomain/zero/1.0/
+
+The avatar-moods-*.png files use the seeds code-station-moods-01 through
+code-station-moods-64. They are generated as 128 by 128 pixel PNG files with the
+DiceBear 10.x HTTP API. The app bundles these files and makes no runtime network
+requests to DiceBear.

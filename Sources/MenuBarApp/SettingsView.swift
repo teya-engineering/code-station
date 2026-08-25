@@ -729,7 +729,7 @@ struct SettingsView: View {
     private var defaultBotPicker: some View {
         HStack(spacing: 7) {
             if let defaultBot {
-                AgentAvatarView(image: defaultBot.image, size: 18)
+                AgentAvatarView(image: defaultBot.displayImage(for: nil), size: 18)
             } else {
                 Image(systemName: "person.slash")
                     .font(.system(size: 10, weight: .semibold))
@@ -765,7 +765,7 @@ struct SettingsView: View {
         }
         entries.append(contentsOf: settings.agentAvatars.map { avatar in
             .item(avatar.personality.title,
-                  image: avatar.image,
+                  image: avatar.displayImage(for: nil),
                   checked: settings.defaultAgentAvatarName == avatar.url.lastPathComponent,
                   subtitle: avatar.personality.detail) {
                 settings.setDefaultAgentAvatarName(avatar.url.lastPathComponent)
@@ -776,7 +776,7 @@ struct SettingsView: View {
 
     private func botImageThumbnail(_ avatar: AgentAvatar) -> some View {
         VStack(spacing: 5) {
-            AgentAvatarView(image: avatar.image, size: 40)
+            AgentAvatarView(image: avatar.displayImage(for: nil), size: 40)
             HStack(spacing: 4) {
                 Text(avatar.personality.title)
                     .font(.system(size: 10, weight: .medium))

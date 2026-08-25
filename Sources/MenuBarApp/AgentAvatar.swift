@@ -6,8 +6,18 @@ struct AgentAvatar: Identifiable {
     let url: URL
     let image: NSImage
     let personality: AgentPersonality
+    let usesStockArtwork: Bool
 
     var id: URL { url }
+
+    @MainActor
+    func displayImage(for sessionID: UUID?) -> NSImage {
+        guard usesStockArtwork else { return image }
+        guard let sessionID else { return AgentAvatarArt.image(for: personality) }
+        return AgentAvatarArt.sessionImage(
+            for: sessionID,
+            avatarName: url.lastPathComponent) ?? image
+    }
 }
 
 enum AgentAvatarSelection {
@@ -55,7 +65,8 @@ enum AgentAvatarFile {
             load(from: url).map {
                 AgentAvatar(url: url,
                             image: $0,
-                            personality: personalities[url.lastPathComponent] ?? .standard)
+                            personality: personalities[url.lastPathComponent] ?? .standard,
+                            usesStockArtwork: AgentAvatarArt.isStock(at: url))
             }
         }
     }
@@ -102,7 +113,8 @@ enum AgentAvatarFile {
         }
 
         return zip(destinations, prepared).map {
-            AgentAvatar(url: $0.0, image: $0.1.image, personality: personality)
+            AgentAvatar(url: $0.0, image: $0.1.image, personality: personality,
+                        usesStockArtwork: AgentAvatarArt.isStock(data: $0.1.data))
         }
     }
 
@@ -120,7 +132,7 @@ enum AgentAvatarFile {
                                baseURL: URL) throws -> AgentAvatar {
         // Ours is the personality made visible; a photo is the user's and stays.
         var picture = avatar.image
-        if AgentAvatarArt.isStock(at: avatar.url) {
+        if avatar.usesStockArtwork {
             let data = try AgentAvatarArt.pngData(for: personality)
             try PersistentFile.write(data, to: avatar.url)
             picture = NSImage(data: data) ?? picture
@@ -129,7 +141,8 @@ enum AgentAvatarFile {
         var personalities = loadPersonalities(from: baseURL)
         personalities[avatar.url.lastPathComponent] = personality
         try savePersonalities(personalities, for: baseURL)
-        return AgentAvatar(url: avatar.url, image: picture, personality: personality)
+        return AgentAvatar(url: avatar.url, image: picture, personality: personality,
+                           usesStockArtwork: avatar.usesStockArtwork)
     }
 
     static func remove(at url: URL, from baseURL: URL) throws {
@@ -232,37 +245,94 @@ enum AgentAvatarFile {
     }
 }
 
-// The picture a bot gets when no photo is chosen: `Resources/avatar-<personality>.png`.
+// Photo-less bots keep one preview image in settings, then get a stable Moods variant
+// chosen from the session id wherever the active session shows the bot.
 enum AgentAvatarArt {
-    private static let pictures: [AgentPersonality: Data] = Dictionary(
-        uniqueKeysWithValues: AgentPersonality.allCases.compactMap { personality in
+    static let sessionArtworkCount = 64
+
+    private static let personalityArtwork: [AgentPersonality: Int] = [
+        .standard: 16,
+        .sarcastic: 1,
+        .cat: 7,
+        .sextou: 13,
+        .british: 5,
+        .manager: 10,
+    ]
+
+    private static let sessionPictures: [Int: Data] = Dictionary(
+        uniqueKeysWithValues: (1...sessionArtworkCount).compactMap { index in
             AppResources.bundle
-                .url(forResource: "avatar-\(personality.rawValue)", withExtension: "png")
+                .url(forResource: String(format: "avatar-moods-%02d", index),
+                     withExtension: "png")
                 .flatMap { try? Data(contentsOf: $0) }
-                .map { (personality, $0) }
+                .map { (index, $0) }
         })
 
+    // Builds before Moods used these files as their photo-less bot artwork. They remain
+    // bundled so those saved bots are still recognized as stock rather than user photos.
+    private static let legacyPictures: [Data] = AgentPersonality.allCases.compactMap {
+        AppResources.bundle
+            .url(forResource: "avatar-\($0.rawValue)", withExtension: "png")
+            .flatMap { try? Data(contentsOf: $0) }
+    }
+
+    private static let stockPictures = Set(sessionPictures.values).union(legacyPictures)
+
     static func pngData(for personality: AgentPersonality) throws -> Data {
-        guard let data = pictures[personality] else {
+        guard let index = personalityArtwork[personality],
+              let data = sessionPictures[index] else {
             throw AgentAvatarError.missingArtwork
         }
         return data
     }
 
-    // Asking the picture itself saves recording which bots are ours, and costs one whose
-    // artwork a later release replaces: it keeps the old face.
     static func isStock(at url: URL) -> Bool {
         guard let data = try? Data(contentsOf: url) else { return false }
-        return pictures.values.contains(data)
+        return isStock(data: data)
     }
 
-    // Decoded once: the settings rows ask for the same five on every redraw.
-    @MainActor private static let images: [AgentPersonality: NSImage] =
-        pictures.compactMapValues(NSImage.init(data:))
+    static func isStock(data: Data) -> Bool {
+        stockPictures.contains(data)
+    }
+
+    // Decoded once: settings and session rows ask for the same images on every redraw.
+    @MainActor private static let personalityImages: [AgentPersonality: NSImage] =
+        personalityArtwork.reduce(into: [:]) { images, entry in
+            guard let data = sessionPictures[entry.value], let image = NSImage(data: data) else {
+                return
+            }
+            images[entry.key] = image
+        }
+
+    @MainActor private static let sessionImages: [NSImage] = sessionPictures.keys.sorted()
+        .compactMap { sessionPictures[$0].flatMap(NSImage.init(data:)) }
 
     @MainActor
     static func image(for personality: AgentPersonality) -> NSImage {
-        images[personality] ?? NSImage(size: NSSize(width: 1, height: 1))
+        personalityImages[personality] ?? NSImage(size: NSSize(width: 1, height: 1))
+    }
+
+    @MainActor
+    static func sessionImage(for sessionID: UUID, avatarName: String) -> NSImage? {
+        guard let index = sessionArtworkIndex(
+            sessionID: sessionID,
+            avatarName: avatarName,
+            count: sessionImages.count) else { return nil }
+        return sessionImages[index]
+    }
+
+    static func sessionArtworkIndex(sessionID: UUID, avatarName: String,
+                                    count: Int = sessionArtworkCount) -> Int? {
+        guard count > 0 else { return nil }
+
+        // Swift's Hasher changes between launches. FNV-1a keeps the same saved session
+        // on the same bundled face without adding another field to the session record.
+        var hash: UInt64 = 14_695_981_039_346_656_037
+        for byte in "\(sessionID.uuidString)|\(avatarName)".utf8 {
+            hash ^= UInt64(byte)
+            hash &*= 1_099_511_628_211
+        }
+        return Int(hash % UInt64(count))
     }
 }
 
@@ -304,11 +374,14 @@ struct AgentAvatarView: View {
 struct SessionBotPicker: View {
     let avatars: [AgentAvatar]
     @Binding var selectedName: String
+    let sessionID: UUID?
     let size: CGFloat
 
-    init(avatars: [AgentAvatar], selectedName: Binding<String>, size: CGFloat = 30) {
+    init(avatars: [AgentAvatar], selectedName: Binding<String>,
+         sessionID: UUID? = nil, size: CGFloat = 30) {
         self.avatars = avatars
         _selectedName = selectedName
+        self.sessionID = sessionID
         self.size = size
     }
 
@@ -340,7 +413,7 @@ struct SessionBotPicker: View {
     @ViewBuilder
     private var selectedImage: some View {
         if let selectedAvatar {
-            AgentAvatarView(image: selectedAvatar.image, size: size)
+            AgentAvatarView(image: selectedAvatar.displayImage(for: sessionID), size: size)
         } else {
             Image(systemName: "person.slash")
                 .font(.system(size: size * 0.43, weight: .semibold))
@@ -365,7 +438,7 @@ struct SessionBotPicker: View {
         }
         entries.append(contentsOf: avatars.map { avatar in
             .item(avatar.personality.title,
-                  image: avatar.image,
+                  image: avatar.displayImage(for: sessionID),
                   checked: selectedName == avatar.url.lastPathComponent,
                   subtitle: avatar.personality.detail) {
                 selectedName = avatar.url.lastPathComponent

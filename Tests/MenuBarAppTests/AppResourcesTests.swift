@@ -15,5 +15,11 @@ struct AppResourcesTests {
             #expect(AppResources.bundle.url(forResource: "avatar-\(personality.rawValue)",
                                             withExtension: "png") != nil)
         }
+
+        for index in 1...AgentAvatarArt.sessionArtworkCount {
+            #expect(AppResources.bundle.url(
+                forResource: String(format: "avatar-moods-%02d", index),
+                withExtension: "png") != nil)
+        }
     }
 }

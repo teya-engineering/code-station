@@ -46,6 +46,7 @@ struct AgentAvatarTests {
         let restored = AppSettings(agentAvatarURL: destination).agentAvatars
         #expect(restored.count == 1)
         #expect(restored.first?.personality == .standard)
+        #expect(restored.first?.usesStockArtwork == false)
     }
 
     @Test @MainActor func rejectsANonImageWithoutRemovingCurrentImages() throws {
@@ -276,8 +277,60 @@ struct AgentAvatarTests {
         try settings.addStockAgentAvatar(personality: .cat)
 
         #expect(settings.agentAvatars.first?.personality == .cat)
+        #expect(settings.agentAvatars.first?.usesStockArtwork == true)
         #expect(try Data(contentsOf: destination) == AgentAvatarArt.pngData(for: .cat))
-        #expect(AppSettings(agentAvatarURL: destination).agentAvatars.first?.personality == .cat)
+        let restored = try #require(AppSettings(agentAvatarURL: destination).agentAvatars.first)
+        #expect(restored.personality == .cat)
+        #expect(restored.usesStockArtwork)
+    }
+
+    @Test @MainActor func usesSessionMoodsOnlyForPhotoLessBots() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("source.png")
+        let destination = root.appendingPathComponent("agent-avatar.png")
+        try pngData(width: 4, height: 4).write(to: source)
+        let settings = AppSettings(agentAvatarURL: destination)
+        try settings.addStockAgentAvatar(personality: .standard)
+        try settings.importAgentAvatars(from: [source], personality: .standard)
+        let stock = try #require(settings.agentAvatars.first)
+        let photo = try #require(settings.agentAvatars.last)
+        let sessionID = try #require(UUID(
+            uuidString: "00000000-0000-0000-0000-000000000001"))
+
+        #expect(stock.displayImage(for: nil) !== stock.image)
+        #expect(stock.displayImage(for: sessionID) !== stock.image)
+        #expect(photo.displayImage(for: sessionID) === photo.image)
+    }
+
+    @Test func derivesAStableMoodFromTheSessionAndBot() throws {
+        let firstSession = try #require(UUID(
+            uuidString: "00000000-0000-0000-0000-000000000001"))
+        let secondSession = try #require(UUID(
+            uuidString: "00000000-0000-0000-0000-000000000002"))
+
+        #expect(AgentAvatarArt.sessionArtworkIndex(
+            sessionID: firstSession, avatarName: "agent-avatar.png") == 10)
+        #expect(AgentAvatarArt.sessionArtworkIndex(
+            sessionID: secondSession, avatarName: "agent-avatar.png") == 53)
+        #expect(AgentAvatarArt.sessionArtworkIndex(
+            sessionID: firstSession, avatarName: "agent-avatar-2.png") == 37)
+        #expect(AgentAvatarArt.sessionArtworkIndex(
+            sessionID: firstSession, avatarName: "agent-avatar.png", count: 0) == nil)
+    }
+
+    @Test @MainActor func recognizesArtworkSavedByOlderBuildsAsPhotoLess() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let destination = root.appendingPathComponent("agent-avatar.png")
+        let legacyURL = try #require(AppResources.bundle.url(
+            forResource: "avatar-cat", withExtension: "png"))
+        try Data(contentsOf: legacyURL).write(to: destination)
+
+        let avatar = try #require(AppSettings(
+            agentAvatarURL: destination).agentAvatars.first)
+
+        #expect(avatar.usesStockArtwork)
     }
 
     // The picture follows the personality, but only for the ones the app supplied: a photo is
