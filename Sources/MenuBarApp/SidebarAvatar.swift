@@ -28,6 +28,11 @@ struct SidebarAvatar: Equatable, Sendable {
         return Self.artworkURL(style: style, index: index, bundle: bundle)
     }
 
+    @MainActor
+    func primaryColour(style: DiceBearAvatarStyle) -> Color? {
+        SidebarAvatarArt.artwork(for: self, style: style)?.primaryColour
+    }
+
     static func artworkIndex(seed: String, count: Int = artworkCount) -> Int? {
         guard count > 0 else { return nil }
 
@@ -115,6 +120,41 @@ struct SidebarIdentityTile: View {
 private struct SidebarAvatarArtwork {
     let key: String
     let source: String
+    let primaryColour: Color?
+}
+
+struct SidebarAvatarPrimaryColour: Equatable, Sendable {
+    private static let backgroundMarker = #"<rect width="100" height="100" fill=""#
+
+    let rgb: UInt32
+
+    init?(svg: String) {
+        guard let marker = svg.range(of: Self.backgroundMarker, options: .backwards),
+              let end = svg.index(marker.upperBound, offsetBy: 7, limitedBy: svg.endIndex) else {
+            return nil
+        }
+        let value = svg[marker.upperBound..<end]
+        guard value.first == "#", let rgb = UInt32(value.dropFirst(), radix: 16) else {
+            return nil
+        }
+        self.rgb = rgb
+    }
+
+    var colour: Color {
+        Color(
+            red: Double((rgb >> 16) & 0xff) / 255,
+            green: Double((rgb >> 8) & 0xff) / 255,
+            blue: Double(rgb & 0xff) / 255)
+    }
+}
+
+extension DiceBearAvatarStyle {
+    func primaryColour(in svg: String) -> SidebarAvatarPrimaryColour? {
+        guard usesArtworkPrimaryColour else { return nil }
+        // These styles put their identity colour on the full-bleed background. Shapes
+        // and Landscape use several peers, so neither has one colour to claim as primary.
+        return SidebarAvatarPrimaryColour(svg: svg)
+    }
 }
 
 @MainActor
@@ -129,7 +169,10 @@ private enum SidebarAvatarArt {
         guard let source = try? String(contentsOf: url, encoding: .utf8) else {
             return nil
         }
-        let artwork = SidebarAvatarArtwork(key: key, source: source)
+        let artwork = SidebarAvatarArtwork(
+            key: key,
+            source: source,
+            primaryColour: style.primaryColour(in: source)?.colour)
         cache[key] = artwork
         return artwork
     }

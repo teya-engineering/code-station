@@ -30,9 +30,20 @@ struct SidebarAvatarTests {
                 if let url {
                     let svg = try String(contentsOf: url, encoding: .utf8)
                     #expect(svg.hasPrefix("<svg"))
+                    #expect((style.primaryColour(in: svg) != nil)
+                        == style.usesArtworkPrimaryColour)
                 }
             }
         }
+    }
+
+    @Test func readsTheArtworkBackgroundAsItsPrimaryColour() throws {
+        let url = try #require(SidebarAvatar.artworkURL(style: .blobs, index: 1))
+        let svg = try String(contentsOf: url, encoding: .utf8)
+
+        #expect(DiceBearAvatarStyle.blobs.primaryColour(in: svg)?.rgb == 0xbe185d)
+        #expect(DiceBearAvatarStyle.shapes.primaryColour(in: svg) == nil)
+        #expect(DiceBearAvatarStyle.landscape.primaryColour(in: svg) == nil)
     }
 
     @Test func bundlesAnimationAndReducedMotionInTheSVG() throws {

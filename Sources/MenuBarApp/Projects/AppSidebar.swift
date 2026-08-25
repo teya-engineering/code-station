@@ -531,7 +531,10 @@ struct AppSidebar: View {
             }
 
             if expanded, !visible.isEmpty {
-                let tint = Theme.workspaceTint
+                let tint = sidebarRailTint(
+                    for: SidebarAvatar(subject: .workspace, id: workspace.id),
+                    name: workspace.name,
+                    monogramTint: Theme.workspaceTint)
                 SidebarRail(colour: tint.colour) {
                     ForEach(visible) { session in
                         if let lead = store.project(session.projectID) {
@@ -647,7 +650,13 @@ struct AppSidebar: View {
             // An expanded project with nothing under it draws no block at all: an empty one
             // still carries its padding, which reads as the row shifting on every click.
             if expanded, !visible.isEmpty {
-                let tint = Theme.projectTint(for: project.name)
+                let fallbackTint = Theme.projectTint(for: project.name)
+                let tint = sidebarRailTint(
+                    for: SidebarAvatar(
+                        subject: project.kind == .adHoc ? .task : .project,
+                        id: project.id),
+                    name: project.name,
+                    monogramTint: fallbackTint)
                 SidebarRail(colour: tint.colour) {
                     ForEach(visible) { session in
                         let busy = runner.state(session.id).isBusy
@@ -699,6 +708,15 @@ struct AppSidebar: View {
                 .transition(.fadeIn)
             }
         }
+    }
+
+    private func sidebarRailTint(for avatar: SidebarAvatar, name: String,
+                                 monogramTint: Theme.ProjectTint) -> Theme.ProjectTint {
+        guard appSettings.sidebarIconSet == .diceBear else { return monogramTint }
+        let style = appSettings.diceBearAvatarStyle
+        guard style.usesArtworkPrimaryColour else { return Theme.projectTint(for: name) }
+        guard let colour = avatar.primaryColour(style: style) else { return monogramTint }
+        return Theme.ProjectTint(colour: colour, ink: colour)
     }
 
     // Tasks and projects share the row but not its menu: a task is run rather than

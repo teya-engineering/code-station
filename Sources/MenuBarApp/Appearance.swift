@@ -77,6 +77,10 @@ enum DiceBearAvatarStyle: String, CaseIterable, Identifiable {
 
     var supportsAnimation: Bool { self != .stripes }
 
+    var usesArtworkPrimaryColour: Bool {
+        self != .shapes && self != .landscape
+    }
+
     static func available(for motion: SidebarIconMotion) -> [Self] {
         switch motion {
         case .still: allCases
