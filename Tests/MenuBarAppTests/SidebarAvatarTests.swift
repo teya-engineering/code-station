@@ -1,4 +1,3 @@
-import AppKit
 import Foundation
 import Testing
 @testable import MenuBarApp
@@ -23,13 +22,14 @@ struct SidebarAvatarTests {
         #expect(avatar.artworkURL(style: .planets)?.isFileURL == true)
     }
 
-    @Test func findsEveryOfflineAvatar() {
+    @Test func findsEveryOfflineAvatar() throws {
         for style in DiceBearAvatarStyle.allCases {
             for index in 1...SidebarAvatar.artworkCount {
                 let url = SidebarAvatar.artworkURL(style: style, index: index)
                 #expect(url?.isFileURL == true)
                 if let url {
-                    #expect(NSImage(contentsOf: url) != nil)
+                    let svg = try String(contentsOf: url, encoding: .utf8)
+                    #expect(svg.hasPrefix("<svg"))
                 }
             }
         }
@@ -44,6 +44,20 @@ struct SidebarAvatarTests {
                 #expect(svg.contains("prefers-reduced-motion") == style.supportsAnimation)
             }
         }
+    }
+
+    @Test func rendersReferencedLayersForStillAndAnimatedAvatars() throws {
+        let url = try #require(SidebarAvatar.artworkURL(style: .waves, index: 1))
+        let svg = try String(contentsOf: url, encoding: .utf8)
+        let still = DiceBearAvatarDocument.html(source: svg, motion: .still)
+        let animated = DiceBearAvatarDocument.html(source: svg, motion: .animated)
+
+        #expect(still.contains("<body><svg"))
+        #expect(still.contains("* { animation: none !important; }"))
+        #expect(animated.contains("<body><svg"))
+        #expect(animated.contains("--dbwa-t: 0.75 !important;"))
+        #expect(!still.contains("data:image/svg+xml"))
+        #expect(!animated.contains("data:image/svg+xml"))
     }
 
     @Test func offersEveryRequestedStyleAndKeepsStripesStill() {

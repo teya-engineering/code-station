@@ -69,15 +69,10 @@ struct DiceBearAvatarView<Placeholder: View>: View {
         ZStack {
             placeholder
             if let artwork = SidebarAvatarArt.artwork(for: avatar, style: style) {
-                switch motion {
-                case .still:
-                    Image(nsImage: artwork.image)
-                        .interpolation(.high)
-                        .resizable()
-                        .scaledToFill()
-                case .animated:
-                    AnimatedDiceBearImage(key: artwork.key, data: artwork.data)
-                }
+                DiceBearAvatarImage(
+                    key: artwork.key,
+                    source: artwork.source,
+                    motion: motion)
             }
         }
         .frame(width: side, height: side)
@@ -119,8 +114,7 @@ struct SidebarIdentityTile: View {
 
 private struct SidebarAvatarArtwork {
     let key: String
-    let data: Data
-    let image: NSImage
+    let source: String
 }
 
 @MainActor
@@ -132,18 +126,57 @@ private enum SidebarAvatarArt {
         guard let url = avatar.artworkURL(style: style) else { return nil }
         let key = url.path
         if let artwork = cache[key] { return artwork }
-        guard let data = try? Data(contentsOf: url), let image = NSImage(data: data) else {
+        guard let source = try? String(contentsOf: url, encoding: .utf8) else {
             return nil
         }
-        let artwork = SidebarAvatarArtwork(key: key, data: data, image: image)
+        let artwork = SidebarAvatarArtwork(key: key, source: source)
         cache[key] = artwork
         return artwork
     }
 }
 
-private struct AnimatedDiceBearImage: NSViewRepresentable {
+enum DiceBearAvatarDocument {
+    static func html(source: String, motion: SidebarIconMotion) -> String {
+        let motionStyle = switch motion {
+        case .still:
+            "* { animation: none !important; }"
+        case .animated:
+            """
+            svg {
+              --dbsq-t: 0.75 !important;
+              --dbpa-t: 0.75 !important;
+              --dbsh-t: 0.75 !important;
+              --dbba-t: 0.75 !important;
+              --dbwa-t: 0.75 !important;
+              --dbsp-t: 0.75 !important;
+              --dbla-t: 0.75 !important;
+            }
+            """
+        }
+
+        return """
+            <!doctype html>
+            <html>
+            <head>
+              <meta name="viewport" content="width=device-width,initial-scale=1">
+              <meta http-equiv="Content-Security-Policy"
+                    content="default-src 'none'; style-src 'unsafe-inline'">
+              <style>
+                html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+                svg { display: block; width: 100%; height: 100%; }
+                \(motionStyle)
+              </style>
+            </head>
+            <body>\(source)</body>
+            </html>
+            """
+    }
+}
+
+private struct DiceBearAvatarImage: NSViewRepresentable {
     let key: String
-    let data: Data
+    let source: String
+    let motion: SidebarIconMotion
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -160,32 +193,25 @@ private struct AnimatedDiceBearImage: NSViewRepresentable {
     }
 
     func updateNSView(_ webView: WKWebView, context: Context) {
-        guard context.coordinator.loadedKey != key else { return }
-        context.coordinator.loadedKey = key
+        let configuration = Configuration(key: key, motion: motion)
+        guard context.coordinator.loadedConfiguration != configuration else { return }
+        context.coordinator.loadedConfiguration = configuration
 
-        let source = data.base64EncodedString()
-        webView.loadHTMLString("""
-            <!doctype html>
-            <html>
-            <head>
-              <meta name="viewport" content="width=device-width,initial-scale=1">
-              <meta http-equiv="Content-Security-Policy"
-                    content="default-src 'none'; img-src data:; style-src 'unsafe-inline'">
-              <style>
-                html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
-                img { display: block; width: 100%; height: 100%; object-fit: cover; }
-              </style>
-            </head>
-            <body><img src="data:image/svg+xml;base64,\(source)" alt=""></body>
-            </html>
-            """, baseURL: nil)
+        webView.loadHTMLString(
+            DiceBearAvatarDocument.html(source: source, motion: motion),
+            baseURL: nil)
     }
 
     static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {
         webView.stopLoading()
     }
 
+    struct Configuration: Equatable {
+        let key: String
+        let motion: SidebarIconMotion
+    }
+
     final class Coordinator {
-        var loadedKey: String?
+        var loadedConfiguration: Configuration?
     }
 }
