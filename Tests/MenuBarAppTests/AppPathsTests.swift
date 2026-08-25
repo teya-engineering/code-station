@@ -250,11 +250,40 @@ struct AppPathsTests {
             agentAvatarURL: root.appendingPathComponent("avatar.png"),
             preferences: defaults)
 
+        settings.sidebarIconSet = .diceBear
         settings.diceBearAvatarStyle = .stripes
         settings.sidebarIconMotion = .animated
 
         #expect(settings.diceBearAvatarStyle == .squircles)
         #expect(Preferences.diceBearAvatarStyle(in: defaults) == .squircles)
+    }
+
+    @Test @MainActor func monogramSidebarIconsOnlyUseStillMotion() throws {
+        let suite = "code-station-sidebar-monogram-motion-tests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let avatar = root.appendingPathComponent("avatar.png")
+        Preferences.setSidebarIconSet(.monograms, in: defaults)
+        Preferences.setSidebarIconMotion(.animated, in: defaults)
+        let settings = AppSettings(agentAvatarURL: avatar, preferences: defaults)
+
+        #expect(settings.sidebarIconMotion == .still)
+        #expect(Preferences.sidebarIconMotion(in: defaults) == .still)
+
+        settings.sidebarIconSet = .diceBear
+        settings.sidebarIconMotion = .animated
+        settings.sidebarIconSet = .monograms
+
+        #expect(settings.sidebarIconMotion == .still)
+        settings.sidebarIconMotion = .animated
+        #expect(settings.sidebarIconMotion == .still)
+
+        let restored = AppSettings(agentAvatarURL: avatar, preferences: defaults)
+        #expect(restored.sidebarIconSet == .monograms)
+        #expect(restored.sidebarIconMotion == .still)
+        #expect(Preferences.sidebarIconMotion(in: defaults) == .still)
     }
 
     @Test func storesAndResetsAnExternalSiteConfigurationPath() throws {

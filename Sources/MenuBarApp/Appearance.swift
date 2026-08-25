@@ -31,18 +31,9 @@ enum Appearance: String, CaseIterable, Identifiable {
     }
 }
 
-enum SidebarIconSet: String, CaseIterable, Identifiable {
+enum SidebarIconSet: String {
     case monograms
     case diceBear
-
-    var id: String { rawValue }
-
-    var label: String {
-        switch self {
-        case .monograms: "Monograms"
-        case .diceBear: "DiceBear"
-        }
-    }
 }
 
 enum SidebarIconMotion: String, CaseIterable, Identifiable {
