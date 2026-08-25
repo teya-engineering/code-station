@@ -260,12 +260,16 @@ struct SettingsView: View {
                 sidebar
                 oldSessions
                 skillRefresh
-                botImage
                 terminal
-                appearance
-                textSize
                 startAtLogin
                 log
+            }
+            .transition(.fadeIn)
+        case .appearance:
+            VStack(alignment: .leading, spacing: 24) {
+                appearance
+                textSize
+                botImage
             }
             .transition(.fadeIn)
         case .agents:
@@ -331,6 +335,8 @@ struct SettingsView: View {
         switch tab {
         case .general:
             Text(SettingsTab.general.note).transition(.fadeIn)
+        case .appearance:
+            Text(SettingsTab.appearance.note).transition(.fadeIn)
         case .agents:
             Text(SettingsTab.agents.note).transition(.fadeIn)
         case .advanced:
@@ -1056,6 +1062,7 @@ private struct DayField: View {
 
 enum SettingsTab: CaseIterable {
     case general
+    case appearance
     case agents
     case advanced
     case experimental
@@ -1063,6 +1070,7 @@ enum SettingsTab: CaseIterable {
     var title: String {
         switch self {
         case .general: "General"
+        case .appearance: "Appearance"
         case .agents: "Agents"
         case .advanced: "Advanced"
         case .experimental: "Experimental"
@@ -1072,6 +1080,7 @@ enum SettingsTab: CaseIterable {
     var note: String {
         switch self {
         case .general: "Settings for Teya Code Station."
+        case .appearance: "Choose how Teya Code Station looks and feels."
         case .agents: "Choose an agent and set how it runs."
         case .advanced: "Manage shared configuration and other advanced settings."
         case .experimental: "Try features that are still in development."
