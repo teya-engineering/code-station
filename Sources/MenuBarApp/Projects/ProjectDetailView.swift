@@ -82,7 +82,7 @@ struct ProjectDetailView: View {
 
     // MARK: - Header
 
-    // Which project this is, and nothing else: its colour, its full name - never cut
+    // Which project this is, and nothing else: its icon, its full name - never cut
     // short - the views it can be read in, and the one action the screen is offering.
     // The state of the folder reads on the strip under this one. The path is only a
     // tooltip: it says the same thing the name does, at four times the length.
@@ -90,7 +90,10 @@ struct ProjectDetailView: View {
         // Asked once for the whole row: it is a stat call, and the row redraws often.
         let missing = store.isMissing(project)
         return HStack(spacing: 12) {
-            ProjectDot(tint: Theme.projectTint(for: project.name))
+            SidebarIdentityTile(
+                avatar: SidebarAvatar(subject: .project, id: project.id),
+                name: project.name,
+                tint: Theme.projectTint(for: project.name))
             Text(project.name)
                 .font(.serif(17, .semibold))
                 .lineLimit(1)

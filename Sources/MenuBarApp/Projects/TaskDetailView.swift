@@ -63,9 +63,11 @@ struct TaskDetailView: View {
     // beside the button, not something the header can speak for.
     private func header(_ task: Project) -> some View {
         HStack(spacing: 12) {
-            ProjectTileView(name: task.name,
-                            tint: Theme.projectTint(for: task.name),
-                            dashed: true)
+            SidebarIdentityTile(
+                avatar: SidebarAvatar(subject: .task, id: task.id),
+                name: task.name,
+                tint: Theme.projectTint(for: task.name),
+                dashed: true)
             Text(task.name)
                 .font(.serif(17, .semibold))
                 .lineLimit(1)

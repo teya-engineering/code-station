@@ -294,7 +294,7 @@ struct SessionView: View {
 
     // MARK: - Header
 
-    // Where you are and what you are looking at, and nothing else: colour dot, container,
+    // Where you are and what you are looking at, and nothing else: container icon and name,
     // title, then the view switcher right-aligned. Everything that describes the state of
     // the session - what it is doing, what it has changed, and the facts behind the chip -
     // reads on the strip under this one.
@@ -303,8 +303,21 @@ struct SessionView: View {
         let container = workspace?.name ?? project.name
         return HStack(spacing: 14) {
             HStack(spacing: 7) {
-                ProjectDot(tint: workspace == nil ? Theme.projectTint(for: container)
-                                                  : Theme.workspaceTint)
+                if let workspace {
+                    SidebarIdentityTile(
+                        avatar: SidebarAvatar(subject: .workspace, id: workspace.id),
+                        name: workspace.name,
+                        tint: Theme.workspaceTint,
+                        stacked: true)
+                } else {
+                    SidebarIdentityTile(
+                        avatar: SidebarAvatar(
+                            subject: project.kind == .adHoc ? .task : .project,
+                            id: project.id),
+                        name: project.name,
+                        tint: Theme.projectTint(for: project.name),
+                        dashed: project.kind == .adHoc)
+                }
                 // The place the session lives is never cut short: when the row runs out
                 // of room, the session title is what gives way.
                 Text(container)

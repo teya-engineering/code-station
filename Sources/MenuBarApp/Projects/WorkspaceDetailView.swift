@@ -62,7 +62,11 @@ struct WorkspaceDetailView: View {
     // on the strip under it.
     private func header(_ workspace: ProjectWorkspace) -> some View {
         HStack(spacing: 12) {
-            ProjectDot(tint: Theme.workspaceTint)
+            SidebarIdentityTile(
+                avatar: SidebarAvatar(subject: .workspace, id: workspace.id),
+                name: workspace.name,
+                tint: Theme.workspaceTint,
+                stacked: true)
 
             // The title only reads the name. Renaming lives in the sidebar row's
             // context menu, the same place projects and sessions are renamed.

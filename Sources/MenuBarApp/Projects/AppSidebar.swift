@@ -1630,35 +1630,6 @@ private struct ProjectHeaderRow: View {
     }
 }
 
-private struct SidebarIdentityTile: View {
-    @Environment(AppSettings.self) private var appSettings
-
-    let avatar: SidebarAvatar
-    let name: String
-    let tint: Theme.ProjectTint
-    var dashed = false
-    var stacked = false
-
-    var body: some View {
-        switch appSettings.sidebarIconSet {
-        case .monograms:
-            fallback
-        case .diceBear:
-            DiceBearAvatarView(
-                avatar: avatar,
-                style: appSettings.diceBearAvatarStyle,
-                motion: appSettings.sidebarIconMotion,
-                side: 26) {
-                    fallback
-                }
-        }
-    }
-
-    private var fallback: some View {
-        ProjectTileView(name: name, tint: tint, dashed: dashed, stacked: stacked)
-    }
-}
-
 // A hover action on the project row: the glyph with its word beside it, so what the
 // button does is read rather than guessed.
 private struct RowAction: View {

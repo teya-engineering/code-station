@@ -88,6 +88,35 @@ struct DiceBearAvatarView<Placeholder: View>: View {
     }
 }
 
+struct SidebarIdentityTile: View {
+    @Environment(AppSettings.self) private var appSettings
+
+    let avatar: SidebarAvatar
+    let name: String
+    let tint: Theme.ProjectTint
+    var dashed = false
+    var stacked = false
+
+    var body: some View {
+        switch appSettings.sidebarIconSet {
+        case .monograms:
+            fallback
+        case .diceBear:
+            DiceBearAvatarView(
+                avatar: avatar,
+                style: appSettings.diceBearAvatarStyle,
+                motion: appSettings.sidebarIconMotion,
+                side: 26) {
+                    fallback
+                }
+        }
+    }
+
+    private var fallback: some View {
+        ProjectTileView(name: name, tint: tint, dashed: dashed, stacked: stacked)
+    }
+}
+
 private struct SidebarAvatarArtwork {
     let key: String
     let data: Data
