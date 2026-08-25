@@ -360,7 +360,7 @@ enum Preferences {
 
     static func sidebarIconSet(in store: UserDefaults) -> SidebarIconSet {
         store.string(forKey: "sidebarIconSet").flatMap(SidebarIconSet.init(rawValue:))
-            ?? .monograms
+            ?? .diceBear
     }
 
     static func setSidebarIconSet(_ iconSet: SidebarIconSet, in store: UserDefaults) {
@@ -369,7 +369,7 @@ enum Preferences {
 
     static func sidebarIconMotion(in store: UserDefaults) -> SidebarIconMotion {
         store.string(forKey: "sidebarIconMotion").flatMap(SidebarIconMotion.init(rawValue:))
-            ?? .still
+            ?? .animated
     }
 
     static func setSidebarIconMotion(_ motion: SidebarIconMotion, in store: UserDefaults) {
@@ -378,7 +378,7 @@ enum Preferences {
 
     static func diceBearAvatarStyle(in store: UserDefaults) -> DiceBearAvatarStyle {
         store.string(forKey: "diceBearAvatarStyle")
-            .flatMap(DiceBearAvatarStyle.init(rawValue:)) ?? .squircles
+            .flatMap(DiceBearAvatarStyle.init(rawValue:)) ?? .waves
     }
 
     static func setDiceBearAvatarStyle(_ style: DiceBearAvatarStyle,

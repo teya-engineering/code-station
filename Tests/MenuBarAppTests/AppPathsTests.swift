@@ -226,9 +226,9 @@ struct AppPathsTests {
         let avatar = root.appendingPathComponent("avatar.png")
 
         let settings = AppSettings(agentAvatarURL: avatar, preferences: defaults)
-        #expect(settings.sidebarIconSet == .monograms)
-        #expect(settings.sidebarIconMotion == .still)
-        #expect(settings.diceBearAvatarStyle == .squircles)
+        #expect(settings.sidebarIconSet == .diceBear)
+        #expect(settings.sidebarIconMotion == .animated)
+        #expect(settings.diceBearAvatarStyle == .waves)
 
         settings.sidebarIconSet = .diceBear
         settings.diceBearAvatarStyle = .landscape
@@ -250,7 +250,7 @@ struct AppPathsTests {
             agentAvatarURL: root.appendingPathComponent("avatar.png"),
             preferences: defaults)
 
-        settings.sidebarIconSet = .diceBear
+        settings.sidebarIconMotion = .still
         settings.diceBearAvatarStyle = .stripes
         settings.sidebarIconMotion = .animated
 
