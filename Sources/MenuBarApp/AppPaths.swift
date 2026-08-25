@@ -358,6 +358,34 @@ enum Preferences {
         set { store.set(newValue.rawValue, forKey: "appearance") }
     }
 
+    static func sidebarIconSet(in store: UserDefaults) -> SidebarIconSet {
+        store.string(forKey: "sidebarIconSet").flatMap(SidebarIconSet.init(rawValue:))
+            ?? .monograms
+    }
+
+    static func setSidebarIconSet(_ iconSet: SidebarIconSet, in store: UserDefaults) {
+        store.set(iconSet.rawValue, forKey: "sidebarIconSet")
+    }
+
+    static func sidebarIconMotion(in store: UserDefaults) -> SidebarIconMotion {
+        store.string(forKey: "sidebarIconMotion").flatMap(SidebarIconMotion.init(rawValue:))
+            ?? .still
+    }
+
+    static func setSidebarIconMotion(_ motion: SidebarIconMotion, in store: UserDefaults) {
+        store.set(motion.rawValue, forKey: "sidebarIconMotion")
+    }
+
+    static func diceBearAvatarStyle(in store: UserDefaults) -> DiceBearAvatarStyle {
+        store.string(forKey: "diceBearAvatarStyle")
+            .flatMap(DiceBearAvatarStyle.init(rawValue:)) ?? .squircles
+    }
+
+    static func setDiceBearAvatarStyle(_ style: DiceBearAvatarStyle,
+                                       in store: UserDefaults) {
+        store.set(style.rawValue, forKey: "diceBearAvatarStyle")
+    }
+
     // How large a session's own text is drawn. A reading size belongs to the person at the
     // machine rather than to any one session, so there is a single answer for the app.
     static var textSize: TextSize {

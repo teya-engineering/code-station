@@ -217,6 +217,46 @@ struct AppPathsTests {
         #expect(restored.sidebarSessionLimit == 10)
     }
 
+    @Test @MainActor func appSettingsPersistsSidebarAvatarChoices() throws {
+        let suite = "code-station-sidebar-avatar-tests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let avatar = root.appendingPathComponent("avatar.png")
+
+        let settings = AppSettings(agentAvatarURL: avatar, preferences: defaults)
+        #expect(settings.sidebarIconSet == .monograms)
+        #expect(settings.sidebarIconMotion == .still)
+        #expect(settings.diceBearAvatarStyle == .squircles)
+
+        settings.sidebarIconSet = .diceBear
+        settings.diceBearAvatarStyle = .landscape
+        settings.sidebarIconMotion = .animated
+
+        let restored = AppSettings(agentAvatarURL: avatar, preferences: defaults)
+        #expect(restored.sidebarIconSet == .diceBear)
+        #expect(restored.sidebarIconMotion == .animated)
+        #expect(restored.diceBearAvatarStyle == .landscape)
+    }
+
+    @Test @MainActor func animatedSidebarAvatarsReplaceTheStillOnlyStyle() throws {
+        let suite = "code-station-sidebar-avatar-motion-tests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let settings = AppSettings(
+            agentAvatarURL: root.appendingPathComponent("avatar.png"),
+            preferences: defaults)
+
+        settings.diceBearAvatarStyle = .stripes
+        settings.sidebarIconMotion = .animated
+
+        #expect(settings.diceBearAvatarStyle == .squircles)
+        #expect(Preferences.diceBearAvatarStyle(in: defaults) == .squircles)
+    }
+
     @Test func storesAndResetsAnExternalSiteConfigurationPath() throws {
         let suite = "code-station-site-defaults-tests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))

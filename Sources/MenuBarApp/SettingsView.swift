@@ -84,6 +84,29 @@ final class AppSettings {
         }
     }
 
+    var sidebarIconSet: SidebarIconSet {
+        didSet { Preferences.setSidebarIconSet(sidebarIconSet, in: preferences) }
+    }
+
+    var sidebarIconMotion: SidebarIconMotion {
+        didSet {
+            Preferences.setSidebarIconMotion(sidebarIconMotion, in: preferences)
+            if sidebarIconMotion == .animated, !diceBearAvatarStyle.supportsAnimation {
+                diceBearAvatarStyle = .squircles
+            }
+        }
+    }
+
+    var diceBearAvatarStyle: DiceBearAvatarStyle {
+        didSet {
+            guard sidebarIconMotion == .still || diceBearAvatarStyle.supportsAnimation else {
+                diceBearAvatarStyle = oldValue
+                return
+            }
+            Preferences.setDiceBearAvatarStyle(diceBearAvatarStyle, in: preferences)
+        }
+    }
+
     var textSize = Preferences.textSize {
         didSet { Preferences.textSize = textSize }
     }
@@ -109,6 +132,16 @@ final class AppSettings {
         self.agentAvatarURL = agentAvatarURL
         self.preferences = preferences
         sidebarSessionLimit = Preferences.sidebarSessionLimit(in: preferences)
+        sidebarIconSet = Preferences.sidebarIconSet(in: preferences)
+        let storedIconMotion = Preferences.sidebarIconMotion(in: preferences)
+        sidebarIconMotion = storedIconMotion
+        let storedAvatarStyle = Preferences.diceBearAvatarStyle(in: preferences)
+        let resolvedAvatarStyle = storedIconMotion == .animated && !storedAvatarStyle.supportsAnimation
+            ? .squircles : storedAvatarStyle
+        diceBearAvatarStyle = resolvedAvatarStyle
+        if resolvedAvatarStyle != storedAvatarStyle {
+            Preferences.setDiceBearAvatarStyle(resolvedAvatarStyle, in: preferences)
+        }
         hasCompletedOnboarding = Preferences.hasCompletedOnboarding(in: preferences)
         costShown = Dictionary(uniqueKeysWithValues: AgentKind.allCases.map {
             ($0, Preferences.showCost(for: $0))
@@ -265,6 +298,7 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 24) {
                 appearance
                 textSize
+                sidebarIcons
                 botImage
             }
             .transition(.fadeIn)
@@ -499,6 +533,105 @@ struct SettingsView: View {
             .fixedSize()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var sidebarIcons: some View {
+        ChoiceBlock(
+            "SIDEBAR ICONS",
+            note: settings.sidebarIconSet == .diceBear
+                ? "Avatars are bundled with the app and stay offline. Stripes is available as a still style only."
+                : nil
+        ) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .center, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Icon set")
+                            .font(.system(size: 13, weight: .semibold))
+                        Text("Choose the tiles for projects, tasks and workspaces in the left sidebar.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 0)
+                    HStack(spacing: 4) {
+                        ForEach(SidebarIconSet.allCases) { iconSet in
+                            ChoicePill(title: iconSet.label,
+                                       selected: settings.sidebarIconSet == iconSet) {
+                                settings.sidebarIconSet = iconSet
+                            }
+                        }
+                    }
+                    .fixedSize()
+                }
+
+                if settings.sidebarIconSet == .diceBear {
+                    Divider().overlay(Theme.hairline)
+                    HStack(spacing: 12) {
+                        diceBearPreview
+
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack {
+                                Text("Motion")
+                                    .font(.system(size: 12, weight: .semibold))
+                                Spacer(minLength: 0)
+                                HStack(spacing: 4) {
+                                    ForEach(SidebarIconMotion.allCases) { motion in
+                                        ChoicePill(title: motion.label,
+                                                   selected: settings.sidebarIconMotion == motion) {
+                                            settings.sidebarIconMotion = motion
+                                        }
+                                    }
+                                }
+                            }
+
+                            HStack {
+                                Text("Style")
+                                    .font(.system(size: 12, weight: .semibold))
+                                Spacer(minLength: 0)
+                                HStack(spacing: 8) {
+                                    Text(settings.diceBearAvatarStyle.label)
+                                        .font(.system(size: 12, weight: .semibold))
+                                    Image(systemName: "chevron.up.chevron.down")
+                                        .font(.system(size: 8, weight: .semibold))
+                                        .foregroundStyle(.secondary)
+                                }
+                                .padding(.horizontal, 10)
+                                .frame(height: 34)
+                                .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
+                                .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
+                                .contentShape(Rectangle())
+                                .appMenu(matchWidth: true) {
+                                    DiceBearAvatarStyle.available(for: settings.sidebarIconMotion)
+                                        .map { style in
+                                            .item(style.label,
+                                                  checked: settings.diceBearAvatarStyle == style) {
+                                                settings.diceBearAvatarStyle = style
+                                            }
+                                        }
+                                }
+                                .accessibilityLabel("DiceBear style: \(settings.diceBearAvatarStyle.label)")
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 9).fill(Theme.card))
+            .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
+        }
+    }
+
+    private var diceBearPreview: some View {
+        DiceBearAvatarView(
+            avatar: .preview,
+            style: settings.diceBearAvatarStyle,
+            motion: settings.sidebarIconMotion,
+            side: 48) {
+            RoundedRectangle(cornerRadius: 13)
+                .fill(Theme.field)
+                .overlay(RoundedRectangle(cornerRadius: 13).stroke(Theme.border))
+        }
     }
 
     // MARK: - Terminal

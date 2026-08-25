@@ -1,0 +1,19 @@
+DiceBear sidebar avatar artwork
+
+Sources:
+- https://www.dicebear.com/styles/squircles/
+- https://www.dicebear.com/styles/planets/
+- https://www.dicebear.com/styles/shapes/
+- https://www.dicebear.com/styles/blobs/
+- https://www.dicebear.com/styles/waves/
+- https://www.dicebear.com/styles/sprouts/
+- https://www.dicebear.com/styles/stripes/
+- https://www.dicebear.com/styles/landscape/
+
+Creator: DiceBear
+License: CC0 1.0 Universal
+License details: https://creativecommons.org/publicdomain/zero/1.0/
+
+The sidebar-avatar-*.svg files use seeds code-station-sidebar-<style>-01 through
+code-station-sidebar-<style>-64. Animated styles use the medium animation variant.
+The app bundles these files and makes no runtime network requests to DiceBear.

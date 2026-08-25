@@ -1393,7 +1393,11 @@ private struct WorkspaceHeaderRow: View {
 
     var body: some View {
         TreeRow(selected: selected, isExpanded: isExpanded, hovering: hovering) {
-            ProjectTileView(name: workspace.name, tint: Theme.workspaceTint, stacked: true)
+            SidebarIdentityTile(
+                avatar: SidebarAvatar(subject: .workspace, id: workspace.id),
+                name: workspace.name,
+                tint: Theme.workspaceTint,
+                stacked: true)
 
             if isRenaming {
                 TextField("Name", text: $draft)
@@ -1500,9 +1504,13 @@ private struct ProjectHeaderRow: View {
 
     var body: some View {
         TreeRow(selected: selected, isExpanded: isExpanded, hovering: hovering) {
-            ProjectTileView(name: project.name,
-                            tint: Theme.projectTint(for: project.name),
-                            dashed: project.kind == .adHoc)
+            SidebarIdentityTile(
+                avatar: SidebarAvatar(
+                    subject: project.kind == .adHoc ? .task : .project,
+                    id: project.id),
+                name: project.name,
+                tint: Theme.projectTint(for: project.name),
+                dashed: project.kind == .adHoc)
 
             if isRenaming {
                 TextField("Name", text: $draft)
@@ -1619,6 +1627,35 @@ private struct ProjectHeaderRow: View {
             .split(separator: "\n").first.map(String.init) ?? ""
         guard !line.isEmpty else { return nil }
         return line.count > 120 ? String(line.prefix(120)) + "…" : line
+    }
+}
+
+private struct SidebarIdentityTile: View {
+    @Environment(AppSettings.self) private var appSettings
+
+    let avatar: SidebarAvatar
+    let name: String
+    let tint: Theme.ProjectTint
+    var dashed = false
+    var stacked = false
+
+    var body: some View {
+        switch appSettings.sidebarIconSet {
+        case .monograms:
+            fallback
+        case .diceBear:
+            DiceBearAvatarView(
+                avatar: avatar,
+                style: appSettings.diceBearAvatarStyle,
+                motion: appSettings.sidebarIconMotion,
+                side: 26) {
+                    fallback
+                }
+        }
+    }
+
+    private var fallback: some View {
+        ProjectTileView(name: name, tint: tint, dashed: dashed, stacked: stacked)
     }
 }
 
