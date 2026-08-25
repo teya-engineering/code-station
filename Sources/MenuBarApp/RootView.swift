@@ -13,15 +13,9 @@ struct RootView: View {
     @Environment(SessionRunner.self) private var runner
     @Environment(MobileAccessController.self) private var mobileAccess
     @State private var skills = SkillsManager()
-    @State private var configuringServers = false
-    @State private var showingSkills = false
-    @State private var showingDocker = false
-    @State private var showingSettings = false
-    @State private var showingDispatch = false
-    @State private var showingShortcuts = false
-    @State private var showingTroubleshoot = false
-    @State private var reviewingOldSessions = false
-    @State private var showingOnboarding = false
+    // Only ever one at a time, and a second one asked for while the first is up would
+    // replace it rather than stack, so which one is showing is a single choice.
+    @State private var sheet: Sheet?
     @State private var sessionCleanupError: String?
     @State private var dismissedAttention: Attention?
 
@@ -30,7 +24,7 @@ struct RootView: View {
             HStack(spacing: 0) {
                 AppSidebar(skills: skills,
                            tools: tools,
-                           onReviewOldSessions: { reviewingOldSessions = true })
+                           onReviewOldSessions: { sheet = .oldSessions })
                 Divider().overlay(Theme.hairline)
                 detail
             }
@@ -51,7 +45,9 @@ struct RootView: View {
             let hasExistingWork = !store.projects.isEmpty
                 || !store.workspaces.isEmpty
                 || !store.sessions.isEmpty
-            showingOnboarding = settings.shouldShowOnboarding(hasExistingWork: hasExistingWork)
+            if settings.shouldShowOnboarding(hasExistingWork: hasExistingWork) {
+                sheet = .onboarding
+            }
         }
         .onChange(of: settings.mobileAccessEnabled) { _, enabled in
             mobileAccess.setEnabled(enabled)
@@ -70,7 +66,7 @@ struct RootView: View {
         // scene is deliberately empty, so the shortcut is caught here and opens the
         // same sheet the sidebar's menu does.
         .background(
-            Button("", action: { showingSettings = true })
+            Button("", action: { sheet = .settings })
                 .buttonStyle(.plain)
                 .opacity(0)
                 .keyboardShortcut(",", modifiers: .command)
@@ -90,34 +86,47 @@ struct RootView: View {
         .appOverlays()
         // A sheet is a window of its own, so the layer under it cannot draw over it; each
         // sheet gets one of its own to ask its own questions in.
-        .sheet(isPresented: $configuringServers) { ConfigManagerView().appOverlays() }
-        .sheet(isPresented: $showingSkills) { SkillsView(manager: skills).appOverlays() }
-        .sheet(isPresented: $showingDocker) { DockerView().appOverlays() }
-        .sheet(isPresented: $showingSettings) { SettingsView(skills: skills).appOverlays() }
-        .sheet(isPresented: $showingDispatch) { DispatchView().appOverlays() }
-        .sheet(isPresented: $showingShortcuts) { ShortcutsView().appOverlays() }
-        .sheet(isPresented: $showingTroubleshoot) {
-            TroubleshootView(skills: skills).appOverlays()
+        .sheet(item: $sheet) { sheet in
+            sheetContent(sheet).appOverlays()
         }
-        .sheet(isPresented: $reviewingOldSessions) { OldSessionsView().appOverlays() }
-        .sheet(isPresented: $showingOnboarding) {
+    }
+
+    // The tools and settings that open over the window. Each is a setup job rather than a
+    // place to sit, which is why none of them is a pane of its own.
+    enum Sheet: Identifiable {
+        case servers, skills, docker, settings, dispatch, shortcuts, troubleshoot
+        case oldSessions, onboarding
+
+        var id: Self { self }
+    }
+
+    @ViewBuilder private func sheetContent(_ sheet: Sheet) -> some View {
+        switch sheet {
+        case .servers: ConfigManagerView()
+        case .skills: SkillsView(manager: skills)
+        case .docker: DockerView()
+        case .settings: SettingsView(skills: skills)
+        case .dispatch: DispatchView()
+        case .shortcuts: ShortcutsView()
+        case .troubleshoot: TroubleshootView(skills: skills)
+        case .oldSessions: OldSessionsView()
+        case .onboarding:
             FirstRunWizard(initialAgent: runner.agent,
                            onSiteConfigurationLoaded: applySiteConfiguration) {
                 settings.completeOnboarding()
-                showingOnboarding = false
+                self.sheet = nil
             }
-            .appOverlays()
         }
     }
 
     private var tools: ToolsMenuActions {
-        ToolsMenuActions(configureServers: { configuringServers = true },
-                         openSkills: { showingSkills = true },
-                         openDocker: { showingDocker = true },
-                         openDispatch: { showingDispatch = true },
-                         openShortcuts: { showingShortcuts = true },
-                         openTroubleshoot: { showingTroubleshoot = true },
-                         openSettings: { showingSettings = true })
+        ToolsMenuActions(configureServers: { sheet = .servers },
+                         openSkills: { sheet = .skills },
+                         openDocker: { sheet = .docker },
+                         openDispatch: { sheet = .dispatch },
+                         openShortcuts: { sheet = .shortcuts },
+                         openTroubleshoot: { sheet = .troubleshoot },
+                         openSettings: { sheet = .settings })
     }
 
     private var persistenceError: String? {
@@ -245,7 +254,7 @@ struct RootView: View {
     }
 
     private var home: some View {
-        HomeView(onReviewOldSessions: { reviewingOldSessions = true })
+        HomeView(onReviewOldSessions: { sheet = .oldSessions })
     }
 }
 

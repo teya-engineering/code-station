@@ -103,6 +103,27 @@ private struct PulseModifier: ViewModifier {
     }
 }
 
+// MARK: - Warnings
+
+// A surface that carries a warning: a failed turn, a stalled agent, a configuration that
+// could not be read. Drawn once here so every warning in the app reads as the same kind of
+// interruption, and so the pair of adaptive colours WarningContrastTests measures is the
+// pair everything actually uses.
+private struct WarningCard: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(Theme.warningText)
+            .padding(12)
+            .background(RoundedRectangle(cornerRadius: 10).fill(Theme.warningBackground))
+            .transition(.fadeIn)
+    }
+}
+
+extension View {
+    func warningCard() -> some View { modifier(WarningCard()) }
+}
+
 // MARK: - Identity
 
 // A project wherever it is not the subject of the screen: a small square of its colour

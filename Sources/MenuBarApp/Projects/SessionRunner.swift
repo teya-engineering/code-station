@@ -878,7 +878,7 @@ final class SessionRunner {
     }
 
     // Leaves whatever has streamed in so far in place.
-    func stop(_ sessionID: UUID, store _: ProjectStore) {
+    func stop(_ sessionID: UUID) {
         requestStop(sessionID)
     }
 
@@ -965,18 +965,18 @@ final class SessionRunner {
             setState(.failed("This session has no working directory."), for: sessionID)
             return
         }
-        guard let missing = workingDirectories.first(where: { path in
+        if let missing = workingDirectories.first(where: { path in
             var isDirectory: ObjCBool = false
             return !FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
                 || !isDirectory.boolValue
-        }) else {
-            launch(prompt, attachments: attachments, sessionID: sessionID, store: store,
-                   session: session, agent: agent, agentPath: agentPath,
-                   workingDirectories: workingDirectories, avatarSequence: avatarSequence,
-                   canRetryWithoutResume: canRetryWithoutResume)
+        }) {
+            setState(.failed("\(missing) no longer exists."), for: sessionID)
             return
         }
-        setState(.failed("\(missing) no longer exists."), for: sessionID)
+        launch(prompt, attachments: attachments, sessionID: sessionID, store: store,
+               session: session, agent: agent, agentPath: agentPath,
+               workingDirectories: workingDirectories, avatarSequence: avatarSequence,
+               canRetryWithoutResume: canRetryWithoutResume)
     }
 
     private func launch(_ prompt: String, attachments: [Attachment], sessionID: UUID,
@@ -1729,8 +1729,9 @@ final class SessionRunner {
     private func processGroupDidNotStop(_ sessionID: UUID, token: UUID) {
         guard let turn = turn(sessionID, token) else { return }
         turn.stopRequested = true
-        turn.stopFailure = turn.stopFailure
-            ?? "The agent process group could not be stopped."
+        if turn.stopFailure == nil {
+            turn.stopFailure = "The agent process group could not be stopped."
+        }
         asked[sessionID] = nil
         setState(.stopping, for: sessionID)
         turn.closeInput()

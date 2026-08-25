@@ -646,9 +646,9 @@ struct SkillsView: View {
             Spacer(minLength: 0)
         }
         .font(.system(size: 11.5, weight: .medium))
-        .foregroundStyle(Color(red: 0.55, green: 0.20, blue: 0.16))
+        .foregroundStyle(Theme.warningText)
         .padding(.horizontal, 20)
         .padding(.vertical, 9)
-        .background(Color(red: 0.98, green: 0.90, blue: 0.88))
+        .background(Theme.warningBackground)
     }
 }

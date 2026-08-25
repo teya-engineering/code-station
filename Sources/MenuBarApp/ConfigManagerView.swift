@@ -33,9 +33,9 @@ struct ConfigManagerView: View {
                         .underline()
                 }
                 .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(Color(red: 0.55, green: 0.20, blue: 0.16))
+                .foregroundStyle(Theme.warningText)
                 .padding(.horizontal, 20).padding(.vertical, 10)
-                .background(Color(red: 0.98, green: 0.90, blue: 0.88))
+                .background(Theme.warningBackground)
             }
             HStack(spacing: 0) {
                 sidebar

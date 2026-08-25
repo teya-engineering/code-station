@@ -729,7 +729,7 @@ struct SessionView: View {
         let state = runner.state(sessionID)
         if state.isBusy, state != .stopping, dialogs.current == nil, !menus.isOpen,
            !terminalFocused {
-            Button("") { runner.stop(sessionID, store: store) }
+            Button("") { runner.stop(sessionID) }
                 .keyboardShortcut(.escape, modifiers: [])
                 .opacity(0)
         }
@@ -841,9 +841,9 @@ struct SessionView: View {
             }
         }
         .font(.system(size: 12, weight: .medium))
-        .foregroundStyle(ChatColor.warningText)
+        .foregroundStyle(Theme.warningText)
         .padding(.horizontal, 20).padding(.vertical, 10)
-        .background(ChatColor.warningBackground)
+        .background(Theme.warningBackground)
     }
 
     // MARK: - Transcript
@@ -979,7 +979,7 @@ struct SessionView: View {
 
             ForEach(messages) { message in
                 let isLastMessage = message.id == session.messages.last?.id
-                let isTurnActive: Bool = state.isBusy
+                let isTurnActive = state.isBusy
                     && message.role == .assistant
                     && isLastMessage
                 MessageView(message: message,
@@ -1033,11 +1033,7 @@ struct SessionView: View {
                     }
                     Spacer(minLength: 0)
                 }
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(ChatColor.warningText)
-                .padding(12)
-                .background(RoundedRectangle(cornerRadius: 10).fill(ChatColor.warningBackground))
-                .transition(.fadeIn)
+                .warningCard()
             }
 
             if state == .stalled {
@@ -1053,11 +1049,10 @@ struct SessionView: View {
                         }
                         Spacer(minLength: 0)
                     }
-                    HStack(spacing: 8) {
-                        Spacer(minLength: 0)
+                    warningActions {
                         ActionButton(title: "Stop", tone: .outlined,
                                      height: 28, size: 11.5) {
-                            runner.stop(sessionID, store: store)
+                            runner.stop(sessionID)
                         }
                         if runner.canRetryStalled(sessionID, store: store) {
                             ActionButton(title: "Retry turn", height: 28, size: 11.5) {
@@ -1066,11 +1061,7 @@ struct SessionView: View {
                         }
                     }
                 }
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(ChatColor.warningText)
-                .padding(12)
-                .background(RoundedRectangle(cornerRadius: 10).fill(ChatColor.warningBackground))
-                .transition(.fadeIn)
+                .warningCard()
             }
 
             // A failed run belongs in the flow of the conversation, not in a dialog.
@@ -1083,8 +1074,7 @@ struct SessionView: View {
                             .fixedSize(horizontal: false, vertical: true)
                         Spacer(minLength: 0)
                     }
-                    HStack(spacing: 8) {
-                        Spacer(minLength: 0)
+                    warningActions {
                         if runner.canContinueAfterFailure(sessionID, store: store) {
                             ActionButton(title: "Continue", height: 28, size: 11.5) {
                                 runner.continueAfterFailure(sessionID, store: store)
@@ -1096,14 +1086,19 @@ struct SessionView: View {
                         }
                     }
                 }
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(ChatColor.warningText)
-                .padding(12)
-                .background(RoundedRectangle(cornerRadius: 10).fill(ChatColor.warningBackground))
-                .transition(.fadeIn)
+                .warningCard()
             }
 
             Color.clear.frame(height: 1).id(bottomAnchor)
+        }
+    }
+
+    // The buttons under a warning card, pushed to the trailing edge the way every other
+    // card in the transcript puts them.
+    private func warningActions(@ViewBuilder _ buttons: () -> some View) -> some View {
+        HStack(spacing: 8) {
+            Spacer(minLength: 0)
+            buttons()
         }
     }
 
@@ -1325,7 +1320,7 @@ struct SessionView: View {
                         .appTooltip("Stopping this turn")
                 } else if busy {
                     Button {
-                        runner.stop(sessionID, store: store)
+                        runner.stop(sessionID)
                     } label: {
                         Image(systemName: "stop.fill")
                             .font(.system(size: 12, weight: .bold))
@@ -1883,7 +1878,7 @@ private struct WorkingRow: View {
                     Text("silent for \(elapsed(quiet))")
                         .font(.system(size: 11))
                         .foregroundStyle(quiet >= Self.concerningAfter
-                                         ? ChatColor.warningText : .secondary)
+                                         ? Theme.warningText : .secondary)
                 }
                 Spacer(minLength: 0)
             }

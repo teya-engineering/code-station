@@ -87,7 +87,9 @@ struct ProjectDetailView: View {
     // The state of the folder reads on the strip under this one. The path is only a
     // tooltip: it says the same thing the name does, at four times the length.
     private func header(_ project: Project) -> some View {
-        HStack(spacing: 12) {
+        // Asked once for the whole row: it is a stat call, and the row redraws often.
+        let missing = store.isMissing(project)
+        return HStack(spacing: 12) {
             ProjectDot(tint: Theme.projectTint(for: project.name))
             Text(project.name)
                 .font(.serif(17, .semibold))
@@ -111,14 +113,14 @@ struct ProjectDetailView: View {
                                directory: project.path) {
                     toggleTerminal(directory: project.path)
                 }
-                .disabled(store.isMissing(project))
-                .opacity(store.isMissing(project) ? 0.4 : 1)
+                .disabled(missing)
+                .opacity(missing ? 0.4 : 1)
 
                 ActionButton(title: "New session", tone: .green, size: 12) {
                     requestNewSession(in: project)
                 }
-                .disabled(store.isMissing(project))
-                .opacity(store.isMissing(project) ? 0.45 : 1)
+                .disabled(missing)
+                .opacity(missing ? 0.45 : 1)
             }
             .fixedSize(horizontal: true, vertical: false)
             .layoutPriority(1)
@@ -568,10 +570,10 @@ struct ProjectDetailView: View {
             .fixedSize()
         }
         .font(.system(size: 12, weight: .medium))
-        .foregroundStyle(ChatColor.warningText)
+        .foregroundStyle(Theme.warningText)
         .padding(.horizontal, 24)
         .padding(.vertical, 10)
-        .background(ChatColor.warningBackground)
+        .background(Theme.warningBackground)
     }
 
     // MARK: - Creating and removing
@@ -623,24 +625,10 @@ struct ProjectDetailView: View {
     }
 
     private func confirmRemove(_ session: ChatSession) {
-        let worktree = session.worktreePath
-        dialogs.show(Dialog(
-            title: worktree == nil
-                ? "Delete \"\(session.title)\"?"
-                : "Remove the worktree for \"\(session.title)\"?",
-            message: worktree.map { path in
-                let changes = workingTrees.isDirty(path)
-                    ? "Its worktree at \(path.abbreviatedPath) has uncommitted changes, and they are lost with it."
-                    : "Its worktree at \(path.abbreviatedPath) goes with it, along with anything uncommitted there."
-                return changes + " The session goes with the worktree. The branch is kept if it has unmerged commits."
-            } ?? "Its conversation history is removed from the app.",
-            actions: [
-                .init(label: worktree == nil ? "Delete session" : "Remove worktree and session",
-                      kind: .destructive) {
-                    remove([session])
-                },
-                .init(label: "Cancel", kind: .cancel)
-            ]))
+        dialogs.show(SessionRemoval.confirmation(for: session, in: store,
+                                                 workingTrees: workingTrees) {
+            remove([session])
+        })
     }
 
     private func confirmPruneOrphans(_ project: Project) {
@@ -681,18 +669,11 @@ struct ProjectDetailView: View {
 
     private func remove(_ sessions: [ChatSession]) {
         Task {
-            var failures: [SessionLifecycle.Failure] = []
-            for session in sessions {
-                if case .failure(let failure) = await SessionLifecycle.remove(
-                    session, from: store, runner: runner) {
-                    failures.append(failure)
-                }
+            if case .failure(let failure) = await SessionRemoval.run(
+                sessions, in: store, runner: runner) {
+                dialogs.show(Dialog(title: failure.title, message: failure.message,
+                                    actions: [.init(label: "OK", kind: .cancel)]))
             }
-            guard !failures.isEmpty else { return }
-            dialogs.show(Dialog(
-                title: failures.count == 1 ? failures[0].title : "Could not delete some sessions",
-                message: failures.map(\.message).joined(separator: "\n"),
-                actions: [.init(label: "OK", kind: .cancel)]))
         }
     }
 

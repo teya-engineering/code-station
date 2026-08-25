@@ -884,34 +884,10 @@ struct AppSidebar: View {
     }
 
     private func confirmRemoveSession(_ session: ChatSession) {
-        let worktrees = store.checkoutProjects(for: session).compactMap(\.worktreePath)
-        let dirty = worktrees.count { workingTrees.isDirty($0) }
-        let removesDesign = store.hasDesignArtifacts(for: session)
-        var consequences = ["Its conversation history is removed from the app."]
-        if removesDesign {
-            consequences.append("Its generated Design files are permanently removed.")
-        }
-        if !worktrees.isEmpty {
-            consequences.append(
-                "Its \(worktrees.count) worktree\(worktrees.count == 1 ? "" : "s") go with it."
-                    + (dirty > 0
-                       ? " \(dirty) \(dirty == 1 ? "has" : "have") uncommitted changes that will be lost."
-                       : " Branches are kept if they have unmerged commits."))
-        }
-        let deleteLabel = if removesDesign {
-            worktrees.isEmpty ? "Delete session and Design files" : "Delete session and files"
-        } else {
-            worktrees.isEmpty ? "Delete session" : "Delete session and worktrees"
-        }
-        dialogs.show(Dialog(
-            title: "Delete \"\(session.title)\"?",
-            message: consequences.joined(separator: " "),
-            actions: [
-                .init(label: deleteLabel, kind: .destructive) {
-                    removeSessions([session])
-                },
-                .init(label: "Cancel", kind: .cancel)
-            ]))
+        dialogs.show(SessionRemoval.confirmation(for: session, in: store,
+                                                 workingTrees: workingTrees) {
+            removeSessions([session])
+        })
     }
 
     // Clearing a project keeps whatever is still running and takes the rest, worktrees
@@ -1000,22 +976,12 @@ struct AppSidebar: View {
 
     private func removeSessions(_ sessions: [ChatSession], onSuccess: (() -> Void)? = nil) {
         Task {
-            var failures: [SessionLifecycle.Failure] = []
-            for session in sessions {
-                if case .failure(let failure) = await SessionLifecycle.remove(
-                    session, from: store, runner: runner) {
-                    failures.append(failure)
-                }
+            switch await SessionRemoval.run(sessions, in: store, runner: runner) {
+            case .success:
+                onSuccess?()
+            case .failure(let failure):
+                showLifecycleFailure(failure)
             }
-            guard failures.isEmpty else {
-                showLifecycleFailure(SessionLifecycle.Failure(
-                    title: failures.count == 1
-                        ? failures[0].title
-                        : "Could not delete some sessions",
-                    message: failures.map(\.message).joined(separator: "\n")))
-                return
-            }
-            onSuccess?()
         }
     }
 

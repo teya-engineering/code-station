@@ -13,6 +13,7 @@ struct TaskDetailView: View {
     @Environment(DialogPresenter.self) private var dialogs
     @Environment(AppSettings.self) private var appSettings
     @Environment(TerminalStore.self) private var terminals
+    @Environment(WorkingTreeWatch.self) private var workingTrees
 
     private enum Tab: Hashable { case task, explorer }
 
@@ -543,21 +544,8 @@ struct TaskDetailView: View {
     }
 
     private func confirmRemove(_ session: ChatSession) {
-        dialogs.show(Dialog(
-            title: "Delete \"\(session.title)\"?",
-            message: "Its conversation history is removed from the app. Files it wrote in the task folder stay.",
-            actions: [
-                .init(label: "Delete run", kind: .destructive) {
-                    Task {
-                        if case .failure(let failure) = await SessionLifecycle.remove(
-                            session, from: store, runner: runner) {
-                            dialogs.show(Dialog(title: failure.title, message: failure.message,
-                                                actions: [.init(label: "OK", kind: .cancel)]))
-                        }
-                    }
-                },
-                .init(label: "Cancel", kind: .cancel)
-            ]))
+        SessionRemoval.confirm(session, in: store, runner: runner,
+                               workingTrees: workingTrees, dialogs: dialogs)
     }
 
     // MARK: - Terminal
@@ -584,9 +572,9 @@ struct TaskDetailView: View {
             .fixedSize()
         }
         .font(.system(size: 12, weight: .medium))
-        .foregroundStyle(ChatColor.warningText)
+        .foregroundStyle(Theme.warningText)
         .padding(.horizontal, 24)
         .padding(.vertical, 10)
-        .background(ChatColor.warningBackground)
+        .background(Theme.warningBackground)
     }
 }

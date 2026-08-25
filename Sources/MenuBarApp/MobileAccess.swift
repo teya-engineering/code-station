@@ -466,7 +466,7 @@ final class MobileAccessController {
             }
             runner.send(prompt, sessionID: sessionID, store: store)
         case "stopTurn":
-            runner.stop(sessionID, store: store)
+            runner.stop(sessionID)
         case "answerPermission":
             answer(command, sessionID: sessionID, connectionID: connectionID)
         default:

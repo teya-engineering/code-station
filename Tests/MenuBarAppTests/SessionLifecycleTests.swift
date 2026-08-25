@@ -247,7 +247,7 @@ struct SessionLifecycleTests {
 
         #expect(runner.state(session.id).isBusy)
         let descendantPID = try #require(await waitForPID(in: descendantPIDFile))
-        runner.stop(session.id, store: store)
+        runner.stop(session.id)
         #expect(runner.state(session.id) == .stopping)
 
         let blocked = await SessionLifecycle.remove(

@@ -10,8 +10,8 @@ struct WarningContrastTests {
     // What the permission card puts on its own tint, read as ink over surface.
     @Test func permissionCardIsReadableInBothAppearances() throws {
         for appearance in try appearances() {
-            let surface = try swatch(ChatColor.warningBackground, in: appearance)
-            let tint = try swatch(ChatColor.warningText, in: appearance)
+            let surface = try swatch(Theme.warningBackground, in: appearance)
+            let tint = try swatch(Theme.warningText, in: appearance)
 
             let pairs: [(String, Swatch, Swatch)] = [
                 ("title", tint, surface),

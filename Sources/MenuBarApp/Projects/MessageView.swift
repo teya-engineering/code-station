@@ -5,15 +5,6 @@ import SwiftUI
 // Theme because Theme is a shared file the chat views only read from.
 // Both halves are adaptive: a surface that stayed pink in dark mode would be left holding
 // the white that .primary and .secondary turn into.
-enum ChatColor {
-    static let warningText = Theme.adaptive(
-        light: NSColor(srgbRed: 0.55, green: 0.20, blue: 0.16, alpha: 1),
-        dark: NSColor(srgbRed: 0.95, green: 0.64, blue: 0.56, alpha: 1))
-    static let warningBackground = Theme.adaptive(
-        light: NSColor(srgbRed: 0.98, green: 0.90, blue: 0.88, alpha: 1),
-        dark: NSColor(srgbRed: 0.22, green: 0.11, blue: 0.10, alpha: 1))
-}
-
 // One turn of the conversation. The user gets a bubble, Claude does not: long
 // answers read better as plain page text than as a giant tinted block.
 struct MessageView: View, Equatable {

@@ -533,15 +533,12 @@ final class ProjectStore {
     }
 
     func designFilesURL(for session: ChatSession) -> URL? {
-        if let design = designSession(for: session.id),
-           let artifact = designArtifactURL(for: design) {
-            return artifact.deletingLastPathComponent()
+        if let design = designSession(for: session.id) {
+            return designArtifactURL(for: design)?.deletingLastPathComponent()
         }
         if let reference = designReferenceDirectory(for: session) { return reference }
-        let design = session.ownsDesign ? session : designSession(for: session.id)
-        guard let design,
-              let artifact = designArtifactURL(for: design) else { return nil }
-        return artifact.deletingLastPathComponent()
+        guard session.ownsDesign else { return nil }
+        return designArtifactURL(for: session)?.deletingLastPathComponent()
     }
 
     func hasDesignArtifacts(for session: ChatSession) -> Bool {
@@ -707,8 +704,6 @@ final class ProjectStore {
         }
     }
 
-    // What the next turn in this session runs with. The agent stays fixed on the session,
-    // while the model and other run controls can change between turns.
     // What a run of a task was given for the holes in its prompt, kept on the run so the
     // list can say what each one was about.
     func setTaskValues(_ values: [String: String], for sessionID: UUID) {
@@ -717,6 +712,8 @@ final class ProjectStore {
         saveIndex()
     }
 
+    // What the next turn in this session runs with. The agent stays fixed on the session,
+    // while the model and other run controls can change between turns.
     func setSettings(_ settings: SessionSettings, for sessionID: UUID) {
         guard let i = index(sessionID) else { return }
         guard sessions[i].settings != settings else { return }
@@ -949,7 +946,7 @@ final class ProjectStore {
                                  revision: DesignRevision) -> String {
         let request = transcript(of: session.id).last(where: { $0.role == .user })?.text
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let goal = request?.isEmpty == false ? request! : session.title
+        let goal = request.flatMap { $0.isEmpty ? nil : $0 } ?? session.title
         return """
         # \(revision.title) implementation handoff
 

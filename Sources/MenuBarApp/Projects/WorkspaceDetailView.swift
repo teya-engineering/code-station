@@ -11,6 +11,7 @@ struct WorkspaceDetailView: View {
     @Environment(SessionRunner.self) private var runner
     @Environment(DialogPresenter.self) private var dialogs
     @Environment(TerminalStore.self) private var terminals
+    @Environment(WorkingTreeWatch.self) private var workingTrees
 
     @State private var creatingSession: ProjectWorkspace?
     @State private var terminalFocused = false
@@ -572,24 +573,8 @@ struct WorkspaceDetailView: View {
     }
 
     private func confirmRemove(_ session: ChatSession) {
-        let worktrees = store.checkoutProjects(for: session).compactMap(\.worktreePath)
-        dialogs.show(Dialog(
-            title: "Delete \"\(session.title)\"?",
-            message: worktrees.isEmpty
-                ? "Its conversation history is removed from the app."
-                : "Its \(worktrees.count) worktree\(worktrees.count == 1 ? "" : "s") go with it, along with anything uncommitted there.",
-            actions: [
-                .init(label: worktrees.isEmpty ? "Delete session" : "Delete session and worktrees",
-                      kind: .destructive) {
-                    Task {
-                        if case .failure(let failure) = await SessionLifecycle.remove(
-                            session, from: store, runner: runner) {
-                            showCreationError(failure.message, title: failure.title)
-                        }
-                    }
-                },
-                .init(label: "Cancel", kind: .cancel)
-            ]))
+        SessionRemoval.confirm(session, in: store, runner: runner,
+                               workingTrees: workingTrees, dialogs: dialogs)
     }
 
     // MARK: - Footer
@@ -698,9 +683,9 @@ struct WorkspaceDetailView: View {
             Spacer(minLength: 0)
         }
         .font(.system(size: 12, weight: .medium))
-        .foregroundStyle(ChatColor.warningText)
+        .foregroundStyle(Theme.warningText)
         .padding(12)
-        .background(RoundedRectangle(cornerRadius: 10).fill(ChatColor.warningBackground))
+        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.warningBackground))
     }
 
     private func attachableProjects(_ workspace: ProjectWorkspace) -> [Project] {

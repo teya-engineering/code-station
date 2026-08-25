@@ -308,7 +308,7 @@ private struct SpineRow: View {
         ScrollView {
             Text(text)
                 .scaledMono(11)
-                .foregroundStyle(tinted ? ChatColor.warningText : .primary)
+                .foregroundStyle(tinted ? Theme.warningText : .primary)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(10)
@@ -317,7 +317,7 @@ private struct SpineRow: View {
         // follows the text, so the box shows about the same number of lines at any size.
         .frame(maxHeight: 220 * textScale)
         .background(RoundedRectangle(cornerRadius: 8)
-            .fill(tinted ? ChatColor.warningBackground : Theme.field))
+            .fill(tinted ? Theme.warningBackground : Theme.field))
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
         .padding(.bottom, 4)
     }

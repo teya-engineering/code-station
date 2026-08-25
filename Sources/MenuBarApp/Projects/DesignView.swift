@@ -164,7 +164,7 @@ struct DesignView: View {
                         VStack(alignment: .leading, spacing: 9) {
                             Text(message)
                                 .font(.system(size: 12))
-                                .foregroundStyle(ChatColor.warningText)
+                                .foregroundStyle(Theme.warningText)
                                 .textSelection(.enabled)
                                 .fixedSize(horizontal: false, vertical: true)
                             HStack {
@@ -177,7 +177,7 @@ struct DesignView: View {
                         }
                         .padding(11)
                         .background(RoundedRectangle(cornerRadius: 9)
-                            .fill(ChatColor.warningBackground))
+                            .fill(Theme.warningBackground))
                     }
 
                     Color.clear.frame(height: 1).id("design-transcript-bottom")
@@ -300,7 +300,7 @@ struct DesignView: View {
                         .background(Circle().fill(Theme.field))
                 } else if state.isBusy {
                     Button {
-                        runner.stop(sessionID, store: store)
+                        runner.stop(sessionID)
                     } label: {
                         Image(systemName: "stop.fill")
                             .font(.system(size: 11, weight: .bold))

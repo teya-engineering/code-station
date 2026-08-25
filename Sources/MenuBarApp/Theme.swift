@@ -78,6 +78,17 @@ enum Theme {
         light: NSColor(srgbRed: 0.639, green: 0.239, blue: 0.188, alpha: 1),
         dark: NSColor(srgbRed: 0.851, green: 0.388, blue: 0.357, alpha: 1))
 
+    // A surface that carries a warning: a failed turn, a stalled agent, a configuration
+    // that could not be read. Both halves are adaptive, and WarningContrastTests measures
+    // the pair in each appearance, so anything drawing a warning must use these rather
+    // than its own colours.
+    static let warningText = adaptive(
+        light: NSColor(srgbRed: 0.55, green: 0.20, blue: 0.16, alpha: 1),
+        dark: NSColor(srgbRed: 0.95, green: 0.64, blue: 0.56, alpha: 1))
+    static let warningBackground = adaptive(
+        light: NSColor(srgbRed: 0.98, green: 0.90, blue: 0.88, alpha: 1),
+        dark: NSColor(srgbRed: 0.22, green: 0.11, blue: 0.10, alpha: 1))
+
     static let border = adaptive(
         light: NSColor(srgbRed: 0.46, green: 0.42, blue: 0.34, alpha: 0.1),
         dark: NSColor(srgbRed: 1, green: 1, blue: 1, alpha: 0.1))

@@ -25,7 +25,7 @@ struct PermissionCard: View {
                     .font(.system(size: 13, weight: .semibold))
                 Spacer(minLength: 0)
             }
-            .foregroundStyle(ChatColor.warningText)
+            .foregroundStyle(Theme.warningText)
 
             // The description explains the intent, the subject is what will actually run.
             // Both are worth having, but only one of them can be checked.
@@ -58,8 +58,8 @@ struct PermissionCard: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 12).fill(ChatColor.warningBackground))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(ChatColor.warningText.opacity(0.25)))
+        .background(RoundedRectangle(cornerRadius: 12).fill(Theme.warningBackground))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.warningText.opacity(0.25)))
     }
 }
 
@@ -288,7 +288,7 @@ private struct QuestionCard: View {
 // which makes it the inverse of the fill in either theme.
 private struct CardButton: View {
     let title: String
-    var tint: Color = ChatColor.warningText
+    var tint: Color = Theme.warningText
     var prominent = false
     let action: () -> Void
 

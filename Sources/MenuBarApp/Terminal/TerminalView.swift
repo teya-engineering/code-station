@@ -27,7 +27,7 @@ struct TerminalScreen: View {
                 if let failure = terminal.failure {
                     Text(failure)
                         .scaledText(12)
-                        .foregroundStyle(ChatColor.warningText)
+                        .foregroundStyle(Theme.warningText)
                         .padding(16)
                 }
             }
