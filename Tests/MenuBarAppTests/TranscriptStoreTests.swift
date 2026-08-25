@@ -364,10 +364,10 @@ struct TranscriptStoreTests {
         let session = try #require(store.newSession(in: workspace.id, projects: [
                 SessionProject(projectID: api.id, worktreePath: "/work/api", worktreeBranch: "code-station/1"),
                 SessionProject(projectID: web.id, worktreePath: nil, worktreeBranch: nil),
-            ], seed: .init(agentAvatarName: AgentAvatarSelection.nonBotName)))
+            ], seed: .init(agentAvatarName: AgentAvatarSelection.defaultName)))
 
         #expect(session.projectID == api.id)
-        #expect(session.agentAvatarName == AgentAvatarSelection.nonBotName)
+        #expect(session.agentAvatarName == AgentAvatarSelection.defaultName)
         #expect(store.workingDirectories(for: session) == ["/work/api", web.path])
         #expect(store.gitMetadataDirectories(for: session) == [api.path + "/.git"])
         #expect(store.standaloneSessions(for: api.id).isEmpty)

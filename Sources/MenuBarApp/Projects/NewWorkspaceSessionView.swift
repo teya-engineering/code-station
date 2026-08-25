@@ -19,7 +19,7 @@ struct NewWorkspaceSessionView: View {
     @State private var projectIDs: [UUID]
     @State private var worktrees: Set<UUID>
     @State private var selectedAgent: AgentKind?
-    @State private var selectedAvatarName = AgentAvatarSelection.nonBotName
+    @State private var selectedAvatarName = AgentAvatarSelection.defaultName
     @State private var designMode = false
     // One report per repository, arriving in two passes: what the local refs already
     // say, then the same read again after a fetch, so the cards are honest immediately

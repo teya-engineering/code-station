@@ -37,9 +37,8 @@ struct NewSessionView: View {
     // this one launch says otherwise, so cancelling the sheet cannot change it.
     @State private var selectedAgent: AgentKind?
     // The filename is saved with the session so the photo and its personality stay in
-    // force for every turn. Non-bot has its own stored name so old sessions that had no
-    // selection can keep their original cycling behavior.
-    @State private var selectedAvatarName = AgentAvatarSelection.nonBotName
+    // force for every turn. The built-in Default bot is ready before settings load.
+    @State private var selectedAvatarName = AgentAvatarSelection.defaultName
 
     // Comfortably past a fetch that is merely slow, so waiting this long means something
     // is wrong rather than busy.

@@ -21,33 +21,35 @@ struct AgentAvatar: Identifiable {
 }
 
 enum AgentAvatarSelection {
-    static let nonBotName = "non-bot"
+    static let defaultName = AgentPersonality.standard.rawValue
 
-    static func index(forTurn turn: Int, count: Int) -> Int? {
-        guard count > 0 else { return nil }
-        return max(0, turn) % count
-    }
-
-    static func defaultName(preferredName: String?, availableNames: [String]) -> String {
-        if preferredName == nonBotName {
-            return nonBotName
-        }
+    static func resolvedName(_ preferredName: String?, availableNames: [String]) -> String {
         if let preferredName, availableNames.contains(preferredName) {
             return preferredName
         }
-        return availableNames.first ?? nonBotName
+        return defaultName
     }
 
-    static func avatar(named name: String?, forTurn turn: Int,
-                       from avatars: [AgentAvatar]) -> AgentAvatar? {
-        guard name != nonBotName else { return nil }
+    @MainActor
+    static func avatar(named name: String?, from avatars: [AgentAvatar]) -> AgentAvatar {
         if let name, let selected = avatars.first(where: {
             $0.url.lastPathComponent == name
         }) {
             return selected
         }
-        guard let index = index(forTurn: turn, count: avatars.count) else { return nil }
-        return avatars[index]
+
+        // Missing, removed, and old opt-out choices all upgrade to the built-in bot
+        // without rewriting saved sessions.
+        return builtInDefault
+    }
+
+    @MainActor
+    private static var builtInDefault: AgentAvatar {
+        AgentAvatar(
+            url: URL(fileURLWithPath: "/.code-station/bots/\(defaultName)"),
+            image: AgentAvatarArt.image(for: .standard),
+            personality: .standard,
+            usesStockArtwork: true)
     }
 }
 
@@ -385,12 +387,12 @@ struct SessionBotPicker: View {
         self.size = size
     }
 
-    private var selectedAvatar: AgentAvatar? {
-        avatars.first { $0.url.lastPathComponent == selectedName }
+    private var selectedAvatar: AgentAvatar {
+        AgentAvatarSelection.avatar(named: selectedName, from: avatars)
     }
 
     private var title: String {
-        selectedAvatar?.personality.title ?? "Non-bot"
+        selectedAvatar.personality.title
     }
 
     var body: some View {
@@ -410,27 +412,21 @@ struct SessionBotPicker: View {
             .accessibilityLabel("Choose bot, \(title) selected")
     }
 
-    @ViewBuilder
     private var selectedImage: some View {
-        if let selectedAvatar {
-            AgentAvatarView(image: selectedAvatar.displayImage(for: sessionID), size: size)
-        } else {
-            Image(systemName: "person.slash")
-                .font(.system(size: size * 0.43, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .frame(width: size, height: size)
-                .background(Circle().fill(Theme.field))
-                .overlay(Circle().stroke(Theme.border))
-        }
+        AgentAvatarView(image: selectedAvatar.displayImage(for: sessionID), size: size)
     }
 
     private var menu: [MenuEntry] {
         var entries: [MenuEntry] = [
-            .item("Non-bot",
-                  icon: "person.slash",
-                  checked: selectedName == AgentAvatarSelection.nonBotName,
-                  subtitle: "Use the standard working indicator and voice.") {
-                selectedName = AgentAvatarSelection.nonBotName
+            .item(AgentPersonality.standard.title,
+                  image: AgentAvatarSelection.avatar(named: nil, from: [])
+                      .displayImage(for: sessionID),
+                  checked: AgentAvatarSelection.resolvedName(
+                    selectedName,
+                    availableNames: avatars.map { $0.url.lastPathComponent })
+                    == AgentAvatarSelection.defaultName,
+                  subtitle: AgentPersonality.standard.detail) {
+                selectedName = AgentAvatarSelection.defaultName
             }
         ]
         if !avatars.isEmpty {

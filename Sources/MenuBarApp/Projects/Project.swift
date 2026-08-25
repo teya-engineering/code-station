@@ -528,8 +528,8 @@ struct ChatSession: Identifiable, Codable, Equatable {
     // read as "nothing chosen yet" and "nothing spent yet".
     var settings: SessionSettings?
     var usage: SessionUsage?
-    // The bot selected for this session. Bot filenames stay stable across launches,
-    // while Non-bot has a reserved name that uses no image.
+    // The bot selected for this session. Custom bot filenames stay stable across launches,
+    // while the built-in Default bot has a reserved name.
     var agentAvatarName: String?
     // Set when the agent opens a pull request from this session.
     var pullRequest: PullRequest?

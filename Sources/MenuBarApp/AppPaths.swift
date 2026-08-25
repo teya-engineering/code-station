@@ -176,8 +176,8 @@ enum Preferences {
         set { store.set(newValue.rawValue, forKey: "agent") }
     }
 
-    // The bot choice preselected for new sessions. Non-bot is stored as an explicit
-    // name so it stays distinct from sessions created before bot choices existed.
+    // The bot choice preselected for new sessions. The built-in Default bot has a stable
+    // name so sessions do not depend on a custom image file.
     static func defaultAgentAvatarName(in store: UserDefaults) -> String? {
         store.string(forKey: "defaultAgentAvatarName")
     }

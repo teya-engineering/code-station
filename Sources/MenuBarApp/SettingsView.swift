@@ -39,7 +39,6 @@ final class LoginItem {
 final class AppSettings {
     private let agentAvatarURL: URL
     @ObservationIgnored private let preferences: UserDefaults
-    private var hasExplicitNonBotDefault: Bool
 
     var sidebarSessionLimit: Int {
         didSet {
@@ -117,10 +116,12 @@ final class AppSettings {
         let avatars = AgentAvatarFile.loadAll(from: agentAvatarURL)
         let preferredName = Preferences.defaultAgentAvatarName(in: preferences)
         agentAvatars = avatars
-        defaultAgentAvatarName = AgentAvatarSelection.defaultName(
-            preferredName: preferredName,
+        defaultAgentAvatarName = AgentAvatarSelection.resolvedName(
+            preferredName,
             availableNames: avatars.map { $0.url.lastPathComponent })
-        hasExplicitNonBotDefault = preferredName == AgentAvatarSelection.nonBotName
+        if preferredName != defaultAgentAvatarName {
+            Preferences.setDefaultAgentAvatarName(defaultAgentAvatarName, in: preferences)
+        }
     }
 
     func completeOnboarding() {
@@ -160,11 +161,7 @@ final class AppSettings {
     }
 
     private func add(_ avatars: [AgentAvatar]) {
-        let hadAvatars = !agentAvatars.isEmpty
         agentAvatars.append(contentsOf: avatars)
-        if !hadAvatars, !hasExplicitNonBotDefault, let first = agentAvatars.first {
-            setDefaultAgentAvatarName(first.url.lastPathComponent)
-        }
     }
 
     func setPersonality(_ personality: AgentPersonality, for avatar: AgentAvatar) throws {
@@ -185,11 +182,11 @@ final class AppSettings {
     }
 
     // Removing an avatar can take the chosen default with it, so the list and the default
-    // are read back together and the default falls to whatever is still there.
+    // are read back together and the built-in bot takes over when needed.
     private func reloadAgentAvatars() {
         agentAvatars = AgentAvatarFile.loadAll(from: agentAvatarURL)
-        let resolvedDefault = AgentAvatarSelection.defaultName(
-            preferredName: defaultAgentAvatarName,
+        let resolvedDefault = AgentAvatarSelection.resolvedName(
+            defaultAgentAvatarName,
             availableNames: agentAvatars.map { $0.url.lastPathComponent })
         if resolvedDefault != defaultAgentAvatarName {
             setDefaultAgentAvatarName(resolvedDefault)
@@ -197,12 +194,11 @@ final class AppSettings {
     }
 
     func setDefaultAgentAvatarName(_ name: String) {
-        guard name == AgentAvatarSelection.nonBotName
+        guard name == AgentAvatarSelection.defaultName
                 || agentAvatars.contains(where: { $0.url.lastPathComponent == name }) else {
             return
         }
         defaultAgentAvatarName = name
-        hasExplicitNonBotDefault = name == AgentAvatarSelection.nonBotName
         Preferences.setDefaultAgentAvatarName(name, in: preferences)
     }
 }
@@ -713,35 +709,25 @@ struct SettingsView: View {
     private var botImageDescription: String {
         let count = settings.agentAvatars.count
         guard count > 0 else {
-            return "Add bots and give each one a personality for its working words. A bot with no photo gets the picture that comes with its personality. Up to \(AgentAvatarFile.maxCount) bots."
+            return "The built-in Default bot is used for new sessions. Add up to \(AgentAvatarFile.maxCount) custom bots with their own personality and optional photo."
         }
         let maximum = count == AgentAvatarFile.maxCount ? ", the maximum" : ""
-        return "\(count) bot\(count == 1 ? "" : "s") configured\(maximum). Choose the default for new sessions or override it when creating one."
+        return "\(count) custom bot\(count == 1 ? "" : "s") configured\(maximum). Choose the default for new sessions or use the built-in Default bot."
     }
 
-    private var defaultBot: AgentAvatar? {
-        settings.agentAvatars.first {
-            $0.url.lastPathComponent == settings.defaultAgentAvatarName
-        }
+    private var defaultBot: AgentAvatar {
+        AgentAvatarSelection.avatar(
+            named: settings.defaultAgentAvatarName,
+            from: settings.agentAvatars)
     }
 
-    // Non-bot is what the app falls back to with nothing to choose from, so until there is a
-    // bot the picker says so rather than naming a choice nobody made.
     private var defaultBotTitle: String {
-        if let defaultBot { return defaultBot.personality.title }
-        return settings.agentAvatars.isEmpty ? "none yet" : "Non-bot"
+        defaultBot.personality.title
     }
 
     private var defaultBotPicker: some View {
         HStack(spacing: 7) {
-            if let defaultBot {
-                AgentAvatarView(image: defaultBot.displayImage(for: nil), size: 18)
-            } else {
-                Image(systemName: "person.slash")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 18, height: 18)
-            }
+            AgentAvatarView(image: defaultBot.displayImage(for: nil), size: 18)
             Text("Default: \(defaultBotTitle)")
                 .font(.system(size: 12, weight: .semibold))
             Image(systemName: "chevron.up.chevron.down")
@@ -759,11 +745,12 @@ struct SettingsView: View {
 
     private var defaultBotMenu: [MenuEntry] {
         var entries: [MenuEntry] = [
-            .item("Non-bot",
-                  icon: "person.slash",
-                  checked: settings.defaultAgentAvatarName == AgentAvatarSelection.nonBotName,
-                  subtitle: "Use the standard working indicator and voice.") {
-                settings.setDefaultAgentAvatarName(AgentAvatarSelection.nonBotName)
+            .item(AgentPersonality.standard.title,
+                  image: AgentAvatarSelection.avatar(named: nil, from: [])
+                      .displayImage(for: nil),
+                  checked: settings.defaultAgentAvatarName == AgentAvatarSelection.defaultName,
+                  subtitle: AgentPersonality.standard.detail) {
+                settings.setDefaultAgentAvatarName(AgentAvatarSelection.defaultName)
             }
         ]
         if !settings.agentAvatars.isEmpty {

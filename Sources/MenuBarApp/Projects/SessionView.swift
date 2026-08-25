@@ -1004,7 +1004,6 @@ struct SessionView: View {
             if showsThinking(state: state) {
                 WorkingRow(since: runner.lastActivity(sessionID) ?? Date(),
                            sessionID: sessionID,
-                           avatarSequence: runner.avatarSequence(sessionID) ?? 0,
                            avatarName: session.agentAvatarName,
                            agentTitle: session.agent.title,
                            tasks: runner.backgroundTasks(sessionID),
@@ -1404,17 +1403,15 @@ struct SessionView: View {
         Binding(
             get: {
                 if let name = store.session(sessionID)?.agentAvatarName,
-                   name == AgentAvatarSelection.nonBotName
+                   name == AgentAvatarSelection.defaultName
                     || appSettings.agentAvatars.contains(where: {
                         $0.url.lastPathComponent == name
                     }) {
                     return name
                 }
-                return AgentAvatarSelection.avatar(
-                    named: session.agentAvatarName,
-                    forTurn: runner.avatarSequence(sessionID) ?? 0,
-                    from: appSettings.agentAvatars)?.url.lastPathComponent
-                    ?? AgentAvatarSelection.nonBotName
+                return AgentAvatarSelection.resolvedName(
+                    session.agentAvatarName,
+                    availableNames: appSettings.agentAvatars.map { $0.url.lastPathComponent })
             },
             set: { store.setAgentAvatarName($0, for: sessionID) })
     }
@@ -1816,7 +1813,6 @@ private struct WorkingRow: View {
 
     let since: Date
     let sessionID: UUID
-    let avatarSequence: Int
     let avatarName: String?
     let agentTitle: String
     // The tasks holding the turn open, if that is why it is still here. Naming one is the
@@ -1847,16 +1843,12 @@ private struct WorkingRow: View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             let quiet = context.date.timeIntervalSince(since)
             let avatar = currentAvatar
-            let personality = avatar?.personality ?? .standard
+            let personality = avatar.personality
             let word = waiting ? "Waiting" : words.word(after: context.date.timeIntervalSince(started))
             HStack(spacing: 8) {
-                if let avatar {
-                    AgentAvatarView(image: avatar.displayImage(for: sessionID), size: 20)
-                        .id(avatar.id)
-                        .transition(.fadeIn)
-                } else {
-                    WorkingGlyph(animated: !reduceMotion)
-                }
+                AgentAvatarView(image: avatar.displayImage(for: sessionID), size: 20)
+                    .id(avatar.id)
+                    .transition(.fadeIn)
                 Text("\(word)…")
                     .font(.mono(12, .medium))
                     .foregroundStyle(.primary)
@@ -1890,7 +1882,7 @@ private struct WorkingRow: View {
             // against the row, and lands somewhere the row no longer is.
             .geometryGroup()
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: word)
-            .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: avatar?.id)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: avatar.id)
             // Only worth a hint once the silence is long enough to worry about; the
             // empty one shows nothing.
             .appTooltip {
@@ -1911,9 +1903,8 @@ private struct WorkingRow: View {
         }
     }
 
-    private var currentAvatar: AgentAvatar? {
-        AgentAvatarSelection.avatar(named: avatarName, forTurn: avatarSequence,
-                                    from: appSettings.agentAvatars)
+    private var currentAvatar: AgentAvatar {
+        AgentAvatarSelection.avatar(named: avatarName, from: appSettings.agentAvatars)
     }
 
     private func elapsed(_ seconds: TimeInterval) -> String {
