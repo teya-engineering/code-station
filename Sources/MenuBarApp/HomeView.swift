@@ -224,10 +224,18 @@ struct HomeView: View {
         let project = store.project(session.projectID)
         let name = workspace?.name ?? project?.name ?? "Unknown project"
         let checkouts = store.checkoutProjects(for: session)
+        let avatar = if let workspace {
+            SidebarAvatar(subject: .workspace, id: workspace.id)
+        } else {
+            SidebarAvatar(
+                subject: project?.kind == .adHoc ? .task : .project,
+                id: project?.id ?? session.projectID)
+        }
         return HomeLive(
             session: session,
             containerName: name,
             tint: workspace == nil ? Theme.projectTint(for: name) : Theme.workspaceTint,
+            avatar: avatar,
             tone: SessionTone(busy: busy, needsInput: permission != nil, finished: finished,
                               waiting: waiting),
             activity: SessionActivity.line(
@@ -260,6 +268,7 @@ private struct HomeLive: Identifiable {
     let session: ChatSession
     let containerName: String
     let tint: Theme.ProjectTint
+    let avatar: SidebarAvatar
     let tone: SessionTone
     let activity: String
     let location: String
@@ -364,7 +373,12 @@ private struct RunningRow: View {
     var body: some View {
         Button(action: onOpen) {
             HStack(spacing: 14) {
-                ProjectDot(tint: live.tint, size: 7)
+                SidebarIdentityTile(
+                    avatar: live.avatar,
+                    name: live.containerName,
+                    tint: live.tint,
+                    dashed: live.avatar.subject == .task,
+                    stacked: live.avatar.subject == .workspace)
                 Text(live.containerName.uppercased())
                     .font(.mono(10.5))
                     .kerning(0.5)

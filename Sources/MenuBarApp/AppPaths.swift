@@ -369,7 +369,7 @@ enum Preferences {
 
     static func sidebarIconMotion(in store: UserDefaults) -> SidebarIconMotion {
         store.string(forKey: "sidebarIconMotion").flatMap(SidebarIconMotion.init(rawValue:))
-            ?? .animated
+            ?? .still
     }
 
     static func setSidebarIconMotion(_ motion: SidebarIconMotion, in store: UserDefaults) {

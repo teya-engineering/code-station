@@ -227,7 +227,7 @@ struct AppPathsTests {
 
         let settings = AppSettings(agentAvatarURL: avatar, preferences: defaults)
         #expect(settings.sidebarIconSet == .diceBear)
-        #expect(settings.sidebarIconMotion == .animated)
+        #expect(settings.sidebarIconMotion == .still)
         #expect(settings.diceBearAvatarStyle == .waves)
 
         settings.sidebarIconSet = .diceBear
