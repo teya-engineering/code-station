@@ -23,9 +23,9 @@ struct SiteConfigurationSection: View {
     @State private var showingJSON = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 24) {
-            configuration
-            reset
+        VStack(alignment: .leading, spacing: 20) {
+            configuration.id(SettingsSearchTarget.advancedConfiguration.id)
+            reset.id(SettingsSearchTarget.advancedReset.id)
         }
         .sheet(item: $editor) { aspect in
             SiteConfigurationEditorView(aspect: aspect, defaults: loaded) { defaults in
@@ -54,7 +54,7 @@ struct SiteConfigurationSection: View {
     private var configuration: some View {
         ChoiceBlock("CONFIGURATION",
                     note: "These values are saved to one current configuration file. The JSON view is read-only and always generated from the settings shown here.") {
-            VStack(spacing: 0) {
+            SettingsCard {
                 HStack(alignment: .top, spacing: 12) {
                     VStack(alignment: .leading, spacing: 3) {
                         Text("Current configuration")
@@ -74,20 +74,17 @@ struct SiteConfigurationSection: View {
                         showingJSON = true
                     }
                 }
-                .padding(12)
+                .padding(14)
 
-                Divider().overlay(Theme.border)
+                SettingsRowDivider()
 
                 ForEach(SiteConfigurationAspect.allCases) { aspect in
                     configurationRow(aspect)
                     if aspect != SiteConfigurationAspect.allCases.last {
-                        Divider().overlay(Theme.border).padding(.leading, 48)
+                        SettingsRowDivider()
                     }
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 9).fill(Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
         }
     }
 
@@ -114,8 +111,8 @@ struct SiteConfigurationSection: View {
                 open(aspect)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
         .contentShape(Rectangle())
     }
 
@@ -151,9 +148,6 @@ struct SiteConfigurationSection: View {
             let count = loaded.deployEnvironments.count
             return count == 1 ? "1 environment" : "\(count) environments"
         case .apiAccess:
-            guard loaded.dispatch?.oauth != nil else {
-                return "Not configured"
-            }
             return aspect.detail(in: loaded)
         case .requests:
             return aspect.detail(in: loaded)
@@ -169,16 +163,15 @@ struct SiteConfigurationSection: View {
     private var reset: some View {
         ChoiceBlock("RESET FROM FILE",
                     note: "Load a team configuration, choose the aspects to restore, then reset them. Settings you leave unchecked stay exactly as they are.") {
-            VStack(alignment: .leading, spacing: 10) {
-                sources
-                if let pending { preview(pending) }
-                if let failure { warning(failure) }
-                if let loadFailure = loaded.loadFailure { warning(loadFailure) }
+            SettingsCard {
+                VStack(alignment: .leading, spacing: 10) {
+                    sources
+                    if let pending { preview(pending) }
+                    if let failure { warning(failure) }
+                    if let loadFailure = loaded.loadFailure { warning(loadFailure) }
+                }
+                .padding(14)
             }
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 9).fill(Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
         }
     }
 

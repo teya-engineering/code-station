@@ -4,9 +4,8 @@ import SwiftUI
 // session's own overrides are picked on its composer bar instead; its Usage pane still
 // borrows ChoiceBlock for the heading.
 
-// A titled group of choices with a line underneath saying what the group means. The badge
-// is what marks a group as overridden, so a session shows at a glance where it has stepped
-// away from the app settings.
+// A titled group of settings. The rule lets the small label hold a full-width section
+// without adding another large heading to an already dense pane.
 struct ChoiceBlock<Content: View>: View {
     let title: String
     let note: String?
@@ -24,7 +23,10 @@ struct ChoiceBlock<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
-                SectionLabel(text: title)
+                Text(title)
+                    .font(.mono(9, .semibold))
+                    .kerning(1.1)
+                    .foregroundStyle(.secondary)
                 if let badge {
                     Text(badge)
                         .font(.system(size: 9.5, weight: .semibold))
@@ -34,16 +36,49 @@ struct ChoiceBlock<Content: View>: View {
                         .padding(.vertical, 2)
                         .background(RoundedRectangle(cornerRadius: 5).fill(Theme.secret.opacity(0.12)))
                 }
+                Rectangle()
+                    .fill(Theme.settingsHairline)
+                    .frame(height: 1)
             }
-            content
             if let note {
                 Text(note)
-                    .font(.system(size: 12))
+                    .font(.system(size: 11.5))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, -2)
             }
+            content
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+// A settings group owns one card. Rows inside it use SettingsRowDivider instead of
+// drawing separate rounded rectangles, so the group reads as one decision area.
+struct SettingsCard<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            content
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 11).fill(Theme.card))
+        .clipShape(RoundedRectangle(cornerRadius: 11))
+        .overlay(RoundedRectangle(cornerRadius: 11).stroke(Theme.settingsBorder))
+    }
+}
+
+struct SettingsRowDivider: View {
+    var body: some View {
+        Rectangle()
+            .fill(Theme.settingsHairline)
+            .frame(height: 1)
+            .padding(.horizontal, 14)
     }
 }
 
@@ -87,12 +122,9 @@ struct OptionRow: View {
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 9)
+            .padding(.vertical, 12)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 9)
-                .fill(selected ? selectedBackground : Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: 9)
-                .stroke(selected ? selectionColour.opacity(0.35) : Theme.border))
+            .background(selected ? selectedBackground : .clear)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

@@ -187,17 +187,20 @@ struct AgentSettingsView: View {
     @State private var codex = CodexAgentInfo()
     @State private var loggingIn: AgentKind?
 
+    let requestedAgent: AgentKind?
+
     private var defaults: SessionSettings { runner.defaults(for: selectedAgent) }
 
-    init(selectedAgent: AgentKind) {
-        _selectedAgent = State(initialValue: selectedAgent)
+    init(selectedAgent: AgentKind,
+         requestedAgent: AgentKind? = nil) {
+        _selectedAgent = State(initialValue: requestedAgent ?? selectedAgent)
+        self.requestedAgent = requestedAgent
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 24) {
-            defaultAgent
-            agentTabs
-            Divider().overlay(Theme.hairline)
+        VStack(alignment: .leading, spacing: 20) {
+            defaultAgent.id(SettingsSearchTarget.agentDefault.id)
+            agentTabs.id(SettingsSearchTarget.agentConfigure.id)
             switch selectedAgent {
             case .claudeCode: claudeSection
             case .codex: codexSection
@@ -205,6 +208,9 @@ struct AgentSettingsView: View {
         }
         .sheet(item: $loggingIn, onDismiss: { refresh() }) { agent in
             AgentLoginSheet(agent: agent).appOverlays()
+        }
+        .onChange(of: requestedAgent) { _, agent in
+            if let agent { selectedAgent = agent }
         }
     }
 
@@ -217,52 +223,61 @@ struct AgentSettingsView: View {
     // MARK: - Agent tabs
 
     private var defaultAgent: some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Default agent")
-                    .font(.system(size: 13, weight: .semibold))
-                Text("New sessions use this agent unless you choose a different one when creating them.")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 0)
-            HStack(spacing: 8) {
-                Text(runner.agent.title)
-                    .font(.system(size: 13, weight: .medium))
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 12)
-            .frame(height: 34)
-            .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
-            .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
-            .contentShape(Rectangle())
-            .appMenu(matchWidth: true) {
-                AgentKind.allCases.map { agent in
-                    .item(agent.title,
-                          checked: runner.agent == agent,
-                          subtitle: agent == .codex
-                              ? "OpenAI's coding agent."
-                              : "Anthropic's coding agent.") {
-                        runner.agent = agent
+        ChoiceBlock("AGENT") {
+            SettingsCard {
+                HStack(alignment: .top, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Default agent")
+                            .font(.system(size: 13, weight: .semibold))
+                        Text("New sessions use this agent unless you choose a different one when creating them.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 0)
+                    HStack(spacing: 8) {
+                        Text(runner.agent.title)
+                            .font(.system(size: 13, weight: .medium))
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal, 12)
+                    .frame(height: 34)
+                    .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
+                    .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
+                    .contentShape(Rectangle())
+                    .appMenu(matchWidth: true) {
+                        AgentKind.allCases.map { agent in
+                            .item(agent.title,
+                                  checked: runner.agent == agent,
+                                  subtitle: agent == .codex
+                                      ? "OpenAI's coding agent."
+                                      : "Anthropic's coding agent.") {
+                                runner.agent = agent
+                            }
+                        }
                     }
                 }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 13)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var agentTabs: some View {
         ChoiceBlock("CONFIGURE", note: "Choose which agent's account and settings to view. This does not change the default agent.") {
-            HStack(spacing: 4) {
-                ForEach(AgentKind.allCases) { kind in
-                    ChoicePill(title: kind.title, selected: selectedAgent == kind) {
-                        selectedAgent = kind
+            SettingsCard {
+                HStack(spacing: 4) {
+                    ForEach(AgentKind.allCases) { kind in
+                        ChoicePill(title: kind.title, selected: selectedAgent == kind) {
+                            selectedAgent = kind
+                        }
                     }
+                    Spacer(minLength: 0)
                 }
-                Spacer(minLength: 0)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
             }
         }
     }
@@ -275,13 +290,17 @@ struct AgentSettingsView: View {
 
     private func model(for agent: AgentKind) -> some View {
         ChoiceBlock("MODEL", note: "Applies from each session's next turn on.") {
-            VStack(spacing: 4) {
-                ForEach(ModelChoice.options(for: agent), id: \.title) { choice in
-                    OptionRow(title: choice.title,
-                              detail: choice.detail,
-                              selected: ModelChoice.valid(defaults.model, for: agent) == choice.id) {
-                        change { $0.model = choice.id }
+            SettingsCard {
+                let choices = ModelChoice.options(for: agent)
+                ForEach(choices.indices, id: \.self) { index in
+                    let choice = choices[index]
+                    OptionRow(
+                        title: choice.title,
+                        detail: choice.detail,
+                        selected: ModelChoice.valid(defaults.model, for: agent) == choice.id) {
+                            change { $0.model = choice.id }
                     }
+                    if index < choices.count - 1 { SettingsRowDivider() }
                 }
             }
         }
@@ -289,13 +308,19 @@ struct AgentSettingsView: View {
 
     private func effort(for agent: AgentKind) -> some View {
         ChoiceBlock("EFFORT", note: "How long the model thinks before it answers. More effort costs more tokens and more time, so it is the first thing to turn down when a limit is close.") {
-            HStack(spacing: 4) {
-                ForEach(EffortChoice.all(for: agent), id: \.title) { choice in
-                    ChoicePill(title: choice.title,
-                               selected: EffortChoice.valid(defaults.effort, for: agent) == choice.id) {
-                        change { $0.effort = choice.id }
+            SettingsCard {
+                HStack(spacing: 4) {
+                    ForEach(EffortChoice.all(for: agent), id: \.title) { choice in
+                        ChoicePill(
+                            title: choice.title,
+                            selected: EffortChoice.valid(defaults.effort, for: agent) == choice.id) {
+                                change { $0.effort = choice.id }
+                        }
+                        .frame(maxWidth: .infinity)
                     }
                 }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
             }
         }
     }
@@ -306,34 +331,37 @@ struct AgentSettingsView: View {
         ChoiceBlock("COST", note: agent == .codex
                     ? "Codex reports no cost of its own, so its sessions have nothing to show until it does."
                     : nil) {
-            Toggle(isOn: Binding(get: { appSettings.showsCost(for: agent) },
-                                 set: { appSettings.setShowsCost($0, for: agent) })) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Show what a session has spent")
-                        .font(.system(size: 13, weight: .semibold))
-                    Text("The dollar figure on the session bar, and the Spent line in the hints.")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+            SettingsCard {
+                Toggle(isOn: Binding(get: { appSettings.showsCost(for: agent) },
+                                     set: { appSettings.setShowsCost($0, for: agent) })) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Show what a session has spent")
+                            .font(.system(size: 13, weight: .semibold))
+                        Text("The dollar figure on the session bar, and the Spent line in the hints.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
+                .toggleStyle(.appSwitch)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 13)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .toggleStyle(.appSwitch)
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 9).fill(Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
         }
     }
 
     private var claudePermissions: some View {
         ChoiceBlock("PERMISSIONS") {
-            VStack(spacing: 4) {
-                ForEach(PermissionMode.all, id: \.mode) { choice in
+            SettingsCard {
+                ForEach(PermissionMode.all.indices, id: \.self) { index in
+                    let choice = PermissionMode.all[index]
                     OptionRow(title: choice.title,
                               detail: choice.detail,
                               selected: (defaults.permissionMode ?? "acceptEdits") == choice.mode) {
                         change { $0.permissionMode = choice.mode }
                     }
+                    if index < PermissionMode.all.count - 1 { SettingsRowDivider() }
                 }
             }
         }
@@ -341,14 +369,16 @@ struct AgentSettingsView: View {
 
     private var codexPermissions: some View {
         ChoiceBlock("PERMISSIONS", note: "Used by every Codex session unless that session has its own choice. Changes apply from its next turn.") {
-            VStack(spacing: 4) {
-                ForEach(CodexSandboxMode.allCases, id: \.rawValue) { mode in
+            SettingsCard {
+                ForEach(CodexSandboxMode.allCases.indices, id: \.self) { index in
+                    let mode = CodexSandboxMode.allCases[index]
                     OptionRow(title: mode.title,
                               detail: mode.detail,
                               selected: CodexSandboxMode.resolved(defaults.codexSandboxMode) == mode,
                               warning: mode == .fullAccess) {
                         change { $0.codexSandboxMode = mode.rawValue }
                     }
+                    if index < CodexSandboxMode.allCases.count - 1 { SettingsRowDivider() }
                 }
             }
         }
@@ -357,79 +387,82 @@ struct AgentSettingsView: View {
     // MARK: - Claude Code
 
     private var claudeSection: some View {
-        VStack(alignment: .leading, spacing: 24) {
+        VStack(alignment: .leading, spacing: 20) {
             ChoiceBlock("CLAUDE CODE") {
-                VStack(alignment: .leading, spacing: 10) {
+                SettingsCard {
                     statusRow(installed: claude.path != nil,
                               signedIn: claude.account != nil) { claude.refresh() }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 12)
+                    SettingsRowDivider()
                     if claude.path == nil {
                         missingCard(.claudeCode)
+                        SettingsRowDivider()
+                        signInRow(.claudeCode)
                     } else {
                         claudeDetails
                     }
                 }
             }
+            .id(SettingsSearchTarget.agentDetails.id)
             accountUsage(windows: claudeUsage,
                          checkedAt: runner.rateLimitsUpdatedAt[.claudeCode],
                          isLoading: false,
                          emptyMessage: "Run a Claude Code turn to receive its account usage here.",
                          note: "Claude Code sends account limits while a turn is running. This is the latest report from this app.")
-            Divider().overlay(Theme.hairline)
-            model(for: .claudeCode)
-            effort(for: .claudeCode)
-            claudePermissions
-            cost(for: .claudeCode)
-            Divider().overlay(Theme.hairline)
-            configRow(title: "Claude Code settings",
-                      note: "The CLI's own configuration, at ~/.claude/settings.json. It belongs to Claude Code, so the app only points at it.",
-                      path: FileManager.default.homeDirectoryForCurrentUser
-                          .appendingPathComponent(".claude/settings.json").path)
+                .id(SettingsSearchTarget.agentUsage.id)
+            model(for: .claudeCode).id(SettingsSearchTarget.agentModel.id)
+            effort(for: .claudeCode).id(SettingsSearchTarget.agentEffort.id)
+            claudePermissions.id(SettingsSearchTarget.agentPermissions.id)
+            cost(for: .claudeCode).id(SettingsSearchTarget.agentCost.id)
+            files(
+                title: "Claude Code settings",
+                note: "The CLI's own configuration, at ~/.claude/settings.json. It belongs to Claude Code, so the app only points at it.",
+                path: FileManager.default.homeDirectoryForCurrentUser
+                    .appendingPathComponent(".claude/settings.json").path)
+                .id(SettingsSearchTarget.agentFiles.id)
         }
     }
 
     private var claudeDetails: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            VStack(spacing: 0) {
-                detailRow("Version", claude.version ?? "…")
-                rowDivider
-                detailRow("Account", claude.account.map { account in
-                    account.name.map { "\($0) · \(account.email)" } ?? account.email
-                } ?? "Signed out.")
-                if let plan = claude.account?.plan {
-                    rowDivider
-                    detailRow("Plan", plan)
-                }
-                if let organization = claude.account?.organization {
-                    rowDivider
-                    detailRow("Organization", organization)
-                }
-                rowDivider
-                detailRow("Path", claude.path ?? "", mono: true)
+        Group {
+            detailRow("Version", claude.version ?? "…")
+            SettingsRowDivider()
+            detailRow("Account", claude.account.map { account in
+                account.name.map { "\($0) · \(account.email)" } ?? account.email
+            } ?? "Signed out.")
+            if let plan = claude.account?.plan {
+                SettingsRowDivider()
+                detailRow("Plan", plan)
             }
-            .background(RoundedRectangle(cornerRadius: 9).fill(Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
-
-            signInNote(.claudeCode)
-            loginButton(.claudeCode)
+            SettingsRowDivider()
+            detailRow("Path", claude.path ?? "", mono: true)
+            SettingsRowDivider()
+            signInRow(.claudeCode)
         }
     }
 
     // MARK: - Codex
 
     private var codexSection: some View {
-        VStack(alignment: .leading, spacing: 24) {
+        VStack(alignment: .leading, spacing: 20) {
             ChoiceBlock("CODEX") {
-                VStack(alignment: .leading, spacing: 10) {
+                SettingsCard {
                     statusRow(installed: codex.path != nil,
                               signedIn: codex.account != nil) { codex.refresh() }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 12)
+                    SettingsRowDivider()
                     if codex.path == nil {
                         missingCard(.codex)
+                        SettingsRowDivider()
+                        signInRow(.codex)
                     } else {
                         codexDetails
                     }
                 }
             }
-            codexPermissions
+            .id(SettingsSearchTarget.agentDetails.id)
             accountUsage(windows: codex.usage?.windows ?? [],
                          checkedAt: codex.usage?.checkedAt,
                          isLoading: codex.isRefreshingUsage,
@@ -437,40 +470,35 @@ struct AgentSettingsView: View {
                              ? "Sign in to Codex to view account usage."
                              : "Codex did not return account usage details.",
                          note: "Read directly from your Codex account when this page opens or refreshes.")
-            Divider().overlay(Theme.hairline)
-            model(for: .codex)
-            effort(for: .codex)
-            cost(for: .codex)
-            Divider().overlay(Theme.hairline)
-            configRow(title: "Codex config",
-                      note: "The CLI's own configuration, at ~/.codex/config.toml. It belongs to Codex, so the app only points at it.",
-                      path: FileManager.default.homeDirectoryForCurrentUser
-                          .appendingPathComponent(".codex/config.toml").path)
+                .id(SettingsSearchTarget.agentUsage.id)
+            model(for: .codex).id(SettingsSearchTarget.agentModel.id)
+            effort(for: .codex).id(SettingsSearchTarget.agentEffort.id)
+            codexPermissions.id(SettingsSearchTarget.agentPermissions.id)
+            cost(for: .codex).id(SettingsSearchTarget.agentCost.id)
+            files(
+                title: "Codex config",
+                note: "The CLI's own configuration, at ~/.codex/config.toml. It belongs to Codex, so the app only points at it.",
+                path: FileManager.default.homeDirectoryForCurrentUser
+                    .appendingPathComponent(".codex/config.toml").path)
+                .id(SettingsSearchTarget.agentFiles.id)
         }
     }
 
     private var codexDetails: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            VStack(spacing: 0) {
-                detailRow("Version", codex.version ?? "…")
-                rowDivider
-                detailRow("Auth", codex.account?.method ?? "Signed out.")
-                if let email = codex.account?.email {
-                    rowDivider
-                    detailRow("Account", email)
-                }
-                if let plan = codex.account?.plan {
-                    rowDivider
-                    detailRow("Plan", plan)
-                }
-                rowDivider
-                detailRow("Path", codex.path ?? "", mono: true)
+        Group {
+            detailRow("Version", codex.version ?? "…")
+            SettingsRowDivider()
+            detailRow("Account", codex.account.map { account in
+                account.email.map { "\(account.method) · \($0)" } ?? account.method
+            } ?? "Signed out.")
+            if let plan = codex.account?.plan {
+                SettingsRowDivider()
+                detailRow("Plan", plan)
             }
-            .background(RoundedRectangle(cornerRadius: 9).fill(Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
-
-            signInNote(.codex)
-            loginButton(.codex)
+            SettingsRowDivider()
+            detailRow("Path", codex.path ?? "", mono: true)
+            SettingsRowDivider()
+            signInRow(.codex)
         }
     }
 
@@ -490,19 +518,25 @@ struct AgentSettingsView: View {
     private func accountUsage(windows: [AccountUsageWindow], checkedAt: Date?, isLoading: Bool,
                               emptyMessage: String, note: String) -> some View {
         ChoiceBlock("CURRENT USAGE", note: note) {
-            if isLoading {
-                usageMessage("Checking current usage…")
-            } else if windows.isEmpty {
-                usageMessage(emptyMessage)
-            } else {
-                VStack(spacing: 8) {
-                    ForEach(windows) { window in
+            SettingsCard {
+                if isLoading {
+                    usageMessage("Checking current usage…")
+                } else if windows.isEmpty {
+                    usageMessage(emptyMessage)
+                } else {
+                    ForEach(windows.indices, id: \.self) { index in
+                        let window = windows[index]
                         usageRow(window)
+                        if index < windows.count - 1 || checkedAt != nil {
+                            SettingsRowDivider()
+                        }
                     }
                     if let checkedAt {
                         Text("Updated \(checkedAt.formatted(date: .abbreviated, time: .shortened))")
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 9)
                             .frame(maxWidth: .infinity, alignment: .trailing)
                     }
                 }
@@ -514,10 +548,9 @@ struct AgentSettingsView: View {
         Text(text)
             .font(.system(size: 12))
             .foregroundStyle(.secondary)
-            .padding(12)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 9).fill(Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
     }
 
     private func usageRow(_ window: AccountUsageWindow) -> some View {
@@ -537,10 +570,9 @@ struct AgentSettingsView: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .padding(12)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 9).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
     }
 
     private func usageColor(for window: AccountUsageWindow) -> Color {
@@ -569,10 +601,9 @@ struct AgentSettingsView: View {
             .font(.system(size: 12))
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
-            .padding(12)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 9).fill(Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
     }
 
     private func signInNote(_ agent: AgentKind) -> some View {
@@ -602,8 +633,14 @@ struct AgentSettingsView: View {
         .buttonStyle(.plain)
     }
 
-    private var rowDivider: some View {
-        Divider().overlay(Theme.hairline).padding(.leading, 12)
+    private func signInRow(_ agent: AgentKind) -> some View {
+        HStack(alignment: .center, spacing: 12) {
+            signInNote(agent)
+            Spacer(minLength: 0)
+            loginButton(agent)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
     }
 
     private func detailRow(_ label: String, _ value: String, mono: Bool = false) -> some View {
@@ -619,29 +656,34 @@ struct AgentSettingsView: View {
                 .truncationMode(.middle)
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
     }
 
-    private func configRow(title: String, note: String, path: String) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.system(size: 13, weight: .semibold))
-                Text(note)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+    private func files(title: String, note: String, path: String) -> some View {
+        ChoiceBlock("FILES") {
+            SettingsCard {
+                HStack(alignment: .top, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(title)
+                            .font(.system(size: 13, weight: .semibold))
+                        Text(note)
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 0)
+                    Button("Reveal") {
+                        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+                    }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Theme.accent)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 13)
             }
-            Spacer(minLength: 0)
-            Button("Reveal") {
-                NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
-            }
-            .buttonStyle(.plain)
-            .font(.system(size: 12, weight: .semibold))
-            .foregroundStyle(Theme.accent)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

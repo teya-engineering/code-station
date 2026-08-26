@@ -95,6 +95,12 @@ enum Theme {
     static let hairline = adaptive(
         light: NSColor(srgbRed: 0.46, green: 0.42, blue: 0.34, alpha: 0.06),
         dark: NSColor(srgbRed: 1, green: 1, blue: 1, alpha: 0.06))
+    static let settingsBorder = adaptive(
+        light: NSColor(srgbRed: 0.46, green: 0.42, blue: 0.34, alpha: 0.18),
+        dark: NSColor(srgbRed: 1, green: 1, blue: 1, alpha: 0.14))
+    static let settingsHairline = adaptive(
+        light: NSColor(srgbRed: 0.46, green: 0.42, blue: 0.34, alpha: 0.10),
+        dark: NSColor(srgbRed: 1, green: 1, blue: 1, alpha: 0.08))
 
     // The band across the top of a pane or sheet. Every one of them is exactly this tall.
     // Grown from padding instead, each band ends up the height of whatever text it happens
