@@ -499,6 +499,22 @@ struct DesignSessionTests {
         #expect(!instruction.contains("\n"))
     }
 
+    @Test func theCanvasWidthReachesTheAgentWhenItIsKnown() {
+        let artifact = URL(fileURLWithPath: "/tmp/code-station design/index.html")
+
+        let measured = SessionRunner.designSystemPrompt(artifactURL: artifact,
+                                                        canvasWidth: 1067.4)
+        #expect(measured.contains("1067px wide"))
+        #expect(measured.contains("min-width"))
+
+        // A guessed width would send the design off to the wrong layout just as surely as
+        // no width at all, so an unmeasured canvas says nothing rather than picking a number.
+        let unmeasured = SessionRunner.designSystemPrompt(artifactURL: artifact)
+        #expect(!unmeasured.contains("viewport"))
+        #expect(unmeasured.contains("You are working in Design mode"))
+        #expect(unmeasured.contains(artifact.path))
+    }
+
     @Test func implementationReceivesItsReferenceAsAPrivilegedInstruction() throws {
         let reference = URL(fileURLWithPath: "/tmp/approved design")
         let prompt = SessionRunner.implementationSystemPrompt(referenceURL: reference)

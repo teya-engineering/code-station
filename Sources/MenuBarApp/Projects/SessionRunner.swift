@@ -49,6 +49,11 @@ final class SessionRunner {
     // again from nothing every time another session is picked, so this cannot live there
     // without the words going with it.
     private var drafts: [UUID: Draft] = [:]
+    // How wide the canvas is showing the design, in CSS pixels. The agent writes HTML it
+    // never sees rendered, so without this it designs for a window it imagined and the
+    // layout overflows the pane the user actually has open. Only known while the canvas
+    // is on screen, and left unset rather than guessed when it is not.
+    private var canvasWidths: [UUID: Double] = [:]
     private var removals: Set<UUID> = []
     // Terminal agent turns that still have a conversation id and can be continued.
     private var continuableFailures: Set<UUID> = []
@@ -275,6 +280,16 @@ final class SessionRunner {
     }
 
     func clearDraft(_ sessionID: UUID) { drafts[sessionID] = nil }
+
+    // The canvas reports its own width as it is resized. Sub-pixel changes would rewrite
+    // the system prompt for no visible difference, so only whole pixels are kept.
+    func recordCanvasWidth(_ width: Double, for sessionID: UUID) {
+        let pixels = width.rounded()
+        guard pixels > 0 else { return }
+        canvasWidths[sessionID] = pixels
+    }
+
+    func forgetCanvasWidth(_ sessionID: UUID) { canvasWidths[sessionID] = nil }
 
     func queued(_ sessionID: UUID) -> [QueuedPrompt] { queues[sessionID] ?? [] }
 
@@ -683,15 +698,33 @@ final class SessionRunner {
         where a fixed option set doesn't fit.
         """
 
-    nonisolated static func designSystemPrompt(artifactURL: URL) -> String {
-        """
+    nonisolated static func designSystemPrompt(artifactURL: URL,
+                                               canvasWidth: Double? = nil) -> String {
+        // Without a number the agent has nothing to check its layout against, and a made-up
+        // one would be worse than silence, so the paragraph is dropped when the canvas is
+        // not on screen to report its width.
+        let viewport = canvasWidth.map { width in
+            """
+
+
+            The canvas viewport is \(Int(width))px wide right now, and the user can drag it \
+            narrower or wider at any time, down to \(Int(DesignSplitLayout.minimumCanvasWidth))px. \
+            Design for that width rather than for a full browser window, and check the layout \
+            still fits before replying. Fixed-width children of a row have to sum to less than \
+            the row they sit in, counting gaps and padding, and anything that can be squeezed \
+            needs its own min-width and overflow rule so its contents cannot spill across a \
+            neighbour.
+            """
+        } ?? ""
+
+        return """
         You are working in Design mode. Create and refine the visual result the user asks \
         for, such as a product screen, interaction flow, prototype, presentation, diagram, \
         or one-page visual. This is a design workspace, not a normal implementation \
         session.
 
         The live canvas always renders this file:
-        \(artifactURL.path)
+        \(artifactURL.path)\(viewport)
 
         On every turn, create or update that file before replying. The result must be a \
         complete standalone HTML document with its CSS and JavaScript embedded. Do not use \
@@ -1089,8 +1122,10 @@ final class SessionRunner {
             writableRoots: writableRoots,
             resume: resume,
             mcpConfigPath: mcpConfigURL?.path,
-            additionalSystemPrompt: designArtifact.map(Self.designSystemPrompt)
-                ?? implementationReference.map(Self.implementationSystemPrompt))
+            additionalSystemPrompt: designArtifact.map {
+                Self.designSystemPrompt(artifactURL: $0,
+                                        canvasWidth: canvasWidths[sessionID])
+            } ?? implementationReference.map(Self.implementationSystemPrompt))
 
         var env = ProcessInfo.processInfo.environment
         env["PATH"] = ProcessManager.searchPath

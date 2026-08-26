@@ -57,7 +57,10 @@ struct DesignView: View {
                     sessionID: store.userFacingSessionID(for: sessionID))
                 composerFocused = true
             }
-            .onDisappear { store.release(sessionID, for: .open) }
+            .onDisappear {
+                store.release(sessionID, for: .open)
+                runner.forgetCanvasWidth(sessionID)
+            }
             .task(id: sessionID) { await store.transcriptReady(sessionID) }
             .task(id: displayedDirectory.path) { await watchArtifact(displayedDirectory) }
         } else {
@@ -555,8 +558,13 @@ struct DesignView: View {
                                         revision: artifactRevision, selectionEnabled: false)
                     }
                 } else {
+                    // The agent cannot see the canvas it draws into, so the canvas tells
+                    // it how much room there is. Only the single live preview reports:
+                    // the side-by-side comparison is a way of looking at the design, not
+                    // a width it has to work at.
                     canvasPreview(url, directory: directory, revision: artifactRevision,
-                                  selectionEnabled: displayedRevision == nil && selectionEnabled)
+                                  selectionEnabled: displayedRevision == nil && selectionEnabled,
+                                  onViewport: { runner.recordCanvasWidth($0, for: sessionID) })
                 }
             } else {
                 VStack(spacing: 12) {
@@ -639,7 +647,8 @@ struct DesignView: View {
 
     private func canvasPreview(_ url: URL, directory: URL,
                                revision: DesignArtifactRevision,
-                               selectionEnabled: Bool) -> some View {
+                               selectionEnabled: Bool,
+                               onViewport: ((Double) -> Void)? = nil) -> some View {
         DesignWebView(url: url,
                       readAccessURL: directory,
                       revision: revision,
@@ -647,7 +656,8 @@ struct DesignView: View {
                       selectionEnabled: selectionEnabled,
                       snapshotRequest: snapshotRequest,
                       onSelection: selectElement,
-                      onSnapshot: receiveSnapshot)
+                      onSnapshot: receiveSnapshot,
+                      onViewport: onViewport)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color.white)
     }
@@ -978,6 +988,10 @@ private struct DesignWebView: NSViewRepresentable {
     let snapshotRequest: DesignSnapshotRequest?
     let onSelection: (DesignElementSelection) -> Void
     let onSnapshot: (NSImage?, DesignSnapshotRequest) -> Void
+    // The page reports its own width rather than the view reporting its frame.
+    // `window.innerWidth` is the number the design's CSS is resolved against, so it stays
+    // right whatever sits between the view's bounds and the layout viewport.
+    var onViewport: ((Double) -> Void)? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -1004,6 +1018,7 @@ private struct DesignWebView: NSViewRepresentable {
     func updateNSView(_ webView: WKWebView, context: Context) {
         context.coordinator.onSelection = onSelection
         context.coordinator.onSnapshot = onSnapshot
+        context.coordinator.onViewport = onViewport
         context.coordinator.setSelection(selectionEnabled, in: webView)
 
         if let snapshotRequest,
@@ -1034,6 +1049,7 @@ private struct DesignWebView: NSViewRepresentable {
         var selectionEnabled = false
         var onSelection: ((DesignElementSelection) -> Void)?
         var onSnapshot: ((NSImage?, DesignSnapshotRequest) -> Void)?
+        var onViewport: ((Double) -> Void)?
 
         func setSelection(_ enabled: Bool, in webView: WKWebView) {
             guard selectionEnabled != enabled else { return }
@@ -1057,8 +1073,14 @@ private struct DesignWebView: NSViewRepresentable {
         func userContentController(_ userContentController: WKUserContentController,
                                    didReceive message: WKScriptMessage) {
             guard message.name == Self.messageName,
-                  let body = message.body as? [String: Any],
-                  let selector = body["selector"] as? String,
+                  let body = message.body as? [String: Any] else { return }
+
+            if body["kind"] as? String == "viewport" {
+                if let width = body["width"] as? Double { onViewport?(width) }
+                return
+            }
+
+            guard let selector = body["selector"] as? String,
                   let tag = body["tag"] as? String,
                   let rect = body["rect"] as? [String: Any],
                   let x = rect["x"] as? Double,
@@ -1129,6 +1151,18 @@ private struct DesignWebView: NSViewRepresentable {
         }
         return parts.join(" > ");
       }
+
+      var reportedWidth = 0;
+      function reportViewport() {
+        const width = window.innerWidth;
+        if (width === reportedWidth || !width) return;
+        reportedWidth = width;
+        window.webkit.messageHandlers.codeStationDesignSelection.postMessage({
+          kind: "viewport", width: width
+        });
+      }
+      reportViewport();
+      window.addEventListener("resize", reportViewport);
 
       window.__codeStationSetSelection = value => {
         enabled = Boolean(value);
