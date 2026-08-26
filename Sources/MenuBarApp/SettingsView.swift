@@ -782,9 +782,8 @@ struct SettingsView: View {
     // A miniature of the sidebar, drawn with the tile the rail itself uses, so a style is
     // judged in the place it will be seen instead of on one floating icon.
     @ViewBuilder private var sidebarIconPreview: some View {
-        let projects = sidebarIconPreviewProjects
         VStack(spacing: 2) {
-            ForEach(Array(projects.enumerated()), id: \.element.id) { index, project in
+            ForEach(Array(Self.previewProjects.enumerated()), id: \.element.id) { index, project in
                 HStack(spacing: 9) {
                     SidebarIdentityTile(
                         avatar: SidebarAvatar(subject: .project, id: project.id),
@@ -819,22 +818,16 @@ struct SettingsView: View {
         .padding(8)
     }
 
-    // The user's own projects, so the preview shows the icons they will actually get. The
-    // sample stands in only while there is nothing of their own to draw.
-    private var sidebarIconPreviewProjects: [Project] {
-        let projects = Array(store.regularProjects.prefix(4))
-        return projects.isEmpty ? Self.sampleProjects : projects
-    }
-
-    private static let sampleProjects = [
+    // Fixed examples keep repository names and paths out of settings screenshots.
+    private static let previewProjects = [
         Project(id: UUID(uuidString: "5A3B0000-0000-4000-8000-000000000001")!,
-                name: "code-station", path: "~/Developer/code-station"),
+                name: "atlas-web", path: "~/Developer/atlas-web"),
         Project(id: UUID(uuidString: "5A3B0000-0000-4000-8000-000000000002")!,
-                name: "saltdata", path: "~/Developer/saltdata"),
+                name: "orbit-api", path: "~/Developer/orbit-api"),
         Project(id: UUID(uuidString: "5A3B0000-0000-4000-8000-000000000003")!,
-                name: "edge-gateway", path: "~/Developer/edge-gateway"),
+                name: "harbor-mobile", path: "~/Developer/harbor-mobile"),
         Project(id: UUID(uuidString: "5A3B0000-0000-4000-8000-000000000004")!,
-                name: "teya-mobile", path: "~/Developer/teya-mobile"),
+                name: "summit-infra", path: "~/Developer/summit-infra"),
     ]
 
     // MARK: - Terminal
