@@ -1536,11 +1536,19 @@ final class SessionRunner {
                     }
                 }
 
+            case .taskAgent(let id, let name):
+                turn.taskAgents[id] = name
+
             case .backgroundTasks(let tasks):
-                turn.pendingTasks = tasks
+                let named = tasks.map { task in
+                    var task = task
+                    task.agentName = turn.taskAgents[task.id]
+                    return task
+                }
+                turn.pendingTasks = named
                 // A wait can outlast the task that started it: one of several ending is
                 // not the end of the wait, and the row has to say what is left.
-                if turn.waitingOnTasks { waits[sessionID]?.tasks = tasks }
+                if turn.waitingOnTasks { waits[sessionID]?.tasks = named }
 
             case .streamError(let message):
                 turn.lastStreamError = message
@@ -1966,6 +1974,9 @@ final class SessionRunner {
         var exitStatus: Int32?
         // The background tasks the CLI says are still running, in the order it sent them.
         var pendingTasks: [BackgroundTask] = []
+        // Which agent is behind each task, keyed by task id. The CLI names the agent once,
+        // when the task starts, and never again on the lists of live tasks that follow.
+        var taskAgents: [String: String] = [:]
         // True from a result that left tasks running until the CLI moves again or a
         // prompt is sent into the open pipe. This is what holds the input open.
         var waitingOnTasks = false

@@ -36,6 +36,10 @@ enum StreamEvent: Sendable {
     // changes. A turn that ends while this is not empty is not really over: the CLI runs
     // a follow-up turn when a task finishes, but only if its process is still alive.
     case backgroundTasks([BackgroundTask])
+    // What kind of agent is running behind a background task. Only the event that starts
+    // a task says it, while the list of live tasks that follows names them by their work
+    // alone, so it arrives on its own and is merged back onto the list.
+    case taskAgent(id: String, name: String)
     // The transport dropped but the CLI is still running and may reconnect on its own.
     // This is status, not the result of the turn.
     case streamError(String)
@@ -51,9 +55,14 @@ struct BackgroundTask: Identifiable, Equatable, Sendable {
     // for an agent it spawned. New kinds appear over time, so it is kept as it arrived.
     let kind: String?
     let description: String?
+    // Which agent is doing the work: a subagent type, a named agent, a workflow. Two
+    // agents sent after the same thing read the same without it, and it is the name the
+    // CLIs use for a running agent themselves.
+    var agentName: String?
 
     var label: String {
-        if let description, !description.isEmpty { return description }
+        let named = [agentName, description].compactMap { $0 }.filter { !$0.isEmpty }
+        if !named.isEmpty { return named.joined(separator: " · ") }
         return switch kind {
         case "local_bash": "a command"
         case "local_agent": "an agent"
@@ -114,6 +123,8 @@ extension StreamEvent {
             // The descriptions are the CLI's own words about what it is running and can
             // name files or commands, so only how many there are goes in the log.
             "background tasks count=\(tasks.count)"
+        case .taskAgent(let id, let name):
+            "task agent id=\(id) name=\(name)"
         case .streamError(let message):
             "stream error category=\(Self.streamErrorCategory(message)) "
                 + "messageBytes=\(message.utf8.count)"
@@ -193,6 +204,13 @@ extension StreamEvent {
                                        description: task["description"] as? String)
                     }
                 })]
+            case "task_started":
+                guard let id = object["task_id"] as? String, !id.isEmpty,
+                      let name = (object["subagent_type"] as? String
+                                  ?? object["workflow_name"] as? String),
+                      !name.isEmpty
+                else { return [] }
+                return [.taskAgent(id: id, name: name)]
             case "compact_boundary":
                 // The stream spells these with underscores and the CLI's own history file
                 // spells the same fields in camel case, so both are accepted rather than

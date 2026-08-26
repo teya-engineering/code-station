@@ -40,6 +40,51 @@ struct BackgroundTaskTests {
         #expect(tasks.first?.label == "Run the dev server")
     }
 
+    // Which agent is running is only said once, on the event that starts the task, and
+    // the lists of live tasks that follow never repeat it.
+    @Test func readsTheAgentBehindATask() {
+        let line = """
+        {"type":"system","subtype":"task_started","task_id":"abc123","description":"read the log",\
+        "subagent_type":"general-purpose","task_type":"local_agent"}
+        """
+        guard case .taskAgent(let id, let name)? = StreamEvent.parse(line).first else {
+            Issue.record("expected a task agent, got \(StreamEvent.parse(line))")
+            return
+        }
+        #expect(id == "abc123")
+        #expect(name == "general-purpose")
+    }
+
+    // A workflow names itself rather than a subagent type, and the row still has to say
+    // which one is holding the turn open.
+    @Test func readsTheWorkflowBehindATask() {
+        let line = """
+        {"type":"system","subtype":"task_started","task_id":"w1","description":"review",\
+        "workflow_name":"review-changes","task_type":"local_workflow"}
+        """
+        guard case .taskAgent(_, let name)? = StreamEvent.parse(line).first else {
+            Issue.record("expected a task agent")
+            return
+        }
+        #expect(name == "review-changes")
+    }
+
+    // A shell command in the background has no agent behind it, and the event that starts
+    // it must not be read as one.
+    @Test func aPlainCommandHasNoAgentBehindIt() {
+        let line = """
+        {"type":"system","subtype":"task_started","task_id":"b1","description":"yarn dev",\
+        "task_type":"local_bash"}
+        """
+        #expect(StreamEvent.parse(line).isEmpty)
+    }
+
+    @Test func namesATaskByItsAgentAndItsWork() {
+        #expect(BackgroundTask(id: "a", kind: "local_agent", description: "read the log",
+                               agentName: "general-purpose").label
+                == "general-purpose · read the log")
+    }
+
     // An older CLI, or a kind that does not describe itself, still has to read as something.
     @Test func fallsBackToTheKindOfTask() {
         #expect(BackgroundTask(id: "a", kind: "local_bash", description: nil).label == "a command")
@@ -127,6 +172,22 @@ struct BackgroundTaskTests {
 
     // The whole point of the hold: the turn has answered, the process is still alive, and
     // what it is waiting for is on hand to say so.
+    // End to end: the agent named when the task started rides through to the line the row
+    // shows while the turn is held open.
+    @MainActor @Test func theWaitNamesTheAgentHoldingItOpen() async throws {
+        let fixture = try turn(script: """
+        printf '%s\\n' '{"type":"system","subtype":"task_started","task_id":"t1","description":"read the log","subagent_type":"general-purpose","task_type":"local_agent"}'
+        printf '%s\\n' '{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"t1","task_type":"local_agent","description":"read the log"}]}'
+        printf '%s\\n' '{"type":"result","subtype":"success","is_error":false,"result":"done"}'
+        cat > /dev/null
+        """)
+        defer { fixture.tearDown() }
+
+        #expect(await fixture.waitUntil { fixture.runner.state(fixture.session.id) == .waiting })
+        #expect(BackgroundTaskPhrase.of(fixture.runner.backgroundTasks(fixture.session.id))
+                == "general-purpose · read the log")
+    }
+
     @MainActor @Test func holdsTheTurnOpenAndNamesWhatItIsWaitingFor() async throws {
         let fixture = try heldOpenTurn()
         defer { fixture.tearDown() }

@@ -757,6 +757,59 @@ struct CodexTests {
         """).isEmpty)
     }
 
+    // Codex fans out onto threads of its own and sends the state of the whole team with
+    // every collaboration call, which is the only place its agents are named.
+    @Test func namesTheAgentsCodexHasRunning() {
+        let events = StreamEvent.parseCodex("""
+        {"type":"item.started","item":{"id":"item_7","item_type":"collab_tool_call","tool":"wait",\
+        "agents_states":{"t2":{"agent_name":"search_west","agent_status":"running"},\
+        "t1":{"agent_name":"search_east","agent_status":"running"}},"status":"in_progress"}}
+        """)
+        guard case .toolUse(let tool)? = events.first else {
+            Issue.record("expected a tool call, got \(events)")
+            return
+        }
+        #expect(tool.name == "Agent")
+        #expect(ToolPresentation(tool: tool, projectPath: "").argument
+                == "search_east, search_west · waiting")
+    }
+
+    @Test func namesTheAgentsASpawnIsSendingOut() {
+        let events = StreamEvent.parseCodex("""
+        {"type":"item.started","item":{"id":"item_8","item_type":"collab_tool_call",\
+        "tool":"spawn_agent","receiver_agents":["counter"],"agents_states":{},"status":"in_progress"}}
+        """)
+        guard case .toolUse(let tool)? = events.first else {
+            Issue.record("expected a tool call, got \(events)")
+            return
+        }
+        #expect(ToolPresentation(tool: tool, projectPath: "").argument == "counter · spawned")
+    }
+
+    // Codex sends one of these on ordinary turns where nothing was spawned. A row for a
+    // team of nobody would be on every Codex conversation in the app.
+    @Test func dropsACollaborationCallWithNoAgentsBehindIt() {
+        #expect(StreamEvent.parseCodex("""
+        {"type":"item.started","item":{"id":"item_9","item_type":"collab_tool_call","tool":"wait",\
+        "receiver_thread_ids":[],"prompt":null,"agents_states":{},"status":"in_progress"}}
+        """).isEmpty)
+    }
+
+    // The call has to be able to finish whatever the team looked like by then, or the row
+    // it opened would say "running" for the rest of the conversation.
+    @Test func aFinishedCollaborationCallClosesItsRow() {
+        let events = StreamEvent.parseCodex("""
+        {"type":"item.completed","item":{"id":"item_7","item_type":"collab_tool_call",\
+        "tool":"wait","agents_states":{},"status":"completed"}}
+        """)
+        guard case .toolResult(let id, _, let isError)? = events.first else {
+            Issue.record("expected a tool result, got \(events)")
+            return
+        }
+        #expect(id == "item_7")
+        #expect(!isError)
+    }
+
     @Test func unknownItemsAreDropped() {
         let todo = StreamEvent.parseCodex("""
         {"type":"item.completed","item":{"id":"item_6","item_type":"todo_list","items":[]}}

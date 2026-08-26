@@ -75,6 +75,32 @@ extension StreamEvent {
         return text
     }
 
+    // The agents Codex has on the go, named the way it names them itself. The state of
+    // the team rides along with every collaboration call and is the only place the names
+    // appear; a call that has not been answered yet names its receivers instead. Sorted,
+    // because the state arrives as a map and an unsorted row would reshuffle itself.
+    private static func collabAgents(_ item: [String: Any]) -> [String] {
+        let running = (item["agents_states"] as? [String: Any] ?? [:]).values
+            .compactMap { ($0 as? [String: Any])?["agent_name"] as? String }
+        guard running.isEmpty else { return running.sorted() }
+        return ((item["receiver_agents"] as? [Any]) ?? []).compactMap {
+            $0 as? String ?? ($0 as? [String: Any])?["agent_name"] as? String
+        }
+    }
+
+    // What a collaboration call is doing to the team, in the app's words rather than in
+    // the tool's. Waiting is the common one and the one an unknown tool reads as: every
+    // call of this kind carries the team, so the row is worth having either way.
+    private static func collabVerb(_ tool: String?) -> String {
+        switch tool {
+        case "spawn_agent": "spawned"
+        case "resume_agent": "resumed"
+        case "send_input", "send_message", "followup_task": "sent more work"
+        case "close_agent", "interrupt_agent": "closed"
+        default: "waiting"
+        }
+    }
+
     // Items are Codex's tool calls and messages. A command starts and later completes,
     // so it maps onto a tool call and its result. A message only matters once it is
     // complete: the completed item carries the whole text again, so acting on the
@@ -132,6 +158,18 @@ extension StreamEvent {
                 return [.toolUse(ToolUse(id: id, name: "MCP", input: name))]
             }
             return [.toolResult(id: id, output: "", isError: failed)]
+
+        case "collab_tool_call":
+            // Codex's own fan-out. It spawns agents on threads of their own and waits on
+            // them, and sends the state of the whole team alongside every one of those
+            // calls. An ordinary turn that spawned nothing still sends one with an empty
+            // team, and a row for that would say nothing at all.
+            guard !completed else { return [.toolResult(id: id, output: "", isError: failed)] }
+            let agents = collabAgents(item)
+            guard !agents.isEmpty else { return [] }
+            return [.toolUse(ToolUse(id: id, name: "Agent",
+                                     input: json(["name": agents.joined(separator: ", "),
+                                                  "description": collabVerb(item["tool"] as? String)])))]
 
         case "web_search":
             guard completed else { return [] }

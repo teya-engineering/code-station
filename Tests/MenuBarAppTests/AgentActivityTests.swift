@@ -210,6 +210,25 @@ struct AgentActivityTests {
                 == "review the diff")
     }
 
+    // A fan-out sends several agents after the same kind of work, so which agent went is
+    // as much of the row as what it was sent to do.
+    @Test func saysWhichAgentWasSent() {
+        #expect(presented("Task", #"{"subagent_type":"general-purpose","description":"read the log"}"#)
+                == "general-purpose · read the log")
+    }
+
+    // An agent given a name of its own is known by it, the way the CLI's own list of
+    // running agents reads: the type it was built from is the less specific of the two.
+    @Test func prefersTheNameAnAgentWasGiven() {
+        #expect(presented("Agent", #"{"name":"Navigator","subagent_type":"general-purpose","description":"map the site"}"#)
+                == "Navigator · map the site")
+    }
+
+    @Test func namesAnAgentThatOnlySaysItsType() {
+        #expect(presented("Task", #"{"subagent_type":"Explore","prompt":"find every caller"}"#)
+                == "Explore · find every caller")
+    }
+
     private func presented(_ name: String, _ input: String) -> String {
         ToolPresentation(tool: ToolUse(id: "t", name: name, input: input),
                          projectPath: "/tmp/p").argument

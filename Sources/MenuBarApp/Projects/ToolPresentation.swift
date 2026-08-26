@@ -107,9 +107,14 @@ struct ToolPresentation: Sendable {
             argument = input["query"] as? String ?? ""
             notesResultLineCount = true
         case "Task", "Agent":
-            argument = input["name"] as? String
-                ?? input["description"] as? String
+            // Who was sent and what they were sent to do. A fan-out puts several agents
+            // on the same kind of work, and several kinds of agent on the same file, so
+            // neither half places a row on its own.
+            let sent = input["name"] as? String ?? input["subagent_type"] as? String
+            let errand = input["description"] as? String
                 ?? Self.singleLine(input["prompt"] as? String ?? "")
+            argument = [sent, errand].compactMap { $0 }.filter { !$0.isEmpty }
+                .joined(separator: " · ")
         case "Workflow":
             argument = Self.workflowName(input)
         case "TodoWrite":
