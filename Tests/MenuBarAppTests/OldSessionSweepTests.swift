@@ -117,9 +117,10 @@ struct OldSessionSweepTests {
         var buffer = OldSessionSweep.EligibilityBuffer()
 
         let duringWarning = await OldSessionSweep.run(
-            days: 7, store: store, runner: runner, buffer: &buffer, now: firstSeen)
+            days: 7, policy: .deleteSafe, store: store, runner: runner,
+            buffer: &buffer, now: firstSeen)
         let afterWarning = await OldSessionSweep.run(
-            days: 7, store: store, runner: runner, buffer: &buffer,
+            days: 7, policy: .deleteSafe, store: store, runner: runner, buffer: &buffer,
             now: firstSeen.addingTimeInterval(OldSessionSweep.gracePeriod))
 
         #expect(duringWarning == 0)
@@ -139,6 +140,7 @@ struct OldSessionSweepTests {
         store.append(ChatMessage(role: .user, text: "Old design",
                                  date: Date().addingTimeInterval(-8 * 86_400)),
                      to: old.id)
+        _ = store.newSession(in: project.id)
         let artifact = try #require(store.designArtifactURL(for: old))
         try FileManager.default.createDirectory(
             at: artifact.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -148,15 +150,100 @@ struct OldSessionSweepTests {
         var buffer = OldSessionSweep.EligibilityBuffer()
 
         let duringWarning = await OldSessionSweep.run(
-            days: 7, store: store, runner: runner, buffer: &buffer, now: firstSeen)
+            days: 7, policy: .deleteSafe, store: store, runner: runner,
+            buffer: &buffer, now: firstSeen)
         let afterWarning = await OldSessionSweep.run(
-            days: 7, store: store, runner: runner, buffer: &buffer,
+            days: 7, policy: .deleteSafe, store: store, runner: runner, buffer: &buffer,
             now: firstSeen.addingTimeInterval(OldSessionSweep.gracePeriod))
 
         #expect(duringWarning == 0)
         #expect(afterWarning == 0)
         #expect(store.session(old.id) != nil)
         #expect(FileManager.default.fileExists(atPath: artifact.path))
+    }
+
+    @Test func deletesGeneratedDesignFilesWhenThePolicyIncludesSavedWork() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("code-station-old-design-delete-all-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let projectURL = root.appendingPathComponent("project", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+        let store = ProjectStore(storeURL: root.appendingPathComponent("projects.json"))
+        let project = try #require(store.addProject(at: projectURL))
+        let old = store.newSession(in: project.id, seed: .init(mode: .design))
+        store.append(ChatMessage(role: .user, text: "Old design",
+                                 date: Date().addingTimeInterval(-8 * 86_400)),
+                     to: old.id)
+        _ = store.newSession(in: project.id)
+        let artifact = try #require(store.designArtifactURL(for: old))
+        try FileManager.default.createDirectory(
+            at: artifact.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("<html>deleted</html>".utf8).write(to: artifact)
+        let firstSeen = Date()
+        let runner = SessionRunner(paths: [:])
+        var buffer = OldSessionSweep.EligibilityBuffer()
+
+        let duringWarning = await OldSessionSweep.run(
+            days: 7, policy: .deleteAll, store: store, runner: runner,
+            buffer: &buffer, now: firstSeen)
+        let afterWarning = await OldSessionSweep.run(
+            days: 7, policy: .deleteAll, store: store, runner: runner, buffer: &buffer,
+            now: firstSeen.addingTimeInterval(OldSessionSweep.gracePeriod))
+
+        #expect(duringWarning == 0)
+        #expect(afterWarning == 1)
+        #expect(store.session(old.id) == nil)
+        #expect(!FileManager.default.fileExists(atPath: artifact.path))
+    }
+
+    @Test func deletesAWorktreeWithoutCheckingForChangesWhenThePolicyIncludesSavedWork()
+        async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("code-station-old-worktree-delete-all-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let projectURL = root.appendingPathComponent("project", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+        let worktree = try folderOnDisk()
+        defer { try? FileManager.default.removeItem(atPath: worktree) }
+        let store = ProjectStore(storeURL: root.appendingPathComponent("projects.json"))
+        let project = try #require(store.addProject(at: projectURL))
+        let old = store.newSession(in: project.id, worktreePath: worktree)
+        store.append(ChatMessage(role: .user, text: "Old work",
+                                 date: Date().addingTimeInterval(-8 * 86_400)),
+                     to: old.id)
+        _ = store.newSession(in: project.id)
+        let worktrees = WorktreeOperations(
+            addProject: { _, _, _, _ in
+                .failure(GitWorktree.Failure(message: "Unexpected add"))
+            },
+            addWorkspaceProject: { _, _, _, _, _ in
+                .failure(GitWorktree.Failure(message: "Unexpected add"))
+            },
+            remove: { path, _, _ in
+                #expect(path == worktree)
+                return .success(())
+            })
+        let firstSeen = Date()
+        let runner = SessionRunner(paths: [:])
+        var buffer = OldSessionSweep.EligibilityBuffer()
+
+        _ = await OldSessionSweep.run(
+            days: 7, policy: .deleteAll, store: store, runner: runner,
+            buffer: &buffer, now: firstSeen, worktreeOperations: worktrees) { _ in
+                Issue.record("Delete-all should not inspect the worktree")
+                return self.snapshot(changedFiles: 1)
+            }
+        let deleted = await OldSessionSweep.run(
+            days: 7, policy: .deleteAll, store: store, runner: runner,
+            buffer: &buffer,
+            now: firstSeen.addingTimeInterval(OldSessionSweep.gracePeriod),
+            worktreeOperations: worktrees) { _ in
+                Issue.record("Delete-all should not inspect the worktree")
+                return self.snapshot(changedFiles: 1)
+            }
+
+        #expect(deleted == 1)
+        #expect(store.session(old.id) == nil)
     }
 
     // Git inspection yields to the app. Opening the session while that answer is on its
@@ -176,14 +263,16 @@ struct OldSessionSweepTests {
         var buffer = OldSessionSweep.EligibilityBuffer()
 
         let duringWarning = await OldSessionSweep.run(
-            days: 7, store: store, runner: SessionRunner(paths: [:]),
+            days: 7, policy: .deleteSafe, store: store,
+            runner: SessionRunner(paths: [:]),
             buffer: &buffer, now: firstSeen) { _ in
                 Issue.record("git should not be checked during the warning hour")
                 return self.snapshot(changedFiles: 0)
             }
 
         let deleted = await OldSessionSweep.run(
-            days: 7, store: store, runner: SessionRunner(paths: [:]),
+            days: 7, policy: .deleteSafe, store: store,
+            runner: SessionRunner(paths: [:]),
             buffer: &buffer,
             now: firstSeen.addingTimeInterval(OldSessionSweep.gracePeriod)) { _ in
                 await MainActor.run { store.selectSession(old.id) }

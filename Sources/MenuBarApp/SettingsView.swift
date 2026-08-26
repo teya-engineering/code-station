@@ -55,8 +55,10 @@ final class AppSettings {
         didSet { Preferences.oldSessionDays = oldSessionDays }
     }
 
-    var autoDeleteOldSessions = Preferences.autoDeleteOldSessions {
-        didSet { Preferences.autoDeleteOldSessions = autoDeleteOldSessions }
+    var oldSessionCleanupPolicy: OldSessionCleanupPolicy {
+        didSet {
+            Preferences.setOldSessionCleanupPolicy(oldSessionCleanupPolicy, in: preferences)
+        }
     }
 
     var skillsRefreshInterval = Preferences.skillsRefreshInterval {
@@ -120,6 +122,7 @@ final class AppSettings {
          preferences: UserDefaults = .standard) {
         self.agentAvatarURL = agentAvatarURL
         self.preferences = preferences
+        oldSessionCleanupPolicy = Preferences.oldSessionCleanupPolicy(in: preferences)
         sidebarSessionLimit = Preferences.sidebarSessionLimit(in: preferences)
         sidebarIconSet = Preferences.sidebarIconSet(in: preferences)
         diceBearAvatarStyle = Preferences.diceBearAvatarStyle(in: preferences)
@@ -533,9 +536,8 @@ struct SettingsView: View {
         }
     }
 
-    // The threshold decides what gets offered up for review, and, if the sweep below is
-    // on, what gets cleared on its own. Even then the sweep only touches what git has
-    // said is empty, so the number can be moved without wondering what it will take.
+    // The threshold and cleanup policy are separate choices: one says when a session is
+    // old, while the other says what the app may do once the warning hour has passed.
     private var oldSessions: some View {
         @Bindable var settings = settings
         let days = settings.oldSessionDays
@@ -556,12 +558,31 @@ struct SettingsView: View {
 
                 SettingsRowDivider()
 
-                SettingsToggleRow(
-                    "Delete them without asking",
-                    detail: "Only where nothing is lost: no Design files, and no worktree left or one Git says holds no changes. Once a session appears for review, it waits at least one hour before automatic deletion. A session with Design files or uncommitted work is never taken this way.",
-                    isOn: $settings.autoDeleteOldSessions)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 13)
+                OptionRow(
+                    title: "Review before deleting",
+                    detail: "Old sessions stay in the app until you delete them from the review screen.",
+                    selected: settings.oldSessionCleanupPolicy == .review) {
+                        settings.oldSessionCleanupPolicy = .review
+                }
+
+                SettingsRowDivider()
+
+                OptionRow(
+                    title: "Delete without asking when nothing would be lost",
+                    detail: "After one warning hour, removes sessions with no Design files and no uncommitted worktree changes.",
+                    selected: settings.oldSessionCleanupPolicy == .deleteSafe) {
+                        settings.oldSessionCleanupPolicy = .deleteSafe
+                }
+
+                SettingsRowDivider()
+
+                OptionRow(
+                    title: "Delete without asking even when work would be lost",
+                    detail: "After one warning hour, removes every old session, including generated Design files and uncommitted worktree changes.",
+                    selected: settings.oldSessionCleanupPolicy == .deleteAll,
+                    warning: true) {
+                        settings.oldSessionCleanupPolicy = .deleteAll
+                }
 
                 SettingsRowDivider()
 
@@ -1613,7 +1634,7 @@ enum SettingsSearchIndex {
         result("Sessions shown", .general, .generalSidebar,
                "sidebar recent project workspace see more limit"),
         result("Old sessions", .general, .generalOldSessions,
-               "count old after days delete automatically review clear stale"),
+               "count old after days delete automatically review clear stale design saved work uncommitted"),
         result("Skills refresh", .general, .generalSkills,
                "skills marketplace refresh versions interval daily"),
         result("Terminal", .general, .generalSystem,

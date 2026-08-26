@@ -19,6 +19,23 @@ enum OldSessions {
     }
 }
 
+// One policy owns the whole automatic-cleanup choice. The destructive modes are ordered
+// by what they are allowed to take, so Settings cannot represent a contradictory pair of
+// switches such as deleting saved work while keeping sessions that have nothing to lose.
+enum OldSessionCleanupPolicy: String, CaseIterable {
+    case review
+    case deleteSafe
+    case deleteAll
+
+    var deletesAutomatically: Bool {
+        self != .review
+    }
+
+    var includesSavedWork: Bool {
+        self == .deleteAll
+    }
+}
+
 // What deleting one session would actually do. The worktree side of it can only be
 // answered by git, so it starts as "not looked at yet" and is filled in once the review
 // sheet has asked.

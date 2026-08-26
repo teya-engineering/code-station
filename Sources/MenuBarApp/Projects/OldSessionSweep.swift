@@ -1,11 +1,10 @@
 import Foundation
 
 // Clearing old sessions without being asked each time. This is the only place in the app
-// that deletes a session nobody chose, so the rule it works to is the narrowest one: the
-// session has remained eligible through a full warning hour, it is neither open nor
-// running, it has no generated Design files, and git has said its worktree holds nothing.
-// A session with saved output, uncommitted work, or a worktree git could not read is left
-// where it is for a person to decide on.
+// that deletes a session nobody chose, so it follows the explicit cleanup policy only
+// after the session has remained eligible through a full warning hour and is neither open
+// nor running. The policy decides whether generated Design files and uncommitted work are
+// protected or are part of the unattended deletion.
 @MainActor
 enum OldSessionSweep {
     static let interval: Duration = .seconds(3_600)
@@ -46,9 +45,12 @@ enum OldSessionSweep {
     }
 
     @discardableResult
-    static func run(days: Int, store: ProjectStore, runner: SessionRunner,
+    static func run(days: Int, policy: OldSessionCleanupPolicy,
+                    store: ProjectStore, runner: SessionRunner,
                     buffer: inout EligibilityBuffer, now: Date = Date(),
+                    worktreeOperations: WorktreeOperations = .live,
                     inspect: SessionCost.Inspect = SessionCost.live) async -> Int {
+        guard policy.deletesAutomatically else { return 0 }
         var deleted = 0
         let eligible = due(days: days, in: store.userSessions, now: now,
                            isBusy: { runner.state($0).isBusy },
@@ -66,16 +68,26 @@ enum OldSessionSweep {
         for session in due {
             guard !Task.isCancelled else { break }
             guard stillStale(session) else { continue }
-            let worktrees = store.checkoutProjects(for: session).compactMap(\.worktreePath)
-            let worktree = await SessionCost.settledOutcome(worktrees: worktrees,
-                                                            inspect: inspect)
-            let cost = SessionRemovalCost(
-                worktree: worktree,
-                deletesDesignArtifacts: store.hasDesignArtifacts(for: session))
-            guard cost.losesNothing, stillStale(session) else { continue }
+            var cost: SessionRemovalCost?
+            if !policy.includesSavedWork {
+                let worktreePaths = store.checkoutProjects(for: session)
+                    .compactMap(\.worktreePath)
+                let worktree = await SessionCost.settledOutcome(worktrees: worktreePaths,
+                                                                inspect: inspect)
+                let settled = SessionRemovalCost(
+                    worktree: worktree,
+                    deletesDesignArtifacts: store.hasDesignArtifacts(for: session))
+                guard settled.losesNothing else { continue }
+                cost = settled
+            }
+            guard stillStale(session) else { continue }
 
-            SessionLog.note("auto deletion started outcome=\(cost.label)", session: session.id)
-            let result = await SessionLifecycle.remove(session, from: store, runner: runner)
+            let outcome = cost?.label ?? "unchecked"
+            SessionLog.note(
+                "auto deletion started policy=\(policy.rawValue) outcome=\(outcome)",
+                session: session.id)
+            let result = await SessionLifecycle.remove(
+                session, from: store, runner: runner, worktrees: worktreeOperations)
             if case .failure(let failure) = result {
                 SessionLog.note("auto deletion failed reason=\(failure.title)", session: session.id)
             } else {

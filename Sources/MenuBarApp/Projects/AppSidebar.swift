@@ -40,7 +40,12 @@ struct AppSidebar: View {
 
     private struct OldSessionSummary: Equatable {
         var sessions = 0
-        var worktrees = 0
+        var losesWork = 0
+    }
+
+    private struct OldSessionRefreshRule: Equatable {
+        let days: Int
+        let sessionCount: Int
     }
 
     var body: some View {
@@ -54,8 +59,7 @@ struct AppSidebar: View {
         .background(Theme.sidebar)
         .background(keyboardShortcuts)
         .task { await watchWorkingTrees() }
-        .task(id: oldSessionDays) { await refreshOldSessionsHourly() }
-        .onChange(of: store.sidebarSessions.count) { _, _ in refreshOldSessions() }
+        .task(id: oldSessionRefreshRule) { await refreshOldSessionsHourly() }
         .sheet(item: $choosingSessionKind) { project in
             NewSessionView(project: project) { choice in
                 startSession(choice, in: project)
@@ -1116,42 +1120,59 @@ struct AppSidebar: View {
     // says how much has gone stale and hands it to a screen that explains what clearing
     // each one would cost; it never offers to do anything on its own.
     private func oldSessionsStrip(_ summary: OldSessionSummary) -> some View {
-        HStack(spacing: 8) {
+        let losesWork = summary.losesWork > 0
+        return HStack(spacing: 8) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("\(summary.sessions) session\(summary.sessions == 1 ? "" : "s") older than \(oldSessionDays) day\(oldSessionDays == 1 ? "" : "s")")
                     .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(losesWork ? Theme.attentionText : Color.primary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
-                if summary.worktrees > 0 {
-                    Text(summary.worktrees == 1 ? "one worktree remains"
-                                                : "\(summary.worktrees) worktrees remain")
-                        .font(.mono(10))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
+                Text(summary.losesWork == 1
+                     ? "1 session would lose work"
+                     : "\(summary.losesWork) sessions would lose work")
+                    .font(.mono(10))
+                    .foregroundStyle(losesWork ? Theme.attentionText : Color.secondary)
+                    .lineLimit(1)
             }
             Spacer(minLength: 8)
-            InlineLink(title: "Review", action: onReviewOldSessions)
+            InlineLink(title: "Review",
+                       tint: losesWork ? Theme.attentionText : Theme.accent,
+                       action: onReviewOldSessions)
         }
         .padding(.horizontal, 11)
         .padding(.vertical, 9)
-        .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
+        .background(RoundedRectangle(cornerRadius: 9)
+            .fill(losesWork ? Theme.attention.opacity(0.10) : Theme.field))
+        .overlay(RoundedRectangle(cornerRadius: 9)
+            .stroke(losesWork ? Theme.attention.opacity(0.45) : Color.clear))
     }
 
     private var oldSessionDays: Int { appSettings.oldSessionDays }
 
-    private func refreshOldSessions() {
+    private var oldSessionRefreshRule: OldSessionRefreshRule {
+        OldSessionRefreshRule(days: oldSessionDays,
+                              sessionCount: store.sidebarSessions.count)
+    }
+
+    private func refreshOldSessions() async {
         let sessions = OldSessions.olderThan(oldSessionDays, in: store.sidebarSessions)
             .filter { !runner.state($0.id).isBusy }
-        let worktrees = sessions.reduce(0) { count, session in
-            count + store.checkoutProjects(for: session).compactMap(\.worktreePath).count
+        var losesWork = 0
+        for session in sessions {
+            guard !Task.isCancelled else { return }
+            let cost = await SessionCost.settledCost(
+                worktrees: store.checkoutProjects(for: session).compactMap(\.worktreePath),
+                deletesDesignArtifacts: store.hasDesignArtifacts(for: session))
+            if cost.losesWork { losesWork += 1 }
         }
-        oldSessionSummary = OldSessionSummary(sessions: sessions.count, worktrees: worktrees)
+        guard !Task.isCancelled else { return }
+        oldSessionSummary = OldSessionSummary(sessions: sessions.count, losesWork: losesWork)
     }
 
     private func refreshOldSessionsHourly() async {
         while !Task.isCancelled {
-            refreshOldSessions()
+            await refreshOldSessions()
             do {
                 try await Task.sleep(for: Self.oldSessionRefreshInterval)
             } catch {

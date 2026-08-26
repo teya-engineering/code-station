@@ -167,6 +167,42 @@ struct AppPathsTests {
         #expect(Preferences.oldSessionDays(in: defaults) == 365)
     }
 
+    @Test func defaultsAndMigratesTheOldSessionCleanupPolicy() throws {
+        let suite = "code-station-old-session-cleanup-tests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        #expect(Preferences.oldSessionCleanupPolicy(in: defaults) == .deleteSafe)
+
+        defaults.set(false, forKey: "autoDeleteOldSessions")
+        #expect(Preferences.oldSessionCleanupPolicy(in: defaults) == .review)
+
+        defaults.set(true, forKey: "autoDeleteOldSessions")
+        #expect(Preferences.oldSessionCleanupPolicy(in: defaults) == .deleteSafe)
+
+        Preferences.setOldSessionCleanupPolicy(.deleteAll, in: defaults)
+        #expect(Preferences.oldSessionCleanupPolicy(in: defaults) == .deleteAll)
+        #expect(defaults.object(forKey: "autoDeleteOldSessions") == nil)
+    }
+
+    @Test @MainActor func appSettingsPersistsTheOldSessionCleanupPolicy() throws {
+        let suite = "code-station-app-old-session-cleanup-tests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let avatar = root.appendingPathComponent("avatar.png")
+        let settings = AppSettings(agentAvatarURL: avatar, preferences: defaults)
+
+        #expect(settings.oldSessionCleanupPolicy == .deleteSafe)
+
+        settings.oldSessionCleanupPolicy = .deleteAll
+
+        #expect(Preferences.oldSessionCleanupPolicy(in: defaults) == .deleteAll)
+        #expect(AppSettings(agentAvatarURL: avatar, preferences: defaults)
+            .oldSessionCleanupPolicy == .deleteAll)
+    }
+
     @Test func defaultsAndClampsTheSidebarSessionLimit() throws {
         let suite = "code-station-sidebar-session-limit-tests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))

@@ -595,6 +595,7 @@ struct ActionButton: View {
 struct InlineLink: View {
     let title: String
     var size: CGFloat = 12
+    var tint: Color = Theme.accent
     let action: () -> Void
 
     @State private var hovering = false
@@ -603,7 +604,7 @@ struct InlineLink: View {
         Button(action: action) {
             Text(title)
                 .font(.system(size: size, weight: .semibold))
-                .foregroundStyle(Theme.accent)
+                .foregroundStyle(tint)
                 .opacity(hovering ? 0.75 : 1)
                 .fixedSize()
                 .contentShape(Rectangle())

@@ -162,7 +162,7 @@ struct RootView: View {
     }
 
     private struct SweepRule: Equatable {
-        let enabled: Bool
+        let policy: OldSessionCleanupPolicy
         let days: Int
     }
 
@@ -177,19 +177,19 @@ struct RootView: View {
     }
 
     private var sweepRule: SweepRule {
-        SweepRule(enabled: settings.autoDeleteOldSessions, days: settings.oldSessionDays)
+        SweepRule(policy: settings.oldSessionCleanupPolicy, days: settings.oldSessionDays)
     }
 
     // Age is the only thing that makes a session sweepable, and age only moves with the
     // clock, so this runs on a timer rather than off a change in the store.
     private func deleteOldSessionsAutomatically() async {
         let rule = sweepRule
-        guard rule.enabled else { return }
+        guard rule.policy.deletesAutomatically else { return }
         var buffer = OldSessionSweep.EligibilityBuffer()
 
         while !Task.isCancelled {
-            await OldSessionSweep.run(days: rule.days, store: store, runner: runner,
-                                      buffer: &buffer)
+            await OldSessionSweep.run(days: rule.days, policy: rule.policy, store: store,
+                                      runner: runner, buffer: &buffer)
             do {
                 try await Task.sleep(for: OldSessionSweep.interval)
             } catch {

@@ -224,14 +224,27 @@ enum Preferences {
         set { store.set(OldSessions.resolvedDays(newValue), forKey: "oldSessionDays") }
     }
 
-    // Whether old sessions are cleared on their own. On unless it is turned off: the sweep
-    // only takes what git says holds nothing, so there is nothing to lose by leaving it on.
-    static var autoDeleteOldSessions: Bool {
-        get {
-            guard store.object(forKey: "autoDeleteOldSessions") != nil else { return true }
-            return store.bool(forKey: "autoDeleteOldSessions")
+    // What happens after a session has remained old for the warning hour. The old Boolean
+    // maps to the equivalent safe choice, so an upgrade does not make cleanup more
+    // destructive than the person previously allowed.
+    static var oldSessionCleanupPolicy: OldSessionCleanupPolicy {
+        get { oldSessionCleanupPolicy(in: store) }
+        set { setOldSessionCleanupPolicy(newValue, in: store) }
+    }
+
+    static func oldSessionCleanupPolicy(in store: UserDefaults) -> OldSessionCleanupPolicy {
+        if let rawValue = store.string(forKey: "oldSessionCleanupPolicy"),
+           let policy = OldSessionCleanupPolicy(rawValue: rawValue) {
+            return policy
         }
-        set { store.set(newValue, forKey: "autoDeleteOldSessions") }
+        guard store.object(forKey: "autoDeleteOldSessions") != nil else { return .deleteSafe }
+        return store.bool(forKey: "autoDeleteOldSessions") ? .deleteSafe : .review
+    }
+
+    static func setOldSessionCleanupPolicy(_ policy: OldSessionCleanupPolicy,
+                                           in store: UserDefaults) {
+        store.set(policy.rawValue, forKey: "oldSessionCleanupPolicy")
+        store.removeObject(forKey: "autoDeleteOldSessions")
     }
 
     static func oldSessionDays(in store: UserDefaults) -> Int {
