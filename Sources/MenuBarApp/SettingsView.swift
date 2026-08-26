@@ -241,7 +241,7 @@ struct SettingsView: View {
 
     @State private var reviewingOldSessions = false
     @State private var showingLog = false
-    @State private var tab = SettingsTab.appearance
+    @State private var tab = SettingsTab.general
     @State private var searchText = ""
     @State private var searchTarget: SettingsSearchTarget?
     @State private var searchResultID: String?
