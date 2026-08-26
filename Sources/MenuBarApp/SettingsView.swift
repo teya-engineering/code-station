@@ -662,22 +662,9 @@ struct SettingsView: View {
 
     private var sidebarIcons: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .top, spacing: 10) {
-                settingCopy(
-                    title: "Sidebar icons",
-                    detail: "Give projects a distinct, recognisable look.")
-
-                Spacer(minLength: 0)
-
-                HStack(spacing: 5) {
-                    Image(systemName: "lock")
-                        .font(.system(size: 10, weight: .semibold))
-                    Text("Works offline")
-                        .font(.system(size: 10, weight: .semibold))
-                }
-                .foregroundStyle(Theme.accent)
-                .accessibilityElement(children: .combine)
-            }
+            settingCopy(
+                title: "Sidebar icons",
+                detail: "Give projects a distinct, recognisable look.")
 
             HStack(spacing: 14) {
                 sidebarIconPreview
