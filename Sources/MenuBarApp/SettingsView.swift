@@ -591,20 +591,12 @@ struct SettingsView: View {
 
                 SettingsRowDivider()
 
-                Toggle(isOn: $settings.autoDeleteOldSessions) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Delete them without asking")
-                            .font(.system(size: 13, weight: .semibold))
-                        Text("Only where nothing is lost: no Design files, and no worktree left or one Git says holds no changes. Once a session appears for review, it waits at least one hour before automatic deletion. A session with Design files or uncommitted work is never taken this way.")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-                .toggleStyle(.appSwitch)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 13)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                SettingsToggleRow(
+                    "Delete them without asking",
+                    detail: "Only where nothing is lost: no Design files, and no worktree left or one Git says holds no changes. Once a session appears for review, it waits at least one hour before automatic deletion. A session with Design files or uncommitted work is never taken this way.",
+                    isOn: $settings.autoDeleteOldSessions)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 13)
 
                 SettingsRowDivider()
 
@@ -934,18 +926,10 @@ struct SettingsView: View {
 
     private var startAtLogin: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Toggle(isOn: Binding(get: { loginItem.isEnabled },
-                                 set: { loginItem.set($0) })) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Start at login")
-                        .font(.system(size: 13, weight: .semibold))
-                    Text("Opens Teya Code Station when you log in, so sessions are there waiting.")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .toggleStyle(.appSwitch)
+            SettingsToggleRow(
+                "Start at login",
+                detail: "Opens Teya Code Station when you log in, so sessions are there waiting.",
+                isOn: Binding(get: { loginItem.isEnabled }, set: { loginItem.set($0) }))
 
             if let failure = loginItem.failure {
                 Text(failure)
@@ -961,37 +945,21 @@ struct SettingsView: View {
         @Bindable var settings = settings
         return ChoiceBlock("EXPERIMENTAL") {
             SettingsCard {
-                Toggle(isOn: $settings.designEnabled) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Design")
-                            .font(.system(size: 13, weight: .semibold))
-                        Text("Offers Design mode when creating a session for visual ideas and prototypes.")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-                .toggleStyle(.appSwitch)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 13)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                SettingsToggleRow(
+                    "Design",
+                    detail: "Offers Design mode when creating a session for visual ideas and prototypes.",
+                    isOn: $settings.designEnabled)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 13)
 
                 SettingsRowDivider()
 
-                Toggle(isOn: $settings.mobileAccessEnabled) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Mobile access")
-                            .font(.system(size: 13, weight: .semibold))
-                        Text("Puts a QR code on Home, on every project and on every session. A phone on the same trusted Wi-Fi can read and run whatever the code it scanned covers.")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-                .toggleStyle(.appSwitch)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 13)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                SettingsToggleRow(
+                    "Mobile access",
+                    detail: "Puts a QR code on Home, on every project and on every session. A phone on the same trusted Wi-Fi can read and run whatever the code it scanned covers.",
+                    isOn: $settings.mobileAccessEnabled)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 13)
             }
         }
     }

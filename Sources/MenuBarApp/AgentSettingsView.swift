@@ -332,21 +332,13 @@ struct AgentSettingsView: View {
                     ? "Codex reports no cost of its own, so its sessions have nothing to show until it does."
                     : nil) {
             SettingsCard {
-                Toggle(isOn: Binding(get: { appSettings.showsCost(for: agent) },
-                                     set: { appSettings.setShowsCost($0, for: agent) })) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Show what a session has spent")
-                            .font(.system(size: 13, weight: .semibold))
-                        Text("The dollar figure on the session bar, and the Spent line in the hints.")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-                .toggleStyle(.appSwitch)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 13)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                SettingsToggleRow(
+                    "Show what a session has spent",
+                    detail: "The dollar figure on the session bar, and the Spent line in the hints.",
+                    isOn: Binding(get: { appSettings.showsCost(for: agent) },
+                                  set: { appSettings.setShowsCost($0, for: agent) }))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 13)
             }
         }
     }

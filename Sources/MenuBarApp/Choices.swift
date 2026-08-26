@@ -82,6 +82,41 @@ struct SettingsRowDivider: View {
     }
 }
 
+// A row that turns one thing on or off. The copy claims the whole width the card gives
+// it, so the switch sits at the trailing edge whether the sentence under the title wraps
+// or not, and switches line up down a card however long the copy runs.
+struct SettingsToggleRow: View {
+    let title: String
+    let detail: String?
+    @Binding var isOn: Bool
+
+    init(_ title: String, detail: String? = nil, isOn: Binding<Bool>) {
+        self.title = title
+        self.detail = detail
+        self._isOn = isOn
+    }
+
+    var body: some View {
+        Toggle(isOn: $isOn) {
+            HStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.system(size: 13, weight: .semibold))
+                    if let detail {
+                        Text(detail)
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+        }
+        .toggleStyle(.appSwitch)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
 // One choice out of a list, with the sentence that says what picking it does. The whole
 // row is the target: a radio button on its own is a small thing to hit.
 struct OptionRow: View {
