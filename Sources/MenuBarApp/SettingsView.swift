@@ -650,12 +650,13 @@ struct SettingsView: View {
                         detail: "Changes transcripts, diffs, tool output, and terminals.")
                         .frame(width: 160, alignment: .leading)
 
+                    Spacer(minLength: 0)
+
                     HStack(spacing: 4) {
                         ForEach(TextSize.allCases) { size in
                             ChoicePill(title: size.label, selected: settings.textSize == size) {
                                 settings.textSize = size
                             }
-                            .frame(maxWidth: .infinity)
                             .accessibilityLabel("Session text size: \(size.label)")
                             .accessibilityValue(settings.textSize == size ? "Selected" : "Not selected")
                         }
@@ -673,21 +674,17 @@ struct SettingsView: View {
                 sidebarIcons.id(SettingsSearchTarget.appearanceSidebarIcons.id)
                 botImage.id(SettingsSearchTarget.appearanceDefaultBot.id)
             }
-            // Taking the ideal height makes both cards as tall as the taller one, so
-            // the two control stacks sit on one line however tall the previews are.
-            .fixedSize(horizontal: false, vertical: true)
         }
     }
 
-    // The shape both cards of the pair wear: copy and preview at the top, controls held
-    // against the bottom edge.
+    // The shape both cards of the pair wear: copy and preview followed by compact controls.
     private func personalisationCard<Head: View, Controls: View>(
         @ViewBuilder head: () -> Head,
         @ViewBuilder controls: () -> Controls) -> some View {
         SettingsCard {
             VStack(alignment: .leading, spacing: 11) {
                 VStack(alignment: .leading, spacing: 11) { head() }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
                 VStack(alignment: .leading, spacing: 7) { controls() }
             }
             .padding(.horizontal, 14)
@@ -696,12 +693,10 @@ struct SettingsView: View {
     }
 
     // A sample gets a sunken panel of its own instead of floating beside the copy, so it
-    // reads as a sample of the setting rather than as an icon decorating the label. Paired
-    // cards stand as tall as the taller one, and the panel takes the height that leaves
-    // over, so the shorter card never ends in a blank strip.
+    // reads as a sample of the setting rather than as an icon decorating the label.
     private func previewPanel<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         content()
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .background(RoundedRectangle(cornerRadius: 10).fill(Theme.sunken))
             .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.settingsHairline))
     }
