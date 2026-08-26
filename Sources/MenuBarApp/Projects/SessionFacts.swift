@@ -319,11 +319,16 @@ struct ContextHairline: View {
     static let fuseThreshold = 0.8
 
     let fraction: Double
+    let animated: Bool
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     static func showsFuse(at fraction: Double) -> Bool {
         fraction > fuseThreshold
+    }
+
+    static func animatesFuse(at fraction: Double, whileActive active: Bool) -> Bool {
+        active && showsFuse(at: fraction)
     }
 
     var body: some View {
@@ -341,15 +346,15 @@ struct ContextHairline: View {
                     }
 
                 if Self.showsFuse(at: fraction) {
-                    if reduceMotion {
-                        FuseSpark(progressWidth: width, phase: 0.35, intensity: clamped)
-                    } else {
+                    if Self.animatesFuse(at: fraction, whileActive: animated), !reduceMotion {
                         TimelineView(.animation(minimumInterval: 1.0 / 24.0)) { timeline in
                             FuseSpark(
                                 progressWidth: width,
                                 phase: timeline.date.timeIntervalSinceReferenceDate,
                                 intensity: clamped)
                         }
+                    } else {
+                        FuseSpark(progressWidth: width, phase: 0.35, intensity: clamped)
                     }
                 }
             }

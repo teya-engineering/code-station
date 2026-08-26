@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import WebKit
 
@@ -87,10 +88,14 @@ struct DiceBearAvatarView<Placeholder: View>: View {
         ZStack {
             placeholder
             if let artwork = SidebarAvatarArt.artwork(for: avatar, style: style) {
-                DiceBearAvatarImage(
-                    key: artwork.key,
-                    source: artwork.source,
-                    motion: motion)
+                if style.usesWebAnimation(for: motion) {
+                    AnimatedDiceBearAvatarImage(key: artwork.key, source: artwork.source)
+                } else if let image = artwork.image {
+                    Image(nsImage: image)
+                        .resizable()
+                        .interpolation(.high)
+                        .aspectRatio(contentMode: .fit)
+                }
             }
         }
         .frame(width: side, height: side)
@@ -167,6 +172,7 @@ private struct StillArtworkActiveMotion: ViewModifier {
 private struct SidebarAvatarArtwork {
     let key: String
     let source: String
+    let image: NSImage?
     let primaryColour: Color?
 }
 
@@ -196,6 +202,10 @@ struct SidebarAvatarPrimaryColour: Equatable, Sendable {
 }
 
 extension DiceBearAvatarStyle {
+    func usesWebAnimation(for motion: SidebarIconMotion) -> Bool {
+        motion == .animated && supportsAnimation
+    }
+
     func primaryColour(in svg: String) -> SidebarAvatarPrimaryColour? {
         guard usesArtworkPrimaryColour else { return nil }
         // These styles put their identity colour on the full-bleed background. Shapes
@@ -219,6 +229,7 @@ private enum SidebarAvatarArt {
         let artwork = SidebarAvatarArtwork(
             key: key,
             source: source,
+            image: NSImage(contentsOf: url),
             primaryColour: style.primaryColour(in: source)?.colour)
         cache[key] = artwork
         return artwork
@@ -263,45 +274,112 @@ enum DiceBearAvatarDocument {
     }
 }
 
-private struct DiceBearAvatarImage: NSViewRepresentable {
+private struct AnimatedDiceBearAvatarImage: NSViewRepresentable {
     let key: String
     let source: String
-    let motion: SidebarIconMotion
 
-    func makeCoordinator() -> Coordinator { Coordinator() }
-
-    func makeNSView(context: Context) -> WKWebView {
+    func makeNSView(context: Context) -> AnimatedAvatarWebView {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = false
 
-        let webView = WKWebView(frame: .zero, configuration: configuration)
+        let webView = AnimatedAvatarWebView(frame: .zero, configuration: configuration)
         webView.underPageBackgroundColor = .clear
         webView.allowsMagnification = false
         webView.setAccessibilityElement(false)
         return webView
     }
 
-    func updateNSView(_ webView: WKWebView, context: Context) {
-        let configuration = Configuration(key: key, motion: motion)
-        guard context.coordinator.loadedConfiguration != configuration else { return }
-        context.coordinator.loadedConfiguration = configuration
+    func updateNSView(_ webView: AnimatedAvatarWebView, context: Context) {
+        webView.configure(key: key, source: source)
+    }
 
-        webView.loadHTMLString(
-            DiceBearAvatarDocument.html(source: source, motion: motion),
+    static func dismantleNSView(_ webView: AnimatedAvatarWebView, coordinator: ()) {
+        webView.stop()
+    }
+}
+
+@MainActor
+private final class AnimatedAvatarWebView: WKWebView {
+    private var artworkKey: String?
+    private var source: String?
+    private var animationRunning: Bool?
+
+    override init(frame: CGRect, configuration: WKWebViewConfiguration) {
+        super.init(frame: frame, configuration: configuration)
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        observeVisibility()
+        refreshAnimation()
+    }
+
+    func configure(key: String, source: String) {
+        guard artworkKey != key else { return }
+        artworkKey = key
+        self.source = source
+        animationRunning = nil
+        refreshAnimation()
+    }
+
+    func stop() {
+        removeVisibilityObservations()
+        stopLoading()
+    }
+
+    private func observeVisibility() {
+        removeVisibilityObservations()
+        let notifications = NotificationCenter.default
+        if let window {
+            notifications.addObserver(
+                self,
+                selector: #selector(visibilityChanged),
+                name: NSWindow.didChangeOcclusionStateNotification,
+                object: window)
+            notifications.addObserver(
+                self,
+                selector: #selector(visibilityChanged),
+                name: NSWindow.didMiniaturizeNotification,
+                object: window)
+            notifications.addObserver(
+                self,
+                selector: #selector(visibilityChanged),
+                name: NSWindow.didDeminiaturizeNotification,
+                object: window)
+        }
+        for name in [NSApplication.didHideNotification, NSApplication.didUnhideNotification] {
+            notifications.addObserver(
+                self,
+                selector: #selector(visibilityChanged),
+                name: name,
+                object: NSApp)
+        }
+    }
+
+    private func removeVisibilityObservations() {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    @objc private func visibilityChanged() {
+        refreshAnimation()
+    }
+
+    private func refreshAnimation() {
+        guard let source, let window else { return }
+        let shouldRun = window.occlusionState.contains(.visible)
+            && !window.isMiniaturized
+            && !NSApp.isHidden
+        guard animationRunning != shouldRun else { return }
+        animationRunning = shouldRun
+        loadHTMLString(
+            DiceBearAvatarDocument.html(
+                source: source,
+                motion: shouldRun ? .animated : .still),
             baseURL: nil)
     }
 
-    static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {
-        webView.stopLoading()
-    }
-
-    struct Configuration: Equatable {
-        let key: String
-        let motion: SidebarIconMotion
-    }
-
-    final class Coordinator {
-        var loadedConfiguration: Configuration?
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 }

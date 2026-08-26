@@ -44,5 +44,8 @@ struct SessionFactsTests {
     @Test func lightsTheFuseAboveEightyPercent() {
         #expect(!ContextHairline.showsFuse(at: 0.8))
         #expect(ContextHairline.showsFuse(at: 0.801))
+        #expect(ContextHairline.animatesFuse(at: 0.801, whileActive: true))
+        #expect(!ContextHairline.animatesFuse(at: 0.801, whileActive: false))
+        #expect(!ContextHairline.animatesFuse(at: 0.8, whileActive: true))
     }
 }

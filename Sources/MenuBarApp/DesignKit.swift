@@ -58,8 +58,8 @@ enum SessionTone {
     var ringWidth: CGFloat { self == .idle ? 1 : 1.3 }
 }
 
-// The state light beside the state word. Only a running session pulses: a light that
-// breathes says work is happening without the row having to animate anything else.
+// The state light beside the state word. The avatar already carries motion while a
+// session runs, so this stays still and gives the renderer no second animation to drive.
 struct StateLight: View {
     let tone: SessionTone
     var size: CGFloat = 6
@@ -68,12 +68,11 @@ struct StateLight: View {
         Circle()
             .fill(tone.colour)
             .frame(width: size, height: size)
-            .modifier(PulseModifier(active: tone == .running))
     }
 }
 
-// A green dot that breathes on its own, for the places that mark "something is running"
-// without naming which session.
+// A green dot for the places that mark "something is running" without naming which
+// session. The active avatar is the single moving status indicator.
 struct RunningDot: View {
     var size: CGFloat = 6
 
@@ -81,25 +80,6 @@ struct RunningDot: View {
         Circle()
             .fill(Theme.dotOn)
             .frame(width: size, height: size)
-            .modifier(PulseModifier(active: true))
-    }
-}
-
-private struct PulseModifier: ViewModifier {
-    let active: Bool
-
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var dim = false
-
-    func body(content: Content) -> some View {
-        content
-            .opacity(dim ? 0.35 : 1)
-            .animation(active && !reduceMotion
-                       ? .easeInOut(duration: 0.8).repeatForever(autoreverses: true)
-                       : nil,
-                       value: dim)
-            .onAppear { dim = active }
-            .onChange(of: active) { _, running in dim = running }
     }
 }
 

@@ -484,8 +484,9 @@ struct SessionView: View {
         let repository = store.workingDirectories(for: session).first
             .flatMap { gitStats.snapshot(at: $0) }
         let facts = facts(session, repository: repository)
+        let tone = SessionTone(sessionID, store: store, runner: runner)
         return HStack(spacing: 14) {
-            state(session)
+            state(session, tone: tone)
             diffStats(session)
             Spacer(minLength: 12)
             SessionFactsChip(facts: facts,
@@ -500,7 +501,7 @@ struct SessionView: View {
         .statusBand(padding: 20)
         .overlay(alignment: .bottom) {
             if let fraction = facts.context {
-                ContextHairline(fraction: fraction)
+                ContextHairline(fraction: fraction, animated: tone == .running)
             }
         }
     }
@@ -525,8 +526,7 @@ struct SessionView: View {
     // last activity, which is what makes it the age of the work in flight. A waiting one
     // counts from where the work stopped, so the number is the length of the wait rather
     // than of the turn that is still holding it.
-    private func state(_ session: ChatSession) -> some View {
-        let tone = SessionTone(sessionID, store: store, runner: runner)
+    private func state(_ session: ChatSession, tone: SessionTone) -> some View {
         let since: Date? = switch tone {
         case .running: runner.turnStarted(sessionID)
         case .waiting: runner.waitingSince(sessionID) ?? session.lastActivity

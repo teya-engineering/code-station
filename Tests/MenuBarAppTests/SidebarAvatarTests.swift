@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 @testable import MenuBarApp
@@ -74,6 +75,17 @@ struct SidebarAvatarTests {
                 #expect(svg.contains("@keyframes") == style.supportsAnimation)
                 #expect(svg.contains("prefers-reduced-motion") == style.supportsAnimation)
             }
+        }
+    }
+
+    @Test func usesWebKitOnlyForActiveAnimatedArtwork() throws {
+        #expect(DiceBearAvatarStyle.squircles.usesWebAnimation(for: .animated))
+        #expect(!DiceBearAvatarStyle.squircles.usesWebAnimation(for: .still))
+        #expect(!DiceBearAvatarStyle.stripes.usesWebAnimation(for: .animated))
+
+        for style in DiceBearAvatarStyle.allCases {
+            let url = try #require(SidebarAvatar.artworkURL(style: style, index: 1))
+            #expect(NSImage(contentsOf: url) != nil)
         }
     }
 

@@ -156,7 +156,7 @@ struct SessionShortcutChips: View {
 // MARK: - One chip
 
 // A saved command as one small control: click runs it, click again stops it. It carries
-// its name and a single glyph for how the last run went - a tick, a pulse, an exclamation
+// its name and a single glyph for how the last run went - a dot, a tick, an exclamation
 // - because a row of these shares a line with everything else the session has to say, and
 // anything more makes that line unreadable. The timing and the output are in the drawer,
 // which opens on its own the moment a run starts.
@@ -208,12 +208,9 @@ private struct ShortcutChip: View {
         case .stopped:
             EmptyView()
         case .running:
-            // A run has no other reading on the chip, so the dot has to be the thing
-            // that says it is still going rather than already done.
             Circle()
                 .fill(Theme.dotOn)
                 .frame(width: 6, height: 6)
-                .modifier(Pulse(active: !reduceMotion))
         case .finished:
             Image(systemName: "checkmark")
                 .font(.system(size: 8, weight: .bold))
@@ -249,21 +246,6 @@ private struct ShortcutChip: View {
 
     private var emphasisColour: Color {
         state.isFailure ? Theme.deletion : Theme.accent
-    }
-}
-
-// The one moving thing on the row, and only while a command is actually running.
-private struct Pulse: ViewModifier {
-    let active: Bool
-    @State private var faded = false
-
-    func body(content: Content) -> some View {
-        content
-            .opacity(active && faded ? 0.35 : 1)
-            .animation(active ? .easeInOut(duration: 0.7).repeatForever(autoreverses: true)
-                              : nil,
-                       value: faded)
-            .onAppear { if active { faded = true } }
     }
 }
 
