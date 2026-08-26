@@ -136,6 +136,7 @@ struct TroubleshootView: View {
     @Environment(DialogPresenter.self) private var dialogs
 
     let skills: SkillsManager
+    let initialWorkspaceID: UUID?
 
     @State private var problem = ""
     @State private var attachments: [Attachment] = []
@@ -153,6 +154,13 @@ struct TroubleshootView: View {
     @FocusState private var problemFocused: Bool
 
     private var selectedAgent: AgentKind { agent ?? runner.agent }
+
+    init(skills: SkillsManager, initialProjectIDs: [UUID] = [],
+         initialWorkspaceID: UUID? = nil) {
+        self.skills = skills
+        self.initialWorkspaceID = initialWorkspaceID
+        _selectedProjects = State(initialValue: Set(initialProjectIDs))
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -681,7 +689,10 @@ struct TroubleshootView: View {
     }
 
     private var diagnosisDestinationText: String {
-        switch selectedProjects.count {
+        if let selectedWorkspace {
+            return "The diagnosis opens as a session in \(selectedWorkspace.name)."
+        }
+        return switch selectedProjects.count {
         case 0:
             "Select a project for the diagnosis."
         case 1:
@@ -807,6 +818,10 @@ struct TroubleshootView: View {
                 actions: [.init(label: "OK", kind: .cancel)]))
             return
         }
+        if let selectedWorkspace {
+            startDiagnosis(in: selectedWorkspace)
+            return
+        }
         guard let project = Self.projectSessionTarget(projects) else {
             showingNewWorkspace = true
             return
@@ -816,6 +831,17 @@ struct TroubleshootView: View {
 
     static func projectSessionTarget(_ projects: [Project]) -> Project? {
         projects.count == 1 ? projects[0] : nil
+    }
+
+    static func workspaceSessionTarget(_ workspace: ProjectWorkspace?,
+                                       selectedProjectIDs: Set<UUID>) -> ProjectWorkspace? {
+        guard let workspace, Set(workspace.projectIDs) == selectedProjectIDs else { return nil }
+        return workspace
+    }
+
+    private var selectedWorkspace: ProjectWorkspace? {
+        let workspace = initialWorkspaceID.flatMap(store.workspace)
+        return Self.workspaceSessionTarget(workspace, selectedProjectIDs: selectedProjects)
     }
 
     private func startDiagnosis(in project: Project) {

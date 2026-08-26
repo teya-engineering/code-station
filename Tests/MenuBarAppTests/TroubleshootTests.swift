@@ -268,6 +268,21 @@ struct TroubleshootProjectTests {
         #expect(TroubleshootView.projectSessionTarget([first, second]) == nil)
     }
 
+    @Test func matchingProjectsReuseTheExistingWorkspace() {
+        let firstID = UUID()
+        let secondID = UUID()
+        let workspace = ProjectWorkspace(name: "Payments",
+                                         projectIDs: [firstID, secondID],
+                                         leadProjectID: firstID)
+
+        #expect(TroubleshootView.workspaceSessionTarget(
+            workspace, selectedProjectIDs: [firstID, secondID]) == workspace)
+        #expect(TroubleshootView.workspaceSessionTarget(
+            workspace, selectedProjectIDs: [firstID]) == nil)
+        #expect(TroubleshootView.workspaceSessionTarget(
+            nil, selectedProjectIDs: [firstID, secondID]) == nil)
+    }
+
     @Test func multiProjectDiagnosisStartsInANewWorkspace() throws {
         let storeURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("code-station-troubleshoot-tests-\(UUID().uuidString).json")

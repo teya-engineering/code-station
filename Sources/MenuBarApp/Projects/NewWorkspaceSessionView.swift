@@ -14,13 +14,15 @@ struct NewWorkspaceSessionView: View {
     @Environment(ProjectStore.self) private var store
     @Environment(SessionRunner.self) private var runner
     @Environment(AppSettings.self) private var appSettings
+    @Environment(SkillsManager.self) private var skills
 
     @State private var sessionID = UUID()
     @State private var projectIDs: [UUID]
     @State private var worktrees: Set<UUID>
     @State private var selectedAgent: AgentKind?
     @State private var selectedAvatarName = AgentAvatarSelection.defaultName
-    @State private var designMode = false
+    @State private var sessionType: NewSessionType = .code
+    @State private var showingTroubleshoot = false
     // One report per repository, arriving in two passes: what the local refs already
     // say, then the same read again after a fetch, so the cards are honest immediately
     // and accurate a moment later.
@@ -50,6 +52,16 @@ struct NewWorkspaceSessionView: View {
     }
 
     var body: some View {
+        if showingTroubleshoot {
+            TroubleshootView(skills: skills,
+                             initialProjectIDs: projectIDs,
+                             initialWorkspaceID: workspace.id)
+        } else {
+            sessionSetup
+        }
+    }
+
+    private var sessionSetup: some View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("New session in \(workspace.name)")
@@ -92,9 +104,8 @@ struct NewWorkspaceSessionView: View {
                         .appMenu { attachMenu }
                     }
 
-                    if appSettings.designEnabled {
-                        DesignModeOption(isEnabled: $designMode)
-                    }
+                    NewSessionTypeOption(selection: $sessionType,
+                                         designEnabled: appSettings.designEnabled)
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 20)
@@ -251,7 +262,11 @@ struct NewWorkspaceSessionView: View {
         VStack(spacing: 0) {
             Divider().overlay(Theme.hairline)
             HStack(alignment: .top, spacing: 12) {
-                if pulling {
+                if sessionType == .troubleshoot {
+                    Text("Troubleshoot uses the project folders and opens diagnosis setup next.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                } else if pulling {
                     ProgressView().controlSize(.small)
                     Text("Updating checkouts from origin…")
                         .font(.system(size: 12))
@@ -280,14 +295,16 @@ struct NewWorkspaceSessionView: View {
                 .buttonStyle(.plain)
                 .keyboardShortcut(.cancelAction)
 
-                SessionBotPicker(avatars: appSettings.agentAvatars,
-                                 selectedName: $selectedAvatarName,
-                                 sessionID: sessionID)
+                if sessionType != .troubleshoot {
+                    SessionBotPicker(avatars: appSettings.agentAvatars,
+                                     selectedName: $selectedAvatarName,
+                                     sessionID: sessionID)
+                }
 
                 VStack(alignment: .trailing, spacing: 3) {
                     HStack(spacing: 0) {
                         Button(action: create) {
-                            Text("Create session")
+                            Text(sessionType == .troubleshoot ? "Continue" : "Create session")
                                 .font(.system(size: 13, weight: .semibold))
                                 .padding(.horizontal, 18)
                                 .frame(height: 32)
@@ -297,7 +314,7 @@ struct NewWorkspaceSessionView: View {
                         .keyboardShortcut(.defaultAction)
                         .disabled(!canCreate)
 
-                        if runner.availableAgents.count > 1 {
+                        if sessionType != .troubleshoot, runner.availableAgents.count > 1 {
                             Rectangle()
                                 .fill(.white.opacity(0.35))
                                 .frame(width: 1, height: 16)
@@ -315,9 +332,12 @@ struct NewWorkspaceSessionView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 8))
                     .opacity(canCreate ? 1 : 0.45)
 
-                    Text(agentNote)
+                    Text(sessionType == .troubleshoot
+                         ? "Add the problem and evidence next."
+                         : agentNote)
                         .font(.system(size: 10.5))
-                        .foregroundStyle(chosenAgent == nil ? Theme.deletion : .secondary)
+                        .foregroundStyle(sessionType != .troubleshoot && chosenAgent == nil
+                                         ? Theme.deletion : .secondary)
                 }
             }
             .padding(.horizontal, 20)
@@ -367,7 +387,8 @@ struct NewWorkspaceSessionView: View {
     }
 
     private var canCreate: Bool {
-        projectIDs.count >= 2 && !busy && chosenAgent != nil
+        if sessionType == .troubleshoot { return !projectIDs.isEmpty }
+        return projectIDs.count >= 2 && !busy && chosenAgent != nil
     }
 
     private var agentNote: String {
@@ -383,6 +404,10 @@ struct NewWorkspaceSessionView: View {
     // from the latest commits, and quietly starting from stale ones instead would betray
     // that - so the sheet stays for another try or a cancel.
     private func create() {
+        guard sessionType != .troubleshoot else {
+            showingTroubleshoot = true
+            return
+        }
         let updates = projectIDs.compactMap { id -> (project: Project, branch: String)? in
             guard startPoints[id] == .updateCheckout, let report = freshness[id],
                   report.canUpdateCheckout, let branch = report.defaultBranch,
@@ -438,7 +463,7 @@ struct NewWorkspaceSessionView: View {
                                         agent: agent,
                                         model: runner.defaults(for: agent).model,
                                         agentAvatarName: selectedAvatarName,
-                                        mode: designMode ? .design : .chat))
+                                        mode: sessionType.sessionMode))
         dismiss()
     }
 

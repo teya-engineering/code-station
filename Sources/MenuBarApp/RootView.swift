@@ -82,6 +82,7 @@ struct RootView: View {
                 .opacity(0)
                 .keyboardShortcut("=", modifiers: .command)
         )
+        .environment(skills)
         .environment(\.textScale, settings.textSize.scale)
         .appOverlays()
         // A sheet is a window of its own, so the layer under it cannot draw over it; each
