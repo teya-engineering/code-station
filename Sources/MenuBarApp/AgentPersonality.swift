@@ -28,6 +28,10 @@ enum AgentPersonality: String, CaseIterable, Codable, Sendable {
         }
     }
 
+    // What the preview puts in this bot's mouth. The first working word is a line it
+    // really says while it works, so the sample is never invented.
+    var sampleLine: String { (workingWords.first ?? title) + "\u{2026}" }
+
     var workingWords: [String] {
         switch self {
         case .standard:

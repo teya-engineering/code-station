@@ -54,6 +54,18 @@ struct WorkingWordsTests {
         }
     }
 
+    // The bot preview in Appearance shows a line in the chosen bot's voice. It is drawn
+    // from the phrases that bot really uses, so no personality is left speaking as another.
+    @Test func everyPersonalityHasItsOwnSampleLine() {
+        var seen = Set<String>()
+        for personality in AgentPersonality.allCases {
+            let sample = personality.sampleLine
+            #expect(sample.hasSuffix("\u{2026}"))
+            #expect(personality.workingWords.contains(String(sample.dropLast())))
+            #expect(seen.insert(sample).inserted)
+        }
+    }
+
     @Test func personalitiesDoNotShareWorkingPhrases() {
         let phraseSets = AgentPersonality.allCases.map { Set($0.workingWords) }
 

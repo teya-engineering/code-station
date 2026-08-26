@@ -96,6 +96,9 @@ struct SidebarIdentityTile: View {
     let tint: Theme.ProjectTint
     var dashed = false
     var stacked = false
+    // The rail draws these at one size; a preview of the icon style borrows the same tile
+    // at whatever size the preview has room for.
+    var side: CGFloat = 26
 
     var body: some View {
         switch appSettings.sidebarIconSet {
@@ -106,14 +109,14 @@ struct SidebarIdentityTile: View {
                 avatar: avatar,
                 style: appSettings.diceBearAvatarStyle,
                 motion: appSettings.sidebarIconMotion,
-                side: 26) {
+                side: side) {
                     fallback
                 }
         }
     }
 
     private var fallback: some View {
-        ProjectTileView(name: name, tint: tint, dashed: dashed, stacked: stacked)
+        ProjectTileView(name: name, tint: tint, side: side, dashed: dashed, stacked: stacked)
     }
 }
 

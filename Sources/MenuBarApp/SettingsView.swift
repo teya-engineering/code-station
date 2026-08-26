@@ -513,8 +513,7 @@ struct SettingsView: View {
         case .appearance:
             VStack(alignment: .leading, spacing: 20) {
                 appearance.id(SettingsSearchTarget.appearanceTheme.id)
-                sidebarIcons.id(SettingsSearchTarget.appearanceSidebarIcons.id)
-                botImage.id(SettingsSearchTarget.appearanceDefaultBot.id)
+                personalisation
             }
             .transition(.fadeIn)
         case .agents:
@@ -701,74 +700,131 @@ struct SettingsView: View {
         }
     }
 
+    // Sidebar icons and the default bot each carry a preview and two small controls, which
+    // leaves a full-width row half empty between the copy and the controls. Paired as
+    // half-width cards, each one ends where its own controls end.
+    private var personalisation: some View {
+        ChoiceBlock("PERSONALISATION") {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .top, spacing: 12) {
+                    sidebarIcons.id(SettingsSearchTarget.appearanceSidebarIcons.id)
+                    botImage.id(SettingsSearchTarget.appearanceDefaultBot.id)
+                }
+                // Taking the ideal height makes both cards as tall as the taller one, so
+                // the two control stacks sit on one line however tall the previews are.
+                .fixedSize(horizontal: false, vertical: true)
+
+                // The note belongs to both cards, so it runs the full width under them
+                // rather than making the bot card the taller of the pair.
+                SettingsCard {
+                    Text(botImageDescription)
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 11)
+                }
+            }
+        }
+    }
+
+    // The shape both cards of the pair wear: copy and preview at the top, controls held
+    // against the bottom edge.
+    private func personalisationCard<Head: View, Controls: View>(
+        @ViewBuilder head: () -> Head,
+        @ViewBuilder controls: () -> Controls) -> some View {
+        SettingsCard {
+            VStack(alignment: .leading, spacing: 11) {
+                VStack(alignment: .leading, spacing: 11) { head() }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                VStack(alignment: .leading, spacing: 7) { controls() }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 13)
+        }
+    }
+
+    // A sample gets a sunken panel of its own instead of floating beside the copy, so it
+    // reads as a sample of the setting rather than as an icon decorating the label. Paired
+    // cards stand as tall as the taller one, and the panel takes the height that leaves
+    // over, so the shorter card never ends in a blank strip.
+    private func previewPanel<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        content()
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 10).fill(Theme.sunken))
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.settingsHairline))
+    }
+
+    // One control behind its own small label. The fixed gutter keeps the controls in a
+    // card aligned with each other whatever their labels say.
+    private func controlRow<Content: View>(_ label: String,
+                                           @ViewBuilder content: () -> Content) -> some View {
+        HStack(spacing: 9) {
+            Text(label)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 44, alignment: .leading)
+            content()
+        }
+        // A shared row height puts the two cards' control stacks on the same lines, not
+        // just on the same bottom edge.
+        .frame(minHeight: 32)
+    }
+
     private var sidebarIcons: some View {
-        ChoiceBlock("SIDEBAR ICONS") {
-            SettingsCard {
-                HStack(alignment: .center, spacing: 20) {
-                    settingCopy(
-                        title: "Sidebar icons",
-                        detail: "Give projects a distinct, recognisable look.")
-                        .frame(width: 160, alignment: .leading)
+        personalisationCard {
+            settingCopy(
+                title: "Sidebar icons",
+                detail: "Give projects a distinct, recognisable look.")
 
-                    HStack(spacing: 12) {
-                        sidebarIconPreview
-                            .frame(width: 44, height: 44)
+            previewPanel { sidebarIconPreview }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Sidebar icon preview")
+                .accessibilityValue(sidebarIconStyleLabel)
+        } controls: {
+            controlRow("Style") {
+                HStack(spacing: 8) {
+                    Text(sidebarIconStyleLabel)
+                        .font(.system(size: 12, weight: .semibold))
+                        // A long style name shortens instead of widening the card.
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.system(size: 8, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 10)
+                .frame(maxWidth: .infinity, minHeight: 34)
+                .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
+                .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
+                .contentShape(Rectangle())
+                .appMenu(matchWidth: true) {
+                    sidebarIconStyleMenu
+                }
+                .accessibilityLabel("Sidebar icon style: \(sidebarIconStyleLabel)")
+            }
 
-                        VStack(alignment: .leading, spacing: 7) {
-                            HStack(spacing: 9) {
-                                Text("Style")
-                                    .font(.system(size: 11, weight: .semibold))
-                                    .foregroundStyle(.secondary)
-                                    .frame(width: 44, alignment: .leading)
-
-                                HStack(spacing: 8) {
-                                    Text(sidebarIconStyleLabel)
-                                        .font(.system(size: 12, weight: .semibold))
-                                    Spacer(minLength: 0)
-                                    Image(systemName: "chevron.up.chevron.down")
-                                        .font(.system(size: 8, weight: .semibold))
-                                        .foregroundStyle(.secondary)
-                                }
-                                .padding(.horizontal, 10)
-                                .frame(maxWidth: .infinity, minHeight: 34)
-                                .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
-                                .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
-                                .contentShape(Rectangle())
-                                .appMenu(matchWidth: true) {
-                                    sidebarIconStyleMenu
-                                }
-                                .accessibilityLabel("Sidebar icon style: \(sidebarIconStyleLabel)")
-                            }
-
-                            HStack(spacing: 9) {
-                                Text("Motion")
-                                    .font(.system(size: 11, weight: .semibold))
-                                    .foregroundStyle(.secondary)
-                                    .frame(width: 44, alignment: .leading)
-
-                                HStack(spacing: 4) {
-                                    ForEach(SidebarIconMotion.allCases) { motion in
-                                        let supportsMotion = settings.sidebarIconSet == .diceBear
-                                            && settings.diceBearAvatarStyle.supportsAnimation
-                                        let enabled = motion == .still || supportsMotion
-                                        ChoicePill(title: motion.label,
-                                                   selected: settings.sidebarIconMotion == motion) {
-                                            settings.sidebarIconMotion = motion
-                                        }
-                                        .frame(maxWidth: .infinity)
-                                        .disabled(!enabled)
-                                        .opacity(enabled ? 1 : 0.4)
-                                        .accessibilityLabel("Sidebar icon motion: \(motion.label)")
-                                        .accessibilityValue(
-                                            settings.sidebarIconMotion == motion
-                                                ? "Selected" : "Not selected")
-                                    }
-                                }
-                            }
+            controlRow("Motion") {
+                HStack(spacing: 4) {
+                    ForEach(SidebarIconMotion.allCases) { motion in
+                        let supportsMotion = settings.sidebarIconSet == .diceBear
+                            && settings.diceBearAvatarStyle.supportsAnimation
+                        let enabled = motion == .still || supportsMotion
+                        ChoicePill(title: motion.label,
+                                   selected: settings.sidebarIconMotion == motion) {
+                            settings.sidebarIconMotion = motion
                         }
+                        .frame(maxWidth: .infinity)
+                        .disabled(!enabled)
+                        .opacity(enabled ? 1 : 0.4)
+                        .accessibilityLabel("Sidebar icon motion: \(motion.label)")
+                        .accessibilityValue(
+                            settings.sidebarIconMotion == motion
+                                ? "Selected" : "Not selected")
                     }
                 }
-                .padding(14)
             }
         }
     }
@@ -798,25 +854,63 @@ struct SettingsView: View {
         return entries
     }
 
+    // A miniature of the sidebar, drawn with the tile the rail itself uses, so a style is
+    // judged in the place it will be seen instead of on one floating icon.
     @ViewBuilder private var sidebarIconPreview: some View {
-        switch settings.sidebarIconSet {
-        case .monograms:
-            ProjectTileView(
-                name: "Project",
-                tint: Theme.projectTint(for: "Project"),
-                side: 42)
-        case .diceBear:
-            DiceBearAvatarView(
-                avatar: .preview,
-                style: settings.diceBearAvatarStyle,
-                motion: settings.sidebarIconMotion,
-                side: 42) {
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Theme.field)
-                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.border))
+        let projects = sidebarIconPreviewProjects
+        VStack(spacing: 2) {
+            ForEach(Array(projects.enumerated()), id: \.element.id) { index, project in
+                HStack(spacing: 9) {
+                    SidebarIdentityTile(
+                        avatar: SidebarAvatar(subject: .project, id: project.id),
+                        name: project.name,
+                        tint: Theme.projectTint(for: project.name),
+                        side: 22)
+
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(project.name)
+                            .font(.system(size: 11.5, weight: .semibold))
+                            .lineLimit(1)
+                        Text(project.collapsedPath)
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 4)
+                .background {
+                    // The lead row wears the selected treatment, the way one project is
+                    // always the open one in the rail.
+                    if index == 0 {
+                        RoundedRectangle(cornerRadius: 8).fill(Theme.card)
+                    }
+                }
             }
         }
+        .padding(8)
     }
+
+    // The user's own projects, so the preview shows the icons they will actually get. The
+    // sample stands in only while there is nothing of their own to draw.
+    private var sidebarIconPreviewProjects: [Project] {
+        let projects = Array(store.regularProjects.prefix(4))
+        return projects.isEmpty ? Self.sampleProjects : projects
+    }
+
+    private static let sampleProjects = [
+        Project(id: UUID(uuidString: "5A3B0000-0000-4000-8000-000000000001")!,
+                name: "code-station", path: "~/Developer/code-station"),
+        Project(id: UUID(uuidString: "5A3B0000-0000-4000-8000-000000000002")!,
+                name: "saltdata", path: "~/Developer/saltdata"),
+        Project(id: UUID(uuidString: "5A3B0000-0000-4000-8000-000000000003")!,
+                name: "edge-gateway", path: "~/Developer/edge-gateway"),
+        Project(id: UUID(uuidString: "5A3B0000-0000-4000-8000-000000000004")!,
+                name: "teya-mobile", path: "~/Developer/teya-mobile"),
+    ]
 
     // MARK: - Terminal
 
@@ -965,58 +1059,60 @@ struct SettingsView: View {
     }
 
     private var botImage: some View {
-        ChoiceBlock("DEFAULT BOT") {
-            SettingsCard {
-                HStack(alignment: .center, spacing: 20) {
-                    settingCopy(
-                        title: "Default bot",
-                        detail: "Used when a new session begins.")
-                        .frame(width: 160, alignment: .leading)
+        personalisationCard {
+            settingCopy(
+                title: "Default bot",
+                detail: "Used when a new session begins.")
 
-                    HStack(spacing: 10) {
-                        AgentAvatarView(image: defaultBot.displayImage(for: nil), size: 42)
-                        defaultBotPicker
-
-                        if settings.agentAvatars.count < AgentAvatarFile.maxCount {
-                            Button(action: startBotDraft) {
-                                Text("Add bot…")
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .padding(.horizontal, 13)
-                                    .frame(height: 30)
-                                    .background(RoundedRectangle(cornerRadius: 8).fill(Theme.field))
-                                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
-                                    .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
+            previewPanel {
+                HStack(spacing: 11) {
+                    AgentAvatarView(image: defaultBot.displayImage(for: nil), size: 38)
+                    Text(defaultBot.personality.sampleLine)
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .background(botPreviewBubble.fill(Theme.card))
+                        .overlay(botPreviewBubble.stroke(Theme.border))
+                    Spacer(minLength: 0)
                 }
-                .padding(14)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Default bot preview")
+            .accessibilityValue("\(defaultBotTitle): \(defaultBot.personality.sampleLine)")
+        } controls: {
+            controlRow("Bot") { defaultBotPicker }
 
-                if !settings.agentAvatars.isEmpty {
-                    SettingsRowDivider()
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 10) {
-                            ForEach(settings.agentAvatars) { avatar in
-                                botImageThumbnail(avatar)
-                            }
-                        }
-                        .padding(.top, 4)
-                        .padding(.trailing, 4)
+            controlRow("Bots") {
+                HStack(spacing: 8) {
+                    ForEach(botRoster) { avatar in
+                        botRosterChip(avatar)
                     }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
+                    if settings.agentAvatars.count < AgentAvatarFile.maxCount {
+                        addBotSlot
+                    }
+                    Spacer(minLength: 0)
                 }
-
-                SettingsRowDivider()
-                Text(botImageDescription)
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 11)
             }
         }
+    }
+
+    // The corner nearest the avatar is squared off, so the bubble points at the bot doing
+    // the talking.
+    private var botPreviewBubble: UnevenRoundedRectangle {
+        UnevenRoundedRectangle(topLeadingRadius: 11,
+                               bottomLeadingRadius: 4,
+                               bottomTrailingRadius: 11,
+                               topTrailingRadius: 11)
+    }
+
+    // The built-in bot leads the roster: it is a choice like the others, and without it
+    // there would be no chip to ring while it is the default.
+    private var botRoster: [AgentAvatar] {
+        [AgentAvatarSelection.avatar(named: nil, from: [])] + settings.agentAvatars
     }
 
     private var botImageDescription: String {
@@ -1042,6 +1138,9 @@ struct SettingsView: View {
         HStack(spacing: 7) {
             Text(defaultBotTitle)
                 .font(.system(size: 12, weight: .semibold))
+                // A long bot name shortens instead of widening the card.
+                .lineLimit(1)
+                .truncationMode(.tail)
             Spacer(minLength: 0)
             Image(systemName: "chevron.up.chevron.down")
                 .font(.system(size: 8, weight: .semibold))
@@ -1091,39 +1190,64 @@ struct SettingsView: View {
         return entries
     }
 
-    private func botImageThumbnail(_ avatar: AgentAvatar) -> some View {
-        VStack(spacing: 5) {
-            AgentAvatarView(image: avatar.displayImage(for: nil), size: 40)
-            HStack(spacing: 4) {
-                Text(avatar.personality.title)
-                    .font(.system(size: 10, weight: .medium))
-                    .lineLimit(1)
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 7, weight: .bold))
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 7)
-            .frame(height: 20)
-            .background(RoundedRectangle(cornerRadius: 6).fill(Theme.field))
-            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.border))
-            .contentShape(Rectangle())
-            .accessibilityLabel("Personality: \(avatar.personality.title)")
-            .accessibilityAddTraits(.isButton)
-            .appMenu(matchWidth: true) { personalityMenu(for: avatar) }
+    // Clicking a chip makes that bot the default, so the roster and the dropdown are one
+    // selection. What is left - the bot's personality, removing it - hangs off the chip's
+    // own menu, which keeps the narrower card down to two control rows.
+    @ViewBuilder private func botRosterChip(_ avatar: AgentAvatar) -> some View {
+        let selected = avatar.id == defaultBot.id
+        let name = avatar.url.lastPathComponent
+        let chip = Button {
+            settings.setDefaultAgentAvatarName(name)
+        } label: {
+            AgentAvatarView(image: avatar.displayImage(for: nil), size: 26)
+                .padding(3)
+                .overlay {
+                    if selected {
+                        Circle().stroke(Theme.accent, lineWidth: 2)
+                    }
+                }
+                .contentShape(Circle())
         }
-        .overlay(alignment: .topTrailing) {
-            Button { removeBotImage(avatar) } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 8, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 16, height: 16)
-                    .background(Circle().fill(Theme.deletion))
-                    .contentShape(Circle())
-            }
-            .buttonStyle(.plain)
-            .offset(x: 4, y: -4)
-            .accessibilityLabel("Remove bot")
+        .buttonStyle(.plain)
+        .accessibilityLabel("Default bot: \(avatar.personality.title)")
+        .accessibilityValue(selected ? "Selected" : "Not selected")
+
+        // The built-in bot is not the user's to rename or remove, so it carries no menu.
+        if name == AgentAvatarSelection.defaultName {
+            chip.appTooltip(avatar.personality.title)
+        } else {
+            chip
+                .appTooltip("\(avatar.personality.title) - right-click to change or remove")
+                .appContextMenu { botChipMenu(for: avatar) }
         }
+    }
+
+    private func botChipMenu(for avatar: AgentAvatar) -> [MenuEntry] {
+        personalityMenu(for: avatar) + [
+            .separator,
+            .item("Remove bot", kind: .destructive, icon: "trash") {
+                removeBotImage(avatar)
+            }
+        ]
+    }
+
+    // The empty slot at the end of the roster is where a new bot goes, so adding one costs
+    // the card no control of its own.
+    private var addBotSlot: some View {
+        Button(action: startBotDraft) {
+            Image(systemName: "plus")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 28, height: 28)
+                .background {
+                    Circle().stroke(Theme.settingsBorder,
+                                    style: StrokeStyle(lineWidth: 1, dash: [3, 2.5]))
+                }
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .appTooltip("Add bot")
+        .accessibilityLabel("Add bot")
     }
 
     private func personalityMenu(for avatar: AgentAvatar) -> [MenuEntry] {
