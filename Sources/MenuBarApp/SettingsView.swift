@@ -666,31 +666,16 @@ struct SettingsView: View {
         }
     }
 
-    // Sidebar icons and the default bot each carry a preview and compact controls. Paired
-    // as half-width cards, each one ends where its own controls end.
+    // Sidebar icons and the default bot each carry a preview and compact controls.
     private var personalisation: some View {
         ChoiceBlock("PERSONALISATION") {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(alignment: .top, spacing: 12) {
-                    sidebarIcons.id(SettingsSearchTarget.appearanceSidebarIcons.id)
-                    botImage.id(SettingsSearchTarget.appearanceDefaultBot.id)
-                }
-                // Taking the ideal height makes both cards as tall as the taller one, so
-                // the two control stacks sit on one line however tall the previews are.
-                .fixedSize(horizontal: false, vertical: true)
-
-                // The note belongs to both cards, so it runs the full width under them
-                // rather than making the bot card the taller of the pair.
-                SettingsCard {
-                    Text(botImageDescription)
-                        .font(.system(size: 11.5))
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 11)
-                }
+            HStack(alignment: .top, spacing: 12) {
+                sidebarIcons.id(SettingsSearchTarget.appearanceSidebarIcons.id)
+                botImage.id(SettingsSearchTarget.appearanceDefaultBot.id)
             }
+            // Taking the ideal height makes both cards as tall as the taller one, so
+            // the two control stacks sit on one line however tall the previews are.
+            .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -1058,15 +1043,6 @@ struct SettingsView: View {
     // there would be no chip to ring while it is the default.
     private var botRoster: [AgentAvatar] {
         [AgentAvatarSelection.avatar(named: nil, from: [])] + settings.agentAvatars
-    }
-
-    private var botImageDescription: String {
-        let count = settings.agentAvatars.count
-        guard count > 0 else {
-            return "The built-in Default bot is used for new sessions. Add up to \(AgentAvatarFile.maxCount) custom bots with their own personality and optional photo."
-        }
-        let maximum = count == AgentAvatarFile.maxCount ? ", the maximum" : ""
-        return "\(count) custom bot\(count == 1 ? "" : "s") configured\(maximum). Choose the default for new sessions or use the built-in Default bot."
     }
 
     private var defaultBot: AgentAvatar {
