@@ -171,6 +171,14 @@ final class AppSettings {
         }
     }
 
+    func resetAppearance() {
+        appearance = .system
+        textSize = .standard
+        sidebarIconMotion = .still
+        diceBearAvatarStyle = .waves
+        sidebarIconSet = .diceBear
+    }
+
     func completeOnboarding() {
         hasCompletedOnboarding = true
         Preferences.setHasCompletedOnboarding(true, in: preferences)
@@ -264,21 +272,31 @@ struct SettingsView: View {
 
     @State private var reviewingOldSessions = false
     @State private var showingLog = false
-    @State private var tab = SettingsTab.general
+    @State private var tab = SettingsTab.appearance
     @State private var botDraft = BotDraft()
 
     var body: some View {
         VStack(spacing: 0) {
             header
-            tabs
-            ScrollView {
-                tabContent.padding(20)
+            HStack(spacing: 0) {
+                navigation
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        paneHeading
+                        tabContent
+                    }
+                    .padding(24)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .transition(.fadeIn)
+                }
+                .scrollIndicators(.visible)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Theme.background)
+                .id(tab)
             }
-            .frame(maxHeight: 560)
-            SheetFooter { dismiss() }
+            settingsFooter
         }
-        .smoothlyResizes(when: tab)
-        .frame(width: 520)
+        .frame(width: 960, height: 680)
         .background(Theme.background)
         .onAppear { loginItem.refresh() }
         .sheet(isPresented: $reviewingOldSessions) { OldSessionsView().appOverlays() }
@@ -286,14 +304,125 @@ struct SettingsView: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text("Settings").font(.serif(16))
-            tabNote
-                .font(.system(size: 12))
+        HStack(spacing: 10) {
+            AppMark()
+                .frame(width: 32, height: 32)
+                .accessibilityHidden(true)
+            Text("Settings")
+                .font(.serif(18))
+            Spacer(minLength: 0)
+            Text("Teya Code Station")
+                .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.secondary)
         }
         .padding(.horizontal, 20)
         .headerBand()
+    }
+
+    private var navigation: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("PREFERENCES")
+                .font(.system(size: 10, weight: .semibold))
+                .kerning(0.9)
+                .foregroundStyle(.tertiary)
+                .padding(.horizontal, 12)
+                .padding(.bottom, 10)
+
+            VStack(spacing: 4) {
+                ForEach(SettingsTab.allCases, id: \.self) { choice in
+                    SettingsNavigationItem(
+                        title: choice.title,
+                        symbol: choice.symbol,
+                        selected: tab == choice) {
+                            tab = choice
+                        }
+                }
+            }
+
+            Spacer(minLength: 16)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Applied instantly")
+                    .font(.system(size: 11, weight: .semibold))
+                Text("Your choices are saved as you make them.")
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card.opacity(0.62)))
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
+        }
+        .padding(14)
+        .frame(width: 190)
+        .frame(maxHeight: .infinity, alignment: .topLeading)
+        .background(Theme.sidebar)
+        .overlay(alignment: .trailing) {
+            Rectangle()
+                .fill(Theme.hairline)
+                .frame(width: 1)
+        }
+    }
+
+    private var paneHeading: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(tab.title)
+                .font(.serif(26))
+            Text(tab.note)
+                .font(.system(size: 12.5))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var settingsFooter: some View {
+        VStack(spacing: 0) {
+            Divider().overlay(Theme.hairline)
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(Theme.dotOn)
+                    .frame(width: 7, height: 7)
+                    .background(Circle()
+                        .fill(Theme.dotOn.opacity(0.12))
+                        .frame(width: 13, height: 13))
+                    .accessibilityHidden(true)
+                Text("Changes save automatically")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(.secondary)
+
+                Spacer(minLength: 0)
+
+                if tab == .appearance {
+                    Button(action: settings.resetAppearance) {
+                        Text("Reset Appearance")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(Theme.accent)
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 6)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                Button { dismiss() } label: {
+                    Text("Done")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 7)
+                        .background(RoundedRectangle(cornerRadius: 8)
+                            .fill(Color.black.opacity(0.88)))
+                        .contentShape(RoundedRectangle(cornerRadius: 8))
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut(.cancelAction)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+            .background(Theme.card)
+        }
     }
 
     @ViewBuilder private var tabContent: some View {
@@ -309,11 +438,14 @@ struct SettingsView: View {
             }
             .transition(.fadeIn)
         case .appearance:
-            VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: 12) {
                 appearance
                 textSize
-                sidebarIcons
-                botImage
+                HStack(alignment: .top, spacing: 14) {
+                    sidebarIcons
+                    botImage
+                        .frame(width: 250)
+                }
             }
             .transition(.fadeIn)
         case .agents:
@@ -373,32 +505,6 @@ struct SettingsView: View {
             .background(RoundedRectangle(cornerRadius: 9).fill(Theme.card))
             .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
         }
-    }
-
-    @ViewBuilder private var tabNote: some View {
-        switch tab {
-        case .general:
-            Text(SettingsTab.general.note).transition(.fadeIn)
-        case .appearance:
-            Text(SettingsTab.appearance.note).transition(.fadeIn)
-        case .agents:
-            Text(SettingsTab.agents.note).transition(.fadeIn)
-        case .advanced:
-            Text(SettingsTab.advanced.note).transition(.fadeIn)
-        case .experimental:
-            Text(SettingsTab.experimental.note).transition(.fadeIn)
-        }
-    }
-
-    private var tabs: some View {
-        HStack(spacing: 4) {
-            ForEach(SettingsTab.allCases, id: \.self) { choice in
-                ChoicePill(title: choice.title, selected: tab == choice) { tab = choice }
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 20)
-        .headerBand(height: Theme.subHeaderHeight)
     }
 
     // The threshold decides what gets offered up for review, and, if the sweep below is
@@ -503,88 +609,110 @@ struct SettingsView: View {
     }
 
     private var appearance: some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Appearance")
-                    .font(.system(size: 13, weight: .semibold))
-                Text("Follow the system or pin the app to light or dark.")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 0)
-            HStack(spacing: 4) {
-                ForEach(Appearance.allCases) { appearance in
-                    ChoicePill(title: appearance.label,
-                               selected: settings.appearance == appearance) {
-                        settings.appearance = appearance
+        HStack(alignment: .center, spacing: 20) {
+            settingCopy(
+                title: "Theme",
+                detail: "Follow macOS or keep the app in one appearance.")
+                .frame(width: 170, alignment: .leading)
+
+            HStack(spacing: 9) {
+                ForEach(Appearance.allCases) { choice in
+                    SettingsThemeChoice(
+                        appearance: choice,
+                        selected: settings.appearance == choice) {
+                            settings.appearance = choice
                     }
+                    .frame(maxWidth: .infinity)
                 }
             }
-            .fixedSize()
         }
+        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .settingsCard()
     }
 
     private var textSize: some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Text size")
-                    .font(.system(size: 13, weight: .semibold))
-                Text("How large a session reads: the transcript, tool output, diffs and the terminal. Cmd+ and Cmd- change it from anywhere.")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 0)
-            HStack(spacing: 4) {
-                ForEach(TextSize.allCases) { size in
-                    ChoicePill(title: size.label, selected: settings.textSize == size) {
-                        settings.textSize = size
+        HStack(alignment: .center, spacing: 20) {
+            settingCopy(
+                title: "Session text",
+                detail: "Changes transcripts, diffs, tool output, and terminals.")
+                .frame(width: 170, alignment: .leading)
+
+            VStack(alignment: .leading, spacing: 9) {
+                HStack(spacing: 4) {
+                    ForEach(TextSize.allCases) { size in
+                        ChoicePill(title: size.label, selected: settings.textSize == size) {
+                            settings.textSize = size
+                        }
+                        .frame(maxWidth: .infinity)
+                        .accessibilityLabel("Session text size: \(size.label)")
+                        .accessibilityValue(settings.textSize == size ? "Selected" : "Not selected")
                     }
                 }
+
+                HStack(alignment: .firstTextBaseline, spacing: 7) {
+                    Text("Assistant")
+                        .font(.system(
+                            size: 10.5 * settings.textSize.scale,
+                            weight: .semibold))
+                        .foregroundStyle(.primary)
+                    Text("Updated")
+                        .font(.system(size: 10.5 * settings.textSize.scale))
+                        .foregroundStyle(.secondary)
+                    Text("SettingsView.swift")
+                        .font(.mono(10.5 * settings.textSize.scale, .medium))
+                        .foregroundStyle(Theme.accent)
+                        .lineLimit(1)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Text size preview: Assistant updated SettingsView.swift")
             }
-            .fixedSize()
         }
+        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .settingsCard()
     }
 
     private var sidebarIcons: some View {
-        ChoiceBlock(
-            "SIDEBAR ICONS",
-            note: "DiceBear avatars are bundled with the app and stay offline. Monogram and Stripes are available as still styles only."
-        ) {
-            HStack(spacing: 12) {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 10) {
+                settingCopy(
+                    title: "Sidebar icons",
+                    detail: "Give projects a distinct, recognisable look.")
+
+                Spacer(minLength: 0)
+
+                HStack(spacing: 5) {
+                    Image(systemName: "lock")
+                        .font(.system(size: 10, weight: .semibold))
+                    Text("Works offline")
+                        .font(.system(size: 10, weight: .semibold))
+                }
+                .foregroundStyle(Theme.accent)
+                .accessibilityElement(children: .combine)
+            }
+
+            HStack(spacing: 14) {
                 sidebarIconPreview
+                    .frame(width: 72, height: 72)
 
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack {
-                        Text("Motion")
-                            .font(.system(size: 12, weight: .semibold))
-                        Spacer(minLength: 0)
-                        HStack(spacing: 4) {
-                            ForEach(availableSidebarIconMotions) { motion in
-                                ChoicePill(title: motion.label,
-                                           selected: settings.sidebarIconMotion == motion) {
-                                    settings.sidebarIconMotion = motion
-                                }
-                            }
-                        }
-                    }
-
-                    HStack {
+                VStack(alignment: .leading, spacing: 9) {
+                    HStack(spacing: 9) {
                         Text("Style")
-                            .font(.system(size: 12, weight: .semibold))
-                        Spacer(minLength: 0)
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 44, alignment: .leading)
+
                         HStack(spacing: 8) {
                             Text(sidebarIconStyleLabel)
                                 .font(.system(size: 12, weight: .semibold))
+                            Spacer(minLength: 0)
                             Image(systemName: "chevron.up.chevron.down")
                                 .font(.system(size: 8, weight: .semibold))
                                 .foregroundStyle(.secondary)
                         }
                         .padding(.horizontal, 10)
-                        .frame(height: 34)
+                        .frame(maxWidth: .infinity, minHeight: 34)
                         .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
                         .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
                         .contentShape(Rectangle())
@@ -593,13 +721,33 @@ struct SettingsView: View {
                         }
                         .accessibilityLabel("Sidebar icon style: \(sidebarIconStyleLabel)")
                     }
+
+                    HStack(spacing: 9) {
+                        Text("Motion")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 44, alignment: .leading)
+
+                        HStack(spacing: 4) {
+                            ForEach(availableSidebarIconMotions) { motion in
+                                ChoicePill(title: motion.label,
+                                           selected: settings.sidebarIconMotion == motion) {
+                                    settings.sidebarIconMotion = motion
+                                }
+                                .frame(maxWidth: .infinity)
+                                .accessibilityLabel("Sidebar icon motion: \(motion.label)")
+                                .accessibilityValue(
+                                    settings.sidebarIconMotion == motion
+                                        ? "Selected" : "Not selected")
+                            }
+                        }
+                    }
                 }
             }
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 9).fill(Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
         }
+        .padding(16)
+        .frame(maxWidth: .infinity, minHeight: 180, alignment: .topLeading)
+        .settingsCard()
     }
 
     private var availableSidebarIconMotions: [SidebarIconMotion] {
@@ -637,16 +785,16 @@ struct SettingsView: View {
             ProjectTileView(
                 name: "Project",
                 tint: Theme.projectTint(for: "Project"),
-                side: 48)
+                side: 62)
         case .diceBear:
             DiceBearAvatarView(
                 avatar: .preview,
                 style: settings.diceBearAvatarStyle,
                 motion: settings.sidebarIconMotion,
-                side: 48) {
-                RoundedRectangle(cornerRadius: 13)
+                side: 62) {
+                RoundedRectangle(cornerRadius: 17)
                     .fill(Theme.field)
-                    .overlay(RoundedRectangle(cornerRadius: 13).stroke(Theme.border))
+                    .overlay(RoundedRectangle(cornerRadius: 17).stroke(Theme.border))
             }
         }
     }
@@ -804,40 +952,46 @@ struct SettingsView: View {
     }
 
     private var botImage: some View {
-        ChoiceBlock("BOTS") {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(alignment: .center, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Bots")
-                            .font(.system(size: 13, weight: .semibold))
-                        Text(botImageDescription)
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
+        VStack(alignment: .leading, spacing: 11) {
+            settingCopy(
+                title: "Default bot",
+                detail: "Used when a new session begins.")
 
-                    Spacer(minLength: 0)
-
-                    HStack(spacing: 10) {
-                        defaultBotPicker
-
-                        if settings.agentAvatars.count < AgentAvatarFile.maxCount {
-                            Button(action: startBotDraft) {
-                                Text("Add bot…")
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .padding(.horizontal, 12)
-                                    .frame(height: 34)
-                                    .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
-                                    .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
-                                    .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    .fixedSize()
+            HStack(spacing: 10) {
+                AgentAvatarView(image: defaultBot.displayImage(for: nil), size: 42)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(defaultBotTitle)
+                        .font(.system(size: 12, weight: .semibold))
+                    Text(defaultBot.personality.detail)
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
                 }
+                Spacer(minLength: 0)
+            }
 
-                if !settings.agentAvatars.isEmpty {
+            defaultBotPicker
+
+            if settings.agentAvatars.count < AgentAvatarFile.maxCount {
+                Button(action: startBotDraft) {
+                    Text("Add bot…")
+                        .font(.system(size: 12, weight: .semibold))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 34)
+                        .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
+                        .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+
+            if !settings.agentAvatars.isEmpty {
+                VStack(alignment: .leading, spacing: 7) {
+                    Text(botImageDescription)
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 10) {
                             ForEach(settings.agentAvatars) { avatar in
@@ -849,11 +1003,10 @@ struct SettingsView: View {
                     }
                 }
             }
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 9).fill(Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
         }
+        .padding(16)
+        .frame(maxWidth: .infinity, minHeight: 180, alignment: .topLeading)
+        .settingsCard()
     }
 
     private var botImageDescription: String {
@@ -878,19 +1031,31 @@ struct SettingsView: View {
     private var defaultBotPicker: some View {
         HStack(spacing: 7) {
             AgentAvatarView(image: defaultBot.displayImage(for: nil), size: 18)
-            Text("Default: \(defaultBotTitle)")
+            Text(defaultBotTitle)
                 .font(.system(size: 12, weight: .semibold))
+            Spacer(minLength: 0)
             Image(systemName: "chevron.up.chevron.down")
                 .font(.system(size: 8, weight: .semibold))
                 .foregroundStyle(.secondary)
         }
         .padding(.horizontal, 10)
-        .frame(height: 34)
+        .frame(maxWidth: .infinity, minHeight: 34)
         .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
         .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
         .contentShape(Rectangle())
         .appMenu(matchWidth: true) { defaultBotMenu }
         .accessibilityLabel("Default bot: \(defaultBotTitle)")
+    }
+
+    private func settingCopy(title: String, detail: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title)
+                .font(.system(size: 13, weight: .semibold))
+            Text(detail)
+                .font(.system(size: 11.5))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     private var defaultBotMenu: [MenuEntry] {
@@ -1072,6 +1237,146 @@ struct SettingsView: View {
     }
 }
 
+private extension View {
+    func settingsCard() -> some View {
+        background(RoundedRectangle(cornerRadius: 14).fill(Theme.card))
+            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Theme.border))
+    }
+}
+
+private struct SettingsNavigationItem: View {
+    let title: String
+    let symbol: String
+    let selected: Bool
+    let action: () -> Void
+
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: symbol)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(selected ? Theme.accent : Color.secondary)
+                    .frame(width: 20)
+                Text(title)
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(selected ? Color.primary : Color.secondary)
+                Spacer(minLength: 0)
+                Circle()
+                    .fill(selected ? Theme.accent : .clear)
+                    .frame(width: 6, height: 6)
+            }
+            .padding(.horizontal, 10)
+            .frame(maxWidth: .infinity, minHeight: 42)
+            .background(RoundedRectangle(cornerRadius: 10)
+                .fill(selected ? Theme.card : .clear))
+            .overlay(RoundedRectangle(cornerRadius: 10)
+                .stroke(focused ? Theme.accent : selected ? Theme.border : .clear,
+                        lineWidth: focused ? 2 : 1))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .focused($focused)
+        .accessibilityLabel(title)
+        .accessibilityValue(selected ? "Selected" : "Not selected")
+    }
+}
+
+private struct SettingsThemeChoice: View {
+    let appearance: Appearance
+    let selected: Bool
+    let action: () -> Void
+
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 0) {
+                SettingsThemePreview(appearance: appearance)
+                    .frame(height: 52)
+                    .accessibilityHidden(true)
+
+                HStack(spacing: 6) {
+                    Text(appearance.label)
+                        .font(.system(size: 11, weight: .semibold))
+                    Spacer(minLength: 0)
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(Theme.accent)
+                        .opacity(selected ? 1 : 0)
+                }
+                .padding(.horizontal, 9)
+                .frame(height: 30)
+                .background(Theme.field)
+            }
+            .frame(maxWidth: .infinity)
+            .background(Theme.card)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: 10)
+                .stroke(focused || selected ? Theme.accent : Theme.border,
+                        lineWidth: focused ? 2 : 1))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .focused($focused)
+        .accessibilityLabel("\(appearance.label) theme")
+        .accessibilityValue(selected ? "Selected" : "Not selected")
+    }
+}
+
+private struct SettingsThemePreview: View {
+    let appearance: Appearance
+
+    var body: some View {
+        switch appearance {
+        case .system:
+            HStack(spacing: 0) {
+                preview(dark: false)
+                preview(dark: true)
+            }
+        case .light:
+            preview(dark: false)
+        case .dark:
+            preview(dark: true)
+        }
+    }
+
+    private func preview(dark: Bool) -> some View {
+        ZStack {
+            (dark ? Color(red: 0.082, green: 0.082, blue: 0.067)
+                  : Color(red: 0.969, green: 0.957, blue: 0.918))
+
+            HStack(spacing: 5) {
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(dark
+                          ? Color(red: 0.18, green: 0.18, blue: 0.16)
+                          : Color(red: 0.91, green: 0.90, blue: 0.85))
+                    .frame(width: 18)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(dark ? Color.white.opacity(0.15) : Color.black.opacity(0.12))
+                        .frame(maxWidth: .infinity, minHeight: 7)
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(dark
+                              ? Color(red: 0.58, green: 0.76, blue: 0.60).opacity(0.55)
+                              : Theme.accentFill.opacity(0.32))
+                        .frame(maxWidth: .infinity, minHeight: 7)
+                }
+            }
+            .padding(7)
+            .background(RoundedRectangle(cornerRadius: 5)
+                .fill(dark
+                      ? Color(red: 0.125, green: 0.122, blue: 0.114)
+                      : Color(red: 1, green: 0.992, blue: 0.965)))
+            .overlay(RoundedRectangle(cornerRadius: 5)
+                .stroke(dark ? Color.white.opacity(0.1) : Color.black.opacity(0.1)))
+            .padding(7)
+        }
+    }
+}
+
 // The bot being put together in the add dialog. It is a reference type so the dialog's
 // own buttons can read the choices made in its content while it stays open.
 @MainActor
@@ -1214,10 +1519,20 @@ enum SettingsTab: CaseIterable {
         }
     }
 
+    var symbol: String {
+        switch self {
+        case .general: "slider.horizontal.3"
+        case .appearance: "paintpalette"
+        case .agents: "cpu"
+        case .advanced: "gearshape"
+        case .experimental: "flask"
+        }
+    }
+
     var note: String {
         switch self {
         case .general: "Settings for Teya Code Station."
-        case .appearance: "Choose how Teya Code Station looks and feels."
+        case .appearance: "Make Code Station comfortable to read and easy to recognise at a glance."
         case .agents: "Choose an agent and set how it runs."
         case .advanced: "Manage shared configuration and other advanced settings."
         case .experimental: "Try features that are still in development."
