@@ -66,7 +66,17 @@ struct SidebarAvatarTests {
         #expect(still.contains("<body><svg"))
         #expect(still.contains("* { animation: none !important; }"))
         #expect(animated.contains("<body><svg"))
-        #expect(animated.contains("--dbwa-t: 0.75 !important;"))
+        for timing in [
+            "--dbsq-t: 0.3 !important;",
+            "--dbpa-t: 0.2 !important;",
+            "--dbsh-t: 0.25 !important;",
+            "--dbba-t: 0.3 !important;",
+            "--dbwa-t: 0.25 !important;",
+            "--dbsp-t: 0.55 !important;",
+            "--dbla-t: 0.2 !important;",
+        ] {
+            #expect(animated.contains(timing))
+        }
         #expect(!still.contains("data:image/svg+xml"))
         #expect(!animated.contains("data:image/svg+xml"))
     }

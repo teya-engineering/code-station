@@ -16,5 +16,5 @@ License details: https://creativecommons.org/publicdomain/zero/1.0/
 
 The sidebar-avatar-*.svg files use seeds code-station-sidebar-<style>-01 through
 code-station-sidebar-<style>-64. Animated styles include the medium animation variant,
-which the app displays with DiceBear's fastest timing. The app bundles these files and
-makes no runtime network requests to DiceBear.
+which the app speeds up by style so the motion stays visible at sidebar size. The app
+bundles these files and makes no runtime network requests to DiceBear.

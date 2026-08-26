@@ -186,13 +186,13 @@ enum DiceBearAvatarDocument {
         case .animated:
             """
             svg {
-              --dbsq-t: 0.75 !important;
-              --dbpa-t: 0.75 !important;
-              --dbsh-t: 0.75 !important;
-              --dbba-t: 0.75 !important;
-              --dbwa-t: 0.75 !important;
-              --dbsp-t: 0.75 !important;
-              --dbla-t: 0.75 !important;
+              --dbsq-t: 0.3 !important;
+              --dbpa-t: 0.2 !important;
+              --dbsh-t: 0.25 !important;
+              --dbba-t: 0.3 !important;
+              --dbwa-t: 0.25 !important;
+              --dbsp-t: 0.55 !important;
+              --dbla-t: 0.2 !important;
             }
             """
         }
