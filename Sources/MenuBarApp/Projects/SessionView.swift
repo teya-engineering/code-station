@@ -739,12 +739,27 @@ struct SessionView: View {
     // close on escape, and the shell in the drawer needs the key for whatever is
     // running in it.
     @ViewBuilder private var stopShortcut: some View {
-        let state = runner.state(sessionID)
+        let target = visibleConversationID
+        let state = runner.state(target)
         if state.isBusy, state != .stopping, dialogs.current == nil, !menus.isOpen,
            !terminalFocused {
-            Button("") { runner.stop(sessionID) }
+            Button("") { runner.stop(target) }
                 .keyboardShortcut(.escape, modifiers: [])
                 .opacity(0)
+        }
+    }
+
+    // The turn Escape stops. A Design conversation runs in a session of its own, so what
+    // is on screen is not always this session's own turn.
+    private var visibleConversationID: UUID {
+        guard let session = store.session(sessionID) else { return sessionID }
+        switch tab {
+        case .conversation where !session.isImplementingDesign:
+            return store.designConversation(for: sessionID)?.id ?? sessionID
+        case .design:
+            return store.designSession(for: sessionID)?.id ?? sessionID
+        default:
+            return sessionID
         }
     }
 
@@ -1062,7 +1077,7 @@ struct SessionView: View {
                         }
                         Spacer(minLength: 0)
                     }
-                    warningActions {
+                    trailingActions {
                         ActionButton(title: "Stop", tone: .outlined,
                                      height: 28, size: 11.5) {
                             runner.stop(sessionID)
@@ -1087,7 +1102,7 @@ struct SessionView: View {
                             .fixedSize(horizontal: false, vertical: true)
                         Spacer(minLength: 0)
                     }
-                    warningActions {
+                    trailingActions {
                         if runner.canContinueAfterFailure(sessionID, store: store) {
                             ActionButton(title: "Continue", height: 28, size: 11.5) {
                                 runner.continueAfterFailure(sessionID, store: store)
@@ -1102,13 +1117,25 @@ struct SessionView: View {
                 .warningCard()
             }
 
+            // Nothing went wrong, so a stop gets a button under its transcript note rather
+            // than a card of its own.
+            if runner.canContinueAfterStop(sessionID, store: store) {
+                trailingActions {
+                    ActionButton(title: "Continue", tone: .outlined,
+                                 height: 28, size: 11.5) {
+                        runner.continueAfterStop(sessionID, store: store)
+                    }
+                }
+                .transition(.fadeIn)
+            }
+
             Color.clear.frame(height: 1).id(bottomAnchor)
         }
     }
 
-    // The buttons under a warning card, pushed to the trailing edge the way every other
+    // The buttons at the end of the transcript, pushed to the trailing edge the way every
     // card in the transcript puts them.
-    private func warningActions(@ViewBuilder _ buttons: () -> some View) -> some View {
+    private func trailingActions(@ViewBuilder _ buttons: () -> some View) -> some View {
         HStack(spacing: 8) {
             Spacer(minLength: 0)
             buttons()

@@ -167,8 +167,13 @@ struct DesignView: View {
                                 .foregroundStyle(Theme.warningText)
                                 .textSelection(.enabled)
                                 .fixedSize(horizontal: false, vertical: true)
-                            HStack {
+                            HStack(spacing: 8) {
                                 Spacer(minLength: 0)
+                                if runner.canContinueAfterFailure(sessionID, store: store) {
+                                    ActionButton(title: "Continue", height: 27, size: 11) {
+                                        runner.continueAfterFailure(sessionID, store: store)
+                                    }
+                                }
                                 ActionButton(title: "Dismiss", tone: .outlined,
                                              height: 27, size: 11) {
                                     runner.dismissFailure(sessionID)
@@ -178,6 +183,18 @@ struct DesignView: View {
                         .padding(11)
                         .background(RoundedRectangle(cornerRadius: 9)
                             .fill(Theme.warningBackground))
+                    }
+
+                    // Nothing went wrong, so a stop gets a button under its transcript note
+                    // rather than a card of its own.
+                    if runner.canContinueAfterStop(sessionID, store: store) {
+                        HStack {
+                            Spacer(minLength: 0)
+                            ActionButton(title: "Continue", tone: .outlined,
+                                         height: 27, size: 11) {
+                                runner.continueAfterStop(sessionID, store: store)
+                            }
+                        }
                     }
 
                     Color.clear.frame(height: 1).id("design-transcript-bottom")

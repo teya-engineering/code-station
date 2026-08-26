@@ -593,6 +593,52 @@ struct CodexTests {
             .filter { $0.role == .user }.map(\.text) == [originalPrompt])
     }
 
+    // A stopped turn ends mid-work with nothing wrong, so the transcript has to say so
+    // itself: an idle session under a conversation that stops mid-command reads as a crash.
+    @MainActor @Test func aTurnStoppedByHandSaysSoAndCanBeCarriedOn() async throws {
+        let fixture = try codexFixture(script: """
+        input=$(cat)
+        count_file="$folder/count"
+        count=0
+        if [ -f "$count_file" ]; then count=$(cat "$count_file"); fi
+        count=$((count + 1))
+        printf '%s' "$count" > "$count_file"
+        printf '%s' "$input" > "$folder/prompt-$count.txt"
+        printf '%s\n' '{"type":"thread.started","thread_id":"thread-1"}'
+        if [ "$count" -eq 1 ]; then
+            printf '%s\n' '{"type":"item.started","item":{"id":"command-1","item_type":"command_execution","command":"sed -n 1,240p SKILL.md"}}'
+            wait_for "$folder/never"
+        fi
+        printf '%s\n' '{"type":"item.completed","item":{"id":"answer","item_type":"agent_message","text":"Finished"}}'
+        printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":2}}'
+        """)
+        defer { fixture.tearDown() }
+
+        fixture.runner.send("improve this menu", sessionID: fixture.session.id,
+                            store: fixture.store)
+        #expect(await waitUntil { fixture.runner.runningTool(fixture.session.id) != nil })
+
+        fixture.runner.stop(fixture.session.id)
+        #expect(await waitUntil { fixture.runner.state(fixture.session.id) == .idle })
+
+        let stopped = try #require(fixture.store.transcript(of: fixture.session.id).last)
+        #expect(stopped.role == .system)
+        #expect(stopped.text == "Stopped. The turn ended before it finished.")
+        #expect(fixture.runner.canContinueAfterStop(fixture.session.id, store: fixture.store))
+
+        #expect(fixture.runner.continueAfterStop(fixture.session.id, store: fixture.store))
+        #expect(await waitUntil { fixture.store.transcript(of: fixture.session.id).last?.text == "Finished" })
+
+        // The offer goes with the turn it belonged to, and the original prompt is not run
+        // a second time.
+        #expect(!fixture.runner.canContinueAfterStop(fixture.session.id, store: fixture.store))
+        let recoveryPrompt = try String(contentsOf: fixture.directory
+            .appendingPathComponent("prompt-2.txt"), encoding: .utf8)
+        #expect(recoveryPrompt == SessionRunner.recoveryPrompt)
+        #expect(fixture.store.transcript(of: fixture.session.id)
+            .filter { $0.role == .user }.map(\.text) == ["improve this menu"])
+    }
+
     @MainActor @Test func aSilentTurnCanBeRetriedWithoutReplayingItsPrompt() async throws {
         let fixture = try codexFixture(script: """
         input=$(cat)

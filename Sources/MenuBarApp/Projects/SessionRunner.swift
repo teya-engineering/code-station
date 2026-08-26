@@ -52,6 +52,10 @@ final class SessionRunner {
     private var removals: Set<UUID> = []
     // Terminal agent turns that still have a conversation id and can be continued.
     private var continuableFailures: Set<UUID> = []
+    // Turns ended by hand that still have a conversation id and can be picked up again.
+    // Nothing went wrong, so the work is left unfinished rather than failed, and the offer
+    // to carry on stands until the next prompt is sent.
+    private var stoppedTurns: Set<UUID> = []
     // The transcript note a running compaction is writing itself into, so its outcome
     // replaces it rather than piling a second line underneath.
     private var compactNotices: [UUID: UUID] = [:]
@@ -335,9 +339,7 @@ final class SessionRunner {
         return session.hasAgentConversation
     }
 
-    // A failed process is gone, but its conversation can still be resumed. Recovery goes
-    // through the normal queue so it gets the same ownership and process checks as a
-    // prompt typed by hand.
+    // A failed process is gone, but its conversation can still be resumed.
     func canContinueAfterFailure(_ sessionID: UUID, store: ProjectStore) -> Bool {
         guard continuableFailures.contains(sessionID), case .failed = state(sessionID),
               !removals.contains(sessionID),
@@ -348,18 +350,44 @@ final class SessionRunner {
     @discardableResult
     func continueAfterFailure(_ sessionID: UUID, store: ProjectStore) -> Bool {
         guard canContinueAfterFailure(sessionID, store: store) else { return false }
+        resume(sessionID, store: store,
+               note: "Continuing after the failed turn. The agent will inspect the current state before it resumes unfinished work.",
+               log: "continuing after failed turn")
+        return true
+    }
+
+    // A turn ended by hand stops wherever it had got to, which can be half way through a
+    // job worth finishing. The conversation is still there, so the work can be picked up
+    // on the same terms as a failed one.
+    func canContinueAfterStop(_ sessionID: UUID, store: ProjectStore) -> Bool {
+        guard stoppedTurns.contains(sessionID), !state(sessionID).isBusy,
+              !removals.contains(sessionID),
+              let session = store.session(sessionID) else { return false }
+        return session.hasAgentConversation
+    }
+
+    @discardableResult
+    func continueAfterStop(_ sessionID: UUID, store: ProjectStore) -> Bool {
+        guard canContinueAfterStop(sessionID, store: store) else { return false }
+        resume(sessionID, store: store,
+               note: "Continuing after the stopped turn. The agent will inspect the current state before it resumes unfinished work.",
+               log: "continuing after stopped turn")
+        return true
+    }
+
+    // Recovery goes through the normal queue so it gets the same ownership and process
+    // checks as a prompt typed by hand. The note says in the transcript why a turn nobody
+    // typed is about to run.
+    private func resume(_ sessionID: UUID, store: ProjectStore, note: String, log: String) {
         continuableFailures.remove(sessionID)
-        store.append(
-            ChatMessage(role: .system,
-                        text: "Continuing after the failed turn. The agent will inspect the current state before it resumes unfinished work."),
-            to: sessionID)
+        stoppedTurns.remove(sessionID)
+        store.append(ChatMessage(role: .system, text: note), to: sessionID)
         queues[sessionID, default: []].insert(
             QueuedPrompt(text: Self.recoveryPrompt, attachments: [], customInstructions: nil,
                          isAppCommand: true),
             at: 0)
-        SessionLog.note("continuing after failed turn", session: sessionID)
+        SessionLog.note(log, session: sessionID)
         runQueue(sessionID, store: store)
-        return true
     }
 
     // A retry stops the unresponsive process first, then resumes its saved conversation
@@ -603,6 +631,7 @@ final class SessionRunner {
               let next = queues[sessionID]?.first,
               let session = store.session(sessionID) else { return }
         continuableFailures.remove(sessionID)
+        stoppedTurns.remove(sessionID)
 
         // Two agents sharing any direct project folder would edit the same files under
         // each other. Workspace sessions therefore conflict when any root overlaps.
@@ -912,6 +941,19 @@ final class SessionRunner {
         compactNotices[sessionID] = nil
         nudgeDismissals.remove(sessionID)
         continuableFailures.remove(sessionID)
+        stoppedTurns.remove(sessionID)
+    }
+
+    // A stop kills the process wherever it had got to, so the transcript ends mid-sentence
+    // or mid-command with nothing to say why. Left unmarked that reads as a crash, and the
+    // session sitting idle underneath it reads as a broken one.
+    private func noteStop(_ sessionID: UUID, store: ProjectStore) {
+        store.append(
+            ChatMessage(role: .system, text: "Stopped. The turn ended before it finished."),
+            to: sessionID)
+        if store.session(sessionID)?.hasAgentConversation == true {
+            stoppedTurns.insert(sessionID)
+        }
     }
 
     private func requestStop(_ sessionID: UUID, failure: String? = nil) {
@@ -1772,16 +1814,9 @@ final class SessionRunner {
             if turn.restartAfterStop, turn.stopFailure == nil {
                 setState(.idle, for: sessionID)
                 store.release(sessionID, for: .running)
-                store.append(
-                    ChatMessage(role: .system,
-                                text: "Retrying the stalled turn. The agent will inspect the current state before it resumes unfinished work."),
-                    to: sessionID)
-                queues[sessionID, default: []].insert(
-                    QueuedPrompt(text: Self.recoveryPrompt, attachments: [],
-                                 customInstructions: nil, isAppCommand: true),
-                    at: 0)
-                SessionLog.note("resuming after stalled turn", session: sessionID)
-                runQueue(sessionID, store: store)
+                resume(sessionID, store: store,
+                       note: "Retrying the stalled turn. The agent will inspect the current state before it resumes unfinished work.",
+                       log: "resuming after stalled turn")
                 return
             }
             if let failure = turn.stopFailure {
@@ -1789,6 +1824,7 @@ final class SessionRunner {
                 store.noteTurnEnded(for: sessionID)
             } else {
                 setState(.idle, for: sessionID)
+                noteStop(sessionID, store: store)
             }
             store.release(sessionID, for: .running)
             resumeDesignWorkflowQueues(after: sessionID, store: store)
