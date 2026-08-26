@@ -27,8 +27,8 @@ struct SidebarFilter {
             && SidebarFilter.troubleshootLabel.localizedCaseInsensitiveContains(query)
     }
 
-    func matchingSessions(in sessions: [ChatSession]) -> [ChatSession] {
-        guard isActive else { return sessions }
+    func sessions(from sessions: [ChatSession], revealingAll: Bool = false) -> [ChatSession] {
+        guard isActive, !revealingAll else { return sessions }
         return sessions.filter(matches)
     }
 

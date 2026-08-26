@@ -31,6 +31,7 @@ struct AppSidebar: View {
     @State private var sessionToReveal: UUID?
     @State private var sessionVisibility = SidebarSessionVisibility()
     @State private var filterText = ""
+    @State private var revealedFilterContainerID: UUID?
     @State private var oldSessionSummary = OldSessionSummary()
     @State private var hoveringHome = false
     @FocusState private var filterFocused: Bool
@@ -245,6 +246,7 @@ struct AppSidebar: View {
         .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
         .padding(.horizontal, 14)
         .padding(.bottom, 10)
+        .onChange(of: filterText) { _, _ in revealedFilterContainerID = nil }
     }
 
     // The order and the grouping both decide the shape of the whole rail under them, so
@@ -518,8 +520,12 @@ struct AppSidebar: View {
             .contentShape(Rectangle())
             .onTapGesture {
                 store.selectWorkspace(workspace.id)
-                setExpanded(!expanded, for: workspace.id)
-                if expanded { sessionVisibility.reset(workspace.id) }
+                if isFiltering {
+                    revealedFilterContainerID = workspace.id
+                } else {
+                    setExpanded(!expanded, for: workspace.id)
+                    if expanded { sessionVisibility.reset(workspace.id) }
+                }
             }
             .appContextMenu {
                 [.item("Rename…") { renamingID = workspace.id },
@@ -640,10 +646,14 @@ struct AppSidebar: View {
             .contentShape(Rectangle())
             .onTapGesture {
                 store.selectProject(project.id)
-                setExpanded(!expanded, for: project.id)
-                // Closing a project puts its list away, and putting it away includes the
-                // tail the user had unfolded: the next open starts back at the cap.
-                if expanded { sessionVisibility.reset(project.id) }
+                if isFiltering {
+                    revealedFilterContainerID = project.id
+                } else {
+                    setExpanded(!expanded, for: project.id)
+                    // Closing a project puts its list away, and putting it away includes the
+                    // tail the user had unfolded: the next open starts back at the cap.
+                    if expanded { sessionVisibility.reset(project.id) }
+                }
             }
             .appContextMenu { headerMenu(project) }
 
@@ -795,15 +805,16 @@ struct AppSidebar: View {
 
     // A list stays capped at its chosen number of sessions unless the user unfolded it with
     // see-more, so a new session pushes the last visible one below the fold. A filtered
-    // list is drawn whole instead: it is already short, and a match left under see-more
-    // reads as the filter having missed it.
+    // list starts with just its matches, then shows the complete container after its row is
+    // clicked so the result can be explored without clearing the filter.
     private func visibleSessions(_ sessions: [ChatSession], in containerID: UUID) -> [ChatSession] {
         let filter = self.filter
         guard filter.isActive else {
             return sessionVisibility.visible(
                 sessions, in: containerID, limit: appSettings.sidebarSessionLimit)
         }
-        return filter.matchingSessions(in: sessions)
+        return filter.sessions(from: sessions,
+                               revealingAll: revealedFilterContainerID == containerID)
     }
 
     // Keyed on the cards that are drawn rather than the sessions that exist, so the

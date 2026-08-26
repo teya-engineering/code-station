@@ -45,14 +45,21 @@ struct SidebarFilterTests {
         let matching = session("fix orders timeout")
         let sessions = [session("update dependencies"), matching, session("write release notes")]
 
-        #expect(SidebarFilter("orders").matchingSessions(in: sessions).map(\.id)
+        #expect(SidebarFilter("orders").sessions(from: sessions).map(\.id)
                 == [matching.id])
     }
 
     @Test func aContainerNameMatchDoesNotKeepUnmatchedSessions() {
         let sessions = [session("update dependencies"), session("write release notes")]
 
-        #expect(SidebarFilter("orders").matchingSessions(in: sessions).isEmpty)
+        #expect(SidebarFilter("orders").sessions(from: sessions).isEmpty)
+    }
+
+    @Test func aClickedContainerRevealsAllItsSessions() {
+        let sessions = [session("update dependencies"), session("write release notes")]
+
+        #expect(SidebarFilter("orders").sessions(from: sessions, revealingAll: true)
+                .map(\.id) == sessions.map(\.id))
     }
 
     @Test func findsTroubleshootSessionsByTheirLabel() {
