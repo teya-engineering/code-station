@@ -40,7 +40,8 @@ struct AddServerView: View {
                 SectionLabel(text: "PRESET")
                 ActionButton(title: preset?.label ?? "Choose a preset",
                              tone: .sunken,
-                             disclosure: true)
+                             disclosure: true,
+                             fills: true)
                     .appMenu(matchWidth: true) {
                         presets.map { choice in
                             .item(choice.label,
