@@ -174,18 +174,27 @@ private struct ShortcutChip: View {
 
     var body: some View {
         Button(action: toggle) {
-            HStack(spacing: 6) {
-                if let tint { ProjectDot(tint: tint, size: 6) }
-                if shortcut.availableInAllProjects {
-                    Image(systemName: "globe")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(Theme.accent)
-                        .accessibilityLabel("Available in all projects")
+            ZStack {
+                HStack(spacing: 6) {
+                    if let tint { ProjectDot(tint: tint, size: 6) }
+                    if shortcut.availableInAllProjects {
+                        Image(systemName: "globe")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(Theme.accent)
+                            .accessibilityLabel("Available in all projects")
+                    }
+                    Text(shortcut.name)
+                        .font(.system(size: 12, weight: .semibold))
+                        .lineLimit(1)
+                    stateGlyph
                 }
-                Text(shortcut.name)
+                .opacity(offeringStop ? 0 : 1)
+
+                Text("Stop")
                     .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Theme.deletion)
                     .lineLimit(1)
-                stateGlyph
+                    .opacity(offeringStop ? 1 : 0)
             }
             .padding(.horizontal, 9)
             .frame(height: 22)
@@ -245,7 +254,12 @@ private struct ShortcutChip: View {
     }
 
     private var emphasisColour: Color {
-        state.isFailure ? Theme.deletion : Theme.accent
+        if offeringStop { return Theme.deletion }
+        return state.isFailure ? Theme.deletion : Theme.accent
+    }
+
+    private var offeringStop: Bool {
+        hovering && state.isActive
     }
 }
 
