@@ -625,34 +625,15 @@ struct SettingsView: View {
                 detail: "Changes transcripts, diffs, tool output, and terminals.")
                 .frame(width: 170, alignment: .leading)
 
-            VStack(alignment: .leading, spacing: 9) {
-                HStack(spacing: 4) {
-                    ForEach(TextSize.allCases) { size in
-                        ChoicePill(title: size.label, selected: settings.textSize == size) {
-                            settings.textSize = size
-                        }
-                        .frame(maxWidth: .infinity)
-                        .accessibilityLabel("Session text size: \(size.label)")
-                        .accessibilityValue(settings.textSize == size ? "Selected" : "Not selected")
+            HStack(spacing: 4) {
+                ForEach(TextSize.allCases) { size in
+                    ChoicePill(title: size.label, selected: settings.textSize == size) {
+                        settings.textSize = size
                     }
+                    .frame(maxWidth: .infinity)
+                    .accessibilityLabel("Session text size: \(size.label)")
+                    .accessibilityValue(settings.textSize == size ? "Selected" : "Not selected")
                 }
-
-                HStack(alignment: .firstTextBaseline, spacing: 7) {
-                    Text("Assistant")
-                        .font(.system(
-                            size: 10.5 * settings.textSize.scale,
-                            weight: .semibold))
-                        .foregroundStyle(.primary)
-                    Text("Updated")
-                        .font(.system(size: 10.5 * settings.textSize.scale))
-                        .foregroundStyle(.secondary)
-                    Text("SettingsView.swift")
-                        .font(.mono(10.5 * settings.textSize.scale, .medium))
-                        .foregroundStyle(Theme.accent)
-                        .lineLimit(1)
-                }
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel("Text size preview: Assistant updated SettingsView.swift")
             }
         }
         .padding(16)
