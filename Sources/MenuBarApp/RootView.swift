@@ -17,6 +17,7 @@ struct RootView: View {
     // replace it rather than stack, so which one is showing is a single choice.
     @State private var sheet: Sheet?
     @State private var sessionCleanupError: String?
+    @State private var oldSessionDeletionAt: Date?
     @State private var dismissedAttention: Attention?
 
     var body: some View {
@@ -24,6 +25,7 @@ struct RootView: View {
             HStack(spacing: 0) {
                 AppSidebar(skills: skills,
                            tools: tools,
+                           oldSessionDeletionAt: oldSessionDeletionAt,
                            onReviewOldSessions: { sheet = .oldSessions })
                 Divider().overlay(Theme.hairline)
                 detail
@@ -184,12 +186,17 @@ struct RootView: View {
     // clock, so this runs on a timer rather than off a change in the store.
     private func deleteOldSessionsAutomatically() async {
         let rule = sweepRule
+        oldSessionDeletionAt = nil
         guard rule.policy.deletesAutomatically else { return }
         var buffer = OldSessionSweep.EligibilityBuffer()
 
         while !Task.isCancelled {
+            let now = Date()
             await OldSessionSweep.run(days: rule.days, policy: rule.policy, store: store,
-                                      runner: runner, buffer: &buffer)
+                                      runner: runner, buffer: &buffer, now: now)
+            guard !Task.isCancelled else { return }
+            let nextSweepAt = Date().addingTimeInterval(OldSessionSweep.gracePeriod)
+            oldSessionDeletionAt = buffer.nextReadyAt.map { max($0, nextSweepAt) }
             do {
                 try await Task.sleep(for: OldSessionSweep.interval)
             } catch {

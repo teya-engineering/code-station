@@ -18,6 +18,12 @@ enum OldSessionSweep {
     struct EligibilityBuffer {
         private var firstSeenAt: [UUID: Date] = [:]
 
+        var nextReadyAt: Date? {
+            firstSeenAt.values
+                .map { $0.addingTimeInterval(OldSessionSweep.gracePeriod) }
+                .min()
+        }
+
         mutating func ready(_ sessions: [ChatSession], now: Date) -> [ChatSession] {
             let eligibleIDs = Set(sessions.map(\.id))
             firstSeenAt = firstSeenAt.filter { eligibleIDs.contains($0.key) }
@@ -30,6 +36,10 @@ enum OldSessionSweep {
                 guard let firstSeen = firstSeenAt[session.id] else { return false }
                 return now.timeIntervalSince(firstSeen) >= gracePeriod
             }
+        }
+
+        mutating func remove(_ sessionID: UUID) {
+            firstSeenAt[sessionID] = nil
         }
     }
 
@@ -91,6 +101,7 @@ enum OldSessionSweep {
             if case .failure(let failure) = result {
                 SessionLog.note("auto deletion failed reason=\(failure.title)", session: session.id)
             } else {
+                buffer.remove(session.id)
                 deleted += 1
                 SessionLog.note("auto deletion finished", session: session.id)
             }

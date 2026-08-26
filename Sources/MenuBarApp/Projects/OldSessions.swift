@@ -164,3 +164,17 @@ enum SessionAge {
         }
     }
 }
+
+// A clock face stays compact in the sidebar and makes the warning hour's remaining time
+// precise. Rounding up keeps it from showing zero before the sweep is actually due.
+enum OldSessionCountdown {
+    static func text(until deadline: Date, now: Date = Date()) -> String {
+        let totalSeconds = max(0, Int(ceil(deadline.timeIntervalSince(now))))
+        let hours = totalSeconds / 3_600
+        let minutes = totalSeconds % 3_600 / 60
+        let seconds = totalSeconds % 60
+        return hours > 0
+            ? String(format: "%d:%02d:%02d", hours, minutes, seconds)
+            : String(format: "%02d:%02d", minutes, seconds)
+    }
+}

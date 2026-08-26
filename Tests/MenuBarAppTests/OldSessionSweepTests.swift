@@ -67,12 +67,17 @@ struct OldSessionSweepTests {
         let old = session(daysAgo: 8)
         var buffer = OldSessionSweep.EligibilityBuffer()
 
+        #expect(buffer.nextReadyAt == nil)
         #expect(buffer.ready([old], now: now).isEmpty)
+        #expect(buffer.nextReadyAt == now.addingTimeInterval(OldSessionSweep.gracePeriod))
         #expect(buffer.ready(
             [old], now: now.addingTimeInterval(OldSessionSweep.gracePeriod - 1)).isEmpty)
         #expect(buffer.ready(
             [old], now: now.addingTimeInterval(OldSessionSweep.gracePeriod)).map(\.id)
                 == [old.id])
+
+        buffer.remove(old.id)
+        #expect(buffer.nextReadyAt == nil)
     }
 
     @Test func givesANewlyEligibleSessionAnHourWhileTheAppIsOpen() {

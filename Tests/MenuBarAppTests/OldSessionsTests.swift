@@ -78,6 +78,17 @@ struct OldSessionsTests {
         #expect(OldSessionCleanupPolicy.deleteAll.includesSavedWork)
     }
 
+    @Test func formatsTheAutomaticDeletionCountdown() {
+        #expect(OldSessionCountdown.text(
+            until: now.addingTimeInterval(3_600), now: now) == "1:00:00")
+        #expect(OldSessionCountdown.text(
+            until: now.addingTimeInterval(3_599), now: now) == "59:59")
+        #expect(OldSessionCountdown.text(
+            until: now.addingTimeInterval(65.1), now: now) == "01:06")
+        #expect(OldSessionCountdown.text(
+            until: now.addingTimeInterval(-1), now: now) == "00:00")
+    }
+
     @Test func saysHowLongAgoTheLastTurnWas() {
         #expect(SessionAge.phrase(since: now.addingTimeInterval(-3_600), now: now) == "today")
         #expect(SessionAge.phrase(since: now.addingTimeInterval(-86_400), now: now) == "yesterday")

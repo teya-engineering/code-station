@@ -6,6 +6,7 @@ import SwiftUI
 struct AppSidebar: View {
     let skills: SkillsManager
     let tools: ToolsMenuActions
+    let oldSessionDeletionAt: Date?
     let onReviewOldSessions: () -> Void
 
     @Environment(ProjectStore.self) private var store
@@ -41,6 +42,7 @@ struct AppSidebar: View {
     private struct OldSessionSummary: Equatable {
         var sessions = 0
         var losesWork = 0
+        var losesNothing = 0
     }
 
     private struct OldSessionRefreshRule: Equatable {
@@ -1117,8 +1119,8 @@ struct AppSidebar: View {
     }
 
     // Sessions pile up quietly, and the worktrees behind them take real disk. The strip
-    // says how much has gone stale and hands it to a screen that explains what clearing
-    // each one would cost; it never offers to do anything on its own.
+    // says how much has gone stale, shows when automatic cleanup runs, and hands it to a
+    // screen that explains what clearing each one would cost.
     private func oldSessionsStrip(_ summary: OldSessionSummary) -> some View {
         let losesWork = summary.losesWork > 0
         return HStack(spacing: 8) {
@@ -1136,9 +1138,31 @@ struct AppSidebar: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 8)
-            InlineLink(title: "Review",
-                       tint: losesWork ? Theme.attentionText : Theme.accent,
-                       action: onReviewOldSessions)
+            VStack(alignment: .trailing, spacing: 3) {
+                if let oldSessionDeletionAt,
+                   automaticallyDeletedCount(in: summary) > 0 {
+                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                        HStack(spacing: 4) {
+                            Image(systemName: "timer")
+                                .font(.system(size: 9, weight: .semibold))
+                            Text(OldSessionCountdown.text(
+                                until: oldSessionDeletionAt,
+                                now: context.date))
+                                .font(.mono(10, .semibold))
+                                .monospacedDigit()
+                        }
+                        .foregroundStyle(losesWork ? Theme.attentionText : Theme.accent)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel("Automatic deletion countdown")
+                        .accessibilityValue(OldSessionCountdown.text(
+                            until: oldSessionDeletionAt,
+                            now: context.date))
+                    }
+                }
+                InlineLink(title: "Review",
+                           tint: losesWork ? Theme.attentionText : Theme.accent,
+                           action: onReviewOldSessions)
+            }
         }
         .padding(.horizontal, 11)
         .padding(.vertical, 9)
@@ -1150,6 +1174,14 @@ struct AppSidebar: View {
 
     private var oldSessionDays: Int { appSettings.oldSessionDays }
 
+    private func automaticallyDeletedCount(in summary: OldSessionSummary) -> Int {
+        switch appSettings.oldSessionCleanupPolicy {
+        case .review: 0
+        case .deleteSafe: summary.losesNothing
+        case .deleteAll: summary.sessions
+        }
+    }
+
     private var oldSessionRefreshRule: OldSessionRefreshRule {
         OldSessionRefreshRule(days: oldSessionDays,
                               sessionCount: store.sidebarSessions.count)
@@ -1159,15 +1191,19 @@ struct AppSidebar: View {
         let sessions = OldSessions.olderThan(oldSessionDays, in: store.sidebarSessions)
             .filter { !runner.state($0.id).isBusy }
         var losesWork = 0
+        var losesNothing = 0
         for session in sessions {
             guard !Task.isCancelled else { return }
             let cost = await SessionCost.settledCost(
                 worktrees: store.checkoutProjects(for: session).compactMap(\.worktreePath),
                 deletesDesignArtifacts: store.hasDesignArtifacts(for: session))
             if cost.losesWork { losesWork += 1 }
+            if cost.losesNothing { losesNothing += 1 }
         }
         guard !Task.isCancelled else { return }
-        oldSessionSummary = OldSessionSummary(sessions: sessions.count, losesWork: losesWork)
+        oldSessionSummary = OldSessionSummary(sessions: sessions.count,
+                                              losesWork: losesWork,
+                                              losesNothing: losesNothing)
     }
 
     private func refreshOldSessionsHourly() async {
