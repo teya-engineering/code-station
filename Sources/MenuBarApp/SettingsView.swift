@@ -340,19 +340,6 @@ struct SettingsView: View {
             }
 
             Spacer(minLength: 16)
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Applied instantly")
-                    .font(.system(size: 11, weight: .semibold))
-                Text("Your choices are saved as you make them.")
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card.opacity(0.62)))
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
         }
         .padding(14)
         .frame(width: 190)
