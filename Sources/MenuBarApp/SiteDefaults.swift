@@ -80,6 +80,7 @@ struct SiteDefaults: Codable, Sendable, Equatable {
                 MCP.Preset(
                     name: preset.name,
                     title: "Grafana \(preset.scope) \(preset.environment)",
+                    serverType: "Grafana",
                     environment: preset.environment,
                     command: Grafana.command,
                     env: [
@@ -199,6 +200,7 @@ struct SiteDefaults: Codable, Sendable, Equatable {
         struct Preset: Codable, Sendable, Equatable, Identifiable {
             var name: String
             var title: String?
+            var serverType: String?
             var environment: String?
             var command: String?
             var args: [String]?
@@ -209,6 +211,7 @@ struct SiteDefaults: Codable, Sendable, Equatable {
 
             init(name: String,
                  title: String? = nil,
+                 serverType: String? = nil,
                  environment: String? = nil,
                  command: String? = nil,
                  args: [String]? = nil,
@@ -218,6 +221,7 @@ struct SiteDefaults: Codable, Sendable, Equatable {
                  headers: [Value]? = nil) {
                 self.name = name
                 self.title = title
+                self.serverType = serverType
                 self.environment = environment
                 self.command = command
                 self.args = args
@@ -228,13 +232,14 @@ struct SiteDefaults: Codable, Sendable, Equatable {
             }
 
             private enum CodingKeys: String, CodingKey {
-                case name, title, environment, command, args, url, type, env, headers
+                case name, title, serverType, environment, command, args, url, type, env, headers
             }
 
             init(from decoder: Decoder) throws {
                 let values = try decoder.container(keyedBy: CodingKeys.self)
                 name = try values.decode(String.self, forKey: .name)
                 title = try values.decodeIfPresent(String.self, forKey: .title)
+                serverType = try values.decodeIfPresent(String.self, forKey: .serverType)
                 environment = try values.decodeIfPresent(String.self, forKey: .environment)
                 command = try values.decodeIfPresent(String.self, forKey: .command)
                 args = try values.decodeIfPresent([String].self, forKey: .args)
@@ -256,6 +261,7 @@ struct SiteDefaults: Codable, Sendable, Equatable {
                 var values = encoder.container(keyedBy: CodingKeys.self)
                 try values.encode(name, forKey: .name)
                 try values.encodeIfPresent(title, forKey: .title)
+                try values.encodeIfPresent(serverType, forKey: .serverType)
                 try values.encodeIfPresent(environment, forKey: .environment)
                 try values.encodeIfPresent(command, forKey: .command)
                 try values.encodeIfPresent(args, forKey: .args)
@@ -298,6 +304,17 @@ struct SiteDefaults: Codable, Sendable, Equatable {
                 try values.encode(Dictionary(uniqueKeysWithValues: entries.map {
                     ($0.key, $0.value)
                 }), forKey: key)
+            }
+        }
+
+        struct PresetGroup: Sendable, Equatable, Identifiable {
+            let serverType: String?
+            var presets: [Preset]
+
+            var id: String { serverType ?? "" }
+            var addTitle: String {
+                guard let serverType else { return "Add from preset" }
+                return "Add \(serverType) MCP server"
             }
         }
 
@@ -565,6 +582,18 @@ extension SiteDefaults {
     }
 
     var mcpPresets: [MCP.Preset] { mcp?.presets ?? [] }
+
+    var mcpPresetGroups: [MCP.PresetGroup] {
+        mcpPresets.reduce(into: []) { groups, preset in
+            let trimmedType = preset.serverType?.trimmed
+            let serverType = trimmedType?.isEmpty == false ? trimmedType : nil
+            if let index = groups.firstIndex(where: { $0.serverType == serverType }) {
+                groups[index].presets.append(preset)
+            } else {
+                groups.append(MCP.PresetGroup(serverType: serverType, presets: [preset]))
+            }
+        }
+    }
 
     func mcpPreset(named name: String) -> MCP.Preset? {
         mcpPresets.first { $0.name == name }

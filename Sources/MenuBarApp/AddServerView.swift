@@ -4,11 +4,18 @@ struct AddServerView: View {
     @Environment(ConfigStore.self) private var store
     @Environment(\.dismiss) private var dismiss
 
-    @State private var presetName = SiteDefaults.current.mcpPresets.first?.name ?? ""
+    private let group: SiteDefaults.MCP.PresetGroup
+
+    @State private var presetName: String
     @State private var environmentValues: [String: String] = [:]
     @State private var headerValues: [String: String] = [:]
 
-    private var presets: [SiteDefaults.MCP.Preset] { SiteDefaults.current.mcpPresets }
+    init(group: SiteDefaults.MCP.PresetGroup) {
+        self.group = group
+        _presetName = State(initialValue: group.presets.first?.name ?? "")
+    }
+
+    private var presets: [SiteDefaults.MCP.Preset] { group.presets }
     private var preset: SiteDefaults.MCP.Preset? {
         presets.first { $0.name == presetName }
     }
@@ -27,7 +34,7 @@ struct AddServerView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
-            Text("Add MCP server from preset").font(.serif(26, .semibold))
+            Text(group.addTitle).font(.serif(26, .semibold))
 
             VStack(alignment: .leading, spacing: 8) {
                 SectionLabel(text: "PRESET")

@@ -426,7 +426,7 @@ private struct SiteConfigurationEditorView: View {
         case .requests:
             "Keep the small set of API requests that a configured install should start with."
         case .mcp:
-            "Define reusable MCP server configurations. Empty environment and header values are filled in when a preset is added."
+            "Define reusable MCP server configurations. The server type names its add action. Empty environment and header values are filled in when a preset is added."
         case .skills:
             "Choose the skills marketplace used by both supported agents."
         case .shortcuts:
@@ -550,6 +550,9 @@ private struct SiteConfigurationEditorView: View {
                         removeButton { draft.mcp?.presets?.remove(at: index) }
                     }
                     HStack(alignment: .top, spacing: 10) {
+                        SiteConfigurationField(caption: "SERVER TYPE",
+                                               placeholder: "Grafana",
+                                               text: optional(preset.serverType))
                         SiteConfigurationField(caption: "ENVIRONMENT",
                                                placeholder: "production",
                                                text: optional(preset.environment))
@@ -1039,6 +1042,7 @@ private enum SiteConfigurationForm {
         SiteDefaults.MCP.Preset(
             name: preset.name.trimmed,
             title: optional(preset.title),
+            serverType: optional(preset.serverType),
             environment: optional(preset.environment),
             command: optional(preset.command),
             args: preset.args?.map(\.trimmed).filter { !$0.isEmpty },

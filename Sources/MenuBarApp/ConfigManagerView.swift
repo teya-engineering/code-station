@@ -8,7 +8,7 @@ struct ConfigManagerView: View {
     @Environment(ClaudeCodeManager.self) private var claude
     @Environment(CodexCodeManager.self) private var codex
     @Environment(\.dismiss) private var dismiss
-    @State private var showingAddPreset = false
+    @State private var addingPresetGroup: SiteDefaults.MCP.PresetGroup?
     @State private var showingAddJSON = false
     @State private var grafanaExpanded = true
     @State private var filter = ""
@@ -47,7 +47,7 @@ struct ConfigManagerView: View {
         }
         .frame(width: 940, height: 640)
         .background(Theme.background)
-        .sheet(isPresented: $showingAddPreset) { AddServerView().appOverlays() }
+        .sheet(item: $addingPresetGroup) { AddServerView(group: $0).appOverlays() }
         .sheet(isPresented: $showingAddJSON) { AddJSONServerView() }
         .onAppear { refreshIntegrations() }
     }
@@ -202,14 +202,7 @@ struct ConfigManagerView: View {
                     .padding(.vertical, 12)
                     .background(RoundedRectangle(cornerRadius: 10).fill(Color.black.opacity(0.88)))
                     .appMenu {
-                        var entries: [MenuEntry] = []
-                        if !SiteDefaults.current.mcpPresets.isEmpty {
-                            entries.append(.item("Add from preset") {
-                                showingAddPreset = true
-                            })
-                        }
-                        entries.append(.item("Add MCP server") { showingAddJSON = true })
-                        return entries
+                        addServerMenuEntries
                     }
 
                 HStack(spacing: 6) {
@@ -272,6 +265,14 @@ struct ConfigManagerView: View {
 
     private var collapsedPath: String { store.configURL.path.abbreviatedPath }
 
+    private var addServerMenuEntries: [MenuEntry] {
+        SiteDefaults.current.mcpPresetGroups.map { group in
+            .item(group.addTitle) { addingPresetGroup = group }
+        } + [
+            .item("Add MCP server") { showingAddJSON = true }
+        ]
+    }
+
     private func refreshIntegrations() {
         claude.refresh()
         codex.refresh(store.servers)
@@ -285,13 +286,8 @@ struct ConfigManagerView: View {
                 .id(server.id)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-            EmptyDetail(hasServers: !store.servers.isEmpty) {
-                if SiteDefaults.current.mcpPresets.isEmpty {
-                    showingAddJSON = true
-                } else {
-                    showingAddPreset = true
-                }
-            }
+            EmptyDetail(hasServers: !store.servers.isEmpty,
+                        addMenu: { addServerMenuEntries })
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
@@ -380,7 +376,7 @@ private struct ServerRow: View {
 
 private struct EmptyDetail: View {
     let hasServers: Bool
-    let onAdd: () -> Void
+    let addMenu: () -> [MenuEntry]
 
     var body: some View {
         VStack(spacing: 14) {
@@ -390,16 +386,13 @@ private struct EmptyDetail: View {
             Text(hasServers ? "Select a server" : "No servers configured yet")
                 .font(.serif(22))
             if !hasServers {
-                Button(action: onAdd) {
-                    Text("Add an MCP server")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 18)
-                        .padding(.vertical, 8)
-                        .background(RoundedRectangle(cornerRadius: 9).fill(Color.black.opacity(0.88)))
-                        .contentShape(RoundedRectangle(cornerRadius: 9))
-                }
-                .buttonStyle(.plain)
+                Text("Add an MCP server")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 8)
+                    .background(RoundedRectangle(cornerRadius: 9).fill(Color.black.opacity(0.88)))
+                    .appMenu { addMenu() }
             }
         }
     }

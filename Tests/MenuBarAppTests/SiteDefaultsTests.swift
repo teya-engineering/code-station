@@ -37,6 +37,7 @@ struct SiteDefaultsTests {
               {
                 "name": "grafana-platform-dev",
                 "title": "Grafana platform dev",
+                "serverType": "Grafana",
                 "environment": "dev",
                 "command": "mcp-grafana",
                 "env": {
@@ -77,6 +78,7 @@ struct SiteDefaultsTests {
 
         #expect(defaults.mcpPresets.count == 1)
         #expect(defaults.mcpPresets[0].name == "grafana-platform-dev")
+        #expect(defaults.mcpPresets[0].serverType == "Grafana")
         #expect(defaults.mcpPresets[0].env?.first { $0.key == "GRAFANA_URL" }?.value
             == "https://grafana.example")
         #expect(defaults.skills?.marketplace == "example-engineering")
@@ -171,6 +173,30 @@ struct SiteDefaultsTests {
         let second = try file(#"{ "skills": { "name": "Second", "marketplace": "second", "repository": "https://example.test/second" } }"#)
 
         #expect(SiteDefaults.load([missing, first, second]).skills?.name == "First")
+    }
+
+    @Test func mcpPresetsAreGroupedByNamedServerType() throws {
+        let url = try file("""
+        {
+          "mcp": {
+            "presets": [
+              { "name": "grafana-dev", "serverType": "Grafana", "command": "grafana" },
+              { "name": "potato", "serverType": "Potato", "command": "potato" },
+              { "name": "grafana-prd", "serverType": "Grafana", "command": "grafana" },
+              { "name": "custom", "command": "custom" }
+            ]
+          }
+        }
+        """)
+
+        let groups = SiteDefaults.load([url]).mcpPresetGroups
+
+        #expect(groups.map(\.addTitle) == [
+            "Add Grafana MCP server",
+            "Add Potato MCP server",
+            "Add from preset",
+        ])
+        #expect(groups[0].presets.map(\.name) == ["grafana-dev", "grafana-prd"])
     }
 
     @Test func searchOrderHonoursTheEnvironmentAndSavedOverride() {
@@ -291,6 +317,7 @@ struct SiteDefaultsTests {
         let preset = try #require(SiteDefaults.load([url]).mcpPresets.first)
 
         #expect(preset.name == "grafana-platform-dev")
+        #expect(preset.serverType == "Grafana")
         #expect(preset.command == "mcp-grafana")
         #expect(preset.environmentTag == "dev")
         #expect(preset.env?.contains {

@@ -31,6 +31,7 @@
       {
         "name": "grafana-platform-dev",
         "title": "Grafana platform dev",
+        "serverType": "Grafana",
         "environment": "dev",
         "command": "mcp-grafana",
         "env": {
@@ -41,6 +42,7 @@
       {
         "name": "grafana-platform-prd",
         "title": "Grafana platform prod",
+        "serverType": "Grafana",
         "environment": "prd",
         "command": "mcp-grafana",
         "env": {
@@ -51,6 +53,7 @@
       {
         "name": "grafana-shared-shared",
         "title": "Grafana shared",
+        "serverType": "Grafana",
         "environment": "shared",
         "command": "mcp-grafana",
         "env": {
