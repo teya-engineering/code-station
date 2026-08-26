@@ -428,11 +428,8 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 12) {
                 appearance
                 textSize
-                HStack(alignment: .top, spacing: 14) {
-                    sidebarIcons
-                    botImage
-                        .frame(width: 250)
-                }
+                sidebarIcons
+                botImage
             }
             .transition(.fadeIn)
         case .agents:
