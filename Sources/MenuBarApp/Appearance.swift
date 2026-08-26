@@ -36,18 +36,9 @@ enum SidebarIconSet: String {
     case diceBear
 }
 
-enum SidebarIconMotion: String, CaseIterable, Identifiable {
+enum SidebarIconMotion: Equatable {
     case still
     case animated
-
-    var id: String { rawValue }
-
-    var label: String {
-        switch self {
-        case .still: "Still"
-        case .animated: "Animated"
-        }
-    }
 }
 
 enum DiceBearAvatarStyle: String, CaseIterable, Identifiable {
@@ -79,12 +70,5 @@ enum DiceBearAvatarStyle: String, CaseIterable, Identifiable {
 
     var usesArtworkPrimaryColour: Bool {
         self != .shapes && self != .landscape
-    }
-
-    static func available(for motion: SidebarIconMotion) -> [Self] {
-        switch motion {
-        case .still: allCases
-        case .animated: allCases.filter(\.supportsAnimation)
-        }
     }
 }

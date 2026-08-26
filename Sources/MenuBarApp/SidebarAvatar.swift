@@ -28,6 +28,19 @@ struct SidebarAvatar: Equatable, Sendable {
         return Self.artworkURL(style: style, index: index, bundle: bundle)
     }
 
+    func motion(sessions: [ChatSession], isBusy: (UUID) -> Bool) -> SidebarIconMotion {
+        let active = sessions.contains { session in
+            let belongsToAvatar = switch subject {
+            case .project, .task:
+                session.workspaceID == nil && session.projectID == id
+            case .workspace:
+                session.workspaceID == id
+            }
+            return belongsToAvatar && isBusy(session.id)
+        }
+        return active ? .animated : .still
+    }
+
     @MainActor
     func primaryColour(style: DiceBearAvatarStyle) -> Color? {
         SidebarAvatarArt.artwork(for: self, style: style)?.primaryColour
@@ -90,6 +103,8 @@ struct DiceBearAvatarView<Placeholder: View>: View {
 
 struct SidebarIdentityTile: View {
     @Environment(AppSettings.self) private var appSettings
+    @Environment(ProjectStore.self) private var store
+    @Environment(SessionRunner.self) private var runner
 
     let avatar: SidebarAvatar
     let name: String
@@ -104,19 +119,48 @@ struct SidebarIdentityTile: View {
         switch appSettings.sidebarIconSet {
         case .monograms:
             fallback
+                .modifier(StillArtworkActiveMotion(active: isActive))
         case .diceBear:
             DiceBearAvatarView(
                 avatar: avatar,
                 style: appSettings.diceBearAvatarStyle,
-                motion: appSettings.sidebarIconMotion,
+                motion: motion,
                 side: side) {
                     fallback
                 }
+                .modifier(StillArtworkActiveMotion(
+                    active: isActive && !appSettings.diceBearAvatarStyle.supportsAnimation))
         }
+    }
+
+    private var motion: SidebarIconMotion {
+        avatar.motion(sessions: store.sidebarSessions) { runner.state($0).isBusy }
+    }
+
+    private var isActive: Bool {
+        motion == .animated
     }
 
     private var fallback: some View {
         ProjectTileView(name: name, tint: tint, side: side, dashed: dashed, stacked: stacked)
+    }
+}
+
+private struct StillArtworkActiveMotion: ViewModifier {
+    let active: Bool
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var dimmed = false
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(dimmed && !reduceMotion ? 0.55 : 1)
+            .animation(active && !reduceMotion
+                       ? .easeInOut(duration: 0.8).repeatForever(autoreverses: true)
+                       : nil,
+                       value: dimmed)
+            .onAppear { dimmed = active }
+            .onChange(of: active) { _, running in dimmed = running }
     }
 }
 

@@ -22,6 +22,26 @@ struct SidebarAvatarTests {
         #expect(avatar.artworkURL(style: .planets)?.isFileURL == true)
     }
 
+    @Test func derivesMotionFromActiveSessionsInTheSameContainer() {
+        let projectID = UUID()
+        let workspaceID = UUID()
+        let projectSession = ChatSession(projectID: projectID, agent: .codex)
+        var workspaceSession = ChatSession(projectID: projectID, agent: .codex)
+        workspaceSession.workspaceID = workspaceID
+        let busy = Set([projectSession.id, workspaceSession.id])
+
+        let project = SidebarAvatar(subject: .project, id: projectID)
+        let task = SidebarAvatar(subject: .task, id: projectID)
+        let workspace = SidebarAvatar(subject: .workspace, id: workspaceID)
+
+        #expect(project.motion(sessions: [projectSession], isBusy: busy.contains) == .animated)
+        #expect(task.motion(sessions: [projectSession], isBusy: busy.contains) == .animated)
+        #expect(project.motion(sessions: [workspaceSession], isBusy: busy.contains) == .still)
+        #expect(workspace.motion(sessions: [workspaceSession], isBusy: busy.contains) == .animated)
+        #expect(workspace.motion(sessions: [projectSession], isBusy: busy.contains) == .still)
+        #expect(project.motion(sessions: [projectSession], isBusy: { _ in false }) == .still)
+    }
+
     @Test func findsEveryOfflineAvatar() throws {
         for style in DiceBearAvatarStyle.allCases {
             for index in 1...SidebarAvatar.artworkCount {
@@ -81,12 +101,10 @@ struct SidebarAvatarTests {
         #expect(!animated.contains("data:image/svg+xml"))
     }
 
-    @Test func offersEveryRequestedStyleAndKeepsStripesStill() {
+    @Test func offersEveryRequestedStyle() {
         #expect(DiceBearAvatarStyle.allCases.map(\.rawValue) == [
             "squircles", "planets", "shapes", "blobs", "waves", "sprouts", "stripes",
             "landscape"
         ])
-        #expect(DiceBearAvatarStyle.available(for: .still).contains(.stripes))
-        #expect(!DiceBearAvatarStyle.available(for: .animated).contains(.stripes))
     }
 }

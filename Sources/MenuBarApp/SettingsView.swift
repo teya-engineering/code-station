@@ -87,31 +87,11 @@ final class AppSettings {
     var sidebarIconSet: SidebarIconSet {
         didSet {
             Preferences.setSidebarIconSet(sidebarIconSet, in: preferences)
-            if sidebarIconSet == .monograms {
-                sidebarIconMotion = .still
-            }
-        }
-    }
-
-    var sidebarIconMotion: SidebarIconMotion {
-        didSet {
-            guard sidebarIconSet == .diceBear || sidebarIconMotion == .still else {
-                sidebarIconMotion = .still
-                return
-            }
-            Preferences.setSidebarIconMotion(sidebarIconMotion, in: preferences)
-            if sidebarIconMotion == .animated, !diceBearAvatarStyle.supportsAnimation {
-                diceBearAvatarStyle = .squircles
-            }
         }
     }
 
     var diceBearAvatarStyle: DiceBearAvatarStyle {
         didSet {
-            guard sidebarIconMotion == .still || diceBearAvatarStyle.supportsAnimation else {
-                diceBearAvatarStyle = oldValue
-                return
-            }
             Preferences.setDiceBearAvatarStyle(diceBearAvatarStyle, in: preferences)
         }
     }
@@ -141,21 +121,8 @@ final class AppSettings {
         self.agentAvatarURL = agentAvatarURL
         self.preferences = preferences
         sidebarSessionLimit = Preferences.sidebarSessionLimit(in: preferences)
-        let storedIconSet = Preferences.sidebarIconSet(in: preferences)
-        sidebarIconSet = storedIconSet
-        let storedIconMotion = Preferences.sidebarIconMotion(in: preferences)
-        let resolvedIconMotion = storedIconSet == .monograms ? .still : storedIconMotion
-        sidebarIconMotion = resolvedIconMotion
-        let storedAvatarStyle = Preferences.diceBearAvatarStyle(in: preferences)
-        let resolvedAvatarStyle = resolvedIconMotion == .animated && !storedAvatarStyle.supportsAnimation
-            ? .squircles : storedAvatarStyle
-        diceBearAvatarStyle = resolvedAvatarStyle
-        if resolvedIconMotion != storedIconMotion {
-            Preferences.setSidebarIconMotion(resolvedIconMotion, in: preferences)
-        }
-        if resolvedAvatarStyle != storedAvatarStyle {
-            Preferences.setDiceBearAvatarStyle(resolvedAvatarStyle, in: preferences)
-        }
+        sidebarIconSet = Preferences.sidebarIconSet(in: preferences)
+        diceBearAvatarStyle = Preferences.diceBearAvatarStyle(in: preferences)
         hasCompletedOnboarding = Preferences.hasCompletedOnboarding(in: preferences)
         costShown = Dictionary(uniqueKeysWithValues: AgentKind.allCases.map {
             ($0, Preferences.showCost(for: $0))
@@ -174,7 +141,6 @@ final class AppSettings {
     func resetAppearance() {
         appearance = .system
         textSize = .standard
-        sidebarIconMotion = .still
         diceBearAvatarStyle = .waves
         sidebarIconSet = .diceBear
     }
@@ -700,9 +666,8 @@ struct SettingsView: View {
         }
     }
 
-    // Sidebar icons and the default bot each carry a preview and two small controls, which
-    // leaves a full-width row half empty between the copy and the controls. Paired as
-    // half-width cards, each one ends where its own controls end.
+    // Sidebar icons and the default bot each carry a preview and compact controls. Paired
+    // as half-width cards, each one ends where its own controls end.
     private var personalisation: some View {
         ChoiceBlock("PERSONALISATION") {
             VStack(alignment: .leading, spacing: 12) {
@@ -806,26 +771,6 @@ struct SettingsView: View {
                 .accessibilityLabel("Sidebar icon style: \(sidebarIconStyleLabel)")
             }
 
-            controlRow("Motion") {
-                HStack(spacing: 4) {
-                    ForEach(SidebarIconMotion.allCases) { motion in
-                        let supportsMotion = settings.sidebarIconSet == .diceBear
-                            && settings.diceBearAvatarStyle.supportsAnimation
-                        let enabled = motion == .still || supportsMotion
-                        ChoicePill(title: motion.label,
-                                   selected: settings.sidebarIconMotion == motion) {
-                            settings.sidebarIconMotion = motion
-                        }
-                        .frame(maxWidth: .infinity)
-                        .disabled(!enabled)
-                        .opacity(enabled ? 1 : 0.4)
-                        .accessibilityLabel("Sidebar icon motion: \(motion.label)")
-                        .accessibilityValue(
-                            settings.sidebarIconMotion == motion
-                                ? "Selected" : "Not selected")
-                    }
-                }
-            }
         }
     }
 
@@ -843,7 +788,7 @@ struct SettingsView: View {
             },
         ]
         entries.append(contentsOf:
-            DiceBearAvatarStyle.available(for: settings.sidebarIconMotion).map { style in
+            DiceBearAvatarStyle.allCases.map { style in
                 .item(style.label,
                       checked: settings.sidebarIconSet == .diceBear
                         && settings.diceBearAvatarStyle == style) {

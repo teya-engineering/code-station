@@ -367,15 +367,6 @@ enum Preferences {
         store.set(iconSet.rawValue, forKey: "sidebarIconSet")
     }
 
-    static func sidebarIconMotion(in store: UserDefaults) -> SidebarIconMotion {
-        store.string(forKey: "sidebarIconMotion").flatMap(SidebarIconMotion.init(rawValue:))
-            ?? .still
-    }
-
-    static func setSidebarIconMotion(_ motion: SidebarIconMotion, in store: UserDefaults) {
-        store.set(motion.rawValue, forKey: "sidebarIconMotion")
-    }
-
     static func diceBearAvatarStyle(in store: UserDefaults) -> DiceBearAvatarStyle {
         store.string(forKey: "diceBearAvatarStyle")
             .flatMap(DiceBearAvatarStyle.init(rawValue:)) ?? .waves
