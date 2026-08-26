@@ -172,7 +172,7 @@ struct AppPathsTests {
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
 
-        #expect(Preferences.oldSessionCleanupPolicy(in: defaults) == .deleteSafe)
+        #expect(Preferences.oldSessionCleanupPolicy(in: defaults) == .deleteAll)
 
         defaults.set(false, forKey: "autoDeleteOldSessions")
         #expect(Preferences.oldSessionCleanupPolicy(in: defaults) == .review)
@@ -194,13 +194,13 @@ struct AppPathsTests {
         let avatar = root.appendingPathComponent("avatar.png")
         let settings = AppSettings(agentAvatarURL: avatar, preferences: defaults)
 
-        #expect(settings.oldSessionCleanupPolicy == .deleteSafe)
+        #expect(settings.oldSessionCleanupPolicy == .deleteAll)
 
-        settings.oldSessionCleanupPolicy = .deleteAll
+        settings.oldSessionCleanupPolicy = .review
 
-        #expect(Preferences.oldSessionCleanupPolicy(in: defaults) == .deleteAll)
+        #expect(Preferences.oldSessionCleanupPolicy(in: defaults) == .review)
         #expect(AppSettings(agentAvatarURL: avatar, preferences: defaults)
-            .oldSessionCleanupPolicy == .deleteAll)
+            .oldSessionCleanupPolicy == .review)
     }
 
     @Test func defaultsAndClampsTheSidebarSessionLimit() throws {

@@ -237,7 +237,7 @@ enum Preferences {
            let policy = OldSessionCleanupPolicy(rawValue: rawValue) {
             return policy
         }
-        guard store.object(forKey: "autoDeleteOldSessions") != nil else { return .deleteSafe }
+        guard store.object(forKey: "autoDeleteOldSessions") != nil else { return .deleteAll }
         return store.bool(forKey: "autoDeleteOldSessions") ? .deleteSafe : .review
     }
 
