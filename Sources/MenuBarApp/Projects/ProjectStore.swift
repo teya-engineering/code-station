@@ -19,6 +19,16 @@ struct PendingSessionRemoval: Identifiable, Codable, Equatable {
     let worktrees: [Worktree]
 }
 
+enum SessionDestination: Hashable {
+    case conversation
+    case changes
+}
+
+struct SessionOpenRequest: Hashable {
+    let sessionID: UUID
+    let destination: SessionDestination
+}
+
 // Projects and their conversations. What the app knows about a session - its title, what
 // it cost, where it runs - lives in one index file and is always in memory. The
 // conversation itself is a file per session, read when the session is opened and dropped
@@ -48,6 +58,11 @@ final class ProjectStore {
         }
     }
     var selectedProjectID: UUID?
+
+    // Most session links open the conversation. A link whose purpose is reviewing the
+    // working tree carries that intent through navigation so the destination matches the
+    // words on the button.
+    private(set) var sessionOpenRequest: SessionOpenRequest?
 
     // A project opened from somewhere other than the rail, and not brought into view
     // there yet. The rail scrolls to it and clears this, so asking for the same project
@@ -253,10 +268,11 @@ final class ProjectStore {
         scheduleIndexSave()
     }
 
-    func selectSession(_ id: UUID) {
+    func selectSession(_ id: UUID, destination: SessionDestination = .conversation) {
         let visibleID = userFacingSessionID(for: id)
         guard let session = session(visibleID) else { return }
         selectedProjectID = session.projectID
+        sessionOpenRequest = SessionOpenRequest(sessionID: visibleID, destination: destination)
         selection = .session(visibleID)
         scheduleIndexSave()
     }

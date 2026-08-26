@@ -234,8 +234,11 @@ struct RootView: View {
             home
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .session(let id):
-            SessionView(sessionID: id)
-                .id(id)
+            let opening = store.sessionOpenRequest?.sessionID == id
+                ? store.sessionOpenRequest?.destination ?? .conversation
+                : .conversation
+            SessionView(sessionID: id, opening: opening)
+                .id(SessionOpenRequest(sessionID: id, destination: opening))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .workspace(let id):
             WorkspaceDetailView(workspaceID: id)

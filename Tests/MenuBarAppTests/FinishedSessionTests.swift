@@ -60,6 +60,32 @@ struct FinishedSessionTests {
         #expect(store.finishedCount(in: project.id) == 0)
     }
 
+    @Test func openingAReviewCarriesItsDestination() {
+        let store = makeStore()
+        let project = project(in: store)
+        let session = store.newSession(in: project.id)
+
+        store.selectHome()
+        store.selectSession(session.id, destination: .changes)
+
+        #expect(store.selection == .session(session.id))
+        #expect(store.sessionOpenRequest
+            == SessionOpenRequest(sessionID: session.id, destination: .changes))
+    }
+
+    @Test func openingAnOrdinarySessionTargetsTheConversation() {
+        let store = makeStore()
+        let project = project(in: store)
+        let first = store.newSession(in: project.id)
+        let second = store.newSession(in: project.id)
+
+        store.selectSession(first.id, destination: .changes)
+        store.selectSession(second.id)
+
+        #expect(store.sessionOpenRequest
+            == SessionOpenRequest(sessionID: second.id, destination: .conversation))
+    }
+
     @Test func leavesASessionBeingReadOnMobileAlone() {
         let store = makeStore()
         let project = project(in: store)

@@ -171,6 +171,11 @@ struct SessionView: View {
     private let bottomAnchor = "transcript-bottom"
     private var terminalScope: TerminalScope { .session(sessionID) }
 
+    init(sessionID: UUID, opening: SessionDestination = .conversation) {
+        self.sessionID = sessionID
+        _tab = State(initialValue: opening == .changes ? .changes : .conversation)
+    }
+
     var body: some View {
         // The sidebar can delete a session or its project while it is on screen.
         if let session = store.session(sessionID), let project = store.project(session.projectID) {
@@ -907,6 +912,15 @@ struct SessionView: View {
                             transcriptPinnedToBottom = isAtBottom
                         }
                     }
+                    // Message rows can settle after the first scroll when text wraps or
+                    // an attachment gets its final size. Keep an opening transcript at
+                    // its real end, then respect manual scrolling once it is visible.
+                    .background(GeometryReader { geometry in
+                        Color.clear.onChange(of: geometry.size.height, initial: true) {
+                            guard !opened || transcriptPinnedToBottom else { return }
+                            Task { proxy.scrollTo(bottomAnchor, anchor: .bottom) }
+                        }
+                    })
                     // The soft landing for anything new: a fresh row fades in and the
                     // rows above it glide up rather than jumping. Keyed on the shape of
                     // the transcript, not its text, so it plays once per whole arrival
@@ -930,9 +944,6 @@ struct SessionView: View {
             // at its end instead of appearing and then jumping there.
             .opacity(opened ? 1 : 0)
             .accessibilityHidden(!opened)
-            // Rows measure again after the first layout - an attachment, an image, text
-            // that wraps differently once it has its real width - and the end of the
-            // transcript moves with them. One nudge once that settles lands on it.
             .task(id: sessionID) {
                 transcriptWindow.reset()
                 transcriptPinnedToBottom = true

@@ -19,6 +19,7 @@ final class WorkingTreeWatch {
     typealias Inspector = @Sendable (String) async -> Int
 
     private var uncommittedFiles: [String: Int] = [:]
+    private var inspected: Set<String> = []
     @ObservationIgnored private var running: Set<String> = []
     @ObservationIgnored private let inspect: Inspector
 
@@ -34,6 +35,10 @@ final class WorkingTreeWatch {
         uncommittedFiles[Self.normalized(path)] ?? 0
     }
 
+    func hasInspected(_ path: String) -> Bool {
+        inspected.contains(Self.normalized(path))
+    }
+
     func refresh(_ paths: some Collection<String>) {
         let pending = Set(paths.map(Self.normalized)).filter { path in
             guard !running.contains(path) else { return false }
@@ -46,6 +51,7 @@ final class WorkingTreeWatch {
             for path in pending {
                 let result = await inspect(path)
                 running.remove(path)
+                inspected.insert(path)
                 if result > 0 {
                     if uncommittedFiles[path] != result { uncommittedFiles[path] = result }
                 } else if uncommittedFiles[path] != nil {

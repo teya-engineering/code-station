@@ -10,6 +10,7 @@ struct HomeView: View {
     @Environment(ProjectStore.self) private var store
     @Environment(SessionRunner.self) private var runner
     @Environment(AppSettings.self) private var appSettings
+    @Environment(WorkingTreeWatch.self) private var workingTrees
 
     // Recomputed once per redraw and handed down, because every section below counts over
     // the same list of sessions.
@@ -30,7 +31,11 @@ struct HomeView: View {
             if store.projects.isEmpty && store.workspaces.isEmpty {
                 HomeIntroduction()
             } else {
+                let standing = standing
                 status(standing)
+                    .task(id: reviewRoots(in: standing.waiting)) {
+                        workingTrees.refresh(reviewRoots(in: standing.waiting))
+                    }
             }
         }
         .background(Theme.background)
@@ -130,10 +135,27 @@ struct HomeView: View {
                       spacing: 12) {
                 ForEach(waiting.prefix(4)) { live in
                     NeedsYouCard(live: live,
-                                 onOpen: { store.selectSession(live.session.id) })
+                                 hasChanges: hasChanges(in: live.session),
+                                 onOpen: { destination in
+                                     store.selectSession(live.session.id,
+                                                         destination: destination)
+                                 })
                 }
             }
         }
+    }
+
+    private func reviewRoots(in waiting: [HomeLive]) -> [String] {
+        Array(Set(waiting.prefix(4).flatMap { store.workingDirectories(for: $0.session) }))
+            .sorted()
+    }
+
+    private func hasChanges(in session: ChatSession) -> Bool {
+        let roots = store.workingDirectories(for: session)
+        guard roots.allSatisfy(workingTrees.hasInspected) else {
+            return session.summary.added > 0 || session.summary.removed > 0
+        }
+        return roots.contains(where: workingTrees.isDirty)
     }
 
     private func runningNow(_ running: [HomeLive]) -> some View {
@@ -315,7 +337,8 @@ private struct StatCard: View {
 
 private struct NeedsYouCard: View {
     let live: HomeLive
-    let onOpen: () -> Void
+    let hasChanges: Bool
+    let onOpen: (SessionDestination) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
@@ -347,9 +370,13 @@ private struct NeedsYouCard: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             HStack(spacing: 8) {
-                ActionButton(title: live.permission == nil ? "Review changes" : "Answer",
-                             action: onOpen)
-                ActionButton(title: "Open session", tone: .outlined, action: onOpen)
+                if live.permission != nil {
+                    ActionButton(title: "Answer") { onOpen(.conversation) }
+                } else if hasChanges {
+                    ActionButton(title: "Review changes") { onOpen(.changes) }
+                } else {
+                    ActionButton(title: "Review result") { onOpen(.conversation) }
+                }
                 Spacer(minLength: 6)
                 DiffPair(added: live.session.summary.added,
                          removed: live.session.summary.removed, size: 11.5)

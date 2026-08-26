@@ -11,9 +11,11 @@ struct WorkingTreeWatchTests {
             await inspections.inspect(path)
         }
 
+        #expect(!watch.hasInspected(folder.path))
         watch.refresh([folder.path])
         watch.refresh([folder.path])
         try await eventually { await inspections.value == 1 && watch.isDirty(folder.path) }
+        #expect(watch.hasInspected(folder.path))
         #expect(watch.isDirty(folder.path))
         #expect(watch.uncommittedFileCount(at: folder.path) == 3)
 
@@ -36,8 +38,10 @@ struct WorkingTreeWatchTests {
             await inspections.inspect(path)
         }
 
+        #expect(!watch.hasInspected(worktree.path))
         watch.refresh([worktree.path])
         try await eventually { await inspections.value == 1 }
+        #expect(watch.hasInspected(worktree.path))
         #expect(!watch.isDirty(worktree.path))
 
         try "changed".write(
