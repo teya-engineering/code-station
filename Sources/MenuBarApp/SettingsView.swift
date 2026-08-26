@@ -429,7 +429,9 @@ struct SettingsView: View {
                 appearance
                 textSize
                 sidebarIcons
+                    .frame(width: 480, alignment: .leading)
                 botImage
+                    .frame(width: 480, alignment: .leading)
             }
             .transition(.fadeIn)
         case .agents:
