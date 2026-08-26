@@ -47,7 +47,7 @@ struct ConfigManagerView: View {
         }
         .frame(width: 940, height: 640)
         .background(Theme.background)
-        .sheet(isPresented: $showingAddPreset) { AddServerView() }
+        .sheet(isPresented: $showingAddPreset) { AddServerView().appOverlays() }
         .sheet(isPresented: $showingAddJSON) { AddJSONServerView() }
         .onAppear { refreshIntegrations() }
     }
