@@ -229,7 +229,7 @@ private enum SidebarAvatarArt {
         let artwork = SidebarAvatarArtwork(
             key: key,
             source: source,
-            image: NSImage(contentsOf: url),
+            image: DiceBearAvatarDocument.stillImage(source: source),
             primaryColour: style.primaryColour(in: source)?.colour)
         cache[key] = artwork
         return artwork
@@ -237,6 +237,105 @@ private enum SidebarAvatarArt {
 }
 
 enum DiceBearAvatarDocument {
+    static func stillImage(source: String) -> NSImage? {
+        guard let source = sourceWithInlinedUses(source) else { return nil }
+        return NSImage(data: Data(source.utf8))
+    }
+
+    // AppKit's SVG renderer ignores referenced layers. Inline them once before the
+    // result enters the artwork cache so static avatars keep the complete design.
+    private static func sourceWithInlinedUses(_ source: String) -> String? {
+        guard let document = try? XMLDocument(xmlString: source),
+              let root = document.rootElement(),
+              let nodes = try? document.nodes(forXPath: "//*[@id]") else {
+            return nil
+        }
+
+        var definitions: [String: XMLElement] = [:]
+        for case let element as XMLElement in nodes {
+            if let id = element.attribute(forName: "id")?.stringValue {
+                definitions[id] = element
+            }
+        }
+        guard inlineUses(in: root, definitions: definitions, resolving: []) else {
+            return nil
+        }
+        return document.xmlString
+    }
+
+    private static func inlineUses(in element: XMLElement,
+                                   definitions: [String: XMLElement],
+                                   resolving: Set<String>) -> Bool {
+        for child in element.children ?? [] {
+            guard let child = child as? XMLElement else { continue }
+            if child.name == "use" {
+                guard let replacement = replacement(
+                    for: child,
+                    definitions: definitions,
+                    resolving: resolving),
+                    let index = element.children?.firstIndex(where: { $0 === child }) else {
+                    return false
+                }
+                child.detach()
+                element.insertChild(replacement, at: index)
+            } else if !inlineUses(
+                in: child,
+                definitions: definitions,
+                resolving: resolving) {
+                return false
+            }
+        }
+        return true
+    }
+
+    private static func replacement(for use: XMLElement,
+                                    definitions: [String: XMLElement],
+                                    resolving: Set<String>) -> XMLElement? {
+        guard let href = use.attribute(forName: "href")?.stringValue,
+              href.hasPrefix("#") else {
+            return nil
+        }
+        let id = String(href.dropFirst())
+        guard !resolving.contains(id),
+              let definition = definitions[id],
+              let clone = definition.copy() as? XMLElement else {
+            return nil
+        }
+        clone.removeAttribute(forName: "id")
+        guard inlineUses(
+            in: clone,
+            definitions: definitions,
+            resolving: resolving.union([id])) else {
+            return nil
+        }
+
+        let replacement = XMLElement(name: "g")
+        var transforms: [String] = []
+        let x = use.attribute(forName: "x")?.stringValue
+        let y = use.attribute(forName: "y")?.stringValue
+        if x != nil || y != nil {
+            transforms.append("translate(\(x ?? "0") \(y ?? "0"))")
+        }
+        if let transform = use.attribute(forName: "transform")?.stringValue {
+            transforms.append(transform)
+        }
+        if !transforms.isEmpty {
+            replacement.addAttribute(XMLNode.attribute(
+                withName: "transform",
+                stringValue: transforms.joined(separator: " ")) as! XMLNode)
+        }
+        for attribute in use.attributes ?? [] {
+            guard let name = attribute.name,
+                  !["href", "x", "y", "transform"].contains(name),
+                  let copy = attribute.copy() as? XMLNode else {
+                continue
+            }
+            replacement.addAttribute(copy)
+        }
+        replacement.addChild(clone)
+        return replacement
+    }
+
     static func html(source: String, motion: SidebarIconMotion) -> String {
         let motionStyle = switch motion {
         case .still:

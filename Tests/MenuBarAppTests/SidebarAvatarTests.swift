@@ -78,14 +78,20 @@ struct SidebarAvatarTests {
         }
     }
 
-    @Test func usesWebKitOnlyForActiveAnimatedArtwork() throws {
+    @Test func usesWebKitOnlyForActiveAnimatedArtwork() {
         #expect(DiceBearAvatarStyle.squircles.usesWebAnimation(for: .animated))
         #expect(!DiceBearAvatarStyle.squircles.usesWebAnimation(for: .still))
         #expect(!DiceBearAvatarStyle.stripes.usesWebAnimation(for: .animated))
+    }
 
+    @Test func rendersEveryStaticAvatarWithItsReferencedLayers() throws {
         for style in DiceBearAvatarStyle.allCases {
-            let url = try #require(SidebarAvatar.artworkURL(style: style, index: 1))
-            #expect(NSImage(contentsOf: url) != nil)
+            for index in 1...SidebarAvatar.artworkCount {
+                let url = try #require(SidebarAvatar.artworkURL(style: style, index: index))
+                let source = try String(contentsOf: url, encoding: .utf8)
+                let image = try #require(DiceBearAvatarDocument.stillImage(source: source))
+                #expect(try renderedColourCount(image) > 1)
+            }
         }
     }
 
@@ -119,4 +125,39 @@ struct SidebarAvatarTests {
             "landscape"
         ])
     }
+}
+
+private func renderedColourCount(_ image: NSImage) throws -> Int {
+    let side = 64
+    let bitmap = try #require(NSBitmapImageRep(
+        bitmapDataPlanes: nil,
+        pixelsWide: side,
+        pixelsHigh: side,
+        bitsPerSample: 8,
+        samplesPerPixel: 4,
+        hasAlpha: true,
+        isPlanar: false,
+        colorSpaceName: .deviceRGB,
+        bytesPerRow: 0,
+        bitsPerPixel: 0))
+    let context = try #require(NSGraphicsContext(bitmapImageRep: bitmap))
+
+    NSGraphicsContext.saveGraphicsState()
+    NSGraphicsContext.current = context
+    image.draw(in: NSRect(x: 0, y: 0, width: side, height: side))
+    NSGraphicsContext.restoreGraphicsState()
+
+    var colours = Set<UInt32>()
+    for y in 0..<side {
+        for x in 0..<side {
+            guard let colour = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else {
+                continue
+            }
+            let red = UInt32((colour.redComponent * 255).rounded())
+            let green = UInt32((colour.greenComponent * 255).rounded())
+            let blue = UInt32((colour.blueComponent * 255).rounded())
+            colours.insert((red << 16) | (green << 8) | blue)
+        }
+    }
+    return colours.count
 }
