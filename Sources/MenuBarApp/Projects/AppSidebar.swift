@@ -1123,25 +1123,28 @@ struct AppSidebar: View {
     // screen that explains what clearing each one would cost.
     private func oldSessionsStrip(_ summary: OldSessionSummary) -> some View {
         let losesWork = summary.losesWork > 0
-        return HStack(spacing: 8) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("\(summary.sessions) session\(summary.sessions == 1 ? "" : "s") older than \(oldSessionDays) day\(oldSessionDays == 1 ? "" : "s")")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(losesWork ? Theme.attentionText : Color.primary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.85)
-                Text(summary.losesWork == 1
-                     ? "1 session would lose work"
-                     : "\(summary.losesWork) sessions would lose work")
-                    .font(.mono(10))
-                    .foregroundStyle(losesWork ? Theme.attentionText : Color.secondary)
-                    .lineLimit(1)
-            }
-            Spacer(minLength: 8)
-            VStack(alignment: .trailing, spacing: 3) {
+        return Button(action: onReviewOldSessions) {
+            HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("\(summary.sessions) session\(summary.sessions == 1 ? "" : "s") older than \(oldSessionDays) day\(oldSessionDays == 1 ? "" : "s")")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(losesWork ? Theme.attentionText : Color.primary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
+                    Text(summary.losesWork == 1
+                         ? "1 session would lose work"
+                         : "\(summary.losesWork) sessions would lose work")
+                        .font(.mono(10))
+                        .foregroundStyle(losesWork ? Theme.attentionText : Color.secondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 8)
                 if let oldSessionDeletionAt,
                    automaticallyDeletedCount(in: summary) > 0 {
                     TimelineView(.periodic(from: .now, by: 1)) { context in
+                        let countdownIsUrgent = OldSessionCountdown.isUrgent(
+                            until: oldSessionDeletionAt,
+                            now: context.date)
                         HStack(spacing: 4) {
                             Image(systemName: "timer")
                                 .font(.system(size: 9, weight: .semibold))
@@ -1151,7 +1154,9 @@ struct AppSidebar: View {
                                 .font(.mono(10, .semibold))
                                 .monospacedDigit()
                         }
-                        .foregroundStyle(losesWork ? Theme.attentionText : Theme.accent)
+                        .foregroundStyle(countdownIsUrgent
+                            ? Theme.deletion
+                            : losesWork ? Theme.attentionText : Theme.accent)
                         .accessibilityElement(children: .ignore)
                         .accessibilityLabel("Automatic deletion countdown")
                         .accessibilityValue(OldSessionCountdown.text(
@@ -1159,17 +1164,18 @@ struct AppSidebar: View {
                             now: context.date))
                     }
                 }
-                InlineLink(title: "Review",
-                           tint: losesWork ? Theme.attentionText : Theme.accent,
-                           action: onReviewOldSessions)
             }
+            .padding(.horizontal, 11)
+            .padding(.vertical, 9)
+            .background(RoundedRectangle(cornerRadius: 9)
+                .fill(losesWork ? Theme.attention.opacity(0.10) : Theme.field))
+            .overlay(RoundedRectangle(cornerRadius: 9)
+                .stroke(losesWork ? Theme.attention.opacity(0.45) : Color.clear))
+            .contentShape(RoundedRectangle(cornerRadius: 9))
         }
-        .padding(.horizontal, 11)
-        .padding(.vertical, 9)
-        .background(RoundedRectangle(cornerRadius: 9)
-            .fill(losesWork ? Theme.attention.opacity(0.10) : Theme.field))
-        .overlay(RoundedRectangle(cornerRadius: 9)
-            .stroke(losesWork ? Theme.attention.opacity(0.45) : Color.clear))
+        .buttonStyle(.plain)
+        .appTooltip("Click to review")
+        .accessibilityLabel("Review old sessions")
     }
 
     private var oldSessionDays: Int { appSettings.oldSessionDays }

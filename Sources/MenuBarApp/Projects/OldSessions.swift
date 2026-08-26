@@ -166,8 +166,15 @@ enum SessionAge {
 }
 
 // A clock face stays compact in the sidebar and makes the warning hour's remaining time
-// precise. Rounding up keeps it from showing zero before the sweep is actually due.
+// precise. Its final five minutes are urgent. Rounding up keeps it from showing zero
+// before the sweep is actually due.
 enum OldSessionCountdown {
+    private static let urgentThreshold: TimeInterval = 5 * 60
+
+    static func isUrgent(until deadline: Date, now: Date = Date()) -> Bool {
+        deadline.timeIntervalSince(now) <= urgentThreshold
+    }
+
     static func text(until deadline: Date, now: Date = Date()) -> String {
         let totalSeconds = max(0, Int(ceil(deadline.timeIntervalSince(now))))
         let hours = totalSeconds / 3_600

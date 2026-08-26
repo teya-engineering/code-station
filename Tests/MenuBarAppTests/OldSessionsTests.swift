@@ -89,6 +89,15 @@ struct OldSessionsTests {
             until: now.addingTimeInterval(-1), now: now) == "00:00")
     }
 
+    @Test func makesTheFinalFiveMinutesUrgent() {
+        #expect(!OldSessionCountdown.isUrgent(
+            until: now.addingTimeInterval(301), now: now))
+        #expect(OldSessionCountdown.isUrgent(
+            until: now.addingTimeInterval(300), now: now))
+        #expect(OldSessionCountdown.isUrgent(
+            until: now.addingTimeInterval(-1), now: now))
+    }
+
     @Test func saysHowLongAgoTheLastTurnWas() {
         #expect(SessionAge.phrase(since: now.addingTimeInterval(-3_600), now: now) == "today")
         #expect(SessionAge.phrase(since: now.addingTimeInterval(-86_400), now: now) == "yesterday")
