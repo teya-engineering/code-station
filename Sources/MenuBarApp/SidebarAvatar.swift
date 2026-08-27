@@ -47,6 +47,11 @@ struct SidebarAvatar: Equatable, Sendable {
         SidebarAvatarArt.artwork(for: self, style: style)?.primaryColour
     }
 
+    @MainActor
+    func artworkImage(style: DiceBearAvatarStyle) -> NSImage? {
+        SidebarAvatarArt.artwork(for: self, style: style)?.image
+    }
+
     static func artworkIndex(seed: String, count: Int = artworkCount) -> Int? {
         guard count > 0 else { return nil }
 

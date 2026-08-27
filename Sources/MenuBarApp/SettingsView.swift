@@ -784,13 +784,16 @@ struct SettingsView: View {
 
     private var sidebarIconStyleMenu: [MenuEntry] {
         var entries: [MenuEntry] = [
-            .item("Monogram", checked: settings.sidebarIconSet == .monograms) {
+            .item("Monogram", image: sidebarIconMonogramImage, imageShape: .tile,
+                  checked: settings.sidebarIconSet == .monograms) {
                 settings.sidebarIconSet = .monograms
             },
         ]
         entries.append(contentsOf:
             DiceBearAvatarStyle.allCases.map { style in
                 .item(style.label,
+                      image: SidebarAvatar.preview.artworkImage(style: style),
+                      imageShape: .tile,
                       checked: settings.sidebarIconSet == .diceBear
                         && settings.diceBearAvatarStyle == style) {
                     settings.diceBearAvatarStyle = style
@@ -798,6 +801,16 @@ struct SettingsView: View {
                 }
             })
         return entries
+    }
+
+    private var sidebarIconMonogramImage: NSImage? {
+        let name = "atlas-web"
+        let renderer = ImageRenderer(content: ProjectTileView(
+            name: name,
+            tint: Theme.projectTint(for: name),
+            side: 22))
+        renderer.scale = 2
+        return renderer.nsImage
     }
 
     // A miniature of the sidebar, drawn with the tile the rail itself uses, so a style is

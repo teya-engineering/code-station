@@ -20,6 +20,7 @@ enum MenuEntry {
                      kind: MenuItem.Kind = .plain,
                      icon: String? = nil,
                      image: NSImage? = nil,
+                     imageShape: MenuItem.ImageShape = .circle,
                      checked: Bool = false,
                      showsUpdate: Bool = false,
                      badge: String? = nil,
@@ -28,7 +29,8 @@ enum MenuEntry {
                      detail: String? = nil,
                      detailColour: Color? = nil,
                      action: @escaping () -> Void) -> MenuEntry {
-        .item(MenuItem(label: label, kind: kind, icon: icon, image: image, checked: checked,
+        .item(MenuItem(label: label, kind: kind, icon: icon, image: image,
+                       imageShape: imageShape, checked: checked,
                        showsUpdate: showsUpdate,
                        badge: badge, badgeTint: badgeTint, subtitle: subtitle,
                        detail: detail, detailColour: detailColour,
@@ -38,13 +40,14 @@ enum MenuEntry {
     static func item(_ label: String,
                      icon: String? = nil,
                      image: NSImage? = nil,
+                     imageShape: MenuItem.ImageShape = .circle,
                      badge: String? = nil,
                      badgeTint: Color? = nil,
                      subtitle: String? = nil,
                      detail: String,
                      detailColour: Color? = nil,
                      detailAction: @escaping () -> Void) -> MenuEntry {
-        .item(MenuItem(label: label, icon: icon, image: image,
+        .item(MenuItem(label: label, icon: icon, image: image, imageShape: imageShape,
                        badge: badge, badgeTint: badgeTint, subtitle: subtitle,
                        detail: detail, detailColour: detailColour,
                        detailHandler: detailAction))
@@ -76,6 +79,7 @@ struct MenuCardItem {
 
 struct MenuItem {
     enum Kind { case plain, destructive }
+    enum ImageShape { case circle, tile }
 
     let label: String
     var kind: Kind = .plain
@@ -83,6 +87,7 @@ struct MenuItem {
     // The host reserves the column for every row once one entry uses it.
     var icon: String?
     var image: NSImage?
+    var imageShape: ImageShape = .circle
     // Marks the row that is currently in force, for menus that pick one of a set.
     var checked = false
     var showsUpdate = false
@@ -645,11 +650,7 @@ private struct MenuItemRow: View {
             }
             if iconColumn {
                 if let image = item.image {
-                    Image(nsImage: image)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: 22, height: 22)
-                        .clipShape(Circle())
+                    menuImage(image)
                 } else {
                     Image(systemName: item.icon ?? "square")
                         .font(.system(size: 13, weight: .semibold))
@@ -708,6 +709,22 @@ private struct MenuItemRow: View {
             .fill(action != nil && hovering ? Color.black.opacity(0.05) : .clear)
             .padding(.horizontal, 5))
         .contentShape(Rectangle())
+    }
+
+    @ViewBuilder
+    private func menuImage(_ image: NSImage) -> some View {
+        let content = Image(nsImage: image)
+            .resizable()
+            .interpolation(.high)
+            .scaledToFill()
+            .frame(width: 22, height: 22)
+
+        switch item.imageShape {
+        case .circle:
+            content.clipShape(Circle())
+        case .tile:
+            content.clipShape(RoundedRectangle(cornerRadius: 6))
+        }
     }
 }
 

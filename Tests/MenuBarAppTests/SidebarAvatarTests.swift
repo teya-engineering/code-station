@@ -23,6 +23,13 @@ struct SidebarAvatarTests {
         #expect(avatar.artworkURL(style: .planets)?.isFileURL == true)
     }
 
+    @MainActor
+    @Test func providesAStillPreviewForEveryArtworkStyle() {
+        for style in DiceBearAvatarStyle.allCases {
+            #expect(SidebarAvatar.preview.artworkImage(style: style) != nil)
+        }
+    }
+
     @Test func derivesMotionFromActiveSessionsInTheSameContainer() {
         let projectID = UUID()
         let workspaceID = UUID()
