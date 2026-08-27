@@ -14,6 +14,65 @@ struct FileNode: Identifiable, Sendable, Equatable {
     var supportsMarkdownPreview: Bool { kind == "md" || kind == "markdown" }
 }
 
+// Navigation is kept separate from the view so the rules stay the same whether a row was
+// reached with the mouse or the keyboard. The rows are already flattened in display order,
+// and depth is enough to find a parent without rebuilding the tree.
+enum FileTreeNavigation {
+    struct Row: Equatable {
+        let path: String
+        let isDirectory: Bool
+        let depth: Int
+    }
+
+    enum Direction {
+        case up
+        case down
+        case left
+        case right
+    }
+
+    enum Action: Equatable {
+        case select(String)
+        case expand(String)
+        case collapse(String)
+    }
+
+    static func action(for direction: Direction, selectedPath: String?, rows: [Row],
+                       expanded: Set<String>) -> Action? {
+        guard !rows.isEmpty else { return nil }
+        guard let selectedPath,
+              let selectedIndex = rows.firstIndex(where: { $0.path == selectedPath }) else {
+            return switch direction {
+            case .up: .select(rows[rows.count - 1].path)
+            default: .select(rows[0].path)
+            }
+        }
+
+        let selected = rows[selectedIndex]
+        switch direction {
+        case .up:
+            guard selectedIndex > rows.startIndex else { return nil }
+            return .select(rows[selectedIndex - 1].path)
+        case .down:
+            guard selectedIndex < rows.index(before: rows.endIndex) else { return nil }
+            return .select(rows[selectedIndex + 1].path)
+        case .left:
+            if selected.isDirectory, expanded.contains(selected.path) {
+                return .collapse(selected.path)
+            }
+            guard selected.depth > 0 else { return nil }
+            let parent = rows[..<selectedIndex].last { $0.depth == selected.depth - 1 }
+            return parent.map { .select($0.path) }
+        case .right:
+            guard selected.isDirectory else { return nil }
+            if !expanded.contains(selected.path) { return .expand(selected.path) }
+            guard selectedIndex < rows.index(before: rows.endIndex),
+                  rows[selectedIndex + 1].depth == selected.depth + 1 else { return nil }
+            return .select(rows[selectedIndex + 1].path)
+        }
+    }
+}
+
 // What the explorer can show for one file. A file it cannot draw is still worth an entry:
 // knowing a path holds four megabytes of binary is an answer too.
 //

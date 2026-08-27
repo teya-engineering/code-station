@@ -24,6 +24,7 @@ struct ExplorerView: View {
     @State private var renderingMarkdown = false
     @State private var showHidden = true
     @State private var language: CodeLanguage?
+    @FocusState private var treeFocused: Bool
 
     // The text as loaded sits next to the draft, so "anything to save" and "anything to
     // lose" are both one comparison.
@@ -151,6 +152,11 @@ struct ExplorerView: View {
             }
         }
         .frame(width: 300)
+        .contentShape(Rectangle())
+        .focusable()
+        .focused($treeFocused)
+        .focusEffectDisabled()
+        .onMoveCommand(perform: moveTreeSelection)
     }
 
     private func treeRow(_ row: Row) -> some View {
@@ -159,7 +165,9 @@ struct ExplorerView: View {
         let isSelected = selected?.path == node.path
 
         return Button {
-            if node.isDirectory { toggle(node) } else { requestSelect(node) }
+            treeFocused = true
+            requestSelect(node)
+            if node.isDirectory { toggle(node) }
         } label: {
             HStack(spacing: 5) {
                 Image(systemName: "chevron.right")
@@ -335,7 +343,12 @@ struct ExplorerView: View {
             PaneMessage(icon: "exclamationmark.triangle", title: "Could not read this file",
                         detail: reason)
         case nil:
-            Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity)
+            if node.isDirectory {
+                PaneMessage(icon: "folder", title: "Folder selected",
+                            detail: "Use the left and right arrow keys to close and open folders.")
+            } else {
+                Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         }
     }
 
@@ -494,6 +507,7 @@ struct ExplorerView: View {
                 if children[path] == nil { await load(path) }
             }
             requestSelect(node)
+            treeFocused = true
         }
     }
 
@@ -542,6 +556,7 @@ struct ExplorerView: View {
         expanded = []
         selected = nil
         preview = nil
+        loadingPreview = false
         renderingMarkdown = false
         language = nil
         draft = ""
@@ -573,6 +588,39 @@ struct ExplorerView: View {
         } else {
             expanded.insert(node.path)
             if children[node.path] == nil { Task { await load(node.path) } }
+        }
+    }
+
+    private func moveTreeSelection(_ direction: MoveCommandDirection) {
+        guard dialogs.current == nil else { return }
+        let navigationDirection: FileTreeNavigation.Direction
+        switch direction {
+        case .up: navigationDirection = .up
+        case .down: navigationDirection = .down
+        case .left: navigationDirection = .left
+        case .right: navigationDirection = .right
+        @unknown default: return
+        }
+        let visibleRows = rows.map {
+            FileTreeNavigation.Row(path: $0.node.path,
+                                   isDirectory: $0.node.isDirectory,
+                                   depth: $0.depth)
+        }
+        guard let action = FileTreeNavigation.action(
+            for: navigationDirection,
+            selectedPath: selected?.path,
+            rows: visibleRows,
+            expanded: expanded) else { return }
+
+        switch action {
+        case .select(let path):
+            guard let node = rows.first(where: { $0.node.path == path })?.node else { return }
+            requestSelect(node)
+        case .expand(let path):
+            guard let node = rows.first(where: { $0.node.path == path })?.node else { return }
+            toggle(node)
+        case .collapse(let path):
+            expanded.remove(path)
         }
     }
 
@@ -650,12 +698,16 @@ struct ExplorerView: View {
         draft = ""
         original = ""
         loadedAt = nil
+        guard !node.isDirectory else {
+            loadingPreview = false
+            return
+        }
+        loadingPreview = true
         Task {
-            loadingPreview = true
             let loaded = await FileTree.preview(of: node.url)
             let modified = await FileTree.modified(of: node.url)
-            loadingPreview = false
             guard !Task.isCancelled, selected?.path == node.path else { return }
+            loadingPreview = false
             preview = loaded
             loadedAt = modified
             language = CodeLanguage(fileExtension: node.kind)

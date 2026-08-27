@@ -115,4 +115,65 @@ struct FileTreeTests {
         #expect(FileTree.ancestorDirectories(
             of: URL(fileURLWithPath: "/elsewhere/View.swift"), beneath: root).isEmpty)
     }
+
+    @Test func movesUpAndDownThroughVisibleRows() {
+        let rows = navigationRows()
+
+        #expect(FileTreeNavigation.action(
+            for: .down, selectedPath: "/project/Sources", rows: rows,
+            expanded: ["/project/Sources"]) == .select("/project/Sources/App.swift"))
+        #expect(FileTreeNavigation.action(
+            for: .up, selectedPath: "/project/README.md", rows: rows,
+            expanded: ["/project/Sources"]) == .select("/project/Sources/App.swift"))
+        #expect(FileTreeNavigation.action(
+            for: .up, selectedPath: "/project/Sources", rows: rows,
+            expanded: ["/project/Sources"]) == nil)
+    }
+
+    @Test func rightOpensFoldersThenMovesToTheirFirstChild() {
+        let rows = navigationRows()
+
+        #expect(FileTreeNavigation.action(
+            for: .right, selectedPath: "/project/Sources", rows: rows,
+            expanded: []) == .expand("/project/Sources"))
+        #expect(FileTreeNavigation.action(
+            for: .right, selectedPath: "/project/Sources", rows: rows,
+            expanded: ["/project/Sources"]) == .select("/project/Sources/App.swift"))
+        #expect(FileTreeNavigation.action(
+            for: .right, selectedPath: "/project/README.md", rows: rows,
+            expanded: ["/project/Sources"]) == nil)
+    }
+
+    @Test func leftClosesFoldersOrMovesToTheirParent() {
+        let rows = navigationRows()
+
+        #expect(FileTreeNavigation.action(
+            for: .left, selectedPath: "/project/Sources", rows: rows,
+            expanded: ["/project/Sources"]) == .collapse("/project/Sources"))
+        #expect(FileTreeNavigation.action(
+            for: .left, selectedPath: "/project/Sources/App.swift", rows: rows,
+            expanded: ["/project/Sources"]) == .select("/project/Sources"))
+        #expect(FileTreeNavigation.action(
+            for: .left, selectedPath: "/project/README.md", rows: rows,
+            expanded: ["/project/Sources"]) == nil)
+    }
+
+    @Test func startsAtTheNearestEndWhenNothingIsSelected() {
+        let rows = navigationRows()
+
+        #expect(FileTreeNavigation.action(
+            for: .down, selectedPath: nil, rows: rows,
+            expanded: ["/project/Sources"]) == .select("/project/Sources"))
+        #expect(FileTreeNavigation.action(
+            for: .up, selectedPath: nil, rows: rows,
+            expanded: ["/project/Sources"]) == .select("/project/README.md"))
+    }
+
+    private func navigationRows() -> [FileTreeNavigation.Row] {
+        [
+            .init(path: "/project/Sources", isDirectory: true, depth: 0),
+            .init(path: "/project/Sources/App.swift", isDirectory: false, depth: 1),
+            .init(path: "/project/README.md", isDirectory: false, depth: 0)
+        ]
+    }
 }
