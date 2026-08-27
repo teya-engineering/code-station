@@ -34,6 +34,7 @@ struct AppSidebar: View {
     @State private var filterText = ""
     @State private var revealedFilterContainerID: UUID?
     @State private var oldSessionSummary = OldSessionSummary()
+    @State private var hoveringOldSessions = false
     @State private var hoveringHome = false
     @FocusState private var filterFocused: Bool
 
@@ -1124,46 +1125,54 @@ struct AppSidebar: View {
     private func oldSessionsStrip(_ summary: OldSessionSummary) -> some View {
         let losesWork = summary.losesWork > 0
         return Button(action: onReviewOldSessions) {
-            HStack(spacing: 8) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("\(summary.sessions) session\(summary.sessions == 1 ? "" : "s") older than \(oldSessionDays) day\(oldSessionDays == 1 ? "" : "s")")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(losesWork ? Theme.attentionText : Color.primary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.85)
-                    Text(summary.losesWork == 1
-                         ? "1 session would lose work"
-                         : "\(summary.losesWork) sessions would lose work")
-                        .font(.mono(10))
-                        .foregroundStyle(losesWork ? Theme.attentionText : Color.secondary)
-                        .lineLimit(1)
-                }
-                Spacer(minLength: 8)
-                if let oldSessionDeletionAt,
-                   automaticallyDeletedCount(in: summary) > 0 {
-                    TimelineView(.periodic(from: .now, by: 1)) { context in
-                        let countdownIsUrgent = OldSessionCountdown.isUrgent(
-                            until: oldSessionDeletionAt,
-                            now: context.date)
-                        HStack(spacing: 4) {
-                            Image(systemName: "timer")
-                                .font(.system(size: 9, weight: .semibold))
-                            Text(OldSessionCountdown.text(
+            ZStack {
+                HStack(spacing: 8) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("\(summary.sessions) session\(summary.sessions == 1 ? "" : "s") older than \(oldSessionDays) day\(oldSessionDays == 1 ? "" : "s")")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(losesWork ? Theme.attentionText : Color.primary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.85)
+                        Text(summary.losesWork == 1
+                             ? "1 session would lose work"
+                             : "\(summary.losesWork) sessions would lose work")
+                            .font(.mono(10))
+                            .foregroundStyle(losesWork ? Theme.attentionText : Color.secondary)
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: 8)
+                    if let oldSessionDeletionAt,
+                       automaticallyDeletedCount(in: summary) > 0 {
+                        TimelineView(.periodic(from: .now, by: 1)) { context in
+                            let countdownIsUrgent = OldSessionCountdown.isUrgent(
+                                until: oldSessionDeletionAt,
+                                now: context.date)
+                            HStack(spacing: 4) {
+                                Image(systemName: "timer")
+                                    .font(.system(size: 9, weight: .semibold))
+                                Text(OldSessionCountdown.text(
+                                    until: oldSessionDeletionAt,
+                                    now: context.date))
+                                    .font(.mono(10, .semibold))
+                                    .monospacedDigit()
+                            }
+                            .foregroundStyle(countdownIsUrgent
+                                ? Theme.deletion
+                                : losesWork ? Theme.attentionText : Theme.accent)
+                            .accessibilityElement(children: .ignore)
+                            .accessibilityLabel("Automatic deletion countdown")
+                            .accessibilityValue(OldSessionCountdown.text(
                                 until: oldSessionDeletionAt,
                                 now: context.date))
-                                .font(.mono(10, .semibold))
-                                .monospacedDigit()
                         }
-                        .foregroundStyle(countdownIsUrgent
-                            ? Theme.deletion
-                            : losesWork ? Theme.attentionText : Theme.accent)
-                        .accessibilityElement(children: .ignore)
-                        .accessibilityLabel("Automatic deletion countdown")
-                        .accessibilityValue(OldSessionCountdown.text(
-                            until: oldSessionDeletionAt,
-                            now: context.date))
                     }
                 }
+                .opacity(hoveringOldSessions ? 0 : 1)
+
+                Text("Click to review")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(losesWork ? Theme.attentionText : Color.primary)
+                    .opacity(hoveringOldSessions ? 1 : 0)
             }
             .padding(.horizontal, 11)
             .padding(.vertical, 9)
@@ -1174,7 +1183,8 @@ struct AppSidebar: View {
             .contentShape(RoundedRectangle(cornerRadius: 9))
         }
         .buttonStyle(.plain)
-        .appTooltip("Click to review")
+        .animation(.easeOut(duration: 0.12), value: hoveringOldSessions)
+        .onHover { hoveringOldSessions = $0 }
         .accessibilityLabel("Review old sessions")
     }
 
