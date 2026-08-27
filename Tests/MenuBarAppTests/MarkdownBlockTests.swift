@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import Testing
 @testable import MenuBarApp
 
@@ -242,5 +243,45 @@ struct MarkdownBlockTests {
         let url = try #require(URL(string: "https://openai.com/docs"))
 
         #expect(TranscriptLink.finderTarget(for: url) == nil)
+    }
+
+    @Test @MainActor func givesWrappedLinkedListTextItsFullHeight() throws {
+        let wrappedItem = MarkdownListItem(
+            depth: 0,
+            marker: "1.",
+            text: "A list item with enough text to wrap before its " +
+                "[linked documentation](https://example.com/documentation).")
+        let followingItem = MarkdownListItem(
+            depth: 0,
+            marker: "2.",
+            text: "Read the [next page](https://example.com/next).")
+        let view = MarkdownBlockView(
+            block: MarkdownBlock(id: 0, kind: .list([wrappedItem, followingItem])),
+            projectPath: "/tmp",
+            textScale: 1)
+            .environment(TooltipPresenter())
+        let host = NSHostingView(rootView: view)
+        host.frame = CGRect(x: 0, y: 0, width: 800, height: 200)
+        host.layoutSubtreeIfNeeded()
+        host.frame.size.width = 280
+        host.layoutSubtreeIfNeeded()
+
+        let textViews = host.descendants.compactMap { $0 as? NSTextView }
+        try #require(textViews.count == 2)
+        for textView in textViews {
+            let layoutManager = try #require(textView.layoutManager)
+            let container = try #require(textView.textContainer)
+            layoutManager.ensureLayout(for: container)
+            #expect(textView.frame.height >= ceil(layoutManager.usedRect(for: container).height))
+        }
+
+        let frames = textViews.map { host.convert($0.bounds, from: $0) }.sorted { $0.minY < $1.minY }
+        #expect(frames[0].maxY <= frames[1].minY)
+    }
+}
+
+private extension NSView {
+    var descendants: [NSView] {
+        subviews + subviews.flatMap(\.descendants)
     }
 }

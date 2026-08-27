@@ -525,6 +525,14 @@ private final class LinkTextView: NSTextView {
     private var linkTrackingArea: NSTrackingArea?
     private var hoveredLink: TranscriptLink.Hovered?
 
+    // The text container reflows when its width changes, so SwiftUI must measure its
+    // new height before laying out the next block.
+    override func setFrameSize(_ newSize: NSSize) {
+        let widthChanged = frame.width != newSize.width
+        super.setFrameSize(newSize)
+        if widthChanged { invalidateIntrinsicContentSize() }
+    }
+
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let linkTrackingArea { removeTrackingArea(linkTrackingArea) }
