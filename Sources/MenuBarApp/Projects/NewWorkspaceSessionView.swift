@@ -152,11 +152,12 @@ struct NewWorkspaceSessionView: View {
         let usesWorktree = supportsWorktree && worktrees.contains(project.id)
         let checkout = GitWorktree.plan(projectName: project.name, projectID: project.id,
                                         sessionID: sessionID)
+        let tint = Theme.projectTint(for: project.name)
 
         return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
                 RoundedRectangle(cornerRadius: 3)
-                    .fill(projectColour(project.id))
+                    .fill(tint.colour)
                     .frame(width: 10, height: 10)
                 Text(project.name)
                     .font(.system(size: 15, weight: .semibold))
@@ -164,11 +165,11 @@ struct NewWorkspaceSessionView: View {
                 Text(lead ? "LEAD" : "ATTACHED")
                     .font(.mono(9.5, .semibold))
                     .kerning(0.5)
-                    .foregroundStyle(lead ? Theme.accent : projectColour(project.id))
+                    .foregroundStyle(lead ? Theme.accent : tint.colour)
                     .padding(.horizontal, 7)
                     .padding(.vertical, 3)
                     .background(RoundedRectangle(cornerRadius: 5)
-                        .fill((lead ? Theme.accent : projectColour(project.id)).opacity(0.1)))
+                        .fill((lead ? Theme.accent : tint.colour).opacity(0.1)))
                 Spacer(minLength: 8)
                 Text(project.collapsedPath)
                     .font(.mono(11))
@@ -434,12 +435,6 @@ struct NewWorkspaceSessionView: View {
                                         agentAvatarName: selectedAvatarName,
                                         mode: sessionType.sessionMode))
         dismiss()
-    }
-
-    private func projectColour(_ id: UUID) -> Color {
-        let colours = [Theme.accent, Theme.secret, Theme.attention, Theme.addition]
-        let value = id.uuidString.utf8.reduce(0) { ($0 + Int($1)) % colours.count }
-        return colours[value]
     }
 }
 

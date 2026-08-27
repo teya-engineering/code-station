@@ -86,6 +86,7 @@ struct NewWorkspaceView: View {
     private func projectRow(_ project: Project) -> some View {
         let isSelected = selected.contains(project.id)
         let isLead = leadProjectID == project.id
+        let tint = Theme.projectTint(for: project.name)
         return HStack(spacing: 12) {
             Button { toggle(project.id) } label: {
                 RoundedRectangle(cornerRadius: 6)
@@ -105,7 +106,7 @@ struct NewWorkspaceView: View {
             .buttonStyle(.plain)
 
             RoundedRectangle(cornerRadius: 3)
-                .fill(projectColour(project.id))
+                .fill(tint.colour)
                 .frame(width: 10, height: 10)
 
             VStack(alignment: .leading, spacing: 3) {
@@ -231,11 +232,5 @@ struct NewWorkspaceView: View {
                                                  leadProjectID: leadProjectID) else { return }
         onCreate(workspace)
         dismiss()
-    }
-
-    private func projectColour(_ id: UUID) -> Color {
-        let colours = [Theme.accent, Theme.secret, Theme.attention, Theme.addition]
-        let value = id.uuidString.utf8.reduce(0) { ($0 + Int($1)) % colours.count }
-        return colours[value]
     }
 }
