@@ -76,6 +76,34 @@ struct CodexTests {
         #expect(!entry.enabled)
     }
 
+    @Test func readsRemoteTransportForDiscovery() throws {
+        let entry = try #require(CodexCodeManager.Entry(json: """
+            {
+              "name": "remote",
+              "enabled": true,
+              "transport": {
+                "type": "streamable_http",
+                "url": "https://mcp.example/api"
+              }
+            }
+            """))
+
+        #expect(entry.url == "https://mcp.example/api")
+        #expect(entry.type == "streamable_http")
+    }
+
+    @Test func readsEveryServerNameFromTheCodexInventory() throws {
+        let data = Data("""
+            [
+              { "name": "zeta", "enabled": false },
+              { "name": "alpha", "enabled": true }
+            ]
+            """.utf8)
+
+        #expect(CodexCodeManager.serverNames(in: data) == ["alpha", "zeta"])
+        #expect(CodexCodeManager.serverNames(in: Data("{}".utf8)) == nil)
+    }
+
     // MARK: - Arguments
 
     @Test func codexRunsExecWithASandboxAndStdinPrompt() {

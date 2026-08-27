@@ -11,6 +11,8 @@ struct ConfigManagerView: View {
     @State private var addingPresetGroup: SiteDefaults.MCP.PresetGroup?
     @State private var showingAddJSON = false
     @State private var grafanaExpanded = true
+    @State private var agentConfiguredExpanded = false
+    @State private var selectedAgentConfiguredName: String?
     @State private var filter = ""
 
     var body: some View {
@@ -50,6 +52,16 @@ struct ConfigManagerView: View {
         .sheet(item: $addingPresetGroup) { AddServerView(group: $0).appOverlays() }
         .sheet(isPresented: $showingAddJSON) { AddJSONServerView() }
         .onAppear { refreshIntegrations() }
+        .onChange(of: filter) {
+            if !trimmedFilter.isEmpty { agentConfiguredExpanded = true }
+        }
+        .onChange(of: agentConfiguredServers.map(\.name)) {
+            guard let selectedAgentConfiguredName,
+                  !agentConfiguredServers.contains(where: {
+                      $0.name == selectedAgentConfiguredName
+                  }) else { return }
+            self.selectedAgentConfiguredName = nil
+        }
     }
 
     // MARK: - Header
@@ -74,7 +86,10 @@ struct ConfigManagerView: View {
                     .foregroundStyle(.secondary)
             }
             .appMenu {
-                [.item("Reload from disk") { store.load() },
+                [.item("Reload from disk") {
+                    store.load()
+                    refreshIntegrations()
+                 },
                  .item("Reveal config in Finder") {
                      NSWorkspace.shared.activateFileViewerSelecting([store.configURL])
                  }]
@@ -93,7 +108,7 @@ struct ConfigManagerView: View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Servers").font(.serif(22, .semibold))
-                Text("\(processes.runningCount(among: store.servers.map(\.id))) of \(store.servers.count) running")
+                Text("\(processes.runningCount(among: store.servers.map(\.id))) of \(store.servers.count) Code Station servers running")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
             }
@@ -146,7 +161,19 @@ struct ConfigManagerView: View {
                         .padding(.bottom, 2)
                     }
                     ForEach(otherServers) { row(for: $0) }
-                    if grafanaServers.isEmpty && otherServers.isEmpty && !filter.isEmpty {
+                    if !filteredAgentConfiguredServers.isEmpty {
+                        AgentConfiguredGroupHeader(
+                            total: filteredAgentConfiguredServers.count,
+                            expanded: $agentConfiguredExpanded)
+                        if agentConfiguredExpanded || !trimmedFilter.isEmpty {
+                            VStack(spacing: 4) {
+                                ForEach(filteredAgentConfiguredServers) { row(for: $0) }
+                            }
+                            .transition(.fadeIn)
+                        }
+                    }
+                    if grafanaServers.isEmpty && otherServers.isEmpty
+                        && filteredAgentConfiguredServers.isEmpty && !trimmedFilter.isEmpty {
                         Text("No servers match.")
                             .font(.system(size: 12))
                             .foregroundStyle(.secondary)
@@ -238,20 +265,50 @@ struct ConfigManagerView: View {
         .background(Theme.sidebar)
     }
 
-    private func matches(_ server: Server) -> Bool {
-        let query = filter.trimmingCharacters(in: .whitespaces)
-        return query.isEmpty || server.name.localizedCaseInsensitiveContains(query)
+    private var trimmedFilter: String {
+        filter.trimmingCharacters(in: .whitespaces)
     }
 
-    private var grafanaServers: [Server] { store.servers.filter { $0.isGrafana && matches($0) } }
-    private var otherServers: [Server] { store.servers.filter { !$0.isGrafana && matches($0) } }
+    private func matches(_ name: String) -> Bool {
+        trimmedFilter.isEmpty || name.localizedCaseInsensitiveContains(trimmedFilter)
+    }
+
+    private var grafanaServers: [Server] {
+        store.servers.filter { $0.isGrafana && matches($0.name) }
+    }
+
+    private var otherServers: [Server] {
+        store.servers.filter { !$0.isGrafana && matches($0.name) }
+    }
+
+    private var agentConfiguredServers: [AgentConfiguredServer] {
+        AgentConfiguredServer.outsideCodeStation(
+            managedServers: store.servers,
+            claudeEntries: claude.entries,
+            codexEntries: codex.entries)
+    }
+
+    private var filteredAgentConfiguredServers: [AgentConfiguredServer] {
+        agentConfiguredServers.filter { matches($0.name) }
+    }
 
     private func row(for server: Server) -> some View {
         ServerRow(server: server,
-                  selected: server.id == store.selectedID,
+                  selected: selectedAgentConfiguredName == nil && server.id == store.selectedID,
                   running: processes.state(server.id).isActive)
             .contentShape(Rectangle())
-            .onTapGesture { store.selectedID = server.id }
+            .onTapGesture {
+                selectedAgentConfiguredName = nil
+                store.selectedID = server.id
+            }
+    }
+
+    private func row(for server: AgentConfiguredServer) -> some View {
+        AgentConfiguredServerRow(
+            server: server,
+            selected: selectedAgentConfiguredName == server.id)
+            .contentShape(Rectangle())
+            .onTapGesture { selectedAgentConfiguredName = server.id }
     }
 
     private func toggleAllGrafana() {
@@ -281,15 +338,51 @@ struct ConfigManagerView: View {
     // MARK: - Detail
 
     @ViewBuilder private var detail: some View {
-        if let server = store.selected {
+        if let name = selectedAgentConfiguredName,
+           let server = agentConfiguredServers.first(where: { $0.name == name }) {
+            AgentConfiguredServerDetailView(server: server)
+                .id(server.id)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if let server = store.selected {
             ServerDetailView(serverID: server.id)
                 .id(server.id)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-            EmptyDetail(hasServers: !store.servers.isEmpty,
+            EmptyDetail(hasServers: !store.servers.isEmpty || !agentConfiguredServers.isEmpty,
                         addMenu: { addServerMenuEntries })
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+    }
+}
+
+private struct AgentConfiguredGroupHeader: View {
+    let total: Int
+    @Binding var expanded: Bool
+
+    var body: some View {
+        Button {
+            expanded.toggle()
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(.secondary)
+                    .rotationEffect(.degrees(expanded ? 90 : 0))
+                Text("CONFIGURED ELSEWHERE")
+                    .font(.system(size: 11, weight: .semibold))
+                    .kerning(0.6)
+                    .foregroundStyle(.secondary)
+                Text("\(total)")
+                    .font(.mono(11))
+                    .foregroundStyle(.secondary)
+                Spacer()
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 12)
+        .padding(.top, 10)
+        .padding(.bottom, 2)
     }
 }
 
@@ -371,6 +464,43 @@ private struct ServerRow: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
         .background(RoundedRectangle(cornerRadius: 9).fill(selected ? Color.black.opacity(0.06) : .clear))
+    }
+}
+
+private struct AgentConfiguredServerRow: View {
+    let server: AgentConfiguredServer
+    let selected: Bool
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "link")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 8)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(server.name)
+                    .font(.system(size: 13, weight: .semibold))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                HStack(spacing: 4) {
+                    ForEach(server.registrations) { registration in
+                        Text(registration.enabled
+                             ? registration.source.shortTitle
+                             : "\(registration.source.shortTitle) off")
+                            .font(.system(size: 9.5, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Capsule().fill(Color.black.opacity(0.05)))
+                    }
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(RoundedRectangle(cornerRadius: 9)
+            .fill(selected ? Color.black.opacity(0.06) : .clear))
     }
 }
 

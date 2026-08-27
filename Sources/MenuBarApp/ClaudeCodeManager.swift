@@ -11,7 +11,10 @@ final class ClaudeCodeManager {
     struct Entry: Equatable {
         var command: String?
         var args: [String] = []
-        var env: [String: String]
+        var env: [String: String] = [:]
+        var url: String?
+        var type: String?
+        var headers: [String: String] = [:]
     }
 
     private let configURL: URL
@@ -47,19 +50,27 @@ final class ClaudeCodeManager {
 
     func refresh() {
         guard let data = try? Data(contentsOf: configURL),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let servers = obj["mcpServers"] as? [String: Any] else {
+              let result = Self.configurationEntries(in: data) else {
             entries = [:]
             return
         }
+        entries = result
+    }
+
+    nonisolated static func configurationEntries(in data: Data) -> [String: Entry]? {
+        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let servers = obj["mcpServers"] as? [String: Any] else { return nil }
         var result: [String: Entry] = [:]
         for (name, value) in servers {
             let dict = value as? [String: Any]
             result[name] = Entry(command: dict?["command"] as? String,
                                  args: (dict?["args"] as? [String]) ?? [],
-                                 env: (dict?["env"] as? [String: String]) ?? [:])
+                                 env: (dict?["env"] as? [String: String]) ?? [:],
+                                 url: dict?["url"] as? String,
+                                 type: dict?["type"] as? String,
+                                 headers: (dict?["headers"] as? [String: String]) ?? [:])
         }
-        entries = result
+        return result
     }
 
     // Pasteable shell command shown by "Copy command" (this one is quoted for a shell).

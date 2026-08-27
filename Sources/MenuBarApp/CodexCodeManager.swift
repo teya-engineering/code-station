@@ -13,6 +13,7 @@ final class CodexCodeManager {
         var args: [String] = []
         var env: [String: String] = [:]
         var url: String?
+        var type: String?
         var enabled = true
     }
 
@@ -64,8 +65,8 @@ final class CodexCodeManager {
         servers.filter { supports($0) && (!isRegistered($0.name) || isOutOfSync($0)) }
     }
 
-    // Codex exposes each registered server as JSON, which avoids needing to parse its
-    // TOML file and keeps this compatible with config format changes.
+    // Codex exposes its server names and each registered server as JSON, which avoids
+    // needing to parse its TOML file and keeps this compatible with config format changes.
     func refresh(_ servers: [Server]) {
         knownServers = Dictionary(uniqueKeysWithValues: servers.map { ($0.name, $0) })
         let id = UUID()
@@ -76,7 +77,7 @@ final class CodexCodeManager {
             isRefreshing = false
             return
         }
-        refreshEntry(codexPath, servers: servers, index: 0, entries: [:], refreshID: id)
+        refreshServerNames(codexPath, fallbackNames: servers.map(\.name), refreshID: id)
     }
 
     func addCommand(for server: Server) -> String? {
@@ -194,6 +195,13 @@ final class CodexCodeManager {
 
     // MARK: - Private
 
+    nonisolated static func serverNames(in data: Data) -> [String]? {
+        guard let servers = try? JSONDecoder().decode([ListedServer].self, from: data) else {
+            return nil
+        }
+        return servers.map(\.name).sorted()
+    }
+
     private func resolvedCommand(_ server: Server) -> String? {
         guard let command = server.command, !command.isEmpty else { return nil }
         return ProcessManager.resolve(command) ?? command
@@ -215,19 +223,64 @@ final class CodexCodeManager {
         return "\"\(server.name)\" needs a command or url to register."
     }
 
-    private func refreshEntry(_ codexPath: String, servers: [Server], index: Int,
+    private func refreshServerNames(_ codexPath: String, fallbackNames: [String],
+                                    refreshID: UUID) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: codexPath)
+        process.arguments = ["mcp", "list", "--json"]
+        process.standardInput = FileHandle.nullDevice
+        var env = ProcessInfo.processInfo.environment
+        env["PATH"] = ProcessManager.searchPath
+        process.environment = env
+        let output = Pipe()
+        let errors = Pipe()
+        CommandRunner.closeOnExec(output, errors)
+        process.standardOutput = output
+        process.standardError = errors
+        let outputReader = Task.detached {
+            output.fileHandleForReading.readDataToEndOfFile()
+        }
+        let errorReader = Task.detached {
+            errors.fileHandleForReading.readDataToEndOfFile()
+        }
+
+        let manager = self
+        process.terminationHandler = { finished in
+            Task { @MainActor in
+                guard refreshID == manager.refreshID else { return }
+                let data = await outputReader.value
+                _ = await errorReader.value
+                let names = finished.terminationStatus == 0
+                    ? Self.serverNames(in: data) ?? fallbackNames
+                    : fallbackNames
+                manager.refreshEntry(codexPath, names: names, index: 0,
+                                     entries: [:], refreshID: refreshID)
+            }
+        }
+
+        do {
+            try process.run()
+        } catch {
+            output.fileHandleForWriting.closeFile()
+            errors.fileHandleForWriting.closeFile()
+            refreshEntry(codexPath, names: fallbackNames, index: 0,
+                         entries: [:], refreshID: refreshID)
+        }
+    }
+
+    private func refreshEntry(_ codexPath: String, names: [String], index: Int,
                               entries: [String: Entry], refreshID: UUID) {
         guard refreshID == self.refreshID else { return }
-        guard index < servers.count else {
+        guard index < names.count else {
             self.entries = entries
             isRefreshing = false
             return
         }
 
-        let server = servers[index]
+        let name = names[index]
         let process = Process()
         process.executableURL = URL(fileURLWithPath: codexPath)
-        process.arguments = ["mcp", "get", server.name, "--json"]
+        process.arguments = ["mcp", "get", name, "--json"]
         process.standardInput = FileHandle.nullDevice
         var env = ProcessInfo.processInfo.environment
         env["PATH"] = ProcessManager.searchPath
@@ -247,9 +300,9 @@ final class CodexCodeManager {
                 let output = await reader.value
                 var nextEntries = entries
                 if finished.terminationStatus == 0, let entry = Entry(json: output) {
-                    nextEntries[server.name] = entry
+                    nextEntries[name] = entry
                 }
-                manager.refreshEntry(codexPath, servers: servers, index: index + 1,
+                manager.refreshEntry(codexPath, names: names, index: index + 1,
                                      entries: nextEntries, refreshID: refreshID)
             }
         }
@@ -258,7 +311,7 @@ final class CodexCodeManager {
             try process.run()
         } catch {
             pipe.fileHandleForWriting.closeFile()
-            refreshEntry(codexPath, servers: servers, index: index + 1,
+            refreshEntry(codexPath, names: names, index: index + 1,
                          entries: entries, refreshID: refreshID)
         }
     }
@@ -336,6 +389,7 @@ extension CodexCodeManager.Entry {
         args = transport["args"] as? [String] ?? []
         env = transport["env"] as? [String: String] ?? [:]
         url = transport["url"] as? String
+        type = command == nil ? transport["type"] as? String : nil
         enabled = (root["enabled"] as? Bool) ?? (config["enabled"] as? Bool) ?? true
     }
 }
