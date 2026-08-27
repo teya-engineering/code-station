@@ -188,35 +188,24 @@ struct NewWorkspaceSessionView: View {
                 }
             }
 
-            HStack(spacing: 8) {
-                modeButton("Worktree", selected: usesWorktree,
-                           enabled: supportsWorktree, tint: projectColour(project.id)) {
+            CheckoutModePicker(
+                usesWorktree: usesWorktree,
+                supportsWorktree: supportsWorktree,
+                branch: usesWorktree ? checkout.branch : GitHead.branch(at: project.path),
+                path: usesWorktree ? checkout.path.abbreviatedPath : project.collapsedPath,
+                selectWorktree: {
                     worktrees.insert(project.id)
                     if let report = freshness[project.id], report.defaultBranchHasDiverged,
                        !chosenStartPoints.contains(project.id) {
                         startPoints[project.id] = .remote
                     }
-                }
-                modeButton("Project folder", selected: !usesWorktree,
-                           enabled: true, tint: projectColour(project.id)) {
+                },
+                selectProjectFolder: {
                     worktrees.remove(project.id)
                     if startPoints[project.id] == .remote {
                         startPoints[project.id] = .currentCheckout
                     }
-                }
-                Spacer(minLength: 8)
-                Text(usesWorktree ? checkout.path.abbreviatedPath : project.collapsedPath)
-                    .font(.mono(11))
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-
-            if !supportsWorktree {
-                Text("This folder is not a Git repository, so the session uses it directly.")
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(.secondary)
-            }
+                })
 
             if let report = freshness[project.id],
                report.isStale || (usesWorktree && report.dirty) {
@@ -236,26 +225,6 @@ struct NewWorkspaceSessionView: View {
     private func startPoint(_ id: UUID) -> Binding<SessionStartPoint> {
         Binding(get: { startPoints[id] ?? .currentCheckout },
                 set: { startPoints[id] = $0 })
-    }
-
-    private func modeButton(_ title: String, selected: Bool, enabled: Bool,
-                            tint: Color, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(.system(size: 12.5, weight: .semibold))
-                .foregroundStyle(selected ? AnyShapeStyle(Color.white)
-                                           : AnyShapeStyle(enabled ? Color.primary : Color.secondary))
-                .padding(.horizontal, 14)
-                .frame(height: 32)
-                .background(RoundedRectangle(cornerRadius: 8)
-                    .fill(selected ? tint : Theme.background))
-                .overlay(RoundedRectangle(cornerRadius: 8)
-                    .stroke(selected ? Color.clear : Theme.border))
-                .contentShape(Rectangle())
-                .opacity(enabled ? 1 : 0.45)
-        }
-        .buttonStyle(.plain)
-        .disabled(!enabled)
     }
 
     private var footer: some View {

@@ -171,6 +171,7 @@ struct OptionRow: View {
 struct ChoicePill: View {
     let title: String
     let selected: Bool
+    var enabled = true
     let choose: () -> Void
 
     var body: some View {
@@ -188,7 +189,9 @@ struct ChoicePill: View {
                 .overlay(RoundedRectangle(cornerRadius: 8)
                     .stroke(selected ? .clear : Theme.border))
                 .contentShape(Rectangle())
+                .opacity(enabled ? 1 : 0.45)
         }
         .buttonStyle(.plain)
+        .disabled(!enabled)
     }
 }

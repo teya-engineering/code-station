@@ -79,34 +79,18 @@ struct NewSessionView: View {
                 .transition(.fadeIn)
             }
             VStack(spacing: 10) {
-                if project.isGitRepository {
-                    OptionCard(
-                        title: "Use a git worktree",
-                        badge: "Runs in parallel",
-                        badgeTint: Theme.accent,
-                        detail: "An isolated checkout on its own branch, so several sessions of this project can run at once.",
-                        branch: planned.branch,
-                        path: planned.path.abbreviatedPath,
-                        selected: useWorktree) { selectWorktree() }
-
-                    OptionCard(
-                        title: "Work in the project folder",
-                        badge: "One at a time",
-                        badgeTint: Theme.secret,
-                        detail: "Edits your working tree directly. Sessions that share a folder cannot run together.",
-                        branch: GitHead.branch(at: project.path),
-                        path: project.collapsedPath,
-                        selected: !useWorktree) { selectProjectFolder() }
-                } else {
-                    OptionCard(
-                        title: "Work in the project folder",
-                        badge: "Direct",
-                        badgeTint: Theme.secret,
-                        detail: "Uses this folder directly for the session.",
-                        branch: nil,
-                        path: project.collapsedPath,
-                        selected: true) { selectProjectFolder() }
-                }
+                CheckoutModePicker(
+                    usesWorktree: useWorktree,
+                    supportsWorktree: project.isGitRepository,
+                    branch: project.isGitRepository
+                        ? (useWorktree ? planned.branch : GitHead.branch(at: project.path))
+                        : nil,
+                    path: useWorktree ? planned.path.abbreviatedPath : project.collapsedPath,
+                    selectWorktree: selectWorktree,
+                    selectProjectFolder: selectProjectFolder)
+                    .padding(14)
+                    .background(RoundedRectangle(cornerRadius: 11).fill(Theme.card))
+                    .overlay(RoundedRectangle(cornerRadius: 11).stroke(Theme.border))
 
                 NewSessionTypeOption(selection: $sessionType,
                                      designEnabled: appSettings.designEnabled)
@@ -554,47 +538,64 @@ struct FreshnessNotice: View {
     }
 }
 
-// One of the two ways to run, as a card the whole of which is the target. The line at the
-// bottom is the point of the card: it is what turns "an isolated checkout" into a branch
-// and a folder the user can recognise.
-private struct OptionCard: View {
-    let title: String
-    let badge: String
-    let badgeTint: Color
-    let detail: String
+struct CheckoutModePicker: View {
+    let usesWorktree: Bool
+    let supportsWorktree: Bool
     let branch: String?
     let path: String
-    let selected: Bool
-    let choose: () -> Void
+    let selectWorktree: () -> Void
+    let selectProjectFolder: () -> Void
+
+    private var detail: String {
+        if usesWorktree {
+            return "Isolated checkout. Several sessions can run at once."
+        }
+        if supportsWorktree {
+            return "Edits this checkout directly. Sessions that share it cannot run together."
+        }
+        return "This folder is not a Git repository, so the session uses it directly."
+    }
+
+    private var worktreeTooltip: Tooltip {
+        supportsWorktree
+            ? Tooltip(
+                title: "Worktree",
+                subtitle: "Use an isolated checkout so several sessions for this project can run at once.")
+            : Tooltip(
+                title: "Worktree unavailable",
+                subtitle: "This folder is not a Git repository, so it cannot use a worktree.")
+    }
+
+    private var worktreeAccessibilityHint: String {
+        supportsWorktree
+            ? "Uses an isolated checkout so sessions can run in parallel."
+            : "Unavailable because this folder is not a Git repository."
+    }
 
     var body: some View {
-        Button(action: choose) {
-            VStack(alignment: .leading, spacing: 7) {
-                HStack(spacing: 9) {
-                    Text(title)
-                        .font(.system(size: 14, weight: .semibold))
-                    Text(badge.uppercased())
-                        .font(.mono(9.5, .semibold))
-                        .kerning(0.6)
-                        .foregroundStyle(badgeTint)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background(RoundedRectangle(cornerRadius: 5).fill(badgeTint.opacity(0.12)))
-                    Spacer(minLength: 0)
-                }
-                Text(detail)
-                    .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.leading)
-                    .fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 8) {
+                ChoicePill(title: "Worktree", selected: usesWorktree,
+                           enabled: supportsWorktree, choose: selectWorktree)
+                    .appTooltip { worktreeTooltip }
+                    .accessibilityHint(worktreeAccessibilityHint)
+                ChoicePill(title: "Project folder", selected: !usesWorktree,
+                           choose: selectProjectFolder)
+                    .appTooltip {
+                        Tooltip(
+                            title: "Project folder",
+                            subtitle: "Edit the existing checkout directly. Sessions that share this folder cannot run together.")
+                    }
+                    .accessibilityHint("Edits the existing checkout directly, one session at a time.")
+                Spacer(minLength: 8)
                 HStack(spacing: 6) {
                     if let branch {
                         Label(branch, systemImage: "arrow.triangle.branch")
-                            .font(.mono(11.5))
+                            .font(.mono(11))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                         Text("·")
-                            .font(.mono(11.5))
+                            .font(.mono(11))
                             .foregroundStyle(.tertiary)
                     }
                     Text(path)
@@ -604,13 +605,10 @@ private struct OptionCard: View {
                         .truncationMode(.middle)
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(14)
-            .background(RoundedRectangle(cornerRadius: 11).fill(Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: 11)
-                .stroke(selected ? Theme.accent : Theme.border, lineWidth: selected ? 1.5 : 1))
-            .contentShape(Rectangle())
+            Text(detail)
+                .font(.system(size: 11.5))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .buttonStyle(.plain)
     }
 }
