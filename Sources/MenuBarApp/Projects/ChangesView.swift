@@ -1,6 +1,64 @@
 import AppKit
 import SwiftUI
 
+struct ChangeFileSelection: Equatable {
+    private(set) var ids: Set<GitChange.ID> = []
+    private(set) var anchorID: GitChange.ID?
+    private(set) var activeID: GitChange.ID?
+
+    mutating func select(_ id: GitChange.ID, in orderedIDs: [GitChange.ID],
+                         extendingRange: Bool, toggling: Bool) {
+        guard let clickedIndex = orderedIDs.firstIndex(of: id) else { return }
+
+        if extendingRange,
+           let anchorID,
+           let anchorIndex = orderedIDs.firstIndex(of: anchorID) {
+            let bounds = min(anchorIndex, clickedIndex)...max(anchorIndex, clickedIndex)
+            let range = Set(orderedIDs[bounds])
+            ids = toggling ? ids.union(range) : range
+            activeID = id
+            return
+        }
+
+        if toggling {
+            if ids.remove(id) == nil {
+                ids.insert(id)
+                anchorID = id
+                activeID = id
+            } else {
+                let replacement = orderedIDs.first { ids.contains($0) }
+                if anchorID == id { anchorID = replacement }
+                if activeID == id { activeID = replacement }
+            }
+            return
+        }
+
+        ids = [id]
+        anchorID = id
+        activeID = id
+    }
+
+    mutating func retain(_ validIDs: Set<GitChange.ID>, in orderedIDs: [GitChange.ID]) {
+        ids.formIntersection(validIDs)
+        if anchorID.map({ !validIDs.contains($0) }) == true { anchorID = nil }
+        if activeID.map({ !validIDs.contains($0) }) == true {
+            activeID = orderedIDs.first { ids.contains($0) }
+        }
+        if ids.isEmpty {
+            anchorID = nil
+            activeID = nil
+        } else if anchorID == nil {
+            anchorID = activeID
+        }
+    }
+
+    mutating func clear() {
+        ids = []
+        anchorID = nil
+        activeID = nil
+    }
+}
+
 // The uncommitted changes in a session's folder: the project directory itself, or the
 // session's worktree. Sessions edit the real files there, so this screen is how you
 // see what the agent did before you keep it. The diffs themselves never touch the tree;
@@ -26,7 +84,7 @@ struct ChangesView: View {
     @State private var excluded: Set<GitChange.ID> = []
     @State private var amend = false
     @State private var messageBeforeAmend = ""
-    @State private var selectedID: GitChange.ID?
+    @State private var fileSelection = ChangeFileSelection()
     @State private var commits: [GitCommitSummary]?
     @State private var historyNote: String?
     @State private var loadingHistory = false
@@ -36,7 +94,7 @@ struct ChangesView: View {
     @State private var loadingDiff = false
 
     private var files: [GitChange] { snapshot?.files ?? [] }
-    private var selected: GitChange? { files.first { $0.id == selectedID } }
+    private var selected: GitChange? { files.first { $0.id == fileSelection.activeID } }
     private var selectedFiles: [GitChange] { files.filter { !excluded.contains($0.id) } }
     private var repoRoot: String { snapshot?.root ?? root }
     private var busy: Bool { loading || working != nil }
@@ -316,7 +374,7 @@ struct ChangesView: View {
                         detail: "The working tree matches the last commit.")
             } else {
                 fileList
-                if selectedID != nil {
+                if fileSelection.activeID != nil {
                     Divider().overlay(Theme.hairline)
                     diffPane
                 }
@@ -349,11 +407,11 @@ struct ChangesView: View {
             .padding(.vertical, 10)
         }
         // Give the diff the room once a file is open, otherwise fill the pane.
-        .frame(maxHeight: selectedID == nil ? .infinity : 260)
+        .frame(maxHeight: fileSelection.activeID == nil ? .infinity : 260)
     }
 
     private func row(_ file: GitChange) -> some View {
-        let isSelected = file.id == selectedID
+        let isSelected = fileSelection.ids.contains(file.id)
         return Button {
             select(file)
         } label: {
@@ -402,6 +460,7 @@ struct ChangesView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
         .appContextMenu {
             [.item("Commit This File…") { beginCommit(with: file) },
              .separator,
@@ -446,6 +505,11 @@ struct ChangesView: View {
                 HStack(spacing: 10) {
                     Text(file.fileName).font(.serif(15, .semibold)).lineLimit(1)
                     Text(file.kind.label).font(.system(size: 11)).foregroundStyle(.secondary)
+                    if fileSelection.ids.count > 1 {
+                        Text("\(fileSelection.ids.count) files selected")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
                     Spacer()
                     if loadingDiff { ProgressView().controlSize(.small) }
                     Button("Reveal in Finder") { reveal(file) }
@@ -853,7 +917,10 @@ struct ChangesView: View {
         }
 
         // Keep the open file open across a refresh, but only if it still has changes.
-        if let selectedID, let file = fresh.files.first(where: { $0.id == selectedID }) {
+        let orderedIDs = fresh.files.map(\.id)
+        fileSelection.retain(Set(orderedIDs), in: orderedIDs)
+        if let selectedID = fileSelection.activeID,
+           let file = fresh.files.first(where: { $0.id == selectedID }) {
             await loadDiff(file, root: fresh.root)
         } else {
             closeDiff()
@@ -889,14 +956,18 @@ struct ChangesView: View {
     }
 
     private func select(_ file: GitChange) {
-        guard selectedID != file.id else {
-            closeDiff()
-            return
-        }
-        closeDiff()
-        selectedID = file.id
+        let flags = NSApp.currentEvent?.modifierFlags.intersection(.deviceIndependentFlagsMask) ?? []
+        let previousActiveID = fileSelection.activeID
+        fileSelection.select(file.id,
+                             in: files.map(\.id),
+                             extendingRange: flags.contains(.shift),
+                             toggling: flags.contains(.command))
+        guard fileSelection.activeID != previousActiveID else { return }
+        clearDiffContent()
+        guard let selectedID = fileSelection.activeID,
+              let selected = files.first(where: { $0.id == selectedID }) else { return }
         let root = snapshot?.root ?? root
-        Task { await loadDiff(file, root: root) }
+        Task { await loadDiff(selected, root: root) }
     }
 
     private func select(_ commit: GitCommitSummary) {
@@ -935,16 +1006,21 @@ struct ChangesView: View {
     }
 
     private func closeDiff() {
-        selectedID = nil
+        fileSelection.clear()
         selectedCommit = nil
+        clearDiffContent()
+    }
+
+    private func clearDiffContent() {
         diff = nil
         diffText = nil
+        loadingDiff = false
     }
 
     private func loadDiff(_ file: GitChange, root: String) async {
         loadingDiff = true
         let loaded = await GitInspector.diff(for: file, root: root)
-        guard !Task.isCancelled, selectedID == file.id else { return }
+        guard !Task.isCancelled, fileSelection.activeID == file.id else { return }
         diff = loaded
         diffText = loaded.lines.isEmpty ? nil : DiffText.attributed(
             loaded.lines,
