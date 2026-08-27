@@ -68,16 +68,6 @@ struct NewSessionView: View {
     private var sessionSetup: some View {
         VStack(spacing: 0) {
             header
-            if project.isGitRepository,
-               let report = freshness, report.isStale || (useWorktree && report.dirty) {
-                FreshnessNotice(report: report, forWorktree: useWorktree,
-                                startPoint: $startPoint) {
-                    startPointWasChosen = true
-                }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 12)
-                .transition(.fadeIn)
-            }
             VStack(spacing: 10) {
                 CheckoutModePicker(
                     usesWorktree: useWorktree,
@@ -91,6 +81,15 @@ struct NewSessionView: View {
                     .padding(14)
                     .background(RoundedRectangle(cornerRadius: 11).fill(Theme.card))
                     .overlay(RoundedRectangle(cornerRadius: 11).stroke(Theme.border))
+
+                if project.isGitRepository,
+                   let report = freshness, report.isStale || (useWorktree && report.dirty) {
+                    FreshnessNotice(report: report, forWorktree: useWorktree,
+                                    startPoint: $startPoint) {
+                        startPointWasChosen = true
+                    }
+                    .transition(.fadeIn)
+                }
 
                 NewSessionTypeOption(selection: $sessionType,
                                      designEnabled: appSettings.designEnabled)
