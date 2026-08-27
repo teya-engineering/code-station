@@ -76,6 +76,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // A turn that was mid-flight when the app died leaves no other trace, so the log
         // needs somewhere to show that the run it belonged to ended here.
         SessionLog.note("app launched")
+        closeShellsLeftBehind()
+        // A deleted project or session leaves no way back to its terminals, so they are
+        // closed with it rather than kept alive by a store nothing can reach.
+        projects.onRemoved = { [weak self] id in self?.terminals.discard(id) }
         Attachments.pruneOldPastes()
         AppNotifier.shared.activate()
         AppNotifier.shared.openSession = { [weak self] sessionID in
@@ -83,6 +87,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.showManager()
         }
         showManager()
+    }
+
+    // A terminal outlives the app that opened it. A run ending anywhere other than
+    // applicationWillTerminate - a crash, a force quit, a debug build killed from a
+    // terminal - therefore strands every shell it had open, and nothing else will ever
+    // close them. This launch is the first moment anything can. It waits on shells that
+    // are slow to hang up, so it stays off the main thread.
+    private func closeShellsLeftBehind() {
+        Task.detached(priority: .utility) {
+            let closed = ShellRegistry.shared.reapOrphans()
+            guard !closed.isEmpty else { return }
+            SessionLog.note("closed \(closed.count) shell(s) left behind by an earlier run")
+        }
     }
 
     // The window is the app, so closing it quits rather than leaving a process with no

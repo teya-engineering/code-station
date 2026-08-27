@@ -316,6 +316,21 @@ final class TerminalStore {
         }
     }
 
+    // Everything belonging to a project, workspace or session that has been deleted. Its
+    // shells are still running and nothing on screen can reach them any more, so without
+    // this they would sit there until the app quit. The two scopes are tried against the
+    // one id because a project and a session never share one.
+    func discard(_ id: UUID) {
+        for scope in [TerminalScope.project(id), .session(id)] {
+            for terminal in sessions(for: scope) { terminal.stop() }
+            terminals[scope] = nil
+            selected[scope] = nil
+            heights[scope] = nil
+            open.remove(scope)
+            visibleDrawers.remove(scope)
+        }
+    }
+
     func stopEverything() {
         for terminal in terminals.values.flatMap({ $0 }) { terminal.stop() }
         terminals = [:]

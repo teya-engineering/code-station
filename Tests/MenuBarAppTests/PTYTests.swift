@@ -46,14 +46,63 @@ struct PTYTests {
         return environment
     }
 
-    private func makePTY(_ collector: Collector) -> PTY {
-        PTY(onOutput: { collector.append($0) }, onExit: { collector.recordExit($0) })
+    // Every test gets its own registry directory, so a test shell is never written into
+    // the folder the real app reaps from.
+    private func makePTY(_ collector: Collector,
+                         registry: ShellRegistry = ShellRegistry(directory: PTYTests.scratch())) -> PTY {
+        PTY(registry: registry,
+            onOutput: { collector.append($0) }, onExit: { collector.recordExit($0) })
+    }
+
+    static func scratch() -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("shell-registry-\(UUID().uuidString)")
     }
 
     private func startShell(_ pty: PTY, columns: Int = 80, rows: Int = 24) throws {
         try pty.start(shell: "/bin/sh", arguments: ["-i"],
                       directory: FileManager.default.temporaryDirectory.path,
                       environment: environment(), columns: columns, rows: rows)
+    }
+
+    private func markers(in directory: URL) -> [URL] {
+        let found = (try? FileManager.default.contentsOfDirectory(
+            at: directory, includingPropertiesForKeys: nil)) ?? []
+        return found.filter { $0.pathExtension == "json" }
+    }
+
+    // The shell survives whatever started it, so it is written down for as long as it runs
+    // and only then forgotten. Without the note, an app that dies mid-run leaves a shell
+    // nothing can ever find again.
+    @Test func aRunningShellIsWrittenDownUntilItIsClosed() async throws {
+        let directory = PTYTests.scratch()
+        let collector = Collector()
+        let pty = makePTY(collector, registry: ShellRegistry(directory: directory))
+        defer { pty.stop() }
+
+        try startShell(pty)
+        pty.write(Data("echo started\r".utf8))
+        #expect(await collector.waitFor("started"))
+        #expect(markers(in: directory).count == 1)
+
+        pty.stop()
+        #expect(markers(in: directory).isEmpty)
+    }
+
+    // A shell the user exits is gone without anything calling stop, and the note has to go
+    // with it rather than wait for whoever still holds the object.
+    @Test func aShellThatExitsOnItsOwnIsForgotten() async throws {
+        let directory = PTYTests.scratch()
+        let collector = Collector()
+        let pty = makePTY(collector, registry: ShellRegistry(directory: directory))
+        defer { pty.stop() }
+
+        try startShell(pty)
+        pty.write(Data("echo started\r".utf8))
+        #expect(await collector.waitFor("started"))
+
+        pty.write(Data("exit\r".utf8))
+        #expect(await waitUntil(seconds: 10) { markers(in: directory).isEmpty })
     }
 
     @Test func runsACommandAndReturnsItsOutput() async throws {

@@ -17,18 +17,24 @@ final class PTY: @unchecked Sendable {
     private var exitSource: DispatchSourceProcess?
     // The children the shell keeps for itself, so the user's commands stand out.
     private var baselineChildren: Set<pid_t>?
+    // Where this shell is written down, so it can be found again if the app dies before
+    // it does.
+    private var marker: URL?
 
     // Both run on the main actor.
     private let onOutput: @Sendable (Data) -> Void
     private let onExit: @Sendable (Int32) -> Void
+    private let registry: ShellRegistry
 
     struct Failure: LocalizedError {
         let message: String
         var errorDescription: String? { message }
     }
 
-    init(onOutput: @escaping @Sendable (Data) -> Void,
+    init(registry: ShellRegistry = .shared,
+         onOutput: @escaping @Sendable (Data) -> Void,
          onExit: @escaping @Sendable (Int32) -> Void) {
+        self.registry = registry
         self.onOutput = onOutput
         self.onExit = onExit
     }
@@ -137,9 +143,14 @@ final class PTY: @unchecked Sendable {
             throw Failure(message: "Could not start \(shell) in a pseudo terminal.")
         }
 
+        // Written down before anything else is set up: from here on the shell is a live
+        // process that outlives this one unless something closes it.
+        let note = registry.record(shell: process.pid)
+
         lock.lock()
         master = process.masterFd
         child = process.pid
+        marker = note
         lock.unlock()
 
         startReading(master: process.masterFd)
@@ -174,9 +185,16 @@ final class PTY: @unchecked Sendable {
         source.setEventHandler { [weak self] in
             var status: Int32 = 0
             waitpid(pid, &status, 0)
-            self?.lock.lock()
-            self?.child = -1
-            self?.lock.unlock()
+            if let self {
+                self.lock.lock()
+                self.child = -1
+                let note = self.marker
+                self.marker = nil
+                self.lock.unlock()
+                // A shell that exited on its own is nobody's to close, so the note goes
+                // with it rather than waiting for whoever still holds this object.
+                self.registry.forget(note)
+            }
             // A shell that exits normally reports its own status; a killed one reports
             // the signal, which is still "it is gone" as far as the UI cares.
             let code = (status & 0x7F) == 0 ? (status >> 8) & 0xFF : 128 + (status & 0x7F)
@@ -233,12 +251,14 @@ final class PTY: @unchecked Sendable {
         lock.lock()
         let pid = child
         let fd = master
+        let note = marker
         readSource?.cancel()
         exitSource?.cancel()
         readSource = nil
         exitSource = nil
         child = -1
         master = -1
+        marker = nil
         lock.unlock()
 
         if pid > 0 {
@@ -247,6 +267,7 @@ final class PTY: @unchecked Sendable {
             kill(pid, SIGHUP)
         }
         if fd >= 0 { close(fd) }
+        registry.forget(note)
     }
 
     deinit { stop() }

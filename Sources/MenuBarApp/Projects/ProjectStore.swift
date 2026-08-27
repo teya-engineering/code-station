@@ -44,6 +44,10 @@ final class ProjectStore {
     // conversation while something holds it - see `hold(_:for:)`.
     private(set) var sessions: [ChatSession] = []
     @ObservationIgnored private var sidebarSessionCache: [ChatSession] = []
+    // Told when a project, workspace or session leaves the app for good, so whatever else
+    // is keyed to it can go at the same time. A running terminal is the reason this
+    // exists: the store owns none of that and should not have to know it is there.
+    @ObservationIgnored var onRemoved: ((UUID) -> Void)?
     private var sidebarSessionRevision = 0
     var selection: SidebarSelection? {
         // Opening a session is reading it, wherever the click came from, and it is also
@@ -382,6 +386,7 @@ final class ProjectStore {
         }.map(\.id))
         let removed = project(id)
         projects.removeAll { $0.id == id }
+        onRemoved?(id)
         // A task's folder was created by the app inside its own support directory, so
         // deleting the task takes the folder with it. A user-chosen folder always stays.
         if let removed, removed.kind == .adHoc {
@@ -457,6 +462,7 @@ final class ProjectStore {
     func removeWorkspace(_ id: UUID) {
         let affected = Set(sessions.filter { $0.workspaceID == id }.map(\.id))
         workspaces.removeAll { $0.id == id }
+        onRemoved?(id)
         for sessionID in affected {
             if case .failure(let failure) = removeSession(sessionID) {
                 saveError = failure.message
@@ -1134,6 +1140,10 @@ final class ProjectStore {
         }
 
         removeSessionFromMemory(sessionID)
+        // Here rather than where the session leaves memory, because a removal that has
+        // only been prepared can still be called off, and a shell closed by mistake
+        // cannot be put back.
+        onRemoved?(sessionID)
         let transcriptResult = deleteTranscript(sessionID)
         let designResult = deleteDesignDirectory(pending.session)
         markIndexDirty()
