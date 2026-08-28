@@ -12,12 +12,11 @@ the whole page. `.nojekyll` keeps Pages from running the files through Jekyll.
 
 ## Assets
 
-`assets/shot-*.webp` are the product shots, cut from the marketing renders so the
-app window sits on transparency and can be dropped on any background. Each one
+`assets/shot-*.webp` are product captures made with isolated demo data. The app
+window sits on transparency and can be dropped on any background. Each image
 bleeds past the bottom of its section on purpose, so the section supplies the
 fold. The palette in `style.css` is sampled from `Sources/MenuBarApp/Theme.swift`
-on `main` and from the renders themselves, so the page and the app read as one
-system.
+on `main` and from the captures, so the page and the app read as one system.
 
 `assets/mark.svg` is the app icon redrawn as vector, and `assets/icon-512.png` is
 the same mark from `Resources/AppIcon.icns` for the Apple touch icon.
