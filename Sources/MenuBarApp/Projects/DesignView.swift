@@ -140,6 +140,7 @@ struct DesignView: View {
                                     openChanges: {},
                                     availableWidth: width - 32)
                             .equatable()
+                            .environment(\.runningAgents, runner.runningAgents(sessionID))
                     }
 
                     if let request = runner.question(sessionID) {
@@ -233,6 +234,9 @@ struct DesignView: View {
                         inset: 12,
                         onOversizedPaste: attachPastedText,
                         above: {
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                SessionRunSettingsControls(sessionID: sessionID)
+                            }
                             let queued = runner.queued(sessionID).count
                             if queued > 0 {
                                 Text(counted(queued, "revision") + " queued")

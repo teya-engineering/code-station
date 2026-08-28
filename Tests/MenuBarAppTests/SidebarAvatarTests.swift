@@ -80,6 +80,33 @@ struct SidebarAvatarTests {
         }
     }
 
+    @MainActor
+    @Test func resolvesTheSameIdentityTintAsTheSidebarRail() throws {
+        let avatar = SidebarAvatar(subject: .project, id: UUID(), artworkIndex: 1)
+        let monogramTint = Theme.projectTint(for: "Payments")
+        let artworkColour = try #require(avatar.primaryColour(style: .blobs))
+
+        let monogram = avatar.identityTint(
+            iconSet: .monograms,
+            style: .blobs,
+            name: "Payments",
+            monogramTint: monogramTint)
+        let multiColourArtwork = avatar.identityTint(
+            iconSet: .diceBear,
+            style: .shapes,
+            name: "Payments",
+            monogramTint: Theme.workspaceTint)
+        let singleColourArtwork = avatar.identityTint(
+            iconSet: .diceBear,
+            style: .blobs,
+            name: "Payments",
+            monogramTint: monogramTint)
+
+        #expect(monogram.colour == monogramTint.colour)
+        #expect(multiColourArtwork.colour == monogramTint.colour)
+        #expect(singleColourArtwork.colour == artworkColour)
+    }
+
     @Test func derivesMotionFromActiveSessionsInTheSameContainer() {
         let projectID = UUID()
         let workspaceID = UUID()

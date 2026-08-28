@@ -64,6 +64,15 @@ struct SidebarAvatar: Equatable, Sendable {
     }
 
     @MainActor
+    func identityTint(iconSet: SidebarIconSet, style: DiceBearAvatarStyle,
+                      name: String, monogramTint: Theme.ProjectTint) -> Theme.ProjectTint {
+        guard iconSet == .diceBear else { return monogramTint }
+        guard style.usesArtworkPrimaryColour else { return Theme.projectTint(for: name) }
+        guard let colour = primaryColour(style: style) else { return monogramTint }
+        return Theme.ProjectTint(colour: colour, ink: colour)
+    }
+
+    @MainActor
     func artworkImage(style: DiceBearAvatarStyle) -> NSImage? {
         SidebarAvatarArt.artwork(for: self, style: style)?.image
     }

@@ -18,6 +18,8 @@ struct ActivitySpine: View {
     // A nested spine already sits behind a row the reader opened, so it draws in full.
     var isFoldable = true
 
+    @Environment(\.runningAgents) private var runningAgents
+
     @State private var expanded: Set<String> = []
     // Nil until the reader clicks: until then the block follows the work, open while the
     // turn is on it and folded once the turn has moved on.
@@ -33,7 +35,7 @@ struct ActivitySpine: View {
     }
 
     private var hasRunningCalls: Bool {
-        isLive && nodes.contains(where: \.hasRunning)
+        isLive && nodes.contains { $0.isWorking(agents: runningAgents) }
     }
 
     nonisolated static func rowsAreVisible(isFoldable: Bool, userChoice: Bool?,
@@ -123,6 +125,7 @@ private func workDone(calls: Int, agents: Int) -> String {
 
 private struct SpineRow: View {
     @Environment(\.textScale) private var textScale
+    @Environment(\.runningAgents) private var runningAgents
 
     let node: ToolNode
     let presentation: ToolPresentation
@@ -138,6 +141,11 @@ private struct SpineRow: View {
     @State private var diffPutAway = false
 
     private var tool: ToolUse { node.tool }
+
+    // Whether there is still work behind this row. An agent sent to the background
+    // answers its own call the moment it starts, so a row that stands for one cannot go
+    // by its call having reported in.
+    private var isWorking: Bool { node.isWorking(agents: runningAgents) }
 
     private var hasDiff: Bool {
         !presentation.changes.isEmpty && !tool.isError && node.children.isEmpty
@@ -212,7 +220,7 @@ private struct SpineRow: View {
     }
 
     private var liveLine: String? {
-        guard tool.isRunning, tool.startsAgents else { return nil }
+        guard tool.startsAgents, isWorking else { return nil }
         if let newest = node.newestDescendant, newest.tool.isRunning {
             return ToolPresentationCache.presentation(for: newest.tool, projectPath: projectPath).label
         }
@@ -223,14 +231,13 @@ private struct SpineRow: View {
         if !node.children.isEmpty {
             HStack(spacing: 6) {
                 if tool.isError { failed }
+                if isWorking { running }
                 Text(workDone(calls: node.callCount, agents: node.agentCount))
                     .scaledMono(10.5)
                     .foregroundStyle(.tertiary)
             }
-        } else if tool.isRunning {
-            Text("running")
-                .scaledMono(10.5)
-                .foregroundStyle(.tertiary)
+        } else if isWorking {
+            running
         } else if tool.isError {
             failed
         } else if let added = presentation.added, let removed = presentation.removed {
@@ -251,6 +258,12 @@ private struct SpineRow: View {
                 .scaledMono(10.5)
                 .foregroundStyle(.tertiary)
         }
+    }
+
+    private var running: some View {
+        Text("running")
+            .scaledMono(10.5)
+            .foregroundStyle(.tertiary)
     }
 
     private var failed: some View {
@@ -436,5 +449,20 @@ private struct EditDiffCard: View {
         case .deletion: Theme.deletion.opacity(0.10)
         case .context, .gap: .clear
         }
+    }
+}
+
+// The agents the running turn still has out, by the id the CLI gave them. It travels in
+// the environment because the rows that need it sit at the bottom of the transcript, and
+// a message is drawn again only when the message itself changes - which the agents coming
+// and going does not do.
+private struct RunningAgentsKey: EnvironmentKey {
+    static let defaultValue: Set<String> = []
+}
+
+extension EnvironmentValues {
+    var runningAgents: Set<String> {
+        get { self[RunningAgentsKey.self] }
+        set { self[RunningAgentsKey.self] = newValue }
     }
 }

@@ -681,11 +681,11 @@ struct AppSidebar: View {
 
     private func sidebarRailTint(for avatar: SidebarAvatar, name: String,
                                  monogramTint: Theme.ProjectTint) -> Theme.ProjectTint {
-        guard appSettings.sidebarIconSet == .diceBear else { return monogramTint }
-        let style = appSettings.diceBearAvatarStyle
-        guard style.usesArtworkPrimaryColour else { return Theme.projectTint(for: name) }
-        guard let colour = avatar.primaryColour(style: style) else { return monogramTint }
-        return Theme.ProjectTint(colour: colour, ink: colour)
+        avatar.identityTint(
+            iconSet: appSettings.sidebarIconSet,
+            style: appSettings.diceBearAvatarStyle,
+            name: name,
+            monogramTint: monogramTint)
     }
 
     // Tasks and projects share the row but not its menu: a task is run rather than

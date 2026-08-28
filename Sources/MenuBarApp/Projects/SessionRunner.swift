@@ -47,6 +47,10 @@ final class SessionRunner {
         // Everything the agent is waiting on, oldest first. Parallel tool calls can park
         // more than one at a time, and each is answered on its own.
         var asked: [PermissionRequest] = []
+        // The agents the CLI says are still running, by the id it gave them when they
+        // started. An agent sent to the background answers its own call at once and keeps
+        // working, so this is the only thing that says a fan-out is still going.
+        var agentsAtWork: Set<String> = []
         // What has been typed but not run yet, oldest first. Everything goes through here,
         // so a prompt typed mid-turn keeps its place behind the ones before it.
         var queue: [QueuedPrompt] = []
@@ -158,6 +162,10 @@ final class SessionRunner {
     func state(_ sessionID: UUID) -> SessionState { records[sessionID]?.state ?? .idle }
 
     func runningTool(_ sessionID: UUID) -> ToolUse? { records[sessionID]?.runningTools.last }
+
+    // Which of the agents this session started are still working, for the rows that
+    // stand for them.
+    func runningAgents(_ sessionID: UUID) -> Set<String> { records[sessionID]?.agentsAtWork ?? [] }
 
     func avatarSequence(_ sessionID: UUID) -> Int? { records[sessionID]?.turn?.avatarSequence }
 
@@ -1672,6 +1680,7 @@ final class SessionRunner {
                     return task
                 }
                 turn.pendingTasks = named
+                records[sessionID]?.agentsAtWork = Set(named.map(\.id))
                 // A wait can outlast the task that started it: one of several ending is
                 // not the end of the wait, and the row has to say what is left.
                 if turn.waitingOnTasks { records[sessionID]?.wait?.tasks = named }
@@ -1937,6 +1946,7 @@ final class SessionRunner {
               let status = turn.exitStatus else { return }
         records[sessionID]?.turn = nil
         records[sessionID]?.runningTools = []
+        records[sessionID]?.agentsAtWork = []
         records[sessionID]?.wait = nil
         // The process that parked them is gone, so nothing is listening for an answer.
         records[sessionID]?.asked = []

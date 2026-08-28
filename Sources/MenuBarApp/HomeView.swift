@@ -169,13 +169,7 @@ struct HomeView: View {
 
     private func resume(_ resumable: [HomeLive]) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            SectionRule(title: "PICK UP WHERE YOU LEFT OFF") {
-                if let first = resumable.first {
-                    InlineLink(title: "All sessions →") {
-                        store.selectSession(first.session.id)
-                    }
-                }
-            }
+            SectionRule("PICK UP WHERE YOU LEFT OFF")
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4),
                       spacing: 10) {
                 ForEach(resumable.prefix(8)) { live in
@@ -251,10 +245,18 @@ struct HomeView: View {
         } else {
             SidebarAvatar(subject: .project, id: session.projectID)
         }
+        let fallbackTint = workspace == nil
+            ? Theme.projectTint(for: name)
+            : Theme.workspaceTint
+        let tint = avatar.identityTint(
+            iconSet: appSettings.sidebarIconSet,
+            style: appSettings.diceBearAvatarStyle,
+            name: name,
+            monogramTint: fallbackTint)
         return HomeLive(
             session: session,
             containerName: name,
-            tint: workspace == nil ? Theme.projectTint(for: name) : Theme.workspaceTint,
+            tint: tint,
             avatar: avatar,
             tone: SessionTone(busy: busy, needsInput: permission != nil, finished: finished,
                               waiting: waiting),
