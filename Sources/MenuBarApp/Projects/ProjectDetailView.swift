@@ -13,6 +13,7 @@ struct ProjectDetailView: View {
     @Environment(DialogPresenter.self) private var dialogs
     @Environment(AppSettings.self) private var appSettings
     @Environment(WorkingTreeWatch.self) private var workingTrees
+    @Environment(OrphanedWorktreeMonitor.self) private var orphanedWorktreeMonitor
     @Environment(TerminalStore.self) private var terminals
 
     private enum Tab: Hashable { case sessions, changes, explorer }
@@ -482,6 +483,7 @@ struct ProjectDetailView: View {
     // are registered app checkouts which no session points at any more.
     private func orphanedStrip(_ project: Project) -> some View {
         let count = orphanedWorktrees.count
+        let pruning = pruningOrphans || orphanedWorktreeMonitor.isPruning
         return HStack(spacing: 11) {
             Text("ORPHANED")
                 .font(.mono(9.5, .semibold))
@@ -496,11 +498,11 @@ struct ProjectDetailView: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer(minLength: 8)
-            ActionButton(title: pruningOrphans ? "Pruning…" : "Prune all",
+            ActionButton(title: pruning ? "Pruning…" : "Prune all",
                          tone: .outlined, height: 28, size: 11.5) {
                 confirmPruneOrphans(project)
             }
-            .disabled(pruningOrphans)
+            .disabled(pruning)
         }
         .padding(.horizontal, 13)
         .padding(.vertical, 9)
@@ -535,8 +537,11 @@ struct ProjectDetailView: View {
     private func refreshWorktrees(for project: Project) async {
         let active = activeWorktreePaths(for: project)
         workingTrees.refresh(active.union([project.path]))
-        orphanedWorktrees = await GitWorktree.orphaned(
-            projectPath: project.path, excluding: active)
+        let pending = Set(store.pendingSessionRemovals.flatMap(\.worktrees).map(\.path))
+        let found = await GitWorktree.orphaned(
+            projectPath: project.path, excluding: active.union(pending))
+        orphanedWorktrees = found
+        orphanedWorktreeMonitor.replace(found, for: project)
     }
 
     // MARK: - Terminal
@@ -632,18 +637,19 @@ struct ProjectDetailView: View {
     }
 
     private func pruneOrphans(_ project: Project) {
-        let orphans = orphanedWorktrees
+        guard !orphanedWorktreeMonitor.isPruning else { return }
+        let orphans = orphanedWorktrees.map {
+            OrphanedWorktree(projectID: project.id,
+                             projectName: project.name,
+                             projectPath: project.path,
+                             path: $0.path,
+                             branch: $0.branch,
+                             allocatedBytes: $0.allocatedBytes)
+        }
         pruningOrphans = true
         Task {
-            var messages: [String] = []
-            for orphan in orphans {
-                if case .failure(let failure) = await GitWorktree.remove(
-                    worktreePath: orphan.path,
-                    projectPath: project.path,
-                    branch: orphan.branch) {
-                    messages.append(failure.message)
-                }
-            }
+            let result = await orphanedWorktreeMonitor.prune(orphans)
+            var messages = result.failures.map(\.message)
             messages += await SessionLifecycle.resumePendingRemovals(in: store).map(\.message)
             await refreshWorktrees(for: project)
             pruningOrphans = false

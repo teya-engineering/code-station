@@ -79,22 +79,22 @@ struct OldSessionsTests {
     }
 
     @Test func formatsTheAutomaticDeletionCountdown() {
-        #expect(OldSessionCountdown.text(
+        #expect(CleanupCountdown.text(
             until: now.addingTimeInterval(3_600), now: now) == "1:00:00")
-        #expect(OldSessionCountdown.text(
+        #expect(CleanupCountdown.text(
             until: now.addingTimeInterval(3_599), now: now) == "59:59")
-        #expect(OldSessionCountdown.text(
+        #expect(CleanupCountdown.text(
             until: now.addingTimeInterval(65.1), now: now) == "01:06")
-        #expect(OldSessionCountdown.text(
+        #expect(CleanupCountdown.text(
             until: now.addingTimeInterval(-1), now: now) == "00:00")
     }
 
     @Test func makesTheFinalFiveMinutesUrgent() {
-        #expect(!OldSessionCountdown.isUrgent(
+        #expect(!CleanupCountdown.isUrgent(
             until: now.addingTimeInterval(301), now: now))
-        #expect(OldSessionCountdown.isUrgent(
+        #expect(CleanupCountdown.isUrgent(
             until: now.addingTimeInterval(300), now: now))
-        #expect(OldSessionCountdown.isUrgent(
+        #expect(CleanupCountdown.isUrgent(
             until: now.addingTimeInterval(-1), now: now))
     }
 

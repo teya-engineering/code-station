@@ -15,6 +15,7 @@ struct AppSidebar: View {
     @Environment(DialogPresenter.self) private var dialogs
     @Environment(AppSettings.self) private var appSettings
     @Environment(WorkingTreeWatch.self) private var workingTrees
+    @Environment(OrphanedWorktreeMonitor.self) private var orphanedWorktrees
     @Environment(MobileAccessController.self) private var mobileAccess
 
     // A project is expanded by default while it is the selected one. Explicit choices
@@ -35,6 +36,7 @@ struct AppSidebar: View {
     @State private var revealedFilterContainerID: UUID?
     @State private var oldSessionSummary = OldSessionSummary()
     @State private var hoveringOldSessions = false
+    @State private var hoveringOrphanedWorktrees = false
     @State private var hoveringHome = false
     @FocusState private var filterFocused: Bool
 
@@ -1014,6 +1016,7 @@ struct AppSidebar: View {
     private var bottomBar: some View {
         VStack(alignment: .leading, spacing: 8) {
             if oldSessionSummary.sessions > 0 { oldSessionsStrip(oldSessionSummary) }
+            if !orphanedWorktrees.worktrees.isEmpty { orphanedWorktreesStrip }
 
             HStack(spacing: 8) {
                 ActionButton(title: "Add", height: 38, size: 13, fills: true)
@@ -1060,13 +1063,13 @@ struct AppSidebar: View {
                     if let oldSessionDeletionAt,
                        automaticallyDeletedCount(in: summary) > 0 {
                         TimelineView(.periodic(from: .now, by: 1)) { context in
-                            let countdownIsUrgent = OldSessionCountdown.isUrgent(
+                            let countdownIsUrgent = CleanupCountdown.isUrgent(
                                 until: oldSessionDeletionAt,
                                 now: context.date)
                             HStack(spacing: 4) {
                                 Image(systemName: "timer")
                                     .font(.system(size: 9, weight: .semibold))
-                                Text(OldSessionCountdown.text(
+                                Text(CleanupCountdown.text(
                                     until: oldSessionDeletionAt,
                                     now: context.date))
                                     .font(.mono(10, .semibold))
@@ -1077,7 +1080,7 @@ struct AppSidebar: View {
                                 : losesWork ? Theme.attentionText : Theme.accent)
                             .accessibilityElement(children: .ignore)
                             .accessibilityLabel("Automatic deletion countdown")
-                            .accessibilityValue(OldSessionCountdown.text(
+                            .accessibilityValue(CleanupCountdown.text(
                                 until: oldSessionDeletionAt,
                                 now: context.date))
                         }
@@ -1145,6 +1148,90 @@ struct AppSidebar: View {
                 return
             }
         }
+    }
+
+    private var orphanedWorktreesStrip: some View {
+        let worktrees = orphanedWorktrees.worktrees
+        let count = worktrees.count
+        let bytes = worktrees.reduce(Int64(0)) { $0 + $1.allocatedBytes }
+        let size = bytes > 0 ? bytes.formatted(.byteCount(style: .file)) : "No disk usage"
+
+        return Button { confirmPruneOrphanedWorktrees(worktrees) } label: {
+            ZStack {
+                HStack(spacing: 8) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(counted(count, "orphaned worktree"))
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(Theme.attentionText)
+                            .lineLimit(1)
+                        Text("No session · \(size)")
+                            .font(.mono(10))
+                            .foregroundStyle(Theme.attentionText)
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: 8)
+                    if appSettings.autoPruneOrphanedWorktrees,
+                       let deletionAt = orphanedWorktrees.automaticDeletionAt {
+                        TimelineView(.periodic(from: .now, by: 1)) { context in
+                            let countdownIsUrgent = CleanupCountdown.isUrgent(
+                                until: deletionAt,
+                                now: context.date)
+                            HStack(spacing: 4) {
+                                Image(systemName: "timer")
+                                    .font(.system(size: 9, weight: .semibold))
+                                Text(CleanupCountdown.text(until: deletionAt,
+                                                           now: context.date))
+                                    .font(.mono(10, .semibold))
+                                    .monospacedDigit()
+                            }
+                            .foregroundStyle(countdownIsUrgent
+                                ? Theme.deletion
+                                : Theme.attentionText)
+                            .accessibilityElement(children: .ignore)
+                            .accessibilityLabel("Automatic pruning countdown")
+                            .accessibilityValue(CleanupCountdown.text(
+                                until: deletionAt,
+                                now: context.date))
+                        }
+                    }
+                }
+                .opacity(hoveringOrphanedWorktrees ? 0 : 1)
+
+                Text("Click to prune")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Theme.attentionText)
+                    .opacity(hoveringOrphanedWorktrees ? 1 : 0)
+            }
+            .padding(.horizontal, 11)
+            .padding(.vertical, 9)
+            .surface(Theme.attention.opacity(0.10), cornerRadius: 9,
+                     border: Theme.attention.opacity(0.45))
+            .contentShape(RoundedRectangle(cornerRadius: 9))
+        }
+        .buttonStyle(.plain)
+        .disabled(orphanedWorktrees.isPruning)
+        .opacity(orphanedWorktrees.isPruning ? 0.55 : 1)
+        .animation(.easeOut(duration: 0.12), value: hoveringOrphanedWorktrees)
+        .onHover { hoveringOrphanedWorktrees = $0 }
+        .accessibilityLabel("Prune orphaned worktrees")
+    }
+
+    private func confirmPruneOrphanedWorktrees(_ worktrees: [OrphanedWorktree]) {
+        let count = worktrees.count
+        guard count > 0 else { return }
+        dialogs.show(.confirm(
+            "Prune \(counted(count, "orphaned worktree"))?",
+            message: "These checkouts have no session. Any uncommitted changes in them will be lost. Branches are kept when they have unmerged commits.",
+            action: "Prune all") {
+                Task { await pruneOrphanedWorktrees(worktrees) }
+            })
+    }
+
+    private func pruneOrphanedWorktrees(_ worktrees: [OrphanedWorktree]) async {
+        let result = await orphanedWorktrees.prune(worktrees)
+        guard !result.failures.isEmpty else { return }
+        dialogs.show(.notice("Could not prune some worktrees",
+                             message: result.failures.map(\.message).joined(separator: "\n")))
     }
 
     // MARK: - Actions

@@ -278,6 +278,17 @@ enum Preferences {
         store.removeObject(forKey: "autoDeleteOldSessions")
     }
 
+    static func autoPruneOrphanedWorktrees(in store: UserDefaults = .standard) -> Bool {
+        store.bool(forKey: "autoPruneOrphanedWorktrees")
+    }
+
+    static func setAutoPruneOrphanedWorktrees(
+        _ enabled: Bool,
+        in store: UserDefaults = .standard
+    ) {
+        store.set(enabled, forKey: "autoPruneOrphanedWorktrees")
+    }
+
     static var skillsRefreshInterval: SkillsRefreshInterval {
         get {
             guard store.object(forKey: "skillsRefreshInterval") != nil else { return .fiveDays }

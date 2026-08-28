@@ -53,6 +53,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var mobileAccess = MobileAccessController(store: projects, runner: runner,
                                                            gitStats: gitStats)
     private let workingTrees = WorkingTreeWatch()
+    private let orphanedWorktrees = OrphanedWorktreeMonitor()
     private let gitStats = GitStatsCache()
     private let terminals = TerminalStore()
     private let loginItem = LoginItem()
@@ -128,6 +129,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     .environment(projects)
                     .environment(runner)
                     .environment(workingTrees)
+                    .environment(orphanedWorktrees)
                     .environment(gitStats)
                     .environment(terminals)
                     .environment(loginItem)

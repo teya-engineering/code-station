@@ -12,11 +12,13 @@ struct RootView: View {
     @Environment(ShortcutStore.self) private var shortcuts
     @Environment(SessionRunner.self) private var runner
     @Environment(MobileAccessController.self) private var mobileAccess
+    @Environment(OrphanedWorktreeMonitor.self) private var orphanedWorktrees
     @State private var skills = SkillsManager()
     // Only ever one at a time, and a second one asked for while the first is up would
     // replace it rather than stack, so which one is showing is a single choice.
     @State private var sheet: Sheet?
     @State private var sessionCleanupError: String?
+    @State private var orphanCleanupError: String?
     @State private var oldSessionDeletionAt: Date?
     @State private var dismissedAttention: Attention?
 
@@ -64,6 +66,7 @@ struct RootView: View {
         .task { await resumePendingSessionRemovals() }
         .task(id: skillsRefreshRule) { await refreshSkillsAutomatically() }
         .task(id: sweepRule) { await deleteOldSessionsAutomatically() }
+        .task(id: settings.autoPruneOrphanedWorktrees) { await monitorOrphanedWorktrees() }
         // Settings answers the shortcut every Mac app answers. The standard Settings
         // scene is deliberately empty, so the shortcut is caught here and opens the
         // same sheet the sidebar's menu does.
@@ -153,6 +156,9 @@ struct RootView: View {
         if let sessionCleanupError {
             return Attention(title: "Session cleanup needs attention", message: sessionCleanupError)
         }
+        if let orphanCleanupError {
+            return Attention(title: "Worktree cleanup needs attention", message: orphanCleanupError)
+        }
         return nil
     }
 
@@ -199,6 +205,45 @@ struct RootView: View {
             oldSessionDeletionAt = buffer.nextReadyAt.map { max($0, nextSweepAt) }
             do {
                 try await Task.sleep(for: OldSessionSweep.interval)
+            } catch {
+                return
+            }
+        }
+    }
+
+    private func monitorOrphanedWorktrees() async {
+        let automaticallyPrunes = settings.autoPruneOrphanedWorktrees
+        var buffer = OrphanedWorktreeSweep.EligibilityBuffer()
+
+        while !Task.isCancelled {
+            let now = Date()
+            let found = await orphanedWorktrees.refresh(in: store)
+            guard !Task.isCancelled else { return }
+
+            if automaticallyPrunes {
+                let due = buffer.ready(found, now: now)
+                let result = await orphanedWorktrees.prune(due)
+                for worktree in result.removed { buffer.remove(worktree.id) }
+                orphanCleanupError = result.failures.isEmpty
+                    ? nil
+                    : result.failures.map(\.message).joined(separator: "\n")
+                if !result.removed.isEmpty {
+                    SessionLog.note("orphan worktree sweep pruned count=\(result.removed.count)")
+                }
+                if !result.failures.isEmpty {
+                    SessionLog.note("orphan worktree sweep failed count=\(result.failures.count)")
+                }
+                let nextSweepAt = Date().addingTimeInterval(
+                    OrphanedWorktreeSweep.gracePeriod)
+                orphanedWorktrees.setAutomaticDeletionAt(
+                    buffer.nextReadyAt.map { max($0, nextSweepAt) })
+            } else {
+                orphanCleanupError = nil
+                orphanedWorktrees.setAutomaticDeletionAt(nil)
+            }
+
+            do {
+                try await Task.sleep(for: OrphanedWorktreeSweep.interval)
             } catch {
                 return
             }

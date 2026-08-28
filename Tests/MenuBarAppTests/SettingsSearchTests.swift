@@ -28,4 +28,12 @@ struct SettingsSearchTests {
         #expect(result.target == .agentDetails)
         #expect(result.agent == .codex)
     }
+
+    @Test func findsOrphanedWorktreePruning() throws {
+        let result = try #require(SettingsSearchIndex.results(for: "auto prune").first)
+
+        #expect(result.title == "Orphaned worktrees")
+        #expect(result.tab == .general)
+        #expect(result.target == .generalOrphanedWorktrees)
+    }
 }

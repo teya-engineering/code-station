@@ -61,6 +61,13 @@ final class AppSettings {
         }
     }
 
+    var autoPruneOrphanedWorktrees: Bool {
+        didSet {
+            Preferences.setAutoPruneOrphanedWorktrees(autoPruneOrphanedWorktrees,
+                                                      in: preferences)
+        }
+    }
+
     var skillsRefreshInterval = Preferences.skillsRefreshInterval {
         didSet { Preferences.skillsRefreshInterval = skillsRefreshInterval }
     }
@@ -123,6 +130,7 @@ final class AppSettings {
         self.agentAvatarURL = agentAvatarURL
         self.preferences = preferences
         oldSessionCleanupPolicy = Preferences.oldSessionCleanupPolicy(in: preferences)
+        autoPruneOrphanedWorktrees = Preferences.autoPruneOrphanedWorktrees(in: preferences)
         sidebarSessionLimit = Preferences.sidebarSessionLimit(in: preferences)
         sidebarIconSet = Preferences.sidebarIconSet(in: preferences)
         diceBearAvatarStyle = Preferences.diceBearAvatarStyle(in: preferences)
@@ -445,6 +453,7 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 20) {
                 sidebar.id(SettingsSearchTarget.generalSidebar.id)
                 oldSessions.id(SettingsSearchTarget.generalOldSessions.id)
+                orphanedWorktrees.id(SettingsSearchTarget.generalOrphanedWorktrees.id)
                 skillRefresh.id(SettingsSearchTarget.generalSkills.id)
                 system.id(SettingsSearchTarget.generalSystem.id)
             }
@@ -557,6 +566,20 @@ struct SettingsView: View {
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 13)
+            }
+        }
+    }
+
+    private var orphanedWorktrees: some View {
+        @Bindable var settings = settings
+        return ChoiceBlock("ORPHANED WORKTREES") {
+            SettingsCard {
+                SettingsToggleRow(
+                    "Prune automatically",
+                    detail: "After one warning hour, removes app-created worktrees that no session owns. Uncommitted changes are lost; branches with unmerged commits are kept.",
+                    isOn: $settings.autoPruneOrphanedWorktrees)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 13)
             }
         }
     }
@@ -1467,6 +1490,7 @@ private struct DayField: View {
 enum SettingsSearchTarget: String, Hashable {
     case generalSidebar
     case generalOldSessions
+    case generalOrphanedWorktrees
     case generalSkills
     case generalSystem
     case appearanceTheme
@@ -1506,6 +1530,8 @@ enum SettingsSearchIndex {
                "sidebar recent project workspace see more limit"),
         result("Old sessions", .general, .generalOldSessions,
                "count old after days delete automatically review clear stale design saved work uncommitted"),
+        result("Orphaned worktrees", .general, .generalOrphanedWorktrees,
+               "git checkout prune automatically no session disk cleanup uncommitted branch"),
         result("Skills refresh", .general, .generalSkills,
                "skills marketplace refresh versions interval daily"),
         result("Terminal", .general, .generalSystem,

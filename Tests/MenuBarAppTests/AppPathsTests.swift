@@ -184,6 +184,22 @@ struct AppPathsTests {
             .oldSessionCleanupPolicy == .review)
     }
 
+    @Test @MainActor func orphanedWorktreeAutoPruningDefaultsOffAndPersists() throws {
+        let suite = "code-station-orphan-pruning-tests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let avatar = root.appendingPathComponent("avatar.png")
+        let settings = AppSettings(agentAvatarURL: avatar, preferences: defaults)
+
+        #expect(!settings.autoPruneOrphanedWorktrees)
+
+        settings.autoPruneOrphanedWorktrees = true
+
+        #expect(Preferences.autoPruneOrphanedWorktrees(in: defaults))
+        #expect(AppSettings(agentAvatarURL: avatar, preferences: defaults)
+            .autoPruneOrphanedWorktrees)
+    }
+
     @Test func defaultsAndClampsTheSidebarSessionLimit() throws {
         let suite = "code-station-sidebar-session-limit-tests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
