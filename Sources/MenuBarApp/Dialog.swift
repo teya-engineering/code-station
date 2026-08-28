@@ -30,6 +30,25 @@ struct Dialog: Identifiable {
     var width: CGFloat = 340
 }
 
+extension Dialog {
+    // Something to read and put away. The one button is a cancel, so Return and Escape
+    // both close it.
+    static func notice(_ title: String, message: String? = nil) -> Dialog {
+        Dialog(title: title, message: message, actions: [Action(label: "OK", kind: .cancel)])
+    }
+
+    // A question with one way forward and a way out. Most of them guard a deletion, so
+    // the action is destructive unless told otherwise.
+    static func confirm(_ title: String, message: String? = nil, action: String,
+                        kind: Dialog.Action.Kind = .destructive, cancel: String = "Cancel",
+                        handler: @escaping () -> Void) -> Dialog {
+        Dialog(title: title, message: message, actions: [
+            Action(label: action, kind: kind, handler: handler),
+            Action(label: cancel, kind: .cancel)
+        ])
+    }
+}
+
 // Holds whatever dialog is open. It lives at the top of the window so a question asked
 // from the sidebar is still centred over the whole app.
 @MainActor
@@ -101,63 +120,35 @@ struct DialogHost: View {
             .padding(.horizontal, 20)
             .padding(.bottom, 20)
         }
-        .background(RoundedRectangle(cornerRadius: 14).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Theme.border))
-        .shadow(color: .black.opacity(0.18), radius: 24, y: 8)
+        .floatingCard(cornerRadius: 14)
     }
 
+    // The buttons are the app's own pills, so the action a dialog confirms wears the
+    // same shape as the one that opened it.
     private func button(_ action: Dialog.Action) -> some View {
-        let enabled = action.isEnabled()
-        return Button {
+        ActionButton(title: action.label, tone: tone(action.kind), height: 36, size: 13,
+                     fills: true, keyboardShortcut: shortcut(action.kind)) {
             presenter.run(action)
-        } label: {
-            Text(action.label)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(foreground(action.kind))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 9)
-                .background(RoundedRectangle(cornerRadius: 9).fill(background(action.kind)))
-                .overlay(RoundedRectangle(cornerRadius: 9)
-                    .stroke(action.kind == .primary || action.kind == .destructive
-                            ? .clear : Theme.border))
-                .opacity(enabled ? 1 : 0.4)
-                .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .disabled(!enabled)
-        // Escape leaves; return takes the main action, the way a dialog is expected to
-        // behave when the mouse is not involved. Only those two get a key, so a middle
-        // choice never steals one.
-        .modifier(DialogShortcut(kind: action.kind))
+        .disabled(!action.isEnabled())
     }
 
-    private func foreground(_ kind: Dialog.Action.Kind) -> Color {
+    private func tone(_ kind: Dialog.Action.Kind) -> ButtonTone {
         switch kind {
-        case .primary, .destructive: .white
-        case .plain, .cancel: .primary
+        case .primary: .dark
+        case .destructive: .danger
+        case .plain, .cancel: .sunken
         }
     }
 
-    private func background(_ kind: Dialog.Action.Kind) -> Color {
+    // Escape leaves; return takes the main action, the way a dialog is expected to
+    // behave when the mouse is not involved. Only those two get a key, so a middle
+    // choice never steals one.
+    private func shortcut(_ kind: Dialog.Action.Kind) -> KeyboardShortcut? {
         switch kind {
-        case .primary: Color.black.opacity(0.88)
-        case .destructive: Theme.deletion
-        case .plain, .cancel: Theme.field
-        }
-    }
-}
-
-private struct DialogShortcut: ViewModifier {
-    let kind: Dialog.Action.Kind
-
-    func body(content: Content) -> some View {
-        switch kind {
-        case .primary, .destructive:
-            content.keyboardShortcut(.return, modifiers: [])
-        case .cancel:
-            content.keyboardShortcut(.escape, modifiers: [])
-        case .plain:
-            content
+        case .primary, .destructive: .defaultAction
+        case .cancel: .cancelAction
+        case .plain: nil
         }
     }
 }

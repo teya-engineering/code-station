@@ -143,7 +143,7 @@ struct TroubleshootView: View {
     @State private var selectedProjects: Set<UUID> = []
     @State private var projectFilter = ""
     @State private var environment = TroubleshootEnvironment.first()
-    @State private var selectedSkills = Preferences.troubleshootSkills
+    @State private var selectedSkills = Preferences.troubleshootSkills()
     @State private var mcpServersEnabled = true
     @State private var agent: AgentKind?
     @State private var dropTargeted = false
@@ -186,7 +186,7 @@ struct TroubleshootView: View {
         }
         .task { await skills.refresh() }
         .onChange(of: selectedSkills) { _, chosen in
-            Preferences.troubleshootSkills = chosen
+            Preferences.setTroubleshootSkills(chosen)
         }
         .sheet(isPresented: $showingSkills) {
             SkillsView(manager: skills).appOverlays()
@@ -390,7 +390,7 @@ struct TroubleshootView: View {
 
     private var problemSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            SectionLabel(text: "PROBLEM AND EVIDENCE")
+            SectionLabel("PROBLEM AND EVIDENCE")
             VStack(alignment: .leading, spacing: 0) {
                 ZStack(alignment: .topLeading) {
                     TextEditor(text: $problem)
@@ -466,7 +466,7 @@ struct TroubleshootView: View {
     private var optionsSection: some View {
         HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 8) {
-                SectionLabel(text: "ENVIRONMENT")
+                SectionLabel("ENVIRONMENT")
                 HStack(spacing: 6) {
                     ForEach(TroubleshootEnvironment.all()) { option in
                         ChoicePill(title: option.title, selected: environment == option) {
@@ -478,7 +478,7 @@ struct TroubleshootView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             VStack(alignment: .leading, spacing: 8) {
-                SectionLabel(text: "MCP SERVERS")
+                SectionLabel("MCP SERVERS")
                 Toggle(isOn: $mcpServersEnabled) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Enable MCP servers")
@@ -523,7 +523,7 @@ struct TroubleshootView: View {
     private var projectsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                SectionLabel(text: "PROJECTS")
+                SectionLabel("PROJECTS")
                 Spacer()
                 if !selectedProjects.isEmpty {
                     Text("\(selectedProjects.count) selected")

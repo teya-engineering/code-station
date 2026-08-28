@@ -13,7 +13,7 @@ struct AgentConfiguredServerDetailView: View {
                         differenceCard
                     }
                     VStack(alignment: .leading, spacing: 12) {
-                        SectionLabel(text: "AGENT CONFIGURATIONS")
+                        SectionLabel("AGENT CONFIGURATIONS")
                         ForEach(server.registrations) { registrationCard($0) }
                     }
                 }
@@ -114,12 +114,12 @@ struct AgentConfiguredServerDetailView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 detailRow(label: "TRANSPORT") {
-                    Chip(text: registration.transport)
+                    MonoChip(text: registration.transport, size: 13, bordered: true)
                 }
                 if let command = registration.command {
                     detailRow(label: "COMMAND") {
                         HStack(spacing: 8) {
-                            Chip(text: command)
+                            MonoChip(text: command, size: 13, bordered: true)
                             if !registration.args.isEmpty {
                                 Text("\(registration.args.count) argument\(registration.args.count == 1 ? "" : "s")")
                                     .font(.system(size: 12))

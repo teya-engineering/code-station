@@ -92,8 +92,10 @@ struct EnvironmentsView: View {
                 .padding(20)
             }
 
-            SheetFooter(save: SheetSave(enabled: hasChanges, action: save),
-                        done: { dismiss() }) {
+            SheetFooter(primary: SheetAction(title: "Save", enabled: hasChanges,
+                                             shortcut: KeyboardShortcut("s", modifiers: .command),
+                                             action: save),
+                        dismiss: { dismiss() }) {
                 Text(hasChanges
                      ? "Unsaved changes. Cancel leaves without keeping them."
                      : "Secrets are stored in the Keychain, never in the request file.")
@@ -201,38 +203,6 @@ struct EnvironmentsView: View {
                        (grant.label, grant == config.wrappedValue.grant,
                         { config.wrappedValue.grant = grant })
                    })
-    }
-}
-
-// A caption over a one-of-a-set choice, opened as the app's own menu. Shared with the
-// Auth tab, so a choice looks the same wherever Dispatch offers one.
-struct OptionMenu: View {
-    let caption: String
-    let value: String
-    let options: [(label: String, checked: Bool, choose: () -> Void)]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Caption(text: caption)
-            HStack(spacing: 8) {
-                Text(value)
-                    .font(.system(size: 12, weight: .medium))
-                Spacer()
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 11)
-            .padding(.vertical, 9)
-            .background(RoundedRectangle(cornerRadius: 9).fill(Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
-            .contentShape(Rectangle())
-            .appMenu {
-                options.map { option in
-                    .item(option.label, checked: option.checked, action: option.choose)
-                }
-            }
-        }
     }
 }
 

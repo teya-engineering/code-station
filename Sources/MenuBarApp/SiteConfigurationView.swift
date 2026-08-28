@@ -216,7 +216,6 @@ struct SiteConfigurationSection: View {
                 Spacer(minLength: 0)
                 ActionButton(title: "Reset selected", action: { install(selection) })
                     .disabled(chosen.isEmpty)
-                    .opacity(chosen.isEmpty ? 0.5 : 1)
             }
 
             ForEach(selection.plan.aspects) { aspect in
@@ -335,7 +334,7 @@ struct SiteConfigurationSection: View {
             dispatchAuth.applyEnvironments(from: defaults)
         }
         if changed.contains(.shortcuts) { shortcuts.resetSiteShortcuts(to: defaults) }
-        if changed.contains(.skills) { Preferences.skillsMarketplace = nil }
+        if changed.contains(.skills) { Preferences.setSkillsMarketplace(nil) }
         loaded = defaults
     }
 
@@ -350,7 +349,7 @@ struct SiteConfigurationSection: View {
         current.dispatch = dispatchConfiguration
         current.shortcuts = shortcuts.siteConfigurationShortcuts
 
-        if let marketplace = Preferences.skillsMarketplace, marketplace.isValid {
+        if let marketplace = Preferences.skillsMarketplace(), marketplace.isValid {
             current.skills = SiteDefaults.Skills(name: marketplace.label,
                                                  marketplace: marketplace.marketplace,
                                                  repository: marketplace.source,
@@ -397,8 +396,10 @@ private struct SiteConfigurationEditorView: View {
             }
             .frame(maxHeight: 560)
 
-            SheetFooter(save: SheetSave(enabled: draft != saved, action: save),
-                        done: { dismiss() }) {
+            SheetFooter(primary: SheetAction(title: "Save", enabled: draft != saved,
+                                             shortcut: KeyboardShortcut("s", modifiers: .command),
+                                             action: save),
+                        dismiss: { dismiss() }) {
                 if let failure {
                     Text(failure)
                         .font(.system(size: 11))
@@ -618,7 +619,7 @@ private struct SiteConfigurationEditorView: View {
         let values = draft.mcp?.presets?[presetIndex][keyPath: keyPath] ?? []
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                SectionLabel(text: title)
+                SectionLabel(title)
                 Spacer()
                 Button {
                     var preset = draft.mcp?.presets?[presetIndex]
@@ -1167,7 +1168,7 @@ private struct SiteConfigurationJSONView: View {
             }
             .padding(20)
 
-            SheetFooter(done: { dismiss() }) {
+            SheetFooter(dismiss: { dismiss() }) {
                 HStack(spacing: 14) {
                     Button(copied ? "Copied" : "Copy JSON") { copy() }
                         .buttonStyle(.plain)

@@ -70,13 +70,7 @@ struct SidebarAvatar: Equatable, Sendable {
 
     static func artworkIndex(seed: String, count: Int = artworkCount) -> Int? {
         guard count > 0 else { return nil }
-
-        var hash: UInt64 = 14_695_981_039_346_656_037
-        for byte in seed.utf8 {
-            hash ^= UInt64(byte)
-            hash &*= 1_099_511_628_211
-        }
-        return Int(hash % UInt64(count)) + 1
+        return Int(StableHash.fnv1a(seed) % UInt64(count)) + 1
     }
 
     static func artworkURL(style: DiceBearAvatarStyle, index: Int,

@@ -355,8 +355,9 @@ enum CodeHighlight {
         var tokens: [Token] = []
         var i = line.startIndex
 
-        func scanCommentClose() {
-            let start = i
+        // Runs to the close of an open comment and files it from `start`, so the `<!--`
+        // that opened it on this line lands in the same token.
+        func scanCommentClose(from start: Substring.Index) {
             while i < line.endIndex, !matches(line, at: i, "-->") { i = line.index(after: i) }
             if i < line.endIndex {
                 i = line.index(i, offsetBy: 3)
@@ -369,7 +370,7 @@ enum CodeHighlight {
 
         switch state {
         case .blockComment:
-            scanCommentClose()
+            scanCommentClose(from: i)
         case .string(let quote, _):
             let start = i
             while i < line.endIndex, line[i] != quote { i = line.index(after: i) }
@@ -411,13 +412,7 @@ enum CodeHighlight {
             if matches(line, at: i, "<!--") {
                 let start = i
                 i = line.index(i, offsetBy: 4)
-                while i < line.endIndex, !matches(line, at: i, "-->") { i = line.index(after: i) }
-                if i < line.endIndex {
-                    i = line.index(i, offsetBy: 3)
-                } else {
-                    state = .blockComment(depth: 1)
-                }
-                tokens.append(Token(range: start..<i, kind: .comment))
+                scanCommentClose(from: start)
                 continue
             }
 

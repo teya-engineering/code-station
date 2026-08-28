@@ -27,7 +27,7 @@ struct AddJSONServerView: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             VStack(alignment: .leading, spacing: 8) {
-                SectionLabel(text: "ENVIRONMENT")
+                SectionLabel("ENVIRONMENT")
                 ServerEnvironmentPills(tag: $environment)
                 Text("Which diagnoses offer these servers. JSON that names its own \"environment\" keeps it.")
                     .font(.system(size: 12))
@@ -35,7 +35,7 @@ struct AddJSONServerView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            SectionLabel(text: "JSON")
+            SectionLabel("JSON")
             ZStack(alignment: .topLeading) {
                 if text.isEmpty {
                     Text(Self.placeholder)

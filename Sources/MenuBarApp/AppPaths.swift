@@ -118,14 +118,16 @@ enum AppPaths {
 
 // The handful of things that are preferences rather than data: what was open last time.
 // macOS has a place for these, so they do not belong in the file holding the projects.
+// A preference takes the store as a parameter where a settings object or a test reads
+// its own UserDefaults; the rest only ever read the standard one.
 enum Preferences {
     private static var store: UserDefaults { .standard }
 
-    static func hasCompletedOnboarding(in store: UserDefaults) -> Bool {
+    static func hasCompletedOnboarding(in store: UserDefaults = .standard) -> Bool {
         store.bool(forKey: "hasCompletedOnboarding")
     }
 
-    static func setHasCompletedOnboarding(_ completed: Bool, in store: UserDefaults) {
+    static func setHasCompletedOnboarding(_ completed: Bool, in store: UserDefaults = .standard) {
         store.set(completed, forKey: "hasCompletedOnboarding")
     }
 
@@ -146,17 +148,43 @@ enum Preferences {
 
     // A missing entry keeps the sidebar's normal first-use behavior. Once a project or
     // workspace has been opened or closed, its own choice survives every later launch.
-    static var sidebarExpansion: [UUID: Bool] {
-        get { sidebarExpansion(in: store) }
-        set { setSidebarExpansion(newValue, in: store) }
+    static func sidebarExpansion(in store: UserDefaults = .standard) -> [UUID: Bool] {
+        let saved = store.dictionary(forKey: "sidebarExpansion") ?? [:]
+        return saved.reduce(into: [:]) { expansion, entry in
+            guard let id = UUID(uuidString: entry.key), let isExpanded = entry.value as? Bool else {
+                return
+            }
+            expansion[id] = isExpanded
+        }
     }
 
-    static var sidebarSessionLimit: Int {
-        get { sidebarSessionLimit(in: store) }
-        set { setSidebarSessionLimit(newValue, in: store) }
+    static func setSidebarExpansion(_ expansion: [UUID: Bool], in store: UserDefaults = .standard) {
+        guard !expansion.isEmpty else {
+            store.removeObject(forKey: "sidebarExpansion")
+            return
+        }
+        store.set(Dictionary(uniqueKeysWithValues: expansion.map {
+            ($0.key.uuidString, $0.value)
+        }), forKey: "sidebarExpansion")
     }
 
-    static func sidebarSessionLimit(in store: UserDefaults) -> Int {
+    // The sections the sidebar folds away, so a kind the user rarely touches costs the
+    // rail a heading rather than a row each.
+    static func collapsedSidebarGroups(in store: UserDefaults = .standard) -> Set<SidebarGroup> {
+        let saved = store.array(forKey: "collapsedSidebarGroups") as? [String] ?? []
+        return Set(saved.compactMap(SidebarGroup.init(rawValue:)))
+    }
+
+    static func setCollapsedSidebarGroups(_ groups: Set<SidebarGroup>,
+                                          in store: UserDefaults = .standard) {
+        guard !groups.isEmpty else {
+            store.removeObject(forKey: "collapsedSidebarGroups")
+            return
+        }
+        store.set(groups.map(\.rawValue), forKey: "collapsedSidebarGroups")
+    }
+
+    static func sidebarSessionLimit(in store: UserDefaults = .standard) -> Int {
         guard store.object(forKey: "sidebarSessionLimit") != nil else {
             return SidebarSessionVisibility.defaultLimit
         }
@@ -164,7 +192,7 @@ enum Preferences {
             store.integer(forKey: "sidebarSessionLimit"))
     }
 
-    static func setSidebarSessionLimit(_ limit: Int, in store: UserDefaults) {
+    static func setSidebarSessionLimit(_ limit: Int, in store: UserDefaults = .standard) {
         store.set(SidebarSessionVisibility.resolvedLimit(limit),
                   forKey: "sidebarSessionLimit")
     }
@@ -178,11 +206,11 @@ enum Preferences {
 
     // The bot choice preselected for new sessions. The built-in Default bot has a stable
     // name so sessions do not depend on a custom image file.
-    static func defaultAgentAvatarName(in store: UserDefaults) -> String? {
+    static func defaultAgentAvatarName(in store: UserDefaults = .standard) -> String? {
         store.string(forKey: "defaultAgentAvatarName")
     }
 
-    static func setDefaultAgentAvatarName(_ name: String, in store: UserDefaults) {
+    static func setDefaultAgentAvatarName(_ name: String, in store: UserDefaults = .standard) {
         store.set(name, forKey: "defaultAgentAvatarName")
     }
 
@@ -219,20 +247,22 @@ enum Preferences {
     }
 
     // How long a session has to sit untouched before the app offers to clear it.
-    static var oldSessionDays: Int {
-        get { oldSessionDays(in: store) }
-        set { store.set(OldSessions.resolvedDays(newValue), forKey: "oldSessionDays") }
+    static func oldSessionDays(in store: UserDefaults = .standard) -> Int {
+        guard store.object(forKey: "oldSessionDays") != nil else {
+            return OldSessions.defaultDays
+        }
+        return OldSessions.resolvedDays(store.integer(forKey: "oldSessionDays"))
+    }
+
+    static func setOldSessionDays(_ days: Int, in store: UserDefaults = .standard) {
+        store.set(OldSessions.resolvedDays(days), forKey: "oldSessionDays")
     }
 
     // What happens after a session has remained old for the warning hour. The old Boolean
     // maps to the equivalent safe choice, so an upgrade does not make cleanup more
     // destructive than the person previously allowed.
-    static var oldSessionCleanupPolicy: OldSessionCleanupPolicy {
-        get { oldSessionCleanupPolicy(in: store) }
-        set { setOldSessionCleanupPolicy(newValue, in: store) }
-    }
-
-    static func oldSessionCleanupPolicy(in store: UserDefaults) -> OldSessionCleanupPolicy {
+    static func oldSessionCleanupPolicy(in store: UserDefaults = .standard)
+        -> OldSessionCleanupPolicy {
         if let rawValue = store.string(forKey: "oldSessionCleanupPolicy"),
            let policy = OldSessionCleanupPolicy(rawValue: rawValue) {
             return policy
@@ -242,16 +272,9 @@ enum Preferences {
     }
 
     static func setOldSessionCleanupPolicy(_ policy: OldSessionCleanupPolicy,
-                                           in store: UserDefaults) {
+                                           in store: UserDefaults = .standard) {
         store.set(policy.rawValue, forKey: "oldSessionCleanupPolicy")
         store.removeObject(forKey: "autoDeleteOldSessions")
-    }
-
-    static func oldSessionDays(in store: UserDefaults) -> Int {
-        guard store.object(forKey: "oldSessionDays") != nil else {
-            return OldSessions.defaultDays
-        }
-        return OldSessions.resolvedDays(store.integer(forKey: "oldSessionDays"))
     }
 
     static var skillsRefreshInterval: SkillsRefreshInterval {
@@ -263,31 +286,21 @@ enum Preferences {
         set { store.set(newValue.rawValue, forKey: "skillsRefreshInterval") }
     }
 
-    static var skillsLastRefresh: Date? {
-        get { skillsLastRefresh(in: store) }
-        set { setSkillsLastRefresh(newValue, in: store) }
-    }
-
-    static func skillsLastRefresh(in store: UserDefaults) -> Date? {
+    static func skillsLastRefresh(in store: UserDefaults = .standard) -> Date? {
         store.object(forKey: "skillsLastRefresh") as? Date
     }
 
-    static func setSkillsLastRefresh(_ date: Date?, in store: UserDefaults) {
+    static func setSkillsLastRefresh(_ date: Date?, in store: UserDefaults = .standard) {
         store.set(date, forKey: "skillsLastRefresh")
     }
 
     // The skills a diagnosis is told to use. The choice belongs to the person rather than
     // to any one problem, so the next Troubleshoot opens with the last one already made.
-    static var troubleshootSkills: Set<String> {
-        get { troubleshootSkills(in: store) }
-        set { setTroubleshootSkills(newValue, in: store) }
-    }
-
-    static func troubleshootSkills(in store: UserDefaults) -> Set<String> {
+    static func troubleshootSkills(in store: UserDefaults = .standard) -> Set<String> {
         Set(store.array(forKey: "troubleshootSkills") as? [String] ?? [])
     }
 
-    static func setTroubleshootSkills(_ skills: Set<String>, in store: UserDefaults) {
+    static func setTroubleshootSkills(_ skills: Set<String>, in store: UserDefaults = .standard) {
         guard !skills.isEmpty else {
             store.removeObject(forKey: "troubleshootSkills")
             return
@@ -295,18 +308,14 @@ enum Preferences {
         store.set(skills.sorted(), forKey: "troubleshootSkills")
     }
 
-    static var skillsMarketplace: SkillMarketplaceConfiguration? {
-        get { skillsMarketplace(in: store) }
-        set { setSkillsMarketplace(newValue, in: store) }
-    }
-
-    static func skillsMarketplace(in store: UserDefaults) -> SkillMarketplaceConfiguration? {
+    static func skillsMarketplace(in store: UserDefaults = .standard)
+        -> SkillMarketplaceConfiguration? {
         guard let data = store.data(forKey: "skillsMarketplace") else { return nil }
         return try? JSONDecoder().decode(SkillMarketplaceConfiguration.self, from: data)
     }
 
     static func setSkillsMarketplace(_ marketplace: SkillMarketplaceConfiguration?,
-                                     in store: UserDefaults) {
+                                     in store: UserDefaults = .standard) {
         guard let marketplace, let data = try? JSONEncoder().encode(marketplace) else {
             store.removeObject(forKey: "skillsMarketplace")
             return
@@ -331,13 +340,6 @@ enum Preferences {
         set { store.set(newValue.rawValue, forKey: "projectGrouping") }
     }
 
-    // The sections the sidebar folds away, so a kind the user rarely touches costs the
-    // rail a heading rather than a row each.
-    static var collapsedSidebarGroups: Set<SidebarGroup> {
-        get { collapsedSidebarGroups(in: store) }
-        set { setCollapsedSidebarGroups(newValue, in: store) }
-    }
-
     // Which terminal opens a shell in a window of its own. Held as a bundle ID so the
     // choice survives the app being moved or renamed. Unset follows the system.
     static var terminalBundleID: String? {
@@ -347,18 +349,13 @@ enum Preferences {
 
     // A saved external site file sits ahead of the conventional and bundled locations.
     // Imported first-run configuration uses the conventional Application Support file.
-    static var siteDefaultsURL: URL? {
-        get { siteDefaultsURL(in: store) }
-        set { setSiteDefaultsURL(newValue, in: store) }
-    }
-
-    static func siteDefaultsURL(in store: UserDefaults) -> URL? {
+    static func siteDefaultsURL(in store: UserDefaults = .standard) -> URL? {
         store.string(forKey: "siteDefaultsPath").map {
             URL(fileURLWithPath: $0).standardizedFileURL
         }
     }
 
-    static func setSiteDefaultsURL(_ url: URL?, in store: UserDefaults) {
+    static func setSiteDefaultsURL(_ url: URL?, in store: UserDefaults = .standard) {
         guard let url else {
             store.removeObject(forKey: "siteDefaultsPath")
             return
@@ -371,22 +368,22 @@ enum Preferences {
         set { store.set(newValue.rawValue, forKey: "appearance") }
     }
 
-    static func sidebarIconSet(in store: UserDefaults) -> SidebarIconSet {
+    static func sidebarIconSet(in store: UserDefaults = .standard) -> SidebarIconSet {
         store.string(forKey: "sidebarIconSet").flatMap(SidebarIconSet.init(rawValue:))
             ?? .diceBear
     }
 
-    static func setSidebarIconSet(_ iconSet: SidebarIconSet, in store: UserDefaults) {
+    static func setSidebarIconSet(_ iconSet: SidebarIconSet, in store: UserDefaults = .standard) {
         store.set(iconSet.rawValue, forKey: "sidebarIconSet")
     }
 
-    static func diceBearAvatarStyle(in store: UserDefaults) -> DiceBearAvatarStyle {
+    static func diceBearAvatarStyle(in store: UserDefaults = .standard) -> DiceBearAvatarStyle {
         store.string(forKey: "diceBearAvatarStyle")
             .flatMap(DiceBearAvatarStyle.init(rawValue:)) ?? .waves
     }
 
     static func setDiceBearAvatarStyle(_ style: DiceBearAvatarStyle,
-                                       in store: UserDefaults) {
+                                       in store: UserDefaults = .standard) {
         store.set(style.rawValue, forKey: "diceBearAvatarStyle")
     }
 
@@ -397,24 +394,22 @@ enum Preferences {
         set { store.set(newValue.rawValue, forKey: "textSize") }
     }
 
-    static var designEnabled: Bool {
-        get { designEnabled(in: store) }
-        set { store.set(newValue, forKey: "designEnabled") }
+    static func designEnabled(in store: UserDefaults = .standard) -> Bool {
+        store.bool(forKey: "designEnabled")
     }
 
-    static func designEnabled(in store: UserDefaults) -> Bool {
-        store.bool(forKey: "designEnabled")
+    static func setDesignEnabled(_ enabled: Bool, in store: UserDefaults = .standard) {
+        store.set(enabled, forKey: "designEnabled")
     }
 
     // Mobile access exposes live session control to another device, so it stays off until
     // someone deliberately opts into the experimental surface.
-    static var mobileAccessEnabled: Bool {
-        get { mobileAccessEnabled(in: store) }
-        set { store.set(newValue, forKey: "mobileAccessEnabled") }
+    static func mobileAccessEnabled(in store: UserDefaults = .standard) -> Bool {
+        store.bool(forKey: "mobileAccessEnabled")
     }
 
-    static func mobileAccessEnabled(in store: UserDefaults) -> Bool {
-        store.bool(forKey: "mobileAccessEnabled")
+    static func setMobileAccessEnabled(_ enabled: Bool, in store: UserDefaults = .standard) {
+        store.set(enabled, forKey: "mobileAccessEnabled")
     }
 
     // Whether what a session has spent is shown. Kept per agent, like the session
@@ -433,39 +428,6 @@ enum Preferences {
 
     private static func showCostKey(_ agent: AgentKind) -> String {
         "showCost-\(agent.rawValue)"
-    }
-
-    static func sidebarExpansion(in store: UserDefaults) -> [UUID: Bool] {
-        let saved = store.dictionary(forKey: "sidebarExpansion") ?? [:]
-        return saved.reduce(into: [:]) { expansion, entry in
-            guard let id = UUID(uuidString: entry.key), let isExpanded = entry.value as? Bool else {
-                return
-            }
-            expansion[id] = isExpanded
-        }
-    }
-
-    static func collapsedSidebarGroups(in store: UserDefaults) -> Set<SidebarGroup> {
-        let saved = store.array(forKey: "collapsedSidebarGroups") as? [String] ?? []
-        return Set(saved.compactMap(SidebarGroup.init(rawValue:)))
-    }
-
-    static func setCollapsedSidebarGroups(_ groups: Set<SidebarGroup>, in store: UserDefaults) {
-        guard !groups.isEmpty else {
-            store.removeObject(forKey: "collapsedSidebarGroups")
-            return
-        }
-        store.set(groups.map(\.rawValue), forKey: "collapsedSidebarGroups")
-    }
-
-    static func setSidebarExpansion(_ expansion: [UUID: Bool], in store: UserDefaults) {
-        guard !expansion.isEmpty else {
-            store.removeObject(forKey: "sidebarExpansion")
-            return
-        }
-        store.set(Dictionary(uniqueKeysWithValues: expansion.map {
-            ($0.key.uuidString, $0.value)
-        }), forKey: "sidebarExpansion")
     }
 
     private static func text(_ key: String) -> String? {

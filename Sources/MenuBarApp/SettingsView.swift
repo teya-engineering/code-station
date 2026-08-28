@@ -51,8 +51,8 @@ final class AppSettings {
         }
     }
 
-    var oldSessionDays = Preferences.oldSessionDays {
-        didSet { Preferences.oldSessionDays = oldSessionDays }
+    var oldSessionDays = Preferences.oldSessionDays() {
+        didSet { Preferences.setOldSessionDays(oldSessionDays) }
     }
 
     var oldSessionCleanupPolicy: OldSessionCleanupPolicy {
@@ -102,12 +102,12 @@ final class AppSettings {
         didSet { Preferences.textSize = textSize }
     }
 
-    var designEnabled = Preferences.designEnabled {
-        didSet { Preferences.designEnabled = designEnabled }
+    var designEnabled = Preferences.designEnabled() {
+        didSet { Preferences.setDesignEnabled(designEnabled) }
     }
 
-    var mobileAccessEnabled = Preferences.mobileAccessEnabled {
-        didSet { Preferences.mobileAccessEnabled = mobileAccessEnabled }
+    var mobileAccessEnabled = Preferences.mobileAccessEnabled() {
+        didSet { Preferences.setMobileAccessEnabled(mobileAccessEnabled) }
     }
 
     // Whether the money a session has spent is on screen, one answer per agent. The

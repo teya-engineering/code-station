@@ -216,7 +216,7 @@ private struct AppMenuButton: ViewModifier {
     let refreshOnOpen: (() async -> Void)?
     let entries: () -> [MenuEntry]
 
-    @State private var anchor = MenuAnchor()
+    @State private var anchor = FrameAnchor()
 
     func body(content: Content) -> some View {
         Button(action: open) {
@@ -224,17 +224,20 @@ private struct AppMenuButton: ViewModifier {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .background(MenuAnchorView(anchor: anchor))
+        .background(FrameAnchorView(anchor: anchor))
     }
 
+    // The menu hangs off the requested edge of the button. Both edges are passed on so
+    // the host can use the other side when the menu does not fit.
     private func open() {
-        guard let placement = anchor.placement(edge: edge) else { return }
+        guard let frame = anchor.frame() else { return }
         let generation = presenter.show(
             entries(),
-            at: placement.origin,
-            width: matchWidth ? placement.width : nil,
-            trailingAnchor: placement.trailingEdge,
-            verticalAttachment: .control(edge: edge, oppositeY: placement.oppositeY))
+            at: CGPoint(x: frame.minX, y: edge == .bottom ? frame.maxY + 4 : frame.minY - 4),
+            width: matchWidth ? frame.width : nil,
+            trailingAnchor: frame.maxX,
+            verticalAttachment: .control(
+                edge: edge, oppositeY: edge == .bottom ? frame.minY - 4 : frame.maxY + 4))
         guard let refreshOnOpen else { return }
         Task { @MainActor in
             await refreshOnOpen()
@@ -264,48 +267,12 @@ enum MenuVerticalAttachment {
     }
 }
 
-// A menu hangs off the requested edge of the button that opened it. Both button edges
-// are kept so the host can use the other side when the menu does not fit.
-@MainActor
-private final class MenuAnchor {
-    weak var view: NSView?
-
-    func placement(edge: VerticalEdge) -> (origin: CGPoint, width: CGFloat,
-                                            trailingEdge: CGFloat,
-                                            oppositeY: CGFloat)? {
-        guard let view, let content = view.window?.contentView else { return nil }
-        let frame = view.convert(view.bounds, to: content)
-        let top = content.isFlipped ? frame.minY : content.bounds.height - frame.maxY
-        let bottom = content.isFlipped ? frame.maxY : content.bounds.height - frame.minY
-        let y = edge == .bottom ? bottom + 4 : top - 4
-        let oppositeY = edge == .bottom ? top - 4 : bottom + 4
-        return (CGPoint(x: frame.minX, y: y), frame.width, frame.maxX, oppositeY)
-    }
-}
-
-private struct MenuAnchorView: NSViewRepresentable {
-    let anchor: MenuAnchor
-
-    func makeNSView(context: Context) -> NSView {
-        let view = AnchorView()
-        anchor.view = view
-        return view
-    }
-
-    func updateNSView(_ view: NSView, context: Context) { anchor.view = view }
-}
-
-// Only there to be measured, so it takes no clicks of its own.
-private final class AnchorView: NSView {
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
-}
-
 // MARK: - Host
 
 struct ContextMenuHost: View {
     @Environment(MenuPresenter.self) private var presenter
 
-    @State private var measurement = MenuMeasurement()
+    @State private var measurement = OverlayMeasurement()
 
     private var size: CGSize { measurement.size }
 
@@ -326,26 +293,8 @@ struct ContextMenuHost: View {
                         .frame(width: presenter.width)
                         .id(presenter.generation)
                         .smoothlyResizes(when: presenter.contentRevision)
-                        // The measurement carries the menu it was taken for, so two
-                        // menus that happen to be the same size still each report one,
-                        // and a report that arrives late cannot pass itself off as a
-                        // measurement of the menu that is open now.
-                        .background(GeometryReader { card in
-                            Color.clear.preference(
-                                key: MenuSizeKey.self,
-                                value: MenuMeasurement(generation: presenter.generation,
-                                                       size: card.size))
-                        })
-                        // Read here, on the card's own chain: the catcher and the escape
-                        // button next to it in the stack carry the key's default value,
-                        // and a read above them would take a default over the card's
-                        // measurement.
-                        .onPreferenceChange(MenuSizeKey.self) { measurement = $0 }
+                        .measuredOverlay(generation: presenter.generation, into: $measurement)
                         .offset(x: x(in: geometry.size), y: y(in: geometry.size))
-                        // Placing the menu needs its size, which is only known once it
-                        // has been laid out. Hiding it for that one pass avoids a frame
-                        // in the wrong corner.
-                        .opacity(measurement.generation == presenter.generation ? 1 : 0)
 
                     // Escape closes the menu, the way a menu is expected to behave when
                     // the mouse is not involved.
@@ -376,9 +325,7 @@ struct ContextMenuHost: View {
             menuContent(hasChecks: hasChecks, hasIcons: hasIcons)
         }
         .frame(minWidth: menuMinimumWidth, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 11).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 11).stroke(Theme.border))
-        .shadow(color: .black.opacity(0.16), radius: 18, y: 6)
+        .floatingCard(cornerRadius: 11)
     }
 
     private func menuContent(hasChecks: Bool, hasIcons: Bool) -> some View {
@@ -509,8 +456,7 @@ private struct SearchableMenuItemsView: View {
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
-            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.field))
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
+            .fieldSurface()
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
 
@@ -609,9 +555,7 @@ private struct MenuCardItemView: View {
             .foregroundStyle(Color.primary)
             .frame(maxWidth: .infinity, minHeight: 76, alignment: .topLeading)
             .padding(10)
-            .background(RoundedRectangle(cornerRadius: 9)
-                .fill(hovering ? Color.black.opacity(0.055) : Theme.field))
-            .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
+            .surface(hovering ? Color.black.opacity(0.055) : Theme.field, cornerRadius: 9)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -728,23 +672,6 @@ private struct MenuItemRow: View {
     }
 }
 
-private struct MenuMeasurement: Equatable {
-    var generation = -1
-    var size = CGSize.zero
-}
-
-private struct MenuSizeKey: PreferenceKey {
-    static let defaultValue = MenuMeasurement()
-
-    // Views that never set the key still hand their default to the reduce, so the newest
-    // real measurement wins rather than whichever value happens to come last.
-    static func reduce(value: inout MenuMeasurement,
-                       nextValue: () -> MenuMeasurement) {
-        let next = nextValue()
-        if next.generation > value.generation { value = next }
-    }
-}
-
 // MARK: - Catching the click
 
 // SwiftUI has no right-click gesture, so an invisible AppKit view sits over the row and
@@ -794,9 +721,6 @@ private final class CatcherView: NSView {
     private func report(_ event: NSEvent) {
         guard let content = window?.contentView else { return }
         let point = content.convert(event.locationInWindow, from: nil)
-        // AppKit measures an unflipped view from the bottom of the window, SwiftUI
-        // always from the top.
-        onClick?(CGPoint(x: point.x,
-                         y: content.isFlipped ? point.y : content.bounds.height - point.y))
+        onClick?(FrameAnchor.fromTop(point, in: content))
     }
 }

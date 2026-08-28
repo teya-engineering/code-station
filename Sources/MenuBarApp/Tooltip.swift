@@ -151,12 +151,12 @@ private struct AppTooltip: ViewModifier {
     let tooltip: () -> Tooltip
 
     @State private var id = UUID()
-    @State private var anchor = TooltipAnchor()
+    @State private var anchor = FrameAnchor()
     @State private var pending: Task<Void, Never>?
 
     func body(content: Content) -> some View {
         content
-            .background(TooltipAnchorView(anchor: anchor))
+            .background(FrameAnchorView(anchor: anchor))
             // A hint belongs to the pointer resting on something. Rows sliding past
             // under a scroll are not that, and a hint is taken down by a scroll anyway.
             .onPointerHover { inside in
@@ -181,42 +181,6 @@ private struct AppTooltip: ViewModifier {
     }
 }
 
-// MARK: - Where the row is
-
-// The hint hangs beside the row it belongs to, so the row's frame is measured in the
-// window's own coordinates the same way a menu's origin is.
-@MainActor
-private final class TooltipAnchor {
-    weak var view: NSView?
-
-    func frame() -> CGRect? {
-        guard let view, let content = view.window?.contentView else { return nil }
-        let frame = view.convert(view.bounds, to: content)
-        if content.isFlipped { return frame }
-        // AppKit measures an unflipped view from the bottom of the window, SwiftUI
-        // always from the top.
-        return CGRect(x: frame.minX, y: content.bounds.height - frame.maxY,
-                      width: frame.width, height: frame.height)
-    }
-}
-
-private struct TooltipAnchorView: NSViewRepresentable {
-    let anchor: TooltipAnchor
-
-    func makeNSView(context: Context) -> NSView {
-        let view = TooltipAnchorNSView()
-        anchor.view = view
-        return view
-    }
-
-    func updateNSView(_ view: NSView, context: Context) { anchor.view = view }
-}
-
-// Only there to be measured, so it takes no clicks of its own.
-private final class TooltipAnchorNSView: NSView {
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
-}
-
 // MARK: - Host
 
 struct TooltipHost: View {
@@ -228,7 +192,7 @@ struct TooltipHost: View {
     private static let gap: CGFloat = 10
     private static let margin: CGFloat = 8
 
-    @State private var measurement = TooltipMeasurement()
+    @State private var measurement = OverlayMeasurement()
 
     private var size: CGSize { measurement.size }
 
@@ -236,21 +200,8 @@ struct TooltipHost: View {
         if let tooltip = presenter.current {
             GeometryReader { geometry in
                 card(tooltip)
-                    // The measurement carries the hint it was taken for, so two hints
-                    // that happen to be the same size still each report one: a plain
-                    // size would be an unchanged value, and no report at all.
-                    .background(GeometryReader { card in
-                        Color.clear.preference(
-                            key: TooltipSizeKey.self,
-                            value: TooltipMeasurement(generation: presenter.generation,
-                                                      size: card.size))
-                    })
+                    .measuredOverlay(generation: presenter.generation, into: $measurement)
                     .offset(x: x(in: geometry.size), y: y(in: geometry.size))
-                    // Placing the hint needs its size, which is only known once it has
-                    // been laid out. Hiding it for that one pass avoids a frame in the
-                    // wrong corner.
-                    .opacity(measurement.generation == presenter.generation ? 1 : 0)
-                    .onPreferenceChange(TooltipSizeKey.self) { measurement = $0 }
                     .onHover { inside in
                         if inside {
                             presenter.keepInteractiveTooltipVisible()
@@ -288,9 +239,7 @@ struct TooltipHost: View {
             .frame(maxWidth: tooltip.wraps ? Self.width : nil, alignment: .leading)
             .padding(.horizontal, 9)
             .padding(.vertical, 5)
-            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
-            .shadow(color: .black.opacity(0.14), radius: 12, y: 4)
+            .floatingCard(cornerRadius: 8)
     }
 
     private func detailedCard(_ tooltip: Tooltip) -> some View {
@@ -342,9 +291,7 @@ struct TooltipHost: View {
             }
         }
         .frame(width: Self.width, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 11).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 11).stroke(Theme.border))
-        .shadow(color: .black.opacity(0.16), radius: 18, y: 6)
+        .floatingCard(cornerRadius: 11)
     }
 
     // Beside the row rather than under it: the sidebar is a column of rows, and a hint
@@ -363,15 +310,3 @@ struct TooltipHost: View {
     }
 }
 
-private struct TooltipMeasurement: Equatable {
-    var generation = -1
-    var size = CGSize.zero
-}
-
-private struct TooltipSizeKey: PreferenceKey {
-    static let defaultValue = TooltipMeasurement()
-    static func reduce(value: inout TooltipMeasurement,
-                       nextValue: () -> TooltipMeasurement) {
-        value = nextValue()
-    }
-}

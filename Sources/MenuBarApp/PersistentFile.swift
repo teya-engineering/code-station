@@ -17,6 +17,33 @@ enum PersistentFile {
         try FileManager.default.removeItem(at: url)
     }
 
+    // The shape every store writes. Sorted keys keep a save that changes nothing from
+    // rewriting the bytes, and pretty printing with plain slashes keeps the file readable.
+    static func makeEncoder(dates: JSONEncoder.DateEncodingStrategy = .iso8601) -> JSONEncoder {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        encoder.dateEncodingStrategy = dates
+        return encoder
+    }
+
+    static func makeDecoder(dates: JSONDecoder.DateDecodingStrategy = .iso8601) -> JSONDecoder {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = dates
+        return decoder
+    }
+
+    // Nil when the file is absent, which is a first run rather than a failure.
+    static func loadJSON<T: Decodable>(_ type: T.Type, from url: URL,
+                                       decoder: JSONDecoder = makeDecoder()) throws -> T? {
+        guard let data = try readIfPresent(url) else { return nil }
+        return try decoder.decode(type, from: data)
+    }
+
+    static func saveJSON<T: Encodable>(_ value: T, to url: URL,
+                                       encoder: JSONEncoder = makeEncoder()) throws {
+        try write(encoder.encode(value), to: url)
+    }
+
     static func loadMessage(for url: URL, error: Error) -> String {
         "The file at \(url.path) could not be loaded: \(error.localizedDescription)"
     }

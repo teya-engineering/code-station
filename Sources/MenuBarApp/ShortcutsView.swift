@@ -127,7 +127,7 @@ struct ShortcutsView: View {
     private var output: some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 8) {
-                SectionLabel(text: "OUTPUT")
+                SectionLabel("OUTPUT")
                 if let selected {
                     Text(selected.name)
                         .font(.system(size: 11))

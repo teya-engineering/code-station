@@ -37,7 +37,7 @@ struct AddServerView: View {
             Text(group.addTitle).font(.serif(26, .semibold))
 
             VStack(alignment: .leading, spacing: 8) {
-                SectionLabel(text: "PRESET")
+                SectionLabel("PRESET")
                 ActionButton(title: preset?.label ?? "Choose a preset",
                              tone: .sunken,
                              disclosure: true,
@@ -59,7 +59,7 @@ struct AddServerView: View {
                 let headers = requiredValues(in: preset.headers)
                 if !environment.isEmpty || !headers.isEmpty {
                     VStack(alignment: .leading, spacing: 12) {
-                        SectionLabel(text: "REQUIRED VALUES")
+                        SectionLabel("REQUIRED VALUES")
                         ForEach(environment) { value in
                             valueField(value,
                                        text: dictionaryBinding(value.key,
@@ -74,7 +74,7 @@ struct AddServerView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 6) {
-                    SectionLabel(text: "PREVIEW")
+                    SectionLabel("PREVIEW")
                     labeled("name", preset.name)
                     labeled("transport", preset.isRemote ? (preset.type ?? "http") : "stdio")
                     if let command = preset.command {
@@ -151,7 +151,7 @@ struct AddServerView: View {
     @ViewBuilder private func valueField(_ value: SiteDefaults.MCP.Value,
                                          text: Binding<String>) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            SectionLabel(text: value.key)
+            SectionLabel(value.key)
             if EnvVar(key: value.key, value: "").isSecret {
                 SecureField(value.key, text: text)
                     .textFieldStyle(.plain)

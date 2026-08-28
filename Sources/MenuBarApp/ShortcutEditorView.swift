@@ -48,7 +48,7 @@ struct ShortcutEditorView: View {
                 .font(.serif(24, .semibold))
 
             VStack(alignment: .leading, spacing: 8) {
-                SectionLabel(text: "NAME")
+                SectionLabel("NAME")
                 TextField("Local service", text: $name)
                     .textFieldStyle(.plain)
                     .font(.system(size: 13))
@@ -59,7 +59,7 @@ struct ShortcutEditorView: View {
             }
 
             VStack(alignment: .leading, spacing: 8) {
-                SectionLabel(text: "COMMAND")
+                SectionLabel("COMMAND")
                 TextEditor(text: $command)
                     .font(.mono(12))
                     .scrollContentBackground(.hidden)

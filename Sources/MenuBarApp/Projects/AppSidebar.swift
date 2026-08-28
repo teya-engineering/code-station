@@ -19,8 +19,8 @@ struct AppSidebar: View {
 
     // A project is expanded by default while it is the selected one. Explicit choices
     // win over that default and are restored when the app opens again.
-    @State private var expansion = Preferences.sidebarExpansion
-    @State private var collapsedGroups = Preferences.collapsedSidebarGroups
+    @State private var expansion = Preferences.sidebarExpansion()
+    @State private var collapsedGroups = Preferences.collapsedSidebarGroups()
     @State private var renamingID: UUID?
     @State private var choosingSessionKind: Project?
     @State private var choosingWorkspaceSession: ProjectWorkspace?
@@ -779,7 +779,7 @@ struct AppSidebar: View {
 
     private func setExpanded(_ isExpanded: Bool, for id: UUID) {
         expansion[id] = isExpanded
-        Preferences.sidebarExpansion = expansion
+        Preferences.setSidebarExpansion(expansion)
         // Opening a row inside a folded section unfolds the section as well, or the row
         // would be opened somewhere the user cannot see it.
         if isExpanded { showGroup(containing: id) }
@@ -798,14 +798,14 @@ struct AppSidebar: View {
         } else {
             collapsedGroups.insert(group)
         }
-        Preferences.collapsedSidebarGroups = collapsedGroups
+        Preferences.setCollapsedSidebarGroups(collapsedGroups)
     }
 
     private func showGroup(containing id: UUID) {
         let item = store.project(id).map(SidebarItem.project)
             ?? store.workspace(id).map(SidebarItem.workspace)
         guard let group = item?.group, collapsedGroups.remove(group) != nil else { return }
-        Preferences.collapsedSidebarGroups = collapsedGroups
+        Preferences.setCollapsedSidebarGroups(collapsedGroups)
     }
 
     // A list stays capped at its chosen number of sessions unless the user unfolded it with

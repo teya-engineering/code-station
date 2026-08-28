@@ -34,7 +34,7 @@ struct SkillsView: View {
         VStack(spacing: 0) {
             header
             content
-            SheetFooter(done: { dismiss() }) {
+            SheetFooter(dismiss: { dismiss() }) {
                 Text("Versions are compared with the marketplace manifest on every refresh.")
                     .font(.system(size: 11.5))
                     .foregroundStyle(.secondary)

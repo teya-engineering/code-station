@@ -262,7 +262,6 @@ struct FirstRunWizard: View {
                         ActionButton(title: "Choose JSON file", tone: .outlined,
                                      icon: "folder", action: chooseConfigurationFile)
                             .disabled(loadingRepository)
-                            .opacity(loadingRepository ? 0.6 : 1)
                     }
 
                 configurationCard(
@@ -567,11 +566,9 @@ struct FirstRunWizard: View {
             if step == .agent {
                 ActionButton(title: "Start using Code Station", tone: .green, action: finish)
                     .disabled(!isSignedIn)
-                    .opacity(isSignedIn ? 1 : 0.45)
             } else if step == .configuration {
                 ActionButton(title: "Continue", tone: .green) { move(to: .agent) }
                     .disabled(siteConfiguration == nil || loadingRepository)
-                    .opacity(siteConfiguration == nil || loadingRepository ? 0.45 : 1)
             } else {
                 ActionButton(title: "Continue", tone: .green) {
                     move(to: Step(rawValue: step.rawValue + 1) ?? .agent)

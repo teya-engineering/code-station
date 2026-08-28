@@ -326,15 +326,9 @@ enum AgentAvatarArt {
     static func sessionArtworkIndex(sessionID: UUID, avatarName: String,
                                     count: Int = sessionArtworkCount) -> Int? {
         guard count > 0 else { return nil }
-
-        // Swift's Hasher changes between launches. FNV-1a keeps the same saved session
-        // on the same bundled face without adding another field to the session record.
-        var hash: UInt64 = 14_695_981_039_346_656_037
-        for byte in "\(sessionID.uuidString)|\(avatarName)".utf8 {
-            hash ^= UInt64(byte)
-            hash &*= 1_099_511_628_211
-        }
-        return Int(hash % UInt64(count))
+        // Derived from the id rather than stored, so a session record needs no extra field
+        // to keep the same face.
+        return Int(StableHash.fnv1a("\(sessionID.uuidString)|\(avatarName)") % UInt64(count))
     }
 }
 

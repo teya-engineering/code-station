@@ -208,10 +208,6 @@ struct TokenResponse: Decodable {
     }
 }
 
-extension String {
-    var trimmed: String { trimmingCharacters(in: .whitespacesAndNewlines) }
-}
-
 struct OAuthError: LocalizedError {
     let message: String
     init(_ message: String) { self.message = message }
@@ -227,13 +223,6 @@ enum PKCE {
     }
 
     static func challenge(for verifier: String) -> String {
-        base64URL(Data(SHA256.hash(data: Data(verifier.utf8))))
-    }
-
-    static func base64URL(_ data: Data) -> String {
-        data.base64EncodedString()
-            .replacingOccurrences(of: "+", with: "-")
-            .replacingOccurrences(of: "/", with: "_")
-            .replacingOccurrences(of: "=", with: "")
+        Data(SHA256.hash(data: Data(verifier.utf8))).base64URLEncoded
     }
 }

@@ -104,6 +104,44 @@ extension View {
     func warningCard() -> some View { modifier(WarningCard()) }
 }
 
+// The same warning as a band across the full width of a sheet or a pane, for a state
+// that belongs to the whole screen rather than to one card on it. Whatever it offers,
+// a retry or a reload, sits at its trailing end.
+struct WarningStrip<Trailing: View>: View {
+    let text: String
+    var icon = "exclamationmark.triangle.fill"
+    @ViewBuilder let trailing: Trailing
+
+    init(_ text: String, icon: String = "exclamationmark.triangle.fill",
+         @ViewBuilder trailing: () -> Trailing) {
+        self.text = text
+        self.icon = icon
+        self.trailing = trailing()
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: icon)
+            Text(text).fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+            trailing
+        }
+        .font(.system(size: 12, weight: .medium))
+        .foregroundStyle(Theme.warningText)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity)
+        .background(Theme.warningBackground)
+        .transition(.fadeIn)
+    }
+}
+
+extension WarningStrip where Trailing == EmptyView {
+    init(_ text: String, icon: String = "exclamationmark.triangle.fill") {
+        self.init(text, icon: icon) { EmptyView() }
+    }
+}
+
 // MARK: - Identity
 
 // A project wherever it is not the subject of the screen: a small square of its colour
@@ -185,32 +223,37 @@ struct DiffPair: View {
     let removed: Int
     var size: CGFloat = 11
     var spacing: CGFloat = 5
+    var weight: Font.Weight = .semibold
 
     var body: some View {
         HStack(spacing: spacing) {
             Text("+\(added)").foregroundStyle(Theme.addition)
             Text("−\(removed)").foregroundStyle(Theme.deletion)
         }
-        .font(.mono(size, .semibold))
+        .font(.mono(size, weight))
     }
 }
 
 // A small run of mono capitals on a quiet fill: a worktree badge, a git summary, the
-// kind of thing that qualifies the name beside it.
+// kind of thing that qualifies the name beside it. Its room and corners grow with the
+// type, so the same chip carries a 13pt command part as well as a 9pt badge. A bordered
+// one reads as a value rather than a state, which is what a command or an argument is.
 struct MonoChip: View {
     let text: String
     var size: CGFloat = 10
     var tint: Color? = nil
+    var bordered = false
+    var mono = true
 
     var body: some View {
         Text(text)
-            .font(.mono(size, .semibold))
-            .kerning(0.6)
+            .font(mono ? .mono(size, .semibold) : .system(size: size, weight: .semibold))
+            .kerning(mono ? 0.6 : 0)
             .foregroundStyle(tint ?? Color.secondary)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 3)
-            .background(RoundedRectangle(cornerRadius: 5)
-                .fill(tint?.opacity(0.16) ?? Theme.field))
+            .padding(.horizontal, size * 0.6)
+            .padding(.vertical, size * 0.3)
+            .surface(tint?.opacity(0.16) ?? Theme.field, cornerRadius: size * 0.5,
+                     border: bordered ? Theme.border : .clear)
             .fixedSize()
     }
 }
@@ -273,28 +316,29 @@ struct StatusRule: View {
 
 // "2m", "3h", "2d": short enough to sit at the end of a narrow row.
 enum RelativeTime {
+    // The rungs a reading climbs: how many seconds each unit holds and the letter it is
+    // written with. A reading takes the largest unit it has at least one of.
+    private static let units: [(seconds: TimeInterval, letter: String)] = [
+        (1, "s"), (60, "m"), (3_600, "h"), (86_400, "d"), (604_800, "w")
+    ]
+
+    private static func reading(_ seconds: TimeInterval, weeks: Bool) -> String {
+        let rungs = weeks ? units[...] : units.dropLast()
+        let unit = rungs.last { seconds >= $0.seconds } ?? units[0]
+        return "\(Int(seconds / unit.seconds))\(unit.letter)"
+    }
+
     static func short(_ date: Date) -> String {
         let seconds = max(0, Date().timeIntervalSince(date))
-        switch seconds {
-        case ..<60: return "now"
-        case ..<3_600: return "\(Int(seconds / 60))m"
-        case ..<86_400: return "\(Int(seconds / 3_600))h"
-        case ..<604_800: return "\(Int(seconds / 86_400))d"
-        default: return "\(Int(seconds / 604_800))w"
-        }
+        return seconds < 60 ? "now" : reading(seconds, weeks: true)
     }
 
     // "41s", "2m", "1h": a length of time rather than a point in it, for the rows that
     // count seconds. Seconds are kept because the first minute of a build is the part
-    // being watched, which is exactly where `short` says only "now".
+    // being watched, which is exactly where `short` says only "now". It stops at days:
+    // a run that has lasted weeks is stuck, and "16d" says so better than "2w".
     static func duration(since date: Date) -> String {
-        let seconds = max(0, Date().timeIntervalSince(date))
-        switch seconds {
-        case ..<60: return "\(Int(seconds))s"
-        case ..<3_600: return "\(Int(seconds / 60))m"
-        case ..<86_400: return "\(Int(seconds / 3_600))h"
-        default: return "\(Int(seconds / 86_400))d"
-        }
+        reading(max(0, Date().timeIntervalSince(date)), weeks: false)
     }
 
     // "today 09:41", "yesterday 16:18", "3 Aug 11:02": what a row shows when the reader
@@ -396,6 +440,39 @@ struct SectionRule<Trailing: View>: View {
 extension SectionRule where Trailing == EmptyView {
     init(_ title: String, dot: Color? = nil, pulses: Bool = false, tint: Color? = nil) {
         self.init(title: title, dot: dot, pulses: pulses, tint: tint) { EmptyView() }
+    }
+}
+
+// The label over a block of a form. A section, like COMMAND or ENVIRONMENT VARIABLES,
+// is led by a dot, which is the only thing separating it from the last one in a plain
+// scroll. A field label is smaller and quieter, since the field under it is the point.
+struct SectionLabel: View {
+    enum Style { case section, field }
+
+    let text: String
+    var style: Style = .section
+
+    init(_ text: String, style: Style = .section) {
+        self.text = text
+        self.style = style
+    }
+
+    var body: some View {
+        switch style {
+        case .section:
+            HStack(spacing: 7) {
+                RunningDot(size: 5)
+                Text(text)
+                    .font(.system(size: 12, weight: .semibold))
+                    .kerning(0.6)
+                    .foregroundStyle(.secondary)
+            }
+        case .field:
+            Text(text)
+                .font(.mono(10, .semibold))
+                .kerning(0.6)
+                .foregroundStyle(.tertiary)
+        }
     }
 }
 
@@ -511,13 +588,15 @@ struct ActionButton: View {
     var height: CGFloat = 32
     var size: CGFloat = 12.5
     var icon: String? = nil
-    var shortcut: String? = nil
     var disclosure = false
     var fills = false
+    var keyboardShortcut: KeyboardShortcut? = nil
     // Left out when the button opens a menu: `appMenu` brings a button of its own, and
     // one nested inside another swallows the click before the menu ever sees it.
     var action: (() -> Void)? = nil
 
+    // Set by `.disabled(...)` on the button, so a caller has nothing to dim by hand.
+    @Environment(\.isEnabled) private var isEnabled
     @State private var hovering = false
 
     var body: some View {
@@ -525,13 +604,17 @@ struct ActionButton: View {
             if let action {
                 Button(action: action) { shape }
                     .buttonStyle(.plain)
+                    .keyboardShortcut(keyboardShortcut)
             } else {
                 shape
             }
         }
+        .opacity(isEnabled ? 1 : 0.4)
         .animation(.easeOut(duration: 0.12), value: hovering)
         .onHover { hovering = $0 }
     }
+
+    private var lit: Bool { hovering && isEnabled }
 
     private var shape: some View {
         HStack(spacing: 7) {
@@ -545,11 +628,6 @@ struct ActionButton: View {
                 // A button's label is the button: it holds its width and lets whatever
                 // shares the row give way, rather than truncating its own words.
                 .fixedSize()
-            if let shortcut {
-                Text(shortcut)
-                    .font(.mono(size - 2.5))
-                    .opacity(0.55)
-            }
             if disclosure {
                 Image(systemName: "chevron.down")
                     .font(.system(size: size - 4, weight: .semibold))
@@ -560,8 +638,7 @@ struct ActionButton: View {
         .padding(.horizontal, height * 0.4)
         .frame(height: height)
         .frame(maxWidth: fills ? .infinity : nil)
-        .background(RoundedRectangle(cornerRadius: height * 0.25).fill(fill))
-        .overlay(RoundedRectangle(cornerRadius: height * 0.25).stroke(stroke))
+        .surface(fill, cornerRadius: height * 0.25, border: stroke)
         .contentShape(RoundedRectangle(cornerRadius: height * 0.25))
     }
 
@@ -574,11 +651,11 @@ struct ActionButton: View {
 
     private var fill: Color {
         switch tone {
-        case .dark: Color.black.opacity(hovering ? 0.82 : 0.9)
-        case .green: hovering ? Theme.accentFill.opacity(0.86) : Theme.accentFill
-        case .danger: hovering ? Theme.deletion.opacity(0.86) : Theme.deletion
-        case .outlined: hovering ? Theme.field : .clear
-        case .sunken: hovering ? Theme.border : Theme.field
+        case .dark: Color.black.opacity(lit ? 0.82 : 0.9)
+        case .green: lit ? Theme.accentFill.opacity(0.86) : Theme.accentFill
+        case .danger: lit ? Theme.deletion.opacity(0.86) : Theme.deletion
+        case .outlined: lit ? Theme.field : .clear
+        case .sunken: lit ? Theme.border : Theme.field
         }
     }
 
@@ -621,6 +698,9 @@ struct InlineLink: View {
 struct GlyphButton: View {
     let icon: String
     var side: CGFloat = 30
+    // A toggle that is on wears the accent fill, the way a pressed tool does.
+    var active = false
+    var tint: Color? = nil
     var action: (() -> Void)? = nil
 
     @State private var hovering = false
@@ -641,11 +721,63 @@ struct GlyphButton: View {
     private var shape: some View {
         Image(systemName: icon)
             .font(.system(size: side * 0.42, weight: .semibold))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(active ? Color.white : tint ?? Color.secondary)
             .frame(width: side, height: side)
-            .background(RoundedRectangle(cornerRadius: side * 0.27)
-                .fill(hovering ? Theme.field : .clear))
-            .overlay(RoundedRectangle(cornerRadius: side * 0.27).stroke(Theme.border))
+            .surface(fill, cornerRadius: side * 0.27, border: active ? .clear : Theme.border)
             .contentShape(RoundedRectangle(cornerRadius: side * 0.27))
+    }
+
+    private var fill: Color {
+        if active { return hovering ? Theme.accentFill.opacity(0.86) : Theme.accentFill }
+        return hovering ? Theme.field : .clear
+    }
+}
+
+// The dropdown: a pill showing the value in force, with the choices opening under it as
+// the app's own menu. It takes the width its caption or row gives it, and the menu takes
+// the same width by default so it reads as the pill unfolding.
+struct OptionMenu: View {
+    var caption: String? = nil
+    let value: String
+    var matchWidth = true
+    let entries: () -> [MenuEntry]
+
+    init(caption: String? = nil, value: String, matchWidth: Bool = true,
+         entries: @escaping () -> [MenuEntry]) {
+        self.caption = caption
+        self.value = value
+        self.matchWidth = matchWidth
+        self.entries = entries
+    }
+
+    // The one-of-a-set form: each option says whether it is the one in force.
+    init(caption: String? = nil, value: String,
+         options: [(label: String, checked: Bool, choose: () -> Void)]) {
+        self.init(caption: caption, value: value) {
+            options.map { option in
+                .item(option.label, checked: option.checked, action: option.choose)
+            }
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let caption {
+                SectionLabel(caption, style: .field)
+            }
+            HStack(spacing: 8) {
+                Text(value)
+                    .font(.system(size: 12, weight: .medium))
+                Spacer()
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 11)
+            .padding(.vertical, 9)
+            .cardSurface(cornerRadius: 9)
+            .contentShape(Rectangle())
+            .appMenu(matchWidth: matchWidth, entries)
+        }
     }
 }

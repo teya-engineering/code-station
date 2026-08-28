@@ -19,7 +19,7 @@ struct LogView: View {
         VStack(spacing: 0) {
             header
             content
-            SheetFooter(done: { dismiss() }) {
+            SheetFooter(dismiss: { dismiss() }) {
                 Button("Reveal in Finder") { SessionLog.revealInFinder() }
                     .buttonStyle(.plain)
                     .font(.system(size: 12, weight: .semibold))

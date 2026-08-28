@@ -144,7 +144,7 @@ struct ServerDetailView: View {
         let secrets = secrets(server)
         if !secrets.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
-                SectionLabel(text: secrets.count == 1 ? "CREDENTIAL" : "CREDENTIALS")
+                SectionLabel(secrets.count == 1 ? "CREDENTIAL" : "CREDENTIALS")
                 ForEach(secrets) { secret in
                     // Headers on a remote server are read-only here, like the rest of
                     // its connection details.
@@ -169,7 +169,7 @@ struct ServerDetailView: View {
     private func registeredSection(_ server: Server) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                SectionLabel(text: "REGISTERED WITH")
+                SectionLabel("REGISTERED WITH")
                 Spacer()
                 if claudeNeedsSync(server) && codexNeedsSync(server) {
                     InlineLink(title: "Sync both", size: 13) {
@@ -315,7 +315,7 @@ struct ServerDetailView: View {
         let plain = (server.isRemote ? server.headers : server.env).filter { !$0.isSecret }
         return VStack(alignment: .leading, spacing: 12) {
             HStack {
-                SectionLabel(text: "CONNECTION")
+                SectionLabel("CONNECTION")
                 Spacer()
                 if !server.isRemote {
                     InlineLink(title: editingConnection ? "Done" : "Edit", size: 13) {
@@ -327,8 +327,8 @@ struct ServerDetailView: View {
                 connectionRow(label: server.isRemote ? "URL" : "COMMAND") {
                     if let command = server.command {
                         HStack(spacing: 6) {
-                            Chip(text: command)
-                            ForEach(server.args, id: \.self) { Chip(text: $0) }
+                            MonoChip(text: command, size: 13, bordered: true)
+                            ForEach(server.args, id: \.self) { MonoChip(text: $0, size: 13, bordered: true) }
                         }
                     } else if let url = server.url {
                         Text(url)
@@ -420,7 +420,7 @@ struct ServerDetailView: View {
         if !log.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
-                    SectionLabel(text: "OUTPUT")
+                    SectionLabel("OUTPUT")
                     Spacer()
                     Button("Clear") { processes.clearLog(serverID) }
                         .buttonStyle(.plain)

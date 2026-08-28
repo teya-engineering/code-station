@@ -847,7 +847,7 @@ struct ChangesView: View {
                 .foregroundStyle(.secondary)
         } else {
             VStack(alignment: .leading, spacing: 6) {
-                SectionLabel(text: "COMMITS")
+                SectionLabel("COMMITS")
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 4) {
                         ForEach(commits) { commit in

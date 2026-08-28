@@ -25,7 +25,7 @@ struct DispatchView: View {
                 Divider().overlay(Theme.hairline)
                 detail
             }
-            SheetFooter(done: { dismiss() }) {
+            SheetFooter(dismiss: { dismiss() }) {
                 Text(environment.isDangerous
                      ? "Live environments ask for confirmation before every send."
                      : "Requests are shared by all environments. Each environment keeps its own credentials and responses.")
@@ -89,7 +89,7 @@ struct DispatchView: View {
 
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 0) {
-            SectionLabel(text: "REQUESTS")
+            SectionLabel("REQUESTS")
                 .padding(.horizontal, 16)
                 .padding(.top, 16)
                 .padding(.bottom, 8)
@@ -757,7 +757,7 @@ private struct RequestDetail: View {
                               params: Binding<[HeaderField]>) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                SectionLabel(text: title)
+                SectionLabel(title)
                 Text(note)
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
@@ -1140,7 +1140,7 @@ private struct ResponsePane: View {
 
     private var status: some View {
         HStack(spacing: 10) {
-            SectionLabel(text: "RESPONSE")
+            SectionLabel("RESPONSE")
 
             if let result {
                 Text(result.statusText)

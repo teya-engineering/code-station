@@ -448,7 +448,7 @@ extension SiteDefaults {
 
     static var searchPaths: [URL] {
         searchPaths(environmentURL: environmentURL,
-                    savedURL: Preferences.siteDefaultsURL,
+                    savedURL: Preferences.siteDefaultsURL(),
                     bundledURL: bundledURL)
     }
 

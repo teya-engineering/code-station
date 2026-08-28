@@ -970,10 +970,7 @@ final class MobileAccessController {
         guard status == errSecSuccess else {
             throw LANServerFailure(message: "A secure pairing code could not be created.")
         }
-        return Data(bytes).base64EncodedString()
-            .replacingOccurrences(of: "+", with: "-")
-            .replacingOccurrences(of: "/", with: "_")
-            .replacingOccurrences(of: "=", with: "")
+        return Data(bytes).base64URLEncoded
     }
 
     private static func securelyEqual(_ first: String, _ second: String) -> Bool {

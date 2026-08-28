@@ -164,15 +164,11 @@ enum Theme {
     // olive the rest of the app uses for a group.
     static let workspaceTint = tint((0.494, 0.541, 0.243), (0.353, 0.392, 0.145))
 
-    // Swift's own hashValue is salted per process, so the name is hashed here instead to
-    // keep the choice stable. Summing the scalars would be stable too, but it lands names
-    // built from the same letters on the same tint, which is most of a project list.
+    // Hashed rather than summed: summing the scalars would be stable across launches too,
+    // but it lands names built from the same letters on the same tint, which is most of a
+    // project list.
     static func projectTint(for name: String) -> ProjectTint {
-        var hash: UInt32 = 2166136261
-        for scalar in name.unicodeScalars {
-            hash = (hash ^ (scalar.value &* 2654435761)) &* 16777619
-        }
-        return projectTints[Int(hash % UInt32(projectTints.count))]
+        projectTints[Int(StableHash.fnv1a(name) % UInt64(projectTints.count))]
     }
 
     static func monogram(for name: String) -> Color { projectTint(for: name).ink }
@@ -205,6 +201,28 @@ extension View {
     func statusBand(padding: CGFloat) -> some View {
         self.padding(.horizontal, padding)
             .headerBand(Theme.statusBand, height: Theme.statusBandHeight)
+    }
+
+    // A fill with a hairline around it, which is how every card, field and pill in the
+    // app is drawn. Naming the pair keeps the stroke from being forgotten or doubled.
+    func surface(_ fill: Color, cornerRadius: CGFloat, border: Color = Theme.border) -> some View {
+        background(RoundedRectangle(cornerRadius: cornerRadius).fill(fill))
+            .overlay(RoundedRectangle(cornerRadius: cornerRadius).stroke(border))
+    }
+
+    func cardSurface(cornerRadius: CGFloat = 10) -> some View {
+        surface(Theme.card, cornerRadius: cornerRadius)
+    }
+
+    func fieldSurface(cornerRadius: CGFloat = 8) -> some View {
+        surface(Theme.field, cornerRadius: cornerRadius)
+    }
+
+    // A card lifted off the window: what a menu, a hint or a dialog floats on. One
+    // shadow for all of them, so they read as the same kind of thing.
+    func floatingCard(cornerRadius: CGFloat = 10) -> some View {
+        cardSurface(cornerRadius: cornerRadius)
+            .shadow(color: .black.opacity(0.16), radius: 18, y: 6)
     }
 }
 
@@ -303,45 +321,6 @@ struct PaneMessage: View {
         }
         .padding(40)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
-
-// A small rounded chip used for command parts and badges.
-struct Chip: View {
-    let text: String
-    var mono = true
-    var body: some View {
-        Text(text)
-            .font(mono ? .mono(13) : .system(size: 13))
-            .foregroundStyle(.primary)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(RoundedRectangle(cornerRadius: 7).fill(Theme.field))
-            .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.border))
-    }
-}
-
-// Section label like COMMAND / ENVIRONMENT VARIABLES. The dot marks where a section
-// starts, which is the only thing separating one from the next in a plain scroll.
-struct SectionLabel: View {
-    let text: String
-    var body: some View {
-        HStack(spacing: 7) {
-            SectionDot(size: 5)
-            Text(text)
-                .font(.system(size: 12, weight: .semibold))
-                .kerning(0.6)
-                .foregroundStyle(.secondary)
-        }
-    }
-}
-
-struct SectionDot: View {
-    var size: CGFloat = 5
-    var body: some View {
-        Circle()
-            .fill(Theme.dotOn)
-            .frame(width: size, height: size)
     }
 }
 

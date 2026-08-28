@@ -138,7 +138,7 @@ enum SiteConfigurationImporter {
         }
         let written = try SiteDefaults.decode(data, from: url)
         if url.standardizedFileURL == destination.standardizedFileURL {
-            Preferences.siteDefaultsURL = nil
+            Preferences.setSiteDefaultsURL(nil)
             return SiteDefaults.setCurrent(written, sourceURL: url)
         }
         return written

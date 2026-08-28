@@ -206,7 +206,7 @@ struct DockerView: View {
     private func containerGroupHeader(_ group: ContainerGroup) -> some View {
         let stopping = group.containers.contains { docker.stopping.contains($0.id) }
         return HStack(spacing: 8) {
-            SectionDot(size: 5)
+            RunningDot(size: 5)
             Text(group.composeProject ?? "Standalone containers")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.secondary)
