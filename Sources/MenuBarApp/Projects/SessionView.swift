@@ -1495,7 +1495,35 @@ struct SessionView: View {
                         choice.id.map { (id: $0, title: choice.title) }
                     },
                     selection: Binding(get: { model },
-                                       set: { id in changeSettings { $0.model = id } }))
+                                       set: { id in chooseModel(id, for: session,
+                                                                lastRan: lastRan) }))
+    }
+
+    private func chooseModel(_ model: String?, for session: ChatSession, lastRan: String?) {
+        let current = ModelChoice.valid(sessionSettings.model, for: session.agent)
+        guard model != current else { return }
+        guard session.hasAgentConversation else {
+            changeSettings { $0.model = model }
+            return
+        }
+
+        let currentTitle = current.map { ModelChoice.title(of: $0) }
+            ?? lastRan.map { ModelChoice.shortName(of: $0) }
+            ?? "the \(session.agent.title) default"
+        let nextTitle = model.map { ModelChoice.title(of: $0) }
+            ?? "the \(session.agent.title) default"
+        dialogs.show(Dialog(
+            title: "Change from \(currentTitle) to \(nextTitle)?",
+            message: "The next turn will resume this conversation using \(nextTitle). "
+                + "The conversation and files stay in place. If this selects a different "
+                + "model, cached context may not carry over, so processing the existing "
+                + "context can use more input tokens.",
+            actions: [
+                .init(label: "Change model", kind: .primary) {
+                    changeSettings { $0.model = model }
+                },
+                .init(label: "Cancel", kind: .cancel),
+            ]))
     }
 
     private func effortMenu(agent: AgentKind) -> some View {
