@@ -21,7 +21,7 @@ struct GitFreshnessTests {
 
     @Test func countsCommitsTheRemoteHasGained() async throws {
         let pair = try ClonedRepo()
-        try pair.origin.commit("more.txt", "more")
+        try pair.origin.commitChange("more.txt", "more")
 
         // Without a fetch the clone's remote refs still say nothing happened.
         let stale = try #require(await GitFreshness.check(at: pair.clone.path, fetch: false))
@@ -38,10 +38,10 @@ struct GitFreshnessTests {
     // Its safety and copy therefore have to describe main rather than the checked-out ref.
     @Test func measuresDivergenceOnTheDefaultBranchInsteadOfHead() async throws {
         let pair = try ClonedRepo()
-        try pair.clone.commit("local.txt", "local main work")
-        pair.clone.git("checkout", "-q", "-b", "feature")
-        try pair.clone.commit("feature.txt", "feature work")
-        try pair.origin.commit("remote.txt", "remote work")
+        try pair.clone.commitChange("local.txt", "local main work")
+        try pair.clone.git("checkout", "-q", "-b", "feature")
+        try pair.clone.commitChange("feature.txt", "feature work")
+        try pair.origin.commitChange("remote.txt", "remote work")
 
         let report = try #require(await GitFreshness.check(at: pair.clone.path, fetch: true))
         #expect(report.currentBranch == "feature")
@@ -53,7 +53,7 @@ struct GitFreshnessTests {
 
     @Test func noticesAFeatureBranch() async throws {
         let pair = try ClonedRepo()
-        pair.clone.git("checkout", "-q", "-b", "feature")
+        try pair.clone.git("checkout", "-q", "-b", "feature")
         let report = try #require(await GitFreshness.check(at: pair.clone.path, fetch: false))
         #expect(report.currentBranch == "feature")
         #expect(!report.onDefaultBranch)
@@ -62,7 +62,7 @@ struct GitFreshnessTests {
 
     @Test func noticesADetachedHead() async throws {
         let pair = try ClonedRepo()
-        pair.clone.git("checkout", "-q", "--detach")
+        try pair.clone.git("checkout", "-q", "--detach")
         let report = try #require(await GitFreshness.check(at: pair.clone.path, fetch: false))
         #expect(report.currentBranch == nil)
         #expect(!report.onDefaultBranch)
@@ -80,7 +80,7 @@ struct GitFreshnessTests {
     // another one.
     @Test func offersToUpdateACleanCheckoutThatIsBehind() async throws {
         let pair = try ClonedRepo()
-        try pair.origin.commit("more.txt", "more")
+        try pair.origin.commitChange("more.txt", "more")
 
         let clean = try #require(await GitFreshness.check(at: pair.clone.path, fetch: true))
         #expect(clean.canUpdateCheckout)
@@ -92,8 +92,8 @@ struct GitFreshnessTests {
 
     @Test func offersToUpdateACheckoutSittingOnAnotherBranch() async throws {
         let pair = try ClonedRepo()
-        try pair.origin.commit("more.txt", "more")
-        pair.clone.git("checkout", "-q", "-b", "feature")
+        try pair.origin.commitChange("more.txt", "more")
+        try pair.clone.git("checkout", "-q", "-b", "feature")
         let report = try #require(await GitFreshness.check(at: pair.clone.path, fetch: true))
         #expect(report.behind == 1)
         #expect(report.canUpdateCheckout)
@@ -106,8 +106,8 @@ struct GitFreshnessTests {
         let fresh = try #require(await GitFreshness.check(at: pair.clone.path, fetch: true))
         #expect(!fresh.canUpdateCheckout)
 
-        let lone = try Repo(name: "lone")
-        lone.git("checkout", "-q", "-b", "feature")
+        let lone = try GitRepo()
+        try lone.git("checkout", "-q", "-b", "feature")
         let remoteless = try #require(await GitFreshness.check(at: lone.path, fetch: false))
         #expect(remoteless.isStale)
         #expect(!remoteless.canUpdateCheckout)
@@ -116,8 +116,8 @@ struct GitFreshnessTests {
     // Without a remote the local main is the only yardstick, so being on a feature
     // branch still reads as off the default branch.
     @Test func fallsBackToALocalMainWhenThereIsNoRemote() async throws {
-        let repo = try Repo(name: "lone")
-        repo.git("checkout", "-q", "-b", "feature")
+        let repo = try GitRepo()
+        try repo.git("checkout", "-q", "-b", "feature")
         let report = try #require(await GitFreshness.check(at: repo.path, fetch: false))
         #expect(report.defaultBranch == "main")
         #expect(report.remoteRef == nil)
@@ -127,11 +127,8 @@ struct GitFreshnessTests {
     // A repository with no commits has nothing to compare, and a plain folder is not a
     // repository at all: both are nothing for the sheet to warn about.
     @Test func saysNothingWithoutACommitToStandOn() async throws {
-        let folder = FileManager.default.temporaryDirectory
-            .appendingPathComponent("freshness-plain-" + UUID().uuidString)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: folder) }
-        #expect(await GitFreshness.check(at: folder.path, fetch: false) == nil)
+        let folder = ScratchDirectory(prefix: "freshness-plain")
+        #expect(await GitFreshness.check(at: folder.url.path, fetch: false) == nil)
     }
 
     // The one-line caption the workspace rows show in a tooltip. It has to read as a
@@ -165,59 +162,21 @@ struct GitFreshnessTests {
 
     // MARK: - Fixtures
 
-    // A repository with one commit in it, thrown away with the test.
-    private final class Repo {
-        let url: URL
-        var path: String { url.path }
-
-        init(name: String) throws {
-            url = FileManager.default.temporaryDirectory
-                .appendingPathComponent("freshness-\(name)-" + UUID().uuidString)
-            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-            git("init", "-q", "-b", "main")
-            try commit("README.md", "hello")
-        }
-
-        deinit { try? FileManager.default.removeItem(at: url) }
-
-        func write(_ name: String, _ contents: String) throws {
-            try contents.write(to: url.appendingPathComponent(name), atomically: true, encoding: .utf8)
-        }
-
-        func commit(_ name: String, _ contents: String) throws {
-            try write(name, contents)
-            git("add", ".")
-            git("commit", "-qm", "change " + name)
-        }
-
-        func git(_ arguments: String...) {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-            // The machine running this may have no identity configured, and a commit
-            // without one fails.
-            process.arguments = ["git", "-c", "user.email=t@example.com",
-                                 "-c", "user.name=Test", "-c", "commit.gpgsign=false"]
-                + arguments
-            process.currentDirectoryURL = url
-            process.standardOutput = FileHandle.nullDevice
-            process.standardError = FileHandle.nullDevice
-            try? process.run()
-            process.waitUntilExit()
-        }
-    }
-
     // An origin and a clone of it, so fetches and behind-counts work without a network.
-    private final class ClonedRepo {
-        let origin: Repo
-        let clone: Repo
+    private struct ClonedRepo {
+        let origin: GitRepo
+        let clone: GitRepo
 
         init() throws {
-            origin = try Repo(name: "origin")
-            clone = try Repo(name: "clone")
-            // Cloning into the existing folder keeps Repo's cleanup; the fixture commit
-            // there gives way to the clone's contents.
-            try FileManager.default.removeItem(at: clone.url)
-            origin.git("clone", "-q", origin.path, clone.path)
+            origin = try GitRepo()
+            clone = try origin.clone()
         }
+    }
+}
+
+private extension GitRepo {
+    func commitChange(_ name: String, _ contents: String) throws {
+        try write(name, contents)
+        try commit("change " + name)
     }
 }

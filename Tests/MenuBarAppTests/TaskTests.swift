@@ -4,12 +4,12 @@ import Testing
 
 @MainActor
 struct TaskTests {
+    private let scratch = ScratchDirectory(prefix: "code-station-task-tests")
+
+    private var storeURL: URL { scratch.path("projects.json") }
+    private var tasksURL: URL { scratch.path("tasks") }
+
     @Test func createsANamedTaskWithItsPromptInANewEmptyDirectory() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("code-station-task-tests-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let storeURL = root.appendingPathComponent("projects.json")
-        let tasksURL = root.appendingPathComponent("tasks", isDirectory: true)
         let store = ProjectStore(storeURL: storeURL)
 
         let project = try store.addTask(named: "  Release notes  ",
@@ -26,9 +26,9 @@ struct TaskTests {
     }
 
     @Test func rejectsATaskWithoutANameBeforeCreatingItsDirectory() {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("code-station-task-tests-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: root) }
+        // A folder of its own, so the check that nothing was written has something to
+        // look for that the scratch folder itself would not satisfy.
+        let root = scratch.path("root")
         let store = ProjectStore(storeURL: root.appendingPathComponent("projects.json"))
 
         let result = store.addTask(named: " \n ", prompt: "Do something",
@@ -73,13 +73,9 @@ struct TaskTests {
     }
 
     @Test func reworksThePromptBetweenRuns() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("code-station-task-tests-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let storeURL = root.appendingPathComponent("projects.json")
         let store = ProjectStore(storeURL: storeURL)
         let project = try store.addTask(named: "Sweep", prompt: "First idea",
-                                        in: root.appendingPathComponent("tasks")).get()
+                                        in: tasksURL).get()
 
         let reworked = TaskSpec(prompt: "Second idea")
         store.setTaskSpec(reworked, for: project.id)
@@ -89,13 +85,8 @@ struct TaskTests {
     }
 
     @Test func ignoresATaskSpecOnANormalProject() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("code-station-task-tests-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: root) }
-        try FileManager.default.createDirectory(at: root.appendingPathComponent("repo"),
-                                                withIntermediateDirectories: true)
-        let store = ProjectStore(storeURL: root.appendingPathComponent("projects.json"))
-        let project = try #require(store.addProject(at: root.appendingPathComponent("repo")))
+        let store = ProjectStore(storeURL: storeURL)
+        let project = try TestStore.project(in: store, named: "repo")
 
         store.setTaskSpec(TaskSpec(prompt: "Not a task"), for: project.id)
 
@@ -103,12 +94,9 @@ struct TaskTests {
     }
 
     @Test func runningATaskStartsASessionWithTheSavedPrompt() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("code-station-task-tests-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let store = ProjectStore(storeURL: root.appendingPathComponent("projects.json"))
+        let store = ProjectStore(storeURL: storeURL)
         let task = try store.addTask(named: "Sweep", prompt: "Do the thing.",
-                                     in: root.appendingPathComponent("tasks")).get()
+                                     in: tasksURL).get()
         // No executables: the run records its prompt but no process can start.
         let runner = SessionRunner(paths: [:])
 
@@ -121,12 +109,9 @@ struct TaskTests {
     }
 
     @Test func runningATaskUsesItsOwnAgentOverTheAppDefault() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("code-station-task-tests-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let store = ProjectStore(storeURL: root.appendingPathComponent("projects.json"))
+        let store = ProjectStore(storeURL: storeURL)
         let task = try store.addTask(named: "Sweep", prompt: "Do the thing.",
-                                     in: root.appendingPathComponent("tasks")).get()
+                                     in: tasksURL).get()
         let runner = SessionRunner(paths: [:])
         runner.agent = .claudeCode
 
@@ -142,12 +127,9 @@ struct TaskTests {
     }
 
     @Test func deletingATaskRemovesItsFolderFromDisk() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("code-station-task-tests-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let store = ProjectStore(storeURL: root.appendingPathComponent("projects.json"))
+        let store = ProjectStore(storeURL: storeURL)
         let task = try store.addTask(named: "Sweep", prompt: "Do the thing.",
-                                     in: root.appendingPathComponent("tasks")).get()
+                                     in: tasksURL).get()
         #expect(FileManager.default.fileExists(atPath: task.path))
 
         store.removeProject(task.id)

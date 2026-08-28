@@ -5,18 +5,10 @@ import Testing
 // Moving the files an older version wrote is the one part of the storage change that can
 // lose someone's work, so the rules it follows are pinned down here.
 struct AppPathsTests {
-
-    private func temporaryDirectory() throws -> URL {
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("code-station-tests-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-        return url
-    }
+    private let scratch = ScratchDirectory()
+    private var root: URL { scratch.url }
 
     @Test func movesWhatAnOlderVersionLeftBehind() throws {
-        let root = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
-
         let legacy = root.appendingPathComponent("old/projects.json")
         try FileManager.default.createDirectory(at: legacy.deletingLastPathComponent(),
                                                 withIntermediateDirectories: true)
@@ -34,9 +26,6 @@ struct AppPathsTests {
     // Whatever is already in the new place is the one being used, so an old file left
     // over from before must not overwrite it.
     @Test func neverOverwritesTheFileInUse() throws {
-        let root = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
-
         let legacy = root.appendingPathComponent("stale.json")
         let destination = root.appendingPathComponent("current.json")
         try Data("stale".utf8).write(to: legacy)
@@ -49,9 +38,6 @@ struct AppPathsTests {
     }
 
     @Test func doesNothingWhenThereIsNothingToMove() throws {
-        let root = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
-
         let destination = root.appendingPathComponent("projects.json")
         AppPaths.move(root.appendingPathComponent("missing.json"), to: destination)
 
@@ -76,9 +62,6 @@ struct AppPathsTests {
     }
 
     @Test func movesTheFirstExistingCandidate() throws {
-        let root = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
-
         let first = root.appendingPathComponent("missing.json")
         let second = root.appendingPathComponent("previous-name.json")
         let third = root.appendingPathComponent("older-location.json")
@@ -189,8 +172,6 @@ struct AppPathsTests {
         let suite = "code-station-app-old-session-cleanup-tests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
-        let root = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
         let avatar = root.appendingPathComponent("avatar.png")
         let settings = AppSettings(agentAvatarURL: avatar, preferences: defaults)
 
@@ -236,8 +217,6 @@ struct AppPathsTests {
         let suite = "code-station-app-sidebar-session-limit-tests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
-        let root = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
         let avatar = root.appendingPathComponent("avatar.png")
         let settings = AppSettings(agentAvatarURL: avatar, preferences: defaults)
 
@@ -257,8 +236,6 @@ struct AppPathsTests {
         let suite = "code-station-sidebar-avatar-tests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
-        let root = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
         let avatar = root.appendingPathComponent("avatar.png")
 
         let settings = AppSettings(agentAvatarURL: avatar, preferences: defaults)
@@ -292,9 +269,6 @@ struct AppPathsTests {
         let suite = "code-station-onboarding-tests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
-        let root = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
-
         let settings = AppSettings(agentAvatarURL: root.appendingPathComponent("avatar.png"),
                                    preferences: defaults)
 
@@ -317,8 +291,6 @@ struct AppPathsTests {
         let suite = "code-station-onboarding-migration-tests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
-        let root = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
         let settings = AppSettings(agentAvatarURL: root.appendingPathComponent("avatar.png"),
                                    preferences: defaults)
 
@@ -370,9 +342,6 @@ struct AppPathsTests {
     }
 
     @Test func carriesTheWholeDataFolderOverToTheNewName() throws {
-        let root = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
-
         let old = root.appendingPathComponent("com.teya.conductor")
         let new = root.appendingPathComponent("com.teya.code-station")
         try FileManager.default.createDirectory(at: old, withIntermediateDirectories: true)

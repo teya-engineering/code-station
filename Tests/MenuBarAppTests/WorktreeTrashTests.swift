@@ -6,20 +6,16 @@ import Testing
 // tests cover the move, the later unlink, and failures that must remain visible.
 struct WorktreeTrashTests {
 
+    private let root = ScratchDirectory(prefix: "worktree-trash-tests")
+    private var trash: URL { root.path("trash") }
+
     @Test func keepsTheDeletionQueueOutOfApplicationSupport() {
         #expect(WorktreeTrash.directory.path.hasSuffix("/.code-station/worktrees-trash"))
         #expect(!WorktreeTrash.directory.path.contains("Application Support"))
     }
 
-    private func temporaryDirectory() throws -> URL {
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("worktree-trash-tests-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-        return url
-    }
-
-    private func checkout(_ name: String, in root: URL) throws -> URL {
-        let url = root.appendingPathComponent(name)
+    private func checkout(_ name: String) throws -> URL {
+        let url = root.path(name)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         try Data("dependency".utf8).write(to: url.appendingPathComponent("node_modules.txt"))
         return url
@@ -31,10 +27,7 @@ struct WorktreeTrashTests {
     }
 
     @Test func takesTheCheckoutOffItsPath() throws {
-        let root = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let trash = root.appendingPathComponent("trash")
-        let worktree = try checkout("project-abc12345", in: root)
+        let worktree = try checkout("project-abc12345")
 
         #expect(WorktreeTrash.accept(worktree.path, into: trash))
 
@@ -49,11 +42,8 @@ struct WorktreeTrashTests {
     // The name is only there to make the folder recognisable by hand, so two checkouts
     // called the same thing have to be able to wait side by side.
     @Test func holdsTwoCheckoutsOfTheSameName() throws {
-        let root = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let trash = root.appendingPathComponent("trash")
-        let first = try checkout("one/project-abc12345", in: root)
-        let second = try checkout("two/project-abc12345", in: root)
+        let first = try checkout("one/project-abc12345")
+        let second = try checkout("two/project-abc12345")
 
         #expect(WorktreeTrash.accept(first.path, into: trash))
         #expect(WorktreeTrash.accept(second.path, into: trash))
@@ -62,10 +52,7 @@ struct WorktreeTrashTests {
     }
 
     @Test func unlinksWhatIsWaiting() throws {
-        let root = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let trash = root.appendingPathComponent("trash")
-        _ = WorktreeTrash.accept(try checkout("project-abc12345", in: root).path, into: trash)
+        _ = WorktreeTrash.accept(try checkout("project-abc12345").path, into: trash)
 
         WorktreeTrash.empty(trash)
         WorktreeTrash.settle()
@@ -76,10 +63,6 @@ struct WorktreeTrashTests {
     // A folder that was never moved must not report success: the caller deletes it where it
     // stands on the strength of this answer, and a false yes would leave it on disk forever.
     @Test func refusesAFolderItCannotMove() throws {
-        let root = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        #expect(WorktreeTrash.accept(root.appendingPathComponent("never-existed").path,
-                                     into: root.appendingPathComponent("trash")) == false)
+        #expect(WorktreeTrash.accept(root.path("never-existed").path, into: trash) == false)
     }
 }

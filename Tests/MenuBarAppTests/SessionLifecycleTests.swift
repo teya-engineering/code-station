@@ -5,9 +5,15 @@ import Testing
 
 @MainActor
 struct SessionLifecycleTests {
+    private let store: ProjectStore
+    private let scratch: ScratchDirectory
+
+    init() {
+        (store, scratch) = TestStore.make()
+    }
+
     @Test func recordsAProjectSessionOnlyAfterItsWorktreeExists() async throws {
-        let store = makeStore()
-        let project = addProject(named: "project", to: store)
+        let project = try TestStore.project(in: store, named: "project")
         let sessionID = UUID()
         let projectPath = project.path
         let projectName = project.name
@@ -43,10 +49,9 @@ struct SessionLifecycleTests {
         #expect(store.session(sessionID)?.worktreeBranch == "code-station/test")
     }
 
-    @Test func rollsBackWorkspaceWorktreesWhenCreationFails() async {
-        let store = makeStore()
-        let first = addProject(named: "first", to: store)
-        let second = addProject(named: "second", to: store)
+    @Test func rollsBackWorkspaceWorktreesWhenCreationFails() async throws {
+        let first = try project(named: "first")
+        let second = try project(named: "second")
         let workspace = store.addWorkspace(name: "Workspace",
                                            projectIDs: [first.id, second.id],
                                            leadProjectID: first.id)!
@@ -88,9 +93,8 @@ struct SessionLifecycleTests {
     }
 
     @Test func forksEachWorkspaceCheckoutFromItsChosenBase() async throws {
-        let store = makeStore()
-        let first = addProject(named: "first", to: store)
-        let second = addProject(named: "second", to: store)
+        let first = try project(named: "first")
+        let second = try project(named: "second")
         let workspace = store.addWorkspace(name: "Workspace",
                                            projectIDs: [first.id, second.id],
                                            leadProjectID: first.id)!
@@ -126,13 +130,7 @@ struct SessionLifecycleTests {
     }
 
     @Test func rollsBackAWorktreeWhenTheSessionIndexCannotBeSaved() async throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("session-lifecycle-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: directory) }
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let store = ProjectStore(storeURL: directory.appendingPathComponent("projects.json"))
-        let project = try #require(store.addProject(
-            at: directory.appendingPathComponent("project")))
+        let project = try TestStore.project(in: store)
         let recorder = RemovalRecorder()
         let worktrees = WorktreeOperations(
             addProject: { _, _, _, _ in
@@ -146,8 +144,9 @@ struct SessionLifecycleTests {
                 await recorder.record(path)
                 return .success(())
             })
-        try FileManager.default.removeItem(at: directory)
-        try Data("not a directory".utf8).write(to: directory)
+        // The index cannot be written once its folder has become a plain file.
+        try FileManager.default.removeItem(at: scratch.url)
+        try Data("not a directory".utf8).write(to: scratch.url)
 
         let result = await SessionLifecycle.createWorktreeSession(
             in: project, id: UUID(), base: nil, store: store, worktrees: worktrees)
@@ -161,10 +160,9 @@ struct SessionLifecycleTests {
         #expect(await recorder.recordedPaths() == ["/worktrees/project"])
     }
 
-    @Test func keepsDeletionPendingWhenWorktreeRemovalFails() async {
-        let store = makeStore()
+    @Test func keepsDeletionPendingWhenWorktreeRemovalFails() async throws {
         let runner = SessionRunner()
-        let project = addProject(named: "project", to: store)
+        let project = try TestStore.project(in: store, named: "project")
         let session = store.newSession(in: project.id,
                                        worktreePath: "/worktrees/project",
                                        worktreeBranch: "code-station/test")
@@ -191,10 +189,9 @@ struct SessionLifecycleTests {
         #expect(ProjectStore(storeURL: store.storeURL).session(session.id) == nil)
     }
 
-    @Test func blocksNewPromptsWhileRemovalIsInProgress() {
-        let store = makeStore()
+    @Test func blocksNewPromptsWhileRemovalIsInProgress() throws {
         let runner = SessionRunner()
-        let project = addProject(named: "project", to: store)
+        let project = try TestStore.project(in: store, named: "project")
         let session = store.newSession(in: project.id)
 
         #expect(runner.beginRemoval(session.id))
@@ -205,37 +202,25 @@ struct SessionLifecycleTests {
     }
 
     @Test func waitsForAStoppedAgentToExitBeforeDeletingItsSession() async throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("stopping-session-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: directory) }
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-
-        let executable = directory.appendingPathComponent("stubborn-agent")
-        let processGroupPIDFile = directory.appendingPathComponent("process-group.pid")
-        let descendantPIDFile = directory.appendingPathComponent("descendant.pid")
         // The watchdog bounds the fixture's lifetime when the test runner is killed
         // before Swift can run its cleanup.
-        try Data("""
-        #!/bin/sh
+        let harness = try RunnerHarness(agent: .claudeCode, script: """
         trap '' TERM
-        printf '%s' "$$" > "$(dirname "$0")/process-group.pid"
+        printf '%s' "$$" > "$folder/process-group.pid"
         (
             sleep 10
             kill -KILL 0
         ) &
         descendant=$!
-        printf '%s' "$descendant" > "$(dirname "$0")/descendant.pid"
+        printf '%s' "$descendant" > "$folder/descendant.pid"
         while :; do sleep 3600; done
-        """.utf8).write(to: executable)
-        try FileManager.default.setAttributes([.posixPermissions: 0o700],
-                                              ofItemAtPath: executable.path)
-
-        let store = ProjectStore(storeURL: directory.appendingPathComponent("projects.json"))
-        let projectURL = directory.appendingPathComponent("project")
-        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
-        let project = try #require(store.addProject(at: projectURL))
-        let session = try store.insertSession(in: project.id).get()
-        let runner = SessionRunner(paths: [.claudeCode: executable.path])
+        """)
+        defer { harness.tearDown() }
+        let processGroupPIDFile = harness.scratch.path("process-group.pid")
+        let descendantPIDFile = harness.scratch.path("descendant.pid")
+        let store = harness.store
+        let session = harness.session
+        let runner = harness.runner
         // Changing the default after creation must not move this session to Codex.
         runner.agent = .codex
         runner.send("start", sessionID: session.id, store: store)
@@ -246,7 +231,8 @@ struct SessionLifecycleTests {
         }
 
         #expect(runner.state(session.id).isBusy)
-        let descendantPID = try #require(await waitForPID(in: descendantPIDFile))
+        try #require(await waitUntil { readPID(in: descendantPIDFile) != nil })
+        let descendantPID = try #require(readPID(in: descendantPIDFile))
         runner.stop(session.id)
         #expect(runner.state(session.id) == .stopping)
 
@@ -259,10 +245,7 @@ struct SessionLifecycleTests {
         }
         #expect(failure.message == "Stop this session before deleting it.")
 
-        for _ in 0..<200 where runner.state(session.id).isBusy {
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        #expect(!runner.state(session.id).isBusy)
+        #expect(await waitUntil { !runner.state(session.id).isBusy })
         #expect(!processExists(descendantPID))
 
         let removed = await SessionLifecycle.remove(
@@ -274,10 +257,9 @@ struct SessionLifecycleTests {
         }
     }
 
-    @Test func dropsSessionMetadataAfterWorktreeRemovalSucceeds() async {
-        let store = makeStore()
+    @Test func dropsSessionMetadataAfterWorktreeRemovalSucceeds() async throws {
         let runner = SessionRunner()
-        let project = addProject(named: "project", to: store)
+        let project = try TestStore.project(in: store, named: "project")
         let session = store.newSession(in: project.id,
                                        worktreePath: "/worktrees/project",
                                        worktreeBranch: "code-station/test")
@@ -293,16 +275,11 @@ struct SessionLifecycleTests {
         #expect(store.session(session.id) == nil)
     }
 
-    private func makeStore() -> ProjectStore {
-        let path = FileManager.default.temporaryDirectory
-            .appendingPathComponent("code-station-tests-\(UUID().uuidString).json").path
-        setenv("CODE_STATION_STORE", path, 1)
-        return ProjectStore()
-    }
-
-    private func addProject(named name: String, to store: ProjectStore) -> Project {
-        store.addProject(at: FileManager.default.temporaryDirectory
-            .appendingPathComponent(name))!
+    // A project whose name is exactly `name`, for tests that match on it.
+    private func project(named name: String) throws -> Project {
+        try FileManager.default.createDirectory(at: scratch.path(name),
+                                                withIntermediateDirectories: true)
+        return try #require(store.addProject(at: scratch.path(name)))
     }
 
     private func operationsForRemoval(
@@ -316,14 +293,6 @@ struct SessionLifecycleTests {
                 .failure(GitWorktree.Failure(message: "Unexpected add"))
             },
             remove: { _, _, _ in await remove() })
-    }
-
-    private func waitForPID(in file: URL) async -> pid_t? {
-        for _ in 0..<100 {
-            if let pid = readPID(in: file) { return pid }
-            try? await Task.sleep(for: .milliseconds(10))
-        }
-        return nil
     }
 
     private func readPID(in file: URL) -> pid_t? {

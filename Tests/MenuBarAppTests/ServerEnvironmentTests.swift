@@ -6,12 +6,10 @@ import Testing
 // as what it says.
 @MainActor
 struct ServerEnvironmentTests {
+    private let scratch = ScratchDirectory(prefix: "server-environment")
+
     private func store(_ json: String) throws -> (ConfigStore, URL) {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("code-station-server-environment-\(UUID().uuidString)",
-                                    isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let file = directory.appendingPathComponent("config.json")
+        let file = scratch.path("config.json")
         try Data(json.utf8).write(to: file)
         return (ConfigStore(configURL: file), file)
     }

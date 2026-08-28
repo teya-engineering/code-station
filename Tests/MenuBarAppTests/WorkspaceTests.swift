@@ -4,16 +4,11 @@ import Testing
 
 @MainActor
 struct WorkspaceTests {
-    private func makeStore() -> ProjectStore {
-        let path = FileManager.default.temporaryDirectory
-            .appendingPathComponent("code-station-workspace-tests-\(UUID().uuidString).json").path
-        setenv("CODE_STATION_STORE", path, 1)
-        return ProjectStore()
-    }
+    private let store: ProjectStore
+    private let scratch: ScratchDirectory
 
-    private func project(_ name: String, in store: ProjectStore) -> Project {
-        store.addProject(at: FileManager.default.temporaryDirectory
-            .appendingPathComponent("\(name)-\(UUID().uuidString)"))!
+    init() {
+        (store, scratch) = TestStore.make()
     }
 
     @Test func olderWorkspacesKeepTheExistingWorktreeDefault() throws {
@@ -35,9 +30,8 @@ struct WorkspaceTests {
     }
 
     @Test func selectingAWorkspaceClosesTheOpenConversation() throws {
-        let store = makeStore()
-        let first = project("api", in: store)
-        let second = project("web", in: store)
+        let first = try TestStore.project(in: store, named: "api")
+        let second = try TestStore.project(in: store, named: "web")
         let workspace = try #require(store.addWorkspace(name: "Checkout",
                                                         projectIDs: [first.id, second.id],
                                                         leadProjectID: first.id))
@@ -53,10 +47,9 @@ struct WorkspaceTests {
     }
 
     @Test func updatesWorkspaceDefaultsAndMembership() throws {
-        let store = makeStore()
-        let first = project("api", in: store)
-        let second = project("web", in: store)
-        let third = project("docs", in: store)
+        let first = try TestStore.project(in: store, named: "api")
+        let second = try TestStore.project(in: store, named: "web")
+        let third = try TestStore.project(in: store, named: "docs")
         let workspace = try #require(store.addWorkspace(name: "Checkout",
                                                         projectIDs: [first.id, second.id],
                                                         leadProjectID: first.id))
@@ -74,9 +67,8 @@ struct WorkspaceTests {
     }
 
     @Test func deletingAWorkspaceDropsItsSessionsAndKeepsTheProjects() throws {
-        let store = makeStore()
-        let first = project("api", in: store)
-        let second = project("web", in: store)
+        let first = try TestStore.project(in: store, named: "api")
+        let second = try TestStore.project(in: store, named: "web")
         let workspace = try #require(store.addWorkspace(name: "Checkout",
                                                         projectIDs: [first.id, second.id],
                                                         leadProjectID: first.id))
@@ -97,9 +89,8 @@ struct WorkspaceTests {
     }
 
     @Test func keepsAtLeastTwoProjectsInAWorkspace() throws {
-        let store = makeStore()
-        let first = project("api", in: store)
-        let second = project("web", in: store)
+        let first = try TestStore.project(in: store, named: "api")
+        let second = try TestStore.project(in: store, named: "web")
         let workspace = try #require(store.addWorkspace(name: "Checkout",
                                                         projectIDs: [first.id, second.id],
                                                         leadProjectID: first.id))
@@ -110,16 +101,12 @@ struct WorkspaceTests {
     }
 
     @Test func excludesTasksFromWorkspaces() throws {
-        let store = makeStore()
-        let first = project("api", in: store)
-        let second = project("web", in: store)
-        let taskRoot = FileManager.default.temporaryDirectory
-            .appendingPathComponent("code-station-workspace-tasks-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: taskRoot) }
+        let first = try TestStore.project(in: store, named: "api")
+        let second = try TestStore.project(in: store, named: "web")
         let task = try store.addTask(
             named: "Reply as a bot",
             prompt: "Reply to the message.",
-            in: taskRoot)
+            in: scratch.path("tasks"))
             .get()
 
         #expect(store.regularProjects.map(\.id) == [first.id, second.id])

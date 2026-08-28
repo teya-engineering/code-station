@@ -284,24 +284,10 @@ struct TroubleshootProjectTests {
     }
 
     @Test func multiProjectDiagnosisStartsInANewWorkspace() throws {
-        let storeURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("code-station-troubleshoot-tests-\(UUID().uuidString).json")
-        setenv("CODE_STATION_STORE", storeURL.path, 1)
-        defer {
-            try? FileManager.default.removeItem(at: storeURL)
-            try? FileManager.default.removeItem(
-                at: storeURL.deletingLastPathComponent()
-                    .appendingPathComponent(storeURL.deletingPathExtension().lastPathComponent
-                        + "-transcripts"))
-        }
-
-        let store = ProjectStore()
-        let firstURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("payments-api-\(UUID().uuidString)")
-        let secondURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("merchant-web-\(UUID().uuidString)")
-        let first = try #require(store.addProject(at: firstURL))
-        let second = try #require(store.addProject(at: secondURL))
+        let (store, scratch) = TestStore.make()
+        defer { withExtendedLifetime(scratch) {} }
+        let first = try TestStore.project(in: store, named: "payments-api")
+        let second = try TestStore.project(in: store, named: "merchant-web")
 
         let workspace = try #require(store.addWorkspace(
             name: "Checkout diagnosis",

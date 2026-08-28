@@ -4,6 +4,10 @@ import Testing
 
 @MainActor
 struct PersistenceSafetyTests {
+    private let scratch = ScratchDirectory(prefix: "persistence-safety")
+
+    private var directory: URL { scratch.url }
+
     private var grafanaPreset: SiteDefaults.MCP.Preset {
         .init(name: "grafana-platform-dev",
               environment: "dev",
@@ -15,10 +19,7 @@ struct PersistenceSafetyTests {
     }
 
     @Test func configDecodeFailureDoesNotOverwriteTheFile() throws {
-        let directory = temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: directory) }
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let file = directory.appendingPathComponent("config.json")
+        let file = scratch.path("config.json")
         let malformed = Data("not config json".utf8)
         try malformed.write(to: file)
 
@@ -33,9 +34,7 @@ struct PersistenceSafetyTests {
     }
 
     @Test func failedConfigWriteStaysDirtyAndCanBeRetried() throws {
-        let directory = temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let file = directory.appendingPathComponent("config.json")
+        let file = scratch.path("config.json")
         let failures = FileFailureController()
         failures.failWrites(to: file)
         let store = ConfigStore(configURL: file, files: failures.client)
@@ -54,29 +53,23 @@ struct PersistenceSafetyTests {
     }
 
     @Test func projectIndexDecodeFailureDoesNotOverwriteTheFile() throws {
-        let directory = temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: directory) }
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let file = directory.appendingPathComponent("projects.json")
+        let file = scratch.path("projects.json")
         let malformed = Data("not project json".utf8)
         try malformed.write(to: file)
 
         let store = ProjectStore(storeURL: file)
         #expect(store.loadError != nil)
 
-        _ = store.addProject(at: directory.appendingPathComponent("project"))
+        _ = store.addProject(at: scratch.path("project"))
 
         #expect(!store.save())
         #expect(try Data(contentsOf: file) == malformed)
     }
 
     @Test func malformedTranscriptIsNotReplacedByLaterMessages() throws {
-        let directory = temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let index = directory.appendingPathComponent("projects.json")
+        let index = scratch.path("projects.json")
         let original = ProjectStore(storeURL: index)
-        let project = try #require(original.addProject(
-            at: directory.appendingPathComponent("project")))
+        let project = try #require(original.addProject(at: scratch.path("project")))
         let session = original.newSession(in: project.id)
         original.append(ChatMessage(role: .user, text: "saved message"), to: session.id)
         #expect(original.save())
@@ -97,11 +90,11 @@ struct PersistenceSafetyTests {
     }
 
     @Test func failedProjectWriteStaysDirtyAndCanBeRetried() throws {
-        let directory = temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let index = directory.appendingPathComponent("projects.json")
+        let index = scratch.path("projects.json")
         let store = ProjectStore(storeURL: index)
 
+        // A file sits where the store's folder should be, so the write cannot land.
+        try FileManager.default.removeItem(at: directory)
         try Data("a file where a directory should be".utf8).write(to: directory)
         _ = store.addProject(at: URL(fileURLWithPath: "/tmp/project"))
 
@@ -117,10 +110,7 @@ struct PersistenceSafetyTests {
     }
 
     @Test func dispatchDecodeFailureDoesNotOverwriteTheFile() throws {
-        let directory = temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: directory) }
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let file = directory.appendingPathComponent("dispatch.json")
+        let file = scratch.path("dispatch.json")
         let malformed = Data("not request json".utf8)
         try malformed.write(to: file)
 
@@ -134,11 +124,11 @@ struct PersistenceSafetyTests {
     }
 
     @Test func dispatchWriteFailureIsReportedAndCanBeRetried() throws {
-        let directory = temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let file = directory.appendingPathComponent("dispatch.json")
+        let file = scratch.path("dispatch.json")
         let store = DispatchStore(storeURL: file, siteDefaults: SiteDefaults())
 
+        // A file sits where the store's folder should be, so the write cannot land.
+        try FileManager.default.removeItem(at: directory)
         try Data("a file where a directory should be".utf8).write(to: directory)
         store.add(SavedRequest(name: "Retained request"))
 
@@ -154,10 +144,7 @@ struct PersistenceSafetyTests {
     }
 
     @Test func oauthDecodeFailureDoesNotOverwriteTheFile() throws {
-        let directory = temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: directory) }
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let file = directory.appendingPathComponent("dispatch-auth.json")
+        let file = scratch.path("dispatch-auth.json")
         let malformed = Data("not oauth json".utf8)
         try malformed.write(to: file)
 
@@ -176,12 +163,10 @@ struct PersistenceSafetyTests {
     }
 
     @Test func failedKeychainWriteIsRetried() throws {
-        let directory = temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: directory) }
         let keychain = KeychainStub()
         keychain.shouldFailWrites = true
         let store = DispatchAuthStore(
-            storeURL: directory.appendingPathComponent("dispatch-auth.json"),
+            storeURL: scratch.path("dispatch-auth.json"),
             keychain: keychain.client,
             siteDefaults: SiteDefaults())
         let environment = store.environments[0]
@@ -202,15 +187,13 @@ struct PersistenceSafetyTests {
     }
 
     @Test func readsTheCombinedKeychainItemOnce() throws {
-        let directory = temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: directory) }
         let keychain = KeychainStub(values: [
             .stagingClientSecret: "staging-secret",
             .productionClientSecret: "production-secret"
         ])
 
         let store = DispatchAuthStore(
-            storeURL: directory.appendingPathComponent("dispatch-auth.json"),
+            storeURL: scratch.path("dispatch-auth.json"),
             keychain: keychain.client,
             siteDefaults: SiteDefaults())
 
@@ -231,11 +214,9 @@ struct PersistenceSafetyTests {
     }
 
     @Test func writesAllKeychainChangesTogether() throws {
-        let directory = temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: directory) }
         let keychain = KeychainStub()
         let store = DispatchAuthStore(
-            storeURL: directory.appendingPathComponent("dispatch-auth.json"),
+            storeURL: scratch.path("dispatch-auth.json"),
             keychain: keychain.client,
             siteDefaults: SiteDefaults())
         let staging = store.environments[0]
@@ -254,9 +235,7 @@ struct PersistenceSafetyTests {
     }
 
     @Test func keepsSettingsForEveryConfiguredEnvironment() throws {
-        let directory = temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let file = directory.appendingPathComponent("dispatch-auth.json")
+        let file = scratch.path("dispatch-auth.json")
         let keychain = KeychainStub()
         let defaults = SiteDefaults(
             dispatch: .init(oauth: .init(tokenURL: "https://id.example/token",
@@ -305,10 +284,7 @@ struct PersistenceSafetyTests {
     }
 
     @Test func migratesFixedOAuthSlotsToConfiguredEnvironmentNames() throws {
-        let directory = temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: directory) }
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let file = directory.appendingPathComponent("dispatch-auth.json")
+        let file = scratch.path("dispatch-auth.json")
         try JSONEncoder().encode(PreviousDispatchAuth(
             active: "production",
             staging: OAuthConfig(clientID: "development-client"),
@@ -343,11 +319,8 @@ struct PersistenceSafetyTests {
     }
 
     @Test func queuedWriteCannotRecreateADeletedTranscript() async throws {
-        let directory = temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let store = ProjectStore(storeURL: directory.appendingPathComponent("projects.json"))
-        let project = try #require(store.addProject(
-            at: directory.appendingPathComponent("project")))
+        let store = ProjectStore(storeURL: scratch.path("projects.json"))
+        let project = try #require(store.addProject(at: scratch.path("project")))
         let session = store.newSession(in: project.id)
         store.append(ChatMessage(role: .assistant,
                                  text: String(repeating: "x", count: 12_000_000)),
@@ -362,13 +335,10 @@ struct PersistenceSafetyTests {
     }
 
     @Test func failedSessionInsertionIsReportedAndRolledBack() throws {
-        let directory = temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let index = directory.appendingPathComponent("projects.json")
+        let index = scratch.path("projects.json")
         let failures = FileFailureController()
         let store = ProjectStore(storeURL: index, files: failures.client)
-        let project = try #require(store.addProject(
-            at: directory.appendingPathComponent("project")))
+        let project = try #require(store.addProject(at: scratch.path("project")))
         failures.failWrites(to: index)
 
         let result = store.insertSession(in: project.id)
@@ -383,13 +353,10 @@ struct PersistenceSafetyTests {
     }
 
     @Test func pendingRemovalPreventsADeletedSessionFromReappearing() throws {
-        let directory = temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let index = directory.appendingPathComponent("projects.json")
+        let index = scratch.path("projects.json")
         let failures = FileFailureController()
         let store = ProjectStore(storeURL: index, files: failures.client)
-        let project = try #require(store.addProject(
-            at: directory.appendingPathComponent("project")))
+        let project = try #require(store.addProject(at: scratch.path("project")))
         let session = store.newSession(in: project.id,
                                        worktreePath: "/worktrees/project",
                                        worktreeBranch: "code-station/test")
@@ -418,13 +385,10 @@ struct PersistenceSafetyTests {
     }
 
     @Test func transcriptDeleteFailureStaysPendingAndCanBeRetried() throws {
-        let directory = temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let index = directory.appendingPathComponent("projects.json")
+        let index = scratch.path("projects.json")
         let failures = FileFailureController()
         let store = ProjectStore(storeURL: index, files: failures.client)
-        let project = try #require(store.addProject(
-            at: directory.appendingPathComponent("project")))
+        let project = try #require(store.addProject(at: scratch.path("project")))
         let session = store.newSession(in: project.id)
         store.append(ChatMessage(role: .user, text: "keep until deletion succeeds"),
                      to: session.id)
@@ -446,11 +410,6 @@ struct PersistenceSafetyTests {
         #expect(store.finishSessionRemoval(session.id).isSuccess)
         #expect(!FileManager.default.fileExists(atPath: transcript.path))
         #expect(store.pendingSessionRemovals.isEmpty)
-    }
-
-    private func temporaryDirectory() -> URL {
-        FileManager.default.temporaryDirectory
-            .appendingPathComponent("persistence-safety-\(UUID().uuidString)")
     }
 }
 

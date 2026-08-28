@@ -3,22 +3,12 @@ import Testing
 @testable import MenuBarApp
 
 struct SkillsManagerTests {
+    private let scratch = ScratchDirectory(prefix: "marketplace")
+
     private func file(_ json: String) throws -> URL {
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("marketplace-\(UUID().uuidString).json")
+        let url = scratch.path("marketplace-\(UUID().uuidString).json")
         try Data(json.utf8).write(to: url)
         return url
-    }
-
-    private func runGit(_ arguments: [String], in directory: URL) throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-        process.arguments = arguments
-        process.currentDirectoryURL = directory
-        process.standardOutput = FileHandle.nullDevice
-        try process.run()
-        process.waitUntilExit()
-        try #require(process.terminationStatus == 0)
     }
 
     @Test func decodesMarketplacePackages() throws {
@@ -62,7 +52,6 @@ struct SkillsManagerTests {
           ]
         }
         """)
-        defer { try? FileManager.default.removeItem(at: url) }
 
         let (configuration, marketplace) = try SkillsManager.localConfiguration(at: url)
 
@@ -89,7 +78,6 @@ struct SkillsManagerTests {
 
     @Test func rejectsInvalidLocalMarketplaceFile() throws {
         let url = try file(#"{ "plugins": [] }"#)
-        defer { try? FileManager.default.removeItem(at: url) }
 
         #expect(throws: ImportError.self) {
             try SkillsManager.localConfiguration(at: url)
@@ -97,23 +85,11 @@ struct SkillsManagerTests {
     }
 
     @Test func clonesAndReadsAGitMarketplace() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("git-marketplace-\(UUID().uuidString)", isDirectory: true)
-        let repository = root.appendingPathComponent("source", isDirectory: true)
-        let manifest = repository.appendingPathComponent(".claude-plugin/marketplace.json")
-        let cache = root.appendingPathComponent("cache", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        try FileManager.default.createDirectory(at: manifest.deletingLastPathComponent(),
-                                                withIntermediateDirectories: true)
-        try Data(#"{ "name": "git-engineering", "plugins": [] }"#.utf8)
-            .write(to: manifest)
-        try runGit(["init", "--quiet"], in: repository)
-        try runGit(["add", "."], in: repository)
-        try runGit(["-c", "user.name=Code Station Tests",
-                    "-c", "user.email=tests@example.test",
-                    "-c", "commit.gpgsign=false",
-                    "commit", "--quiet", "-m", "Add marketplace"], in: repository)
+        let repository = try GitRepo(initialCommit: false)
+        try repository.write(".claude-plugin/marketplace.json",
+                             #"{ "name": "git-engineering", "plugins": [] }"#)
+        try repository.commit("Add marketplace")
+        let cache = scratch.path("cache")
 
         let load = await SkillsManager.loadGitCatalogue(source: repository.path, at: cache)
 

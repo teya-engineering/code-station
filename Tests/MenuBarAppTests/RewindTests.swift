@@ -7,24 +7,22 @@ import Testing
 // that turn ran.
 @MainActor
 struct RewindTests {
+    private let store: ProjectStore
+    private let scratch: ScratchDirectory
+    private let runner: SessionRunner
+    private let project: Project
+    private let session: ChatSession
 
-    private func makeStore() -> ProjectStore {
-        let path = FileManager.default.temporaryDirectory
-            .appendingPathComponent("code-station-tests-\(UUID().uuidString).json").path
-        setenv("CODE_STATION_STORE", path, 1)
-        return ProjectStore()
-    }
-
-    private func makeSession(in store: ProjectStore) -> ChatSession {
-        let project = store.addProject(at: FileManager.default.temporaryDirectory
-            .appendingPathComponent("project-\(UUID().uuidString)"))!
-        return store.newSession(in: project.id)
+    init() throws {
+        (store, scratch) = TestStore.make()
+        runner = SessionRunner(paths: [:])
+        project = try TestStore.project(in: store)
+        session = store.newSession(in: project.id)
     }
 
     // A conversation of two Claude turns, with the resume id the second turn started
     // from recorded on its prompt.
-    private func twoTurns(in store: ProjectStore, session: ChatSession)
-        -> (first: ChatMessage, second: ChatMessage) {
+    private func twoTurns() -> (first: ChatMessage, second: ChatMessage) {
         var first = ChatMessage(role: .user, text: "Build the thing")
         first.checkpoint = ConversationCheckpoint(agent: .claudeCode)
         store.append(first, to: session.id)
@@ -41,9 +39,6 @@ struct RewindTests {
     }
 
     @Test func aPromptThatStartsATurnRecordsWhereTheConversationStood() throws {
-        let store = makeStore()
-        let runner = SessionRunner(paths: [:])
-        let session = makeSession(in: store)
         store.setAgentSessionID("claude-1", agent: .claudeCode, for: session.id)
 
         // The turn cannot start without a CLI on PATH, but the prompt is already in the
@@ -56,10 +51,7 @@ struct RewindTests {
     }
 
     @Test func rewindingRestoresTheConversationAndTheComposer() throws {
-        let store = makeStore()
-        let runner = SessionRunner(paths: [:])
-        let session = makeSession(in: store)
-        let (first, second) = twoTurns(in: store, session: session)
+        let (first, second) = twoTurns()
 
         #expect(runner.canRewind(to: second.id, sessionID: session.id, store: store))
         runner.rewind(to: second.id, sessionID: session.id, store: store)
@@ -75,10 +67,7 @@ struct RewindTests {
     }
 
     @Test func rewindingToTheFirstPromptStartsOver() {
-        let store = makeStore()
-        let runner = SessionRunner(paths: [:])
-        let session = makeSession(in: store)
-        let (first, _) = twoTurns(in: store, session: session)
+        let (first, _) = twoTurns()
 
         runner.rewind(to: first.id, sessionID: session.id, store: store)
 
@@ -91,9 +80,6 @@ struct RewindTests {
     // wound back - and neither can anything before it, because the thread already
     // carries what came after.
     @Test func aCodexTurnSealsItselfAndEverythingBeforeIt() {
-        let store = makeStore()
-        let session = makeSession(in: store)
-
         var first = ChatMessage(role: .user, text: "One")
         first.checkpoint = ConversationCheckpoint(agent: .claudeCode)
         store.append(first, to: session.id)
@@ -110,9 +96,6 @@ struct RewindTests {
 
     // A prompt written before checkpoints existed marks no point to go back to.
     @Test func promptsWithoutACheckpointCannotBeRewoundTo() {
-        let store = makeStore()
-        let runner = SessionRunner(paths: [:])
-        let session = makeSession(in: store)
         let prompt = ChatMessage(role: .user, text: "Old prompt")
         store.append(prompt, to: session.id)
 
@@ -120,9 +103,7 @@ struct RewindTests {
     }
 
     @Test func forkingCarriesTheConversationUpToThePrompt() throws {
-        let store = makeStore()
-        let session = makeSession(in: store)
-        let (first, second) = twoTurns(in: store, session: session)
+        let (first, second) = twoTurns()
         store.renameSession(session.id, to: "Original")
 
         #expect(store.canForkSession(session.id, before: second.id))
@@ -142,9 +123,6 @@ struct RewindTests {
 
     // A worktree session is tied to a checkout the fork would not have.
     @Test func worktreeSessionsDoNotFork() {
-        let store = makeStore()
-        let project = store.addProject(at: FileManager.default.temporaryDirectory
-            .appendingPathComponent("project-\(UUID().uuidString)"))!
         let session = store.newSession(in: project.id, worktreePath: "/tmp/worktree",
                                        worktreeBranch: "branch")
         var prompt = ChatMessage(role: .user, text: "One")
@@ -157,8 +135,6 @@ struct RewindTests {
     // A Codex conversation lives in one shared rollout that two sessions would write
     // over each other in.
     @Test func aCodexConversationDoesNotFork() {
-        let store = makeStore()
-        let session = makeSession(in: store)
         var prompt = ChatMessage(role: .user, text: "One")
         prompt.checkpoint = ConversationCheckpoint(agent: .claudeCode,
                                                    codexSessionID: "thread-1")

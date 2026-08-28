@@ -183,7 +183,7 @@ struct BackgroundTaskTests {
         """)
         defer { fixture.tearDown() }
 
-        #expect(await fixture.waitUntil { fixture.runner.state(fixture.session.id) == .waiting })
+        #expect(await waitUntil { fixture.runner.state(fixture.session.id) == .waiting })
         #expect(BackgroundTaskPhrase.of(fixture.runner.backgroundTasks(fixture.session.id))
                 == "general-purpose · read the log")
     }
@@ -192,7 +192,7 @@ struct BackgroundTaskTests {
         let fixture = try heldOpenTurn()
         defer { fixture.tearDown() }
 
-        #expect(await fixture.waitUntil { fixture.runner.state(fixture.session.id) == .waiting })
+        #expect(await waitUntil { fixture.runner.state(fixture.session.id) == .waiting })
         #expect(BackgroundTaskPhrase.of(fixture.runner.backgroundTasks(fixture.session.id))
                 == "2 background tasks")
         #expect(fixture.runner.waitingSince(fixture.session.id) != nil)
@@ -203,11 +203,12 @@ struct BackgroundTaskTests {
     @MainActor @Test func followsTheTaskListDownWhileItWaits() async throws {
         let fixture = try turnThatDropsATask()
         defer { fixture.tearDown() }
-        #expect(await fixture.waitUntil { fixture.runner.state(fixture.session.id) == .waiting })
+        #expect(await waitUntil { fixture.runner.state(fixture.session.id) == .waiting })
 
-        fixture.dropATask()
+        // Tells the fake CLI that one of its tasks has ended.
+        try Data().write(to: fixture.scratch.path("drop"))
 
-        #expect(await fixture.waitUntil {
+        #expect(await waitUntil {
             fixture.runner.backgroundTasks(fixture.session.id).count == 1
         })
         #expect(BackgroundTaskPhrase.of(fixture.runner.backgroundTasks(fixture.session.id))
@@ -220,11 +221,11 @@ struct BackgroundTaskTests {
     @MainActor @Test func endingTheWaitFinishesTheTurn() async throws {
         let fixture = try heldOpenTurn()
         defer { fixture.tearDown() }
-        #expect(await fixture.waitUntil { fixture.runner.state(fixture.session.id) == .waiting })
+        #expect(await waitUntil { fixture.runner.state(fixture.session.id) == .waiting })
 
         fixture.runner.endWait(fixture.session.id)
 
-        #expect(await fixture.waitUntil { fixture.runner.state(fixture.session.id) == .idle })
+        #expect(await waitUntil { fixture.runner.state(fixture.session.id) == .idle })
         #expect(fixture.runner.backgroundTasks(fixture.session.id).isEmpty)
         #expect(fixture.runner.waitingSince(fixture.session.id) == nil)
     }
@@ -238,7 +239,7 @@ struct BackgroundTaskTests {
         """)
         defer { fixture.tearDown() }
 
-        #expect(await fixture.waitUntil { fixture.runner.state(fixture.session.id) == .idle })
+        #expect(await waitUntil { fixture.runner.state(fixture.session.id) == .idle })
         #expect(fixture.runner.waitingSince(fixture.session.id) == nil)
     }
 
@@ -256,7 +257,7 @@ struct BackgroundTaskTests {
         """)
         defer { fixture.tearDown() }
 
-        #expect(await fixture.waitUntil { fixture.runner.state(fixture.session.id) == .waiting })
+        #expect(await waitUntil { fixture.runner.state(fixture.session.id) == .waiting })
         // The hold is only real if the input is still open. A fake CLI whose input was
         // closed on the first result reaches its last line and exits, so the wait that
         // was there a moment ago is gone by the time it is looked at again.
@@ -276,13 +277,13 @@ struct BackgroundTaskTests {
         """)
         defer { fixture.tearDown() }
 
-        #expect(await fixture.waitUntil { fixture.runner.state(fixture.session.id) == .idle })
+        #expect(await waitUntil { fixture.runner.state(fixture.session.id) == .idle })
     }
 
     // A fake CLI that reports two tasks, answers, and then waits on its input the way the
     // real one does while a task of its own is still running.
     @MainActor
-    private func heldOpenTurn() throws -> RunnerFixture {
+    private func heldOpenTurn() throws -> RunnerHarness {
         try turn(script: Self.reportsTwoTasks + """
         cat > /dev/null
         """)
@@ -291,7 +292,7 @@ struct BackgroundTaskTests {
     // The same, but one of the two ends when the test says so rather than on a timer, so
     // what the test observes does not depend on how loaded the machine is.
     @MainActor
-    private func turnThatDropsATask() throws -> RunnerFixture {
+    private func turnThatDropsATask() throws -> RunnerHarness {
         try turn(script: Self.reportsTwoTasks + """
         wait_for "$folder/drop"
         printf '%s\\n' '{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"t1","task_type":"local_bash","description":"yarn dev"}]}'
@@ -305,50 +306,12 @@ struct BackgroundTaskTests {
 
     """
 
+    // A fake Claude Code CLI already running its first turn.
     @MainActor
-    private func turn(script: String) throws -> RunnerFixture {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("background-tasks-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let executable = directory.appendingPathComponent("claude-fixture")
-        try FixtureCLI.write(script, to: executable)
-        let projectURL = directory.appendingPathComponent("project", isDirectory: true)
-        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
-        let store = ProjectStore(storeURL: directory.appendingPathComponent("projects.json"))
-        let project = try #require(store.addProject(at: projectURL))
-        let session = try store.insertSession(in: project.id, seed: .init(agent: .claudeCode)).get()
-        let runner = SessionRunner(paths: [.claudeCode: executable.path])
-        runner.send("start", sessionID: session.id, store: store)
-        return RunnerFixture(directory: directory, store: store, session: session, runner: runner)
-    }
-
-    @MainActor
-    private struct RunnerFixture {
-        let directory: URL
-        let store: ProjectStore
-        let session: ChatSession
-        let runner: SessionRunner
-
-        // Tells the fake CLI that one of its tasks has ended.
-        func dropATask() {
-            FileManager.default.createFile(atPath: directory.appendingPathComponent("drop").path,
-                                           contents: nil)
-        }
-
-        func waitUntil(_ condition: () -> Bool) async -> Bool {
-            for _ in 0..<1_000 {
-                if condition() { return true }
-                try? await Task.sleep(for: .milliseconds(10))
-            }
-            return condition()
-        }
-
-        // A fixture that failed part way through can leave the fake CLI blocked on its
-        // input for good, so the process is let go whatever the test decided.
-        func tearDown() {
-            runner.stopAll()
-            try? FileManager.default.removeItem(at: directory)
-        }
+    private func turn(script: String) throws -> RunnerHarness {
+        let harness = try RunnerHarness(agent: .claudeCode, script: script)
+        harness.runner.send("start", sessionID: harness.session.id, store: harness.store)
+        return harness
     }
 
     // MARK: - Usage across a held-open turn

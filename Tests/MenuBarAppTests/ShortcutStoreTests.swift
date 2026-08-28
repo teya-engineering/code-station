@@ -4,12 +4,12 @@ import Testing
 
 @MainActor
 struct ShortcutStoreTests {
+    private let scratch = ScratchDirectory(prefix: "shortcut-store-tests")
+    private var url: URL { scratch.path("shortcuts.json") }
+
     // The shortcuts a first run starts with come from the site file, and the tests run
     // without one, so a fresh store is empty and writes nothing until it is edited.
     @Test func startsFromTheSiteFileWhenNoFileExists() {
-        let url = temporaryFile()
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-
         let store = ShortcutStore(storageURL: url)
 
         #expect(store.shortcuts.map(\.name)
@@ -18,8 +18,6 @@ struct ShortcutStoreTests {
     }
 
     @Test func persistsAddsAndEdits() throws {
-        let url = temporaryFile()
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let store = emptyStore(url)
 
         let id = try #require(store.add(
@@ -39,10 +37,6 @@ struct ShortcutStoreTests {
 
     // A shortcut saved before shortcuts could belong to a project is the Mac's own.
     @Test func readsShortcutsSavedWithoutAnOwner() throws {
-        let url = temporaryFile()
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        try FileManager.default.createDirectory(
-            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         let id = UUID()
         try Data("""
         { "shortcuts": [ { "id": "\(id.uuidString)", "name": "Prune", "command": "docker system prune" } ] }
@@ -83,8 +77,6 @@ struct ShortcutStoreTests {
     }
 
     @Test func groupsShortcutsByOwner() throws {
-        let url = temporaryFile()
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let store = emptyStore(url)
         let lantern = UUID()
         let other = UUID()
@@ -108,8 +100,6 @@ struct ShortcutStoreTests {
     }
 
     @Test func placesASharedShortcutOnceInAWorkspace() throws {
-        let url = temporaryFile()
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let store = emptyStore(url)
         let lead = UUID()
         let attached = UUID()
@@ -129,8 +119,6 @@ struct ShortcutStoreTests {
 
     // A count only considers the shortcuts in the list doing the asking.
     @Test func countsRunsOnlyForTheListDoingTheAsking() async throws {
-        let url = temporaryFile()
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let store = emptyStore(url)
         let lantern = UUID()
         let owned = try #require(store.add(name: "Lint", command: "exit 1",
@@ -138,17 +126,13 @@ struct ShortcutStoreTests {
         let run = ShortcutRun(owned, in: FileManager.default.temporaryDirectory.path)
 
         store.start(run)
-        try await settle(store, run)
+        #expect(await waitUntil { !store.state(run).isActive })
 
         #expect(store.failureCount(of: store.shortcuts(for: lantern)) == 1)
         #expect(store.failureCount(of: store.macShortcuts) == 0)
     }
 
     @Test func refusesToOverwriteAnUnreadableFile() throws {
-        let url = temporaryFile()
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        try FileManager.default.createDirectory(
-            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         let original = Data("not json".utf8)
         try original.write(to: url)
 
@@ -162,8 +146,6 @@ struct ShortcutStoreTests {
     }
 
     @Test func runsACommandAndCapturesBothOutputStreams() async throws {
-        let url = temporaryFile()
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let store = emptyStore(url)
         let id = try #require(store.add(
             name: "Output",
@@ -172,7 +154,7 @@ struct ShortcutStoreTests {
         let run = ShortcutRun(id, in: FileManager.default.temporaryDirectory.path)
 
         store.start(run)
-        try await settle(store, run)
+        #expect(await waitUntil { !store.state(run).isActive })
 
         if case .finished = store.state(run) {} else { Issue.record("expected a clean exit") }
         #expect(store.log(run).contains("standard output"))
@@ -180,14 +162,12 @@ struct ShortcutStoreTests {
     }
 
     @Test func reportsTheExitCodeOfACommandThatFails() async throws {
-        let url = temporaryFile()
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let store = emptyStore(url)
         let id = try #require(store.add(name: "Lint", command: "exit 3"))
         let run = ShortcutRun(id, in: FileManager.default.temporaryDirectory.path)
 
         store.start(run)
-        try await settle(store, run)
+        #expect(await waitUntil { !store.state(run).isActive })
 
         guard case .failed(_, let status, _) = store.state(run) else {
             Issue.record("expected a failure")
@@ -200,16 +180,11 @@ struct ShortcutStoreTests {
     // The same shortcut in two worktrees is two runs. Neither may report the other's
     // state, which is the whole reason a run is a shortcut and a folder together.
     @Test func keepsRunsInDifferentFoldersApart() async throws {
-        let url = temporaryFile()
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("shortcut-runs-\(UUID().uuidString)")
-        let first = root.appendingPathComponent("first")
-        let second = root.appendingPathComponent("second")
+        let first = scratch.path("first")
+        let second = scratch.path("second")
         for folder in [first, second] {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         }
-        defer { try? FileManager.default.removeItem(at: root) }
 
         let store = emptyStore(url)
         let id = try #require(store.add(name: "Where", command: "pwd"))
@@ -217,12 +192,12 @@ struct ShortcutStoreTests {
         let two = ShortcutRun(id, in: second.path)
 
         store.start(one)
-        try await settle(store, one)
+        #expect(await waitUntil { !store.state(one).isActive })
         #expect(store.log(one).contains("first"))
         #expect(store.state(two) == .stopped)
 
         store.start(two)
-        try await settle(store, two)
+        #expect(await waitUntil { !store.state(two).isActive })
         #expect(store.log(two).contains("second"))
         #expect(!store.log(two).contains("/first"))
     }
@@ -230,14 +205,12 @@ struct ShortcutStoreTests {
     // Moving a shortcut to another folder leaves its old runs pointing at a command that
     // is no longer there, so the state they carry stops meaning anything.
     @Test func forgetsRunsWhenAShortcutIsEdited() async throws {
-        let url = temporaryFile()
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let store = emptyStore(url)
         let id = try #require(store.add(name: "Say", command: "echo hello"))
         let run = ShortcutRun(id, in: FileManager.default.temporaryDirectory.path)
 
         store.start(run)
-        try await settle(store, run)
+        #expect(await waitUntil { !store.state(run).isActive })
         #expect(!store.log(run).isEmpty)
 
         store.update(CommandShortcut(id: id, name: "Say", command: "echo goodbye"))
@@ -250,15 +223,4 @@ struct ShortcutStoreTests {
         ShortcutStore(storageURL: url, siteDefaults: SiteDefaults())
     }
 
-    private func settle(_ store: ShortcutStore, _ run: ShortcutRun) async throws {
-        for _ in 0..<400 where store.state(run).isActive {
-            try await Task.sleep(for: .milliseconds(10))
-        }
-    }
-
-    private func temporaryFile() -> URL {
-        FileManager.default.temporaryDirectory
-            .appendingPathComponent("shortcut-store-tests-\(UUID().uuidString)")
-            .appendingPathComponent("shortcuts.json")
-    }
 }

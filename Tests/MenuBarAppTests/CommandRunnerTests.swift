@@ -4,6 +4,8 @@ import Testing
 @testable import MenuBarApp
 
 struct CommandRunnerTests {
+    private let scratch = ScratchDirectory(prefix: "command-runner")
+
     @Test func capturesBothStreamsAndExitStatus() async throws {
         let output = try await CommandRunner.run(
             executable: "/bin/sh",
@@ -108,8 +110,7 @@ struct CommandRunnerTests {
     }
 
     @Test func timeoutKillsADescendantThatInheritedThePipes() async throws {
-        let pidFile = temporaryPIDFile()
-        defer { try? FileManager.default.removeItem(at: pidFile) }
+        let pidFile = scratch.path("child.pid")
         let started = ContinuousClock.now
         do {
             _ = try await CommandRunner.run(
@@ -130,8 +131,7 @@ struct CommandRunnerTests {
     }
 
     @Test func successfulCommandKillsADescendantBeforeReturning() async throws {
-        let pidFile = temporaryPIDFile()
-        defer { try? FileManager.default.removeItem(at: pidFile) }
+        let pidFile = scratch.path("child.pid")
 
         let output = try await CommandRunner.run(
             executable: "/bin/sh",
@@ -145,8 +145,7 @@ struct CommandRunnerTests {
     }
 
     @Test func cancellationKillsADescendantThatInheritedThePipes() async throws {
-        let pidFile = temporaryPIDFile()
-        defer { try? FileManager.default.removeItem(at: pidFile) }
+        let pidFile = scratch.path("child.pid")
         let arguments = backgroundChildArguments(pidFile: pidFile,
                                                   keepLeaderRunning: true)
         let task = Task {
@@ -156,7 +155,8 @@ struct CommandRunnerTests {
                 timeout: .seconds(10)
             )
         }
-        let pid = try #require(await waitForDescendantPID(in: pidFile))
+        try #require(await waitUntil { descendantPID(in: pidFile) != nil })
+        let pid = try #require(descendantPID(in: pidFile))
         let started = ContinuousClock.now
         task.cancel()
 
@@ -217,8 +217,7 @@ struct CommandRunnerTests {
     }
 
     @Test func gitRunnerTimeoutKillsADescendantThatInheritedThePipes() async throws {
-        let pidFile = temporaryPIDFile()
-        defer { try? FileManager.default.removeItem(at: pidFile) }
+        let pidFile = scratch.path("child.pid")
         let tool = GitInspector.GitTool(path: "/bin/sh", searchPath: "/usr/bin:/bin")
         let arguments = backgroundChildArguments(pidFile: pidFile,
                                                   keepLeaderRunning: true)
@@ -253,27 +252,17 @@ struct CommandRunnerTests {
     }
 
     @Test func codexUsageReaderCompletesItsBoundedExchange() async throws {
-        let script = FileManager.default.temporaryDirectory
-            .appendingPathComponent("codex-usage-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: script) }
-        try Data("""
-        #!/bin/sh
+        let script = scratch.path("codex-usage")
+        try FixtureCLI.write("""
         IFS= read -r initialize
         printf '%s\\n' '{"id":1,"result":{}}'
         IFS= read -r usage
         printf '%s\\n' '{"id":2,"result":{"rateLimits":{"primary":{"usedPercent":12}}}}'
-        """.utf8).write(to: script)
-        try FileManager.default.setAttributes([.posixPermissions: 0o700],
-                                              ofItemAtPath: script.path)
+        """, to: script)
 
         let usage = await CodexUsageReader.read(at: script.path, searchPath: "/usr/bin:/bin")
 
         #expect(usage?.windows.map(\.usedPercent) == [12])
-    }
-
-    private func temporaryPIDFile() -> URL {
-        FileManager.default.temporaryDirectory
-            .appendingPathComponent("command-runner-child-\(UUID().uuidString)")
     }
 
     private func backgroundChildArguments(pidFile: URL,
@@ -281,14 +270,6 @@ struct CommandRunnerTests {
         let finish = keepLeaderRunning ? "sleep 30" : "exit 0"
         return ["-c", "sleep 30 & child=$!; printf '%s' \"$child\" > \"$1\"; \(finish)",
          "command-runner-test", pidFile.path]
-    }
-
-    private func waitForDescendantPID(in file: URL) async -> pid_t? {
-        for _ in 0..<100 {
-            if let pid = descendantPID(in: file) { return pid }
-            try? await Task.sleep(for: .milliseconds(10))
-        }
-        return nil
     }
 
     private func descendantPID(in file: URL) -> pid_t? {

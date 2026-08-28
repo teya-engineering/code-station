@@ -7,18 +7,17 @@ import Testing
 // the id goes and everything else stays.
 @MainActor
 struct ClearContextTests {
+    private let store: ProjectStore
+    private let scratch: ScratchDirectory
+    private let runner: SessionRunner
 
-    private func makeStore() -> ProjectStore {
-        let path = FileManager.default.temporaryDirectory
-            .appendingPathComponent("code-station-tests-\(UUID().uuidString).json").path
-        setenv("CODE_STATION_STORE", path, 1)
-        return ProjectStore()
+    init() {
+        (store, scratch) = TestStore.make()
+        runner = SessionRunner(paths: [:])
     }
 
-    private func startedSession(in store: ProjectStore,
-                                agent: AgentKind = .claudeCode) -> ChatSession {
-        let project = store.addProject(at: FileManager.default.temporaryDirectory
-            .appendingPathComponent("project-\(UUID().uuidString)"))!
+    private func startedSession(agent: AgentKind = .claudeCode) throws -> ChatSession {
+        let project = try TestStore.project(in: store)
         let session = store.newSession(in: project.id, seed: .init(agent: agent))
         store.setAgentSessionID("conversation-1", agent: agent, for: session.id)
         store.append(ChatMessage(role: .user, text: "Do the thing"), to: session.id)
@@ -26,13 +25,11 @@ struct ClearContextTests {
                           from: agent, for: session.id)
         store.recordContext(120_000, contextWindow: 200_000, model: "opus",
                             from: agent, for: session.id)
-        return store.session(session.id)!
+        return try #require(store.session(session.id))
     }
 
     @Test func droppingTheResumeIDIsTheWholeOfClearing() throws {
-        let store = makeStore()
-        let runner = SessionRunner(paths: [:])
-        let session = startedSession(in: store)
+        let session = try startedSession()
 
         #expect(runner.canClearContext(session.id, store: store))
         #expect(runner.clearContext(session.id, store: store) == .cleared)
@@ -49,9 +46,7 @@ struct ClearContextTests {
     // The percentage has to go back to nothing or the clear reads as having done
     // nothing at all. What the session has spent is still spent.
     @Test func theMeterEmptiesButTheBillDoesNot() throws {
-        let store = makeStore()
-        let runner = SessionRunner(paths: [:])
-        let session = startedSession(in: store)
+        let session = try startedSession()
 
         runner.clearContext(session.id, store: store)
 
@@ -66,10 +61,8 @@ struct ClearContextTests {
 
     // The transcript belongs to the person reading it, not to the agent, so clearing
     // marks the seam instead of throwing the conversation away.
-    @Test func theTranscriptSurvivesWithASeam() {
-        let store = makeStore()
-        let runner = SessionRunner(paths: [:])
-        let session = startedSession(in: store)
+    @Test func theTranscriptSurvivesWithASeam() throws {
+        let session = try startedSession()
 
         runner.clearContext(session.id, store: store)
 
@@ -80,11 +73,8 @@ struct ClearContextTests {
         #expect(transcript.last?.text.contains("Context cleared") == true)
     }
 
-    @Test func aSessionThatNeverRanHasNothingToClear() {
-        let store = makeStore()
-        let runner = SessionRunner(paths: [:])
-        let project = store.addProject(at: FileManager.default.temporaryDirectory
-            .appendingPathComponent("project-\(UUID().uuidString)"))!
+    @Test func aSessionThatNeverRanHasNothingToClear() throws {
+        let project = try TestStore.project(in: store)
         let session = store.newSession(in: project.id)
 
         #expect(!runner.canClearContext(session.id, store: store))
@@ -95,9 +85,7 @@ struct ClearContextTests {
     // Codex has no clearing command of its own. It does not need one: it resumes the
     // same way, so it clears the same way.
     @Test func codexClearsTheSameWay() throws {
-        let store = makeStore()
-        let runner = SessionRunner(paths: [:])
-        let session = startedSession(in: store, agent: .codex)
+        let session = try startedSession(agent: .codex)
 
         #expect(runner.clearContext(session.id, store: store) == .cleared)
         #expect(try #require(store.session(session.id)).codexSessionID == nil)
@@ -116,10 +104,8 @@ struct ClearContextTests {
         #expect(!SessionRunner.isClearCommand("clear"))
     }
 
-    @Test func typingItClearsInsteadOfQueueingAPrompt() {
-        let store = makeStore()
-        let runner = SessionRunner(paths: [:])
-        let session = startedSession(in: store)
+    @Test func typingItClearsInsteadOfQueueingAPrompt() throws {
+        let session = try startedSession()
 
         runner.send("/clear", sessionID: session.id, store: store)
 
@@ -130,10 +116,8 @@ struct ClearContextTests {
 
     // Attachments would be thrown away with the command, so a prompt carrying anything
     // is left to run as one.
-    @Test func aClearCarryingAttachmentsIsAnOrdinaryPrompt() {
-        let store = makeStore()
-        let runner = SessionRunner(paths: [:])
-        let session = startedSession(in: store)
+    @Test func aClearCarryingAttachmentsIsAnOrdinaryPrompt() throws {
+        let session = try startedSession()
         let attachment = Attachment(url: URL(fileURLWithPath: "/tmp/shot.png"))
 
         runner.send("/clear", attachments: [attachment], sessionID: session.id, store: store)
@@ -217,18 +201,13 @@ struct ClearContextTests {
     }
 
     // Codex compacts automatically, so it is never offered a manual action.
-    @Test func onlyClaudeCodeCanCompact() {
-        let store = makeStore()
-        let runner = SessionRunner(paths: [:])
-
-        #expect(runner.canCompactContext(startedSession(in: store).id, store: store))
-        #expect(!runner.canCompactContext(startedSession(in: store, agent: .codex).id, store: store))
+    @Test func onlyClaudeCodeCanCompact() throws {
+        #expect(runner.canCompactContext(try startedSession().id, store: store))
+        #expect(!runner.canCompactContext(try startedSession(agent: .codex).id, store: store))
     }
 
-    @Test func typingCompactOnCodexExplainsAutomaticCompaction() {
-        let store = makeStore()
-        let runner = SessionRunner(paths: [:])
-        let session = startedSession(in: store, agent: .codex)
+    @Test func typingCompactOnCodexExplainsAutomaticCompaction() throws {
+        let session = try startedSession(agent: .codex)
 
         runner.send("/compact", sessionID: session.id, store: store)
 
@@ -268,10 +247,8 @@ struct ClearContextTests {
 
     // A dismissal is only meant to last until the window is dealt with. One that outlived
     // a clear would hide the warning the next time the session filled up.
-    @Test func dealingWithTheWindowBringsTheNudgeBack() {
-        let store = makeStore()
-        let runner = SessionRunner(paths: [:])
-        let session = startedSession(in: store)
+    @Test func dealingWithTheWindowBringsTheNudgeBack() throws {
+        let session = try startedSession()
 
         runner.dismissNudge(session.id)
         #expect(runner.isNudgeDismissed(session.id))
@@ -280,11 +257,8 @@ struct ClearContextTests {
         #expect(!runner.isNudgeDismissed(session.id))
     }
 
-    @Test func typingItWithNothingToClearSaysSo() {
-        let store = makeStore()
-        let runner = SessionRunner(paths: [:])
-        let project = store.addProject(at: FileManager.default.temporaryDirectory
-            .appendingPathComponent("project-\(UUID().uuidString)"))!
+    @Test func typingItWithNothingToClearSaysSo() throws {
+        let project = try TestStore.project(in: store)
         let session = store.newSession(in: project.id)
 
         runner.send("/clear", sessionID: session.id, store: store)

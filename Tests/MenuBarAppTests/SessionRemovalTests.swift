@@ -8,10 +8,16 @@ import Testing
 // that happens to be open.
 @MainActor
 struct SessionRemovalTests {
+    private let store: ProjectStore
+    private let scratch: ScratchDirectory
+    private let project: Project
+
+    init() throws {
+        (store, scratch) = TestStore.make()
+        project = try TestStore.project(in: store, named: "checkout")
+    }
 
     @Test func namesTheSessionAndKeepsTheDeletionDestructive() {
-        let store = makeStore()
-        let project = addProject(named: "checkout", to: store)
         let session = store.newSession(in: project.id)
         store.renameSession(session.id, to: "Fix the parser")
 
@@ -28,8 +34,6 @@ struct SessionRemovalTests {
     // The reason this lives in one place: three of the four screens that offer the
     // deletion used to leave this out while deleting the files anyway.
     @Test func saysGeneratedDesignFilesAreRemoved() throws {
-        let store = makeStore()
-        let project = addProject(named: "checkout", to: store)
         let session = store.newSession(in: project.id, seed: .init(mode: .design))
         let artifact = try #require(store.designArtifactURL(for: session))
         try FileManager.default.createDirectory(
@@ -45,8 +49,6 @@ struct SessionRemovalTests {
     }
 
     @Test func countsTheWorktreesThatGoWithIt() {
-        let store = makeStore()
-        let project = addProject(named: "checkout", to: store)
         let session = store.newSession(in: project.id, worktreePath: "/tmp/one",
                                        worktreeBranch: "session/one")
 
@@ -60,13 +62,11 @@ struct SessionRemovalTests {
     }
 
     @Test func warnsThatUncommittedWorkInAWorktreeIsLost() async {
-        let store = makeStore()
-        let project = addProject(named: "checkout", to: store)
         let session = store.newSession(in: project.id, worktreePath: "/tmp/dirty",
                                        worktreeBranch: "session/dirty")
         let workingTrees = WorkingTreeWatch(inspect: { _ in 3 })
         workingTrees.refresh(["/tmp/dirty"])
-        while !workingTrees.isDirty("/tmp/dirty") { await Task.yield() }
+        #expect(await waitUntil { workingTrees.isDirty("/tmp/dirty") })
 
         let dialog = SessionRemoval.confirmation(for: session, in: store,
                                                  workingTrees: workingTrees) {}
@@ -78,9 +78,8 @@ struct SessionRemovalTests {
     // A run writes into the task's own folder, which outlives the run, so the deletion
     // has to say the files stay rather than leaving the reader to guess.
     @Test func promisesThatFilesInTheTaskFolderStay() throws {
-        let store = makeStore()
         let task = try store.addTask(named: "Sweep", prompt: "Do the thing.",
-                                     in: temporaryDirectory()).get()
+                                     in: scratch.path("tasks")).get()
         let run = store.newSession(in: task.id)
 
         let dialog = SessionRemoval.confirmation(for: run, in: store,
@@ -88,20 +87,5 @@ struct SessionRemovalTests {
 
         #expect(dialog.message?.contains("Files it wrote in the task folder stay.") == true)
         #expect(dialog.actions.first?.label == "Delete run")
-    }
-
-    // MARK: - Helpers
-
-    private func makeStore() -> ProjectStore {
-        ProjectStore(storeURL: temporaryDirectory().appendingPathComponent("projects.json"))
-    }
-
-    private func temporaryDirectory() -> URL {
-        FileManager.default.temporaryDirectory
-            .appendingPathComponent("code-station-session-removal-\(UUID().uuidString)")
-    }
-
-    private func addProject(named name: String, to store: ProjectStore) -> Project {
-        store.addProject(at: temporaryDirectory().appendingPathComponent(name))!
     }
 }

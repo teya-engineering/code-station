@@ -9,17 +9,25 @@ import Testing
 @MainActor
 struct WorktreeRestoreTests {
 
+    // The checkouts live in a folder of their own rather than inside the repository, so a
+    // worktree can be parked out of git's sight.
+    private let repo: GitRepo
+    private let sandbox = ScratchDirectory(prefix: "restore")
+
+    init() throws {
+        repo = try GitRepo()
+    }
+
     // MARK: - Rebuilding
 
     @Test func rebuildsTheFolderAndItsCommitsWhenTheBranchSurvived() async throws {
-        let repo = try Repo()
-        let checkout = repo.sandbox.appendingPathComponent("checkout")
+        let checkout = sandbox.path("checkout")
 
-        repo.git("worktree", "add", "-q", checkout.path, "-b", "code-station/abc")
+        try repo.git("worktree", "add", "-q", checkout.path, "-b", "code-station/abc")
         try "work".write(to: checkout.appendingPathComponent("note.txt"),
                          atomically: true, encoding: .utf8)
-        Repo.run(in: checkout, ["add", "."])
-        Repo.run(in: checkout, ["commit", "-qm", "the work"])
+        try GitRepo.run(["add", "."], in: checkout)
+        try GitRepo.run(["commit", "-qm", "the work"], in: checkout)
 
         // Removed the way a person removes it: the folder goes, git's registration and the
         // branch both stay behind.
@@ -31,23 +39,24 @@ struct WorktreeRestoreTests {
 
         #expect(throwsNothing(result))
         // The point of keeping the branch: the commit is back, not just the folder.
-        #expect(repo.read("note.txt", in: checkout) == "work")
-        #expect(Repo.output(in: checkout, ["log", "-1", "--pretty=%s"]) == "the work")
-        #expect(Repo.output(in: checkout, ["rev-parse", "--abbrev-ref", "HEAD"]) == "code-station/abc")
+        #expect(read("note.txt", in: checkout) == "work")
+        #expect(try GitRepo.run(["log", "-1", "--pretty=%s"], in: checkout) == "the work")
+        #expect(try GitRepo.run(["rev-parse", "--abbrev-ref", "HEAD"], in: checkout) == "code-station/abc")
     }
 
     // The regression `restore` exists for. Git keeps its registration when only the folder is
     // deleted and refuses to add a worktree onto a path it still knows about, so a rebuild
     // that does not clear it first fails on the most ordinary way of losing a folder.
     @Test func rebuildsOverTheRegistrationGitKeepsWhenOnlyTheFolderWasDeleted() async throws {
-        let repo = try Repo()
-        let checkout = repo.sandbox.appendingPathComponent("checkout")
+        let checkout = sandbox.path("checkout")
 
-        repo.git("worktree", "add", "-q", checkout.path, "-b", "code-station/ghi")
+        try repo.git("worktree", "add", "-q", checkout.path, "-b", "code-station/ghi")
         try FileManager.default.removeItem(at: checkout)
 
         // What a plain `worktree add` would do here, and it does not work.
-        #expect(Repo.status(in: repo.url, ["worktree", "add", checkout.path, "code-station/ghi"]) != 0)
+        #expect(throws: (any Error).self) {
+            try repo.git("worktree", "add", checkout.path, "code-station/ghi")
+        }
 
         let result = await GitWorktree.restore(worktreePath: checkout.path,
                                                branch: "code-station/ghi",
@@ -62,43 +71,43 @@ struct WorktreeRestoreTests {
     // rebuilding one session would deregister a session whose disk is merely unplugged, and
     // that one is an orphan the moment it comes back. The parked worktree stands in for it.
     @Test func leavesAnotherSessionsMissingCheckoutRegistered() async throws {
-        let repo = try Repo()
-        let mine = repo.sandbox.appendingPathComponent("mine")
-        let other = repo.sandbox.appendingPathComponent("other")
+        let mine = sandbox.path("mine")
+        let other = sandbox.path("other")
 
-        repo.git("worktree", "add", "-q", mine.path, "-b", "code-station/mine")
-        repo.git("worktree", "add", "-q", other.path, "-b", "code-station/other")
+        try repo.git("worktree", "add", "-q", mine.path, "-b", "code-station/mine")
+        try repo.git("worktree", "add", "-q", other.path, "-b", "code-station/other")
         try FileManager.default.removeItem(at: mine)
         // Moved rather than deleted, the way an unmounted volume leaves it: gone as far as
         // git can tell, and coming back later.
         try FileManager.default.moveItem(at: other,
-                                         to: repo.sandbox.appendingPathComponent("parked"))
+                                         to: sandbox.path("parked"))
 
         let result = await GitWorktree.restore(worktreePath: mine.path,
                                                branch: "code-station/mine",
                                                projectPath: repo.path, from: .localBranch)
 
         #expect(throwsNothing(result))
-        #expect(Repo.output(in: repo.url, ["worktree", "list"]).contains("other"))
+        #expect(try repo.git("worktree", "list").contains("other"))
     }
 
     // A branch pushed and then deleted locally still has its commits on the remote, and
     // checking that ref out brings them back. Forking from the project instead would lose
     // work that was never lost.
     @Test func rebuildsFromTheRemoteWhenTheLocalBranchIsGone() async throws {
-        let repo = try Repo(withRemote: true)
-        let checkout = repo.sandbox.appendingPathComponent("checkout")
+        let origin = try GitRepo.bare()
+        try repo.addRemote(origin)
+        let checkout = sandbox.path("checkout")
 
-        repo.git("worktree", "add", "-q", checkout.path, "-b", "code-station/pushed")
+        try repo.git("worktree", "add", "-q", checkout.path, "-b", "code-station/pushed")
         try "work".write(to: checkout.appendingPathComponent("note.txt"),
                          atomically: true, encoding: .utf8)
-        Repo.run(in: checkout, ["add", "."])
-        Repo.run(in: checkout, ["commit", "-qm", "precious work"])
-        Repo.run(in: checkout, ["push", "-q", "origin", "code-station/pushed"])
+        try GitRepo.run(["add", "."], in: checkout)
+        try GitRepo.run(["commit", "-qm", "precious work"], in: checkout)
+        try GitRepo.run(["push", "-q", "origin", "code-station/pushed"], in: checkout)
 
         try FileManager.default.removeItem(at: checkout)
-        repo.git("worktree", "prune")
-        repo.git("branch", "-qD", "code-station/pushed")
+        try repo.git("worktree", "prune")
+        try repo.git("branch", "-qD", "code-station/pushed")
 
         let source = await GitWorktree.restoreSource(of: "code-station/pushed",
                                                      projectPath: repo.path)
@@ -110,22 +119,21 @@ struct WorktreeRestoreTests {
                                                from: try #require(source))
 
         #expect(throwsNothing(result))
-        #expect(Repo.output(in: checkout, ["log", "-1", "--pretty=%s"]) == "precious work")
+        #expect(try GitRepo.run(["log", "-1", "--pretty=%s"], in: checkout) == "precious work")
         // Tracking the remote it came from, so the next push is not a diverged branch.
-        #expect(Repo.output(in: checkout, ["rev-parse", "--abbrev-ref", "@{upstream}"])
+        #expect(try GitRepo.run(["rev-parse", "--abbrev-ref", "@{upstream}"], in: checkout)
             == "origin/code-station/pushed")
     }
 
     // The case the confirmation has to be honest about: the folder comes back, the work does
     // not.
     @Test func rebuildsFromTheProjectWhenTheBranchIsGoneEverywhere() async throws {
-        let repo = try Repo()
-        let checkout = repo.sandbox.appendingPathComponent("checkout")
+        let checkout = sandbox.path("checkout")
 
-        repo.git("worktree", "add", "-q", checkout.path, "-b", "code-station/def")
+        try repo.git("worktree", "add", "-q", checkout.path, "-b", "code-station/def")
         try FileManager.default.removeItem(at: checkout)
-        repo.git("worktree", "prune")
-        repo.git("branch", "-qD", "code-station/def")
+        try repo.git("worktree", "prune")
+        try repo.git("branch", "-qD", "code-station/def")
 
         let result = await GitWorktree.restore(worktreePath: checkout.path,
                                                branch: "code-station/def",
@@ -134,19 +142,18 @@ struct WorktreeRestoreTests {
         #expect(throwsNothing(result))
         // Forked from the project's own checkout, so it holds the first commit and nothing
         // that was only ever on the branch.
-        #expect(Repo.output(in: checkout, ["log", "-1", "--pretty=%s"]) == "first")
-        #expect(Repo.output(in: checkout, ["rev-parse", "--abbrev-ref", "HEAD"]) == "code-station/def")
+        #expect(try GitRepo.run(["log", "-1", "--pretty=%s"], in: checkout) == "first")
+        #expect(try GitRepo.run(["rev-parse", "--abbrev-ref", "HEAD"], in: checkout) == "code-station/def")
     }
 
     // `--force` waives two of git's checks and only one of them is ours to waive. A branch
     // checked out in a folder that still exists must not be checked out again: commits in
     // either one make the other look out of date.
     @Test func refusesWhenTheBranchIsCheckedOutInAFolderThatStillExists() async throws {
-        let repo = try Repo()
-        let mine = repo.sandbox.appendingPathComponent("mine")
-        let elsewhere = repo.sandbox.appendingPathComponent("elsewhere")
+        let mine = sandbox.path("mine")
+        let elsewhere = sandbox.path("elsewhere")
 
-        repo.git("worktree", "add", "-q", elsewhere.path, "-b", "code-station/shared")
+        try repo.git("worktree", "add", "-q", elsewhere.path, "-b", "code-station/shared")
 
         let result = await GitWorktree.restore(worktreePath: mine.path,
                                                branch: "code-station/shared",
@@ -159,8 +166,7 @@ struct WorktreeRestoreTests {
     // Nothing to build the checkout out of. Reported rather than attempted, so the banner can
     // say so instead of the reader meeting a raw git error.
     @Test func refusesWhenTheProjectFolderIsGoneToo() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("restore-no-project-\(UUID().uuidString)")
+        let root = sandbox.path("no-project")
 
         let result = await GitWorktree.restore(
             worktreePath: root.appendingPathComponent("checkout").path,
@@ -173,8 +179,7 @@ struct WorktreeRestoreTests {
     // MARK: - Where the commits are
 
     @Test func readsWhereTheCommitsWouldComeFromWithoutChangingAnything() async throws {
-        let repo = try Repo()
-        repo.git("branch", "code-station/mno")
+        try repo.git("branch", "code-station/mno")
 
         #expect(await GitWorktree.restoreSource(of: "code-station/mno",
                                                 projectPath: repo.path) == .localBranch)
@@ -188,8 +193,7 @@ struct WorktreeRestoreTests {
     // A tag of the same name must not stand in for the branch: checking one out leaves a
     // detached head on a checkout whose session records a branch.
     @Test func doesNotMistakeATagForTheBranch() async throws {
-        let repo = try Repo()
-        repo.git("tag", "code-station/tagged")
+        try repo.git("tag", "code-station/tagged")
 
         #expect(await GitWorktree.restoreSource(of: "code-station/tagged",
                                                 projectPath: repo.path) == .projectHead)
@@ -198,14 +202,16 @@ struct WorktreeRestoreTests {
     // Git's own guesswork gives up when two remotes carry the name, which is exactly when
     // forking from the project instead would lose the commits most quietly.
     @Test func prefersOriginWhenTwoRemotesCarryTheBranch() async throws {
-        let repo = try Repo(withRemote: true)
-        repo.git("branch", "code-station/two")
-        repo.git("push", "-q", "origin", "code-station/two")
+        let origin = try GitRepo.bare()
+        try repo.addRemote(origin)
+        try repo.git("branch", "code-station/two")
+        try repo.git("push", "-q", "origin", "code-station/two")
         // Named "backup" so it sorts before origin: git lists refs by name, and picking the
         // first would land on the wrong remote without anyone noticing.
-        repo.git("remote", "add", "backup", try repo.addBare(named: "backup"))
-        repo.git("push", "-q", "backup", "code-station/two")
-        repo.git("branch", "-qD", "code-station/two")
+        let backup = try GitRepo.bare()
+        try repo.addRemote(backup, named: "backup")
+        try repo.git("push", "-q", "backup", "code-station/two")
+        try repo.git("branch", "-qD", "code-station/two")
 
         #expect(await GitWorktree.restoreSource(of: "code-station/two", projectPath: repo.path)
             == .remoteBranch("refs/remotes/origin/code-station/two"))
@@ -380,116 +386,33 @@ struct WorktreeRestoreTests {
         return failure.message
     }
 
+    private func read(_ name: String, in folder: URL) -> String? {
+        try? String(contentsOf: folder.appendingPathComponent(name), encoding: .utf8)
+    }
+
     // A store with one project, and a folder of its own for everything the test creates.
     @MainActor
     private struct Scene {
-        let root: URL
+        let scratch: ScratchDirectory
         let store: ProjectStore
         let project: Project
+        var root: URL { scratch.url }
 
         init() throws {
-            root = FileManager.default.temporaryDirectory
-                .appendingPathComponent("restore-scene-\(UUID().uuidString)", isDirectory: true)
-            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-            setenv("CODE_STATION_STORE", root.appendingPathComponent("projects.json").path, 1)
-            store = ProjectStore()
-            project = try Scene.add(named: "repo", root: root, store: store)
+            let made = TestStore.make()
+            store = made.store
+            scratch = made.scratch
+            project = try TestStore.project(in: store, named: "repo")
         }
 
         func folder(_ name: String) throws -> URL {
-            let url = root.appendingPathComponent(name, isDirectory: true)
+            let url = scratch.path(name)
             try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
             return url
         }
 
         func addProject(named name: String) throws -> Project {
-            try Scene.add(named: name, root: root, store: store)
-        }
-
-        private static func add(named name: String, root: URL,
-                                store: ProjectStore) throws -> Project {
-            let url = root.appendingPathComponent(name, isDirectory: true)
-            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-            guard let project = store.addProject(at: url) else {
-                throw GitWorktree.Failure(message: "could not add \(name)")
-            }
-            return project
-        }
-    }
-
-    // A repository with one commit and an identity of its own, inside a folder that holds
-    // everything the test makes so worktrees can be parked out of git's sight.
-    private final class Repo {
-        let sandbox: URL
-        let url: URL
-        var path: String { url.path }
-
-        init(withRemote: Bool = false) throws {
-            sandbox = FileManager.default.temporaryDirectory
-                .appendingPathComponent("restore-repo-\(UUID().uuidString)", isDirectory: true)
-            url = sandbox.appendingPathComponent("repo", isDirectory: true)
-            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-            git("init", "-q", "-b", "main")
-            git("config", "user.email", "t@example.com")
-            git("config", "user.name", "Test")
-            git("config", "commit.gpgsign", "false")
-            try "hello".write(to: url.appendingPathComponent("README.md"),
-                              atomically: true, encoding: .utf8)
-            git("add", ".")
-            git("commit", "-qm", "first")
-            if withRemote {
-                let origin = try addBare(named: "origin")
-                git("remote", "add", "origin", origin)
-            }
-        }
-
-        deinit { try? FileManager.default.removeItem(at: sandbox) }
-
-        // Added by path rather than by name, so a second one can be pushed to without being
-        // a remote this repository tracks.
-        @discardableResult
-        func addBare(named name: String) throws -> String {
-            let bare = sandbox.appendingPathComponent("\(name).git", isDirectory: true)
-            try FileManager.default.createDirectory(at: bare, withIntermediateDirectories: true)
-            Self.run(in: bare, ["init", "-q", "--bare", "-b", "main"])
-            return bare.path
-        }
-
-        func read(_ name: String, in folder: URL) -> String? {
-            try? String(contentsOf: folder.appendingPathComponent(name), encoding: .utf8)
-        }
-
-        func git(_ arguments: String...) { Self.run(in: url, arguments) }
-
-        static func run(in directory: URL, _ arguments: [String]) {
-            _ = status(in: directory, arguments)
-        }
-
-        static func status(in directory: URL, _ arguments: [String]) -> Int32 {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-            process.arguments = ["git"] + arguments
-            process.currentDirectoryURL = directory
-            process.standardOutput = FileHandle.nullDevice
-            process.standardError = FileHandle.nullDevice
-            try? process.run()
-            process.waitUntilExit()
-            return process.terminationStatus
-        }
-
-        static func output(in directory: URL, _ arguments: [String]) -> String {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-            process.arguments = ["git"] + arguments
-            process.currentDirectoryURL = directory
-            let pipe = Pipe()
-            process.standardOutput = pipe
-            process.standardError = FileHandle.nullDevice
-            try? process.run()
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            process.waitUntilExit()
-            return String(decoding: data, as: UTF8.self)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+            try TestStore.project(in: store, named: name)
         }
     }
 }

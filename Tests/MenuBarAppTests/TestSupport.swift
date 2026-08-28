@@ -2,11 +2,13 @@ import Foundation
 import Testing
 @testable import MenuBarApp
 
-// Polls until the condition holds or the timeout passes. Returns whether it held.
+// Polls until the condition holds or the timeout passes. Returns whether it held. The
+// default window is generous because these waits cover real processes, and a loaded
+// machine can take many times longer than a quiet one.
 //
 // The condition runs on the caller's actor, so a @MainActor test can read main-actor
 // state in it without the closure having to be Sendable.
-func waitUntil(timeout: Duration = .seconds(10),
+func waitUntil(timeout: Duration = .seconds(30),
                isolation: isolated (any Actor)? = #isolation,
                _ condition: () -> Bool) async -> Bool {
     let deadline = ContinuousClock.now + timeout
@@ -98,6 +100,17 @@ final class GitRepo: @unchecked Sendable {
         try Self.run(args + [url.path, scratch.url.path],
                      in: FileManager.default.temporaryDirectory)
         return try GitRepo(scratch: scratch)
+    }
+
+    // An empty bare repository, which stands in for a remote nothing has been pushed to.
+    static func bare() throws -> GitRepo {
+        let scratch = ScratchDirectory(prefix: "git-remote")
+        try run(["init", "-q", "--bare", "-b", "main"], in: scratch.url)
+        return try GitRepo(scratch: scratch)
+    }
+
+    func addRemote(_ remote: GitRepo, named name: String = "origin") throws {
+        try git("remote", "add", name, remote.path)
     }
 
     private func configureIdentity() throws {

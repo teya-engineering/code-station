@@ -10,8 +10,7 @@ struct TreeSnapshotsTests {
                                            searchPath: "/usr/bin:/bin:/usr/local/bin")
 
     @Test func seesWhatAShellCommandWroteAndSaysNothingAboutAReadOnlyOne() async throws {
-        let repo = try Repository()
-        defer { repo.remove() }
+        let repo = try GitRepo()
 
         await repo.settle(using: git)
         try repo.write("notes.md", "first\nsecond\n")
@@ -28,8 +27,7 @@ struct TreeSnapshotsTests {
     }
 
     @Test func measuresOneCallAtATimeRatherThanTheWholeTurn() async throws {
-        let repo = try Repository()
-        defer { repo.remove() }
+        let repo = try GitRepo()
 
         await repo.settle(using: git)
         try repo.write("one.txt", "a\n")
@@ -45,10 +43,9 @@ struct TreeSnapshotsTests {
     }
 
     @Test func ignoresWhatTheRepositoryItselfIgnores() async throws {
-        let repo = try Repository()
-        defer { repo.remove() }
+        let repo = try GitRepo()
         try repo.write(".gitignore", "build/\n")
-        try repo.commit()
+        try repo.commit("work")
 
         await repo.settle(using: git)
         try repo.write("build/artifact.o", "binary-ish\n")
@@ -57,14 +54,13 @@ struct TreeSnapshotsTests {
     }
 
     @Test func keepsCountingWhenTheAgentCommitsMidTurn() async throws {
-        let repo = try Repository()
-        defer { repo.remove() }
+        let repo = try GitRepo()
 
         await repo.settle(using: git)
         try repo.write("staged.txt", "one\n")
         _ = await repo.change(using: git)
         // A commit moves HEAD but leaves the tree alone, so nothing is credited to it.
-        try repo.commit()
+        try repo.commit("work")
         #expect(await repo.change(using: git) == nil)
 
         try repo.write("after.txt", "two\n")
@@ -72,10 +68,9 @@ struct TreeSnapshotsTests {
     }
 
     @Test func leavesTheCheckoutsOwnIndexAlone() async throws {
-        let repo = try Repository()
-        defer { repo.remove() }
+        let repo = try GitRepo()
         try repo.write("staged-by-hand.txt", "mine\n")
-        try repo.run("add", "staged-by-hand.txt")
+        try repo.git("add", "staged-by-hand.txt")
 
         await repo.settle(using: git)
         try repo.write("written-by-agent.txt", "theirs\n")
@@ -83,21 +78,18 @@ struct TreeSnapshotsTests {
 
         // The file staged by hand is still the only thing staged, and the agent's file is
         // still untracked. A snapshot that used the real index would have staged both.
-        let status = try repo.output("status", "--porcelain")
+        let status = try repo.git("status", "--porcelain")
         #expect(status.contains("A  staged-by-hand.txt"))
         #expect(status.contains("?? written-by-agent.txt"))
     }
 
     @Test func saysNothingAboutAFolderThatIsNotARepository() async throws {
-        let folder = FileManager.default.temporaryDirectory
-            .appendingPathComponent("not-a-repo-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: folder) }
+        let folder = ScratchDirectory(prefix: "not-a-repo")
 
         let snapshots = TreeSnapshots.shared
-        snapshots.baseline(at: folder.path, using: git)
+        snapshots.baseline(at: folder.url.path, using: git)
         let change = await withCheckedContinuation { continuation in
-            snapshots.change(at: folder.path, using: self.git) { continuation.resume(returning: $0) }
+            snapshots.change(at: folder.url.path, using: self.git) { continuation.resume(returning: $0) }
         }
         #expect(change == nil)
     }
@@ -114,36 +106,7 @@ struct TreeSnapshotsTests {
     }
 }
 
-// A throwaway checkout with one commit in it.
-private struct Repository {
-    let url: URL
-    var path: String { url.path }
-
-    init() throws {
-        url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("tree-snapshot-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-        try run("init", "-q", "-b", "main")
-        try run("config", "user.email", "test@example.com")
-        try run("config", "user.name", "Test")
-        try write("README.md", "hello\n")
-        try commit()
-    }
-
-    func remove() { try? FileManager.default.removeItem(at: url) }
-
-    func write(_ name: String, _ contents: String) throws {
-        let file = url.appendingPathComponent(name)
-        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(),
-                                                withIntermediateDirectories: true)
-        try contents.write(to: file, atomically: true, encoding: .utf8)
-    }
-
-    func commit() throws {
-        try run("add", "-A")
-        try run("commit", "-q", "-m", "work")
-    }
-
+private extension GitRepo {
     // The first snapshot of a checkout has nothing to compare against, so it only records
     // where things stand. Taken by hand here rather than through `baseline`, which reports
     // nothing back and so gives a test no way to know it has happened.
@@ -155,27 +118,5 @@ private struct Repository {
         await withCheckedContinuation { continuation in
             TreeSnapshots.shared.change(at: path, using: git) { continuation.resume(returning: $0) }
         }
-    }
-
-    @discardableResult func output(_ arguments: String...) throws -> String {
-        try output(arguments)
-    }
-
-    func run(_ arguments: String...) throws {
-        _ = try output(arguments)
-    }
-
-    private func output(_ arguments: [String]) throws -> String {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-        process.arguments = arguments
-        process.currentDirectoryURL = url
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = Pipe()
-        try process.run()
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        return String(decoding: data, as: UTF8.self)
     }
 }

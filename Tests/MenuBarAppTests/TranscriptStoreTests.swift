@@ -7,17 +7,15 @@ import Testing
 // sidebar reads is checked after the conversation has gone, not just before.
 @MainActor
 struct TranscriptStoreTests {
+    private let store: ProjectStore
+    private let scratch: ScratchDirectory
 
-    private func makeStore() -> ProjectStore {
-        let path = FileManager.default.temporaryDirectory
-            .appendingPathComponent("code-station-tests-\(UUID().uuidString).json").path
-        setenv("CODE_STATION_STORE", path, 1)
-        return ProjectStore()
+    init() {
+        (store, scratch) = TestStore.make()
     }
 
-    private func project(in store: ProjectStore) -> Project {
-        store.addProject(at: FileManager.default.temporaryDirectory
-            .appendingPathComponent("project-\(UUID().uuidString)"))!
+    private func project() throws -> Project {
+        try TestStore.project(in: store)
     }
 
     // An edit of one line into another, which is the +1 -1 the sidebar counts.
@@ -29,8 +27,7 @@ struct TranscriptStoreTests {
     }
 
     @Test func sessionsPersistTheirAgentAndInitialModel() throws {
-        let store = makeStore()
-        let session = store.newSession(in: project(in: store).id,
+        let session = store.newSession(in: try project().id,
                                        seed: .init(agent: .codex, model: "gpt-5.6-terra"))
 
         #expect(session.agent == .codex)
@@ -43,8 +40,7 @@ struct TranscriptStoreTests {
     }
 
     @Test func aStartedSessionCanChangeItsModelWithoutChangingAgent() throws {
-        let store = makeStore()
-        let session = store.newSession(in: project(in: store).id,
+        let session = store.newSession(in: try project().id,
                                        seed: .init(agent: .codex, model: "gpt-5.6-terra"))
         store.setSettings(SessionSettings(model: "gpt-5.6-sol"), for: session.id)
         #expect(store.session(session.id)?.settings?.model == "gpt-5.6-sol")
@@ -77,30 +73,28 @@ struct TranscriptStoreTests {
         #expect(session.hasStarted)
     }
 
-    private func indexJSON(_ store: ProjectStore) -> String {
+    private func indexJSON() -> String {
         (try? String(contentsOf: store.storeURL, encoding: .utf8)) ?? ""
     }
 
-    private func transcriptFile(_ store: ProjectStore, _ sessionID: UUID) -> URL {
+    private func transcriptFile(_ sessionID: UUID) -> URL {
         store.transcriptsURL.appendingPathComponent("\(sessionID.uuidString).json")
     }
 
-    @Test func writesTheConversationBesideTheIndexRatherThanInIt() {
-        let store = makeStore()
-        let session = store.newSession(in: project(in: store).id)
+    @Test func writesTheConversationBesideTheIndexRatherThanInIt() throws {
+        let session = store.newSession(in: try project().id)
         store.append(ChatMessage(role: .assistant, text: "the body of the reply"), to: session.id)
         store.save()
 
-        let index = indexJSON(store)
+        let index = indexJSON()
         #expect(!index.contains("the body of the reply"))
         #expect(!index.contains("\"messages\""))
-        let written = try? String(contentsOf: transcriptFile(store, session.id), encoding: .utf8)
+        let written = try? String(contentsOf: transcriptFile(session.id), encoding: .utf8)
         #expect(written?.contains("the body of the reply") == true)
     }
 
-    @Test func letsGoOfAConversationOnceNothingIsLookingAtIt() {
-        let store = makeStore()
-        let project = project(in: store)
+    @Test func letsGoOfAConversationOnceNothingIsLookingAtIt() throws {
+        let project = try project()
         let first = store.newSession(in: project.id)
         store.append(ChatMessage(role: .user, text: "hello there"), to: first.id)
 
@@ -116,9 +110,8 @@ struct TranscriptStoreTests {
         #expect(store.transcript(of: first.id).first?.text == "hello there")
     }
 
-    @Test func selectingAProjectClosesTheOpenSession() {
-        let store = makeStore()
-        let project = project(in: store)
+    @Test func selectingAProjectClosesTheOpenSession() throws {
+        let project = try project()
         let session = store.newSession(in: project.id)
 
         store.selectProject(project.id)
@@ -129,9 +122,8 @@ struct TranscriptStoreTests {
         #expect(!store.isTranscriptLoaded(session.id))
     }
 
-    @Test func selectingHomeClosesTheOpenSessionWithoutForgettingItsProject() {
-        let store = makeStore()
-        let project = project(in: store)
+    @Test func selectingHomeClosesTheOpenSessionWithoutForgettingItsProject() throws {
+        let project = try project()
         let session = store.newSession(in: project.id)
 
         store.selectHome()
@@ -144,9 +136,8 @@ struct TranscriptStoreTests {
     // Whatever streamed in last has to reach the disk before the messages are dropped,
     // debounce or no debounce. Encoding a conversation is too much to put inside the
     // click that closed it, so the messages wait in memory for the write instead.
-    @Test func keepsWhatIsPendingUntilItHasBeenWritten() {
-        let store = makeStore()
-        let session = store.newSession(in: project(in: store).id)
+    @Test func keepsWhatIsPendingUntilItHasBeenWritten() throws {
+        let session = store.newSession(in: try project().id)
         store.append(ChatMessage(role: .assistant, text: "half a reply"), to: session.id)
 
         store.selectHome()
@@ -154,16 +145,15 @@ struct TranscriptStoreTests {
 
         #expect(store.save())
 
-        let written = try? String(contentsOf: transcriptFile(store, session.id), encoding: .utf8)
+        let written = try? String(contentsOf: transcriptFile(session.id), encoding: .utf8)
         #expect(written?.contains("half a reply") == true)
         #expect(!store.isTranscriptLoaded(session.id))
     }
 
     // Opening a session reads its conversation off the main actor, so the click that
     // opened it returns before the messages are there.
-    @Test func readsAnOpenedConversationWithoutBlockingTheClick() async {
-        let store = makeStore()
-        let project = project(in: store)
+    @Test func readsAnOpenedConversationWithoutBlockingTheClick() async throws {
+        let project = try project()
         let session = store.newSession(in: project.id)
         store.append(ChatMessage(role: .user, text: "hello there"), to: session.id)
         store.selection = .session(store.newSession(in: project.id).id)
@@ -183,9 +173,8 @@ struct TranscriptStoreTests {
 
     // The sidebar draws every session, including the ones whose conversation is not in
     // memory, so everything it reads has to outlive the transcript.
-    @Test func keepsWhatTheSidebarShowsAfterTheConversationGoes() {
-        let store = makeStore()
-        let project = project(in: store)
+    @Test func keepsWhatTheSidebarShowsAfterTheConversationGoes() throws {
+        let project = try project()
         let session = store.newSession(in: project.id)
         let sent = Date(timeIntervalSince1970: 1_800_000_000)
         store.append(ChatMessage(role: .assistant, text: "", tools: [edit()], date: sent),
@@ -204,9 +193,8 @@ struct TranscriptStoreTests {
     // Codex starts its short call ids over in later turns. A cached presentation outlives
     // the closed transcript that made it, so the id alone must not make it appear in a
     // different conversation.
-    @Test func doesNotReuseAnEvictedConversationsPresentationByCallID() {
-        let store = makeStore()
-        let project = project(in: store)
+    @Test func doesNotReuseAnEvictedConversationsPresentationByCallID() throws {
+        let project = try project()
         let session = store.newSession(in: project.id)
         let callID = "kept-\(UUID().uuidString)"
         store.append(ChatMessage(role: .assistant, tools: [edit(id: callID)]), to: session.id)
@@ -224,8 +212,7 @@ struct TranscriptStoreTests {
     }
 
     @Test func sidebarCopyTracksMetadataWithoutCarryingTheTranscript() throws {
-        let store = makeStore()
-        let session = store.newSession(in: project(in: store).id)
+        let session = store.newSession(in: try project().id)
         store.append(ChatMessage(role: .user, text: "Investigate CPU usage"), to: session.id)
         store.append(ChatMessage(role: .assistant, tools: [edit()]), to: session.id)
         #expect(store.save())
@@ -238,8 +225,7 @@ struct TranscriptStoreTests {
     }
 
     @Test func askingInAnOlderSessionMovesItAheadOfNewerSessions() throws {
-        let store = makeStore()
-        let project = project(in: store)
+        let project = try project()
         let older = store.newSession(in: project.id)
         let newer = store.newSession(in: project.id)
         let sent = Date().addingTimeInterval(60)
@@ -305,9 +291,8 @@ struct TranscriptStoreTests {
     }
 
     // A turn runs in a session nobody has open, and the reply has to land somewhere.
-    @Test func holdsAConversationThatIsStillBeingWrittenTo() {
-        let store = makeStore()
-        let project = project(in: store)
+    @Test func holdsAConversationThatIsStillBeingWrittenTo() throws {
+        let project = try project()
         let running = store.newSession(in: project.id)
         store.hold(running.id, for: .running)
 
@@ -320,9 +305,8 @@ struct TranscriptStoreTests {
 
     // The same reason twice is one hold: a queued prompt starting while the session is
     // already running must not leave a hold behind that nothing gives back.
-    @Test func countsAReasonOnceHoweverOftenItIsGiven() {
-        let store = makeStore()
-        let session = store.newSession(in: project(in: store).id)
+    @Test func countsAReasonOnceHoweverOftenItIsGiven() throws {
+        let session = store.newSession(in: try project().id)
         store.hold(session.id, for: .running)
         store.hold(session.id, for: .running)
         store.selection = nil
@@ -331,33 +315,30 @@ struct TranscriptStoreTests {
         #expect(!store.isTranscriptLoaded(session.id))
     }
 
-    @Test func deletingASessionTakesItsConversationWithIt() {
-        let store = makeStore()
-        let session = store.newSession(in: project(in: store).id)
+    @Test func deletingASessionTakesItsConversationWithIt() throws {
+        let session = store.newSession(in: try project().id)
         store.append(ChatMessage(role: .user, text: "hello there"), to: session.id)
         store.save()
-        let file = transcriptFile(store, session.id)
+        let file = transcriptFile(session.id)
         #expect(FileManager.default.fileExists(atPath: file.path))
 
         store.removeSession(session.id)
         #expect(!FileManager.default.fileExists(atPath: file.path))
     }
 
-    @Test func removingAProjectTakesTheConversationsOfEverySessionInIt() {
-        let store = makeStore()
-        let project = project(in: store)
+    @Test func removingAProjectTakesTheConversationsOfEverySessionInIt() throws {
+        let project = try project()
         let session = store.newSession(in: project.id)
         store.append(ChatMessage(role: .user, text: "hello there"), to: session.id)
         store.save()
 
         store.removeProject(project.id)
-        #expect(!FileManager.default.fileExists(atPath: transcriptFile(store, session.id).path))
+        #expect(!FileManager.default.fileExists(atPath: transcriptFile(session.id).path))
     }
 
     @Test func workspaceSessionsKeepAnOrderedSnapshotOfTheirDirectories() throws {
-        let store = makeStore()
-        let api = project(in: store)
-        let web = project(in: store)
+        let api = try project()
+        let web = try project()
         let workspace = try #require(store.addWorkspace(name: "Checkout",
                                                         projectIDs: [web.id, api.id],
                                                         leadProjectID: api.id))
@@ -375,15 +356,14 @@ struct TranscriptStoreTests {
     }
 
     @Test func workspacesSurviveAnIndexRoundTrip() throws {
-        let store = makeStore()
-        let first = project(in: store)
-        let second = project(in: store)
+        let first = try project()
+        let second = try project()
         let workspace = try #require(store.addWorkspace(name: "Payments",
                                                         projectIDs: [first.id, second.id],
                                                         leadProjectID: second.id))
         store.save()
 
-        let loaded = ProjectStore()
+        let loaded = ProjectStore(storeURL: store.storeURL)
 
         #expect(loaded.workspace(workspace.id)?.name == "Payments")
         #expect(loaded.workspace(workspace.id)?.projectIDs == [second.id, first.id])
@@ -391,9 +371,8 @@ struct TranscriptStoreTests {
     }
 
     @Test func removingAnAttachedProjectRemovesSessionsThatUseIt() throws {
-        let store = makeStore()
-        let first = project(in: store)
-        let second = project(in: store)
+        let first = try project()
+        let second = try project()
         let workspace = try #require(store.addWorkspace(name: "Checkout",
                                                         projectIDs: [first.id, second.id],
                                                         leadProjectID: first.id))
@@ -416,9 +395,8 @@ struct TranscriptStoreTests {
     // appended while it runs would sit under every call the answer led to. The reply is
     // split around it instead: what came before stays put, what comes after goes into a
     // message of its own that is genuinely later in the conversation.
-    @Test func splitsTheReplyAroundAnAnswerGivenWhileItRuns() {
-        let store = makeStore()
-        let session = store.newSession(in: project(in: store).id)
+    @Test func splitsTheReplyAroundAnAnswerGivenWhileItRuns() throws {
+        let session = store.newSession(in: try project().id)
         store.append(ChatMessage(role: .user, text: "do the thing"), to: session.id)
         var reply = ChatMessage(role: .assistant, text: "Looking into it")
         reply.tools = [edit()]
@@ -439,9 +417,8 @@ struct TranscriptStoreTests {
 
     // The question can arrive before the turn has said anything, and an empty half of a
     // reply above the answer is just a gap.
-    @Test func dropsAnEmptyReplyRatherThanLeavingItAboveTheAnswer() {
-        let store = makeStore()
-        let session = store.newSession(in: project(in: store).id)
+    @Test func dropsAnEmptyReplyRatherThanLeavingItAboveTheAnswer() throws {
+        let session = store.newSession(in: try project().id)
         let opened = ChatMessage(role: .assistant)
         store.append(opened, to: session.id)
 
@@ -457,10 +434,8 @@ struct TranscriptStoreTests {
     // Legacy stores can hold conversations inline without summaries. Loading one splits
     // the conversations into their own files and derives the missing summaries.
     @Test func movesConversationsOutOfAFileThatKeptThemInline() throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("code-station-legacy-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let path = directory.appendingPathComponent("projects.json")
+        let legacyScratch = ScratchDirectory(prefix: "code-station-legacy")
+        let path = legacyScratch.path("projects.json")
 
         let projectID = UUID(), sessionID = UUID()
         let legacy = """
@@ -488,9 +463,8 @@ struct TranscriptStoreTests {
         }
         """
         try legacy.write(to: path, atomically: true, encoding: .utf8)
-        setenv("CODE_STATION_STORE", path.path, 1)
 
-        let store = ProjectStore()
+        let store = ProjectStore(storeURL: path)
 
         // Read once, then out of memory like any other conversation nobody is holding.
         #expect(!store.isTranscriptLoaded(sessionID))

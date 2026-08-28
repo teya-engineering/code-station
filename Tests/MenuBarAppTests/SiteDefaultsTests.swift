@@ -6,9 +6,10 @@ import Testing
 // one still has to run, so both halves are pinned down here.
 struct SiteDefaultsTests {
 
+    private let scratch = ScratchDirectory(prefix: "site-defaults")
+
     private func file(_ json: String) throws -> URL {
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("site-defaults-\(UUID().uuidString).json")
+        let url = scratch.path("site-defaults-\(UUID().uuidString).json")
         try Data(json.utf8).write(to: url)
         return url
     }
@@ -283,7 +284,6 @@ struct SiteDefaultsTests {
           "skills": { "name": "team", "marketplace": "org/skills", "repository": "org/skills" }
         }
         """)
-        defer { try? FileManager.default.removeItem(at: url) }
 
         let summary = SiteDefaults.load([url]).summary
 

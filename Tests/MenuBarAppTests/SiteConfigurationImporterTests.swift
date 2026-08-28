@@ -3,12 +3,8 @@ import Testing
 @testable import MenuBarApp
 
 struct SiteConfigurationImporterTests {
-    private func temporaryDirectory() throws -> URL {
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("site-configuration-import-tests-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-        return url
-    }
+    private let scratch = ScratchDirectory(prefix: "site-configuration-import-tests")
+    private var root: URL { scratch.url }
 
     private func importedDefaults(in root: URL) throws -> SiteDefaults {
         try SiteDefaults.decode(Data("""
@@ -52,8 +48,6 @@ struct SiteConfigurationImporterTests {
     }
 
     @Test func prefersTheNamedSiteConfiguration() throws {
-        let root = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
         let canonical = root.appendingPathComponent("site-defaults.json")
         try Data("{}".utf8).write(to: canonical)
         try Data("{}".utf8).write(to: root.appendingPathComponent("something-else.json"))
@@ -63,8 +57,6 @@ struct SiteConfigurationImporterTests {
     }
 
     @Test func acceptsTheOnlyJSONFileInARepository() throws {
-        let root = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
         let file = root.appendingPathComponent("company.json")
         try Data("{}".utf8).write(to: file)
         try Data("notes".utf8).write(to: root.appendingPathComponent("README.md"))
@@ -74,8 +66,6 @@ struct SiteConfigurationImporterTests {
     }
 
     @Test func rejectsAnAmbiguousRepository() throws {
-        let root = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
         try Data("{}".utf8).write(to: root.appendingPathComponent("first.json"))
         try Data("{}".utf8).write(to: root.appendingPathComponent("second.json"))
 
@@ -85,8 +75,6 @@ struct SiteConfigurationImporterTests {
     }
 
     @Test func validatesAndSummarisesALocalConfiguration() throws {
-        let root = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
         let file = root.appendingPathComponent("team.json")
         try Data("""
         {
@@ -115,8 +103,6 @@ struct SiteConfigurationImporterTests {
     }
 
     @Test func rejectsAMalformedLocalConfiguration() throws {
-        let root = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
         let file = root.appendingPathComponent("broken.json")
         try Data(#"{ "mcp": { "presets": [ { "name": "broken" } ] } }"#.utf8)
             .write(to: file)
@@ -170,8 +156,6 @@ struct SiteConfigurationImporterTests {
     }
 
     @Test func resetWritesACompleteMergeOfSelectedAndCurrentAspects() throws {
-        let root = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
         let destination = root.appendingPathComponent("current.json")
         let current = try SiteDefaults.decode(Data("""
         {
@@ -204,8 +188,6 @@ struct SiteConfigurationImporterTests {
     }
 
     @Test @MainActor func appliesImportedDefaultsToEmptyPersistedStores() throws {
-        let root = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
         let defaults = try importedDefaults(in: root)
 
         let dispatchURL = root.appendingPathComponent("dispatch.json")
@@ -233,8 +215,6 @@ struct SiteConfigurationImporterTests {
     }
 
     @Test @MainActor func replacesUnsavedDefaultsWhenNoStoreExists() throws {
-        let root = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
         let defaults = try importedDefaults(in: root)
 
         let dispatch = DispatchStore(storeURL: root.appendingPathComponent("dispatch.json"),
@@ -249,8 +229,6 @@ struct SiteConfigurationImporterTests {
     }
 
     @Test @MainActor func mergesImportedDefaultsIntoExistingStoresOnce() throws {
-        let root = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
         let defaults = try importedDefaults(in: root)
 
         let dispatchURL = root.appendingPathComponent("dispatch.json")
@@ -300,8 +278,6 @@ struct SiteConfigurationImporterTests {
     }
 
     @Test @MainActor func importsPersistedSiteRequestsOnlyOnce() throws {
-        let root = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
         let defaults = try importedDefaults(in: root)
         let dispatchURL = root.appendingPathComponent("dispatch.json")
         try JSONEncoder().encode(SavedRequestCollection(folders: [.default]))
@@ -317,8 +293,6 @@ struct SiteConfigurationImporterTests {
     }
 
     @Test @MainActor func explicitResetReplacesSiteRequestsAndKeepsPersonalOnes() throws {
-        let root = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
         let first = try SiteDefaults.decode(Data("""
         { "dispatch": { "requests": [
           { "name": "First", "url": "https://first.example" }
@@ -343,8 +317,6 @@ struct SiteConfigurationImporterTests {
     }
 
     @Test @MainActor func explicitResetReplacesSiteShortcutsAndKeepsPersonalOnes() throws {
-        let root = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
         let first = SiteDefaults(shortcuts: [.init(name: "First", command: "make first")])
         let second = SiteDefaults(shortcuts: [.init(name: "Second", command: "make second")])
         let url = root.appendingPathComponent("shortcuts.json")

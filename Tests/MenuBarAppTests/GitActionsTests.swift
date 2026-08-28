@@ -8,7 +8,7 @@ import Testing
 struct GitActionsTests {
 
     @Test func commitsEverythingInOneGo() async throws {
-        let repo = try Repo()
+        let repo = try GitRepo()
         try repo.write("README.md", "changed")
         try repo.write("notes.txt", "untracked too")
 
@@ -20,7 +20,7 @@ struct GitActionsTests {
     }
 
     @Test func discardPutsAModifiedFileBack() async throws {
-        let repo = try Repo()
+        let repo = try GitRepo()
         try repo.write("README.md", "changed")
 
         let file = try #require(await GitInspector.snapshot(at: repo.path).files.first)
@@ -33,9 +33,9 @@ struct GitActionsTests {
     // Staging half a file and leaving the rest is normal while a session works, and a
     // discard that only cleared the working tree would leave the staged half behind.
     @Test func discardClearsBothTheIndexAndTheWorkingTree() async throws {
-        let repo = try Repo()
+        let repo = try GitRepo()
         try repo.write("README.md", "staged")
-        repo.git("add", "README.md")
+        try repo.git("add", "README.md")
         try repo.write("README.md", "and then some more")
 
         let file = try #require(await GitInspector.snapshot(at: repo.path).files.first)
@@ -49,8 +49,8 @@ struct GitActionsTests {
     // A rename is one row on the screen and two paths in git, so undoing it has to bring
     // the old name back as well as take the new one away.
     @Test func discardUndoesARename() async throws {
-        let repo = try Repo()
-        repo.git("mv", "README.md", "NOTES.md")
+        let repo = try GitRepo()
+        try repo.git("mv", "README.md", "NOTES.md")
 
         let file = try #require(await GitInspector.snapshot(at: repo.path).files.first)
         #expect(file.originalPath == "README.md")
@@ -61,7 +61,7 @@ struct GitActionsTests {
     }
 
     @Test func discardBringsBackADeletedFile() async throws {
-        let repo = try Repo()
+        let repo = try GitRepo()
         try FileManager.default.removeItem(at: repo.url.appendingPathComponent("README.md"))
 
         let file = try #require(await GitInspector.snapshot(at: repo.path).files.first)
@@ -72,7 +72,7 @@ struct GitActionsTests {
 
     // Git has no copy of an untracked file, so the trash is the only version left of it.
     @Test func discardTrashesAnUntrackedFile() async throws {
-        let repo = try Repo()
+        let repo = try GitRepo()
         try repo.write("scratch.txt", "never committed")
 
         let file = try #require(await GitInspector.snapshot(at: repo.path).files.first)
@@ -84,8 +84,8 @@ struct GitActionsTests {
     }
 
     @Test func switchesBetweenBranches() async throws {
-        let repo = try Repo()
-        repo.git("branch", "feature")
+        let repo = try GitRepo()
+        try repo.git("branch", "feature")
 
         let error = await GitActions.switchBranch("feature", at: repo.path)
         #expect(error == nil)
@@ -96,15 +96,15 @@ struct GitActionsTests {
     }
 
     @Test func reportsWhyASwitchFailed() async throws {
-        let repo = try Repo()
+        let repo = try GitRepo()
         let error = await GitActions.switchBranch("no-such-branch", at: repo.path)
         #expect(error?.isEmpty == false)
     }
 
     @Test func pushPublishesABranchWithNoUpstream() async throws {
-        let repo = try Repo()
-        let remote = try Bare()
-        repo.git("remote", "add", "origin", remote.path)
+        let repo = try GitRepo()
+        let remote = try GitRepo.bare()
+        try repo.addRemote(remote)
 
         let before = await GitInspector.snapshot(at: repo.path)
         #expect(before.upstream == nil)
@@ -118,12 +118,12 @@ struct GitActionsTests {
     }
 
     @Test func listsCommitsAheadOfTheUpstreamBeforePushing() async throws {
-        let repo = try Repo()
-        let remote = try Bare()
-        repo.git("remote", "add", "origin", remote.path)
-        repo.git("push", "-q", "-u", "origin", "HEAD")
+        let repo = try GitRepo()
+        let remote = try GitRepo.bare()
+        try repo.addRemote(remote)
+        try repo.git("push", "-q", "-u", "origin", "HEAD")
         try repo.write("README.md", "ahead now")
-        repo.git("commit", "-qam", "second")
+        try repo.git("commit", "-qam", "second")
 
         let preview = await GitActions.commitsToPush(hasUpstream: true, at: repo.path)
         guard case .commits(let commits) = preview else {
@@ -136,9 +136,9 @@ struct GitActionsTests {
     }
 
     @Test func listsUnpublishedCommitsBeforeTheFirstPush() async throws {
-        let repo = try Repo()
-        let remote = try Bare()
-        repo.git("remote", "add", "origin", remote.path)
+        let repo = try GitRepo()
+        let remote = try GitRepo.bare()
+        try repo.addRemote(remote)
 
         let preview = await GitActions.commitsToPush(hasUpstream: false, at: repo.path)
         guard case .commits(let commits) = preview else {
@@ -150,14 +150,14 @@ struct GitActionsTests {
     }
 
     @Test func listsOnlyTheNewCommitsForAnUnpublishedBranch() async throws {
-        let repo = try Repo()
-        let remote = try Bare()
-        repo.git("remote", "add", "origin", remote.path)
-        repo.git("push", "-q", "-u", "origin", "HEAD")
-        repo.git("switch", "-qc", "session-branch")
+        let repo = try GitRepo()
+        let remote = try GitRepo.bare()
+        try repo.addRemote(remote)
+        try repo.git("push", "-q", "-u", "origin", "HEAD")
+        try repo.git("switch", "-qc", "session-branch")
         try repo.write("session.txt", "new work")
-        repo.git("add", "session.txt")
-        repo.git("commit", "-qm", "session work")
+        try repo.git("add", "session.txt")
+        try repo.git("commit", "-qm", "session work")
 
         let preview = await GitActions.commitsToPush(hasUpstream: false, at: repo.path)
         guard case .commits(let commits) = preview else {
@@ -169,22 +169,22 @@ struct GitActionsTests {
     }
 
     @Test func pullBringsInTheRemoteCommits() async throws {
-        let remote = try Bare()
-        let first = try Repo()
-        first.git("remote", "add", "origin", remote.path)
-        first.git("push", "-q", "-u", "origin", "HEAD")
+        let remote = try GitRepo.bare()
+        let first = try GitRepo()
+        try first.addRemote(remote)
+        try first.git("push", "-q", "-u", "origin", "HEAD")
 
-        let second = try Repo(cloneOf: remote)
+        let second = try remote.clone()
         try first.write("README.md", "moved on")
-        first.git("commit", "-qam", "second")
+        try first.git("commit", "-qam", "second")
         try first.write("notes.txt", "more remote work")
-        first.git("add", ".")
-        first.git("commit", "-qm", "third")
-        first.git("push", "-q")
+        try first.git("add", ".")
+        try first.git("commit", "-qm", "third")
+        try first.git("push", "-q")
 
         // The behind count reads the tracking ref, so it only moves once a fetch has
         // seen what the remote gained.
-        second.git("fetch", "-q")
+        try second.git("fetch", "-q")
         let behind = await GitInspector.snapshot(at: second.path)
         #expect(behind.behind == 2)
 
@@ -199,16 +199,16 @@ struct GitActionsTests {
     }
 
     @Test func fetchRefreshesTheTrackingRefWithoutPulling() async throws {
-        let remote = try Bare()
-        let first = try Repo()
-        first.git("remote", "add", "origin", remote.path)
-        first.git("push", "-q", "-u", "origin", "HEAD")
+        let remote = try GitRepo.bare()
+        let first = try GitRepo()
+        try first.addRemote(remote)
+        try first.git("push", "-q", "-u", "origin", "HEAD")
 
-        let second = try Repo(cloneOf: remote)
+        let second = try remote.clone()
         let headBeforeFetch = second.head
         try first.write("README.md", "moved on")
-        first.git("commit", "-qam", "second")
-        first.git("push", "-q")
+        try first.git("commit", "-qam", "second")
+        try first.git("push", "-q")
 
         #expect(await GitInspector.snapshot(at: second.path).behind == 0)
         #expect(await GitActions.fetchOrigin(at: second.path) == nil)
@@ -220,7 +220,7 @@ struct GitActionsTests {
     }
 
     @Test func fetchWithoutAnOriginLeavesTheRepositoryAlone() async throws {
-        let repo = try Repo()
+        let repo = try GitRepo()
         let head = repo.head
 
         #expect(await GitActions.fetchOrigin(at: repo.path) == nil)
@@ -230,15 +230,15 @@ struct GitActionsTests {
     // A tracking ref can be stale, so a pull that trusted it would decide there was
     // nothing to do and quietly leave the branch behind.
     @Test func pullReadsOriginBeforeDecidingThereIsNothingToDo() async throws {
-        let remote = try Bare()
-        let first = try Repo()
-        first.git("remote", "add", "origin", remote.path)
-        first.git("push", "-q", "-u", "origin", "HEAD")
+        let remote = try GitRepo.bare()
+        let first = try GitRepo()
+        try first.addRemote(remote)
+        try first.git("push", "-q", "-u", "origin", "HEAD")
 
-        let second = try Repo(cloneOf: remote)
+        let second = try remote.clone()
         try first.write("README.md", "moved on")
-        first.git("commit", "-qam", "second")
-        first.git("push", "-q")
+        try first.git("commit", "-qam", "second")
+        try first.git("push", "-q")
 
         // As far as this clone knows, it is level with origin.
         #expect(await GitInspector.snapshot(at: second.path).behind == 0)
@@ -252,10 +252,10 @@ struct GitActionsTests {
     }
 
     @Test func pullSaysSoWhenThereIsNothingToBringIn() async throws {
-        let remote = try Bare()
-        let repo = try Repo()
-        repo.git("remote", "add", "origin", remote.path)
-        repo.git("push", "-q", "-u", "origin", "HEAD")
+        let remote = try GitRepo.bare()
+        let repo = try GitRepo()
+        try repo.addRemote(remote)
+        try repo.git("push", "-q", "-u", "origin", "HEAD")
 
         #expect(await GitActions.pull(at: repo.path) == .upToDate)
     }
@@ -263,18 +263,18 @@ struct GitActionsTests {
     // Git refuses a divergent pull without a configured policy. The app must request a
     // rebase explicitly instead of depending on the user's global Git configuration.
     @Test func pullRebasesLocalCommitsOntoADivergedUpstream() async throws {
-        let remote = try Bare()
-        let first = try Repo()
-        first.git("remote", "add", "origin", remote.path)
-        first.git("push", "-q", "-u", "origin", "HEAD")
+        let remote = try GitRepo.bare()
+        let first = try GitRepo()
+        try first.addRemote(remote)
+        try first.git("push", "-q", "-u", "origin", "HEAD")
 
-        let second = try Repo(cloneOf: remote)
+        let second = try remote.clone()
         try second.write("mine.txt", "local work")
-        second.git("add", ".")
-        second.git("commit", "-qm", "local work")
+        try second.git("add", ".")
+        try second.git("commit", "-qm", "local work")
         try first.write("README.md", "moved on")
-        first.git("commit", "-qam", "second")
-        first.git("push", "-q")
+        try first.git("commit", "-qam", "second")
+        try first.git("push", "-q")
 
         guard case .updated(let commits) = await GitActions.pull(at: second.path) else {
             #expect(Bool(false), "a successful pull has to report its commits")
@@ -293,16 +293,16 @@ struct GitActionsTests {
     // Sessions leave trees dirty, and a pull that refused to run until the folder was
     // clean would be turned away most of the time it is pressed.
     @Test func pullKeepsUncommittedWorkThroughTheUpdate() async throws {
-        let remote = try Bare()
-        let first = try Repo()
-        first.git("remote", "add", "origin", remote.path)
-        first.git("push", "-q", "-u", "origin", "HEAD")
+        let remote = try GitRepo.bare()
+        let first = try GitRepo()
+        try first.addRemote(remote)
+        try first.git("push", "-q", "-u", "origin", "HEAD")
 
-        let second = try Repo(cloneOf: remote)
+        let second = try remote.clone()
         try second.write("scratch.txt", "half finished")
         try first.write("README.md", "moved on")
-        first.git("commit", "-qam", "second")
-        first.git("push", "-q")
+        try first.git("commit", "-qam", "second")
+        try first.git("push", "-q")
 
         guard case .updated(let commits) = await GitActions.pull(at: second.path) else {
             #expect(Bool(false), "a successful pull has to report its commits")
@@ -316,18 +316,18 @@ struct GitActionsTests {
     // A rebase that cannot finish leaves the branch parked halfway onto origin, which no
     // part of this screen can carry on from, so the press has to undo itself.
     @Test func pullPutsTheBranchBackWhenTheRebaseCannotFinish() async throws {
-        let remote = try Bare()
-        let first = try Repo()
-        first.git("remote", "add", "origin", remote.path)
-        first.git("push", "-q", "-u", "origin", "HEAD")
+        let remote = try GitRepo.bare()
+        let first = try GitRepo()
+        try first.addRemote(remote)
+        try first.git("push", "-q", "-u", "origin", "HEAD")
 
-        let second = try Repo(cloneOf: remote)
+        let second = try remote.clone()
         try second.write("README.md", "my version")
-        second.git("commit", "-qam", "local edit")
+        try second.git("commit", "-qam", "local edit")
         let before = second.head
         try first.write("README.md", "their version")
-        first.git("commit", "-qam", "their edit")
-        first.git("push", "-q")
+        try first.git("commit", "-qam", "their edit")
+        try first.git("push", "-q")
 
         guard case .failed(let message) = await GitActions.pull(at: second.path) else {
             #expect(Bool(false), "a conflicting rebase has to report a failure")
@@ -347,18 +347,18 @@ struct GitActionsTests {
     // Pushing from behind the upstream is refused by origin every time, so the screen is
     // told before it sends one.
     @Test func pushPreviewReportsABranchThatTrailsOrigin() async throws {
-        let remote = try Bare()
-        let first = try Repo()
-        first.git("remote", "add", "origin", remote.path)
-        first.git("push", "-q", "-u", "origin", "HEAD")
+        let remote = try GitRepo.bare()
+        let first = try GitRepo()
+        try first.addRemote(remote)
+        try first.git("push", "-q", "-u", "origin", "HEAD")
 
-        let second = try Repo(cloneOf: remote)
+        let second = try remote.clone()
         try second.write("mine.txt", "local work")
-        second.git("add", ".")
-        second.git("commit", "-qm", "local work")
+        try second.git("add", ".")
+        try second.git("commit", "-qm", "local work")
         try first.write("README.md", "moved on")
-        first.git("commit", "-qam", "second")
-        first.git("push", "-q")
+        try first.git("commit", "-qam", "second")
+        try first.git("push", "-q")
 
         let preview = await GitActions.commitsToPush(hasUpstream: true, at: second.path)
         guard case .behindUpstream(let behind, let commits) = preview else {
@@ -370,15 +370,15 @@ struct GitActionsTests {
     }
 
     @Test func updateCheckoutMovesUpToTheRemoteTip() async throws {
-        let remote = try Bare()
-        let first = try Repo()
-        first.git("remote", "add", "origin", remote.path)
-        first.git("push", "-q", "-u", "origin", "HEAD")
+        let remote = try GitRepo.bare()
+        let first = try GitRepo()
+        try first.addRemote(remote)
+        try first.git("push", "-q", "-u", "origin", "HEAD")
 
-        let second = try Repo(cloneOf: remote)
+        let second = try remote.clone()
         try first.write("README.md", "moved on")
-        first.git("commit", "-qam", "second")
-        first.git("push", "-q")
+        try first.git("commit", "-qam", "second")
+        try first.git("push", "-q")
 
         let error = await GitActions.updateCheckout(to: "main", at: second.path)
         #expect(error == nil)
@@ -390,16 +390,16 @@ struct GitActionsTests {
     // A checkout parked on a feature branch has to land on the default branch and on its
     // latest revision; either half on its own leaves a session forking from stale code.
     @Test func updateCheckoutSwitchesBranchesAndCatchesUp() async throws {
-        let remote = try Bare()
-        let first = try Repo()
-        first.git("remote", "add", "origin", remote.path)
-        first.git("push", "-q", "-u", "origin", "HEAD")
+        let remote = try GitRepo.bare()
+        let first = try GitRepo()
+        try first.addRemote(remote)
+        try first.git("push", "-q", "-u", "origin", "HEAD")
 
-        let second = try Repo(cloneOf: remote)
-        second.git("switch", "-qc", "feature")
+        let second = try remote.clone()
+        try second.git("switch", "-qc", "feature")
         try first.write("README.md", "moved on")
-        first.git("commit", "-qam", "second")
-        first.git("push", "-q")
+        try first.git("commit", "-qam", "second")
+        try first.git("push", "-q")
 
         let error = await GitActions.updateCheckout(to: "main", at: second.path)
         #expect(error == nil)
@@ -411,18 +411,18 @@ struct GitActionsTests {
     }
 
     @Test func updateCheckoutRebasesADivergedDefaultBranch() async throws {
-        let remote = try Bare()
-        let first = try Repo()
-        first.git("remote", "add", "origin", remote.path)
-        first.git("push", "-q", "-u", "origin", "HEAD")
+        let remote = try GitRepo.bare()
+        let first = try GitRepo()
+        try first.addRemote(remote)
+        try first.git("push", "-q", "-u", "origin", "HEAD")
 
-        let second = try Repo(cloneOf: remote)
+        let second = try remote.clone()
         try second.write("local.txt", "diverged")
-        second.git("add", ".")
-        second.git("commit", "-qm", "local work")
+        try second.git("add", ".")
+        try second.git("commit", "-qm", "local work")
         try first.write("README.md", "moved on")
-        first.git("commit", "-qam", "second")
-        first.git("push", "-q")
+        try first.git("commit", "-qam", "second")
+        try first.git("push", "-q")
 
         let error = await GitActions.updateCheckout(to: "main", at: second.path)
         #expect(error == nil)
@@ -435,19 +435,19 @@ struct GitActionsTests {
     }
 
     @Test func updateCheckoutRestoresTheOriginalBranchWhenARebaseConflicts() async throws {
-        let remote = try Bare()
-        let first = try Repo()
-        first.git("remote", "add", "origin", remote.path)
-        first.git("push", "-q", "-u", "origin", "HEAD")
+        let remote = try GitRepo.bare()
+        let first = try GitRepo()
+        try first.addRemote(remote)
+        try first.git("push", "-q", "-u", "origin", "HEAD")
 
-        let second = try Repo(cloneOf: remote)
+        let second = try remote.clone()
         try second.write("README.md", "local version")
-        second.git("commit", "-qam", "local edit")
+        try second.git("commit", "-qam", "local edit")
         let mainBefore = second.head
-        second.git("switch", "-qc", "feature")
+        try second.git("switch", "-qc", "feature")
         try first.write("README.md", "remote version")
-        first.git("commit", "-qam", "remote edit")
-        first.git("push", "-q")
+        try first.git("commit", "-qam", "remote edit")
+        try first.git("push", "-q")
 
         let error = await GitActions.updateCheckout(to: "main", at: second.path)
         #expect(error?.contains("README.md") == true)
@@ -458,13 +458,13 @@ struct GitActionsTests {
     }
 
     @Test func snapshotListsBranchesAndCountsDrift() async throws {
-        let repo = try Repo()
-        let remote = try Bare()
-        repo.git("remote", "add", "origin", remote.path)
-        repo.git("push", "-q", "-u", "origin", "HEAD")
-        repo.git("branch", "feature")
+        let repo = try GitRepo()
+        let remote = try GitRepo.bare()
+        try repo.addRemote(remote)
+        try repo.git("push", "-q", "-u", "origin", "HEAD")
+        try repo.git("branch", "feature")
         try repo.write("README.md", "ahead now")
-        repo.git("commit", "-qam", "second")
+        try repo.git("commit", "-qam", "second")
 
         let snapshot = await GitInspector.snapshot(at: repo.path)
         #expect(Set(snapshot.branches) == ["main", "feature"])
@@ -476,7 +476,7 @@ struct GitActionsTests {
     // MARK: - Selective commits
 
     @Test func commitsOnlyTheSelectedFiles() async throws {
-        let repo = try Repo()
+        let repo = try GitRepo()
         try repo.write("README.md", "chosen")
         try repo.write("later.txt", "not yet")
 
@@ -493,7 +493,7 @@ struct GitActionsTests {
     }
 
     @Test func selectedUntrackedFilesMakeItIntoTheCommit() async throws {
-        let repo = try Repo()
+        let repo = try GitRepo()
         try repo.write("fresh.txt", "brand new")
 
         let snapshot = await GitInspector.snapshot(at: repo.path)
@@ -509,9 +509,9 @@ struct GitActionsTests {
     // The trap in a partial commit: git add stages the picked paths next to whatever was
     // staged before, and a plain git commit would then sweep the lot in.
     @Test func stagedButUnselectedFilesStayOutOfTheCommitAndStayStaged() async throws {
-        let repo = try Repo()
+        let repo = try GitRepo()
         try repo.write("staged.txt", "staged earlier")
-        repo.git("add", "staged.txt")
+        try repo.git("add", "staged.txt")
         try repo.write("chosen.txt", "picked")
 
         let snapshot = await GitInspector.snapshot(at: repo.path)
@@ -527,8 +527,8 @@ struct GitActionsTests {
     }
 
     @Test func renameTravelsAsOnePairThroughASelectiveCommit() async throws {
-        let repo = try Repo()
-        repo.git("mv", "README.md", "MANUAL.md")
+        let repo = try GitRepo()
+        try repo.git("mv", "README.md", "MANUAL.md")
         try repo.write("other.txt", "left behind")
 
         let snapshot = await GitInspector.snapshot(at: repo.path)
@@ -539,8 +539,7 @@ struct GitActionsTests {
                                                     files: renamed, at: repo.path)
         #expect(error == nil)
 
-        let record = Repo.output(in: repo.url,
-                                 ["show", "--name-status", "--format=", "-M", "HEAD"])
+        let record = try repo.git("show", "--name-status", "--format=", "-M", "HEAD")
         #expect(record.contains("R"))
         #expect(record.contains("README.md"))
         #expect(record.contains("MANUAL.md"))
@@ -551,7 +550,7 @@ struct GitActionsTests {
     // MARK: - Amend
 
     @Test func amendFoldsTheChangesIntoTheLastCommit() async throws {
-        let repo = try Repo()
+        let repo = try GitRepo()
         try repo.write("work.txt", "first pass")
         #expect(await GitActions.commitAll(message: "Add work", at: repo.path) == nil)
         try repo.write("work.txt", "second pass")
@@ -567,7 +566,7 @@ struct GitActionsTests {
     }
 
     @Test func selectiveAmendKeepsUnselectedWorkOutOfTheFoldedCommit() async throws {
-        let repo = try Repo()
+        let repo = try GitRepo()
         try repo.write("done.txt", "done")
         #expect(await GitActions.commitAll(message: "Add done", at: repo.path) == nil)
         try repo.write("extra.txt", "fold me in")
@@ -590,11 +589,11 @@ struct GitActionsTests {
     // MARK: - History
 
     @Test func historyListsRecentCommitsNewestFirst() async throws {
-        let repo = try Repo()
+        let repo = try GitRepo()
         try repo.write("README.md", "two")
-        repo.git("commit", "-qam", "second")
+        try repo.git("commit", "-qam", "second")
         try repo.write("README.md", "three")
-        repo.git("commit", "-qam", "third")
+        try repo.git("commit", "-qam", "third")
 
         let history = await GitInspector.recentCommits(at: repo.path)
         #expect(history.note == nil)
@@ -608,25 +607,25 @@ struct GitActionsTests {
     }
 
     @Test func historyHonoursItsLimit() async throws {
-        let repo = try Repo()
+        let repo = try GitRepo()
         try repo.write("README.md", "two")
-        repo.git("commit", "-qam", "second")
+        try repo.git("commit", "-qam", "second")
         try repo.write("README.md", "three")
-        repo.git("commit", "-qam", "third")
+        try repo.git("commit", "-qam", "third")
 
         let history = await GitInspector.recentCommits(at: repo.path, limit: 2)
         #expect(history.commits.map(\.subject) == ["third", "second"])
     }
 
     @Test func historyIsEmptyBeforeTheFirstCommit() async throws {
-        let repo = try Repo(empty: true)
+        let repo = try GitRepo(initialCommit: false)
         let history = await GitInspector.recentCommits(at: repo.path)
         #expect(history.commits.isEmpty)
         #expect(history.note == nil)
     }
 
     @Test func commitDiffShowsEachFileUnderItsOwnHeading() async throws {
-        let repo = try Repo()
+        let repo = try GitRepo()
         try repo.write("README.md", "hello\nagain")
         try repo.write("notes.txt", "fresh")
         #expect(await GitActions.commitAll(message: "second", at: repo.path) == nil)
@@ -642,9 +641,9 @@ struct GitActionsTests {
     }
 
     @Test func commitDiffRecordsARename() async throws {
-        let repo = try Repo()
-        repo.git("mv", "README.md", "MANUAL.md")
-        repo.git("commit", "-qm", "rename")
+        let repo = try GitRepo()
+        try repo.git("mv", "README.md", "MANUAL.md")
+        try repo.git("commit", "-qm", "rename")
 
         let history = await GitInspector.recentCommits(at: repo.path)
         let diff = await GitInspector.commitDiff(history.commits[0].hash, root: repo.path)
@@ -653,123 +652,30 @@ struct GitActionsTests {
     }
 
     @Test func commitDiffReportsAnUnknownHash() async throws {
-        let repo = try Repo()
+        let repo = try GitRepo()
         let diff = await GitInspector.commitDiff("0000000000000000000000000000000000000000",
                                                  root: repo.path)
         #expect(diff.note?.isEmpty == false)
     }
+}
 
-    // A repository with one commit and an identity of its own, so the actions under test
-    // can commit without leaning on the machine's git config. Thrown away with the test.
-    private final class Repo {
-        let url: URL
-        var path: String { url.path }
-
-        // An empty repo has been initialised but never committed to, which is how a
-        // brand new project folder looks.
-        init(empty: Bool = false) throws {
-            url = FileManager.default.temporaryDirectory
-                .appendingPathComponent("actions-repo-" + UUID().uuidString)
-            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-            git("init", "-q", "-b", "main")
-            configureIdentity()
-            guard !empty else { return }
-            try write("README.md", "hello")
-            git("add", ".")
-            git("commit", "-qm", "first")
-        }
-
-        init(cloneOf remote: Bare) throws {
-            url = FileManager.default.temporaryDirectory
-                .appendingPathComponent("actions-clone-" + UUID().uuidString)
-            Self.run(in: FileManager.default.temporaryDirectory,
-                     ["clone", "-q", remote.path, url.path])
-            configureIdentity()
-        }
-
-        deinit { try? FileManager.default.removeItem(at: url) }
-
-        func write(_ name: String, _ contents: String) throws {
-            try contents.write(to: url.appendingPathComponent(name), atomically: true, encoding: .utf8)
-        }
-
-        func read(_ name: String) -> String? {
-            try? String(contentsOf: url.appendingPathComponent(name), encoding: .utf8)
-        }
-
-        var head: String {
-            Self.output(in: url, ["rev-parse", "HEAD"])
-        }
-
-        func revision(_ ref: String) -> String {
-            Self.output(in: url, ["rev-parse", ref])
-        }
-
-        // The files the newest commit touched, straight from git rather than a snapshot.
-        var committedFiles: [String] {
-            Self.output(in: url, ["show", "--name-only", "--format=", "HEAD"])
-                .split(separator: "\n").map(String.init)
-        }
-
-        var commitCount: Int {
-            Int(Self.output(in: url, ["rev-list", "--count", "HEAD"])) ?? 0
-        }
-
-        var stagedFiles: [String] {
-            Self.output(in: url, ["diff", "--cached", "--name-only"])
-                .split(separator: "\n").map(String.init)
-        }
-
-        func git(_ arguments: String...) {
-            Self.run(in: url, arguments)
-        }
-
-        private func configureIdentity() {
-            git("config", "user.email", "t@example.com")
-            git("config", "user.name", "Test")
-            git("config", "commit.gpgsign", "false")
-        }
-
-        static func run(in directory: URL, _ arguments: [String]) {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-            process.arguments = ["git"] + arguments
-            process.currentDirectoryURL = directory
-            process.standardOutput = FileHandle.nullDevice
-            process.standardError = FileHandle.nullDevice
-            try? process.run()
-            process.waitUntilExit()
-        }
-
-        static func output(in directory: URL, _ arguments: [String]) -> String {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-            process.arguments = ["git"] + arguments
-            process.currentDirectoryURL = directory
-            let pipe = Pipe()
-            process.standardOutput = pipe
-            process.standardError = FileHandle.nullDevice
-            try? process.run()
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            process.waitUntilExit()
-            return String(decoding: data, as: UTF8.self)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-        }
+private extension GitRepo {
+    func revision(_ ref: String) -> String {
+        (try? git("rev-parse", ref)) ?? ""
     }
 
-    // A bare repository standing in for the remote, so push and pull never leave the
-    // machine.
-    private final class Bare {
-        let url: URL
-        var path: String { url.path }
+    // The files the newest commit touched, straight from git rather than a snapshot.
+    var committedFiles: [String] {
+        ((try? git("show", "--name-only", "--format=", "HEAD")) ?? "")
+            .split(separator: "\n").map(String.init)
+    }
 
-        init() throws {
-            url = FileManager.default.temporaryDirectory
-                .appendingPathComponent("actions-remote-" + UUID().uuidString)
-            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-            Repo.run(in: url, ["init", "-q", "--bare", "-b", "main"])
-        }
+    var commitCount: Int {
+        Int((try? git("rev-list", "--count", "HEAD")) ?? "") ?? 0
+    }
 
-        deinit { try? FileManager.default.removeItem(at: url) }
+    var stagedFiles: [String] {
+        ((try? git("diff", "--cached", "--name-only")) ?? "")
+            .split(separator: "\n").map(String.init)
     }
 }

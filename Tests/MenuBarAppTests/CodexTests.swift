@@ -379,10 +379,8 @@ struct CodexTests {
     }
 
     @Test func readsTheLatestContextFromACodexRollout() async throws {
-        let home = FileManager.default.temporaryDirectory
-            .appendingPathComponent("codex-context-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: home) }
-        let folder = home.appendingPathComponent("sessions/2026/08/11", isDirectory: true)
+        let home = ScratchDirectory(prefix: "codex-context")
+        let folder = home.path("sessions/2026/08/11")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let threadID = "019ff016-7f30-7330-a72a-eea8f3984538"
         let rollout = folder.appendingPathComponent("rollout-2026-08-11T10-10-34-\(threadID).jsonl")
@@ -395,7 +393,7 @@ struct CodexTests {
         """
         try Data(contents.utf8).write(to: rollout)
 
-        let reading = await CodexContextReader(codexHome: home).read(threadID: threadID)
+        let reading = await CodexContextReader(codexHome: home.url).read(threadID: threadID)
 
         #expect(reading == .measured(CodexContextSnapshot(contextTokens: 21_120,
                                                           contextWindow: 258_400,
@@ -403,10 +401,8 @@ struct CodexTests {
     }
 
     @Test func fallsBackToInputTokensFromOlderCodexRollouts() async throws {
-        let home = FileManager.default.temporaryDirectory
-            .appendingPathComponent("codex-context-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: home) }
-        let folder = home.appendingPathComponent("sessions", isDirectory: true)
+        let home = ScratchDirectory(prefix: "codex-context")
+        let folder = home.path("sessions")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let threadID = "019ff016-7f30-7330-a72a-eea8f3984539"
         let rollout = folder.appendingPathComponent("rollout-\(threadID).jsonl")
@@ -416,7 +412,7 @@ struct CodexTests {
         """
         try Data(contents.utf8).write(to: rollout)
 
-        let reading = await CodexContextReader(codexHome: home).read(threadID: threadID)
+        let reading = await CodexContextReader(codexHome: home.url).read(threadID: threadID)
 
         #expect(reading == .measured(CodexContextSnapshot(contextTokens: 20_970,
                                                           contextWindow: 258_400,
@@ -424,10 +420,8 @@ struct CodexTests {
     }
 
     @Test func readsCamelCaseContextFields() async throws {
-        let home = FileManager.default.temporaryDirectory
-            .appendingPathComponent("codex-context-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: home) }
-        let folder = home.appendingPathComponent("sessions", isDirectory: true)
+        let home = ScratchDirectory(prefix: "codex-context")
+        let folder = home.path("sessions")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let threadID = "019ff016-7f30-7330-a72a-eea8f3984540"
         let rollout = folder.appendingPathComponent("rollout-\(threadID).jsonl")
@@ -437,7 +431,7 @@ struct CodexTests {
         """
         try Data(contents.utf8).write(to: rollout)
 
-        let reading = await CodexContextReader(codexHome: home).read(threadID: threadID)
+        let reading = await CodexContextReader(codexHome: home.url).read(threadID: threadID)
 
         #expect(reading == .measured(CodexContextSnapshot(contextTokens: 21_120,
                                                           contextWindow: 258_400,
@@ -445,10 +439,8 @@ struct CodexTests {
     }
 
     @Test func retiresTheOldReadingWhenCodexCompacts() async throws {
-        let home = FileManager.default.temporaryDirectory
-            .appendingPathComponent("codex-context-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: home) }
-        let folder = home.appendingPathComponent("sessions", isDirectory: true)
+        let home = ScratchDirectory(prefix: "codex-context")
+        let folder = home.path("sessions")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let threadID = "019ff016-7f30-7330-a72a-eea8f3984541"
         let rollout = folder.appendingPathComponent("rollout-\(threadID).jsonl")
@@ -458,7 +450,7 @@ struct CodexTests {
         {"type":"event_msg","payload":{"type":"context_compacted"}}
         """
         try Data(compacted.utf8).write(to: rollout)
-        let reader = CodexContextReader(codexHome: home)
+        let reader = CodexContextReader(codexHome: home.url)
 
         #expect(await reader.read(threadID: threadID) == .compacted)
 
@@ -537,7 +529,7 @@ struct CodexTests {
     }
 
     @MainActor @Test func aReconnectThatCompletesIsSuccessful() async throws {
-        let fixture = try codexFixture(script: """
+        let fixture = try RunnerHarness(agent: .codex, script: """
         input=$(cat)
         printf '%s\n' '{"type":"thread.started","thread_id":"thread-1"}'
         printf '%s\n' '{"type":"error","message":"Reconnecting... 1/5"}'
@@ -554,14 +546,14 @@ struct CodexTests {
             if case .reconnecting = fixture.runner.state(fixture.session.id) { return true }
             return false
         }
-        try Data().write(to: fixture.directory.appendingPathComponent("finish"))
+        try Data().write(to: fixture.scratch.path("finish"))
         #expect(sawReconnect)
         #expect(await waitUntil { fixture.runner.state(fixture.session.id) == .idle })
         #expect(fixture.store.transcript(of: fixture.session.id).last?.text == "Done")
     }
 
     @MainActor @Test func aDisconnectedStreamWithoutCompletionFails() async throws {
-        let fixture = try codexFixture(script: """
+        let fixture = try RunnerHarness(agent: .codex, script: """
         input=$(cat)
         printf '%s\n' '{"type":"thread.started","thread_id":"thread-1"}'
         printf '%s\n' '{"type":"error","message":"Reconnecting... 5/5"}'
@@ -581,7 +573,7 @@ struct CodexTests {
     }
 
     @MainActor @Test func continueResumesWithoutReplayingTheOriginalPrompt() async throws {
-        let fixture = try codexFixture(script: """
+        let fixture = try RunnerHarness(agent: .codex, script: """
         input=$(cat)
         count_file="$folder/count"
         count=0
@@ -610,10 +602,8 @@ struct CodexTests {
         #expect(fixture.runner.continueAfterFailure(fixture.session.id, store: fixture.store))
         #expect(await waitUntil { fixture.runner.state(fixture.session.id) == .idle })
 
-        let recoveryPrompt = try String(contentsOf: fixture.directory
-            .appendingPathComponent("prompt-2.txt"), encoding: .utf8)
-        let recoveryArguments = try String(contentsOf: fixture.directory
-            .appendingPathComponent("arguments-2.txt"), encoding: .utf8)
+        let recoveryPrompt = try String(contentsOf: fixture.scratch.path("prompt-2.txt"), encoding: .utf8)
+        let recoveryArguments = try String(contentsOf: fixture.scratch.path("arguments-2.txt"), encoding: .utf8)
         #expect(recoveryPrompt == SessionRunner.recoveryPrompt)
         #expect(recoveryPrompt != originalPrompt)
         #expect(recoveryArguments.contains("resume\nthread-1"))
@@ -624,7 +614,7 @@ struct CodexTests {
     // A stopped turn ends mid-work with nothing wrong, so the transcript has to say so
     // itself: an idle session under a conversation that stops mid-command reads as a crash.
     @MainActor @Test func aTurnStoppedByHandSaysSoAndCanBeCarriedOn() async throws {
-        let fixture = try codexFixture(script: """
+        let fixture = try RunnerHarness(agent: .codex, script: """
         input=$(cat)
         count_file="$folder/count"
         count=0
@@ -660,15 +650,14 @@ struct CodexTests {
         // The offer goes with the turn it belonged to, and the original prompt is not run
         // a second time.
         #expect(!fixture.runner.canContinueAfterStop(fixture.session.id, store: fixture.store))
-        let recoveryPrompt = try String(contentsOf: fixture.directory
-            .appendingPathComponent("prompt-2.txt"), encoding: .utf8)
+        let recoveryPrompt = try String(contentsOf: fixture.scratch.path("prompt-2.txt"), encoding: .utf8)
         #expect(recoveryPrompt == SessionRunner.recoveryPrompt)
         #expect(fixture.store.transcript(of: fixture.session.id)
             .filter { $0.role == .user }.map(\.text) == ["improve this menu"])
     }
 
     @MainActor @Test func aSilentTurnCanBeRetriedWithoutReplayingItsPrompt() async throws {
-        let fixture = try codexFixture(script: """
+        let fixture = try RunnerHarness(agent: .codex, script: """
         input=$(cat)
         count_file="$folder/count"
         count=0
@@ -696,10 +685,8 @@ struct CodexTests {
         #expect(fixture.runner.retryStalled(fixture.session.id, store: fixture.store))
         #expect(await waitUntil { fixture.runner.state(fixture.session.id) == .idle })
 
-        let recoveryPrompt = try String(contentsOf: fixture.directory
-            .appendingPathComponent("prompt-2.txt"), encoding: .utf8)
-        let recoveryArguments = try String(contentsOf: fixture.directory
-            .appendingPathComponent("arguments-2.txt"), encoding: .utf8)
+        let recoveryPrompt = try String(contentsOf: fixture.scratch.path("prompt-2.txt"), encoding: .utf8)
+        let recoveryArguments = try String(contentsOf: fixture.scratch.path("arguments-2.txt"), encoding: .utf8)
         #expect(recoveryPrompt == SessionRunner.recoveryPrompt)
         #expect(recoveryPrompt != originalPrompt)
         #expect(recoveryArguments.contains("resume\nthread-1"))
@@ -709,7 +696,7 @@ struct CodexTests {
     }
 
     @MainActor @Test func aSilentRunningCommandDoesNotMarkTheTurnAsStalled() async throws {
-        let fixture = try codexFixture(script: """
+        let fixture = try RunnerHarness(agent: .codex, script: """
         input=$(cat)
         printf '%s\n' '{"type":"thread.started","thread_id":"thread-1"}'
         printf '%s\n' '{"type":"item.started","item":{"id":"command-1","item_type":"command_execution","command":"swift test"}}'
@@ -724,7 +711,7 @@ struct CodexTests {
         #expect(await waitUntil { fixture.runner.runningTool(fixture.session.id) != nil })
         try? await Task.sleep(for: .milliseconds(120))
         #expect(fixture.runner.state(fixture.session.id) != .stalled)
-        try Data().write(to: fixture.directory.appendingPathComponent("finish"))
+        try Data().write(to: fixture.scratch.path("finish"))
         #expect(await waitUntil { fixture.runner.state(fixture.session.id) == .idle })
     }
 
@@ -736,7 +723,7 @@ struct CodexTests {
     // when its last act is to write. The change is worked out after that, so this also
     // stands for every change that outlives the turn that made it.
     @MainActor @Test func seesWhatACodexCommandWroteThroughTheShell() async throws {
-        let fixture = try codexFixture(script: """
+        let fixture = try RunnerHarness(agent: .codex, script: """
         input=$(cat)
         printf '%s\\n' '{"type":"thread.started","thread_id":"thread-1"}'
         printf '%s\\n' '{"type":"item.started","item":{"id":"command-1","item_type":"command_execution","command":"cat > notes.md"}}'
@@ -754,7 +741,7 @@ struct CodexTests {
         // the turn's baseline to have been taken. Only then is the fixture let write, which
         // is what a real agent's seconds of thinking does for free.
         await fixture.waitForBaseline()
-        try Data().write(to: fixture.directory.appendingPathComponent("go"))
+        try Data().write(to: fixture.scratch.path("go"))
 
         #expect(await waitUntil { fixture.writtenChange != nil })
         let change = try #require(fixture.writtenChange)
@@ -868,11 +855,7 @@ struct CodexTests {
             "email": "worldtiki@gmail.com",
             "https://api.openai.com/auth": ["chatgpt_plan_type": "plus"],
         ]
-        let payload = try JSONSerialization.data(withJSONObject: claims)
-            .base64EncodedString()
-            .replacingOccurrences(of: "+", with: "-")
-            .replacingOccurrences(of: "/", with: "_")
-            .replacingOccurrences(of: "=", with: "")
+        let payload = try JSONSerialization.data(withJSONObject: claims).base64URLEncoded
         let account = CodexAgentInfo.account(from: [
             "tokens": ["id_token": "head.\(payload).signature"],
         ])
@@ -894,81 +877,22 @@ struct CodexTests {
         // A token that is not a JWT falls back to the key, and failing that, to nothing.
         #expect(CodexAgentInfo.account(from: ["tokens": ["id_token": "garbage"]]) == nil)
     }
+}
 
-    @MainActor
-    private func codexFixture(script: String, stalledAfter: TimeInterval = 5 * 60,
-                              stallCheckInterval: Duration = .seconds(5)) throws -> CodexFixture {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("codex-reconnect-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let executable = directory.appendingPathComponent("codex-fixture")
-        try FixtureCLI.write(script, to: executable)
-        let projectURL = directory.appendingPathComponent("project", isDirectory: true)
-        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
-        let store = ProjectStore(storeURL: directory.appendingPathComponent("projects.json"))
-        let project = try #require(store.addProject(at: projectURL))
-        let session = try store.insertSession(in: project.id, seed: .init(agent: .codex)).get()
-        let runner = SessionRunner(paths: [.codex: executable.path],
-                                   stalledAfter: stalledAfter,
-                                   stallCheckInterval: stallCheckInterval)
-        return CodexFixture(directory: directory, store: store, session: session, runner: runner)
-    }
-
-    @MainActor
-    private func waitUntil(_ condition: () -> Bool) async -> Bool {
-        for _ in 0..<1_000 {
-            if condition() { return true }
-            try? await Task.sleep(for: .milliseconds(10))
-        }
-        return condition()
-    }
-
-    private struct CodexFixture {
-        let directory: URL
-        let store: ProjectStore
-        let session: ChatSession
-        let runner: SessionRunner
-
-        var projectURL: URL { directory.appendingPathComponent("project", isDirectory: true) }
-
-        // A test that failed part way through can leave the fake CLI waiting for good, so the
-        // process is let go whatever the test decided. The folder goes afterwards, because a
-        // script still waiting on a marker inside it would never see the marker arrive.
-        @MainActor
-        func tearDown() {
-            runner.stopAll()
-            try? FileManager.default.removeItem(at: directory)
-        }
-
-        // Snapshots only mean anything inside a repository, so a fixture that expects one
-        // has to make the project folder into a repository first.
-        func makeProjectARepository() throws {
-            for arguments in [["init", "-q", "-b", "main"],
-                              ["config", "user.email", "test@example.com"],
-                              ["config", "user.name", "Test"],
-                              ["commit", "-q", "--allow-empty", "-m", "start"]] {
-                let process = Process()
-                process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-                process.arguments = arguments
-                process.currentDirectoryURL = projectURL
-                process.standardOutput = Pipe()
-                process.standardError = Pipe()
-                try process.run()
-                process.waitUntilExit()
+// What the Codex runner tests read off the harness that the other suites do not need.
+private extension RunnerHarness {
+    // Snapshots run in order on one queue, so waiting on one of our own is waiting for
+    // the turn's baseline to have been taken.
+    func waitForBaseline() async {
+        let git = GitInspector.GitTool(path: "/usr/bin/git", searchPath: "/usr/bin:/bin")
+        _ = await withCheckedContinuation { continuation in
+            TreeSnapshots.shared.change(at: projectURL.path, using: git) {
+                continuation.resume(returning: $0)
             }
         }
+    }
 
-        func waitForBaseline() async {
-            let git = GitInspector.GitTool(path: "/usr/bin/git", searchPath: "/usr/bin:/bin")
-            _ = await withCheckedContinuation { continuation in
-                TreeSnapshots.shared.change(at: projectURL.path, using: git) {
-                    continuation.resume(returning: $0)
-                }
-            }
-        }
-
-        @MainActor var writtenChange: WrittenChange? {
-            store.transcript(of: session.id).flatMap(\.tools).compactMap(\.written).first
-        }
+    var writtenChange: WrittenChange? {
+        store.transcript(of: session.id).flatMap(\.tools).compactMap(\.written).first
     }
 }

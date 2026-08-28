@@ -6,23 +6,16 @@ import Testing
 // typed, nothing the conversation does may take it back.
 @MainActor
 struct SessionRenameTests {
+    private let store: ProjectStore
+    private let scratch: ScratchDirectory
+    private let session: ChatSession
 
-    private func makeStore() -> ProjectStore {
-        let path = FileManager.default.temporaryDirectory
-            .appendingPathComponent("code-station-tests-\(UUID().uuidString).json").path
-        setenv("CODE_STATION_STORE", path, 1)
-        return ProjectStore()
-    }
-
-    private func project(in store: ProjectStore) -> Project {
-        store.addProject(at: FileManager.default.temporaryDirectory
-            .appendingPathComponent("project-\(UUID().uuidString)"))!
+    init() throws {
+        (store, scratch) = TestStore.make()
+        session = store.newSession(in: try TestStore.project(in: store).id)
     }
 
     @Test func renamingKeepsTheNameAcrossLaunches() throws {
-        let store = makeStore()
-        let session = store.newSession(in: project(in: store).id)
-
         store.renameSession(session.id, to: "  Ship the release  ")
 
         #expect(store.session(session.id)?.title == "Ship the release")
@@ -33,8 +26,6 @@ struct SessionRenameTests {
     }
 
     @Test func anEmptyNameIsNotAName() throws {
-        let store = makeStore()
-        let session = store.newSession(in: project(in: store).id)
         store.renameSession(session.id, to: "Ship the release")
 
         store.renameSession(session.id, to: "   ")
@@ -43,8 +34,6 @@ struct SessionRenameTests {
     }
 
     @Test func theFirstPromptLeavesATypedNameAlone() throws {
-        let store = makeStore()
-        let session = store.newSession(in: project(in: store).id)
         store.renameSession(session.id, to: "Ship the release")
 
         store.append(ChatMessage(role: .user, text: "Fix the flaky login test"), to: session.id)
@@ -54,9 +43,6 @@ struct SessionRenameTests {
 
     // Pasted terminal output is mostly padding, and a title made of blanks says nothing.
     @Test func aPastedPromptDoesNotBecomeATitleOfBlanks() throws {
-        let store = makeStore()
-        let session = store.newSession(in: project(in: store).id)
-
         store.append(ChatMessage(role: .user, text: "s%\t   \(String(repeating: " ", count: 40))done"),
                      to: session.id)
 

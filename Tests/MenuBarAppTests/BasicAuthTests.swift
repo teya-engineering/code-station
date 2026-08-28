@@ -7,11 +7,11 @@ import Testing
 // launch, and letting go of it when the request it belongs to is gone.
 @MainActor
 struct BasicAuthTests {
+    private let scratch = ScratchDirectory(prefix: "basic-auth")
+
     @Test func buildsTheHeaderFromTheUsernameAndPassword() {
-        let directory = temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: directory) }
         let request = UUID()
-        let store = authStore(in: directory, keychain: Vault())
+        let store = authStore(keychain: Vault())
         store.setBasicPassword("s3cr3t", for: request)
 
         let header = store.basicHeader(username: " svc-orders ", requestID: request)
@@ -20,36 +20,30 @@ struct BasicAuthTests {
     }
 
     @Test func sendsNothingWhenNeitherHalfIsFilledIn() {
-        let directory = temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let store = authStore(in: directory, keychain: Vault())
+        let store = authStore(keychain: Vault())
 
         #expect(store.basicHeader(username: "", requestID: UUID()) == nil)
     }
 
     @Test func keepsThePasswordInTheKeychainRatherThanTheFile() throws {
-        let directory = temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: directory) }
         let vault = Vault()
         let request = UUID()
-        let store = authStore(in: directory, keychain: vault)
+        let store = authStore(keychain: vault)
         store.setBasicPassword("s3cr3t", for: request)
 
         #expect(store.save())
         #expect(vault[.basicPassword(for: request)] == "s3cr3t")
-        let file = try String(contentsOf: storeURL(in: directory), encoding: .utf8)
+        let file = try String(contentsOf: storeURL, encoding: .utf8)
         #expect(!file.contains("s3cr3t"))
 
         // What a later launch sees: a fresh store reading the same Keychain.
-        #expect(authStore(in: directory, keychain: vault).basicPassword(for: request) == "s3cr3t")
+        #expect(authStore(keychain: vault).basicPassword(for: request) == "s3cr3t")
     }
 
     @Test func clearingThePasswordTakesItOutOfTheKeychain() {
-        let directory = temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: directory) }
         let vault = Vault()
         let request = UUID()
-        let store = authStore(in: directory, keychain: vault)
+        let store = authStore(keychain: vault)
         store.setBasicPassword("s3cr3t", for: request)
         #expect(store.save())
 
@@ -60,11 +54,9 @@ struct BasicAuthTests {
     }
 
     @Test func deletingARequestDoesNotLeaveItsPasswordBehind() {
-        let directory = temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: directory) }
         let vault = Vault()
         let request = UUID()
-        let store = authStore(in: directory, keychain: vault)
+        let store = authStore(keychain: vault)
         store.setBasicPassword("s3cr3t", for: request)
         #expect(store.save())
 
@@ -74,11 +66,9 @@ struct BasicAuthTests {
     }
 
     @Test func aDuplicatedRequestSignsInAsTheOriginal() {
-        let directory = temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: directory) }
         let request = UUID()
         let copy = UUID()
-        let store = authStore(in: directory, keychain: Vault())
+        let store = authStore(keychain: Vault())
         store.setBasicPassword("s3cr3t", for: request)
 
         store.copyBasicPassword(from: request, to: copy)
@@ -89,11 +79,9 @@ struct BasicAuthTests {
     // A password sits in the same Keychain item as the OAuth secrets, so writing one must
     // not carry off the other.
     @Test func keepsTheClientSecretsAlongsideThePasswords() {
-        let directory = temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: directory) }
         let vault = Vault()
         let request = UUID()
-        let store = authStore(in: directory, keychain: vault)
+        let store = authStore(keychain: vault)
         let environment = store.environments[0]
         var config = store.config(for: environment)
         config.clientSecret = "client-secret"
@@ -127,20 +115,13 @@ struct BasicAuthTests {
         }
     }
 
-    private func authStore(in directory: URL, keychain: Vault) -> DispatchAuthStore {
-        DispatchAuthStore(storeURL: storeURL(in: directory),
+    private func authStore(keychain: Vault) -> DispatchAuthStore {
+        DispatchAuthStore(storeURL: storeURL,
                           keychain: keychain.client,
                           siteDefaults: SiteDefaults())
     }
 
-    private func storeURL(in directory: URL) -> URL {
-        directory.appendingPathComponent("dispatch-auth.json")
-    }
-
-    private func temporaryDirectory() -> URL {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("basic-auth-\(UUID().uuidString)")
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        return directory
+    private var storeURL: URL {
+        scratch.path("dispatch-auth.json")
     }
 }

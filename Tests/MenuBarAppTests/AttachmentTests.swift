@@ -7,13 +7,8 @@ import Testing
 // reaches the CLI is a path, and a wrong one fails silently as a file the agent cannot
 // read. These pin down what the clipboard turns into and what the CLI is told about it.
 struct AttachmentTests {
-
-    private func temporaryDirectory() throws -> URL {
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("attachment-tests-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-        return url
-    }
+    private let scratch = ScratchDirectory(prefix: "attachment-tests")
+    private var root: URL { scratch.url }
 
     private func pngData() throws -> Data {
         let image = NSImage(size: NSSize(width: 4, height: 4))
@@ -28,8 +23,6 @@ struct AttachmentTests {
     // MARK: - What the clipboard gives back
 
     @Test func takesFilesFromTheClipboard() throws {
-        let root = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
         let file = root.appendingPathComponent("notes.txt")
         try Data("hello".utf8).write(to: file)
 
@@ -44,8 +37,6 @@ struct AttachmentTests {
     // Copying a file in Finder puts its name on the clipboard as text too, and the file
     // is what was meant.
     @Test func prefersTheFileOverTheTextThatComesWithIt() throws {
-        let root = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
         let file = root.appendingPathComponent("shot.png")
         try pngData().write(to: file)
 
@@ -135,8 +126,6 @@ struct AttachmentTests {
     }
 
     @Test func opensUpOnlyTheFoldersOutsideTheProject() throws {
-        let root = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
         let inside = root.appendingPathComponent("src/main.swift")
         let outside = FileManager.default.temporaryDirectory
             .appendingPathComponent("elsewhere-\(UUID().uuidString)/shot.png")

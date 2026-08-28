@@ -6,22 +6,16 @@ import Testing
 // sets it, and what is allowed to clear it.
 @MainActor
 struct FinishedSessionTests {
+    private let store: ProjectStore
+    private let scratch: ScratchDirectory
+    private let project: Project
 
-    private func makeStore() -> ProjectStore {
-        let path = FileManager.default.temporaryDirectory
-            .appendingPathComponent("code-station-tests-\(UUID().uuidString).json").path
-        setenv("CODE_STATION_STORE", path, 1)
-        return ProjectStore()
-    }
-
-    private func project(in store: ProjectStore) -> Project {
-        store.addProject(at: FileManager.default.temporaryDirectory
-            .appendingPathComponent("project-\(UUID().uuidString)"))!
+    init() throws {
+        (store, scratch) = TestStore.make()
+        project = try TestStore.project(in: store)
     }
 
     @Test func marksASessionThatEndedOutOfSight() {
-        let store = makeStore()
-        let project = project(in: store)
         let background = store.newSession(in: project.id)
         let open = store.newSession(in: project.id)
 
@@ -35,8 +29,6 @@ struct FinishedSessionTests {
     // The result of the session being read is already on screen, so there is nothing to
     // come back to.
     @Test func leavesTheSessionOnScreenAlone() {
-        let store = makeStore()
-        let project = project(in: store)
         let open = store.newSession(in: project.id)
 
         store.selection = .session(open.id)
@@ -47,8 +39,6 @@ struct FinishedSessionTests {
     }
 
     @Test func openingTheSessionClearsIt() {
-        let store = makeStore()
-        let project = project(in: store)
         let background = store.newSession(in: project.id)
         let open = store.newSession(in: project.id)
 
@@ -61,8 +51,6 @@ struct FinishedSessionTests {
     }
 
     @Test func openingAReviewCarriesItsDestination() {
-        let store = makeStore()
-        let project = project(in: store)
         let session = store.newSession(in: project.id)
 
         store.selectHome()
@@ -74,8 +62,6 @@ struct FinishedSessionTests {
     }
 
     @Test func openingAnOrdinarySessionTargetsTheConversation() {
-        let store = makeStore()
-        let project = project(in: store)
         let first = store.newSession(in: project.id)
         let second = store.newSession(in: project.id)
 
@@ -87,8 +73,6 @@ struct FinishedSessionTests {
     }
 
     @Test func leavesASessionBeingReadOnMobileAlone() {
-        let store = makeStore()
-        let project = project(in: store)
         let session = store.newSession(in: project.id)
 
         store.hold(session.id, for: .remote)
@@ -99,8 +83,6 @@ struct FinishedSessionTests {
     }
 
     @Test func openingTheSessionOnMobileClearsIt() {
-        let store = makeStore()
-        let project = project(in: store)
         let session = store.newSession(in: project.id)
 
         store.noteTurnEnded(for: session.id)
@@ -112,8 +94,6 @@ struct FinishedSessionTests {
 
     // Looking at another session, or at no session at all, is not reading this one.
     @Test func staysUntilThatSessionIsOpened() {
-        let store = makeStore()
-        let project = project(in: store)
         let background = store.newSession(in: project.id)
         let other = store.newSession(in: project.id)
 
@@ -126,8 +106,6 @@ struct FinishedSessionTests {
     }
 
     @Test func deletingTheSessionTakesItsMarkWithIt() {
-        let store = makeStore()
-        let project = project(in: store)
         let background = store.newSession(in: project.id)
         let open = store.newSession(in: project.id)
 

@@ -5,6 +5,8 @@ import Testing
 // Prose images render inline only when they point at a real local file; everything
 // else must fall back to the text that was written.
 struct MarkdownImageTests {
+    private let scratch = ScratchDirectory(prefix: "markdown-image-tests")
+    private var root: URL { scratch.url }
 
     // MARK: - Parsing
 
@@ -88,16 +90,7 @@ struct MarkdownImageTests {
 
     // MARK: - Path resolution
 
-    private func temporaryDirectory() throws -> URL {
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("markdown-image-tests-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-        return url
-    }
-
     @Test func resolvesAnAbsolutePath() throws {
-        let root = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
         let file = root.appendingPathComponent("shot.png")
         try Data().write(to: file)
 
@@ -106,8 +99,6 @@ struct MarkdownImageTests {
     }
 
     @Test func resolvesAPathRelativeToTheProject() throws {
-        let root = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
         let folder = root.appendingPathComponent("docs")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         try Data().write(to: folder.appendingPathComponent("shot.jpeg"))
@@ -117,17 +108,12 @@ struct MarkdownImageTests {
     }
 
     @Test func rejectsAMissingFile() throws {
-        let root = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
-
         #expect(TranscriptImage.resolve("gone.png", projectPath: root.path) == nil)
         #expect(TranscriptImage.resolve(root.appendingPathComponent("gone.png").path,
                                         projectPath: root.path) == nil)
     }
 
     @Test func rejectsANonImageExtension() throws {
-        let root = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
         try Data().write(to: root.appendingPathComponent("notes.txt"))
         try Data().write(to: root.appendingPathComponent("plain"))
 
@@ -141,8 +127,6 @@ struct MarkdownImageTests {
     }
 
     @Test func rejectsADirectoryEvenWithAnImageName() throws {
-        let root = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
         let folder = root.appendingPathComponent("odd.png")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
 

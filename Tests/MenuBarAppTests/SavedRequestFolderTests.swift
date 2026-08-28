@@ -3,12 +3,10 @@ import Testing
 @testable import MenuBarApp
 
 struct SavedRequestFolderTests {
+    private let scratch = ScratchDirectory(prefix: "saved-request-folders")
+    private var file: URL { scratch.path("dispatch.json") }
 
     @Test @MainActor func migratesAFlatRequestListIntoDefault() throws {
-        let file = FileManager.default.temporaryDirectory
-            .appendingPathComponent("dispatch-\(UUID().uuidString).json")
-        defer { try? FileManager.default.removeItem(at: file) }
-
         let oldRequest = SavedRequest(name: "Existing", url: "https://example.test")
         try JSONEncoder().encode([oldRequest]).write(to: file)
 
@@ -21,9 +19,6 @@ struct SavedRequestFolderTests {
     }
 
     @Test @MainActor func persistsFoldersAndKeepsRequestsWhenAFolderIsRemoved() throws {
-        let file = FileManager.default.temporaryDirectory
-            .appendingPathComponent("dispatch-\(UUID().uuidString).json")
-        defer { try? FileManager.default.removeItem(at: file) }
         try JSONEncoder().encode(SavedRequestCollection()).write(to: file)
 
         let store = DispatchStore(storeURL: file, siteDefaults: SiteDefaults())
@@ -44,10 +39,6 @@ struct SavedRequestFolderTests {
     }
 
     @Test @MainActor func newAndUnknownRequestsUseDefault() throws {
-        let file = FileManager.default.temporaryDirectory
-            .appendingPathComponent("dispatch-\(UUID().uuidString).json")
-        defer { try? FileManager.default.removeItem(at: file) }
-
         let unknownFolderID = UUID()
         let saved = SavedRequestCollection(
             requests: [SavedRequest(name: "Unknown folder", folderID: unknownFolderID)])
@@ -63,9 +54,6 @@ struct SavedRequestFolderTests {
     }
 
     @Test @MainActor func defaultFolderCannotBeRenamedOrRemoved() throws {
-        let file = FileManager.default.temporaryDirectory
-            .appendingPathComponent("dispatch-\(UUID().uuidString).json")
-        defer { try? FileManager.default.removeItem(at: file) }
         try JSONEncoder().encode(SavedRequestCollection()).write(to: file)
 
         let store = DispatchStore(storeURL: file, siteDefaults: SiteDefaults())
@@ -80,10 +68,6 @@ struct SavedRequestFolderTests {
     }
 
     @Test @MainActor func foldersOpenClosedUnlessTheUserLeftThemOpen() throws {
-        let file = FileManager.default.temporaryDirectory
-            .appendingPathComponent("dispatch-\(UUID().uuidString).json")
-        defer { try? FileManager.default.removeItem(at: file) }
-
         let opened = RequestFolder(name: "Payments")
         let closed = RequestFolder(name: "Refunds")
         let saved = SavedRequestCollection(folders: [.default, opened, closed],
@@ -105,9 +89,6 @@ struct SavedRequestFolderTests {
     }
 
     @Test @MainActor func aDeletedFolderIsForgottenRatherThanReopened() throws {
-        let file = FileManager.default.temporaryDirectory
-            .appendingPathComponent("dispatch-\(UUID().uuidString).json")
-        defer { try? FileManager.default.removeItem(at: file) }
         try JSONEncoder().encode(SavedRequestCollection()).write(to: file)
 
         let store = DispatchStore(storeURL: file, siteDefaults: SiteDefaults())
@@ -121,9 +102,6 @@ struct SavedRequestFolderTests {
     }
 
     @Test @MainActor func deletingTheSelectedRequestLeavesTheDetailEmpty() throws {
-        let file = FileManager.default.temporaryDirectory
-            .appendingPathComponent("dispatch-\(UUID().uuidString).json")
-        defer { try? FileManager.default.removeItem(at: file) }
         try JSONEncoder().encode(SavedRequestCollection()).write(to: file)
 
         let store = DispatchStore(storeURL: file, siteDefaults: SiteDefaults())

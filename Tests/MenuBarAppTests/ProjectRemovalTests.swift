@@ -7,12 +7,20 @@ import Testing
 // order decides whether a session can outlive the project it belongs to.
 @MainActor
 struct ProjectRemovalTests {
+    private let store: ProjectStore
+    private let scratch: ScratchDirectory
+    private let shortcuts: ShortcutStore
+
+    init() {
+        (store, scratch) = TestStore.make()
+        shortcuts = ShortcutStore(storageURL: scratch.path("shortcuts.json"),
+                                  siteDefaults: SiteDefaults())
+    }
 
     // MARK: - What the confirmation promises
 
-    @Test func promisesThatAProjectFolderStaysOnDisk() {
-        let store = makeStore()
-        let project = addProject(named: "checkout", to: store)
+    @Test func promisesThatAProjectFolderStaysOnDisk() throws {
+        let project = try addProject(named: "checkout")
 
         let dialog = ProjectRemoval.confirmation(for: project, in: store) {}
 
@@ -24,8 +32,7 @@ struct ProjectRemovalTests {
     }
 
     @Test func saysGeneratedDesignFilesGoWithTheProject() throws {
-        let store = makeStore()
-        let project = addProject(named: "checkout", to: store)
+        let project = try addProject(named: "checkout")
         let design = store.newSession(in: project.id, seed: .init(mode: .design))
         let artifact = try #require(store.designArtifactURL(for: design))
         try FileManager.default.createDirectory(
@@ -39,9 +46,8 @@ struct ProjectRemovalTests {
     }
 
     @Test func saysThatATaskFolderGoesWithTheTask() throws {
-        let store = makeStore()
         let task = try store.addTask(named: "Sweep", prompt: "Do the thing.",
-                                     in: temporaryDirectory()).get()
+                                     in: scratch.path("tasks")).get()
 
         let dialog = ProjectRemoval.confirmation(for: task, in: store) {}
 
@@ -53,9 +59,8 @@ struct ProjectRemovalTests {
     // A task counts runs where a project counts sessions, so it has its own singular to
     // get wrong.
     @Test func countsTheRunsThatWouldGoInWords() throws {
-        let store = makeStore()
         let task = try store.addTask(named: "Sweep", prompt: "Do the thing.",
-                                     in: temporaryDirectory()).get()
+                                     in: scratch.path("tasks")).get()
         #expect(ProjectRemoval.confirmation(for: task, in: store) {}
             .message?.contains("This drops its 0 runs") == true)
 
@@ -71,8 +76,7 @@ struct ProjectRemovalTests {
     // A count that reads "1 sessions" is the kind of thing that survives a rewrite in one
     // caller and not another, which is the whole reason this wording has a single home.
     @Test func countsTheSessionsThatWouldGoInWords() throws {
-        let store = makeStore()
-        let project = addProject(named: "checkout", to: store)
+        let project = try addProject(named: "checkout")
         #expect(ProjectRemoval.confirmation(for: project, in: store) {}
             .message?.contains("This drops 0 sessions") == true)
 
@@ -88,9 +92,8 @@ struct ProjectRemovalTests {
     // A workspace session dies with any one of its repositories, so it counts against
     // every project it has a checkout in rather than only the one it calls home.
     @Test func countsWorkspaceSessionsAgainstEveryProjectTheyCheckOut() throws {
-        let store = makeStore()
-        let first = addProject(named: "first", to: store)
-        let second = addProject(named: "second", to: store)
+        let first = try addProject(named: "first")
+        let second = try addProject(named: "second")
         let workspace = try #require(store.addWorkspace(name: "Checkout",
                                                         projectIDs: [first.id, second.id],
                                                         leadProjectID: first.id))
@@ -108,8 +111,8 @@ struct ProjectRemovalTests {
     // MARK: - The order the work happens in
 
     @Test func takesTheSessionsBeforeTheProject() async throws {
-        let store = makeStore()
-        let project = addProject(named: "checkout", to: store)
+        let store = store
+        let project = try addProject(named: "checkout")
         let projectID = project.id
         let session = store.newSession(in: project.id,
                                        worktreePath: "/worktrees/checkout",
@@ -123,7 +126,7 @@ struct ProjectRemovalTests {
         }
 
         let result = await ProjectRemoval.run(project, in: store, runner: SessionRunner(),
-                                              shortcuts: makeShortcuts(),
+                                              shortcuts: shortcuts,
                                               worktrees: worktrees)
 
         #expect(throwsNothing(result))
@@ -132,12 +135,11 @@ struct ProjectRemovalTests {
         #expect(store.session(session.id) == nil)
     }
 
-    @Test func removesAProjectThatHasNoSessionsAtAll() async {
-        let store = makeStore()
-        let project = addProject(named: "checkout", to: store)
+    @Test func removesAProjectThatHasNoSessionsAtAll() async throws {
+        let project = try addProject(named: "checkout")
 
         let result = await ProjectRemoval.run(project, in: store, runner: SessionRunner(),
-                                              shortcuts: makeShortcuts(),
+                                              shortcuts: shortcuts,
                                               worktrees: removal { .success(()) })
 
         #expect(throwsNothing(result))
@@ -146,11 +148,9 @@ struct ProjectRemovalTests {
 
     // Nothing else can reach a shortcut whose project has gone, since a folder added
     // again comes back as a new project.
-    @Test func takesTheProjectsSavedCommandsWithIt() async {
-        let store = makeStore()
-        let shortcuts = makeShortcuts()
-        let project = addProject(named: "checkout", to: store)
-        let other = addProject(named: "elsewhere", to: store)
+    @Test func takesTheProjectsSavedCommandsWithIt() async throws {
+        let project = try addProject(named: "checkout")
+        let other = try addProject(named: "elsewhere")
         shortcuts.add(name: "Lint", command: "npm run lint", projectID: project.id)
         shortcuts.add(name: "Build", command: "make", projectID: other.id)
         shortcuts.add(name: "Prune", command: "docker system prune")
@@ -169,16 +169,15 @@ struct ProjectRemovalTests {
     // A checkout that will not go leaves the project standing. The session itself is
     // already journaled for another attempt at launch, so what the reader is left with is
     // a project they can remove again once the retry has cleared the checkout.
-    @Test func keepsTheProjectWhenASessionCannotBeRemoved() async {
-        let store = makeStore()
-        let project = addProject(named: "checkout", to: store)
+    @Test func keepsTheProjectWhenASessionCannotBeRemoved() async throws {
+        let project = try addProject(named: "checkout")
         let session = store.newSession(in: project.id,
                                        worktreePath: "/worktrees/checkout",
                                        worktreeBranch: "code-station/test")
         let worktrees = removal { .failure(GitWorktree.Failure(message: "Worktree is busy")) }
 
         let result = await ProjectRemoval.run(project, in: store, runner: SessionRunner(),
-                                              shortcuts: makeShortcuts(),
+                                              shortcuts: shortcuts,
                                               worktrees: worktrees)
 
         guard case .failure(let failure) = result else {
@@ -191,9 +190,8 @@ struct ProjectRemovalTests {
         #expect(store.pendingSessionRemovals.map(\.id) == [session.id])
     }
 
-    @Test func gathersEveryReasonUnderOneHeadingWhenSeveralFail() async {
-        let store = makeStore()
-        let project = addProject(named: "checkout", to: store)
+    @Test func gathersEveryReasonUnderOneHeadingWhenSeveralFail() async throws {
+        let project = try addProject(named: "checkout")
         for index in 0..<2 {
             _ = store.newSession(in: project.id,
                                  worktreePath: "/worktrees/checkout-\(index)",
@@ -202,7 +200,7 @@ struct ProjectRemovalTests {
         let worktrees = removal { .failure(GitWorktree.Failure(message: "Worktree is busy")) }
 
         let result = await ProjectRemoval.run(project, in: store, runner: SessionRunner(),
-                                              shortcuts: makeShortcuts(),
+                                              shortcuts: shortcuts,
                                               worktrees: worktrees)
 
         guard case .failure(let failure) = result else {
@@ -216,9 +214,8 @@ struct ProjectRemovalTests {
 
     // A task's sessions are runs, and the heading over their reasons says so.
     @Test func callsThemRunsWhenTheProjectIsATask() async throws {
-        let store = makeStore()
         let task = try store.addTask(named: "Sweep", prompt: "Do the thing.",
-                                     in: temporaryDirectory()).get()
+                                     in: scratch.path("tasks")).get()
         for index in 0..<2 {
             _ = store.newSession(in: task.id,
                                  worktreePath: "/worktrees/sweep-\(index)",
@@ -227,7 +224,7 @@ struct ProjectRemovalTests {
         let worktrees = removal { .failure(GitWorktree.Failure(message: "Worktree is busy")) }
 
         let result = await ProjectRemoval.run(task, in: store, runner: SessionRunner(),
-                                              shortcuts: makeShortcuts(),
+                                              shortcuts: shortcuts,
                                               worktrees: worktrees)
 
         guard case .failure(let failure) = result else {
@@ -239,13 +236,12 @@ struct ProjectRemovalTests {
 
     // MARK: - The one call every button makes
 
-    @Test func asksBeforeItTakesAnythingOut() {
-        let store = makeStore()
-        let project = addProject(named: "checkout", to: store)
+    @Test func asksBeforeItTakesAnythingOut() throws {
+        let project = try addProject(named: "checkout")
         let dialogs = DialogPresenter()
 
         ProjectRemoval.confirm(project, in: store, runner: SessionRunner(),
-                               shortcuts: makeShortcuts(), dialogs: dialogs,
+                               shortcuts: shortcuts, dialogs: dialogs,
                                worktrees: removal { .success(()) })
 
         #expect(dialogs.current?.title == "Remove checkout?")
@@ -253,19 +249,18 @@ struct ProjectRemovalTests {
     }
 
     @Test func takesTheProjectOutOnceTheQuestionIsAnswered() async throws {
-        let store = makeStore()
-        let project = addProject(named: "checkout", to: store)
+        let project = try addProject(named: "checkout")
         let session = store.newSession(in: project.id,
                                        worktreePath: "/worktrees/checkout",
                                        worktreeBranch: "code-station/test")
         let dialogs = DialogPresenter()
         ProjectRemoval.confirm(project, in: store, runner: SessionRunner(),
-                               shortcuts: makeShortcuts(), dialogs: dialogs,
+                               shortcuts: shortcuts, dialogs: dialogs,
                                worktrees: removal { .success(()) })
 
         dialogs.run(try #require(dialogs.current?.actions.first))
 
-        try await eventually { store.project(project.id) == nil }
+        #expect(await waitUntil(timeout: waitBudget) { store.project(project.id) == nil })
         #expect(store.session(session.id) == nil)
         #expect(dialogs.current?.title == nil)
     }
@@ -274,29 +269,29 @@ struct ProjectRemovalTests {
     // work itself could leave a failure unreported, and the button would look like it did
     // nothing at all.
     @Test func reportsAFailureWithoutTheCallerHavingTo() async throws {
-        let store = makeStore()
-        let project = addProject(named: "checkout", to: store)
+        let project = try addProject(named: "checkout")
         _ = store.newSession(in: project.id,
                              worktreePath: "/worktrees/checkout",
                              worktreeBranch: "code-station/test")
         let dialogs = DialogPresenter()
         ProjectRemoval.confirm(
-            project, in: store, runner: SessionRunner(), shortcuts: makeShortcuts(),
+            project, in: store, runner: SessionRunner(), shortcuts: shortcuts,
             dialogs: dialogs, worktrees: removal { .failure(GitWorktree.Failure(message: "Worktree is busy")) })
 
         dialogs.run(try #require(dialogs.current?.actions.first))
 
-        try await eventually { dialogs.current?.title == "Could not delete the session" }
+        #expect(await waitUntil(timeout: waitBudget) {
+            dialogs.current?.title == "Could not delete the session"
+        })
         #expect(dialogs.current?.message?.contains("Worktree is busy") == true)
         #expect(store.project(project.id) != nil)
     }
 
     @Test func leavesTheProjectAloneWhenTheQuestionIsRefused() throws {
-        let store = makeStore()
-        let project = addProject(named: "checkout", to: store)
+        let project = try addProject(named: "checkout")
         let dialogs = DialogPresenter()
         ProjectRemoval.confirm(project, in: store, runner: SessionRunner(),
-                               shortcuts: makeShortcuts(), dialogs: dialogs,
+                               shortcuts: shortcuts, dialogs: dialogs,
                                worktrees: removal { .success(()) })
 
         dialogs.run(try #require(dialogs.current?.actions.last))
@@ -312,35 +307,14 @@ struct ProjectRemovalTests {
     // WorkingTreeWatchTests, which waits the same way for the same reason: a passing run
     // never spends the budget, and a tighter one fails whenever the suite grows rather than
     // when the removal breaks.
-    private func eventually(
-        timeout: Duration = .seconds(20),
-        condition: () async -> Bool
-    ) async throws {
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: timeout)
-        while clock.now < deadline {
-            if await condition() { return }
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        Issue.record("Condition did not become true within \(timeout)")
-    }
+    private let waitBudget: Duration = .seconds(20)
 
-    private func makeStore() -> ProjectStore {
-        ProjectStore(storeURL: temporaryDirectory().appendingPathComponent("projects.json"))
-    }
-
-    private func makeShortcuts() -> ShortcutStore {
-        ShortcutStore(storageURL: temporaryDirectory().appendingPathComponent("shortcuts.json"),
-                      siteDefaults: SiteDefaults())
-    }
-
-    private func temporaryDirectory() -> URL {
-        FileManager.default.temporaryDirectory
-            .appendingPathComponent("code-station-project-removal-\(UUID().uuidString)")
-    }
-
-    private func addProject(named name: String, to store: ProjectStore) -> Project {
-        store.addProject(at: temporaryDirectory().appendingPathComponent(name))!
+    // The confirmation names the project after its folder, so the folder has to carry the
+    // exact name the test expects to read back.
+    private func addProject(named name: String) throws -> Project {
+        let folder = scratch.path(UUID().uuidString).appendingPathComponent(name)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        return try #require(store.addProject(at: folder))
     }
 
     private func removal(

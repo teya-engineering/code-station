@@ -110,13 +110,11 @@ struct TaskScheduleTests {
 @MainActor
 struct ScheduledTaskExecutionTests {
     @Test func scheduledRunUsesSavedInputsPersistsProgressAndHonoursTheMaximum() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("code-station-task-schedule-tests-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let storeURL = root.appendingPathComponent("projects.json")
+        let scratch = ScratchDirectory(prefix: "code-station-task-schedule-tests")
+        let storeURL = scratch.path("projects.json")
         let store = ProjectStore(storeURL: storeURL)
         let task = try store.addTask(named: "Deploy", prompt: "Deploy {{environment}}.",
-                                     in: root.appendingPathComponent("tasks")).get()
+                                     in: scratch.path("tasks")).get()
         let runner = SessionRunner(paths: [:])
         let now = Date(timeIntervalSince1970: 1_800_000_000)
 
