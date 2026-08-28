@@ -45,7 +45,7 @@ struct CurlCommandTests {
 
         let command = CurlCommand.text(for: request, environment: testEnvironment, authorization: nil)
 
-        let expected = "https://host.\(testEnvironment.envValue).test/things/42?q=a%20b"
+        let expected = "https://host.\(testEnvironment.name).test/things/42?q=a%20b"
         #expect(command.contains("'\(expected)'"))
     }
 

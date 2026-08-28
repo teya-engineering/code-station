@@ -161,8 +161,8 @@ struct MobileAccessTests {
         let prompt = try JSONDecoder().decode(
             RemoteCommand.self, from: Data(#"{"type":"sendPrompt","prompt":"Run the tests"}"#.utf8))
 
-        #expect(auth == RemoteCommand(type: "authenticate", version: 1, secret: "pair-me"))
-        #expect(prompt == RemoteCommand(type: "sendPrompt", prompt: "Run the tests"))
+        #expect(auth == RemoteCommand(type: .authenticate, version: 1, secret: "pair-me"))
+        #expect(prompt == RemoteCommand(type: .sendPrompt, prompt: "Run the tests"))
     }
 
     // The whole of what a QR code is allowed to reach, since every command from the phone
@@ -215,7 +215,7 @@ struct MobileAccessTests {
             "worktree":true,"prompt":"Fix the flaky test"}
             """.utf8))
 
-        #expect(open.type == "openSession")
+        #expect(open.type == .openSession)
         #expect(open.sessionID == sessionID.uuidString)
         #expect(create.projectID == projectID.uuidString)
         #expect(create.worktree == true)

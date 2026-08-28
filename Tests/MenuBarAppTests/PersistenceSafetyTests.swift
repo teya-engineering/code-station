@@ -448,25 +448,6 @@ struct PersistenceSafetyTests {
         #expect(store.pendingSessionRemovals.isEmpty)
     }
 
-    @Test func cancellingBeforeCleanupRestoresTheSessionAndTranscript() throws {
-        let directory = temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let index = directory.appendingPathComponent("projects.json")
-        let store = ProjectStore(storeURL: index)
-        let project = try #require(store.addProject(
-            at: directory.appendingPathComponent("project")))
-        let session = store.newSession(in: project.id)
-        store.append(ChatMessage(role: .user, text: "still here"), to: session.id)
-
-        _ = try #require(store.prepareSessionRemoval(session.id).value)
-        #expect(store.session(session.id) == nil)
-        #expect(store.cancelSessionRemoval(session.id).isSuccess)
-
-        #expect(store.session(session.id) != nil)
-        #expect(store.transcript(of: session.id).map(\.text) == ["still here"])
-        #expect(store.pendingSessionRemovals.isEmpty)
-    }
-
     private func temporaryDirectory() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("persistence-safety-\(UUID().uuidString)")

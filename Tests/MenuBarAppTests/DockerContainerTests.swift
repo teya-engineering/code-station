@@ -100,7 +100,7 @@ struct DockerServiceTests {
         let failure = await service.stop([first, second])
 
         #expect(failure == nil)
-        #expect(service.stopping.isEmpty)
+        #expect(service.containers.busy.isEmpty)
         #expect(await recorder.commands == [
             ["stop", "container-1", "container-2"],
             ["ps", "--no-trunc", "--size", "--format", "{{json .}}"]

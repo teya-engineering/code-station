@@ -1340,7 +1340,9 @@ final class SessionRunner {
             identifier: processGroup, eventMask: .exit,
             queue: DispatchQueue.global(qos: .userInitiated))
         turn.exitMonitor = exitMonitor
-        exitMonitor.setEventHandler {
+        // Runs on the source's queue, so it must not inherit this method's main-actor
+        // isolation: a closure that did would trap the moment the process exits.
+        exitMonitor.setEventHandler { @Sendable in
             let status = CommandRunner.waitForExit(of: processGroup)
             let stopped = CommandRunner.ensureProcessGroupStopped(processGroup)
             SessionLog.note(

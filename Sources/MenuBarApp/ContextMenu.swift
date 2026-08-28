@@ -106,7 +106,7 @@ struct MenuItem {
     var handler: (() -> Void)? = nil
 
     func matches(_ filter: String) -> Bool {
-        let query = filter.trimmingCharacters(in: .whitespacesAndNewlines)
+        let query = filter.trimmed
         guard !query.isEmpty else { return true }
         return label.localizedCaseInsensitiveContains(query)
             || subtitle?.localizedCaseInsensitiveContains(query) == true

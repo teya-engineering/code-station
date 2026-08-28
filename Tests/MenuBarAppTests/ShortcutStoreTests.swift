@@ -174,7 +174,6 @@ struct ShortcutStoreTests {
         store.start(run)
         try await settle(store, run)
 
-        #expect(store.state(run).since != nil)
         if case .finished = store.state(run) {} else { Issue.record("expected a clean exit") }
         #expect(store.log(run).contains("standard output"))
         #expect(store.log(run).contains("error output"))

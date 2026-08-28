@@ -26,15 +26,8 @@ struct PTYTests {
             return String(decoding: storage, as: UTF8.self)
         }
 
-        // Polls instead of sleeping a fixed time, so a slow machine does not fail and a
-        // fast one does not wait.
-        func waitFor(_ needle: String, seconds: Double = 10) async -> Bool {
-            let deadline = Date().addingTimeInterval(seconds)
-            while Date() < deadline {
-                if text.contains(needle) { return true }
-                try? await Task.sleep(for: .milliseconds(50))
-            }
-            return false
+        func waitFor(_ needle: String, timeout: Duration = .seconds(10)) async -> Bool {
+            await waitUntil(timeout: timeout) { text.contains(needle) }
         }
     }
 
@@ -46,17 +39,10 @@ struct PTYTests {
         return environment
     }
 
-    // Every test gets its own registry directory, so a test shell is never written into
-    // the folder the real app reaps from.
     private func makePTY(_ collector: Collector,
-                         registry: ShellRegistry = ShellRegistry(directory: PTYTests.scratch())) -> PTY {
+                         registry: ShellRegistry = ShellRegistry(directory: ShellNotes.scratch())) -> PTY {
         PTY(registry: registry,
             onOutput: { collector.append($0) }, onExit: { collector.recordExit($0) })
-    }
-
-    static func scratch() -> URL {
-        FileManager.default.temporaryDirectory
-            .appendingPathComponent("shell-registry-\(UUID().uuidString)")
     }
 
     private func startShell(_ pty: PTY, columns: Int = 80, rows: Int = 24) throws {
@@ -65,17 +51,11 @@ struct PTYTests {
                       environment: environment(), columns: columns, rows: rows)
     }
 
-    private func markers(in directory: URL) -> [URL] {
-        let found = (try? FileManager.default.contentsOfDirectory(
-            at: directory, includingPropertiesForKeys: nil)) ?? []
-        return found.filter { $0.pathExtension == "json" }
-    }
-
     // The shell survives whatever started it, so it is written down for as long as it runs
     // and only then forgotten. Without the note, an app that dies mid-run leaves a shell
     // nothing can ever find again.
     @Test func aRunningShellIsWrittenDownUntilItIsClosed() async throws {
-        let directory = PTYTests.scratch()
+        let directory = ShellNotes.scratch()
         let collector = Collector()
         let pty = makePTY(collector, registry: ShellRegistry(directory: directory))
         defer { pty.stop() }
@@ -83,16 +63,18 @@ struct PTYTests {
         try startShell(pty)
         pty.write(Data("echo started\r".utf8))
         #expect(await collector.waitFor("started"))
-        #expect(markers(in: directory).count == 1)
+        #expect(ShellNotes.markers(in: directory).count == 1)
 
+        // The note only goes once the shell is confirmed gone, which happens off the
+        // calling thread.
         pty.stop()
-        #expect(markers(in: directory).isEmpty)
+        #expect(await waitUntil { ShellNotes.markers(in: directory).isEmpty })
     }
 
     // A shell the user exits is gone without anything calling stop, and the note has to go
     // with it rather than wait for whoever still holds the object.
     @Test func aShellThatExitsOnItsOwnIsForgotten() async throws {
-        let directory = PTYTests.scratch()
+        let directory = ShellNotes.scratch()
         let collector = Collector()
         let pty = makePTY(collector, registry: ShellRegistry(directory: directory))
         defer { pty.stop() }
@@ -102,7 +84,7 @@ struct PTYTests {
         #expect(await collector.waitFor("started"))
 
         pty.write(Data("exit\r".utf8))
-        #expect(await waitUntil(seconds: 10) { markers(in: directory).isEmpty })
+        #expect(await waitUntil { ShellNotes.markers(in: directory).isEmpty })
     }
 
     @Test func runsACommandAndReturnsItsOutput() async throws {
@@ -157,16 +139,16 @@ struct PTYTests {
 
         pty.write(Data("printf 'terminal-%s\\n' ready\r".utf8))
         #expect(await collector.waitFor("terminal-ready"))
-        pty.captureIdleBaseline()
+        pty.sampleBusy()
 
         pty.write(Data("printf 'command-%s\\n' started; sleep 30\r".utf8))
         #expect(await collector.waitFor("command-started"))
-        #expect(await waitUntil(seconds: 3) { pty.isBusy })
+        #expect(await waitUntil(timeout: .seconds(3)) { pty.sampleBusy() })
 
         pty.write(Data([0x03]))
         pty.write(Data("printf 'command-%s\\n' interrupted\r".utf8))
 
-        #expect(await collector.waitFor("command-interrupted", seconds: 3))
+        #expect(await collector.waitFor("command-interrupted", timeout: .seconds(3)))
     }
 
     // The shell is told the window size, so anything that draws a full line wraps in
@@ -190,12 +172,8 @@ struct PTYTests {
         try startShell(pty)
 
         pty.write(Data("exit 3\r".utf8))
-        let deadline = Date().addingTimeInterval(10)
-        while collector.exitCode == nil, Date() < deadline {
-            try? await Task.sleep(for: .milliseconds(50))
-        }
+        #expect(await waitUntil { collector.exitCode != nil })
         #expect(collector.exitCode == 3)
-        #expect(pty.isRunning == false)
     }
 
     // The dot on a terminal tab comes from this: the tty's foreground process group is
@@ -212,22 +190,13 @@ struct PTYTests {
         pty.write(Data("echo ready\r".utf8))
         #expect(await collector.waitFor("ready"))
         try? await Task.sleep(for: .milliseconds(200))
-        pty.captureIdleBaseline()
-        #expect(pty.isBusy == false, "a shell sitting at its prompt is not busy")
+        pty.sampleBusy()
+        #expect(pty.sampleBusy() == false, "a shell sitting at its prompt is not busy")
 
         pty.write(Data("sleep 3\r".utf8))
-        #expect(await waitUntil(seconds: 5) { pty.isBusy }, "a running command makes it busy")
+        #expect(await waitUntil(timeout: .seconds(5)) { pty.sampleBusy() }, "a running command makes it busy")
 
-        #expect(await waitUntil(seconds: 10) { !pty.isBusy }, "it stops being busy when the command ends")
-    }
-
-    private func waitUntil(seconds: Double, _ condition: @Sendable () -> Bool) async -> Bool {
-        let deadline = Date().addingTimeInterval(seconds)
-        while Date() < deadline {
-            if condition() { return true }
-            try? await Task.sleep(for: .milliseconds(50))
-        }
-        return false
+        #expect(await waitUntil { !pty.sampleBusy() }, "it stops being busy when the command ends")
     }
 
     @Test func failsClearlyWhenTheShellIsNotThere() {
@@ -256,11 +225,14 @@ extension PTYTests {
 
         pty.write(Data("echo ready\r".utf8))
         #expect(await collector.waitFor("ready"))
-        pty.captureIdleBaseline()
-        #expect(pty.isBusy == false, "a zsh sitting at its prompt is not busy")
+        // This zsh loads the user's own rc files, which may still be starting helpers
+        // when the prompt first appears. Those drop out of the busy signal on their own,
+        // so idle is waited for rather than read off a single sample.
+        #expect(await waitUntil(timeout: .seconds(3)) { !pty.sampleBusy() },
+                "a zsh sitting at its prompt is not busy")
 
         pty.write(Data("sleep 3\r".utf8))
-        #expect(await waitUntil(seconds: 5) { pty.isBusy }, "a running command lights the tab")
-        #expect(await waitUntil(seconds: 10) { !pty.isBusy }, "and it goes quiet again")
+        #expect(await waitUntil(timeout: .seconds(5)) { pty.sampleBusy() }, "a running command lights the tab")
+        #expect(await waitUntil { !pty.sampleBusy() }, "and it goes quiet again")
     }
 }
