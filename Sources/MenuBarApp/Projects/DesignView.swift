@@ -262,6 +262,10 @@ struct DesignView: View {
         let canSend = !blocked && !runner.draft(sessionID).isEmpty
 
         return VStack(alignment: .leading, spacing: 8) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                SessionRunSettingsControls(sessionID: sessionID)
+            }
+
             if !attachments.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 6) {
