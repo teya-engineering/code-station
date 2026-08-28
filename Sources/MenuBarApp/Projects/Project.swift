@@ -240,6 +240,17 @@ struct ToolUse: Identifiable, Codable, Equatable, Sendable {
 
     var startsAgents: Bool { Self.agentTools.contains(name) }
 
+    // The id the CLI gave the agent this call started, read off the receipt it answered
+    // with. An agent sent to the background reports in the moment it starts, so the
+    // call's own result says nothing about whether the agent is still working. This is
+    // what ties the call to the list of agents the CLI says are still going.
+    var backgroundAgentID: String? {
+        guard startsAgents, let result,
+              let marker = result.range(of: "agentId: ") else { return nil }
+        let id = result[marker.upperBound...].prefix { $0.isHexDigit }
+        return id.isEmpty ? nil : String(id)
+    }
+
     // Calls that arrive carrying the change they are about to make. Everything else has to
     // be measured against the working tree to know what it did.
     static let editTools: Set<String> = ["Edit", "Write", "Delete"]
@@ -283,8 +294,13 @@ struct ToolNode: Identifiable {
 
     // Also read by the folded block, which stays open while there is work to watch. An
     // agent sent to the background hands back its own result at once and keeps going, so
-    // the only calls still in flight can be its children.
-    var hasRunning: Bool { tool.isRunning || children.contains(where: \.hasRunning) }
+    // its call reporting in is not the end of it: only the CLI's own list of the agents
+    // still running says when that is.
+    func isWorking(agents: Set<String>) -> Bool {
+        if tool.isRunning { return true }
+        if let id = tool.backgroundAgentID, agents.contains(id) { return true }
+        return children.contains { $0.isWorking(agents: agents) }
+    }
 
     // The newest call anywhere inside this one: what the agents are doing right now.
     var newestDescendant: ToolNode? {

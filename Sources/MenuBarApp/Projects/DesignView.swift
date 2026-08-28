@@ -144,6 +144,7 @@ struct DesignView: View {
                                     openChanges: {},
                                     availableWidth: width - 32)
                             .equatable()
+                            .environment(\.runningAgents, runner.runningAgents(sessionID))
                     }
 
                     if let request = runner.question(sessionID) {

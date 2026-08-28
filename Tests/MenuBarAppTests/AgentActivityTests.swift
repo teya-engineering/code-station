@@ -128,13 +128,52 @@ struct AgentActivityTests {
                             call("b", parent: "a", result: nil)]).toolTree
 
         #expect(tree[0].tool.isRunning == false)
-        #expect(tree[0].hasRunning)
+        #expect(tree[0].isWorking(agents: []))
     }
 
     @Test func reportsNothingRunningOnceEveryCallIsBack() throws {
         let tree = message([call("a", name: "Agent"), call("b", parent: "a")]).toolTree
 
-        #expect(!tree[0].hasRunning)
+        #expect(!tree[0].isWorking(agents: []))
+    }
+
+    // MARK: - An agent sent to the background
+
+    // The receipt an agent answers with names it, and that name is how the CLI's list of
+    // running agents refers to it.
+    @Test func readsTheIDOffAnAgentsLaunchReceipt() {
+        let receipt = """
+        Async agent launched successfully. (This tool result is internal metadata.) \
+        agentId: af1aa370d8fa76988 (internal ID - do not mention to user.)
+        """
+        #expect(call("a", name: "Agent", result: receipt).backgroundAgentID
+                == "af1aa370d8fa76988")
+    }
+
+    @Test func readsNoIDOffAnOrdinaryCall() {
+        #expect(call("b", result: "agentId: af1aa370d8fa76988").backgroundAgentID == nil)
+        #expect(call("a", name: "Agent", result: "done").backgroundAgentID == nil)
+        #expect(call("a", name: "Agent", result: nil).backgroundAgentID == nil)
+    }
+
+    // The whole point of the id: an agent that has answered its own call is still at work
+    // for as long as the CLI keeps listing it, and nothing else in the turn says so.
+    @Test func countsABackgroundAgentAsWorkingWhileTheCLIListsIt() {
+        let tree = message([call("a", name: "Agent",
+                                 result: "launched. agentId: af1aa370 (internal)")]).toolTree
+
+        #expect(tree[0].isWorking(agents: ["af1aa370"]))
+        #expect(!tree[0].isWorking(agents: ["other"]))
+    }
+
+    // A row stands for everything under it, so an agent that started another one is still
+    // working while its own agents are.
+    @Test func countsAnAgentAsWorkingWhileItsOwnAgentsAre() {
+        let tree = message([call("w", name: "Workflow"),
+                            call("a", name: "Agent", parent: "w",
+                                 result: "launched. agentId: af1aa370 (internal)")]).toolTree
+
+        #expect(tree[0].isWorking(agents: ["af1aa370"]))
     }
 
     // A failure deep inside a fan-out is the one thing a folded block has to say out loud.

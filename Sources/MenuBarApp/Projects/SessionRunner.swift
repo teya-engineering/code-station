@@ -34,6 +34,10 @@ final class SessionRunner {
 
     private var states: [UUID: SessionState] = [:]
     private var runningTools: [UUID: [ToolUse]] = [:]
+    // The agents the CLI says are still running, by the id it gave them when they
+    // started. An agent sent to the background answers its own call at once and keeps
+    // working, so this is the only thing that says a fan-out is still going.
+    private var agentsAtWork: [UUID: Set<String>] = [:]
     private var turns: [UUID: Turn] = [:]
     private var avatarSequences: [UUID: Int] = [:]
     // Everything the agent is waiting on, oldest first. Parallel tool calls can park more
@@ -141,6 +145,10 @@ final class SessionRunner {
     func state(_ sessionID: UUID) -> SessionState { states[sessionID] ?? .idle }
 
     func runningTool(_ sessionID: UUID) -> ToolUse? { runningTools[sessionID]?.last }
+
+    // Which of the agents this session started are still working, for the rows that
+    // stand for them.
+    func runningAgents(_ sessionID: UUID) -> Set<String> { agentsAtWork[sessionID] ?? [] }
 
     func avatarSequence(_ sessionID: UUID) -> Int? { turns[sessionID]?.avatarSequence }
 
@@ -965,6 +973,7 @@ final class SessionRunner {
         codexContextRefreshes.removeValue(forKey: sessionID)?.task.cancel()
         states[sessionID] = nil
         runningTools[sessionID] = nil
+        agentsAtWork[sessionID] = nil
         waits[sessionID] = nil
         asked[sessionID] = nil
         queues[sessionID] = nil
@@ -1581,6 +1590,7 @@ final class SessionRunner {
                     return task
                 }
                 turn.pendingTasks = named
+                agentsAtWork[sessionID] = Set(named.map(\.id))
                 // A wait can outlast the task that started it: one of several ending is
                 // not the end of the wait, and the row has to say what is left.
                 if turn.waitingOnTasks { waits[sessionID]?.tasks = named }
@@ -1832,6 +1842,7 @@ final class SessionRunner {
               let status = turn.exitStatus else { return }
         turns[sessionID] = nil
         runningTools[sessionID] = nil
+        agentsAtWork[sessionID] = nil
         waits[sessionID] = nil
         // The process that parked them is gone, so nothing is listening for an answer.
         asked[sessionID] = nil

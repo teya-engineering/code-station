@@ -1030,6 +1030,7 @@ struct SessionView: View {
                     // redraws every message in the transcript, parsing its markdown
                     // again on the way.
                     .equatable()
+                    .environment(\.runningAgents, runner.runningAgents(sessionID))
                     .transition(.fadeIn)
             }
 
