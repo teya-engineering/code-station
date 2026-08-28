@@ -23,6 +23,56 @@ struct SidebarAvatarTests {
         #expect(avatar.artworkURL(style: .planets)?.isFileURL == true)
     }
 
+    @Test func usesAChosenArtworkAndAlwaysChoosesADifferentReplacement() {
+        let avatar = SidebarAvatar(subject: .project, id: UUID(), artworkIndex: 3)
+
+        #expect(avatar.artworkIndex(count: 4) == 3)
+        for _ in 0..<100 {
+            let replacement = avatar.randomArtworkIndex(count: 4)
+            #expect(replacement != 3)
+            #expect(replacement.map { (1...4).contains($0) } == true)
+        }
+    }
+
+    @MainActor
+    @Test func persistsChangedProjectTaskAndWorkspaceArtwork() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("code-station-sidebar-avatar-tests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let storeURL = root.appendingPathComponent("projects.json")
+        let store = ProjectStore(storeURL: storeURL)
+        let first = try #require(store.addProject(at: root.appendingPathComponent("api")))
+        let second = try #require(store.addProject(at: root.appendingPathComponent("web")))
+        let task = try store.addTask(
+            named: "Release",
+            prompt: "Ship it.",
+            in: root.appendingPathComponent("tasks"))
+            .get()
+        let workspace = try #require(store.addWorkspace(
+            name: "Checkout",
+            projectIDs: [first.id, second.id],
+            leadProjectID: first.id))
+        let originalProjectIndex = first.sidebarAvatar.artworkIndex()
+        let originalTaskIndex = task.sidebarAvatar.artworkIndex()
+        let originalWorkspaceIndex = workspace.sidebarAvatar.artworkIndex()
+
+        store.changeSidebarAvatar(forProject: first.id)
+        store.changeSidebarAvatar(forProject: task.id)
+        store.changeSidebarAvatar(forWorkspace: workspace.id)
+
+        let changedProjectIndex = try #require(store.project(first.id)?.sidebarAvatarIndex)
+        let changedTaskIndex = try #require(store.project(task.id)?.sidebarAvatarIndex)
+        let changedWorkspaceIndex = try #require(store.workspace(workspace.id)?.sidebarAvatarIndex)
+        #expect(changedProjectIndex != originalProjectIndex)
+        #expect(changedTaskIndex != originalTaskIndex)
+        #expect(changedWorkspaceIndex != originalWorkspaceIndex)
+
+        let restored = ProjectStore(storeURL: storeURL)
+        #expect(restored.project(first.id)?.sidebarAvatarIndex == changedProjectIndex)
+        #expect(restored.project(task.id)?.sidebarAvatarIndex == changedTaskIndex)
+        #expect(restored.workspace(workspace.id)?.sidebarAvatarIndex == changedWorkspaceIndex)
+    }
+
     @MainActor
     @Test func providesAStillPreviewForEveryArtworkStyle() {
         for style in DiceBearAvatarStyle.allCases {

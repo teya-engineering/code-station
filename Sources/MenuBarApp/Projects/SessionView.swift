@@ -310,15 +310,13 @@ struct SessionView: View {
             HStack(spacing: 7) {
                 if let workspace {
                     SidebarIdentityTile(
-                        avatar: SidebarAvatar(subject: .workspace, id: workspace.id),
+                        avatar: workspace.sidebarAvatar,
                         name: workspace.name,
                         tint: Theme.workspaceTint,
                         stacked: true)
                 } else {
                     SidebarIdentityTile(
-                        avatar: SidebarAvatar(
-                            subject: project.kind == .adHoc ? .task : .project,
-                            id: project.id),
+                        avatar: project.sidebarAvatar,
                         name: project.name,
                         tint: Theme.projectTint(for: project.name),
                         dashed: project.kind == .adHoc)

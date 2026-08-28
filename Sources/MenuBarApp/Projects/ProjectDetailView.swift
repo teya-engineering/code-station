@@ -90,10 +90,16 @@ struct ProjectDetailView: View {
         // Asked once for the whole row: it is a stat call, and the row redraws often.
         let missing = store.isMissing(project)
         return HStack(spacing: 12) {
-            SidebarIdentityTile(
-                avatar: SidebarAvatar(subject: .project, id: project.id),
-                name: project.name,
-                tint: Theme.projectTint(for: project.name))
+            Button { store.changeSidebarAvatar(forProject: project.id) } label: {
+                SidebarIdentityTile(
+                    avatar: project.sidebarAvatar,
+                    name: project.name,
+                    tint: Theme.projectTint(for: project.name))
+                    .contentShape(RoundedRectangle(cornerRadius: 7))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Change \(project.name) icon")
+            .appTooltip("Change icon")
             Text(project.name)
                 .font(.serif(17, .semibold))
                 .lineLimit(1)

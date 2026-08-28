@@ -247,11 +247,11 @@ struct HomeView: View {
         let name = workspace?.name ?? project?.name ?? "Unknown project"
         let checkouts = store.checkoutProjects(for: session)
         let avatar = if let workspace {
-            SidebarAvatar(subject: .workspace, id: workspace.id)
+            workspace.sidebarAvatar
+        } else if let project {
+            project.sidebarAvatar
         } else {
-            SidebarAvatar(
-                subject: project?.kind == .adHoc ? .task : .project,
-                id: project?.id ?? session.projectID)
+            SidebarAvatar(subject: .project, id: session.projectID)
         }
         return HomeLive(
             session: session,

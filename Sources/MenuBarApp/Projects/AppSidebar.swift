@@ -545,7 +545,7 @@ struct AppSidebar: View {
 
             if expanded, !visible.isEmpty {
                 let tint = sidebarRailTint(
-                    for: SidebarAvatar(subject: .workspace, id: workspace.id),
+                    for: workspace.sidebarAvatar,
                     name: workspace.name,
                     monogramTint: Theme.workspaceTint)
                 SidebarRail(colour: tint.colour) {
@@ -669,9 +669,7 @@ struct AppSidebar: View {
             if expanded, !visible.isEmpty {
                 let fallbackTint = Theme.projectTint(for: project.name)
                 let tint = sidebarRailTint(
-                    for: SidebarAvatar(
-                        subject: project.kind == .adHoc ? .task : .project,
-                        id: project.id),
+                    for: project.sidebarAvatar,
                     name: project.name,
                     monogramTint: fallbackTint)
                 SidebarRail(colour: tint.colour) {
@@ -1496,7 +1494,7 @@ private struct WorkspaceHeaderRow: View {
     var body: some View {
         TreeRow(selected: selected, isExpanded: isExpanded, hovering: hovering) {
             SidebarIdentityTile(
-                avatar: SidebarAvatar(subject: .workspace, id: workspace.id),
+                avatar: workspace.sidebarAvatar,
                 name: workspace.name,
                 tint: Theme.workspaceTint,
                 stacked: true)
@@ -1607,9 +1605,7 @@ private struct ProjectHeaderRow: View {
     var body: some View {
         TreeRow(selected: selected, isExpanded: isExpanded, hovering: hovering) {
             SidebarIdentityTile(
-                avatar: SidebarAvatar(
-                    subject: project.kind == .adHoc ? .task : .project,
-                    id: project.id),
+                avatar: project.sidebarAvatar,
                 name: project.name,
                 tint: Theme.projectTint(for: project.name),
                 dashed: project.kind == .adHoc)

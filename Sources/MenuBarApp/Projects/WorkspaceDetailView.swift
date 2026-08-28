@@ -62,11 +62,17 @@ struct WorkspaceDetailView: View {
     // on the strip under it.
     private func header(_ workspace: ProjectWorkspace) -> some View {
         HStack(spacing: 12) {
-            SidebarIdentityTile(
-                avatar: SidebarAvatar(subject: .workspace, id: workspace.id),
-                name: workspace.name,
-                tint: Theme.workspaceTint,
-                stacked: true)
+            Button { store.changeSidebarAvatar(forWorkspace: workspace.id) } label: {
+                SidebarIdentityTile(
+                    avatar: workspace.sidebarAvatar,
+                    name: workspace.name,
+                    tint: Theme.workspaceTint,
+                    stacked: true)
+                    .contentShape(RoundedRectangle(cornerRadius: 7))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Change \(workspace.name) icon")
+            .appTooltip("Change icon")
 
             // The title only reads the name. Renaming lives in the sidebar row's
             // context menu, the same place projects and sessions are renamed.

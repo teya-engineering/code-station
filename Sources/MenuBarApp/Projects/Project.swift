@@ -64,6 +64,9 @@ struct Project: Identifiable, Codable, Equatable {
     var name: String
     var path: String
     var kind: Kind
+    // Nil keeps the stable icon derived from the project's identity. Once changed, the
+    // chosen bundled artwork follows the project everywhere it appears.
+    var sidebarAvatarIndex: Int?
     // The saved prompt behind a task. Nil on normal projects, and on tasks created
     // before prompts existed, which read as an empty prompt.
     var task: TaskSpec?
@@ -80,11 +83,12 @@ struct Project: Identifiable, Codable, Equatable {
     }
 
     init(id: UUID = UUID(), name: String, path: String, kind: Kind = .project,
-         task: TaskSpec? = nil) {
+         sidebarAvatarIndex: Int? = nil, task: TaskSpec? = nil) {
         self.id = id
         self.name = name
         self.path = path
         self.kind = kind
+        self.sidebarAvatarIndex = sidebarAvatarIndex
         self.task = task
     }
 
@@ -94,7 +98,7 @@ struct Project: Identifiable, Codable, Equatable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, path, kind, task
+        case id, name, path, kind, sidebarAvatarIndex, task
     }
 
     init(from decoder: any Decoder) throws {
@@ -104,6 +108,8 @@ struct Project: Identifiable, Codable, Equatable {
         path = try container.decode(String.self, forKey: .path)
         kind = try container.decodeIfPresent(Kind.self, forKey: .kind)
             ?? Self.legacyKind(for: path)
+        sidebarAvatarIndex = try container.decodeIfPresent(Int.self,
+                                                            forKey: .sidebarAvatarIndex)
         task = try container.decodeIfPresent(TaskSpec.self, forKey: .task)
     }
 
@@ -128,21 +134,23 @@ struct ProjectWorkspace: Identifiable, Codable, Equatable {
     var name: String
     var projectIDs: [UUID]
     var leadProjectID: UUID
+    var sidebarAvatarIndex: Int?
     // Each session can still override its checkout mode. These are only the choices
     // preselected when a session starts, which keeps repeated workspace setup quick.
     var worktreeProjectIDs: [UUID]
 
     init(id: UUID = UUID(), name: String, projectIDs: [UUID], leadProjectID: UUID,
-         worktreeProjectIDs: [UUID]? = nil) {
+         sidebarAvatarIndex: Int? = nil, worktreeProjectIDs: [UUID]? = nil) {
         self.id = id
         self.name = name
         self.projectIDs = projectIDs
         self.leadProjectID = leadProjectID
+        self.sidebarAvatarIndex = sidebarAvatarIndex
         self.worktreeProjectIDs = worktreeProjectIDs ?? projectIDs
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, projectIDs, leadProjectID, worktreeProjectIDs
+        case id, name, projectIDs, leadProjectID, sidebarAvatarIndex, worktreeProjectIDs
     }
 
     init(from decoder: any Decoder) throws {
@@ -151,6 +159,8 @@ struct ProjectWorkspace: Identifiable, Codable, Equatable {
         name = try container.decode(String.self, forKey: .name)
         projectIDs = try container.decode([UUID].self, forKey: .projectIDs)
         leadProjectID = try container.decode(UUID.self, forKey: .leadProjectID)
+        sidebarAvatarIndex = try container.decodeIfPresent(Int.self,
+                                                            forKey: .sidebarAvatarIndex)
         // Workspaces written before checkout defaults existed already opened every Git
         // repository as a worktree, so selecting every member preserves that behavior.
         worktreeProjectIDs = try container.decodeIfPresent([UUID].self,

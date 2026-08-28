@@ -424,6 +424,13 @@ final class ProjectStore {
         saveIndex()
     }
 
+    func changeSidebarAvatar(forProject id: UUID) {
+        guard let i = projects.firstIndex(where: { $0.id == id }),
+              let next = projects[i].sidebarAvatar.randomArtworkIndex() else { return }
+        projects[i].sidebarAvatarIndex = next
+        saveIndex()
+    }
+
     // MARK: - Workspaces
 
     @discardableResult
@@ -454,6 +461,13 @@ final class ProjectStore {
         guard !trimmed.isEmpty else { return }
         workspaces[i].name = trimmed
         workspaces.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        saveIndex()
+    }
+
+    func changeSidebarAvatar(forWorkspace id: UUID) {
+        guard let i = workspaces.firstIndex(where: { $0.id == id }),
+              let next = workspaces[i].sidebarAvatar.randomArtworkIndex() else { return }
+        workspaces[i].sidebarAvatarIndex = next
         saveIndex()
     }
 

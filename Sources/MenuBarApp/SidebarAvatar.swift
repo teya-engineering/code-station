@@ -16,11 +16,27 @@ struct SidebarAvatar: Equatable, Sendable {
 
     let subject: Subject
     let id: UUID
+    let chosenArtworkIndex: Int?
+
+    init(subject: Subject, id: UUID, artworkIndex: Int? = nil) {
+        self.subject = subject
+        self.id = id
+        chosenArtworkIndex = artworkIndex
+    }
 
     var seed: String { "\(subject.rawValue)-\(id.uuidString.lowercased())" }
 
     func artworkIndex(count: Int = artworkCount) -> Int? {
-        Self.artworkIndex(seed: seed, count: count)
+        if let chosenArtworkIndex, (1...count).contains(chosenArtworkIndex) {
+            return chosenArtworkIndex
+        }
+        return Self.artworkIndex(seed: seed, count: count)
+    }
+
+    func randomArtworkIndex(count: Int = artworkCount) -> Int? {
+        guard count > 1, let current = artworkIndex(count: count) else { return nil }
+        let offset = Int.random(in: 1..<count)
+        return ((current - 1 + offset) % count) + 1
     }
 
     func artworkURL(style: DiceBearAvatarStyle,
@@ -69,6 +85,21 @@ struct SidebarAvatar: Equatable, Sendable {
         return bundle.url(
             forResource: String(format: "sidebar-avatar-%@-%02d", style.rawValue, index),
             withExtension: "svg")
+    }
+}
+
+extension Project {
+    var sidebarAvatar: SidebarAvatar {
+        SidebarAvatar(
+            subject: kind == .adHoc ? .task : .project,
+            id: id,
+            artworkIndex: sidebarAvatarIndex)
+    }
+}
+
+extension ProjectWorkspace {
+    var sidebarAvatar: SidebarAvatar {
+        SidebarAvatar(subject: .workspace, id: id, artworkIndex: sidebarAvatarIndex)
     }
 }
 

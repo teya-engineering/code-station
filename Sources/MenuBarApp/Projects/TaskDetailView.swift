@@ -63,11 +63,17 @@ struct TaskDetailView: View {
     // beside the button, not something the header can speak for.
     private func header(_ task: Project) -> some View {
         HStack(spacing: 12) {
-            SidebarIdentityTile(
-                avatar: SidebarAvatar(subject: .task, id: task.id),
-                name: task.name,
-                tint: Theme.projectTint(for: task.name),
-                dashed: true)
+            Button { store.changeSidebarAvatar(forProject: task.id) } label: {
+                SidebarIdentityTile(
+                    avatar: task.sidebarAvatar,
+                    name: task.name,
+                    tint: Theme.projectTint(for: task.name),
+                    dashed: true)
+                    .contentShape(RoundedRectangle(cornerRadius: 7))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Change \(task.name) icon")
+            .appTooltip("Change icon")
             Text(task.name)
                 .font(.serif(17, .semibold))
                 .lineLimit(1)
