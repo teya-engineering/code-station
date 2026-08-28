@@ -12,16 +12,15 @@ import SwiftTerm
 final class PTY: @unchecked Sendable {
     private let lock = NSLock()
     private var master: Int32 = -1
-    private var child: pid_t = -1
+    // The shell by pid and start time, so a signal meant for it can never land on a
+    // later process given the same number.
+    private var child: ProcessIdentity?
     private var readSource: DispatchSourceRead?
     private var exitSource: DispatchSourceProcess?
     // The children the shell keeps for itself, so the user's commands stand out.
     private var baselineChildren: Set<pid_t>?
-    // Where this shell is written down, so it can be found again if the app dies before
-    // it does.
-    private var marker: URL?
 
-    // Both run on the main actor.
+    // Called from the pty's own queues; the owner hops to the main actor itself.
     private let onOutput: @Sendable (Data) -> Void
     private let onExit: @Sendable (Int32) -> Void
     private let registry: ShellRegistry
@@ -39,12 +38,6 @@ final class PTY: @unchecked Sendable {
         self.onExit = onExit
     }
 
-    var isRunning: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return child > 0
-    }
-
     // Whether a command is running in this shell, which is what puts the dot on a tab.
     //
     // This compares the shell's children against the ones it had when it first settled.
@@ -54,50 +47,23 @@ final class PTY: @unchecked Sendable {
     // plain "has any child" is always true for anyone whose shell keeps a helper alive
     // (a prompt's git status daemon, for one). What is left after the baseline is a
     // process the shell started for the user.
-    var isBusy: Bool {
-        lock.lock()
-        let pid = child
-        let baseline = baselineChildren
-        lock.unlock()
-        // Until the shell has settled there is nothing to compare against, and calling
-        // its startup work "running" would light every tab for a moment.
-        guard pid > 0, let baseline else { return false }
-        return !Self.children(of: pid).subtracting(baseline).isEmpty
-    }
-
-    // Reads the current state and folds it into the baseline, which is the set of
-    // children the shell has had *every* time it was looked at. A helper the shell
-    // keeps alive is in all of them and so never counts; a command comes and goes and
-    // so drops out on its own. That self-correction matters because a snapshot taken
-    // once could be taken while a command happened to be running, and would then treat
-    // it as part of the furniture forever.
+    //
+    // Each call folds what it sees into the baseline, which is the set of children the
+    // shell has had *every* time it was looked at. A helper the shell keeps alive is in
+    // all of them and so never counts; a command comes and goes and so drops out on its
+    // own. That self-correction matters because a snapshot taken once could be taken
+    // while a command happened to be running, and would then treat it as part of the
+    // furniture forever. The first call only seeds the baseline and reports idle.
     @discardableResult
     func sampleBusy() -> Bool {
-        lock.lock()
-        let pid = child
-        let baseline = baselineChildren
-        lock.unlock()
-        guard pid > 0 else { return false }
+        let (pid, baseline) = lock.withLock { (child?.pid, baselineChildren) }
+        guard let pid else { return false }
 
         let current = Self.children(of: pid)
         let busy = baseline.map { !current.subtracting($0).isEmpty } ?? false
 
-        lock.lock()
-        baselineChildren = baseline.map { $0.intersection(current) } ?? current
-        lock.unlock()
+        lock.withLock { baselineChildren = baseline.map { $0.intersection(current) } ?? current }
         return busy
-    }
-
-    // Seeds the baseline with whatever the shell has running for itself right now.
-    func captureIdleBaseline() {
-        lock.lock()
-        let pid = child
-        lock.unlock()
-        guard pid > 0 else { return }
-        let current = Self.children(of: pid)
-        lock.lock()
-        baselineChildren = current
-        lock.unlock()
     }
 
     private static func children(of pid: pid_t) -> Set<pid_t> {
@@ -145,13 +111,13 @@ final class PTY: @unchecked Sendable {
 
         // Written down before anything else is set up: from here on the shell is a live
         // process that outlives this one unless something closes it.
-        let note = registry.record(shell: process.pid)
+        let shell = ProcessIdentity.of(process.pid)
+        if let shell { registry.record(shell) }
 
-        lock.lock()
-        master = process.masterFd
-        child = process.pid
-        marker = note
-        lock.unlock()
+        lock.withLock {
+            master = process.masterFd
+            child = shell
+        }
 
         startReading(master: process.masterFd)
         startWatching(pid: process.pid)
@@ -173,9 +139,7 @@ final class PTY: @unchecked Sendable {
             handler(Data(buffer[0..<count]))
         }
         source.resume()
-        lock.lock()
-        readSource = source
-        lock.unlock()
+        lock.withLock { readSource = source }
     }
 
     private func startWatching(pid: pid_t) {
@@ -185,15 +149,10 @@ final class PTY: @unchecked Sendable {
         source.setEventHandler { [weak self] in
             var status: Int32 = 0
             waitpid(pid, &status, 0)
-            if let self {
-                self.lock.lock()
-                self.child = -1
-                let note = self.marker
-                self.marker = nil
-                self.lock.unlock()
+            if let self, let shell = self.takeChild() {
                 // A shell that exited on its own is nobody's to close, so the note goes
                 // with it rather than waiting for whoever still holds this object.
-                self.registry.forget(note)
+                self.registry.forget(shell)
             }
             // A shell that exits normally reports its own status; a killed one reports
             // the signal, which is still "it is gone" as far as the UI cares.
@@ -201,24 +160,29 @@ final class PTY: @unchecked Sendable {
             handler(Int32(code))
         }
         source.resume()
-        lock.lock()
-        exitSource = source
-        lock.unlock()
+        lock.withLock { exitSource = source }
     }
 
     private func finishReading() {
-        lock.lock()
-        readSource?.cancel()
-        readSource = nil
-        lock.unlock()
+        lock.withLock {
+            readSource?.cancel()
+            readSource = nil
+        }
+    }
+
+    // Hands the shell over and forgets it, so only one caller ever acts on its exit.
+    private func takeChild() -> ProcessIdentity? {
+        lock.withLock {
+            let shell = child
+            child = nil
+            return shell
+        }
     }
 
     // MARK: - Talking to the shell
 
     func write(_ data: Data) {
-        lock.lock()
-        let fd = master
-        lock.unlock()
+        let fd = lock.withLock { master }
         guard fd >= 0, !data.isEmpty else { return }
         data.withUnsafeBytes { raw in
             guard let base = raw.baseAddress else { return }
@@ -234,9 +198,7 @@ final class PTY: @unchecked Sendable {
     // The shell needs the real size or anything that draws a full line - progress
     // bars, wrapped prompts - wraps in the wrong place.
     func resize(columns: Int, rows: Int) {
-        lock.lock()
-        let fd = master
-        lock.unlock()
+        let fd = lock.withLock { master }
         guard fd >= 0 else { return }
         var size = winsize(ws_row: UInt16(max(rows, 1)), ws_col: UInt16(max(columns, 1)),
                            ws_xpixel: 0, ws_ypixel: 0)
@@ -245,29 +207,21 @@ final class PTY: @unchecked Sendable {
 
     // MARK: - Stopping
 
-    // SIGHUP is what closing a terminal window sends, so a shell tears itself and its
-    // children down the way it normally would.
+    // The registry hangs the shell up, which is what closing a terminal window does, and
+    // waits for it in the background so the note on disk is only dropped once the shell
+    // has really gone. Nothing here waits, so a tab closes at once.
     func stop() {
-        lock.lock()
-        let pid = child
-        let fd = master
-        let note = marker
-        readSource?.cancel()
-        exitSource?.cancel()
-        readSource = nil
-        exitSource = nil
-        child = -1
-        master = -1
-        marker = nil
-        lock.unlock()
-
-        if pid > 0 {
-            // Signal the whole process group so a running build goes too.
-            kill(-pid, SIGHUP)
-            kill(pid, SIGHUP)
+        let fd = lock.withLock {
+            readSource?.cancel()
+            exitSource?.cancel()
+            readSource = nil
+            exitSource = nil
+            let fd = master
+            master = -1
+            return fd
         }
+        if let shell = takeChild() { registry.retire(shell) }
         if fd >= 0 { close(fd) }
-        registry.forget(note)
     }
 
     deinit { stop() }

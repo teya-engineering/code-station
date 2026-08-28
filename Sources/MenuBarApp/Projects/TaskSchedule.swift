@@ -6,6 +6,10 @@ import Foundation
 struct TaskSchedule: Codable, Equatable {
     static let countRange = 1...10_000
     static let timeOfDayRange = 0..<(24 * 60)
+    // What a schedule starts as, and what the editor falls back to when its field holds
+    // nothing it can read.
+    static let defaultInterval = 30
+    static let defaultTimeOfDayMinutes = 9 * 60
 
     enum Timing: String, Codable, CaseIterable, Hashable {
         case interval
@@ -81,11 +85,11 @@ struct TaskSchedule: Codable, Equatable {
 
     var isEnabled = false
     var timing: Timing = .interval
-    var interval = 30
+    var interval = Self.defaultInterval
     var intervalUnit: IntervalUnit = .minutes
     // Minutes after midnight keeps a wall-clock time stable without attaching it to an
     // arbitrary date.
-    var timeOfDayMinutes = 9 * 60
+    var timeOfDayMinutes = Self.defaultTimeOfDayMinutes
     var recurrence: Recurrence = .daily
     var weekday: Weekday = .monday
     var maximumRuns: Int?
@@ -165,16 +169,15 @@ struct TaskSchedule: Codable, Equatable {
         nextRunAt = nil
     }
 
+    // Whether the rule is the same, whatever the timer has done under it since. Runs
+    // completed, the next one due and a run waiting to be confirmed are its progress,
+    // not its setup, so they are the fields left out of the comparison.
     func hasSameConfiguration(as other: TaskSchedule) -> Bool {
-        isEnabled == other.isEnabled
-            && timing == other.timing
-            && interval == other.interval
-            && intervalUnit == other.intervalUnit
-            && timeOfDayMinutes == other.timeOfDayMinutes
-            && recurrence == other.recurrence
-            && weekday == other.weekday
-            && maximumRuns == other.maximumRuns
-            && requiresConfirmation == other.requiresConfirmation
+        var configured = self
+        configured.completedRuns = other.completedRuns
+        configured.nextRunAt = other.nextRunAt
+        configured.isWaitingForConfirmation = other.isWaitingForConfirmation
+        return configured == other
     }
 
     func nextDate(after date: Date, calendar: Calendar = .current) -> Date {

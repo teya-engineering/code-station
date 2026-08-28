@@ -38,8 +38,8 @@ enum Attachments {
         // only counts when it comes on its own.
         guard pasteboard.string(forType: .string) == nil,
               let image = pasteboard.readObjects(forClasses: [NSImage.self])?.first as? NSImage,
-              let file = write(image) else { return [] }
-        return [Attachment(url: file)]
+              let pasted = fromImage(image) else { return [] }
+        return [pasted]
     }
 
     static func fromDrop(_ urls: [URL]) -> [Attachment] {
@@ -53,6 +53,8 @@ enum Attachments {
         return Attachment(url: url)
     }
 
+    // An image arrives as whatever format the app that copied it used, so it is re-encoded
+    // as PNG under a name of our own.
     static func fromImage(_ image: NSImage, prefix: String = "pasted") -> Attachment? {
         guard let tiff = image.tiffRepresentation,
               let bitmap = NSBitmapImageRep(data: tiff),
@@ -61,12 +63,6 @@ enum Attachments {
             "\(prefix)-\(UUID().uuidString.prefix(8)).png")
         guard (try? png.write(to: url, options: .atomic)) != nil else { return nil }
         return Attachment(url: url)
-    }
-
-    // A clipboard image arrives as whatever format the app that copied it used, so it is
-    // re-encoded as PNG under a name of our own.
-    private static func write(_ image: NSImage) -> URL? {
-        fromImage(image)?.url
     }
 
     // A pasted file is referenced by path in a conversation that can be resumed later,
@@ -221,7 +217,7 @@ struct AttachmentChip: View {
         HStack(spacing: 6) {
             if let thumbnail {
                 Button {
-                    showPreview(aspectRatio: thumbnail.aspectRatio)
+                    AttachmentImagePreview.show(url, aspectRatio: thumbnail.aspectRatio, in: dialogs)
                 } label: {
                     Image(decorative: thumbnail.image, scale: 1)
                         .resizable()
@@ -276,14 +272,6 @@ struct AttachmentChip: View {
     }
 
     private var missing: Bool { !FileManager.default.fileExists(atPath: url.path) }
-
-    private func showPreview(aspectRatio: CGFloat) {
-        dialogs.show(Dialog(
-            title: url.lastPathComponent,
-            content: AnyView(AttachmentImagePreview(url: url, aspectRatio: aspectRatio)),
-            actions: [.init(label: "Close", kind: .cancel)],
-            width: 760))
-    }
 }
 
 // An image shown at reading size in the transcript, with a click opening the full
@@ -306,7 +294,7 @@ struct InlineImageView: View {
             if let thumbnail {
                 let size = fit(thumbnail)
                 Button {
-                    showPreview(aspectRatio: thumbnail.aspectRatio)
+                    AttachmentImagePreview.show(url, aspectRatio: thumbnail.aspectRatio, in: dialogs)
                 } label: {
                     Image(decorative: thumbnail.image, scale: 1)
                         .resizable()
@@ -354,14 +342,6 @@ struct InlineImageView: View {
                         CGFloat(thumbnail.image.width))
         return CGSize(width: width, height: width / thumbnail.aspectRatio)
     }
-
-    private func showPreview(aspectRatio: CGFloat) {
-        dialogs.show(Dialog(
-            title: url.lastPathComponent,
-            content: AnyView(AttachmentImagePreview(url: url, aspectRatio: aspectRatio)),
-            actions: [.init(label: "Close", kind: .cancel)],
-            width: 760))
-    }
 }
 
 private struct AttachmentImagePreview: View {
@@ -370,6 +350,15 @@ private struct AttachmentImagePreview: View {
 
     @State private var image: ImageThumbnail?
     @State private var failed = false
+
+    // The full-size view, opened the same way from a chip and from an inline image.
+    static func show(_ url: URL, aspectRatio: CGFloat, in dialogs: DialogPresenter) {
+        dialogs.show(Dialog(
+            title: url.lastPathComponent,
+            content: AnyView(AttachmentImagePreview(url: url, aspectRatio: aspectRatio)),
+            actions: [.init(label: "Close", kind: .cancel)],
+            width: 760))
+    }
 
     var body: some View {
         ZStack {

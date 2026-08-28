@@ -56,7 +56,7 @@ struct TaskInput: Codable, Equatable {
     // What the run sheet calls this field. A name written for the prompt reads well enough
     // as a label once its separators are spaces.
     var title: String {
-        if let label, !label.trimmingCharacters(in: .whitespaces).isEmpty { return label }
+        if let label, !label.isBlank { return label }
         let words = name.replacingOccurrences(of: "_", with: " ")
             .replacingOccurrences(of: "-", with: " ")
         return words.prefix(1).uppercased() + words.dropFirst()
@@ -67,7 +67,7 @@ struct TaskInput: Codable, Equatable {
 
     // A toggle always has an answer, so only the other kinds can be left unanswered.
     func isAnswered(_ value: String) -> Bool {
-        kind == .toggle || !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        kind == .toggle || !value.isBlank
     }
 
     // What this input puts in the prompt. A toggle stores which way it is set rather than
@@ -103,24 +103,8 @@ enum TaskTemplate {
     static func placeholders(in prompt: String) -> [String] {
         var found: [String] = []
         var seen = Set<String>()
-        let characters = Array(prompt)
-        var i = 0
-        while i + 1 < characters.count {
-            guard characters[i] == "{", characters[i + 1] == "{" else {
-                i += 1
-                continue
-            }
-            // The scan stops at the first character a name cannot hold, so an unclosed
-            // brace costs a few characters rather than the rest of the prompt.
-            var end = i + 2
-            while end < characters.count, isNameCharacter(characters[end]) { end += 1 }
-            guard end + 1 < characters.count, characters[end] == "}", characters[end + 1] == "}",
-                  let name = validName(String(characters[(i + 2)..<end])) else {
-                i += 2
-                continue
-            }
-            if seen.insert(key(name)).inserted { found.append(name) }
-            i = end + 2
+        for hole in holes(in: prompt) where seen.insert(key(hole.name)).inserted {
+            found.append(hole.name)
         }
         return found
     }
@@ -165,7 +149,7 @@ enum TaskTemplate {
                 guard !filled.asked || !filled.allBlank else { return nil }
                 return filled.text
             }
-        return lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        return lines.joined(separator: "\n").trimmed
     }
 
     // What a run was given, for the line under its name in the run list.
@@ -184,6 +168,27 @@ enum TaskTemplate {
 
     // MARK: - Scanning
 
+    // Every hole in the text: the range it spans, braces included, and the name inside.
+    // The scan stops at the first character a name cannot hold, so an unclosed brace
+    // costs a few characters rather than the rest of the prompt.
+    private static func holes(in text: String) -> [(range: Range<String.Index>, name: String)] {
+        var holes: [(range: Range<String.Index>, name: String)] = []
+        var from = text.startIndex
+        while let open = text.range(of: "{{", range: from..<text.endIndex) {
+            var end = open.upperBound
+            while end < text.endIndex, isNameCharacter(text[end]) { end = text.index(after: end) }
+            guard text[end...].hasPrefix("}}"),
+                  let name = validName(String(text[open.upperBound..<end])) else {
+                from = text.index(after: open.lowerBound)
+                continue
+            }
+            let close = text.index(end, offsetBy: 2)
+            holes.append((open.lowerBound..<close, name))
+            from = close
+        }
+        return holes
+    }
+
     private static func isNameCharacter(_ character: Character) -> Bool {
         character.isLetter || character.isNumber || character == "_" || character == "-"
             || character == " "
@@ -200,28 +205,16 @@ enum TaskTemplate {
         var out = ""
         var asked = false
         var allBlank = true
-        let characters = Array(line)
-        var i = 0
-        while i < characters.count {
-            guard i + 1 < characters.count, characters[i] == "{", characters[i + 1] == "{" else {
-                out.append(characters[i])
-                i += 1
-                continue
-            }
-            var end = i + 2
-            while end < characters.count, isNameCharacter(characters[end]) { end += 1 }
-            guard end + 1 < characters.count, characters[end] == "}", characters[end + 1] == "}",
-                  let name = validName(String(characters[(i + 2)..<end])),
-                  let value = text[key(name)] else {
-                out.append(characters[i])
-                i += 1
-                continue
-            }
+        var copied = line.startIndex
+        for hole in holes(in: line) {
+            guard let value = text[key(hole.name)] else { continue }
+            out += line[copied..<hole.range.lowerBound]
+            out += value
+            copied = hole.range.upperBound
             asked = true
             if !value.isEmpty { allBlank = false }
-            out += value
-            i = end + 2
         }
+        out += line[copied...]
         // Taking a placeholder out at the end of a line leaves the space that ran up to it.
         while out.last == " " || out.last == "\t" { out.removeLast() }
         return (out, asked, allBlank)

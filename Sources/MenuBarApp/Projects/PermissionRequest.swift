@@ -52,7 +52,7 @@ enum PermissionAnswer: Equatable, Sendable {
         case .allowOnce: "allow"
         case .allowAlways: "allow always"
         case .deny: "deny"
-        case .answers(let given): "\(given.count) answer\(given.count == 1 ? "" : "s")"
+        case .answers(let given): counted(given.count, "answer")
         }
     }
 }

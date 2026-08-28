@@ -75,7 +75,7 @@ struct ExplorerView: View {
             }
 
             if let count = children[root]?.count {
-                Text("\(count) item\(count == 1 ? "" : "s")")
+                Text(counted(count, "item"))
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
             }
@@ -203,18 +203,15 @@ struct ExplorerView: View {
             .padding(.vertical, 3)
             .padding(.trailing, 8)
             .padding(.leading, CGFloat(row.depth) * 13 + 6)
-            .background(RoundedRectangle(cornerRadius: 6).fill(isSelected ? Theme.card : .clear))
-            .overlay(RoundedRectangle(cornerRadius: 6).stroke(isSelected ? Theme.border : .clear))
+            .surface(isSelected ? Theme.card : .clear, cornerRadius: 6,
+                     border: isSelected ? Theme.border : .clear)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .appContextMenu {
             [.item("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([node.url]) },
              .item("Open with default app") { NSWorkspace.shared.open(node.url) },
-             .item("Copy Path") {
-                 NSPasteboard.general.clearContents()
-                 NSPasteboard.general.setString(node.path, forType: .string)
-             }]
+             .item("Copy Path") { Pasteboard.copy(node.path) }]
         }
     }
 
@@ -248,24 +245,15 @@ struct ExplorerView: View {
                     if loadingPreview || saving { ProgressView().controlSize(.small) }
                     if dirty { saveButtons(node) }
                     if node.supportsMarkdownPreview {
-                        Button(renderingMarkdown ? "Edit" : "Preview") {
+                        InlineLink(title: renderingMarkdown ? "Edit" : "Preview") {
                             resetFind()
                             renderingMarkdown.toggle()
                         }
-                        .buttonStyle(.plain)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(Theme.accent)
                     }
-                    Button("Open") { NSWorkspace.shared.open(node.url) }
-                        .buttonStyle(.plain)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(Theme.accent)
-                    Button("Reveal in Finder") {
+                    InlineLink(title: "Open") { NSWorkspace.shared.open(node.url) }
+                    InlineLink(title: "Reveal in Finder") {
                         NSWorkspace.shared.activateFileViewerSelecting([node.url])
                     }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Theme.accent)
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 10)
@@ -396,8 +384,7 @@ struct ExplorerView: View {
             .padding(.horizontal, 10)
             .frame(minWidth: 90, idealWidth: 260, maxWidth: 260)
             .frame(height: 28)
-            .background(RoundedRectangle(cornerRadius: 7).fill(Theme.field))
-            .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.border))
+            .fieldSurface(cornerRadius: 7)
 
             Text(findSummary)
                 .font(.mono(10))
@@ -437,8 +424,7 @@ struct ExplorerView: View {
                 .font(.system(size: 9, weight: .bold))
                 .foregroundStyle(Theme.accent.opacity(disabled ? 0.3 : 1))
                 .frame(width: 26, height: 26)
-                .background(RoundedRectangle(cornerRadius: 7).fill(Theme.field))
-                .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.border))
+                .fieldSurface(cornerRadius: 7)
                 .contentShape(RoundedRectangle(cornerRadius: 7))
         }
         .buttonStyle(.plain)
@@ -515,28 +501,11 @@ struct ExplorerView: View {
     // pane holds anything that could be lost.
     private func saveButtons(_ node: FileNode) -> some View {
         HStack(spacing: 8) {
-            Button { revert() } label: {
-                Text("Revert")
-                    .font(.system(size: 12, weight: .semibold))
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 5)
-                    .background(Capsule().fill(Theme.card))
-                    .overlay(Capsule().stroke(Theme.border))
-                    .contentShape(Capsule())
+            ActionButton(title: "Revert", tone: .outlined, height: 26, size: 12) { revert() }
+            ActionButton(title: "Save", tone: .green, height: 26, size: 12,
+                         keyboardShortcut: KeyboardShortcut("s", modifiers: .command)) {
+                save(node)
             }
-            .buttonStyle(.plain)
-
-            Button { save(node) } label: {
-                Text("Save")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 5)
-                    .background(Capsule().fill(Theme.accentFill))
-                    .contentShape(Capsule())
-            }
-            .buttonStyle(.plain)
-            .keyboardShortcut("s", modifiers: .command)
             .disabled(saving)
         }
         .fixedSize(horizontal: true, vertical: false)
@@ -632,35 +601,26 @@ struct ExplorerView: View {
             select(node)
             return
         }
-        dialogs.show(Dialog(
-            title: "Discard changes?",
-            message: "Edits to \(selected?.name ?? "this file") have not been saved.",
-            actions: [
-                .init(label: "Discard", kind: .destructive) { select(node) },
-                .init(label: "Keep editing", kind: .cancel)
-            ]))
+        confirmDiscard { select(node) }
     }
 
     private func revert() {
-        dialogs.show(Dialog(
-            title: "Discard changes?",
-            message: "Edits to \(selected?.name ?? "this file") have not been saved.",
-            actions: [
-                .init(label: "Discard", kind: .destructive) { draft = original },
-                .init(label: "Keep editing", kind: .cancel)
-            ]))
+        confirmDiscard { draft = original }
+    }
+
+    private func confirmDiscard(then discard: @escaping () -> Void) {
+        dialogs.show(.confirm("Discard changes?",
+                              message: "Edits to \(selected?.name ?? "this file") have not been saved.",
+                              action: "Discard", cancel: "Keep editing", handler: discard))
     }
 
     private func save(_ node: FileNode) {
         Task {
             guard await FileTree.modified(of: node.url) == loadedAt else {
-                dialogs.show(Dialog(
-                    title: "The file has changed",
+                dialogs.show(.confirm(
+                    "The file has changed",
                     message: "\(node.name) was written by something else since it was opened here. Saving replaces what is on disk now.",
-                    actions: [
-                        .init(label: "Save anyway", kind: .destructive) { write(node) },
-                        .init(label: "Cancel", kind: .cancel)
-                    ]))
+                    action: "Save anyway") { write(node) })
                 return
             }
             write(node)
@@ -674,10 +634,7 @@ struct ExplorerView: View {
             let failure = await FileTree.write(saved, to: node.url)
             saving = false
             if let failure {
-                dialogs.show(Dialog(
-                    title: "Could not save",
-                    message: failure,
-                    actions: [.init(label: "OK", kind: .cancel)]))
+                dialogs.show(.notice("Could not save", message: failure))
                 return
             }
             // The pane is left exactly as it is, caret and scroll included. Only what the

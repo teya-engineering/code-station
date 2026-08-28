@@ -20,10 +20,7 @@ struct ConfigManagerView: View {
             header
             Divider().overlay(Theme.hairline)
             if let persistenceError = store.loadError ?? store.saveError {
-                HStack(spacing: 8) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                    Text(persistenceError).fixedSize(horizontal: false, vertical: true)
-                    Spacer()
+                WarningStrip(persistenceError) {
                     Button(store.loadError == nil ? "Retry" : "Reload") {
                         if store.loadError == nil {
                             store.flushPendingSave()
@@ -31,13 +28,9 @@ struct ConfigManagerView: View {
                             store.load()
                         }
                     }
-                        .buttonStyle(.plain)
-                        .underline()
+                    .buttonStyle(.plain)
+                    .underline()
                 }
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(Theme.warningText)
-                .padding(.horizontal, 20).padding(.vertical, 10)
-                .background(Theme.warningBackground)
             }
             HStack(spacing: 0) {
                 sidebar
@@ -53,7 +46,7 @@ struct ConfigManagerView: View {
         .sheet(isPresented: $showingAddJSON) { AddJSONServerView() }
         .onAppear { refreshIntegrations() }
         .onChange(of: filter) {
-            if !trimmedFilter.isEmpty { agentConfiguredExpanded = true }
+            if !filter.isBlank { agentConfiguredExpanded = true }
         }
         .onChange(of: agentConfiguredServers.map(\.name)) {
             guard let selectedAgentConfiguredName,
@@ -85,15 +78,7 @@ struct ConfigManagerView: View {
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(.secondary)
             }
-            .appMenu {
-                [.item("Reload from disk") {
-                    store.load()
-                    refreshIntegrations()
-                 },
-                 .item("Reveal config in Finder") {
-                     NSWorkspace.shared.activateFileViewerSelecting([store.configURL])
-                 }]
-            }
+            .appMenu { configFileMenuEntries }
 
             Spacer()
         }
@@ -126,8 +111,7 @@ struct ConfigManagerView: View {
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
-            .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
-            .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
+            .fieldSurface(cornerRadius: 9)
             .padding(.horizontal, 16)
             .padding(.bottom, 12)
 
@@ -165,7 +149,7 @@ struct ConfigManagerView: View {
                         AgentConfiguredGroupHeader(
                             total: filteredAgentConfiguredServers.count,
                             expanded: $agentConfiguredExpanded)
-                        if agentConfiguredExpanded || !trimmedFilter.isEmpty {
+                        if agentConfiguredExpanded || !filter.isBlank {
                             VStack(spacing: 4) {
                                 ForEach(filteredAgentConfiguredServers) { row(for: $0) }
                             }
@@ -173,7 +157,7 @@ struct ConfigManagerView: View {
                         }
                     }
                     if grafanaServers.isEmpty && otherServers.isEmpty
-                        && filteredAgentConfiguredServers.isEmpty && !trimmedFilter.isEmpty {
+                        && filteredAgentConfiguredServers.isEmpty && !filter.isBlank {
                         Text("No servers match.")
                             .font(.system(size: 12))
                             .foregroundStyle(.secondary)
@@ -188,38 +172,17 @@ struct ConfigManagerView: View {
             Spacer(minLength: 0)
 
             VStack(spacing: 10) {
-                let needing = claude.serversNeedingSync(store.servers)
-                if claude.available, !needing.isEmpty {
-                    Button {
+                if claude.available {
+                    syncButton(needing: claude.serversNeedingSync(store.servers).count,
+                               busy: claude.bulkBusy, label: "Claude Code") {
                         claude.syncAll(store.servers)
-                    } label: {
-                        Text(claude.bulkBusy ? "Syncing…" : "Sync \(needing.count) to Claude Code")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(Theme.accent)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 10)
-                            .background(RoundedRectangle(cornerRadius: 10).fill(Theme.accent.opacity(0.10)))
-                            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.accent.opacity(0.35)))
                     }
-                    .buttonStyle(.plain)
-                    .disabled(claude.bulkBusy)
                 }
-
-                let codexNeeding = codex.serversNeedingSync(store.servers)
-                if codex.available, !codexNeeding.isEmpty {
-                    Button {
+                if codex.available {
+                    syncButton(needing: codex.serversNeedingSync(store.servers).count,
+                               busy: codex.bulkBusy, label: "Codex") {
                         codex.syncAll(store.servers)
-                    } label: {
-                        Text(codex.bulkBusy ? "Syncing…" : "Sync \(codexNeeding.count) to Codex")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(Theme.accent)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 10)
-                            .background(RoundedRectangle(cornerRadius: 10).fill(Theme.accent.opacity(0.10)))
-                            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.accent.opacity(0.35)))
                     }
-                    .buttonStyle(.plain)
-                    .disabled(codex.bulkBusy)
                 }
 
                 Text("+ Add server")
@@ -240,17 +203,8 @@ struct ConfigManagerView: View {
                 .foregroundStyle(.primary)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 9)
-                .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
-                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.hairline))
-                .appMenu {
-                    [.item("Reload from disk") {
-                        store.load()
-                        refreshIntegrations()
-                     },
-                     .item("Reveal config in Finder") {
-                        NSWorkspace.shared.activateFileViewerSelecting([store.configURL])
-                     }]
-                }
+                .surface(Theme.card, cornerRadius: 10, border: Theme.hairline)
+                .appMenu { configFileMenuEntries }
 
                 Text(collapsedPath)
                     .font(.mono(11))
@@ -265,12 +219,39 @@ struct ConfigManagerView: View {
         .background(Theme.sidebar)
     }
 
-    private var trimmedFilter: String {
-        filter.trimmingCharacters(in: .whitespaces)
+    // Offered only while an agent has something to catch up on, so the sidebar stays
+    // quiet once both are in step with the app's own list.
+    @ViewBuilder private func syncButton(needing: Int, busy: Bool, label: String,
+                                         action: @escaping () -> Void) -> some View {
+        if needing > 0 {
+            Button(action: action) {
+                Text(busy ? "Syncing…" : "Sync \(needing) to \(label)")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Theme.accent)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .surface(Theme.accent.opacity(0.10), cornerRadius: 10,
+                             border: Theme.accent.opacity(0.35))
+                    .contentShape(RoundedRectangle(cornerRadius: 10))
+            }
+            .buttonStyle(.plain)
+            .disabled(busy)
+        }
+    }
+
+    private var configFileMenuEntries: [MenuEntry] {
+        [.item("Reload from disk") {
+            store.load()
+            refreshIntegrations()
+         },
+         .item("Reveal config in Finder") {
+             NSWorkspace.shared.activateFileViewerSelecting([store.configURL])
+         }]
     }
 
     private func matches(_ name: String) -> Bool {
-        trimmedFilter.isEmpty || name.localizedCaseInsensitiveContains(trimmedFilter)
+        let term = filter.trimmed
+        return term.isEmpty || name.localizedCaseInsensitiveContains(term)
     }
 
     private var grafanaServers: [Server] {

@@ -351,7 +351,7 @@ struct ChatMessage: Identifiable, Codable, Equatable, Sendable {
     var checkpoint: ConversationCheckpoint?
 
     var isEmpty: Bool {
-        text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        text.isBlank
             && tools.isEmpty
             && (attachments?.isEmpty ?? true)
             && (thinking?.isEmpty ?? true)
@@ -594,8 +594,7 @@ struct ChatSession: Identifiable, Codable, Equatable {
     // title on blanks, so runs collapse to one space before it is cut to length.
     mutating func retitleIfNeeded(from prompt: String) {
         guard title == "New session" else { return }
-        let line = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-            .split(separator: "\n").first.map(String.init) ?? ""
+        let line = prompt.trimmed.split(separator: "\n").first.map(String.init) ?? ""
         let words = line.split(whereSeparator: \.isWhitespace).joined(separator: " ")
         guard !words.isEmpty else { return }
         title = words.count > 48 ? String(words.prefix(48)) + "…" : words

@@ -22,18 +22,9 @@ struct MobileAccessButton: View {
         } else {
             Color.secondary
         }
-        return Button { open() } label: {
-            Image(systemName: "qrcode")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(tint)
-                .frame(width: 30, height: 30)
-                .background(RoundedRectangle(cornerRadius: 8).fill(Theme.card))
-                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .appTooltip(tooltip(shared: share != nil, connected: connected))
-        .accessibilityLabel(tooltip(shared: share != nil, connected: connected))
+        return GlyphButton(icon: "qrcode", tint: tint, action: open)
+            .appTooltip(tooltip(shared: share != nil, connected: connected))
+            .accessibilityLabel(tooltip(shared: share != nil, connected: connected))
     }
 
     private func tooltip(shared: Bool, connected: Bool) -> String {
@@ -158,8 +149,7 @@ struct MobilePairingView: View {
                             .resizable()
                             .frame(width: 214, height: 214)
                             .padding(18)
-                            .background(RoundedRectangle(cornerRadius: 12).fill(.white))
-                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.border))
+                            .surface(.white, cornerRadius: 12)
                     }
 
                     HStack(spacing: 7) {
@@ -224,7 +214,6 @@ struct MobilePairingView: View {
                          tone: .green, height: 38, size: 13, fills: true,
                          action: startSharing)
                 .disabled(starting)
-                .opacity(starting ? 0.5 : 1)
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 12)

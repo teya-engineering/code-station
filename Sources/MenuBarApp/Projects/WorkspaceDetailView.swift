@@ -26,7 +26,7 @@ struct WorkspaceDetailView: View {
     // enough and each row does not need state of its own.
     @State private var hoveredProjectID: UUID?
 
-    private var terminalScope: TerminalScope { .project(workspaceID) }
+    private var terminalScope: TerminalScope { .workspace(workspaceID) }
 
     var body: some View {
         if let workspace = store.workspace(workspaceID) {
@@ -95,7 +95,6 @@ struct WorkspaceDetailView: View {
                     creatingSession = workspace
                 }
                 .disabled(hasMissingProjects(workspace))
-                .opacity(hasMissingProjects(workspace) ? 0.45 : 1)
             }
             .fixedSize(horizontal: true, vertical: false)
             .layoutPriority(1)
@@ -383,7 +382,7 @@ struct WorkspaceDetailView: View {
                 freshen(project, report: report)
             }]
         }
-        return [.item("Pull \(report.behind) commit\(report.behind == 1 ? "" : "s")",
+        return [.item("Pull \(counted(report.behind, "commit"))",
                       subtitle: "Fast-forward pull from \(report.remoteRef ?? "origin").") {
             freshen(project, report: report)
         }]
@@ -408,9 +407,7 @@ struct WorkspaceDetailView: View {
             }
             updating.remove(project.id)
             if let error {
-                dialogs.show(Dialog(title: "Could not update \(project.name)",
-                                    message: error,
-                                    actions: [.init(label: "OK", kind: .cancel)]))
+                dialogs.show(.notice("Could not update \(project.name)", message: error))
             }
         }
     }
@@ -602,45 +599,10 @@ struct WorkspaceDetailView: View {
         let projects = workspace.projectIDs.count
         return FooterStrip(
             title: "Delete this workspace",
-            detail: "\(sessions.count) session\(sessions.count == 1 ? "" : "s") and their worktrees go with it · its \(projects) projects stay") {
+            detail: "\(counted(sessions.count, "session")) and their worktrees go with it · its \(projects) projects stay") {
             ActionButton(title: "Delete workspace", tone: .danger, size: 12) {
-                confirmRemoval(workspace, sessions: sessions)
+                WorkspaceRemoval.confirm(workspace, in: store, runner: runner, dialogs: dialogs)
             }
-        }
-    }
-
-    private func confirmRemoval(_ workspace: ProjectWorkspace, sessions: [ChatSession]) {
-        let count = sessions.count
-        dialogs.show(Dialog(
-            title: "Delete \(workspace.name)?",
-            message: "This drops \(count) session\(count == 1 ? "" : "s") and removes their worktrees. The \(workspace.projectIDs.count) projects it groups stay.",
-            actions: [
-                .init(label: "Delete workspace", kind: .destructive) {
-                    remove(workspace, sessions: sessions)
-                },
-                .init(label: "Cancel", kind: .cancel)
-            ]))
-    }
-
-    // The workspace only goes once every session in it is gone, so a worktree that
-    // refuses to be removed leaves the page as it was rather than orphaning a checkout.
-    private func remove(_ workspace: ProjectWorkspace, sessions: [ChatSession]) {
-        Task {
-            var failures: [SessionLifecycle.Failure] = []
-            for session in sessions {
-                if case .failure(let failure) = await SessionLifecycle.remove(
-                    session, from: store, runner: runner) {
-                    failures.append(failure)
-                }
-            }
-            guard failures.isEmpty else {
-                showCreationError(failures.map(\.message).joined(separator: "\n"),
-                                  title: failures.count == 1
-                                      ? failures[0].title
-                                      : "Could not delete some sessions")
-                return
-            }
-            store.removeWorkspace(workspace.id)
         }
     }
 
@@ -692,10 +654,7 @@ struct WorkspaceDetailView: View {
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
         }
-        .font(.system(size: 12, weight: .medium))
-        .foregroundStyle(Theme.warningText)
-        .padding(12)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.warningBackground))
+        .warningCard()
     }
 
     private func attachableProjects(_ workspace: ProjectWorkspace) -> [Project] {
@@ -703,13 +662,9 @@ struct WorkspaceDetailView: View {
     }
 
     private func addFolder(to workspace: ProjectWorkspace) {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        panel.prompt = "Add Folder"
-        panel.message = "Pick a folder to add to this workspace."
-        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard let url = FilePicker.chooseFolder(
+            prompt: "Add Folder",
+            message: "Pick a folder to add to this workspace.") else { return }
         let added = store.addProject(at: url)
         guard let id = added?.id ?? store.selectedProjectID else { return }
         store.addProject(id, toWorkspace: workspace.id)
@@ -732,14 +687,8 @@ struct WorkspaceDetailView: View {
             case .success:
                 break
             case .failure(let failure):
-                showCreationError(failure.message, title: failure.title)
+                dialogs.show(.notice(failure.title, message: failure.message))
             }
         }
-    }
-
-    private func showCreationError(_ message: String,
-                                   title: String = "Could not create the session") {
-        dialogs.show(Dialog(title: title, message: message,
-                            actions: [.init(label: "OK", kind: .cancel)]))
     }
 }

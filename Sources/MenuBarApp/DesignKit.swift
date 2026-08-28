@@ -575,6 +575,9 @@ enum ButtonTone {
     // It wears the same colour as the destructive button in a dialog, so the click that
     // opens the dialog and the click that confirms it read as the same action.
     case danger
+    // The amber the app uses for things that want a look, for an action that puts a
+    // drifted setting right.
+    case attention
     // Beside a primary one, or on its own where the action is a choice rather than the
     // point of the row.
     case outlined
@@ -644,7 +647,7 @@ struct ActionButton: View {
 
     private var label: Color {
         switch tone {
-        case .dark, .green, .danger: Color.white
+        case .dark, .green, .danger, .attention: Color.white
         case .outlined, .sunken: Color.primary
         }
     }
@@ -654,6 +657,7 @@ struct ActionButton: View {
         case .dark: Color.black.opacity(lit ? 0.82 : 0.9)
         case .green: lit ? Theme.accentFill.opacity(0.86) : Theme.accentFill
         case .danger: lit ? Theme.deletion.opacity(0.86) : Theme.deletion
+        case .attention: lit ? Theme.secret.opacity(0.86) : Theme.secret
         case .outlined: lit ? Theme.field : .clear
         case .sunken: lit ? Theme.border : Theme.field
         }
@@ -661,7 +665,7 @@ struct ActionButton: View {
 
     private var stroke: Color {
         switch tone {
-        case .dark, .green, .danger: .clear
+        case .dark, .green, .danger, .attention: .clear
         case .outlined, .sunken: Theme.border
         }
     }

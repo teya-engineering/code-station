@@ -28,10 +28,7 @@ struct SkillMarketplaceConfiguration: Codable, Equatable, Sendable {
     let label: String
 
     var isLocalFile: Bool { sourceKind == .localFile }
-    var isValid: Bool {
-        !source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && !marketplace.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
+    var isValid: Bool { !source.isBlank && !marketplace.isBlank }
 
     static func siteDefault(_ skills: SiteDefaults.Skills) -> Self {
         Self(source: skills.repository,
@@ -181,12 +178,15 @@ final class SkillsManager {
     var isConfigured: Bool { configuration != nil }
 
     private var cacheURL: URL {
+        cacheURL(custom: Preferences.skillsMarketplace(in: preferences) != nil)
+    }
+
+    // Where a Git marketplace is checked out. A marketplace chosen by hand always uses
+    // the same folder, so switching between repositories cannot leave clones behind.
+    private func cacheURL(custom: Bool) -> URL {
         if let cacheURLOverride { return cacheURLOverride }
-        let name = Preferences.skillsMarketplace(in: preferences) == nil
-            ? marketplaceName
-            : "custom"
         return AppPaths.directory("marketplaces", backedUp: false)
-            .appendingPathComponent(name, isDirectory: true)
+            .appendingPathComponent(custom ? "custom" : marketplaceName, isDirectory: true)
     }
 
     struct Action: Hashable, Sendable {
@@ -269,24 +269,14 @@ final class SkillsManager {
         catalogueNotice = nil
         hostFailures = [:]
         Preferences.setSkillsMarketplace(configuration, in: preferences)
-        Preferences.setSkillsLastRefresh(Date(), in: preferences)
-
-        async let claudeLoad = Self.loadInstallations(for: .claude,
-                                                       marketplace: configuration.marketplace)
-        async let codexLoad = Self.loadInstallations(for: .codex,
-                                                      marketplace: configuration.marketplace)
-        let (claude, codex) = await (claudeLoad, codexLoad)
-
-        setMarketplace(catalogue)
-        apply(claude, to: .claude)
-        apply(codex, to: .codex)
-        isRefreshing = false
-        hasLoaded = true
+        await finishLoad(marketplace: configuration.marketplace) {
+            CatalogueLoad(marketplace: catalogue, notice: nil, didRefresh: true)
+        }
     }
 
     func configure(gitRepository source: String) async throws {
         guard !isRefreshing else { return }
-        let source = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        let source = source.trimmed
         guard !source.isEmpty else { throw ImportError("Enter a Git repository.") }
 
         isRefreshing = true
@@ -294,12 +284,9 @@ final class SkillsManager {
         hostFailures = [:]
         defer { isRefreshing = false }
 
-        let load = await Self.loadGitCatalogue(source: source,
-                                               at: cacheURLOverride
-                                                   ?? AppPaths.directory("marketplaces",
-                                                                         backedUp: false)
-                                                       .appendingPathComponent("custom",
-                                                                               isDirectory: true),
+        // The repository is read before anything is saved: its manifest names the
+        // marketplace, and that name is what the installation lookups are keyed by.
+        let load = await Self.loadGitCatalogue(source: source, at: cacheURL(custom: true),
                                                forceClone: true)
         guard let catalogue = load.marketplace else {
             throw ImportError(load.notice ?? "The marketplace could not be loaded.")
@@ -310,18 +297,7 @@ final class SkillsManager {
             marketplace: catalogue.name,
             label: catalogue.name)
         Preferences.setSkillsMarketplace(configuration, in: preferences)
-        Preferences.setSkillsLastRefresh(Date(), in: preferences)
-
-        async let claudeLoad = Self.loadInstallations(for: .claude,
-                                                       marketplace: configuration.marketplace)
-        async let codexLoad = Self.loadInstallations(for: .codex,
-                                                      marketplace: configuration.marketplace)
-        let (claude, codex) = await (claudeLoad, codexLoad)
-
-        setMarketplace(catalogue)
-        apply(claude, to: .claude)
-        apply(codex, to: .codex)
-        hasLoaded = true
+        await finishLoad(marketplace: configuration.marketplace) { load }
     }
 
     func refresh() async {
@@ -330,21 +306,26 @@ final class SkillsManager {
         catalogueNotice = nil
         hostFailures = [:]
 
-        let selectedConfiguration = configuration
-        let marketplaceName = selectedConfiguration?.marketplace ?? ""
+        let selected = configuration
+        await finishLoad(marketplace: selected?.marketplace ?? "") {
+            await Self.loadCatalogue(configuration: selected, at: cacheURL)
+        }
+    }
 
-        async let catalogueLoad = Self.loadCatalogue(configuration: selectedConfiguration,
-                                                      at: cacheURL)
-        async let claudeLoad = Self.loadInstallations(for: .claude,
-                                                       marketplace: marketplaceName)
-        async let codexLoad = Self.loadInstallations(for: .codex,
-                                                      marketplace: marketplaceName)
+    // The tail every load shares. Both hosts are asked what they have installed while
+    // the catalogue is still arriving, and the catalogue, its notice and the
+    // installations are published together so the list never shows one without the
+    // others.
+    private func finishLoad(marketplace: String,
+                            catalogue: () async -> CatalogueLoad) async {
+        async let claudeLoad = Self.loadInstallations(for: .claude, marketplace: marketplace)
+        async let codexLoad = Self.loadInstallations(for: .codex, marketplace: marketplace)
+        let load = await catalogue()
+        let (claude, codex) = await (claudeLoad, codexLoad)
 
-        let (catalogue, claude, codex) = await (catalogueLoad, claudeLoad, codexLoad)
-
-        setMarketplace(catalogue.marketplace)
-        catalogueNotice = catalogue.notice
-        if catalogue.didRefresh {
+        setMarketplace(load.marketplace)
+        catalogueNotice = load.notice
+        if load.didRefresh {
             Preferences.setSkillsLastRefresh(Date(), in: preferences)
         }
         apply(claude, to: .claude)
@@ -479,7 +460,7 @@ final class SkillsManager {
         } catch {
             throw ImportError("The marketplace file is not valid: \(error.localizedDescription)")
         }
-        guard !marketplace.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        guard !marketplace.name.isBlank else {
             throw ImportError("The marketplace file must contain a name.")
         }
         return (SkillMarketplaceConfiguration(source: url.path,
@@ -493,22 +474,10 @@ final class SkillsManager {
         guard !hasLoaded, !isRefreshing else { return }
         isRefreshing = true
 
-        let selectedConfiguration = configuration
-        let marketplaceName = selectedConfiguration?.marketplace ?? ""
-        let catalogue = Self.loadCachedCatalogue(configuration: selectedConfiguration,
-                                                  at: cacheURL)
-        async let claudeLoad = Self.loadInstallations(for: .claude,
-                                                       marketplace: marketplaceName)
-        async let codexLoad = Self.loadInstallations(for: .codex,
-                                                      marketplace: marketplaceName)
-        let (claude, codex) = await (claudeLoad, codexLoad)
-
-        setMarketplace(catalogue.marketplace)
-        catalogueNotice = catalogue.notice
-        apply(claude, to: .claude)
-        apply(codex, to: .codex)
-        isRefreshing = false
-        hasLoaded = true
+        let selected = configuration
+        await finishLoad(marketplace: selected?.marketplace ?? "") {
+            Self.loadCachedCatalogue(configuration: selected, at: cacheURL)
+        }
     }
 
     private nonisolated static func loadCachedCatalogue(
@@ -735,9 +704,7 @@ final class SkillsManager {
         var ok: Bool { status == 0 }
 
         var failureMessage: String {
-            let error = errorText.trimmingCharacters(in: .whitespacesAndNewlines)
-            let standard = output.trimmingCharacters(in: .whitespacesAndNewlines)
-            let text = error.isEmpty ? standard : error
+            let text = errorText.isBlank ? output.trimmed : errorText.trimmed
             return text.isEmpty ? "Command failed with exit code \(status)."
                 : String(text.prefix(4_000))
         }

@@ -32,44 +32,61 @@ final class SessionRunner {
     private(set) var rateLimits: [AgentKind: [String: RateLimit]] = [:]
     private(set) var rateLimitsUpdatedAt: [AgentKind: Date] = [:]
 
-    private var states: [UUID: SessionState] = [:]
-    private var runningTools: [UUID: [ToolUse]] = [:]
-    private var turns: [UUID: Turn] = [:]
-    private var avatarSequences: [UUID: Int] = [:]
-    // Everything the agent is waiting on, oldest first. Parallel tool calls can park more
-    // than one at a time, and each is answered on its own.
-    private var asked: [UUID: [PermissionRequest]] = [:]
-    // What has been typed but not run yet, oldest first. Everything goes through here, so
-    // a prompt typed mid-turn keeps its place behind the ones before it.
-    private var queues: [UUID: [QueuedPrompt]] = [:]
-    // Design and Build share one checkout. A turn for one side waits here while the other
-    // side is using it, then starts as soon as that turn releases the directory.
-    private var designWorkflowDirectoryWaits: Set<UUID> = []
+    // Everything the runner keeps about one session, in one place so that removing the
+    // session is one delete and nothing is left behind. Most of it outlives any single
+    // turn: the queue, what the last turn left to pick up, which nudge was waved away. The
+    // turn itself and what it is doing right now are cleared when it ends.
+    private struct SessionRecord {
+        var state: SessionState = .idle
+        var turn: Turn?
+        // Which avatar the next turn wears. Each turn takes the next number in order.
+        var nextAvatarSequence = 0
+        // The tool calls the turn is inside, oldest first. Parallel calls can nest more
+        // than one.
+        var runningTools: [ToolUse] = []
+        // Everything the agent is waiting on, oldest first. Parallel tool calls can park
+        // more than one at a time, and each is answered on its own.
+        var asked: [PermissionRequest] = []
+        // What has been typed but not run yet, oldest first. Everything goes through here,
+        // so a prompt typed mid-turn keeps its place behind the ones before it.
+        var queue: [QueuedPrompt] = []
+        // Design and Build share one checkout. A turn for one side waits here while the
+        // other side is using it, then starts as soon as that turn releases the directory.
+        var waitsForDesignWorkflowDirectory = false
+        var isBeingRemoved = false
+        // The turn that ended short and left a conversation that can be picked up again.
+        // The offer stands until the next prompt is sent.
+        var continuable: ResumeReason?
+        // The transcript note a running compaction is writing itself into, so its outcome
+        // replaces it rather than piling a second line underneath.
+        var compactNoticeID: UUID?
+        // Whether the current context-limit nudge has been dismissed.
+        var nudgeDismissed = false
+        // What a held-open turn is waiting for. Kept beside the turn rather than on it: a
+        // turn is a class, so a task list changing inside one is not a change any screen
+        // would be told about, and the rows that name the wait would go stale.
+        var wait: Wait?
+
+        // A turn inside a command, parked on a question or holding for a task is quiet
+        // for a reason. Only silence with none of those is a turn that has stopped moving.
+        func expectsSilence(from turn: Turn) -> Bool {
+            !runningTools.isEmpty || !asked.isEmpty || !turn.pendingTasks.isEmpty
+                || turn.waitingOnTasks
+        }
+    }
+
+    private var records: [UUID: SessionRecord] = [:]
     // What is half-written in the composer and not sent yet. The detail pane is built
     // again from nothing every time another session is picked, so this cannot live there
-    // without the words going with it.
+    // without the words going with it. Kept apart from the record because it changes on
+    // every keystroke, and a change to the record redraws every row that watches a session.
     private var drafts: [UUID: Draft] = [:]
     // How wide the canvas is showing the design, in CSS pixels. The agent writes HTML it
     // never sees rendered, so without this it designs for a window it imagined and the
     // layout overflows the pane the user actually has open. Only known while the canvas
-    // is on screen, and left unset rather than guessed when it is not.
-    private var canvasWidths: [UUID: Double] = [:]
-    private var removals: Set<UUID> = []
-    // Terminal agent turns that still have a conversation id and can be continued.
-    private var continuableFailures: Set<UUID> = []
-    // Turns ended by hand that still have a conversation id and can be picked up again.
-    // Nothing went wrong, so the work is left unfinished rather than failed, and the offer
-    // to carry on stands until the next prompt is sent.
-    private var stoppedTurns: Set<UUID> = []
-    // The transcript note a running compaction is writing itself into, so its outcome
-    // replaces it rather than piling a second line underneath.
-    private var compactNotices: [UUID: UUID] = [:]
-    // Sessions whose current context-limit nudge has been dismissed.
-    private var nudgeDismissals: Set<UUID> = []
-    // What a held-open turn is waiting for. Kept beside the turn rather than on it: a turn
-    // is a class, so a task list changing inside one is not a change any screen would be
-    // told about, and the rows that name the wait would go stale.
-    private var waits: [UUID: Wait] = [:]
+    // is on screen, and left unset rather than guessed when it is not. Nothing on screen
+    // reads it, so a resize does not have to redraw anything.
+    @ObservationIgnored private var canvasWidths: [UUID: Double] = [:]
 
     @ObservationIgnored private var paths: [AgentKind: String]
     @ObservationIgnored private let discoversPaths: Bool
@@ -138,11 +155,11 @@ final class SessionRunner {
 
     var available: Bool { isAvailable(agent) }
 
-    func state(_ sessionID: UUID) -> SessionState { states[sessionID] ?? .idle }
+    func state(_ sessionID: UUID) -> SessionState { records[sessionID]?.state ?? .idle }
 
-    func runningTool(_ sessionID: UUID) -> ToolUse? { runningTools[sessionID]?.last }
+    func runningTool(_ sessionID: UUID) -> ToolUse? { records[sessionID]?.runningTools.last }
 
-    func avatarSequence(_ sessionID: UUID) -> Int? { turns[sessionID]?.avatarSequence }
+    func avatarSequence(_ sessionID: UUID) -> Int? { records[sessionID]?.turn?.avatarSequence }
 
     func refreshContext(_ sessionID: UUID, store: ProjectStore) {
         guard let session = store.session(sessionID), session.agent == .codex,
@@ -151,26 +168,28 @@ final class SessionRunner {
     }
 
     private func setState(_ state: SessionState, for sessionID: UUID) {
-        guard states[sessionID] != state else { return }
-        states[sessionID] = state
+        guard self.state(sessionID) != state else { return }
+        records[sessionID, default: SessionRecord()].state = state
     }
 
     // When this session last heard anything at all from the CLI. A turn that is working
     // says something every few seconds, so a long gap here is the one visible difference
     // between a slow turn and one that has stopped moving.
-    func lastActivity(_ sessionID: UUID) -> Date? { turns[sessionID]?.lastActivity }
+    func lastActivity(_ sessionID: UUID) -> Date? { records[sessionID]?.turn?.lastActivity }
 
     // When the turn this session is running now began, for the strip that counts it up.
-    func turnStarted(_ sessionID: UUID) -> Date? { turns[sessionID]?.startedAt }
+    func turnStarted(_ sessionID: UUID) -> Date? { records[sessionID]?.turn?.startedAt }
 
     // The tasks a held-open turn is waiting for, which is what the wait can be named
     // after. Empty for every other state, including a turn that started a task and is
     // still working alongside it.
-    func backgroundTasks(_ sessionID: UUID) -> [BackgroundTask] { waits[sessionID]?.tasks ?? [] }
+    func backgroundTasks(_ sessionID: UUID) -> [BackgroundTask] {
+        records[sessionID]?.wait?.tasks ?? []
+    }
 
     // When the wait began, so a parked session counts from the moment it stopped working
     // rather than from the start of the turn.
-    func waitingSince(_ sessionID: UUID) -> Date? { waits[sessionID]?.since }
+    func waitingSince(_ sessionID: UUID) -> Date? { records[sessionID]?.wait?.since }
 
     // Lets go of a turn that is only being held open for its tasks. The tasks are the
     // CLI's own children, so there is no way to keep them and end the turn: closing the
@@ -178,26 +197,25 @@ final class SessionRunner {
     // dropped on the click rather than on the exit that follows, so nothing on screen goes
     // on offering to end something that is already ending.
     func endWait(_ sessionID: UUID) {
-        guard let wait = waits[sessionID], let turn = turns[sessionID] else { return }
+        guard let record = records[sessionID], let wait = record.wait,
+              let turn = record.turn else { return }
         SessionLog.note("wait ended by hand with \(wait.tasks.count) tasks running",
                         session: sessionID)
-        waits[sessionID] = nil
-        turn.waitingOnTasks = false
-        turn.needsFreshReply = false
+        endHold(turn, sessionID: sessionID)
         turn.closeInput()
     }
 
     // What this session is waiting on the person for, if anything.
-    func question(_ sessionID: UUID) -> PermissionRequest? { asked[sessionID]?.first }
+    func question(_ sessionID: UUID) -> PermissionRequest? { records[sessionID]?.asked.first }
 
     // Sends the answer back down the pipe the turn is parked on. An answered question is
     // also written into the transcript: the answers travel inside the tool's own input,
     // where nothing in the conversation would ever show them.
     func answer(_ request: PermissionRequest, with answer: PermissionAnswer,
                 sessionID: UUID, store: ProjectStore) {
-        guard let turn = turns[sessionID],
-              asked[sessionID]?.contains(where: { $0.id == request.id }) == true else { return }
-        asked[sessionID]?.removeAll { $0.id == request.id }
+        guard let record = records[sessionID], let turn = record.turn,
+              record.asked.contains(where: { $0.id == request.id }) else { return }
+        records[sessionID]?.asked.removeAll { $0.id == request.id }
         AppNotifier.shared.clear(sessionID: store.userFacingSessionID(for: sessionID))
         SessionLog.note("answered \(request.toolName) \(request.id) with \(answer.logLabel)",
                         session: sessionID)
@@ -265,9 +283,7 @@ final class SessionRunner {
         var customInstructions: String?
 
         var isEmpty: Bool {
-            text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attachments.isEmpty
-                && customInstructions?
-                    .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
+            text.isBlank && attachments.isEmpty && customInstructions?.isBlank != false
         }
     }
 
@@ -291,27 +307,36 @@ final class SessionRunner {
 
     func forgetCanvasWidth(_ sessionID: UUID) { canvasWidths[sessionID] = nil }
 
-    func queued(_ sessionID: UUID) -> [QueuedPrompt] { queues[sessionID] ?? [] }
+    func queued(_ sessionID: UUID) -> [QueuedPrompt] { records[sessionID]?.queue ?? [] }
 
-    func unqueue(_ id: UUID, sessionID: UUID) { queues[sessionID]?.removeAll { $0.id == id } }
+    func unqueue(_ id: UUID, sessionID: UUID) {
+        records[sessionID]?.queue.removeAll { $0.id == id }
+    }
 
     // Takes a waiting prompt back into the composer so it can be reworked before it runs.
     // A half-written draft is not thrown away: it takes the recalled prompt's place in
     // the queue, so nothing typed is ever lost.
     func recall(_ id: UUID, sessionID: UUID) {
-        guard let index = queues[sessionID]?.firstIndex(where: { $0.id == id }),
-              let item = queues[sessionID]?[index] else { return }
-        queues[sessionID]?.remove(at: index)
-        let current = draft(sessionID)
-        if !current.isEmpty {
-            queues[sessionID]?.insert(QueuedPrompt(text: current.text.trimmingCharacters(in: .whitespacesAndNewlines),
-                                                   attachments: current.attachments,
-                                                   customInstructions: current.customInstructions),
-                                      at: index)
-        }
+        guard let queue = records[sessionID]?.queue,
+              let index = queue.firstIndex(where: { $0.id == id }) else { return }
+        let item = queue[index]
+        records[sessionID]?.queue.remove(at: index)
+        preserveDraft(at: index, sessionID: sessionID)
         drafts[sessionID] = Draft(text: item.text,
                                   attachments: item.attachments,
                                   customInstructions: item.customInstructions)
+    }
+
+    // Moves what is in the composer into the queue at this position, so the prompt about
+    // to take its place in the composer does not throw away what was typed.
+    private func preserveDraft(at index: Int, sessionID: UUID) {
+        let current = draft(sessionID)
+        guard !current.isEmpty else { return }
+        records[sessionID, default: SessionRecord()].queue.insert(
+            QueuedPrompt(text: current.text.trimmed,
+                         attachments: current.attachments,
+                         customInstructions: current.customInstructions),
+            at: index)
     }
 
     // MARK: - Clearing the context
@@ -327,7 +352,7 @@ final class SessionRunner {
     // The transcript is left alone. It belongs to the person reading it, not to the agent.
     @discardableResult
     func clearContext(_ sessionID: UUID, store: ProjectStore) -> ClearOutcome {
-        guard let session = store.session(sessionID), !removals.contains(sessionID) else {
+        guard let session = store.session(sessionID), !isBeingRemoved(sessionID) else {
             return .nothingToClear
         }
         // The running process still holds the conversation, so clearing now would only be
@@ -339,7 +364,7 @@ final class SessionRunner {
             store.clearAgentSessionID(agent: agent, for: sessionID)
         }
         store.clearContextUsage(for: sessionID)
-        nudgeDismissals.remove(sessionID)
+        records[sessionID]?.nudgeDismissed = false
         store.append(
             ChatMessage(role: .system,
                         text: "Context cleared. The next turn starts a fresh conversation."),
@@ -354,54 +379,94 @@ final class SessionRunner {
         return session.hasAgentConversation
     }
 
-    // A failed process is gone, but its conversation can still be resumed.
+    private func isBeingRemoved(_ sessionID: UUID) -> Bool {
+        records[sessionID]?.isBeingRemoved ?? false
+    }
+
+    // MARK: - Picking a conversation up again
+
+    // Why a conversation that stopped short is being picked up. A failed process is gone,
+    // but its conversation can still be resumed. A turn ended by hand stopped wherever it
+    // had got to, which can be half way through a job worth finishing; nothing went
+    // wrong, so the work is left unfinished rather than failed and is picked up on the
+    // same terms. A stalled turn is retried by the app itself rather than offered.
+    private enum ResumeReason {
+        case failedTurn, stoppedTurn, stalledTurn
+
+        // A failed turn is offered from the failure it shows; a stopped one from any
+        // settled state.
+        func isOffered(in state: SessionState) -> Bool {
+            switch self {
+            case .failedTurn:
+                if case .failed = state { return true }
+                return false
+            case .stoppedTurn, .stalledTurn:
+                return !state.isBusy
+            }
+        }
+
+        // Says in the transcript why a turn nobody typed is about to run.
+        var note: String {
+            let opening = switch self {
+            case .failedTurn: "Continuing after the failed turn."
+            case .stoppedTurn: "Continuing after the stopped turn."
+            case .stalledTurn: "Retrying the stalled turn."
+            }
+            return "\(opening) The agent will inspect the current state before it resumes unfinished work."
+        }
+
+        var log: String {
+            switch self {
+            case .failedTurn: "continuing after failed turn"
+            case .stoppedTurn: "continuing after stopped turn"
+            case .stalledTurn: "resuming after stalled turn"
+            }
+        }
+    }
+
     func canContinueAfterFailure(_ sessionID: UUID, store: ProjectStore) -> Bool {
-        guard continuableFailures.contains(sessionID), case .failed = state(sessionID),
-              !removals.contains(sessionID),
-              let session = store.session(sessionID) else { return false }
-        return session.hasAgentConversation
+        canResume(sessionID, after: .failedTurn, store: store)
     }
 
     @discardableResult
     func continueAfterFailure(_ sessionID: UUID, store: ProjectStore) -> Bool {
-        guard canContinueAfterFailure(sessionID, store: store) else { return false }
-        resume(sessionID, store: store,
-               note: "Continuing after the failed turn. The agent will inspect the current state before it resumes unfinished work.",
-               log: "continuing after failed turn")
-        return true
+        resumeIfOffered(sessionID, after: .failedTurn, store: store)
     }
 
-    // A turn ended by hand stops wherever it had got to, which can be half way through a
-    // job worth finishing. The conversation is still there, so the work can be picked up
-    // on the same terms as a failed one.
     func canContinueAfterStop(_ sessionID: UUID, store: ProjectStore) -> Bool {
-        guard stoppedTurns.contains(sessionID), !state(sessionID).isBusy,
-              !removals.contains(sessionID),
-              let session = store.session(sessionID) else { return false }
-        return session.hasAgentConversation
+        canResume(sessionID, after: .stoppedTurn, store: store)
     }
 
     @discardableResult
     func continueAfterStop(_ sessionID: UUID, store: ProjectStore) -> Bool {
-        guard canContinueAfterStop(sessionID, store: store) else { return false }
-        resume(sessionID, store: store,
-               note: "Continuing after the stopped turn. The agent will inspect the current state before it resumes unfinished work.",
-               log: "continuing after stopped turn")
+        resumeIfOffered(sessionID, after: .stoppedTurn, store: store)
+    }
+
+    private func canResume(_ sessionID: UUID, after reason: ResumeReason,
+                           store: ProjectStore) -> Bool {
+        guard let record = records[sessionID], record.continuable == reason,
+              reason.isOffered(in: record.state), !record.isBeingRemoved,
+              let session = store.session(sessionID) else { return false }
+        return session.hasAgentConversation
+    }
+
+    private func resumeIfOffered(_ sessionID: UUID, after reason: ResumeReason,
+                                 store: ProjectStore) -> Bool {
+        guard canResume(sessionID, after: reason, store: store) else { return false }
+        resume(sessionID, after: reason, store: store)
         return true
     }
 
     // Recovery goes through the normal queue so it gets the same ownership and process
-    // checks as a prompt typed by hand. The note says in the transcript why a turn nobody
-    // typed is about to run.
-    private func resume(_ sessionID: UUID, store: ProjectStore, note: String, log: String) {
-        continuableFailures.remove(sessionID)
-        stoppedTurns.remove(sessionID)
-        store.append(ChatMessage(role: .system, text: note), to: sessionID)
-        queues[sessionID, default: []].insert(
+    // checks as a prompt typed by hand.
+    private func resume(_ sessionID: UUID, after reason: ResumeReason, store: ProjectStore) {
+        records[sessionID, default: SessionRecord()].continuable = nil
+        store.append(ChatMessage(role: .system, text: reason.note), to: sessionID)
+        records[sessionID]?.queue.insert(
             QueuedPrompt(text: Self.recoveryPrompt, attachments: [], customInstructions: nil,
                          isAppCommand: true),
             at: 0)
-        SessionLog.note(log, session: sessionID)
+        SessionLog.note(reason.log, session: sessionID)
         runQueue(sessionID, store: store)
     }
 
@@ -409,20 +474,18 @@ final class SessionRunner {
     // through the normal queue. The original prompt is not replayed because it may have
     // already caused changes before the stream stopped moving.
     func canRetryStalled(_ sessionID: UUID, store: ProjectStore) -> Bool {
-        guard case .stalled = state(sessionID), !removals.contains(sessionID),
-              let turn = turns[sessionID], turn.agent == .codex, !turn.stopRequested,
-              runningTools[sessionID]?.isEmpty != false,
-              asked[sessionID]?.isEmpty != false,
-              turn.pendingTasks.isEmpty, !turn.waitingOnTasks,
+        guard let record = records[sessionID], case .stalled = record.state,
+              !record.isBeingRemoved,
+              let turn = record.turn, turn.agent == .codex, !turn.stopRequested,
+              !record.expectsSilence(from: turn),
               let session = store.session(sessionID) else { return false }
         return session.hasAgentConversation
     }
 
     @discardableResult
     func retryStalled(_ sessionID: UUID, store: ProjectStore) -> Bool {
-        guard canRetryStalled(sessionID, store: store), let turn = turns[sessionID] else {
-            return false
-        }
+        guard canRetryStalled(sessionID, store: store),
+              let turn = records[sessionID]?.turn else { return false }
         turn.restartAfterStop = true
         SessionLog.note("retry requested for stalled turn", session: sessionID)
         requestStop(sessionID)
@@ -431,18 +494,18 @@ final class SessionRunner {
 
     func dismissFailure(_ sessionID: UUID) {
         guard case .failed = state(sessionID) else { return }
-        continuableFailures.remove(sessionID)
+        records[sessionID]?.continuable = nil
         setState(.idle, for: sessionID)
     }
 
     // Only the exact word, and only on its own. Both CLIs have real slash commands -
     // skills, built-ins - that belong to the agent and have to travel to it untouched.
     nonisolated static func isClearCommand(_ text: String) -> Bool {
-        text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "/clear"
+        text.trimmed.lowercased() == "/clear"
     }
 
     nonisolated static func isCompactCommand(_ text: String) -> Bool {
-        text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "/compact"
+        text.trimmed.lowercased() == "/compact"
     }
 
     // Runs a typed window command, saying in the transcript why if it could not. True
@@ -488,7 +551,7 @@ final class SessionRunner {
     // that recorded a checkpoint qualify, and only while nothing is running - a live
     // turn still owns the conversation it would rewind.
     func canRewind(to messageID: UUID, sessionID: UUID, store: ProjectStore) -> Bool {
-        guard !state(sessionID).isBusy, !removals.contains(sessionID),
+        guard !state(sessionID).isBusy, !isBeingRemoved(sessionID),
               store.session(sessionID) != nil else { return false }
         return store.rewindableMessageIDs(in: sessionID).contains(messageID)
     }
@@ -506,14 +569,7 @@ final class SessionRunner {
 
         // A half-written draft is not thrown away for the returning prompt: it moves to
         // the front of the queue, the way recalling a queued prompt keeps one.
-        let current = draft(sessionID)
-        if !current.isEmpty {
-            queues[sessionID, default: []].insert(
-                QueuedPrompt(text: current.text.trimmingCharacters(in: .whitespacesAndNewlines),
-                             attachments: current.attachments,
-                             customInstructions: current.customInstructions),
-                at: 0)
-        }
+        preserveDraft(at: 0, sessionID: sessionID)
         // Instructions travel as a message of their own right after the prompt they
         // belong to, so they come back to the composer with it.
         let instructions = transcript.indices.contains(index + 1)
@@ -530,7 +586,7 @@ final class SessionRunner {
         // How full the window was described the discarded turns; the next turn
         // measures the conversation as it stands now.
         store.clearContextUsage(for: sessionID)
-        nudgeDismissals.remove(sessionID)
+        records[sessionID]?.nudgeDismissed = false
         // A failure that belonged to a discarded turn has nothing to explain any more.
         setState(.idle, for: sessionID)
         store.append(
@@ -554,9 +610,9 @@ final class SessionRunner {
         // A turn that says nothing for the best part of a minute needs to say why.
         let notice = ChatMessage(role: .system, text: "Compacting the context…")
         store.append(notice, to: sessionID)
-        compactNotices[sessionID] = notice.id
-        nudgeDismissals.remove(sessionID)
-        queues[sessionID, default: []].append(
+        records[sessionID, default: SessionRecord()].compactNoticeID = notice.id
+        records[sessionID]?.nudgeDismissed = false
+        records[sessionID]?.queue.append(
             QueuedPrompt(text: "/compact", attachments: [], customInstructions: nil,
                          isAppCommand: true))
         SessionLog.note("compacting the context", session: sessionID)
@@ -566,7 +622,7 @@ final class SessionRunner {
 
     func canCompactContext(_ sessionID: UUID, store: ProjectStore) -> Bool {
         guard let session = store.session(sessionID), session.agent == .claudeCode,
-              !state(sessionID).isBusy, !removals.contains(sessionID) else { return false }
+              !state(sessionID).isBusy, !isBeingRemoved(sessionID) else { return false }
         return session.hasAgentConversation
     }
 
@@ -588,21 +644,24 @@ final class SessionRunner {
     // interrupting for. It is the same point at which the meter turns red.
     static let nearlyFullContext = 0.85
 
-    func isNudgeDismissed(_ sessionID: UUID) -> Bool { nudgeDismissals.contains(sessionID) }
+    func isNudgeDismissed(_ sessionID: UUID) -> Bool {
+        records[sessionID]?.nudgeDismissed ?? false
+    }
 
     // Only until the window is dealt with. Clearing and compacting both take the nudge
     // away on their own, so a dismissal that outlived them would hide the next one too.
-    func dismissNudge(_ sessionID: UUID) { nudgeDismissals.insert(sessionID) }
+    func dismissNudge(_ sessionID: UUID) {
+        records[sessionID, default: SessionRecord()].nudgeDismissed = true
+    }
 
     // Nothing is ever sent straight to the CLI: a prompt joins the queue and the queue is
     // what runs. Typing during a turn therefore costs nothing, and the ones already waiting
     // keep their order.
     func send(_ prompt: String, attachments: [Attachment] = [],
               customInstructions: String? = nil, sessionID: UUID, store: ProjectStore) {
-        guard !removals.contains(sessionID), store.session(sessionID) != nil else { return }
-        let text = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        let instructions = customInstructions?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !isBeingRemoved(sessionID), store.session(sessionID) != nil else { return }
+        let text = prompt.trimmed
+        let instructions = customInstructions?.trimmed
         guard !text.isEmpty || !attachments.isEmpty || instructions?.isEmpty == false else { return }
 
         // The window commands are answered by the app rather than sent on as prompts, so
@@ -613,7 +672,7 @@ final class SessionRunner {
            handleWindowCommand(text, sessionID: sessionID, store: store) {
             return
         }
-        queues[sessionID, default: []].append(QueuedPrompt(
+        records[sessionID, default: SessionRecord()].queue.append(QueuedPrompt(
             text: text,
             attachments: attachments,
             customInstructions: instructions?.isEmpty == false ? instructions : nil))
@@ -622,8 +681,8 @@ final class SessionRunner {
 
     func sendAppCommand(_ prompt: String, attachments: [Attachment] = [],
                         sessionID: UUID, store: ProjectStore) {
-        guard !removals.contains(sessionID), store.session(sessionID) != nil else { return }
-        queues[sessionID, default: []].append(QueuedPrompt(
+        guard !isBeingRemoved(sessionID), store.session(sessionID) != nil else { return }
+        records[sessionID, default: SessionRecord()].queue.append(QueuedPrompt(
             text: prompt,
             attachments: attachments,
             customInstructions: nil,
@@ -634,25 +693,24 @@ final class SessionRunner {
     // Starts the oldest waiting prompt, if the session is free to take it. A prompt that
     // cannot start yet stays at the head of the queue rather than being lost.
     func runQueue(_ sessionID: UUID, store: ProjectStore) {
-        guard !removals.contains(sessionID) else { return }
+        guard let record = records[sessionID], !record.isBeingRemoved else { return }
         // A turn that is only waiting on a background task has a live process with an
         // open pipe, so the next prompt goes straight down it instead of sitting behind
         // a timer that could run for a long while.
-        if turns[sessionID]?.waitingOnTasks == true {
+        if record.turn?.waitingOnTasks == true {
             injectQueued(sessionID, store: store)
             return
         }
-        guard !state(sessionID).isBusy,
-              let next = queues[sessionID]?.first,
+        guard !record.state.isBusy,
+              let next = record.queue.first,
               let session = store.session(sessionID) else { return }
-        continuableFailures.remove(sessionID)
-        stoppedTurns.remove(sessionID)
+        records[sessionID]?.continuable = nil
 
         // Two agents sharing any direct project folder would edit the same files under
         // each other. Workspace sessions therefore conflict when any root overlaps.
         if let other = busySession(sharingDirectoryWith: session, store: store) {
             if store.sessionsShareDesignWorkflow(sessionID, other.id) {
-                designWorkflowDirectoryWaits.insert(sessionID)
+                records[sessionID]?.waitsForDesignWorkflowDirectory = true
                 setState(.idle, for: sessionID)
                 return
             }
@@ -661,9 +719,9 @@ final class SessionRunner {
                 for: sessionID)
             return
         }
-        designWorkflowDirectoryWaits.remove(sessionID)
+        records[sessionID]?.waitsForDesignWorkflowDirectory = false
 
-        queues[sessionID]?.removeFirst()
+        records[sessionID]?.queue.removeFirst()
         // Where the conversation stands right now, stamped on the prompt so it marks a
         // point that can be come back to.
         let checkpoint = ConversationCheckpoint(agent: session.agent,
@@ -680,8 +738,8 @@ final class SessionRunner {
     }
 
     private func nextAvatarSequence(for sessionID: UUID) -> Int {
-        let next = (avatarSequences[sessionID] ?? -1) + 1
-        avatarSequences[sessionID] = next
+        let next = records[sessionID]?.nextAvatarSequence ?? 0
+        records[sessionID, default: SessionRecord()].nextAvatarSequence = next + 1
         return next
     }
 
@@ -794,7 +852,8 @@ final class SessionRunner {
         case .claudeCode:
             // The app is what puts the questions on screen, so it always says which ones
             // it wants rather than letting the CLI's own config decide.
-            let permissionMode = settings.permissionMode ?? defaults.permissionMode ?? "acceptEdits"
+            let permissionMode = PermissionMode(
+                stored: settings.permissionMode ?? defaults.permissionMode).rawValue
 
             // Streaming input is what makes the CLI able to ask anything back: with
             // "--permission-prompt-tool stdio" it puts permission prompts and the agent's
@@ -928,9 +987,9 @@ final class SessionRunner {
             URL(fileURLWithPath: $0).resolvingSymlinksInPath().path
         })
         guard !directories.isEmpty else { return nil }
-        return turns.keys
-            .filter { $0 != session.id }
-            .compactMap { store.session($0) }
+        return records
+            .filter { $0.key != session.id && $0.value.turn != nil }
+            .compactMap { store.session($0.key) }
             .first { other in
                 let otherDirectories = Set(store.workingDirectories(for: other).map {
                     URL(fileURLWithPath: $0).resolvingSymlinksInPath().path
@@ -948,33 +1007,24 @@ final class SessionRunner {
     // nothing left to give them back to; the store writes out what is still pending as
     // part of the same shutdown.
     func stopAll() {
-        for sessionID in Array(turns.keys) { requestStop(sessionID) }
+        for (sessionID, record) in records where record.turn != nil { requestStop(sessionID) }
     }
 
     func beginRemoval(_ sessionID: UUID) -> Bool {
-        guard !state(sessionID).isBusy else { return false }
-        return removals.insert(sessionID).inserted
+        guard !state(sessionID).isBusy, !isBeingRemoved(sessionID) else { return false }
+        records[sessionID, default: SessionRecord()].isBeingRemoved = true
+        return true
     }
 
     func cancelRemoval(_ sessionID: UUID) {
-        removals.remove(sessionID)
+        records[sessionID]?.isBeingRemoved = false
     }
 
     func finishRemoval(_ sessionID: UUID) {
-        removals.remove(sessionID)
         codexContextRefreshes.removeValue(forKey: sessionID)?.task.cancel()
-        states[sessionID] = nil
-        runningTools[sessionID] = nil
-        waits[sessionID] = nil
-        asked[sessionID] = nil
-        queues[sessionID] = nil
-        designWorkflowDirectoryWaits.remove(sessionID)
+        records[sessionID] = nil
         drafts[sessionID] = nil
-        avatarSequences[sessionID] = nil
-        compactNotices[sessionID] = nil
-        nudgeDismissals.remove(sessionID)
-        continuableFailures.remove(sessionID)
-        stoppedTurns.remove(sessionID)
+        canvasWidths[sessionID] = nil
     }
 
     // A stop kills the process wherever it had got to, so the transcript ends mid-sentence
@@ -985,12 +1035,12 @@ final class SessionRunner {
             ChatMessage(role: .system, text: "Stopped. The turn ended before it finished."),
             to: sessionID)
         if store.session(sessionID)?.hasAgentConversation == true {
-            stoppedTurns.insert(sessionID)
+            records[sessionID, default: SessionRecord()].continuable = .stoppedTurn
         }
     }
 
     private func requestStop(_ sessionID: UUID, failure: String? = nil) {
-        guard let turn = turns[sessionID], !turn.stopRequested else { return }
+        guard let turn = records[sessionID]?.turn, !turn.stopRequested else { return }
         let reason = if turn.restartAfterStop {
             "stopping stalled turn for retry"
         } else if failure != nil {
@@ -1001,7 +1051,7 @@ final class SessionRunner {
         SessionLog.note(reason, session: sessionID)
         turn.stopRequested = true
         turn.stopFailure = failure
-        asked[sessionID] = nil
+        records[sessionID]?.asked = []
         setState(.stopping, for: sessionID)
         turn.closeInput()
         CommandRunner.signalProcessGroup(turn.processGroup, signal: SIGTERM)
@@ -1018,6 +1068,9 @@ final class SessionRunner {
 
     // MARK: - Running one turn
 
+    // Three steps: work out what the process is run with, start it and listen to it, then
+    // hand it the prompt. Anything that stops the turn before its process exists is undone
+    // here, so a turn that never ran leaves nothing behind.
     private func launch(_ prompt: String, attachments: [Attachment], sessionID: UUID,
                         store: ProjectStore, avatarSequence: Int,
                         canRetryWithoutResume: Bool) {
@@ -1036,7 +1089,7 @@ final class SessionRunner {
             return
         }
         let workingDirectories = store.workingDirectories(for: session)
-        guard !workingDirectories.isEmpty else {
+        guard let workingDirectory = workingDirectories.first else {
             setState(.failed("This session has no working directory."), for: sessionID)
             return
         }
@@ -1048,18 +1101,6 @@ final class SessionRunner {
             setState(.failed("\(missing) no longer exists."), for: sessionID)
             return
         }
-        launch(prompt, attachments: attachments, sessionID: sessionID, store: store,
-               session: session, agent: agent, agentPath: agentPath,
-               workingDirectories: workingDirectories, avatarSequence: avatarSequence,
-               canRetryWithoutResume: canRetryWithoutResume)
-    }
-
-    private func launch(_ prompt: String, attachments: [Attachment], sessionID: UUID,
-                        store: ProjectStore, session: ChatSession,
-                        agent: AgentKind, agentPath: String, workingDirectories: [String],
-                        avatarSequence: Int,
-                        canRetryWithoutResume: Bool) {
-        guard let workingDirectory = workingDirectories.first else { return }
 
         let mcpConfigURL: URL?
         do {
@@ -1084,6 +1125,60 @@ final class SessionRunner {
         let reply = ChatMessage(role: .assistant)
         store.append(reply, to: sessionID)
 
+        // Takes back everything above: the config file, the empty reply and the hold on
+        // the transcript, then says why the turn did not run.
+        func fail(_ message: String) {
+            if let mcpConfigURL { try? FileManager.default.removeItem(at: mcpConfigURL) }
+            store.removeMessage(reply.id, from: sessionID)
+            store.release(sessionID, for: .running)
+            setState(.failed(message), for: sessionID)
+        }
+
+        let plan: TurnPlan
+        do {
+            plan = try turnPlan(for: session, prompt: prompt, attachments: attachments,
+                                workingDirectories: workingDirectories,
+                                mcpConfigURL: mcpConfigURL, store: store)
+        } catch {
+            fail(error.localizedDescription)
+            return
+        }
+
+        let turn: Turn
+        do {
+            turn = try spawn(plan, agentPath: agentPath, workingDirectory: workingDirectory,
+                             messageID: reply.id, attachments: attachments,
+                             avatarSequence: avatarSequence,
+                             canRetryWithoutResume: canRetryWithoutResume,
+                             mcpConfigURL: mcpConfigURL, sessionID: sessionID, store: store)
+        } catch {
+            SessionLog.note("could not start: \(error.localizedDescription)", session: sessionID)
+            fail("Could not start \(agent.title): \(error.localizedDescription)")
+            return
+        }
+
+        records[sessionID, default: SessionRecord()].turn = turn
+        setState(.starting, for: sessionID)
+        startStallWatchdog(turn, sessionID: sessionID)
+        SessionLog.note("starting \(agent.command) arguments=\(plan.arguments.count)",
+                        session: sessionID)
+        handOver(plan.prompt, to: turn, sessionID: sessionID)
+    }
+
+    // What one turn's process is started with, worked out before anything is spawned.
+    private struct TurnPlan {
+        let agent: AgentKind
+        let arguments: [String]
+        // The prompt as the agent receives it, which on a first turn carries the
+        // workspace's other roots as well.
+        let prompt: String
+        let resumed: Bool
+    }
+
+    private func turnPlan(for session: ChatSession, prompt: String, attachments: [Attachment],
+                          workingDirectories: [String], mcpConfigURL: URL?,
+                          store: ProjectStore) throws -> TurnPlan {
+        let agent = session.agent
         let resume = session.agentSessionID(for: agent).flatMap { $0.isEmpty ? nil : $0 }
         let promptForAgent = resume == nil ? workspacePrompt(prompt, session: session, store: store)
                                            : prompt
@@ -1098,13 +1193,7 @@ final class SessionRunner {
                 try FileManager.default.createDirectory(at: directory,
                                                         withIntermediateDirectories: true)
             } catch {
-                if let mcpConfigURL { try? FileManager.default.removeItem(at: mcpConfigURL) }
-                store.removeMessage(reply.id, from: sessionID)
-                store.release(sessionID, for: .running)
-                setState(.failed(
-                    "Could not prepare the design canvas: \(error.localizedDescription)"),
-                    for: sessionID)
-                return
+                throw Failure("Could not prepare the design canvas: \(error.localizedDescription)")
             }
         }
         let designDirectories = designArtifact.map { [$0.deletingLastPathComponent().path] } ?? []
@@ -1112,7 +1201,7 @@ final class SessionRunner {
         let additionalDirectories = unique(
             projectDirectories + attachmentDirectories + designDirectories + referenceDirectories)
         let writableRoots = unique(additionalDirectories + store.gitMetadataDirectories(for: session))
-        let processArguments = Self.arguments(
+        let arguments = Self.arguments(
             agent: agent,
             settings: session.settings ?? SessionSettings(),
             defaults: defaults(for: agent),
@@ -1124,9 +1213,18 @@ final class SessionRunner {
             mcpConfigPath: mcpConfigURL?.path,
             additionalSystemPrompt: designArtifact.map {
                 Self.designSystemPrompt(artifactURL: $0,
-                                        canvasWidth: canvasWidths[sessionID])
+                                        canvasWidth: canvasWidths[session.id])
             } ?? implementationReference.map(Self.implementationSystemPrompt))
+        return TurnPlan(agent: agent, arguments: arguments, prompt: promptForAgent,
+                        resumed: resume != nil)
+    }
 
+    // Starts the process and wires up everything that listens to it: the two output
+    // pipes, batched onto the main actor, and the watch for its exit.
+    private func spawn(_ plan: TurnPlan, agentPath: String, workingDirectory: String,
+                       messageID: UUID, attachments: [Attachment], avatarSequence: Int,
+                       canRetryWithoutResume: Bool, mcpConfigURL: URL?,
+                       sessionID: UUID, store: ProjectStore) throws -> Turn {
         var env = ProcessInfo.processInfo.environment
         env["PATH"] = ProcessManager.searchPath
 
@@ -1148,7 +1246,7 @@ final class SessionRunner {
         do {
             processGroup = try CommandRunner.spawnIsolatedProcess(
                 executable: agentPath,
-                arguments: processArguments,
+                arguments: plan.arguments,
                 currentDirectory: URL(fileURLWithPath: workingDirectory),
                 environment: env,
                 standardInput: input.fileHandleForReading.fileDescriptor,
@@ -1165,23 +1263,17 @@ final class SessionRunner {
                            errors.fileHandleForReading, errors.fileHandleForWriting] {
                 try? handle.close()
             }
-            if let mcpConfigURL { try? FileManager.default.removeItem(at: mcpConfigURL) }
-            store.removeMessage(reply.id, from: sessionID)
-            store.release(sessionID, for: .running)
-            SessionLog.note("could not start: \(error.localizedDescription)", session: sessionID)
-            setState(.failed(
-                "Could not start \(agent.title): \(error.localizedDescription)"),
-                for: sessionID)
-            return
+            throw error
         }
         try? input.fileHandleForReading.close()
         try? out.fileHandleForWriting.close()
         try? errors.fileHandleForWriting.close()
 
-        let turn = Turn(processGroup: processGroup, agent: agent, messageID: reply.id,
+        let agent = plan.agent
+        let turn = Turn(processGroup: processGroup, agent: agent, messageID: messageID,
                         input: input, output: out, errorOutput: errors,
-                        prompt: promptForAgent, workingDirectory: workingDirectory,
-                        attachments: attachments, resumed: resume != nil,
+                        prompt: plan.prompt, workingDirectory: workingDirectory,
+                        attachments: attachments, resumed: plan.resumed,
                         avatarSequence: avatarSequence,
                         canRetryWithoutResume: canRetryWithoutResume, mcpConfigURL: mcpConfigURL)
         let token = turn.token
@@ -1244,17 +1336,11 @@ final class SessionRunner {
             }
         }
 
-        turns[sessionID] = turn
-        setState(.starting, for: sessionID)
-        startStallWatchdog(turn, sessionID: sessionID)
-        SessionLog.note("starting \(agent.command) arguments=\(processArguments.count)",
-                        session: sessionID)
-
         let exitMonitor = DispatchSource.makeProcessSource(
             identifier: processGroup, eventMask: .exit,
             queue: DispatchQueue.global(qos: .userInitiated))
         turn.exitMonitor = exitMonitor
-        let handleExit: @Sendable () -> Void = {
+        exitMonitor.setEventHandler {
             let status = CommandRunner.waitForExit(of: processGroup)
             let stopped = CommandRunner.ensureProcessGroupStopped(processGroup)
             SessionLog.note(
@@ -1269,25 +1355,27 @@ final class SessionRunner {
                 }
             }
         }
-        exitMonitor.setEventHandler(handler: handleExit)
         exitMonitor.activate()
+        return turn
+    }
 
-        switch agent {
+    // The prompt is the first thing down the process's stdin. A prompt that cannot be
+    // handed over leaves a process with nothing to do, so the turn is stopped there.
+    private func handOver(_ prompt: String, to turn: Turn, sessionID: UUID) {
+        let sent: Bool
+        switch turn.agent {
         case .claudeCode:
-            guard let line = Self.userMessageLine(promptForAgent), turn.write(line) else {
-                requestStop(sessionID, failure:
-                    "Could not start \(agent.title): the prompt could not be handed over.")
-                return
-            }
+            sent = Self.userMessageLine(prompt).map(turn.write) ?? false
         case .codex:
             // Codex reads the prompt off stdin until the pipe closes, and nothing
             // ever goes back down it: there are no questions to answer mid-turn.
-            guard turn.write(Data((promptForAgent + "\n").utf8)) else {
-                requestStop(sessionID, failure:
-                    "Could not start \(agent.title): the prompt could not be handed over.")
-                return
-            }
-            turn.closeInput()
+            sent = turn.write(Data((prompt + "\n").utf8))
+            if sent { turn.closeInput() }
+        }
+        guard sent else {
+            requestStop(sessionID, failure:
+                "Could not start \(turn.agent.title): the prompt could not be handed over.")
+            return
         }
     }
 
@@ -1389,7 +1477,7 @@ final class SessionRunner {
     // next turn for the same session and pollute it.
 
     private func turn(_ sessionID: UUID, _ token: UUID) -> Turn? {
-        guard let turn = turns[sessionID], turn.token == token else { return nil }
+        guard let turn = records[sessionID]?.turn, turn.token == token else { return nil }
         return turn
     }
 
@@ -1470,7 +1558,7 @@ final class SessionRunner {
                 setState(.streaming, for: sessionID)
                 refreshCodexContextAfterModelActivity(turn, sessionID: sessionID, store: store)
                 freshReply(turn, sessionID: sessionID, store: store)
-                runningTools[sessionID, default: []].append(tool)
+                records[sessionID]?.runningTools.append(tool)
                 store.updateMessage(turn.messageID, in: sessionID) { message in
                     // Stamped here rather than in the parser: only the message being
                     // built knows how much has been said so far, and that is what puts
@@ -1481,7 +1569,7 @@ final class SessionRunner {
                 }
 
             case .toolResult(let id, let output, let isError):
-                runningTools[sessionID]?.removeAll { $0.id == id }
+                records[sessionID]?.runningTools.removeAll { $0.id == id }
                 var command = ""
                 var toolName = ""
                 store.updateMessage(turn.messageID, in: sessionID) { message in
@@ -1510,7 +1598,7 @@ final class SessionRunner {
 
             case .permissionRequest(let request):
                 setState(.streaming, for: sessionID)
-                asked[sessionID, default: []].append(request)
+                records[sessionID]?.asked.append(request)
                 if let session = store.session(sessionID) {
                     AppNotifier.shared.needsInput(
                         sessionID: store.userFacingSessionID(for: sessionID),
@@ -1519,7 +1607,7 @@ final class SessionRunner {
                 }
 
             case .permissionWithdrawn(let id):
-                asked[sessionID]?.removeAll { $0.id == id }
+                records[sessionID]?.asked.removeAll { $0.id == id }
 
             case .unanswerable(let requestID, let subtype):
                 // Refusing is what keeps the turn moving. The CLI holds it on this request
@@ -1552,7 +1640,7 @@ final class SessionRunner {
                                     from: turn.agent, for: sessionID)
 
             case .compacted(let preTokens, let postTokens):
-                nudgeDismissals.remove(sessionID)
+                records[sessionID]?.nudgeDismissed = false
                 if let postTokens {
                     // The summary is the whole of the conversation now, so its size is
                     // how full the window is - no need to wait for a turn to measure it.
@@ -1564,7 +1652,8 @@ final class SessionRunner {
                     // the turn, after the result event has stopped reporting sizes.
                     turn.compacted = true
                 }
-                if let noticeID = compactNotices.removeValue(forKey: sessionID) {
+                if let noticeID = records[sessionID]?.compactNoticeID {
+                    records[sessionID]?.compactNoticeID = nil
                     store.updateMessage(noticeID, in: sessionID) { message in
                         message.text = Self.compactedNotice(preTokens: preTokens,
                                                             postTokens: postTokens)
@@ -1583,7 +1672,7 @@ final class SessionRunner {
                 turn.pendingTasks = named
                 // A wait can outlast the task that started it: one of several ending is
                 // not the end of the wait, and the row has to say what is left.
-                if turn.waitingOnTasks { waits[sessionID]?.tasks = named }
+                if turn.waitingOnTasks { records[sessionID]?.wait?.tasks = named }
 
             case .streamError(let message):
                 turn.lastStreamError = message
@@ -1620,7 +1709,7 @@ final class SessionRunner {
                     SessionLog.note("holding turn open for background tasks \(turn.pendingTasks.map(\.id).sorted())",
                                     session: sessionID)
                     turn.waitingOnTasks = true
-                    waits[sessionID] = Wait(tasks: turn.pendingTasks, since: Date())
+                    records[sessionID]?.wait = Wait(tasks: turn.pendingTasks, since: Date())
                     turn.needsFreshReply = true
                     setState(.waiting, for: sessionID)
                     // A prompt typed while the agent was working can go down the open
@@ -1634,7 +1723,7 @@ final class SessionRunner {
             }
         }
         if turn.stopRequested {
-            asked[sessionID] = nil
+            records[sessionID]?.asked = []
             setState(.stopping, for: sessionID)
         }
     }
@@ -1657,13 +1746,11 @@ final class SessionRunner {
     }
 
     private func markStalledIfNeeded(_ sessionID: UUID, token: UUID) {
-        guard let turn = turn(sessionID, token), !turn.stopRequested,
-              !turn.receivedCompletion,
-              runningTools[sessionID]?.isEmpty != false,
-              asked[sessionID]?.isEmpty != false,
-              turn.pendingTasks.isEmpty, !turn.waitingOnTasks,
+        guard let record = records[sessionID], let turn = turn(sessionID, token),
+              !turn.stopRequested, !turn.receivedCompletion,
+              !record.expectsSilence(from: turn),
               Date().timeIntervalSince(turn.lastActivity) >= stalledAfter else { return }
-        if case .stalled = state(sessionID) { return }
+        if case .stalled = record.state { return }
         let silence = Int(Date().timeIntervalSince(turn.lastActivity))
         let category = turn.lastStreamError.map(StreamEvent.streamErrorCategory) ?? "none"
         SessionLog.note("turn stalled silentSeconds=\(silence) streamError=\(category)",
@@ -1729,22 +1816,40 @@ final class SessionRunner {
         codexContextRefreshes[sessionID] = (refreshID, task)
     }
 
+    // MARK: - Holding a turn open
+
+    // Lets go of the hold that kept a turn's process alive for its background tasks,
+    // whether because the CLI moved again, a prompt went down the open pipe, or the wait
+    // was ended by hand.
+    private func endHold(_ turn: Turn, sessionID: UUID) {
+        turn.waitingOnTasks = false
+        turn.needsFreshReply = false
+        records[sessionID]?.wait = nil
+    }
+
+    // A reply bubble is normally full by the time it is left behind, but a turn that said
+    // nothing would leave an empty one sitting in the transcript for good.
+    private func removeReplyIfEmpty(_ turn: Turn, sessionID: UUID, store: ProjectStore) {
+        if store.transcript(of: sessionID).first(where: { $0.id == turn.messageID })?.isEmpty ?? false {
+            store.removeMessage(turn.messageID, from: sessionID)
+        }
+    }
+
+    // The bubble everything the turn streams from here on is written into.
+    private func openFreshReply(_ turn: Turn, sessionID: UUID, store: ProjectStore) {
+        let reply = ChatMessage(role: .assistant)
+        store.append(reply, to: sessionID)
+        turn.messageID = reply.id
+    }
+
     // Opens a new reply bubble for a turn the CLI started on its own - the one it runs
     // when a background task finishes. Without this the follow-up would keep writing
     // into the bubble of the turn that already answered.
     private func freshReply(_ turn: Turn, sessionID: UUID, store: ProjectStore) {
         guard turn.needsFreshReply else { return }
-        turn.needsFreshReply = false
-        turn.waitingOnTasks = false
-        waits[sessionID] = nil
-        // The bubble being left behind is normally full, but a turn that said nothing
-        // would leave an empty one sitting in the transcript for good.
-        if store.transcript(of: sessionID).first(where: { $0.id == turn.messageID })?.isEmpty ?? false {
-            store.removeMessage(turn.messageID, from: sessionID)
-        }
-        let reply = ChatMessage(role: .assistant)
-        store.append(reply, to: sessionID)
-        turn.messageID = reply.id
+        endHold(turn, sessionID: sessionID)
+        removeReplyIfEmpty(turn, sessionID: sessionID, store: store)
+        openFreshReply(turn, sessionID: sessionID, store: store)
     }
 
     // Hands the next queued prompt to the process a waiting turn is holding open. The
@@ -1752,25 +1857,21 @@ final class SessionRunner {
     // is not stuck behind a task that could run for many minutes. One prompt at a time:
     // the ones behind it go when this one's result comes back.
     private func injectQueued(_ sessionID: UUID, store: ProjectStore) {
-        guard let turn = turns[sessionID], turn.waitingOnTasks,
-              let next = queues[sessionID]?.first else { return }
+        guard let record = records[sessionID], let turn = record.turn, turn.waitingOnTasks,
+              let next = record.queue.first else { return }
         let prompt = Self.prompt(next.prompt, with: next.attachments)
         // A failed write means the pipe is gone; the prompt stays queued and starts a
         // fresh process once this turn winds down.
         guard let line = Self.userMessageLine(prompt), turn.write(line) else { return }
-        queues[sessionID]?.removeFirst()
+        records[sessionID]?.queue.removeFirst()
         SessionLog.note("prompt sent into waiting turn", session: sessionID)
 
         for message in next.transcriptMessages {
             store.append(message, to: sessionID)
         }
-        let reply = ChatMessage(role: .assistant)
-        store.append(reply, to: sessionID)
-        turn.messageID = reply.id
+        openFreshReply(turn, sessionID: sessionID, store: store)
         turn.avatarSequence = nextAvatarSequence(for: sessionID)
-        turn.needsFreshReply = false
-        turn.waitingOnTasks = false
-        waits[sessionID] = nil
+        endHold(turn, sessionID: sessionID)
         setState(.streaming, for: sessionID)
     }
 
@@ -1786,6 +1887,8 @@ final class SessionRunner {
         grown.cacheWriteTokens = max(0, totals.cacheWriteTokens - recorded.cacheWriteTokens)
         return grown
     }
+
+    // MARK: - Ending a turn
 
     private func appendStderr(_ sessionID: UUID, token: UUID, _ chunk: String) {
         guard let turn = turn(sessionID, token) else { return }
@@ -1817,7 +1920,7 @@ final class SessionRunner {
         if turn.stopFailure == nil {
             turn.stopFailure = "The agent process group could not be stopped."
         }
-        asked[sessionID] = nil
+        records[sessionID]?.asked = []
         setState(.stopping, for: sessionID)
         turn.closeInput()
     }
@@ -1828,25 +1931,24 @@ final class SessionRunner {
     // before doing anything else means the events the CLI still writes after its result
     // cannot end the same turn twice.
     private func finishIfDone(_ sessionID: UUID, store: ProjectStore) {
-        guard let turn = turns[sessionID], !turn.stdoutOpen, !turn.stderrOpen,
+        guard let turn = records[sessionID]?.turn, !turn.stdoutOpen, !turn.stderrOpen,
               let status = turn.exitStatus else { return }
-        turns[sessionID] = nil
-        runningTools[sessionID] = nil
-        waits[sessionID] = nil
+        records[sessionID]?.turn = nil
+        records[sessionID]?.runningTools = []
+        records[sessionID]?.wait = nil
         // The process that parked them is gone, so nothing is listening for an answer.
-        asked[sessionID] = nil
+        records[sessionID]?.asked = []
         cleanUp(turn)
 
         // A turn that produced nothing at all would otherwise leave a blank assistant
         // bubble sitting under the failure.
-        if store.transcript(of: sessionID).first(where: { $0.id == turn.messageID })?.isEmpty ?? false {
-            store.removeMessage(turn.messageID, from: sessionID)
-        }
+        removeReplyIfEmpty(turn, sessionID: sessionID, store: store)
 
         // A compaction that ended without saying it had happened did not happen: the
         // conversation was too short for one, or the turn failed. Either way the agent's
         // own words are the explanation, and "Compacting…" would sit there for good.
-        if let noticeID = compactNotices.removeValue(forKey: sessionID) {
+        if let noticeID = records[sessionID]?.compactNoticeID {
+            records[sessionID]?.compactNoticeID = nil
             store.removeMessage(noticeID, from: sessionID)
         }
         // Last, so that nothing the turn reported on its way out can put the retired
@@ -1857,9 +1959,7 @@ final class SessionRunner {
             if turn.restartAfterStop, turn.stopFailure == nil {
                 setState(.idle, for: sessionID)
                 store.release(sessionID, for: .running)
-                resume(sessionID, store: store,
-                       note: "Retrying the stalled turn. The agent will inspect the current state before it resumes unfinished work.",
-                       log: "resuming after stalled turn")
+                resume(sessionID, after: .stalledTurn, store: store)
                 return
             }
             if let failure = turn.stopFailure {
@@ -1906,7 +2006,7 @@ final class SessionRunner {
         if turn.failure == nil, missingCompletion, let streamError = turn.lastStreamError {
             parts.append(streamError)
         }
-        let stderr = turn.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+        let stderr = turn.stderr.trimmed
         if !stderr.isEmpty { parts.append(stderr) }
         if parts.isEmpty {
             parts.append(missingCompletion
@@ -1935,7 +2035,7 @@ final class SessionRunner {
         }
 
         if store.session(sessionID)?.hasAgentConversation == true {
-            continuableFailures.insert(sessionID)
+            records[sessionID]?.continuable = .failedTurn
         }
         setState(.failed(message), for: sessionID)
         store.release(sessionID, for: .running)
@@ -1949,10 +2049,11 @@ final class SessionRunner {
     }
 
     private func resumeDesignWorkflowQueues(after sessionID: UUID, store: ProjectStore) {
-        let waiting = designWorkflowDirectoryWaits.filter {
-            store.sessionsShareDesignWorkflow(sessionID, $0)
+        let waiting = records.filter {
+            $0.value.waitsForDesignWorkflowDirectory
+                && store.sessionsShareDesignWorkflow(sessionID, $0.key)
         }
-        for waitingSessionID in waiting {
+        for waitingSessionID in waiting.keys {
             runQueue(waitingSessionID, store: store)
         }
     }

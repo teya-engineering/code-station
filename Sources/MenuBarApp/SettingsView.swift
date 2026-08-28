@@ -334,8 +334,7 @@ struct SettingsView: View {
             }
             .padding(.horizontal, 9)
             .frame(height: 30)
-            .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
-            .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
+            .fieldSurface(cornerRadius: 9)
 
             Button { searchFocused = true } label: { EmptyView() }
                 .buttonStyle(.plain)
@@ -343,7 +342,7 @@ struct SettingsView: View {
                 .frame(width: 0, height: 0)
                 .accessibilityHidden(true)
 
-            if searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if searchText.isBlank {
                 VStack(spacing: 4) {
                     ForEach(SettingsTab.allCases, id: \.self) { choice in
                         SettingsNavigationItem(
@@ -422,50 +421,21 @@ struct SettingsView: View {
     }
 
     private var settingsFooter: some View {
-        VStack(spacing: 0) {
-            Divider().overlay(Theme.hairline)
-            HStack(spacing: 8) {
-                Circle()
-                    .fill(Theme.dotOn)
-                    .frame(width: 7, height: 7)
-                    .background(Circle()
-                        .fill(Theme.dotOn.opacity(0.12))
-                        .frame(width: 13, height: 13))
-                    .accessibilityHidden(true)
-                Text("Changes save automatically")
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(.secondary)
-
-                Spacer(minLength: 0)
-
-                if tab == .appearance {
-                    Button(action: settings.resetAppearance) {
-                        Text("Reset Appearance")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(Theme.accent)
-                            .padding(.horizontal, 9)
-                            .padding(.vertical, 6)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                Button { dismiss() } label: {
-                    Text("Done")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 18)
-                        .padding(.vertical, 7)
-                        .background(RoundedRectangle(cornerRadius: 8)
-                            .fill(Color.black.opacity(0.88)))
-                        .contentShape(RoundedRectangle(cornerRadius: 8))
-                }
-                .buttonStyle(.plain)
-                .keyboardShortcut(.cancelAction)
+        SheetFooter(dismiss: { dismiss() }) {
+            Circle()
+                .fill(Theme.dotOn)
+                .frame(width: 7, height: 7)
+                .background(Circle()
+                    .fill(Theme.dotOn.opacity(0.12))
+                    .frame(width: 13, height: 13))
+                .accessibilityHidden(true)
+            Text("Changes save automatically")
+                .font(.system(size: 11.5))
+                .foregroundStyle(.secondary)
+            if tab == .appearance {
+                InlineLink(title: "Reset Appearance", action: settings.resetAppearance)
+                    .padding(.leading, 6)
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 12)
-            .background(Theme.card)
         }
     }
 
@@ -508,26 +478,14 @@ struct SettingsView: View {
                         title: "Sessions shown",
                         detail: "How many recent sessions each project and workspace lists before See more.")
                     Spacer(minLength: 0)
-                    HStack(spacing: 8) {
-                        Text("\(settings.sidebarSessionLimit)")
-                            .font(.system(size: 13, weight: .medium))
-                            .monospacedDigit()
-                        Image(systemName: "chevron.up.chevron.down")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.horizontal, 12)
-                    .frame(height: 34)
-                    .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
-                    .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
-                    .contentShape(Rectangle())
-                    .appMenu(matchWidth: true) {
+                    OptionMenu(value: "\(settings.sidebarSessionLimit)") {
                         SidebarSessionVisibility.limitRange.map { limit in
                             .item("\(limit)", checked: settings.sidebarSessionLimit == limit) {
                                 settings.sidebarSessionLimit = limit
                             }
                         }
                     }
+                    .fixedSize(horizontal: true, vertical: false)
                     .accessibilityLabel("Sessions shown per sidebar list: \(settings.sidebarSessionLimit)")
                 }
                 .padding(.horizontal, 14)
@@ -589,14 +547,11 @@ struct SettingsView: View {
                 HStack(spacing: 10) {
                     Text(stale == 0
                          ? "Nothing is older than that right now."
-                         : "\(stale) session\(stale == 1 ? " is" : "s are") older than that right now.")
+                         : "\(counted(stale, "session")) \(stale == 1 ? "is" : "are") older than that right now.")
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                     Spacer(minLength: 0)
-                    Button("Review them…") { reviewingOldSessions = true }
-                        .buttonStyle(.plain)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(Theme.accent)
+                    InlineLink(title: "Review them…") { reviewingOldSessions = true }
                         .disabled(stale == 0)
                         .opacity(stale == 0 ? 0.4 : 1)
                 }
@@ -614,19 +569,7 @@ struct SettingsView: View {
                         title: "Refresh the skills list",
                         detail: "Checks the marketplace for new versions. You can still refresh it from Skills at any time.")
                     Spacer(minLength: 0)
-                    HStack(spacing: 8) {
-                        Text(settings.skillsRefreshInterval.title)
-                            .font(.system(size: 13, weight: .medium))
-                        Image(systemName: "chevron.up.chevron.down")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.horizontal, 12)
-                    .frame(height: 34)
-                    .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
-                    .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
-                    .contentShape(Rectangle())
-                    .appMenu(matchWidth: true) {
+                    OptionMenu(value: settings.skillsRefreshInterval.title) {
                         SkillsRefreshInterval.allCases.map { interval in
                             .item(interval.title,
                                   checked: settings.skillsRefreshInterval == interval) {
@@ -634,6 +577,7 @@ struct SettingsView: View {
                             }
                         }
                     }
+                    .fixedSize(horizontal: true, vertical: false)
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 13)
@@ -718,8 +662,7 @@ struct SettingsView: View {
     private func previewPanel<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         content()
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 10).fill(Theme.sunken))
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.settingsHairline))
+            .surface(Theme.sunken, cornerRadius: 10, border: Theme.settingsHairline)
     }
 
     // One control behind its own small label. The fixed gutter keeps the controls in a
@@ -750,28 +693,9 @@ struct SettingsView: View {
                 .accessibilityValue(sidebarIconStyleLabel)
         } controls: {
             controlRow("Style") {
-                HStack(spacing: 8) {
-                    Text(sidebarIconStyleLabel)
-                        .font(.system(size: 12, weight: .semibold))
-                        // A long style name shortens instead of widening the card.
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                    Spacer(minLength: 0)
-                    Image(systemName: "chevron.up.chevron.down")
-                        .font(.system(size: 8, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.horizontal, 10)
-                .frame(maxWidth: .infinity, minHeight: 34)
-                .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
-                .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
-                .contentShape(Rectangle())
-                .appMenu(matchWidth: true) {
-                    sidebarIconStyleMenu
-                }
-                .accessibilityLabel("Sidebar icon style: \(sidebarIconStyleLabel)")
+                OptionMenu(value: sidebarIconStyleLabel) { sidebarIconStyleMenu }
+                    .accessibilityLabel("Sidebar icon style: \(sidebarIconStyleLabel)")
             }
-
         }
     }
 
@@ -902,23 +826,9 @@ struct SettingsView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
-            HStack(spacing: 7) {
-                Image(nsImage: NSWorkspace.shared.icon(forFile: app.path))
-                    .resizable()
-                    .frame(width: 18, height: 18)
-                Text(SystemTerminal.name(of: app))
-                    .font(.system(size: 13, weight: .medium))
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 10)
-            .frame(height: 34)
-            .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
-            .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
-            .contentShape(Rectangle())
-            .appMenu(matchWidth: true) { terminalMenu }
-            .accessibilityLabel("Terminal: \(SystemTerminal.name(of: app))")
+            OptionMenu(value: SystemTerminal.name(of: app)) { terminalMenu }
+                .fixedSize(horizontal: true, vertical: false)
+                .accessibilityLabel("Terminal: \(SystemTerminal.name(of: app))")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -950,21 +860,16 @@ struct SettingsView: View {
     // The list only holds apps that say they run shell scripts, and not every terminal
     // says so, so there is a way to name one the list never offered.
     private func chooseTerminal() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = false
-        panel.canChooseFiles = true
-        panel.allowsMultipleSelection = false
-        panel.allowedContentTypes = [.application]
-        panel.directoryURL = URL(fileURLWithPath: "/Applications")
-        panel.prompt = "Choose"
-        panel.message = "Pick the terminal to open a shell in."
-        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard let url = FilePicker.chooseFile(prompt: "Choose",
+                                              message: "Pick the terminal to open a shell in.",
+                                              types: [.application],
+                                              directory: URL(fileURLWithPath: "/Applications"))
+        else { return }
 
         guard let id = SystemTerminal.bundleID(of: url) else {
-            dialogs.show(Dialog(
-                title: "Could not use that app",
-                message: "\(SystemTerminal.name(of: url)) does not look like an application macOS can open.",
-                actions: [.init(label: "OK", kind: .cancel)]))
+            dialogs.show(.notice(
+                "Could not use that app",
+                message: "\(SystemTerminal.name(of: url)) does not look like an application macOS can open."))
             return
         }
         settings.terminalBundleID = id
@@ -1078,24 +983,8 @@ struct SettingsView: View {
     }
 
     private var defaultBotPicker: some View {
-        HStack(spacing: 7) {
-            Text(defaultBotTitle)
-                .font(.system(size: 12, weight: .semibold))
-                // A long bot name shortens instead of widening the card.
-                .lineLimit(1)
-                .truncationMode(.tail)
-            Spacer(minLength: 0)
-            Image(systemName: "chevron.up.chevron.down")
-                .font(.system(size: 8, weight: .semibold))
-                .foregroundStyle(.secondary)
-        }
-        .padding(.horizontal, 10)
-        .frame(maxWidth: .infinity, minHeight: 34)
-        .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
-        .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
-        .contentShape(Rectangle())
-        .appMenu(matchWidth: true) { defaultBotMenu }
-        .accessibilityLabel("Default bot: \(defaultBotTitle)")
+        OptionMenu(value: defaultBotTitle) { defaultBotMenu }
+            .accessibilityLabel("Default bot: \(defaultBotTitle)")
     }
 
     private func settingCopy(title: String, detail: String) -> some View {
@@ -1226,14 +1115,9 @@ struct SettingsView: View {
     }
 
     private func chooseBotImage() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = false
-        panel.canChooseFiles = true
-        panel.allowsMultipleSelection = false
-        panel.allowedContentTypes = [.image]
-        panel.prompt = "Choose"
-        panel.message = "Pick a photo for this bot."
-        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard let url = FilePicker.chooseFile(prompt: "Choose",
+                                              message: "Pick a photo for this bot.",
+                                              types: [.image]) else { return }
 
         guard let image = AgentAvatarFile.load(from: url) else {
             // The draft dialog is still open behind this, so its own button brings it back
@@ -1281,10 +1165,7 @@ struct SettingsView: View {
     }
 
     private func showBotImageFailure(_ error: Error) {
-        dialogs.show(Dialog(
-            title: "Could not update the bots",
-            message: error.localizedDescription,
-            actions: [.init(label: "OK", kind: .cancel)]))
+        dialogs.show(.notice("Could not update the bots", message: error.localizedDescription))
     }
 
     // A turn that stops moving looks the same as one that is working, and the transcript
@@ -1300,14 +1181,8 @@ struct SettingsView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
-            Button("Open") { showingLog = true }
-                .buttonStyle(.plain)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(Theme.accent)
-            Button("Reveal") { SessionLog.revealInFinder() }
-                .buttonStyle(.plain)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(Theme.accent)
+            InlineLink(title: "Open") { showingLog = true }
+            InlineLink(title: "Reveal") { SessionLog.revealInFinder() }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -1377,10 +1252,8 @@ private struct SettingsSearchResultItem: View {
             }
             .padding(.horizontal, 9)
             .frame(maxWidth: .infinity, minHeight: 42, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 9)
-                .fill(selected ? Theme.card : .clear))
-            .overlay(RoundedRectangle(cornerRadius: 9)
-                .stroke(selected ? Theme.border : .clear))
+            .surface(selected ? Theme.card : .clear, cornerRadius: 9,
+                     border: selected ? Theme.border : .clear)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -1470,12 +1343,11 @@ private struct SettingsThemePreview: View {
                 }
             }
             .padding(7)
-            .background(RoundedRectangle(cornerRadius: 5)
-                .fill(dark
-                      ? Color(red: 0.125, green: 0.122, blue: 0.114)
-                      : Color(red: 1, green: 0.992, blue: 0.965)))
-            .overlay(RoundedRectangle(cornerRadius: 5)
-                .stroke(dark ? Color.white.opacity(0.1) : Color.black.opacity(0.1)))
+            .surface(dark
+                     ? Color(red: 0.125, green: 0.122, blue: 0.114)
+                     : Color(red: 1, green: 0.992, blue: 0.965),
+                     cornerRadius: 5,
+                     border: dark ? Color.white.opacity(0.1) : Color.black.opacity(0.1))
             .padding(7)
         }
     }
@@ -1508,21 +1380,9 @@ private struct BotDraftEditor: View {
                     image: draft.image ?? AgentAvatarArt.image(for: draft.personality),
                     size: 48)
 
-                Button(action: chooseImage) {
-                    HStack(spacing: 7) {
-                        Text(draft.image == nil ? "Add a photo…" : "Change photo…")
-                            .font(.system(size: 12, weight: .semibold))
-                        Image(systemName: "photo.badge.plus")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.horizontal, 12)
-                    .frame(height: 34)
-                    .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
-                    .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
+                ActionButton(title: draft.image == nil ? "Add a photo…" : "Change photo…",
+                             tone: .sunken, height: 34, icon: "photo.badge.plus",
+                             action: chooseImage)
 
                 Spacer(minLength: 0)
             }
@@ -1562,11 +1422,10 @@ private struct PersonalityPicker: View {
                     }
                     .padding(9)
                     .frame(maxWidth: .infinity, minHeight: 60, alignment: .leading)
-                    .background(RoundedRectangle(cornerRadius: 9)
-                        .fill(selection == personality ? Theme.field : Theme.card))
-                    .overlay(RoundedRectangle(cornerRadius: 9)
-                        .stroke(selection == personality
-                                ? Theme.accent.opacity(0.55) : Theme.border))
+                    .surface(selection == personality ? Theme.field : Theme.card,
+                             cornerRadius: 9,
+                             border: selection == personality
+                                 ? Theme.accent.opacity(0.55) : Theme.border)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -1601,8 +1460,7 @@ private struct DayField: View {
         }
         .padding(.horizontal, 10)
         .frame(height: 34)
-        .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
-        .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
+        .fieldSurface(cornerRadius: 9)
     }
 }
 
@@ -1774,27 +1632,5 @@ enum SettingsTab: CaseIterable, Hashable {
         case .advanced: "Manage shared configuration and other advanced settings."
         case .experimental: "Try features that are still in development."
         }
-    }
-}
-
-// The permission modes the CLI takes, minus the ones that have no place in a desktop app:
-// nothing here can turn every check off.
-enum PermissionMode {
-    static let all: [(mode: String, title: String, short: String, detail: String)] = [
-        ("acceptEdits", "Accept edits, ask about the rest", "Accept edits",
-         "Edits to files go through on their own. Commands and anything else are asked about."),
-        ("manual", "Ask about everything", "Ask everything",
-         "Every edit and every command waits for an answer. The slowest, and the one that shows the most."),
-        ("auto", "Ask only about risky things", "Ask risky only",
-         "Claude Code judges each step and only asks about the ones that can do damage."),
-    ]
-
-    static func title(of mode: String?) -> String {
-        all.first { $0.mode == mode }?.title ?? mode ?? "Accept edits, ask about the rest"
-    }
-
-    // What the mode is called where a sentence does not fit, like the composer bar.
-    static func shortTitle(of mode: String?) -> String {
-        all.first { $0.mode == mode }?.short ?? mode ?? "Accept edits"
     }
 }

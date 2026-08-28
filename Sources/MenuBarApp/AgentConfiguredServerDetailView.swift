@@ -75,24 +75,12 @@ struct AgentConfiguredServerDetailView: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Theme.accent.opacity(0.08)))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.accent.opacity(0.24)))
+        .surface(Theme.accent.opacity(0.08), cornerRadius: 12, border: Theme.accent.opacity(0.24))
     }
 
     private var differenceCard: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 14))
-                .foregroundStyle(Theme.warningText)
-                .padding(.top, 1)
-            Text("Claude Code and Codex use different connection details for this server name.")
-                .font(.system(size: 12.5, weight: .medium))
-                .foregroundStyle(Theme.warningText)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Theme.warningBackground))
+        WarningStrip("Claude Code and Codex use different connection details for this server name.")
+            .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 
     private func registrationCard(_ registration: AgentConfiguredServer.Registration) -> some View {
@@ -113,22 +101,22 @@ struct AgentConfiguredServerDetailView: View {
             Divider().overlay(Theme.hairline)
 
             VStack(alignment: .leading, spacing: 2) {
-                detailRow(label: "TRANSPORT") {
+                detailRow("TRANSPORT") {
                     MonoChip(text: registration.transport, size: 13, bordered: true)
                 }
                 if let command = registration.command {
-                    detailRow(label: "COMMAND") {
+                    detailRow("COMMAND") {
                         HStack(spacing: 8) {
                             MonoChip(text: command, size: 13, bordered: true)
                             if !registration.args.isEmpty {
-                                Text("\(registration.args.count) argument\(registration.args.count == 1 ? "" : "s")")
+                                Text(counted(registration.args.count, "argument"))
                                     .font(.system(size: 12))
                                     .foregroundStyle(.secondary)
                             }
                         }
                     }
                 } else if let url = registration.url {
-                    detailRow(label: "URL") {
+                    detailRow("URL") {
                         Text(displayURL(url))
                             .font(.mono(12.5))
                             .foregroundStyle(.secondary)
@@ -138,12 +126,12 @@ struct AgentConfiguredServerDetailView: View {
                     }
                 }
                 if !registration.env.isEmpty {
-                    detailRow(label: "VARIABLES") {
+                    detailRow("VARIABLES") {
                         hiddenValues(registration.env.keys.sorted())
                     }
                 }
                 if !registration.headers.isEmpty {
-                    detailRow(label: "HEADERS") {
+                    detailRow("HEADERS") {
                         hiddenValues(registration.headers.keys.sorted())
                     }
                 }
@@ -151,23 +139,14 @@ struct AgentConfiguredServerDetailView: View {
             .padding(.vertical, 8)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.border))
+        .cardSurface(cornerRadius: 12)
     }
 
-    private func detailRow(label: String,
+    private func detailRow(_ label: String,
                            @ViewBuilder content: () -> some View) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 16) {
-            Text(label)
-                .font(.mono(11, .semibold))
-                .kerning(0.5)
-                .foregroundStyle(.secondary)
-                .frame(width: 120, alignment: .leading)
-            content()
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 7)
+        LabeledRow(label, content: content)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 7)
     }
 
     private func hiddenValues(_ keys: [String]) -> some View {

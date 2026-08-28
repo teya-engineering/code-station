@@ -71,8 +71,7 @@ struct TaskInputsCard: View {
                 .transition(.fadeIn)
             }
         }
-        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
+        .cardSurface(cornerRadius: 10)
         .smoothlyResizes(when: "\(open):\(input.kind.rawValue)")
     }
 
@@ -81,7 +80,16 @@ struct TaskInputsCard: View {
             HStack(alignment: .top, spacing: 12) {
                 field("LABEL", placeholder: input.title,
                       text: binding(input, \.label))
-                kindMenu(input)
+                OptionMenu(caption: "KIND", value: input.kind.title) {
+                    TaskInput.Kind.allCases.map { kind in
+                        .item(kind.title, checked: kind == input.kind) {
+                            var updated = input
+                            updated.kind = kind
+                            onChange(updated)
+                        }
+                    }
+                }
+                .frame(width: 150)
             }
 
             switch input.kind {
@@ -123,50 +131,11 @@ struct TaskInputsCard: View {
         }
     }
 
-    private func kindMenu(_ input: TaskInput) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            FieldLabel(text: "KIND")
-            HStack(spacing: 6) {
-                Text(input.kind.title)
-                    .font(.system(size: 12))
-                Spacer(minLength: 8)
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 8, weight: .semibold))
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 10)
-            .frame(height: 30)
-            .frame(width: 150)
-            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.field))
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
-            .appMenu(matchWidth: true) {
-                TaskInput.Kind.allCases.map { kind in
-                    .item(kind.title, checked: kind == input.kind) {
-                        var updated = input
-                        updated.kind = kind
-                        onChange(updated)
-                    }
-                }
-            }
-        }
-    }
-
     private func field(_ label: String, placeholder: String, text: Binding<String>,
                        note: String? = nil) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            FieldLabel(text: label)
+        LabeledField(label, note: note) {
             TextField(placeholder, text: text)
-                .textFieldStyle(.plain)
-                .font(.system(size: 12))
-                .padding(.horizontal, 10)
-                .frame(height: 30)
-                .background(RoundedRectangle(cornerRadius: 8).fill(Theme.field))
-                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
-            if let note {
-                Text(note)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.tertiary)
-            }
+                .appTextField(size: 12)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -190,7 +159,7 @@ struct TaskInputsCard: View {
                 set: { text in
                     var updated = input
                     updated.options = text.split(separator: ",")
-                        .map { $0.trimmingCharacters(in: .whitespaces) }
+                        .map { String($0).trimmed }
                         .filter { !$0.isEmpty }
                     onChange(updated)
                 })

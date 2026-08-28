@@ -5,7 +5,7 @@ enum FileNameSearch {
     static let resultLimit = 200
 
     static func matches(_ query: String, in files: [FileNode], beneath root: String) -> [FileNode] {
-        let query = normalized(query.trimmingCharacters(in: .whitespacesAndNewlines))
+        let query = normalized(query.trimmed)
         guard !query.isEmpty else { return [] }
 
         return files.compactMap { node -> (node: FileNode, rank: Int, path: String)? in
@@ -220,10 +220,11 @@ struct ExplorerSearchDialog: View {
     }
 
     @ViewBuilder private var results: some View {
-        if model.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        switch resultsState {
+        case .prompt:
             searchMessage("Start typing to find a file")
                 .transition(.fadeIn)
-        } else if model.loading {
+        case .loading:
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small)
                 Text("Reading files...")
@@ -232,10 +233,10 @@ struct ExplorerSearchDialog: View {
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, minHeight: 180)
             .transition(.fadeIn)
-        } else if model.matches.isEmpty {
+        case .empty:
             searchMessage("No matching files")
                 .transition(.fadeIn)
-        } else {
+        case .matches:
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 2) {
@@ -262,7 +263,7 @@ struct ExplorerSearchDialog: View {
     }
 
     private var resultsState: ResultsState {
-        if model.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return .prompt }
+        if model.query.isBlank { return .prompt }
         if model.loading { return .loading }
         return model.matches.isEmpty ? .empty : .matches
     }

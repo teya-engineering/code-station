@@ -2,6 +2,21 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
+// The editors address rows by index through one writable path per list. The lists that
+// sit inside an optional group get a path of their own, since a key path cannot write
+// through an optional.
+private extension SiteDefaults {
+    var requestList: [DispatchConfig.Request]? {
+        get { dispatch?.requests }
+        set { dispatch?.requests = newValue }
+    }
+
+    var presetList: [MCP.Preset]? {
+        get { mcp?.presets }
+        set { mcp?.presets = newValue }
+    }
+}
+
 struct SiteConfigurationSection: View {
     @Environment(DispatchStore.self) private var dispatch
     @Environment(DispatchAuthStore.self) private var dispatchAuth
@@ -10,11 +25,8 @@ struct SiteConfigurationSection: View {
     let skills: SkillsManager
 
     @State private var loaded = SiteDefaults.current
-    @State private var pending: SiteConfigurationSelection?
+    @State private var loader = SiteConfigurationLoader()
     @State private var chosen: Set<SiteConfigurationAspect> = []
-    @State private var repositoryURL = ""
-    @State private var loading = false
-    @State private var failure: String?
     @State private var editor: SiteConfigurationAspect?
     @State private var showingDispatch = false
     @State private var showingMCP = false
@@ -49,6 +61,10 @@ struct SiteConfigurationSection: View {
             SiteConfigurationJSONView(defaults: loaded).appOverlays()
         }
         .onAppear(perform: refreshConfiguration)
+        // A freshly loaded file offers everything it holds; unticking is the user's move.
+        .onChange(of: loader.selection) { _, selection in
+            chosen = selection?.plan.everything ?? []
+        }
     }
 
     private var configuration: some View {
@@ -144,19 +160,9 @@ struct SiteConfigurationSection: View {
 
     private func currentDetail(for aspect: SiteConfigurationAspect) -> String {
         switch aspect {
-        case .environments:
-            let count = loaded.deployEnvironments.count
-            return count == 1 ? "1 environment" : "\(count) environments"
-        case .apiAccess:
-            return aspect.detail(in: loaded)
-        case .requests:
-            return aspect.detail(in: loaded)
-        case .mcp:
-            return aspect.detail(in: loaded)
-        case .skills:
-            return loaded.skills?.name ?? "Not configured"
-        case .shortcuts:
-            return aspect.detail(in: loaded)
+        case .environments: counted(loaded.deployEnvironments.count, "environment")
+        case .skills: loaded.skills?.name ?? "Not configured"
+        default: aspect.detail(in: loaded)
         }
     }
 
@@ -166,9 +172,9 @@ struct SiteConfigurationSection: View {
             SettingsCard {
                 VStack(alignment: .leading, spacing: 10) {
                     sources
-                    if let pending { preview(pending) }
-                    if let failure { warning(failure) }
-                    if let loadFailure = loaded.loadFailure { warning(loadFailure) }
+                    if let selection = loader.selection { preview(selection) }
+                    if let failure = loader.failure { SourceFailure(failure) }
+                    if let loadFailure = loaded.loadFailure { SourceFailure(loadFailure) }
                 }
                 .padding(14)
             }
@@ -176,25 +182,23 @@ struct SiteConfigurationSection: View {
     }
 
     private var sources: some View {
-        HStack(spacing: 8) {
-            TextField("https://github.com/org/settings", text: $repositoryURL)
+        @Bindable var loader = loader
+        return HStack(spacing: 8) {
+            TextField("https://github.com/org/settings", text: $loader.repositoryURL)
                 .textFieldStyle(.plain)
                 .font(.mono(11.5))
                 .padding(.horizontal, 10)
                 .frame(height: 32)
-                .background(RoundedRectangle(cornerRadius: 8).fill(Theme.field))
-                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
-                .onSubmit(loadRepository)
-            ActionButton(title: loading ? "Loading…" : "Load",
+                .fieldSurface()
+                .onSubmit(loader.loadRepository)
+            ActionButton(title: loader.isLoading ? "Loading…" : "Load",
                          tone: .outlined,
-                         action: loadRepository)
-                .disabled(loading || repositoryURL.trimmingCharacters(in: .whitespaces).isEmpty)
-                .opacity(loading ? 0.6 : 1)
-            ActionButton(title: "Choose file…",
-                         tone: .outlined,
-                         icon: "folder",
-                         action: chooseFile)
-                .disabled(loading)
+                         action: loader.loadRepository)
+                .disabled(!loader.canLoadRepository)
+            ActionButton(title: "Choose file…", tone: .outlined, icon: "folder") {
+                loader.chooseFile(message: "Choose a Code Station configuration to use as a reset point.")
+            }
+            .disabled(loader.isLoading)
         }
     }
 
@@ -231,10 +235,7 @@ struct SiteConfigurationSection: View {
                 .toggleStyle(.appCheckbox)
             }
         }
-        .padding(11)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 9).fill(Theme.addition.opacity(0.08)))
-        .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.addition.opacity(0.28)))
+        .sourceResult(Theme.addition)
     }
 
     private func chosenText(_ plan: SiteConfigurationPlan) -> String {
@@ -251,78 +252,15 @@ struct SiteConfigurationSection: View {
                 })
     }
 
-    private func warning(_ message: String) -> some View {
-        HStack(alignment: .top, spacing: 9) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(Theme.deletion)
-            Text(message)
-                .font(.system(size: 11.5))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .lineLimit(5)
-        }
-        .padding(11)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 9).fill(Theme.deletion.opacity(0.08)))
-        .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.deletion.opacity(0.25)))
-    }
-
-    private func chooseFile() {
-        guard !loading else { return }
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = false
-        panel.canChooseFiles = true
-        panel.allowsMultipleSelection = false
-        panel.allowedContentTypes = [.json]
-        panel.prompt = "Load"
-        panel.message = "Choose a Code Station configuration to use as a reset point."
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        record { try SiteConfigurationImporter.load(file: url) }
-    }
-
-    private func loadRepository() {
-        let repository = repositoryURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !loading, !repository.isEmpty else { return }
-        loading = true
-        failure = nil
-        pending = nil
-        Task {
-            do {
-                offer(try await SiteConfigurationImporter.load(gitHubRepository: repository))
-            } catch {
-                failure = error.localizedDescription
-            }
-            loading = false
-        }
-    }
-
-    private func record(_ load: () throws -> SiteConfigurationSelection) {
-        do {
-            offer(try load())
-            failure = nil
-        } catch {
-            pending = nil
-            failure = error.localizedDescription
-        }
-    }
-
-    private func offer(_ selection: SiteConfigurationSelection) {
-        pending = selection
-        chosen = selection.plan.everything
-    }
-
     private func install(_ selection: SiteConfigurationSelection) {
         do {
             let defaults = try SiteConfigurationImporter.reset(selection,
                                                                aspects: chosen,
                                                                current: loaded)
             apply(defaults, changed: chosen)
-            pending = nil
-            chosen = []
-            repositoryURL = ""
-            failure = nil
+            loader.clear()
         } catch {
-            failure = error.localizedDescription
+            loader.failure = error.localizedDescription
         }
     }
 
@@ -449,7 +387,8 @@ private struct SiteConfigurationEditorView: View {
     private var environmentsEditor: some View {
         VStack(alignment: .leading, spacing: 12) {
             ForEach(Array((draft.environments ?? []).indices), id: \.self) { index in
-                let environment = environmentBinding(at: index)
+                let environment = binding(\.environments, at: index,
+                                          or: SiteDefaults.Environment(name: ""))
                 editorCard {
                     HStack(alignment: .top, spacing: 10) {
                         SiteConfigurationField(caption: "NAME / {{env}}",
@@ -512,8 +451,9 @@ private struct SiteConfigurationEditorView: View {
 
     private var requestsEditor: some View {
         VStack(alignment: .leading, spacing: 12) {
-            ForEach(Array((draft.dispatch?.requests ?? []).indices), id: \.self) { index in
-                let request = requestBinding(at: index)
+            ForEach(Array((draft.requestList ?? []).indices), id: \.self) { index in
+                let request = binding(\.requestList, at: index,
+                                      or: SiteDefaults.DispatchConfig.Request(name: "", url: ""))
                 editorCard {
                     HStack(alignment: .top, spacing: 10) {
                         SiteConfigurationField(caption: "NAME",
@@ -538,8 +478,9 @@ private struct SiteConfigurationEditorView: View {
 
     private var mcpEditor: some View {
         VStack(alignment: .leading, spacing: 12) {
-            ForEach(Array((draft.mcp?.presets ?? []).indices), id: \.self) { index in
-                let preset = presetBinding(at: index)
+            ForEach(Array((draft.presetList ?? []).indices), id: \.self) { index in
+                let preset = binding(\.presetList, at: index,
+                                     or: SiteDefaults.MCP.Preset(name: ""))
                 editorCard {
                     HStack(alignment: .top, spacing: 10) {
                         SiteConfigurationField(caption: "NAME",
@@ -558,7 +499,7 @@ private struct SiteConfigurationEditorView: View {
                                                placeholder: "production",
                                                text: optional(preset.environment))
                         VStack(alignment: .leading, spacing: 6) {
-                            Caption(text: "TRANSPORT")
+                            SectionLabel("TRANSPORT", style: .field)
                             HStack(spacing: 4) {
                                 ChoicePill(title: "stdio", selected: !preset.wrappedValue.isRemote) {
                                     preset.command.wrappedValue = preset.wrappedValue.command ?? ""
@@ -667,7 +608,7 @@ private struct SiteConfigurationEditorView: View {
                 .font(.system(size: 12.5, weight: .semibold))
             if skillsEnabled.wrappedValue {
                 VStack(alignment: .leading, spacing: 6) {
-                    Caption(text: "SOURCE")
+                    SectionLabel("SOURCE", style: .field)
                     HStack(spacing: 6) {
                         ChoicePill(title: "Git repository",
                                    selected: skillsSourceKind.wrappedValue == .gitRepository) {
@@ -709,7 +650,8 @@ private struct SiteConfigurationEditorView: View {
     private var shortcutsEditor: some View {
         VStack(alignment: .leading, spacing: 12) {
             ForEach(Array((draft.shortcuts ?? []).indices), id: \.self) { index in
-                let shortcut = shortcutBinding(at: index)
+                let shortcut = binding(\.shortcuts, at: index,
+                                       or: SiteDefaults.Shortcut(name: "", command: ""))
                 editorCard {
                     HStack(alignment: .top, spacing: 10) {
                         SiteConfigurationField(caption: "NAME",
@@ -732,8 +674,7 @@ private struct SiteConfigurationEditorView: View {
         VStack(alignment: .leading, spacing: 12) { content() }
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
+            .cardSurface()
     }
 
     private func addButton(_ title: String, action: @escaping () -> Void) -> some View {
@@ -746,8 +687,8 @@ private struct SiteConfigurationEditorView: View {
                 .font(.system(size: 11.5, weight: .semibold))
                 .foregroundStyle(Theme.deletion)
                 .frame(width: 32, height: 32)
-                .background(RoundedRectangle(cornerRadius: 8).fill(Theme.deletion.opacity(0.07)))
-                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.deletion.opacity(0.2)))
+                .surface(Theme.deletion.opacity(0.07), cornerRadius: 8,
+                         border: Theme.deletion.opacity(0.2))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -756,7 +697,7 @@ private struct SiteConfigurationEditorView: View {
 
     private func methodMenu(_ method: Binding<HTTPMethod?>) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Caption(text: "METHOD")
+            SectionLabel("METHOD", style: .field)
             ActionButton(title: (method.wrappedValue ?? .get).rawValue,
                          tone: .sunken,
                          height: 34,
@@ -832,14 +773,9 @@ private struct SiteConfigurationEditorView: View {
     }
 
     private func chooseSkillsFile() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = false
-        panel.canChooseFiles = true
-        panel.allowsMultipleSelection = false
-        panel.allowedContentTypes = [.json]
-        panel.prompt = "Choose"
-        panel.message = "Choose the skills marketplace JSON file."
-        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard let url = FilePicker.chooseFile(prompt: "Choose",
+                                              message: "Choose the skills marketplace JSON file.",
+                                              types: [.json]) else { return }
         var skills = draft.skills
             ?? SiteDefaults.Skills(name: "", marketplace: "", repository: "")
         skills.sourceKind = .localFile
@@ -847,22 +783,12 @@ private struct SiteConfigurationEditorView: View {
         draft.skills = skills
     }
 
-    private func environmentBinding(at index: Int) -> Binding<SiteDefaults.Environment> {
-        Binding(get: { draft.environments?[index] ?? SiteDefaults.Environment(name: "") },
-                set: { draft.environments?[index] = $0 })
-    }
-
-    private func requestBinding(at index: Int) -> Binding<SiteDefaults.DispatchConfig.Request> {
-        Binding(get: {
-            draft.dispatch?.requests?[index]
-                ?? SiteDefaults.DispatchConfig.Request(name: "", url: "")
-        }, set: { draft.dispatch?.requests?[index] = $0 })
-    }
-
-    private func presetBinding(at index: Int) -> Binding<SiteDefaults.MCP.Preset> {
-        Binding(get: {
-            draft.mcp?.presets?[index] ?? SiteDefaults.MCP.Preset(name: "")
-        }, set: { draft.mcp?.presets?[index] = $0 })
+    // One row of a list on the draft. The fallback only covers the list being absent;
+    // the editors create it before they draw rows.
+    private func binding<Value>(_ list: WritableKeyPath<SiteDefaults, [Value]?>,
+                                at index: Int, or fallback: Value) -> Binding<Value> {
+        Binding(get: { draft[keyPath: list]?[index] ?? fallback },
+                set: { draft[keyPath: list]?[index] = $0 })
     }
 
     private func presetValueBinding(
@@ -885,11 +811,6 @@ private struct SiteConfigurationEditorView: View {
                         .map(\.trimmed)
                         .filter { !$0.isEmpty }
                 })
-    }
-
-    private func shortcutBinding(at index: Int) -> Binding<SiteDefaults.Shortcut> {
-        Binding(get: { draft.shortcuts?[index] ?? SiteDefaults.Shortcut(name: "", command: "") },
-                set: { draft.shortcuts?[index] = $0 })
     }
 
     private func optional(_ value: Binding<String?>) -> Binding<String> {
@@ -1084,14 +1005,13 @@ private struct SiteConfigurationField: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Caption(text: caption)
+            SectionLabel(caption, style: .field)
             TextField(placeholder, text: $text)
                 .textFieldStyle(.plain)
                 .font(.mono(11))
                 .padding(.horizontal, 11)
                 .frame(height: 34)
-                .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
-                .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
+                .fieldSurface(cornerRadius: 9)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -1104,7 +1024,7 @@ private struct SiteConfigurationTextArea: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Caption(text: caption)
+            SectionLabel(caption, style: .field)
             ZStack(alignment: .topLeading) {
                 if text.isEmpty {
                     Text(placeholder)
@@ -1120,8 +1040,7 @@ private struct SiteConfigurationTextArea: View {
                     .padding(2)
             }
             .frame(height: 64)
-            .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
-            .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
+            .fieldSurface(cornerRadius: 9)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -1131,7 +1050,6 @@ private struct SiteConfigurationJSONView: View {
     @Environment(\.dismiss) private var dismiss
     let defaults: SiteDefaults
 
-    @State private var copied = false
     @State private var failure: String?
 
     private var data: Data? { try? SiteConfigurationImporter.configurationData(for: defaults) }
@@ -1157,8 +1075,7 @@ private struct SiteConfigurationJSONView: View {
                         .padding(14)
                 }
                 .frame(height: 440)
-                .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
-                .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
+                .fieldSurface(cornerRadius: 9)
 
                 if let failure {
                     Text(failure)
@@ -1170,14 +1087,8 @@ private struct SiteConfigurationJSONView: View {
 
             SheetFooter(dismiss: { dismiss() }) {
                 HStack(spacing: 14) {
-                    Button(copied ? "Copied" : "Copy JSON") { copy() }
-                        .buttonStyle(.plain)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(Theme.accent)
-                    Button("Export…") { export() }
-                        .buttonStyle(.plain)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(Theme.accent)
+                    CopyButton("Copy JSON", size: 12) { text }
+                    InlineLink(title: "Export…", action: export)
                 }
             }
         }
@@ -1185,24 +1096,15 @@ private struct SiteConfigurationJSONView: View {
         .background(Theme.background)
     }
 
-    private func copy() {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
-        copied = true
-        failure = nil
-    }
-
     private func export() {
         guard let data else {
             failure = "The current configuration could not be encoded."
             return
         }
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [.json]
-        panel.nameFieldStringValue = "site-configuration.json"
-        panel.prompt = "Export"
-        panel.message = "Export the current Code Station configuration."
-        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard let url = FilePicker.saveFile(suggestedName: "site-configuration.json",
+                                            prompt: "Export",
+                                            message: "Export the current Code Station configuration.",
+                                            types: [.json]) else { return }
         do {
             try data.write(to: url, options: .atomic)
             failure = nil

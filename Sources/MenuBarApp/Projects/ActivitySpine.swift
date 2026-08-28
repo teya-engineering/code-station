@@ -56,35 +56,26 @@ struct ActivitySpine: View {
     }
 
     private var header: some View {
-        Button { showsCalls = !showsRows } label: {
-            HStack(spacing: 8) {
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .rotationEffect(.degrees(showsRows ? 90 : 0))
-                    .frame(width: 10)
-                Text(summary)
-                    .scaledMono(11)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                if nodes.contains(where: \.hasError) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: 10))
-                        .foregroundStyle(Theme.deletion)
-                }
-                Spacer(minLength: 8)
-                if hasRunningCalls && !showsRows {
-                    Text("running")
-                        .scaledMono(10.5)
-                        .foregroundStyle(.tertiary)
-                }
+        DisclosureHeader(isExpanded: Binding(get: { showsRows }, set: { showsCalls = $0 }),
+                         show: "Show tool calls", hide: "Hide tool calls") {
+            Text(summary)
+                .scaledMono(11)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            if nodes.contains(where: \.hasError) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Theme.deletion)
             }
-            .padding(.bottom, showsRows ? 7 : 0)
-            .contentShape(Rectangle())
+            Spacer(minLength: 8)
+            if hasRunningCalls && !showsRows {
+                Text("running")
+                    .scaledMono(10.5)
+                    .foregroundStyle(.tertiary)
+            }
         }
-        .buttonStyle(.plain)
-        .appTooltip(showsRows ? "Hide tool calls" : "Show tool calls")
+        .foregroundStyle(.secondary)
+        .padding(.bottom, showsRows ? 7 : 0)
     }
 
     // Enough of what ran to say whether the block is worth opening, without opening it.
@@ -125,9 +116,9 @@ struct ActivitySpine: View {
 // of a call that handed its work on. Agents are counted apart from calls, since a
 // fan-out's size is the team it put to work.
 private func workDone(calls: Int, agents: Int) -> String {
-    let work = "\(calls) call" + (calls == 1 ? "" : "s")
+    let work = counted(calls, "call")
     guard agents > 0 else { return work }
-    return "\(agents) agent" + (agents == 1 ? "" : "s") + " · " + work
+    return counted(agents, "agent") + " · " + work
 }
 
 private struct SpineRow: View {
@@ -256,7 +247,7 @@ private struct SpineRow: View {
         } else if presentation.notesResultLineCount, let result = tool.result {
             // A command that printed nothing is worth saying out loud: without it the row
             // is indistinguishable from one whose output is simply collapsed.
-            Text(result.isEmpty ? "no output" : "\(lineCount(result)) lines")
+            Text(result.isEmpty ? "no output" : counted(lineCount(result), "line"))
                 .scaledMono(10.5)
                 .foregroundStyle(.tertiary)
         }
@@ -300,8 +291,7 @@ private struct SpineRow: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
+        .cardSurface(cornerRadius: 10)
     }
 
     private func outputBox(_ text: String, tinted: Bool) -> some View {
@@ -316,9 +306,7 @@ private struct SpineRow: View {
         // Tool output can be a whole file, so cap it and let the box scroll. The cap
         // follows the text, so the box shows about the same number of lines at any size.
         .frame(maxHeight: 220 * textScale)
-        .background(RoundedRectangle(cornerRadius: 8)
-            .fill(tinted ? Theme.warningBackground : Theme.field))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
+        .surface(tinted ? Theme.warningBackground : Theme.field, cornerRadius: 8)
         .padding(.bottom, 4)
     }
 
@@ -343,8 +331,7 @@ private struct EditDiffCard: View {
             Divider().overlay(Theme.hairline)
             lines
         }
-        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
+        .cardSurface(cornerRadius: 10)
         .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 
@@ -354,16 +341,10 @@ private struct EditDiffCard: View {
                 .scaledMono(12, .semibold)
                 .lineLimit(1)
                 .truncationMode(.middle)
-            HStack(spacing: 5) {
-                Text("+\(change.added)").foregroundStyle(Theme.addition)
-                Text("-\(change.removed)").foregroundStyle(Theme.deletion)
-            }
-            .scaledMono(11, .medium)
+            DiffPair(added: change.added, removed: change.removed,
+                     size: 11 * textScale, weight: .medium)
             Spacer(minLength: 8)
-            Button("Open in Changes", action: openChanges)
-                .buttonStyle(.plain)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(Theme.accent)
+            InlineLink(title: "Open in Changes", size: 11, action: openChanges)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)

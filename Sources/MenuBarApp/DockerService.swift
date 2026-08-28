@@ -5,7 +5,6 @@ struct DockerContainer: Identifiable, Sendable, Equatable {
     let id: String
     let name: String
     let image: String
-    let command: String
     let status: String
     let ports: String
     let size: String
@@ -20,7 +19,6 @@ struct DockerContainer: Identifiable, Sendable, Equatable {
         self.id = id
         name = fields["Names"] ?? id
         image = fields["Image"] ?? ""
-        command = fields["Command"] ?? ""
         status = fields["Status"] ?? ""
         ports = fields["Ports"] ?? ""
         size = fields["Size"] ?? ""
@@ -38,7 +36,7 @@ struct DockerContainer: Identifiable, Sendable, Equatable {
     var publishedPorts: String {
         let ports = ports
             .split(separator: ",")
-            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .map { String($0).trimmed }
             .compactMap { mapping -> String? in
                 guard let arrow = mapping.range(of: "->") else { return nil }
                 let host = mapping[..<arrow.lowerBound]
@@ -53,7 +51,6 @@ struct DockerImage: Identifiable, Sendable, Equatable {
     let imageID: String
     let repository: String
     let tag: String
-    let digest: String
     let createdSince: String
     let size: String
     let containers: String
@@ -66,7 +63,6 @@ struct DockerImage: Identifiable, Sendable, Equatable {
         self.imageID = imageID
         repository = fields["Repository"] ?? "<none>"
         tag = fields["Tag"] ?? "<none>"
-        digest = fields["Digest"] ?? ""
         createdSince = fields["CreatedSince"] ?? ""
         size = fields["Size"] ?? ""
         containers = fields["Containers"] ?? ""
@@ -148,35 +144,65 @@ final class DockerService {
 
         var ok: Bool { status == 0 }
         var failureMessage: String {
-            let trimmed = errorText.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? "docker exited with code \(status)." : trimmed
+            errorText.isBlank ? "docker exited with code \(status)." : errorText.trimmed
+        }
+    }
+
+    // One kind of thing docker lists. Containers, images, networks and volumes are all
+    // read, failed and shown the same way, so what differs between them is kept to the
+    // `ls` command, the line parser and the sort key. Sendable because the lists are
+    // read from the child tasks that run the four commands side by side.
+    struct Resource<Item: Identifiable & Sendable>: Sendable where Item.ID: Sendable {
+        var items: [Item] = []
+        var failure: String?
+        // False until the first answer, so a tab can say it is still looking rather
+        // than that there is nothing there.
+        var hasLoaded = false
+        // The items docker is working on right now: a container being stopped, an
+        // image being removed.
+        var busy: Set<Item.ID> = []
+        let list: [String]
+        let parse: @Sendable (String) -> Item?
+        let sortKey: @Sendable (Item) -> String
+
+        init(list: [String], parse: @escaping @Sendable (String) -> Item?,
+             sortKey: @escaping @Sendable (Item) -> String) {
+            self.list = list
+            self.parse = parse
+            self.sortKey = sortKey
+        }
+
+        mutating func apply(_ result: Output) {
+            hasLoaded = true
+            guard result.ok else {
+                items = []
+                failure = result.failureMessage
+                return
+            }
+            failure = nil
+            items = result.text
+                .split(separator: "\n")
+                .compactMap { parse(String($0)) }
+                .sorted { sortKey($0).localizedStandardCompare(sortKey($1)) == .orderedAscending }
         }
     }
 
     typealias Runner = @Sendable ([String]) async -> Output
     typealias Availability = @Sendable () -> Bool
 
-    private(set) var containers: [DockerContainer] = []
-    private(set) var images: [DockerImage] = []
-    private(set) var networks: [DockerNetwork] = []
-    private(set) var volumes: [DockerVolume] = []
-    private(set) var stopping: Set<String> = []
-    private(set) var deletingImages: Set<String> = []
-    private(set) var deletingNetworks: Set<String> = []
-    private(set) var deletingVolumes: Set<String> = []
+    private(set) var containers = Resource<DockerContainer>(
+        list: ["ps", "--no-trunc", "--size", "--format", "{{json .}}"],
+        parse: DockerContainer.init(line:), sortKey: \.name)
+    private(set) var images = Resource<DockerImage>(
+        list: ["image", "ls", "--no-trunc", "--format", "{{json .}}"],
+        parse: DockerImage.init(line:), sortKey: \.reference)
+    private(set) var networks = Resource<DockerNetwork>(
+        list: ["network", "ls", "--no-trunc", "--format", "{{json .}}"],
+        parse: DockerNetwork.init(line:), sortKey: \.name)
+    private(set) var volumes = Resource<DockerVolume>(
+        list: ["volume", "ls", "--format", "{{json .}}"],
+        parse: DockerVolume.init(line:), sortKey: \.id)
 
-    private(set) var containerFailure: String?
-    private(set) var imageFailure: String?
-    private(set) var networkFailure: String?
-    private(set) var volumeFailure: String?
-
-    private(set) var hasLoadedContainers = false
-    private(set) var hasLoadedImages = false
-    private(set) var hasLoadedNetworks = false
-    private(set) var hasLoadedVolumes = false
-
-    var failure: String? { containerFailure }
-    var hasLoaded: Bool { hasLoadedContainers }
     var isAvailable: Bool { availability() }
 
     @ObservationIgnored private let runner: Runner
@@ -193,16 +219,16 @@ final class DockerService {
             return
         }
 
-        async let containerResult = runner(["ps", "--no-trunc", "--size", "--format", "{{json .}}"])
-        async let imageResult = runner(["image", "ls", "--no-trunc", "--format", "{{json .}}"])
-        async let networkResult = runner(["network", "ls", "--no-trunc", "--format", "{{json .}}"])
-        async let volumeResult = runner(["volume", "ls", "--format", "{{json .}}"])
+        async let containerResult = runner(containers.list)
+        async let imageResult = runner(images.list)
+        async let networkResult = runner(networks.list)
+        async let volumeResult = runner(volumes.list)
 
         let results = await (containerResult, imageResult, networkResult, volumeResult)
-        applyContainers(results.0)
-        applyImages(results.1)
-        applyNetworks(results.2)
-        applyVolumes(results.3)
+        containers.apply(results.0)
+        images.apply(results.1)
+        networks.apply(results.2)
+        volumes.apply(results.3)
     }
 
     func refreshContainers() async {
@@ -210,19 +236,19 @@ final class DockerService {
             dockerUnavailable()
             return
         }
-        applyContainers(await runner(["ps", "--no-trunc", "--size", "--format", "{{json .}}"]))
+        await refresh(\.containers)
     }
 
     // Docker asks the container to quit and only kills it if it will not, so this can
     // sit for a few seconds on a container that ignores the signal.
     func stop(_ containers: [DockerContainer]) async -> String? {
-        let containers = containers.filter { !stopping.contains($0.id) }
+        let containers = containers.filter { !self.containers.busy.contains($0.id) }
         guard !containers.isEmpty else { return nil }
 
         let ids = containers.map(\.id)
-        stopping.formUnion(ids)
+        self.containers.busy.formUnion(ids)
         let result = await runner(["stop"] + ids)
-        stopping.subtract(ids)
+        self.containers.busy.subtract(ids)
         await refreshContainers()
 
         if !result.ok {
@@ -232,117 +258,42 @@ final class DockerService {
     }
 
     func delete(_ image: DockerImage) async -> String? {
-        guard deletingImages.insert(image.id).inserted else { return nil }
-        defer { deletingImages.remove(image.id) }
-
-        let result = await runner(["image", "rm", image.removalTarget])
-        guard result.ok else { return result.failureMessage }
-        await refreshImages()
-        return nil
+        await delete(image.id, from: \.images, arguments: ["image", "rm", image.removalTarget])
     }
 
     func delete(_ network: DockerNetwork) async -> String? {
-        guard deletingNetworks.insert(network.id).inserted else { return nil }
-        defer { deletingNetworks.remove(network.id) }
-
-        let result = await runner(["network", "rm", network.id])
-        guard result.ok else { return result.failureMessage }
-        await refreshNetworks()
-        return nil
+        await delete(network.id, from: \.networks, arguments: ["network", "rm", network.id])
     }
 
     func delete(_ volume: DockerVolume) async -> String? {
-        guard deletingVolumes.insert(volume.id).inserted else { return nil }
-        defer { deletingVolumes.remove(volume.id) }
+        await delete(volume.id, from: \.volumes, arguments: ["volume", "rm", volume.id])
+    }
 
-        let result = await runner(["volume", "rm", volume.id])
+    // A second click while docker is still removing something is ignored rather than
+    // queued. The list is read again afterwards so the screen shows what is left.
+    private func delete<Item>(_ id: Item.ID,
+                              from resource: ReferenceWritableKeyPath<DockerService, Resource<Item>>,
+                              arguments: [String]) async -> String? {
+        guard self[keyPath: resource].busy.insert(id).inserted else { return nil }
+        defer { self[keyPath: resource].busy.remove(id) }
+
+        let result = await runner(arguments)
         guard result.ok else { return result.failureMessage }
-        await refreshVolumes()
+        await refresh(resource)
         return nil
     }
 
-    private func refreshImages() async {
-        applyImages(await runner(["image", "ls", "--no-trunc", "--format", "{{json .}}"]))
-    }
-
-    private func refreshNetworks() async {
-        applyNetworks(await runner(["network", "ls", "--no-trunc", "--format", "{{json .}}"]))
-    }
-
-    private func refreshVolumes() async {
-        applyVolumes(await runner(["volume", "ls", "--format", "{{json .}}"]))
-    }
-
-    private func applyContainers(_ result: Output) {
-        hasLoadedContainers = true
-        guard result.ok else {
-            containers = []
-            containerFailure = result.failureMessage
-            return
-        }
-        containerFailure = nil
-        containers = result.text
-            .split(separator: "\n")
-            .compactMap { DockerContainer(line: String($0)) }
-            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-    }
-
-    private func applyImages(_ result: Output) {
-        hasLoadedImages = true
-        guard result.ok else {
-            images = []
-            imageFailure = result.failureMessage
-            return
-        }
-        imageFailure = nil
-        images = result.text
-            .split(separator: "\n")
-            .compactMap { DockerImage(line: String($0)) }
-            .sorted { $0.reference.localizedStandardCompare($1.reference) == .orderedAscending }
-    }
-
-    private func applyNetworks(_ result: Output) {
-        hasLoadedNetworks = true
-        guard result.ok else {
-            networks = []
-            networkFailure = result.failureMessage
-            return
-        }
-        networkFailure = nil
-        networks = result.text
-            .split(separator: "\n")
-            .compactMap { DockerNetwork(line: String($0)) }
-            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-    }
-
-    private func applyVolumes(_ result: Output) {
-        hasLoadedVolumes = true
-        guard result.ok else {
-            volumes = []
-            volumeFailure = result.failureMessage
-            return
-        }
-        volumeFailure = nil
-        volumes = result.text
-            .split(separator: "\n")
-            .compactMap { DockerVolume(line: String($0)) }
-            .sorted { $0.id.localizedStandardCompare($1.id) == .orderedAscending }
+    private func refresh<Item>(_ resource: ReferenceWritableKeyPath<DockerService, Resource<Item>>) async {
+        let result = await runner(self[keyPath: resource].list)
+        self[keyPath: resource].apply(result)
     }
 
     private func dockerUnavailable() {
-        let message = "Docker was not found. Install Docker Desktop, or start it if it is already installed."
-        containers = []
-        images = []
-        networks = []
-        volumes = []
-        containerFailure = message
-        imageFailure = message
-        networkFailure = message
-        volumeFailure = message
-        hasLoadedContainers = true
-        hasLoadedImages = true
-        hasLoadedNetworks = true
-        hasLoadedVolumes = true
+        let missing = Output(errorText: "Docker was not found. Install Docker Desktop, or start it if it is already installed.")
+        containers.apply(missing)
+        images.apply(missing)
+        networks.apply(missing)
+        volumes.apply(missing)
     }
 
     // MARK: - Running docker

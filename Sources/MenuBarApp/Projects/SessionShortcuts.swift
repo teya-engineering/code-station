@@ -198,8 +198,7 @@ private struct ShortcutChip: View {
             }
             .padding(.horizontal, 9)
             .frame(height: 22)
-            .background(RoundedRectangle(cornerRadius: 7).fill(backgroundColour))
-            .overlay(RoundedRectangle(cornerRadius: 7).stroke(borderColour))
+            .surface(backgroundColour, cornerRadius: 7, border: borderColour)
             .shadow(color: emphasisColour.opacity(hovering ? 0.32 : 0),
                     radius: hovering ? 6 : 0)
             .scaleEffect(hovering && !reduceMotion ? 1.04 : 1)
@@ -389,21 +388,11 @@ enum SessionShortcuts {
     static func lastAgentCommand(in session: ChatSession) -> String? {
         for message in session.messages.reversed() where message.role == .assistant {
             for tool in message.tools.reversed() where tool.name == "Bash" {
-                guard let command = command(in: tool.input) else { continue }
+                guard let command = ToolPresentation.shellCommand(in: tool.input)?.trimmed,
+                      !command.isEmpty, !command.contains("\n") else { continue }
                 return command
             }
         }
         return nil
-    }
-
-    // Claude Code sends a call's input as JSON, while Codex hands over the command
-    // itself, so a shell call arrives in one of two shapes under the same name.
-    private static func command(in input: String) -> String? {
-        let object = (try? JSONSerialization.jsonObject(with: Data(input.utf8)))
-            as? [String: Any]
-        let command = object.map { $0["command"] as? String ?? "" } ?? input
-        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, !trimmed.contains("\n") else { return nil }
-        return trimmed
     }
 }

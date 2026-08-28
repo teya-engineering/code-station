@@ -21,6 +21,10 @@ final class DispatchStore {
     private(set) var loadError: String?
     private(set) var saveError: String?
 
+    // Editing a URL is one write per keystroke, so those are coalesced into one file
+    // write the way the project store does it.
+    @ObservationIgnored private lazy var saver = DebouncedSaver { [weak self] in self?.save() }
+
     var selected: SavedRequest? { requests.first { $0.id == selectedID } }
 
     var siteConfigurationRequests: [SiteDefaults.DispatchConfig.Request] {
@@ -38,25 +42,19 @@ final class DispatchStore {
     }
 
     func applySiteDefaults(_ defaults: SiteDefaults) {
-        let siteRequests = defaults.dispatchRequests
         // Without a saved collection, the requests in memory came from the previously
         // loaded site file and can be replaced. A saved collection belongs to the user,
         // so an explicit import adds only starter requests it does not already contain.
         guard FileManager.default.fileExists(atPath: storeURL.path) else {
             folders = [.default]
-            requests = siteRequests.map { request in
-                var request = request
-                request.folderID = RequestFolder.defaultID
-                return request
-            }
-            importedSiteRequestIDs = Set(siteRequests.map(\.id))
-            if !requests.isEmpty { expandedFolderIDs.insert(RequestFolder.defaultID) }
+            requests = []
+            seed(from: defaults)
             save()
             return
         }
 
         var changed = false
-        for var request in siteRequests {
+        for var request in defaults.dispatchRequests {
             guard importedSiteRequestIDs.insert(request.id).inserted else { continue }
             let alreadySaved = requests.contains {
                 $0.name == request.name && $0.method == request.method && $0.url == request.url
@@ -68,7 +66,7 @@ final class DispatchStore {
             changed = true
         }
         guard changed else { return }
-        if !siteRequests.isEmpty { expandedFolderIDs.insert(RequestFolder.defaultID) }
+        expandedFolderIDs.insert(RequestFolder.defaultID)
         save()
     }
 
@@ -76,11 +74,18 @@ final class DispatchStore {
     // user created in Dispatch alone. The tracked IDs also include site requests the user
     // deleted, so a reset can restore them without mistaking personal requests for defaults.
     func resetSiteRequests(to defaults: SiteDefaults) {
-        for id in importedSiteRequestIDs {
-            if selectedID == id { selectedID = nil }
+        if let selectedID, importedSiteRequestIDs.contains(selectedID) {
+            self.selectedID = nil
         }
         requests.removeAll { importedSiteRequestIDs.contains($0.id) }
+        seed(from: defaults)
+        save()
+    }
 
+    // The site file's starter requests go into Default and are remembered as imported,
+    // so a reset can tell them from the user's own. Default opens when there is
+    // something in it to see.
+    private func seed(from defaults: SiteDefaults) {
         let siteRequests = defaults.dispatchRequests
         importedSiteRequestIDs = Set(siteRequests.map(\.id))
         for var request in siteRequests {
@@ -88,7 +93,6 @@ final class DispatchStore {
             requests.append(request)
         }
         if !siteRequests.isEmpty { expandedFolderIDs.insert(RequestFolder.defaultID) }
-        save()
     }
 
     private static func defaultStoreURL() -> URL {
@@ -124,7 +128,7 @@ final class DispatchStore {
         guard let i = requests.firstIndex(where: { $0.id == request.id }) else { return }
         guard requests[i] != request else { return }
         requests[i] = request
-        scheduleSave()
+        saver.schedule()
     }
 
     func remove(_ id: UUID) {
@@ -164,13 +168,13 @@ final class DispatchStore {
     }
 
     func renameFolder(_ id: UUID, to name: String) {
-        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = name.trimmed
         guard id != RequestFolder.defaultID,
               !name.isEmpty,
               let index = folders.firstIndex(where: { $0.id == id }) else { return }
         guard folders[index].name != name else { return }
         folders[index].name = name
-        scheduleSave()
+        saver.schedule()
     }
 
     func removeFolder(_ id: UUID) {
@@ -220,34 +224,18 @@ final class DispatchStore {
         } else {
             expandedFolderIDs.insert(folderID)
         }
-        scheduleSave()
+        saver.schedule()
     }
 
     // MARK: - Persistence
 
-    private var saveTask: Task<Void, Never>?
-
-    // Editing a URL is one write per keystroke, so those are coalesced into one file
-    // write the way the project store does it.
-    private func scheduleSave() {
-        saveTask?.cancel()
-        saveTask = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(400))
-            guard !Task.isCancelled else { return }
-            self?.save()
-        }
-    }
-
     @discardableResult
     func save() -> Bool {
-        saveTask?.cancel()
-        saveTask = nil
+        saver.cancel()
         guard loadError == nil else {
             saveError = "Changes were not saved because the existing request file could not be loaded."
             return false
         }
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         do {
             // Written in folder order rather than set order, so a save that changes
             // nothing writes the same bytes every time.
@@ -255,11 +243,11 @@ final class DispatchStore {
             let importedIDs = importedSiteRequestIDs.sorted {
                 $0.uuidString < $1.uuidString
             }
-            let data = try encoder.encode(SavedRequestCollection(folders: folders,
-                                                                  requests: requests,
-                                                                  importedSiteRequestIDs: importedIDs,
-                                                                  expandedFolderIDs: openFolderIDs))
-            try PersistentFile.write(data, to: storeURL)
+            try PersistentFile.saveJSON(SavedRequestCollection(folders: folders,
+                                                               requests: requests,
+                                                               importedSiteRequestIDs: importedIDs,
+                                                               expandedFolderIDs: openFolderIDs),
+                                        to: storeURL)
             saveError = nil
             return true
         } catch {
@@ -282,17 +270,11 @@ final class DispatchStore {
         guard let data else {
             loadError = nil
             folders = [.default]
-            let examples = defaults.dispatchRequests
-            requests = examples.map { request in
-                var request = request
-                request.folderID = RequestFolder.defaultID
-                return request
-            }
-            importedSiteRequestIDs = Set(examples.map(\.id))
+            seed(from: defaults)
             return
         }
 
-        let decoder = JSONDecoder()
+        let decoder = PersistentFile.makeDecoder()
         var openFolderIDs: [UUID] = []
         if let saved = try? decoder.decode(SavedRequestCollection.self, from: data) {
             folders = saved.folders
@@ -300,6 +282,7 @@ final class DispatchStore {
             importedSiteRequestIDs = Set(saved.importedSiteRequestIDs)
             openFolderIDs = saved.expandedFolderIDs
         } else if let saved = try? decoder.decode([SavedRequest].self, from: data) {
+            // A file from before folders existed is a bare list of requests.
             folders = []
             requests = saved
             importedSiteRequestIDs = []
@@ -335,5 +318,4 @@ final class DispatchStore {
         }
         return folderID
     }
-
 }

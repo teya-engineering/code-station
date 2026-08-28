@@ -18,8 +18,7 @@ enum ProjectRemoval {
                 if case .failure(let failure) = await run(project, in: store, runner: runner,
                                                           shortcuts: shortcuts,
                                                           worktrees: worktrees) {
-                    dialogs.show(Dialog(title: failure.title, message: failure.message,
-                                        actions: [.init(label: "OK", kind: .cancel)]))
+                    dialogs.show(.notice(failure.title, message: failure.message))
                 }
             }
         })
@@ -42,21 +41,16 @@ enum ProjectRemoval {
         let designs = sessions.count { store.hasDesignArtifacts(for: $0) }
         let isTask = project.kind == .adHoc
         var message = isTask
-            ? "This drops its \(count) run\(count == 1 ? "" : "s") and deletes the task's folder, including any files the runs left in it."
-            : "This drops \(count) session\(count == 1 ? "" : "s") that use it and removes their worktrees. It is also removed from every workspace. The folder itself stays on disk."
+            ? "This drops its \(counted(count, "run")) and deletes the task's folder, including any files the runs left in it."
+            : "This drops \(counted(count, "session")) that use it and removes their worktrees. It is also removed from every workspace. The folder itself stays on disk."
         if designs > 0 {
             message += designs == 1
                 ? " One session contains generated Design files that are permanently removed."
                 : " \(designs) sessions contain generated Design files that are permanently removed."
         }
-        return Dialog(
-            title: isTask ? "Delete \(project.name)?" : "Remove \(project.name)?",
-            message: message,
-            actions: [
-                .init(label: isTask ? "Delete task" : "Remove project",
-                      kind: .destructive, handler: onConfirm),
-                .init(label: "Cancel", kind: .cancel)
-            ])
+        return .confirm(isTask ? "Delete \(project.name)?" : "Remove \(project.name)?",
+                        message: message,
+                        action: isTask ? "Delete task" : "Remove project", handler: onConfirm)
     }
 
     // Sessions first, project last: a project dropped while one of its sessions survived
@@ -66,23 +60,10 @@ enum ProjectRemoval {
     static func run(_ project: Project, in store: ProjectStore, runner: SessionRunner,
                     shortcuts: ShortcutStore, worktrees: WorktreeOperations = .live) async
         -> Result<Void, SessionLifecycle.Failure> {
-        var failures: [SessionLifecycle.Failure] = []
-        for session in sessions(using: project.id, in: store) {
-            if case .failure(let failure) = await SessionLifecycle.remove(
-                session, from: store, runner: runner, worktrees: worktrees) {
-                failures.append(failure)
-            }
-        }
-        guard failures.isEmpty else {
-            // One failure speaks for itself; several are worth naming as a group before
-            // the reasons, so the count is not something the reader has to work out.
-            return .failure(SessionLifecycle.Failure(
-                title: failures.count == 1
-                    ? failures[0].title
-                    : (project.kind == .adHoc
-                       ? "Could not delete some runs"
-                       : "Could not delete some sessions"),
-                message: failures.map(\.message).joined(separator: "\n")))
+        if case .failure(let failure) = await SessionRemoval.run(
+            sessions(using: project.id, in: store), in: store, runner: runner,
+            worktrees: worktrees, groupNoun: project.kind == .adHoc ? "runs" : "sessions") {
+            return .failure(failure)
         }
         // The commands saved against the project go with it. Nothing can bring them back
         // by re-adding the folder - a project added again is a new one - so leaving them

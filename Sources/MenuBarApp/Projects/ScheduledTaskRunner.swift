@@ -30,7 +30,7 @@ struct ScheduledTaskRunner: View {
     }
 
     private func tick(at date: Date) {
-        for task in store.projects where task.kind == .adHoc {
+        for var task in store.projects where task.kind == .adHoc {
             guard var spec = task.task, var schedule = spec.schedule, schedule.isActive else {
                 continue
             }
@@ -38,16 +38,12 @@ struct ScheduledTaskRunner: View {
             if schedule.nextRunAt == nil, !schedule.isWaitingForConfirmation {
                 schedule.prepareIfNeeded(at: date)
                 spec.schedule = schedule
+                task.task = spec
                 store.setTaskSpec(spec, for: task.id)
             }
 
-            guard schedule.isWaitingForConfirmation
-                    || schedule.nextRunAt.map({ $0 <= date }) == true else { continue }
-            guard !store.isMissing(task), !ScheduledTaskExecution.isBusy(task, store: store,
-                                                                          runner: runner),
-                  task.task?.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    == false,
-                  TaskRun.automaticValues(for: task) != nil else { continue }
+            guard ScheduledTaskExecution.blocker(for: task, at: date, store: store,
+                                                 runner: runner) == nil else { continue }
 
             if schedule.isWaitingForConfirmation {
                 presentConfirmation(for: task)
@@ -99,10 +95,8 @@ struct ScheduledTaskRunner: View {
         case .success:
             break
         case .failure(let failure):
-            dialogs.show(Dialog(
-                title: "Could not run the scheduled task",
-                message: failure.message,
-                actions: [.init(label: "OK", kind: .cancel)]))
+            dialogs.show(Dialog.notice("Could not run the scheduled task",
+                                       message: failure.message))
         }
     }
 }
@@ -113,33 +107,41 @@ enum ScheduledTaskExecution {
         store.standaloneSessions(for: task.id).contains { runner.state($0.id).isBusy }
     }
 
+    // Why a scheduled run cannot start right now, or nil when it can. The loop passes
+    // over a blocked task quietly and a run asked for by hand reports the reason, so the
+    // two agree on what counts as ready.
+    static func blocker(for task: Project, at date: Date, store: ProjectStore,
+                        runner: SessionRunner) -> String? {
+        guard task.kind == .adHoc, let schedule = task.task?.schedule, schedule.isActive else {
+            return "The task timer is no longer active."
+        }
+        guard schedule.isWaitingForConfirmation
+                || schedule.nextRunAt.map({ $0 <= date }) == true else {
+            return "The task timer is not due yet."
+        }
+        if store.isMissing(task) { return "The task folder is no longer on disk." }
+        if task.task?.prompt.isBlank ?? true { return "The task has no prompt to run." }
+        if isBusy(task, store: store, runner: runner) {
+            return "Another run is still working in the task folder."
+        }
+        if TaskRun.automaticValues(for: task) == nil {
+            return "Run the task once to save its required input values."
+        }
+        return nil
+    }
+
     @discardableResult
     static func run(_ projectID: UUID, at date: Date = Date(), store: ProjectStore,
                     runner: SessionRunner, agentAvatarName: String?)
         -> Result<ChatSession, PersistenceFailure> {
-        guard let task = store.project(projectID), task.kind == .adHoc,
-              let schedule = task.task?.schedule, schedule.isActive else {
+        guard let task = store.project(projectID) else {
             return .failure(PersistenceFailure(message: "The task timer is no longer active."))
         }
-        guard schedule.isWaitingForConfirmation
-                || schedule.nextRunAt.map({ $0 <= date }) == true else {
-            return .failure(PersistenceFailure(message: "The task timer is not due yet."))
+        if let blocker = blocker(for: task, at: date, store: store, runner: runner) {
+            return .failure(PersistenceFailure(message: blocker))
         }
-        guard !store.isMissing(task) else {
-            return .failure(PersistenceFailure(message: "The task folder is no longer on disk."))
-        }
-        guard task.task?.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                == false else {
-            return .failure(PersistenceFailure(message: "The task has no prompt to run."))
-        }
-        guard !isBusy(task, store: store, runner: runner) else {
-            return .failure(PersistenceFailure(
-                message: "Another run is still working in the task folder."))
-        }
-        guard let values = TaskRun.automaticValues(for: task) else {
-            return .failure(PersistenceFailure(
-                message: "Run the task once to save its required input values."))
-        }
+        // The blocker check has already made sure every required answer is there.
+        let values = TaskRun.automaticValues(for: task) ?? [:]
 
         let result = TaskRun.run(task, values: values, store: store, runner: runner,
                                  agentAvatarName: agentAvatarName)

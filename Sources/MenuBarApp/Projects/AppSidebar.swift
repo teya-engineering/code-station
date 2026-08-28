@@ -249,8 +249,7 @@ struct AppSidebar: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
-        .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
-        .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
+        .fieldSurface(cornerRadius: 9)
         .padding(.horizontal, 14)
         .padding(.bottom, 10)
         .onChange(of: filterText) { _, _ in revealedFilterContainerID = nil }
@@ -325,9 +324,7 @@ struct AppSidebar: View {
                 ? "question · \(question.title.lowercased())"
                 : "permission · \(question.toolName.lowercased())"
         case .running:
-            let tasks = runner.backgroundTasks(session.id)
-            if !tasks.isEmpty { return "waiting for " + BackgroundTaskPhrase.of(tasks) }
-            return session.summary.lastTool ?? "running"
+            return activity(session) ?? "running"
         case .finished:
             return "finished while away"
         }
@@ -544,62 +541,14 @@ struct AppSidebar: View {
             }
 
             if expanded, !visible.isEmpty {
-                let tint = sidebarRailTint(
-                    for: workspace.sidebarAvatar,
-                    name: workspace.name,
-                    monogramTint: Theme.workspaceTint)
-                SidebarRail(colour: tint.colour) {
-                    ForEach(visible) { session in
-                        if let lead = store.project(session.projectID) {
-                            let busy = runner.state(session.id).isBusy
-                            let finished = store.hasFinished(session.id)
-                            let folders = store.workingDirectories(for: session)
-                            let selected = isSelected(session)
-                            SidebarRailRow(colour: tint.colour,
-                                           selectedColour: tint.ink,
-                                           selected: selected) {
-                                SessionCard(session: session,
-                                            selected: selected,
-                                            busy: busy,
-                                            waiting: runner.state(session.id) == .waiting,
-                                            needsInput: runner.question(session.id) != nil,
-                                            finished: finished,
-                                            activity: activitySummary(session, project: lead,
-                                                                      busy: busy, finished: finished),
-                                            branch: workspaceBranch(session),
-                                            uncommitted: folders.contains(where: workingTrees.isDirty),
-                                            connected: mobileAccess.isConnected(session: session.id),
-                                            isRenaming: renamingID == session.id,
-                                            onDelete: { confirmRemoveSession(session) },
-                                            onRename: { name in
-                                                store.renameSession(session.id, to: name)
-                                                renamingID = nil
-                                            },
-                                            onCancelRename: { renamingID = nil })
-                            }
-                                .contentShape(Rectangle())
-                                .onTapGesture { store.selectSession(session.id) }
-                                .appContextMenu {
-                                    [.item("Rename…") { renamingID = session.id },
-                                     .separator,
-                                     .item("Delete session", kind: .destructive) {
-                                         confirmRemoveSession(session)
-                                     }]
-                                }
-                        }
-                    }
-                    // The rest of a filtered list is what did not match, so there is
-                    // nothing to unfold.
-                    let hidden = isFiltering ? 0 : sessions.count - visible.count
-                    if hidden > 0 {
-                        SidebarRailRow(colour: tint.colour) {
-                            SeeMoreCard(title: "See \(hidden) more…") {
-                                sessionVisibility.showAll(workspace.id)
-                            }
-                        }
-                    }
-                }
-                .transition(.fadeIn)
+                sessionRail(sessions, visible: visible, in: workspace.id,
+                            tint: sidebarRailTint(for: workspace.sidebarAvatar,
+                                                  name: workspace.name,
+                                                  monogramTint: Theme.workspaceTint),
+                            branch: workspaceBranch,
+                            uncommitted: { session in
+                                store.workingDirectories(for: session).contains(where: workingTrees.isDirty)
+                            })
             }
         }
     }
@@ -667,62 +616,67 @@ struct AppSidebar: View {
             // An expanded project with nothing under it draws no block at all: an empty one
             // still carries its padding, which reads as the row shifting on every click.
             if expanded, !visible.isEmpty {
-                let fallbackTint = Theme.projectTint(for: project.name)
-                let tint = sidebarRailTint(
-                    for: project.sidebarAvatar,
-                    name: project.name,
-                    monogramTint: fallbackTint)
-                SidebarRail(colour: tint.colour) {
-                    ForEach(visible) { session in
-                        let busy = runner.state(session.id).isBusy
-                        let finished = store.hasFinished(session.id)
-                        let selected = isSelected(session)
-                        SidebarRailRow(colour: tint.colour,
-                                       selectedColour: tint.ink,
-                                       selected: selected) {
-                            SessionCard(session: session,
-                                        selected: selected,
-                                        busy: busy,
-                                        waiting: runner.state(session.id) == .waiting,
-                                        needsInput: runner.question(session.id) != nil,
-                                        finished: finished,
-                                        activity: activitySummary(session, project: project,
-                                                                  busy: busy, finished: finished),
-                                        branch: branch(session, project: project),
-                                        uncommitted: workingTrees.isDirty(folder(session, project: project)),
-                                        connected: mobileAccess.isConnected(session: session.id),
-                                        isRenaming: renamingID == session.id,
-                                        onDelete: { confirmRemoveSession(session) },
-                                        onRename: { name in
-                                            store.renameSession(session.id, to: name)
-                                            renamingID = nil
-                                        },
-                                        onCancelRename: { renamingID = nil })
-                        }
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                store.selectSession(session.id)
-                            }
-                            .appContextMenu {
-                                [.item("Rename…") { renamingID = session.id },
-                                 .separator,
-                                 .item("Delete session", kind: .destructive) {
-                                     confirmRemoveSession(session)
-                                 }]
-                            }
-                    }
-                    let hidden = isFiltering ? 0 : sessions.count - visible.count
-                    if hidden > 0 {
-                        SidebarRailRow(colour: tint.colour) {
-                            SeeMoreCard(title: "See \(hidden) more…") {
-                                sessionVisibility.showAll(project.id)
-                            }
-                        }
-                    }
-                }
-                .transition(.fadeIn)
+                sessionRail(sessions, visible: visible, in: project.id,
+                            tint: sidebarRailTint(for: project.sidebarAvatar,
+                                                  name: project.name,
+                                                  monogramTint: Theme.projectTint(for: project.name)),
+                            branch: { branch($0, project: project) },
+                            uncommitted: { workingTrees.isDirty(folder($0, project: project)) })
             }
         }
+    }
+
+    // The cards under an open row. A project and a workspace draw the same rail; they
+    // differ only in what a card says about its branch and whether its folders hold
+    // uncommitted work.
+    private func sessionRail(_ sessions: [ChatSession], visible: [ChatSession],
+                             in containerID: UUID, tint: Theme.ProjectTint,
+                             branch: @escaping (ChatSession) -> String?,
+                             uncommitted: @escaping (ChatSession) -> Bool) -> some View {
+        SidebarRail(colour: tint.colour) {
+            ForEach(visible) { session in
+                let selected = isSelected(session)
+                SidebarRailRow(colour: tint.colour, selectedColour: tint.ink, selected: selected) {
+                    SessionCard(session: session,
+                                selected: selected,
+                                busy: runner.state(session.id).isBusy,
+                                waiting: runner.state(session.id) == .waiting,
+                                needsInput: runner.question(session.id) != nil,
+                                finished: store.hasFinished(session.id),
+                                activity: activity(session),
+                                branch: branch(session),
+                                uncommitted: uncommitted(session),
+                                connected: mobileAccess.isConnected(session: session.id),
+                                isRenaming: renamingID == session.id,
+                                onDelete: { confirmRemoveSession(session) },
+                                onRename: { name in
+                                    store.renameSession(session.id, to: name)
+                                    renamingID = nil
+                                },
+                                onCancelRename: { renamingID = nil })
+                }
+                .contentShape(Rectangle())
+                .onTapGesture { store.selectSession(session.id) }
+                .appContextMenu {
+                    [.item("Rename…") { renamingID = session.id },
+                     .separator,
+                     .item("Delete session", kind: .destructive) {
+                         confirmRemoveSession(session)
+                     }]
+                }
+            }
+            // The rest of a filtered list is what did not match, so there is nothing to
+            // unfold.
+            let hidden = isFiltering ? 0 : sessions.count - visible.count
+            if hidden > 0 {
+                SidebarRailRow(colour: tint.colour) {
+                    SeeMoreCard(title: "See \(hidden) more…") {
+                        sessionVisibility.showAll(containerID)
+                    }
+                }
+            }
+        }
+        .transition(.fadeIn)
     }
 
     private func sidebarRailTint(for avatar: SidebarAvatar, name: String,
@@ -897,8 +851,7 @@ struct AppSidebar: View {
             case .success(let session):
                 sessionToReveal = session.id
             case .failure(let failure):
-                showLifecycleFailure(SessionLifecycle.Failure(
-                    title: "Could not create the session", message: failure.message))
+                dialogs.show(.notice("Could not create the session", message: failure.message))
             }
         }
     }
@@ -914,16 +867,14 @@ struct AppSidebar: View {
             case .success:
                 sessionToReveal = choice.sessionID
             case .failure(let failure):
-                showLifecycleFailure(failure)
+                dialogs.show(.notice(failure.title, message: failure.message))
             }
         }
     }
 
     private func confirmRemoveSession(_ session: ChatSession) {
-        dialogs.show(SessionRemoval.confirmation(for: session, in: store,
-                                                 workingTrees: workingTrees) {
-            removeSessions([session])
-        })
+        SessionRemoval.confirm(session, in: store, runner: runner,
+                               workingTrees: workingTrees, dialogs: dialogs)
     }
 
     // Clearing a project keeps whatever is still running and takes the rest, worktrees
@@ -951,15 +902,15 @@ struct AppSidebar: View {
         if kept > 0 {
             message += " The \(kept) still running stay\(kept == 1 ? "s" : "")."
         }
-        dialogs.show(Dialog(
-            title: "Clear \(idle.count) session\(idle.count == 1 ? "" : "s") from \(project.name)?",
-            message: message,
-            actions: [
-                .init(label: "Clear sessions", kind: .destructive) {
-                    removeSessions(idle)
-                },
-                .init(label: "Cancel", kind: .cancel)
-            ]))
+        dialogs.show(.confirm("Clear \(counted(idle.count, "session")) from \(project.name)?",
+                              message: message, action: "Clear sessions") {
+            Task {
+                if case .failure(let failure) = await SessionRemoval.run(
+                    idle, in: store, runner: runner) {
+                    dialogs.show(.notice(failure.title, message: failure.message))
+                }
+            }
+        })
     }
 
     private func idleSessions(in project: Project) -> [ChatSession] {
@@ -972,24 +923,7 @@ struct AppSidebar: View {
     }
 
     private func confirmRemoveWorkspace(_ workspace: ProjectWorkspace) {
-        let affected = sessions(in: workspace.id)
-        let count = affected.count
-        let designs = affected.count { store.hasDesignArtifacts(for: $0) }
-        var message = "This drops \(count) session\(count == 1 ? "" : "s") and removes their worktrees. The \(workspace.projectIDs.count) projects it groups stay."
-        if designs > 0 {
-            message += designs == 1
-                ? " One session contains generated Design files that are permanently removed."
-                : " \(designs) sessions contain generated Design files that are permanently removed."
-        }
-        dialogs.show(Dialog(
-            title: "Delete \(workspace.name)?",
-            message: message,
-            actions: [
-                .init(label: "Delete workspace", kind: .destructive) {
-                    removeSessions(affected) { store.removeWorkspace(workspace.id) }
-                },
-                .init(label: "Cancel", kind: .cancel)
-            ]))
+        WorkspaceRemoval.confirm(workspace, in: store, runner: runner, dialogs: dialogs)
     }
 
     // The session id is chosen up front so the worktree folder and branch can carry
@@ -1005,44 +939,28 @@ struct AppSidebar: View {
             case .success:
                 sessionToReveal = sessionID
             case .failure(let failure):
-                showLifecycleFailure(failure)
+                dialogs.show(.notice(failure.title, message: failure.message))
             }
         }
-    }
-
-    private func removeSessions(_ sessions: [ChatSession], onSuccess: (() -> Void)? = nil) {
-        Task {
-            switch await SessionRemoval.run(sessions, in: store, runner: runner) {
-            case .success:
-                onSuccess?()
-            case .failure(let failure):
-                showLifecycleFailure(failure)
-            }
-        }
-    }
-
-    private func showLifecycleFailure(_ failure: SessionLifecycle.Failure) {
-        dialogs.show(Dialog(title: failure.title, message: failure.message,
-                            actions: [.init(label: "OK", kind: .cancel)]))
-    }
-
-    private func sessions(in workspaceID: UUID) -> [ChatSession] {
-        store.sidebarSessions.filter { $0.workspaceID == workspaceID }
     }
 
     // The line under a session's title. A running session shows the call in flight
     // ("Bash · swift build"), which the runner keeps while the turn is alive. Everything
     // else reads from the saved summary, so the rail never observes transcript writes.
-    private func activitySummary(_ session: ChatSession, project: Project,
-                                 busy: Bool, finished: Bool) -> String? {
+    // A pending permission is left out: a session waiting on one is already on the
+    // needs-you card above.
+    private func activity(_ session: ChatSession) -> String? {
+        let runningTool = runner.state(session.id).isBusy ? runner.runningTool(session.id) : nil
         let tasks = runner.backgroundTasks(session.id)
-        if !tasks.isEmpty { return "waiting for " + BackgroundTaskPhrase.of(tasks) }
-        if busy, let running = runner.runningTool(session.id) {
-            let root = folder(session, project: project)
-            return ToolPresentationCache.presentation(for: running, projectPath: root).label
+        // A card with nothing to say draws no line, where a wider row would say so in words.
+        guard runningTool != nil || !tasks.isEmpty || session.summary.lastTool != nil else {
+            return nil
         }
-        guard let last = session.summary.lastTool else { return nil }
-        return (finished ? "ended after " : "last: ") + last
+        return SessionActivity.line(permission: nil, runningTool: runningTool,
+                                    root: store.workingDirectory(for: session) ?? "",
+                                    lastTool: session.summary.lastTool,
+                                    finished: store.hasFinished(session.id),
+                                    backgroundTasks: tasks)
     }
 
     // A worktree session owns its branch; anything else works on whatever the project
@@ -1126,7 +1044,7 @@ struct AppSidebar: View {
             ZStack {
                 HStack(spacing: 8) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("\(summary.sessions) session\(summary.sessions == 1 ? "" : "s") older than \(oldSessionDays) day\(oldSessionDays == 1 ? "" : "s")")
+                        Text("\(counted(summary.sessions, "session")) older than \(counted(oldSessionDays, "day"))")
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundStyle(losesWork ? Theme.attentionText : Color.primary)
                             .lineLimit(1)
@@ -1174,10 +1092,8 @@ struct AppSidebar: View {
             }
             .padding(.horizontal, 11)
             .padding(.vertical, 9)
-            .background(RoundedRectangle(cornerRadius: 9)
-                .fill(losesWork ? Theme.attention.opacity(0.10) : Theme.field))
-            .overlay(RoundedRectangle(cornerRadius: 9)
-                .stroke(losesWork ? Theme.attention.opacity(0.45) : Color.clear))
+            .surface(losesWork ? Theme.attention.opacity(0.10) : Theme.field, cornerRadius: 9,
+                     border: losesWork ? Theme.attention.opacity(0.45) : .clear)
             .contentShape(RoundedRectangle(cornerRadius: 9))
         }
         .buttonStyle(.plain)
@@ -1312,13 +1228,9 @@ struct AppSidebar: View {
     }
 
     private func addProject() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        panel.prompt = "Add Project"
-        panel.message = "Pick the folder Claude Code should work in."
-        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard let url = FilePicker.chooseFolder(
+            prompt: "Add Project",
+            message: "Pick the folder Claude Code should work in.") else { return }
 
         // A folder that is already a project comes back as nil, and the store has
         // pointed itself at the existing one. Either way the rail lands on that project:
@@ -1341,10 +1253,7 @@ struct AppSidebar: View {
             store.selectProject(project.id, revealingInSidebar: true)
             if draft.runNow { runTask(project) }
         case .failure(let failure):
-            dialogs.show(Dialog(
-                title: "Could not create the task",
-                message: failure.message,
-                actions: [.init(label: "OK", kind: .cancel)]))
+            dialogs.show(.notice("Could not create the task", message: failure.message))
         }
     }
 
@@ -1365,8 +1274,7 @@ struct AppSidebar: View {
         case .success(let session):
             sessionToReveal = session.id
         case .failure(let failure):
-            showLifecycleFailure(SessionLifecycle.Failure(
-                title: "Could not run the task", message: failure.message))
+            dialogs.show(.notice("Could not run the task", message: failure.message))
         }
     }
 
@@ -1389,8 +1297,7 @@ private struct SettingsButton: View {
             .font(.system(size: 14, weight: .medium))
             .foregroundStyle(.secondary)
             .frame(width: 38, height: 38)
-            .background(RoundedRectangle(cornerRadius: 9).fill(hovering ? Theme.field : Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
+            .surface(hovering ? Theme.field : Theme.card, cornerRadius: 9)
             .overlay(alignment: .topTrailing) {
                 if showsUpdate { UpdateIndicator().offset(x: 3, y: -3) }
             }
@@ -1657,7 +1564,7 @@ private struct ProjectHeaderRow: View {
                             // clear.
                             if clearableCount > 0 {
                                 RowAction(icon: "trash", title: "Delete", action: onClearSessions)
-                                    .appTooltip("Clear \(clearableCount) idle session\(clearableCount == 1 ? "" : "s")")
+                                    .appTooltip("Clear \(counted(clearableCount, "idle session"))")
                             }
                             // A task is run with its saved prompt rather than opened
                             // empty. The button waits while a run is still working in
@@ -1720,8 +1627,7 @@ private struct ProjectHeaderRow: View {
     // line of it is enough to recognise the task by.
     private var promptNote: String? {
         guard isTask else { return nil }
-        let line = (project.task?.prompt ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let line = (project.task?.prompt ?? "").trimmed
             .split(separator: "\n").first.map(String.init) ?? ""
         guard !line.isEmpty else { return nil }
         return line.count > 120 ? String(line.prefix(120)) + "…" : line
@@ -2011,38 +1917,6 @@ private struct ActivityLine: View {
         }
         shown = next
         if next != nil { shownAt = Date() }
-    }
-}
-
-// State as a word rather than a dot, so a glance down the rail reads as text. The
-// old-sessions sheet borrows it for the same worktree badge the session cards wear.
-struct StatusPill: View {
-    let text: String
-    let running: Bool
-    var tint: Color? = nil
-    var disclosure = false
-
-    var body: some View {
-        HStack(spacing: 4) {
-            Text(text.uppercased())
-                .font(.mono(9.5, .semibold))
-                .kerning(0.5)
-            if disclosure {
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 7, weight: .bold))
-            }
-        }
-        .foregroundStyle(colour)
-        .padding(.horizontal, 6)
-        .padding(.vertical, 3)
-        .background(RoundedRectangle(cornerRadius: 5)
-            .fill(fill))
-    }
-
-    private var colour: Color { tint ?? (running ? Theme.addition : Color.secondary) }
-
-    private var fill: Color {
-        tint?.opacity(0.14) ?? (running ? Theme.dotOn.opacity(0.18) : Color.black.opacity(0.05))
     }
 }
 

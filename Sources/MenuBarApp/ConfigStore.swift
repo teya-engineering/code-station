@@ -16,6 +16,11 @@ final class ConfigStore {
     let configURL: URL
     private let files: PersistentFileClient
     private var hasUnsavedChanges = false
+    // Typing in a key or value field is one write per keystroke, so those are coalesced
+    // into one file write the way the request store does it.
+    @ObservationIgnored private lazy var saver = DebouncedSaver { [weak self] in
+        _ = self?.save()
+    }
 
     init(configURL: URL? = nil, files: PersistentFileClient = .live) {
         self.configURL = configURL ?? FileManager.default.homeDirectoryForCurrentUser
@@ -43,8 +48,7 @@ final class ConfigStore {
 
         // No file yet is a normal empty state; a present-but-unreadable file is not.
         guard let data else {
-            saveTask?.cancel()
-            saveTask = nil
+            saver.cancel()
             servers = []
             selectedID = nil
             lastModified = nil
@@ -56,7 +60,7 @@ final class ConfigStore {
 
         let file: ConfigFile
         do {
-            file = try JSONDecoder().decode(ConfigFile.self, from: data)
+            file = try PersistentFile.makeDecoder().decode(ConfigFile.self, from: data)
         } catch {
             // Keep whatever we already have and refuse to overwrite the file.
             loadError = PersistentFile.decodeMessage(for: configURL, error: error)
@@ -66,8 +70,7 @@ final class ConfigStore {
         loadError = nil
         saveError = nil
         hasUnsavedChanges = false
-        saveTask?.cancel()
-        saveTask = nil
+        saver.cancel()
         servers = file.mcpServers
             .map { name, entry in server(named: name, from: entry) }
             .sorted { $0.name < $1.name }
@@ -108,32 +111,23 @@ final class ConfigStore {
 
     // MARK: - Saving
 
-    private var saveTask: Task<Void, Never>?
-
-    // Typing in a key or value field is one write per keystroke, so those are coalesced
-    // into one file write the way the request store does it.
     private func scheduleSave() {
-        saveTask?.cancel()
         hasUnsavedChanges = true
-        saveTask = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(400))
-            guard !Task.isCancelled else { return }
-            self?.save()
-        }
+        saver.schedule()
     }
 
     // Writes out an edit that is still waiting on its debounce, so readers of the file
-    // and the app's last moments see what is on screen.
+    // and the app's last moments see what is on screen. A write that failed is still
+    // unsaved, so this is also the retry.
     @discardableResult
     func flushPendingSave() -> Bool {
-        guard saveTask != nil || hasUnsavedChanges else { return true }
+        guard saver.isPending || hasUnsavedChanges else { return true }
         return save()
     }
 
     @discardableResult
     func save() -> Bool {
-        saveTask?.cancel()
-        saveTask = nil
+        saver.cancel()
         hasUnsavedChanges = true
         // Never overwrite a file we could not read in the first place.
         guard loadError == nil else {
@@ -184,9 +178,7 @@ final class ConfigStore {
             )
         }
 
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-        return try? encoder.encode(ConfigFile(mcpServers: map))
+        return try? PersistentFile.makeEncoder().encode(ConfigFile(mcpServers: map))
     }
 
     // The file is always written pretty-printed with clean URLs, so show it verbatim.
@@ -237,7 +229,7 @@ final class ConfigStore {
     // environment covers every server in the paste that does not name one itself.
     @discardableResult
     func importJSON(_ text: String, environment: String? = nil) throws -> Int {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = text.trimmed
         guard !trimmed.isEmpty else { throw ImportError("Paste a server JSON first.") }
         guard let root = try? JSONSerialization.jsonObject(with: Data(trimmed.utf8)) else {
             throw ImportError("That is not valid JSON.")

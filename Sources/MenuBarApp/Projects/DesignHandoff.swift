@@ -23,20 +23,14 @@ enum DesignHandoffLifecycle {
     static func startImplementation(_ designSessionID: UUID, revision: DesignRevision,
                                     store: ProjectStore, runner: SessionRunner)
         -> Result<Void, Failure> {
-        guard store.session(designSessionID) != nil else {
-            return .failure(Failure(title: "Could not start implementation",
-                                    message: "The Design session is no longer available."))
+        let title = "Could not start implementation"
+        if case .failure(let failure) = store.beginImplementation(designSessionID,
+                                                                  revisionID: revision.id) {
+            return .failure(Failure(title: title, message: failure.message))
         }
-        switch store.beginImplementation(designSessionID, revisionID: revision.id) {
-        case .failure(let failure):
-            return .failure(Failure(title: "Could not start implementation",
-                                    message: failure.message))
-        case .success:
-            break
-        }
-
+        // The session keeps its id through the handoff and becomes the implementation.
         guard let implementation = store.session(designSessionID) else {
-            return .failure(Failure(title: "Could not start implementation",
+            return .failure(Failure(title: title,
                                     message: "The implementation session is no longer available."))
         }
         store.append(ChatMessage(
@@ -105,9 +99,8 @@ enum GitRevision {
         return await GitInspector.offMain {
             let result = GitInspector.run(
                 tool, ["rev-parse", "--verify", "HEAD"], in: URL(fileURLWithPath: path))
-            guard result.ok else { return nil }
-            let revision = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            return revision.isEmpty ? nil : revision
+            guard result.ok, !result.text.isBlank else { return nil }
+            return result.text.trimmed
         }
     }
 }

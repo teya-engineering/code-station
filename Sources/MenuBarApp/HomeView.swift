@@ -50,12 +50,10 @@ struct HomeView: View {
                 .frame(width: 8, height: 8)
             Text("Home")
                 .font(.serif(17, .semibold))
-            Text(Date().formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
-                    .uppercased()
-                 + " · " + Date().formatted(date: .omitted, time: .shortened))
-                .font(.mono(10.5))
-                .kerning(0.6)
-                .foregroundStyle(.tertiary)
+            SectionLabel(Date().formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
+                            .uppercased()
+                         + " · " + Date().formatted(date: .omitted, time: .shortened),
+                         style: .field)
 
             Spacer(minLength: 12)
 
@@ -101,13 +99,13 @@ struct HomeView: View {
                      tone: nil,
                      note: standing.sessionsToday == 0
                         ? "No sessions have run today"
-                        : "across \(standing.sessionsToday) session\(standing.sessionsToday == 1 ? "" : "s")")
+                        : "across \(counted(standing.sessionsToday, "session"))")
             StatCard(label: "WORKTREES",
                      value: "\(standing.worktrees)",
                      tone: nil,
                      note: standing.worktrees == 0
                         ? "Nothing checked out on the side"
-                        : "across \(standing.worktreeSessions) session\(standing.worktreeSessions == 1 ? "" : "s")")
+                        : "across \(counted(standing.worktreeSessions, "session"))")
         }
     }
 
@@ -123,8 +121,8 @@ struct HomeView: View {
         let permissions = waiting.count { $0.permission != nil }
         let reviews = waiting.count - permissions
         var parts: [String] = []
-        if permissions > 0 { parts.append("\(permissions) permission") }
-        if reviews > 0 { parts.append("\(reviews) review") }
+        if permissions > 0 { parts.append(counted(permissions, "permission")) }
+        if reviews > 0 { parts.append(counted(reviews, "review")) }
         return parts.joined(separator: " · ")
     }
 
@@ -193,10 +191,10 @@ struct HomeView: View {
             count + store.checkoutProjects(for: session).compactMap(\.worktreePath).count
         }
         return FooterStrip(
-            title: "\(stale.count) session\(stale.count == 1 ? "" : "s") older than \(appSettings.oldSessionDays) days",
+            title: "\(counted(stale.count, "session")) older than \(appSettings.oldSessionDays) days",
             detail: worktrees == 0
                 ? "nothing left checked out"
-                : "\(worktrees) worktree\(worktrees == 1 ? "" : "s") still checked out") {
+                : "\(counted(worktrees, "worktree")) still checked out") {
             InlineLink(title: "Clean up →", size: 12.5, action: onReviewOldSessions)
         }
     }
@@ -330,8 +328,7 @@ private struct StatCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.border))
+        .cardSurface(cornerRadius: 12)
     }
 }
 
@@ -434,9 +431,8 @@ private struct RunningRow: View {
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
-            .background(RoundedRectangle(cornerRadius: 11)
-                .fill(hovering ? Theme.field : Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: 11).stroke(Theme.dotOn.opacity(0.35)))
+            .surface(hovering ? Theme.field : Theme.card, cornerRadius: 11,
+                     border: Theme.dotOn.opacity(0.35))
             .contentShape(RoundedRectangle(cornerRadius: 11))
         }
         .buttonStyle(.plain)
@@ -562,8 +558,7 @@ private struct HomeIntroduction: View {
                         }
                         .padding(16)
                         .frame(maxWidth: .infinity, minHeight: 142, alignment: .topLeading)
-                        .background(RoundedRectangle(cornerRadius: 12).fill(Theme.card))
-                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.border))
+                        .cardSurface(cornerRadius: 12)
                     }
                 }
             }

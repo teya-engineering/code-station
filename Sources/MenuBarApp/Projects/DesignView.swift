@@ -13,14 +13,10 @@ struct DesignView: View {
     let sessionID: UUID
     var onOpenImplementation: (() -> Void)? = nil
 
-    @State private var artifactRevision: DesignArtifactRevision?
-    @State private var reloadGeneration = 0
+    @State private var canvas = DesignCanvas()
     @State private var composerFocused = false
-    @State private var dropTargeted = false
     @State private var conversationWidth = DesignSplitLayout.defaultConversationWidth
     @State private var dragStartConversationWidth: CGFloat?
-    @State private var manifest = DesignManifest.singleScreen
-    @State private var selectedScreenID = DesignScreen.canvas.id
     @State private var displayedRevisionID: UUID?
     @State private var comparingWithLive = false
     @State private var selectionEnabled = false
@@ -42,8 +38,8 @@ struct DesignView: View {
                             .frame(width: width)
                             .clipped()
                         Divider().overlay(Theme.hairline)
-                        canvas(session, directory: displayedDirectory,
-                               liveDirectory: liveDirectory)
+                        canvasPane(session, directory: displayedDirectory,
+                                   liveDirectory: liveDirectory)
                     }
 
                     splitHandle(conversationWidth: width,
@@ -62,7 +58,7 @@ struct DesignView: View {
                 runner.forgetCanvasWidth(sessionID)
             }
             .task(id: sessionID) { await store.transcriptReady(sessionID) }
-            .task(id: displayedDirectory.path) { await watchArtifact(displayedDirectory) }
+            .task(id: displayedDirectory.path) { await canvas.watch(displayedDirectory) }
         } else {
             PaneMessage(icon: "paintbrush.pointed",
                         title: "This Design session is gone",
@@ -111,7 +107,7 @@ struct DesignView: View {
             StateLight(tone: tone, size: 6)
             Text(tone.word)
                 .font(.mono(9.5, .semibold))
-                .foregroundStyle(tone == .idle ? Color.secondary : tone.colour)
+                .foregroundStyle(tone.colour)
         }
         .fixedSize()
     }
@@ -163,61 +159,33 @@ struct DesignView: View {
                         }
                     }
 
-                    if case .failed(let message) = state {
-                        VStack(alignment: .leading, spacing: 9) {
-                            Text(message)
-                                .font(.system(size: 12))
-                                .foregroundStyle(Theme.warningText)
-                                .textSelection(.enabled)
-                                .fixedSize(horizontal: false, vertical: true)
-                            HStack(spacing: 8) {
-                                Spacer(minLength: 0)
-                                if runner.canContinueAfterFailure(sessionID, store: store) {
-                                    ActionButton(title: "Continue", height: 27, size: 11) {
-                                        runner.continueAfterFailure(sessionID, store: store)
-                                    }
-                                }
-                                ActionButton(title: "Dismiss", tone: .outlined,
-                                             height: 27, size: 11) {
-                                    runner.dismissFailure(sessionID)
-                                }
-                            }
-                        }
-                        .padding(11)
-                        .background(RoundedRectangle(cornerRadius: 9)
-                            .fill(Theme.warningBackground))
-                    }
-
-                    // Nothing went wrong, so a stop gets a button under its transcript note
-                    // rather than a card of its own.
-                    if runner.canContinueAfterStop(sessionID, store: store) {
-                        HStack {
-                            Spacer(minLength: 0)
-                            ActionButton(title: "Continue", tone: .outlined,
-                                         height: 27, size: 11) {
-                                runner.continueAfterStop(sessionID, store: store)
-                            }
-                        }
-                    }
+                    TurnEndActions(sessionID: sessionID, state: state)
 
                     Color.clear.frame(height: 1).id("design-transcript-bottom")
                 }
                 .padding(16)
             }
             .defaultScrollAnchor(.bottom)
-            .onChange(of: session.messages.count) {
-                proxy.scrollTo("design-transcript-bottom", anchor: .bottom)
-            }
-            .onChange(of: session.messages.last?.text.count ?? 0) {
-                proxy.scrollTo("design-transcript-bottom", anchor: .bottom)
-            }
-            .onChange(of: session.messages.last?.tools.count ?? 0) {
-                proxy.scrollTo("design-transcript-bottom", anchor: .bottom)
-            }
-            .onChange(of: runner.question(sessionID)?.id) {
+            // Anything new - a row, streamed text, a call, a question - sends the
+            // transcript to its end.
+            .onChange(of: transcriptShape(session)) {
                 proxy.scrollTo("design-transcript-bottom", anchor: .bottom)
             }
         }
+    }
+
+    private struct TranscriptShape: Equatable {
+        var messages: Int
+        var characters: Int
+        var tools: Int
+        var question: String?
+    }
+
+    private func transcriptShape(_ session: ChatSession) -> TranscriptShape {
+        TranscriptShape(messages: session.messages.count,
+                        characters: session.messages.last?.text.count ?? 0,
+                        tools: session.messages.last?.tools.count ?? 0,
+                        question: runner.question(sessionID)?.id)
     }
 
     private func splitHandle(conversationWidth: CGFloat,
@@ -255,243 +223,93 @@ struct DesignView: View {
     }
 
     private func designComposer(_ session: ChatSession) -> some View {
-        let workingDirectory = store.workingDirectory(for: session) ?? ""
-        let blocked = !FileManager.default.fileExists(atPath: workingDirectory)
+        let blocked = !FileManager.default.fileExists(atPath: store.workingDirectory(for: session) ?? "")
             || !runner.isAvailable(session.agent)
-        let state = runner.state(sessionID)
-        let canSend = !blocked && !runner.draft(sessionID).isEmpty
-
-        return VStack(alignment: .leading, spacing: 8) {
-            if !attachments.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        ForEach(attachments) { attachment in
-                            AttachmentChip(url: attachment.url) {
-                                runner.editDraft(sessionID) { draft in
-                                    draft.attachments.removeAll { $0.id == attachment.id }
-                                }
+        let busy = runner.state(sessionID).isBusy
+        return Composer(sessionID: sessionID,
+                        blocked: blocked,
+                        isFocused: $composerFocused,
+                        placeholder: busy ? "Queue the next revision…" : "Describe what to design…",
+                        inset: 12,
+                        onOversizedPaste: attachPastedText,
+                        above: {
+                            let queued = runner.queued(sessionID).count
+                            if queued > 0 {
+                                Text(counted(queued, "revision") + " queued")
+                                    .font(.mono(9.5, .semibold))
+                                    .foregroundStyle(.secondary)
                             }
-                        }
-                    }
-                }
-            }
-
-            if !runner.queued(sessionID).isEmpty {
-                Text("\(runner.queued(sessionID).count) revision"
-                     + (runner.queued(sessionID).count == 1 ? "" : "s") + " queued")
-                    .font(.mono(9.5, .semibold))
-                    .foregroundStyle(.secondary)
-            }
-
-            HStack(alignment: .bottom, spacing: 8) {
-                ComposerField(text: draft,
-                              isFocused: $composerFocused,
-                              placeholder: state.isBusy
-                                ? "Queue the next revision…"
-                                : "Describe what to design…",
-                              isEnabled: !blocked,
-                              onSubmit: send,
-                              onOversizedPaste: attachPastedText,
-                              trailingAccessory: {
-                                  Image(systemName: "paintbrush.pointed.fill")
-                                      .font(.system(size: 12, weight: .semibold))
-                                      .foregroundStyle(Theme.accent)
-                                      .frame(width: 22, height: 22)
-                              })
-
-                if canSend {
-                    Button(action: send) {
-                        Image(systemName: state.isBusy ? "arrow.up.to.line" : "arrow.up")
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundStyle(.white)
-                            .frame(width: 32, height: 32)
-                            .background(Circle().fill(Theme.accentFill))
-                            .contentShape(Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .appTooltip(state.isBusy ? "Queue this revision" : "Design")
-                }
-
-                if state == .stopping {
-                    Image(systemName: "hourglass")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 32, height: 32)
-                        .background(Circle().fill(Theme.field))
-                } else if state.isBusy {
-                    Button {
-                        runner.stop(sessionID)
-                    } label: {
-                        Image(systemName: "stop.fill")
-                            .font(.system(size: 11, weight: .bold))
-                            .foregroundStyle(.white)
-                            .frame(width: 32, height: 32)
-                            .background(Circle().fill(Theme.deletion))
-                            .contentShape(Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .appTooltip("Stop this revision")
-                }
-            }
-        }
-        .padding(12)
-        .background(Theme.card)
-        .overlay(RoundedRectangle(cornerRadius: 9)
-            .stroke(Theme.accent, lineWidth: dropTargeted ? 2 : 0)
-            .padding(5))
-        .pasteAttachments(enabled: composerFocused && !blocked) { attach($0) }
-        .dropDestination(for: URL.self) { urls, _ in
-            guard !blocked else { return false }
-            attach(Attachments.fromDrop(urls))
-            return true
-        } isTargeted: { dropTargeted = $0 }
-    }
-
-    private var attachments: [Attachment] { runner.draft(sessionID).attachments }
-
-    private var draft: Binding<String> {
-        Binding(get: { runner.draft(sessionID).text },
-                set: { text in runner.editDraft(sessionID) { $0.text = text } })
-    }
-
-    private func attach(_ found: [Attachment]) {
-        runner.editDraft(sessionID) { draft in
-            for item in found where !draft.attachments.contains(where: { $0.url == item.url }) {
-                draft.attachments.append(item)
-            }
-        }
-        composerFocused = true
+                        },
+                        accessory: {
+                            Image(systemName: "paintbrush.pointed.fill")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(Theme.accent)
+                                .frame(width: 22, height: 22)
+                        })
     }
 
     private func attachPastedText(_ text: String) {
         guard let attachment = Attachments.fromPastedText(text) else { return }
-        attach([attachment])
-    }
-
-    private func send() {
-        let draft = runner.draft(sessionID)
-        guard !draft.isEmpty else { return }
-        runner.send(draft.text,
-                    attachments: draft.attachments,
-                    customInstructions: draft.customInstructions,
-                    sessionID: sessionID,
-                    store: store)
-        runner.clearDraft(sessionID)
+        runner.attach([attachment], to: sessionID)
+        composerFocused = true
     }
 
     // MARK: - Canvas
 
-    private func canvas(_ session: ChatSession, directory: URL,
-                        liveDirectory: URL) -> some View {
+    private func canvasPane(_ session: ChatSession, directory: URL,
+                            liveDirectory: URL) -> some View {
         let implementation = store.implementationSessions(for: session.id).last
         let needsImplementationUpdate = implementation.map {
             designNeedsUpdate(session, implementation: $0, liveDirectory: liveDirectory)
         } ?? false
         return VStack(spacing: 0) {
-            HStack(spacing: 10) {
+            DesignCanvasBar(canvas: canvas) {
                 Text("CANVAS")
                     .font(.mono(10, .semibold))
                     .kerning(1)
                     .foregroundStyle(.secondary)
-                if artifactRevision != nil {
+                if canvas.revision != nil {
                     StatusDot()
-                    Text(selectedScreen?.path ?? "index.html")
+                    Text(canvas.selectedScreen?.path ?? "index.html")
                         .font(.mono(10.5))
                         .foregroundStyle(.secondary)
-                        .appTooltip(screenURL(in: directory)?.path ?? directory.path)
+                        .appTooltip(canvas.screenURL(in: directory)?.path ?? directory.path)
                 }
-
-                Spacer(minLength: 10)
-
-                if manifest.screens.count > 1 {
-                    HStack(spacing: 5) {
-                        Text(selectedScreen?.title ?? "Screen")
-                            .font(.system(size: 11, weight: .semibold))
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 7, weight: .bold))
-                    }
-                    .foregroundStyle(Theme.accent)
-                    .padding(.horizontal, 9)
-                    .frame(height: 28)
-                    .background(RoundedRectangle(cornerRadius: 7).fill(Theme.card))
-                    .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.border))
-                    .appMenu { screenMenu }
-                }
-
+            } tools: {
                 if !session.designRevisions.isEmpty {
-                    HStack(spacing: 5) {
-                        Text(displayedRevision?.title ?? "Live")
-                            .font(.system(size: 11, weight: .semibold))
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 7, weight: .bold))
+                    OptionMenu(value: displayedRevision?.title ?? "Live", matchWidth: false) {
+                        revisionMenu(session)
                     }
-                    .foregroundStyle(displayedRevision == nil ? Color.secondary : Theme.accent)
-                    .padding(.horizontal, 9)
-                    .frame(height: 28)
-                    .background(RoundedRectangle(cornerRadius: 7).fill(Theme.card))
-                    .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.border))
-                    .appMenu { revisionMenu(session) }
+                    .fixedSize()
                 }
 
-                if artifactRevision != nil {
+                if canvas.revision != nil {
                     if displayedRevision == nil {
-                        Button {
+                        GlyphButton(icon: selectionEnabled ? "scope" : "cursorarrow", side: 28,
+                                    active: selectionEnabled, tint: Theme.accent) {
                             selectionEnabled.toggle()
-                        } label: {
-                            Image(systemName: selectionEnabled ? "scope" : "cursorarrow")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(selectionEnabled ? .white : Theme.accent)
-                                .frame(width: 28, height: 28)
-                                .background(RoundedRectangle(cornerRadius: 7)
-                                    .fill(selectionEnabled ? Theme.accentFill : Theme.card))
-                                .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.border))
-                                .contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain)
                         .appTooltip(selectionEnabled
                             ? "Stop selecting canvas elements"
                             : "Select an element to refine")
                     }
 
                     if displayedRevision != nil {
-                        Button { comparingWithLive.toggle() } label: {
-                            Image(systemName: "rectangle.split.2x1")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(comparingWithLive ? .white : Theme.accent)
-                                .frame(width: 28, height: 28)
-                                .background(RoundedRectangle(cornerRadius: 7)
-                                    .fill(comparingWithLive ? Theme.accentFill : Theme.card))
-                                .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.border))
-                                .contentShape(Rectangle())
+                        GlyphButton(icon: "rectangle.split.2x1", side: 28,
+                                    active: comparingWithLive, tint: Theme.accent) {
+                            comparingWithLive.toggle()
                         }
-                        .buttonStyle(.plain)
                         .appTooltip("Compare this revision with the live canvas")
 
-                        Button { confirmRestore(session) } label: {
-                            Image(systemName: "arrow.uturn.backward")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(Theme.accent)
-                                .frame(width: 28, height: 28)
-                                .background(RoundedRectangle(cornerRadius: 7).fill(Theme.card))
-                                .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.border))
-                                .contentShape(Rectangle())
+                        GlyphButton(icon: "arrow.uturn.backward", side: 28, tint: Theme.accent) {
+                            confirmRestore(session)
                         }
-                        .buttonStyle(.plain)
                         .appTooltip("Use this revision as the next direction")
                     } else {
-                        Button {
+                        GlyphButton(icon: "bookmark.fill", side: 28, tint: Theme.accent) {
                             preparingHandoff = true
                             snapshotRequest = DesignSnapshotRequest(purpose: .revision)
-                        } label: {
-                            Image(systemName: "bookmark.fill")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(Theme.accent)
-                                .frame(width: 28, height: 28)
-                                .background(RoundedRectangle(cornerRadius: 7).fill(Theme.card))
-                                .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.border))
-                                .contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain)
                         .disabled(preparingHandoff || runner.state(sessionID).isBusy)
                         .appTooltip("Save a Design version")
 
@@ -525,60 +343,34 @@ struct DesignView: View {
                             .disabled(preparingHandoff || runner.state(sessionID).isBusy)
                         }
                     }
-
-                    Button { reloadGeneration += 1 } label: {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(Theme.accent)
-                            .frame(width: 28, height: 28)
-                            .background(RoundedRectangle(cornerRadius: 7).fill(Theme.card))
-                            .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.border))
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .appTooltip("Reload canvas")
                 }
             }
-            .padding(.horizontal, 14)
-            .frame(height: 42)
-            .background(Theme.card)
-            .overlay(alignment: .bottom) {
-                Rectangle().fill(Theme.hairline).frame(height: 1)
-            }
 
-            if let artifactRevision, let url = screenURL(in: directory) {
+            if let revision = canvas.revision, let url = canvas.screenURL(in: directory) {
                 if comparingWithLive, displayedRevision != nil,
                    let liveRevision = DesignArtifactRevision.read(liveDirectory),
-                   let liveURL = screenURL(in: liveDirectory) {
+                   let liveURL = canvas.screenURL(in: liveDirectory) {
                     HStack(spacing: 1) {
                         labelledPreview("LIVE", url: liveURL, directory: liveDirectory,
                                         revision: liveRevision, selectionEnabled: false)
                         labelledPreview(displayedRevision?.title.uppercased() ?? "REVISION",
                                         url: url, directory: directory,
-                                        revision: artifactRevision, selectionEnabled: false)
+                                        revision: revision, selectionEnabled: false)
                     }
                 } else {
                     // The agent cannot see the canvas it draws into, so the canvas tells
                     // it how much room there is. Only the single live preview reports:
                     // the side-by-side comparison is a way of looking at the design, not
                     // a width it has to work at.
-                    canvasPreview(url, directory: directory, revision: artifactRevision,
+                    canvasPreview(url, directory: directory, revision: revision,
                                   selectionEnabled: displayedRevision == nil && selectionEnabled,
                                   onViewport: { runner.recordCanvasWidth($0, for: sessionID) })
                 }
             } else {
-                VStack(spacing: 12) {
-                    Image(systemName: "rectangle.on.rectangle.angled")
-                        .font(.system(size: 34, weight: .light))
-                        .foregroundStyle(.tertiary)
-                    Text("Your design will appear here")
-                        .font(.serif(19))
-                    Text("Describe the first direction in the Design conversation.")
-                        .font(.system(size: 12.5))
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Theme.sunken)
+                PaneMessage(icon: "rectangle.on.rectangle.angled",
+                            title: "Your design will appear here",
+                            detail: "Describe the first direction in the Design conversation.")
+                    .background(Theme.sunken)
             }
         }
     }
@@ -587,20 +379,6 @@ struct DesignView: View {
         guard let displayedRevisionID,
               let session = store.session(sessionID) else { return nil }
         return session.designRevisions.first { $0.id == displayedRevisionID }
-    }
-
-    private var selectedScreen: DesignScreen? {
-        manifest.screens.first { $0.id == selectedScreenID } ?? manifest.screens.first
-    }
-
-    private var screenMenu: [MenuEntry] {
-        manifest.screens.map { screen in
-            .item(screen.title, icon: "rectangle",
-                  checked: screen.id == selectedScreenID,
-                  subtitle: screen.path) {
-                selectedScreenID = screen.id
-            }
-        }
     }
 
     private func revisionMenu(_ session: ChatSession) -> [MenuEntry] {
@@ -621,11 +399,6 @@ struct DesignView: View {
             }
         }
         return entries
-    }
-
-    private func screenURL(in directory: URL) -> URL? {
-        guard let screen = selectedScreen else { return nil }
-        return DesignManifest.safeURL(for: screen, in: directory)
     }
 
     private func labelledPreview(_ label: String, url: URL, directory: URL,
@@ -652,7 +425,7 @@ struct DesignView: View {
         DesignWebView(url: url,
                       readAccessURL: directory,
                       revision: revision,
-                      reloadGeneration: reloadGeneration,
+                      reloadGeneration: canvas.reloadGeneration,
                       selectionEnabled: selectionEnabled,
                       snapshotRequest: snapshotRequest,
                       onSelection: selectElement,
@@ -660,25 +433,6 @@ struct DesignView: View {
                       onViewport: onViewport)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color.white)
-    }
-
-    private func watchArtifact(_ directory: URL) async {
-        while !Task.isCancelled {
-            let revision = DesignArtifactRevision.read(directory)
-            let nextManifest = DesignManifest.read(from: directory)
-            if revision != artifactRevision { artifactRevision = revision }
-            if nextManifest != manifest {
-                manifest = nextManifest
-                if !manifest.screens.contains(where: { $0.id == selectedScreenID }) {
-                    selectedScreenID = manifest.screens.first?.id ?? DesignScreen.canvas.id
-                }
-            }
-            do {
-                try await Task.sleep(for: .milliseconds(400))
-            } catch {
-                return
-            }
-        }
     }
 
     private func selectElement(_ selection: DesignElementSelection) {
@@ -694,7 +448,7 @@ struct DesignView: View {
     }
 
     private func requestImplementationSnapshot() {
-        guard artifactRevision != nil else { return }
+        guard canvas.revision != nil else { return }
         preparingHandoff = true
         snapshotRequest = DesignSnapshotRequest(purpose: .handoff)
     }
@@ -706,7 +460,8 @@ struct DesignView: View {
         case .selection:
             guard let image, let attachment = Attachments.fromImage(image, prefix: "selection")
             else { return }
-            attach([attachment])
+            runner.attach([attachment], to: sessionID)
+            composerFocused = true
         case .handoff:
             Task { await prepareHandoff(screenshot: image.flatMap(DesignArtifacts.pngData)) }
         case .revision:
@@ -727,7 +482,7 @@ struct DesignView: View {
                                      text: "Saved \(revision.title)."),
                          to: sessionID)
         case .failure(let failure):
-            showFailure(title: "Could not save the Design revision", message: failure.message)
+            dialogs.show(.notice("Could not save the Design revision", message: failure.message))
         }
         preparingHandoff = false
     }
@@ -742,7 +497,7 @@ struct DesignView: View {
                                    sourceRevisions: revisions) {
         case .failure(let failure):
             preparingHandoff = false
-            showFailure(title: "Could not prepare the Design", message: failure.message)
+            dialogs.show(.notice("Could not prepare the Design", message: failure.message))
         case .success(let revision):
             preparingHandoff = false
             if let implementation = store.implementationSessions(for: sessionID).last {
@@ -754,7 +509,7 @@ struct DesignView: View {
                         text: "Sent \(revision.title) to Build."),
                         to: sessionID)
                 case .failure(let failure):
-                    showFailure(title: failure.title, message: failure.message)
+                    dialogs.show(.notice(failure.title, message: failure.message))
                 }
             } else {
                 switch DesignHandoffLifecycle.startImplementation(
@@ -762,7 +517,7 @@ struct DesignView: View {
                 case .success:
                     break
                 case .failure(let failure):
-                    showFailure(title: failure.title, message: failure.message)
+                    dialogs.show(.notice(failure.title, message: failure.message))
                 }
             }
         }
@@ -791,27 +546,18 @@ struct DesignView: View {
 
     private func confirmRestore(_ session: ChatSession) {
         guard let revision = displayedRevision else { return }
-        dialogs.show(Dialog(
-            title: "Use \(revision.title) as the next direction?",
+        dialogs.show(.confirm(
+            "Use \(revision.title) as the next direction?",
             message: "The live canvas is replaced with this saved revision. Its revision history is kept.",
-            actions: [
-                .init(label: "Use \(revision.title)", kind: .primary) {
-                    switch store.restoreDesignRevision(revision.id, for: session.id) {
-                    case .success:
-                        displayedRevisionID = nil
-                        comparingWithLive = false
-                    case .failure(let failure):
-                        showFailure(title: "Could not restore the Design",
-                                    message: failure.message)
-                    }
-                },
-                .init(label: "Cancel", kind: .cancel),
-            ]))
-    }
-
-    private func showFailure(title: String, message: String) {
-        dialogs.show(Dialog(title: title, message: message,
-                            actions: [.init(label: "OK", kind: .cancel)]))
+            action: "Use \(revision.title)", kind: .primary) {
+                switch store.restoreDesignRevision(revision.id, for: session.id) {
+                case .success:
+                    displayedRevisionID = nil
+                    comparingWithLive = false
+                case .failure(let failure):
+                    dialogs.show(.notice("Could not restore the Design", message: failure.message))
+                }
+            })
     }
 }
 
@@ -820,16 +566,13 @@ struct DesignReferenceView: View {
 
     let sessionID: UUID
 
-    @State private var artifactRevision: DesignArtifactRevision?
-    @State private var manifest = DesignManifest.singleScreen
-    @State private var selectedScreenID = DesignScreen.canvas.id
-    @State private var reloadGeneration = 0
+    @State private var canvas = DesignCanvas()
 
     var body: some View {
         if let session = store.session(sessionID),
            let directory = store.implementationDesignDirectory(for: session) {
             VStack(spacing: 0) {
-                HStack(spacing: 9) {
+                DesignCanvasBar(canvas: canvas) {
                     Image(systemName: "paintbrush.pointed.fill")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(Theme.accent)
@@ -839,21 +582,7 @@ struct DesignReferenceView: View {
                     if let title = revisionTitle(session) {
                         MonoChip(text: title.uppercased(), size: 8.5, tint: Theme.accent)
                     }
-                    Spacer(minLength: 10)
-                    if manifest.screens.count > 1 {
-                        HStack(spacing: 5) {
-                            Text(selectedScreen?.title ?? "Screen")
-                                .font(.system(size: 11, weight: .semibold))
-                            Image(systemName: "chevron.down")
-                                .font(.system(size: 7, weight: .bold))
-                        }
-                        .foregroundStyle(Theme.accent)
-                        .padding(.horizontal, 9)
-                        .frame(height: 28)
-                        .background(RoundedRectangle(cornerRadius: 7).fill(Theme.card))
-                        .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.border))
-                        .appMenu { screenMenu }
-                    }
+                } tools: {
                     if let sourceID = session.sourceDesignSessionID,
                        store.session(sourceID) != nil {
                         ActionButton(title: "Edit Design", tone: .outlined,
@@ -861,33 +590,14 @@ struct DesignReferenceView: View {
                             store.selectSession(sourceID)
                         }
                     }
-                    Button { reloadGeneration += 1 } label: {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(Theme.accent)
-                            .frame(width: 28, height: 28)
-                            .background(RoundedRectangle(cornerRadius: 7).fill(Theme.card))
-                            .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.border))
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .appTooltip("Reload Design")
-                }
-                .padding(.horizontal, 14)
-                .frame(height: 42)
-                .background(Theme.card)
-                .overlay(alignment: .bottom) {
-                    Rectangle().fill(Theme.hairline).frame(height: 1)
                 }
 
-                if let artifactRevision,
-                   let screen = selectedScreen,
-                   let url = DesignManifest.safeURL(for: screen, in: directory) {
+                if let revision = canvas.revision, let url = canvas.screenURL(in: directory) {
                     DesignWebView(
                         url: url,
                         readAccessURL: directory,
-                        revision: artifactRevision,
-                        reloadGeneration: reloadGeneration,
+                        revision: revision,
+                        reloadGeneration: canvas.reloadGeneration,
                         selectionEnabled: false,
                         snapshotRequest: nil,
                         onSelection: { _ in },
@@ -900,22 +610,11 @@ struct DesignReferenceView: View {
                                 detail: "Return to the source Design and create another handoff.")
                 }
             }
-            .task(id: directory.path) { await watch(directory) }
+            .task(id: directory.path) { await canvas.watch(directory) }
         } else {
             PaneMessage(icon: "paintbrush.pointed",
                         title: "The Design reference is unavailable",
                         detail: "Return to the source Design and create another handoff.")
-        }
-    }
-
-    private var selectedScreen: DesignScreen? {
-        manifest.screens.first { $0.id == selectedScreenID } ?? manifest.screens.first
-    }
-
-    private var screenMenu: [MenuEntry] {
-        manifest.screens.map { screen in
-            .item(screen.title, icon: "rectangle", checked: screen.id == selectedScreenID,
-                  subtitle: screen.path) { selectedScreenID = screen.id }
         }
     }
 
@@ -929,20 +628,88 @@ struct DesignReferenceView: View {
         if let revision = store.approvedDesignRevision(for: session) { return revision.title }
         return session.handedOffDesignRevisionID == nil ? nil : "Approved"
     }
+}
 
-    private func watch(_ directory: URL) async {
+// What a canvas is showing: the design's files on disk, the screens they make up, and
+// which one is on view. The agent writes those files behind the app's back and nothing
+// announces the change, so whichever pane shows a design keeps one of these and polls it.
+@MainActor
+@Observable
+final class DesignCanvas {
+    private(set) var revision: DesignArtifactRevision?
+    private(set) var manifest = DesignManifest.singleScreen
+    private(set) var selectedScreenID = DesignScreen.canvas.id
+    // Counted up to load the same files again.
+    private(set) var reloadGeneration = 0
+
+    var selectedScreen: DesignScreen? {
+        manifest.screens.first { $0.id == selectedScreenID } ?? manifest.screens.first
+    }
+
+    func screenURL(in directory: URL) -> URL? {
+        selectedScreen.flatMap { DesignManifest.safeURL(for: $0, in: directory) }
+    }
+
+    var screenMenu: [MenuEntry] {
+        manifest.screens.map { screen in
+            .item(screen.title, icon: "rectangle", checked: screen.id == selectedScreenID,
+                  subtitle: screen.path) { self.selectedScreenID = screen.id }
+        }
+    }
+
+    func reload() { reloadGeneration += 1 }
+
+    // Runs until it is cancelled, so it belongs in a task keyed on the directory.
+    func watch(_ directory: URL) async {
         while !Task.isCancelled {
-            let revision = DesignArtifactRevision.read(directory)
+            let next = DesignArtifactRevision.read(directory)
+            if next != revision { revision = next }
             let nextManifest = DesignManifest.read(from: directory)
-            if revision != artifactRevision { artifactRevision = revision }
             if nextManifest != manifest {
                 manifest = nextManifest
                 if !manifest.screens.contains(where: { $0.id == selectedScreenID }) {
                     selectedScreenID = manifest.screens.first?.id ?? DesignScreen.canvas.id
                 }
             }
-            do { try await Task.sleep(for: .milliseconds(500)) }
-            catch { return }
+            do {
+                try await Task.sleep(for: .milliseconds(400))
+            } catch {
+                return
+            }
+        }
+    }
+}
+
+// The bar over a canvas: what the pane calls it on the left, and on the right the screen
+// picker when the design has more than one screen, the pane's own tools, and a reload.
+struct DesignCanvasBar<Leading: View, Tools: View>: View {
+    let canvas: DesignCanvas
+    @ViewBuilder let leading: Leading
+    @ViewBuilder let tools: Tools
+
+    var body: some View {
+        HStack(spacing: 10) {
+            leading
+            Spacer(minLength: 10)
+            if canvas.manifest.screens.count > 1 {
+                OptionMenu(value: canvas.selectedScreen?.title ?? "Screen", matchWidth: false) {
+                    canvas.screenMenu
+                }
+                .fixedSize()
+            }
+            tools
+            if canvas.revision != nil {
+                GlyphButton(icon: "arrow.clockwise", side: 28, tint: Theme.accent) {
+                    canvas.reload()
+                }
+                .appTooltip("Reload canvas")
+            }
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 42)
+        .background(Theme.card)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(Theme.hairline).frame(height: 1)
         }
     }
 }
@@ -1090,8 +857,7 @@ private struct DesignWebView: NSViewRepresentable {
             onSelection?(DesignElementSelection(
                 selector: selector,
                 tag: tag,
-                text: (body["text"] as? String ?? "")
-                    .trimmingCharacters(in: .whitespacesAndNewlines),
+                text: (body["text"] as? String ?? "").trimmed,
                 rect: CGRect(x: x, y: y, width: width, height: height)))
         }
 

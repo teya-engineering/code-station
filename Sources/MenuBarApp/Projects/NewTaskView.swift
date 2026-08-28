@@ -30,13 +30,24 @@ struct NewTaskView: View {
                 }
 
                 nameField
-                promptField
+                LabeledField("PROMPT") {
+                    AppTextEditor(text: $prompt,
+                                  placeholder: "What should the agent do on every run?",
+                                  minHeight: 96)
+                }
                 timerNote
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(20)
 
-            footer
+            SheetFooter(primary: SheetAction(title: "Create and run", icon: "play.fill",
+                                             enabled: canRun, shortcut: .defaultAction) {
+                            create(runNow: true)
+                        },
+                        secondary: SheetAction(title: "Create", enabled: canCreate) {
+                            create(runNow: false)
+                        },
+                        dismiss: { dismiss() })
         }
         .frame(width: 480)
         .background(Theme.background)
@@ -45,10 +56,7 @@ struct NewTaskView: View {
 
     private var nameField: some View {
         HStack(spacing: 12) {
-            Text("NAME")
-                .font(.mono(10, .semibold))
-                .kerning(0.6)
-                .foregroundStyle(.tertiary)
+            SectionLabel("NAME", style: .field)
             TextField("Task name", text: $name)
                 .textFieldStyle(.plain)
                 .font(.system(size: 14, weight: .semibold))
@@ -56,18 +64,7 @@ struct NewTaskView: View {
         }
         .padding(.horizontal, 14)
         .frame(height: 44)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.field))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
-    }
-
-    private var promptField: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("PROMPT")
-                .font(.mono(10, .semibold))
-                .kerning(0.6)
-                .foregroundStyle(.tertiary)
-            TaskPromptEditor(prompt: $prompt, minHeight: 96)
-        }
+        .fieldSurface(cornerRadius: 10)
     }
 
     private var timerNote: some View {
@@ -84,104 +81,17 @@ struct NewTaskView: View {
         }
         .padding(11)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 9).fill(Theme.sunken))
-        .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
+        .surface(Theme.sunken, cornerRadius: 9)
     }
 
-    private var footer: some View {
-        VStack(spacing: 0) {
-            Divider().overlay(Theme.hairline)
-            HStack(spacing: 12) {
-                Spacer()
-                Button { dismiss() } label: {
-                    Text("Cancel")
-                        .font(.system(size: 13, weight: .semibold))
-                        .padding(.horizontal, 18)
-                        .frame(height: 32)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.card))
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .keyboardShortcut(.cancelAction)
-
-                Button { create(runNow: false) } label: {
-                    Text("Create")
-                        .font(.system(size: 13, weight: .semibold))
-                        .padding(.horizontal, 18)
-                        .frame(height: 32)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.card))
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .disabled(!canCreate)
-                .opacity(canCreate ? 1 : 0.45)
-
-                Button { create(runNow: true) } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "play.fill")
-                            .font(.system(size: 10, weight: .semibold))
-                        Text("Create and run")
-                            .font(.system(size: 13, weight: .semibold))
-                    }
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 18)
-                    .frame(height: 32)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(Theme.accentFill))
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .keyboardShortcut(.defaultAction)
-                .disabled(!canRun)
-                .opacity(canRun ? 1 : 0.45)
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 12)
-            .background(Theme.card)
-        }
-    }
-
-    private var canCreate: Bool {
-        !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
+    private var canCreate: Bool { !name.isBlank }
 
     // Running straight away only makes sense once there is a prompt to send.
-    private var canRun: Bool {
-        canCreate && !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
+    private var canRun: Bool { canCreate && !prompt.isBlank }
 
     private func create(runNow: Bool) {
         guard canCreate, !runNow || canRun else { return }
         onCreate(NewTaskDraft(name: name, prompt: prompt, runNow: runNow))
         dismiss()
-    }
-}
-
-// The multi-line field a task's prompt is written in, shared by the creation sheet and
-// the task screen so the prompt looks the same wherever it is edited.
-struct TaskPromptEditor: View {
-    @Binding var prompt: String
-    var minHeight: CGFloat = 96
-
-    var body: some View {
-        TextEditor(text: $prompt)
-            .font(.system(size: 13))
-            .scrollContentBackground(.hidden)
-            .padding(.horizontal, 9)
-            .padding(.vertical, 8)
-            .frame(minHeight: minHeight)
-            .background(RoundedRectangle(cornerRadius: 10).fill(Theme.field))
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
-            .overlay(alignment: .topLeading) {
-                if prompt.isEmpty {
-                    Text("What should the agent do on every run?")
-                        .font(.system(size: 13))
-                        .foregroundStyle(.tertiary)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .allowsHitTesting(false)
-                }
-            }
     }
 }

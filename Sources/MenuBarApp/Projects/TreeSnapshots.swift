@@ -107,7 +107,7 @@ final class TreeSnapshots: @unchecked Sendable {
               written.ok
         else { return nil }
 
-        let tree = written.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let tree = written.trimmedText
         guard !tree.isEmpty else { return nil }
 
         let cost = Date().timeIntervalSince(started)
@@ -156,7 +156,7 @@ final class TreeSnapshots: @unchecked Sendable {
         if let known = roots[path] { return known }
         let url = URL(fileURLWithPath: path)
         let top = GitInspector.run(git, ["rev-parse", "--show-toplevel"], in: url)
-        let text = top.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = top.trimmedText
         let root = top.ok && !text.isEmpty ? text : nil
         roots[path] = root
         return root

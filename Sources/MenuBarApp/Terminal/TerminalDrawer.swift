@@ -57,9 +57,7 @@ struct TerminalDrawer: View {
             }
             .buttonStyle(.plain)
             .appTooltip("New shell")
-            .onHover { inside in
-                if inside { NSCursor.arrow.push() } else { NSCursor.pop() }
-            }
+            .cursorOnHover(.arrow)
 
             Spacer(minLength: 12)
 
@@ -67,9 +65,7 @@ struct TerminalDrawer: View {
             .appTooltip("Hide the terminal (^`)")
             // The strip underneath shows the resize cursor; over the button the hand is
             // clicking, not dragging, so the arrow comes back.
-            .onHover { inside in
-                if inside { NSCursor.arrow.push() } else { NSCursor.pop() }
-            }
+            .cursorOnHover(.arrow)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 7)
@@ -89,9 +85,7 @@ struct TerminalDrawer: View {
                     dragHeight = nil
                     dragStartHeight = nil
                 })
-        .onHover { inside in
-            if inside { NSCursor.resizeUpDown.push() } else { NSCursor.pop() }
-        }
+        .cursorOnHover(.resizeUpDown)
     }
 
     // Closing only puts the drawer away; every shell keeps running.
@@ -111,9 +105,7 @@ struct TerminalDrawer: View {
             .foregroundStyle(.secondary)
             .padding(.horizontal, 10)
             .padding(.vertical, 4)
-            .background(RoundedRectangle(cornerRadius: 7)
-                .fill(hoveringClose ? Theme.field : .clear))
-            .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.border))
+            .surface(hoveringClose ? Theme.field : .clear, cornerRadius: 7)
             .contentShape(RoundedRectangle(cornerRadius: 7))
         }
         .buttonStyle(.plain)
@@ -182,8 +174,7 @@ struct TerminalDrawer: View {
     }
 
     private func commitRename(_ terminal: TerminalSession) {
-        let trimmed = draftName.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmed.isEmpty { terminal.name = trimmed }
+        if !draftName.isBlank { terminal.name = draftName.trimmed }
         renaming = nil
     }
 }
@@ -210,10 +201,8 @@ struct TerminalToggle: View {
         .foregroundStyle(isOpen ? Color.white : Color.primary)
         .padding(.horizontal, 12)
         .padding(.vertical, 7)
-        .background(RoundedRectangle(cornerRadius: 10)
-            .fill(isOpen ? Theme.accentFill : Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 10)
-            .stroke(isOpen ? .clear : Theme.border))
+        .surface(isOpen ? Theme.accentFill : Theme.card, cornerRadius: 10,
+                 border: isOpen ? .clear : Theme.border)
         .appMenu {
             [.item("Open in \(SystemTerminal.appName)") { SystemTerminal.open(directory) },
              .item(isOpen ? "Hide terminal here" : "Open terminal here",

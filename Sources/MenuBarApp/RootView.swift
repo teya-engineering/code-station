@@ -228,40 +228,37 @@ struct RootView: View {
         shortcuts.applySiteDefaults(defaults)
     }
 
-    @ViewBuilder private var detail: some View {
-        switch store.selection {
-        case .home:
-            home
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        case .session(let id):
-            let opening = store.sessionOpenRequest?.sessionID == id
-                ? store.sessionOpenRequest?.destination ?? .conversation
-                : .conversation
-            SessionView(sessionID: id, opening: opening)
-                .id(SessionOpenRequest(sessionID: id, destination: opening))
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        case .workspace(let id):
-            WorkspaceDetailView(workspaceID: id)
-                .id(id)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        case nil:
-            if let project = store.selectedProject {
-                // A task's folder is an implementation detail; what it needs on screen is
-                // its prompt and its runs rather than a repository dashboard.
-                if project.kind == .adHoc {
-                    TaskDetailView(projectID: project.id)
-                        .id(project.id)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    ProjectDetailView(projectID: project.id)
-                        .id(project.id)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-            } else {
+    private var detail: some View {
+        Group {
+            switch store.selection {
+            case .home:
                 home
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case .session(let id):
+                let opening = store.sessionOpenRequest?.sessionID == id
+                    ? store.sessionOpenRequest?.destination ?? .conversation
+                    : .conversation
+                SessionView(sessionID: id, opening: opening)
+                    .id(SessionOpenRequest(sessionID: id, destination: opening))
+            case .workspace(let id):
+                WorkspaceDetailView(workspaceID: id)
+                    .id(id)
+            case nil:
+                if let project = store.selectedProject {
+                    // A task's folder is an implementation detail; what it needs on screen
+                    // is its prompt and its runs rather than a repository dashboard.
+                    if project.kind == .adHoc {
+                        TaskDetailView(projectID: project.id)
+                            .id(project.id)
+                    } else {
+                        ProjectDetailView(projectID: project.id)
+                            .id(project.id)
+                    }
+                } else {
+                    home
+                }
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var home: some View {
@@ -309,8 +306,7 @@ private struct AttentionBanner: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
         .frame(maxWidth: 720, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.deletion.opacity(0.45)))
+        .surface(Theme.card, cornerRadius: 10, border: Theme.deletion.opacity(0.45))
         .shadow(color: Color.black.opacity(0.12), radius: 12, y: 4)
     }
 }

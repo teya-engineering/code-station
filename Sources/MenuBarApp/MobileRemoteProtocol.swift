@@ -1,9 +1,33 @@
 import Foundation
 
-// What the phone is sent, and nothing else. Every type here is part of the wire format
-// between the Mac and a paired browser, so a change to one of them is a change the phone
-// has to understand: they are kept apart from the controller that fills them in for that
-// reason.
+// The wire format between the Mac and a paired browser: what the phone is sent, and the
+// commands it sends back. A change to any type here is a change the phone has to
+// understand, which is why they are kept apart from the controller that fills them in.
+
+// What the phone asks for. The type names the command and says which of the other
+// fields matter; a command the Mac does not know fails to decode rather than being
+// guessed at.
+struct RemoteCommand: Decodable, Equatable {
+    enum Kind: String, Decodable {
+        case authenticate, openSession, closeSession, createSession, resync
+        case sendPrompt, stopTurn, answerPermission
+    }
+
+    enum Answer: String, Decodable {
+        case allowOnce, allowAlways, deny, answers
+    }
+
+    let type: Kind
+    var version: Int?
+    var secret: String?
+    var prompt: String?
+    var requestID: String?
+    var answer: Answer?
+    var answers: [String: String]?
+    var sessionID: String?
+    var projectID: String?
+    var worktree: Bool?
+}
 
 // The list a browsing code opens on. It is compared with the last one sent before it goes
 // out, so a phone sitting on the list costs nothing until something in it moves.

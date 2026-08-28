@@ -52,7 +52,7 @@ private struct ToolsMenuModifier: ViewModifier {
                              detail: dockerDetail.text, detailColour: dockerDetail.colour,
                              handler: actions.openDocker),
                 MenuCardItem(label: "Dispatch", icon: "paperplane.fill",
-                             detail: dispatchAuth.active.envValue,
+                             detail: dispatchAuth.active.name,
                              detailColour: dispatchAuth.active.accent,
                              handler: actions.openDispatch),
                 MenuCardItem(label: "Shortcuts", icon: "bolt.fill",
@@ -68,10 +68,11 @@ private struct ToolsMenuModifier: ViewModifier {
     }
 
     private var dockerDetail: (text: String, colour: Color?) {
-        guard docker.hasLoaded else { return ("checking…", nil) }
-        guard docker.failure == nil else { return ("unavailable", Theme.deletion) }
-        guard !docker.containers.isEmpty else { return ("none running", nil) }
-        return ("\(docker.containers.count) running", Theme.addition)
+        let containers = docker.containers
+        guard containers.hasLoaded else { return ("checking…", nil) }
+        guard containers.failure == nil else { return ("unavailable", Theme.deletion) }
+        guard !containers.items.isEmpty else { return ("none running", nil) }
+        return ("\(containers.items.count) running", Theme.addition)
     }
 
     // The card speaks for the screen it opens, which is the Mac's own list. A project's

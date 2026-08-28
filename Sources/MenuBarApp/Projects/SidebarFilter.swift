@@ -8,7 +8,7 @@ struct SidebarFilter {
     let query: String
 
     init(_ text: String) {
-        query = text.trimmingCharacters(in: .whitespaces)
+        query = text.trimmed
     }
 
     var isActive: Bool { !query.isEmpty }

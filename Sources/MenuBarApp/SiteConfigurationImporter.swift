@@ -1,6 +1,6 @@
 import Foundation
 
-struct SiteConfigurationSelection: Sendable {
+struct SiteConfigurationSelection: Equatable, Sendable {
     let sourceName: String
     let defaults: SiteDefaults
 
@@ -16,7 +16,7 @@ enum SiteConfigurationImporter {
         let name: String
 
         init(_ input: String) throws {
-            var value = input.trimmingCharacters(in: .whitespacesAndNewlines)
+            var value = input.trimmed
             if value.hasPrefix("github.com/") {
                 value = "https://\(value)"
             }
@@ -87,7 +87,7 @@ enum SiteConfigurationImporter {
             throw ImportError("The repository could not be loaded: \(error.localizedDescription)")
         }
         guard output.succeeded else {
-            let detail = output.errorOutput.trimmingCharacters(in: .whitespacesAndNewlines)
+            let detail = output.errorOutput.trimmed
             let concise = String(detail.prefix(500))
             throw ImportError(detail.isEmpty
                 ? "Git could not clone the repository."
@@ -117,10 +117,8 @@ enum SiteConfigurationImporter {
         var current = defaults
         current.environments = defaults.deployEnvironments
         current.dispatch?.environments = nil
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         do {
-            var data = try encoder.encode(current)
+            var data = try PersistentFile.makeEncoder().encode(current)
             data.append(0x0A)
             return data
         } catch {

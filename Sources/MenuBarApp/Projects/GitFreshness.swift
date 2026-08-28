@@ -51,9 +51,8 @@ enum GitFreshness {
                 return nil
             }
             return "\(branch) and \(remote) have diverged: \(branch) has "
-                + count(defaultBranchAhead, singular: "local commit")
-                + " and \(remote) has "
-                + count(defaultBranchBehind, singular: "remote commit") + "."
+                + counted(defaultBranchAhead, "local commit") + " and \(remote) has "
+                + counted(defaultBranchBehind, "remote commit") + "."
         }
 
         // The report as a short sentence or two: the wrong branch, the missing commits,
@@ -69,7 +68,7 @@ enum GitFreshness {
                 sentences.append(divergenceExplanation)
             } else if behind > 0, let target = remoteRef ?? defaultBranch {
                 let subject = sentences.isEmpty ? (currentBranch ?? "The checkout") : "It"
-                sentences.append("\(subject) is \(behind) commit\(behind == 1 ? "" : "s") behind \(target).")
+                sentences.append("\(subject) is \(counted(behind, "commit")) behind \(target).")
             }
             if sentences.isEmpty {
                 sentences.append(defaultBranch.map { "The checkout is \($0) at its latest revision." }
@@ -81,10 +80,6 @@ enum GitFreshness {
                 } ?? "Origin could not be reached, so this may be out of date.")
             }
             return sentences.joined(separator: " ")
-        }
-
-        private func count(_ value: Int, singular: String) -> String {
-            "\(value) \(singular)\(value == 1 ? "" : "s")"
         }
     }
 
@@ -144,7 +139,7 @@ enum GitFreshness {
 
         let head = GitInspector.run(tool, ["rev-parse", "--abbrev-ref", "HEAD"], in: url)
         if head.ok {
-            let name = head.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let name = head.trimmedText
             report.currentBranch = name == "HEAD" ? nil : name
         }
 
@@ -165,9 +160,9 @@ enum GitFreshness {
                 tool,
                 ["rev-list", "--count", "--left-right", "refs/heads/\(branch)...\(remote)"],
                 in: url)
-            if counts.ok, let divergence = divergence(counts.text) {
-                report.defaultBranchAhead = divergence.ahead
-                report.defaultBranchBehind = divergence.behind
+            if let drift = counts.aheadBehind {
+                report.defaultBranchAhead = drift.ahead
+                report.defaultBranchBehind = drift.behind
             }
         }
 
@@ -177,7 +172,7 @@ enum GitFreshness {
         if let target {
             let count = GitInspector.run(tool, ["rev-list", "--count", "HEAD..\(target)"], in: url)
             if count.ok {
-                report.behind = Int(count.text.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
+                report.behind = Int(count.trimmedText) ?? 0
             }
         }
 
@@ -189,19 +184,13 @@ enum GitFreshness {
         return report
     }
 
-    private static func divergence(_ text: String) -> (ahead: Int, behind: Int)? {
-        let fields = text.split(whereSeparator: \.isWhitespace).compactMap { Int($0) }
-        guard fields.count == 2 else { return nil }
-        return (fields[0], fields[1])
-    }
-
     // What origin calls its default branch, read from the origin/HEAD ref a clone
     // leaves behind. A repository without one falls back to whichever of main or
     // master exists locally.
     private static func defaultBranch(_ tool: GitInspector.GitTool, in url: URL) -> String? {
         let originHead = GitInspector.run(tool, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], in: url)
         if originHead.ok {
-            let name = originHead.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let name = originHead.trimmedText
             // "origin/main" carries the remote's name up front; the branch itself may
             // hold slashes of its own, so only the first segment goes.
             if let cut = name.range(of: "/") { return String(name[cut.upperBound...]) }
@@ -218,7 +207,7 @@ enum GitFreshness {
     private static func lastFetch(_ tool: GitInspector.GitTool, in url: URL) -> Date? {
         let gitDir = GitInspector.run(tool, ["rev-parse", "--absolute-git-dir"], in: url)
         guard gitDir.ok else { return nil }
-        let path = gitDir.text.trimmingCharacters(in: .whitespacesAndNewlines) + "/FETCH_HEAD"
+        let path = gitDir.trimmedText + "/FETCH_HEAD"
         let attributes = try? FileManager.default.attributesOfItem(atPath: path)
         return attributes?[.modificationDate] as? Date
     }

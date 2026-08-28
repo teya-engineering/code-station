@@ -138,7 +138,6 @@ struct SessionView: View {
     private enum Tab: Hashable { case conversation, design, changes, explorer }
 
     @State private var tab: Tab = .conversation
-    @State private var dropTargeted = false
     @State private var terminalFocused = false
     @State private var composerFocused = false
     @State private var selectedProjectID: UUID?
@@ -204,11 +203,9 @@ struct SessionView: View {
 
                 switch tab {
                 case .conversation:
-                    if session.isImplementingDesign {
-                        transcript(session)
-                        Divider().overlay(Theme.hairline)
-                        composer(session: session, project: project)
-                    } else if let design = store.designConversation(for: session.id) {
+                    // A Build session keeps its Design behind the Design tab.
+                    if !session.isImplementingDesign,
+                       let design = store.designConversation(for: session.id) {
                         DesignView(sessionID: design.id)
                     } else {
                         transcript(session)
@@ -288,12 +285,9 @@ struct SessionView: View {
                 }
             }
         } else {
-            VStack(spacing: 14) {
-                Image(systemName: "bubble.left.and.bubble.right")
-                    .font(.system(size: 40))
-                    .foregroundStyle(.tertiary)
-                Text("This session is gone").font(.serif(22))
-            }
+            PaneMessage(icon: "bubble.left.and.bubble.right",
+                        title: "This session is gone",
+                        detail: "Choose another session from the sidebar.")
         }
     }
 
@@ -393,10 +387,7 @@ struct SessionView: View {
                 case .success:
                     tab = .design
                 case .failure(let failure):
-                    dialogs.show(Dialog(
-                        title: failure.title,
-                        message: failure.message,
-                        actions: [.init(label: "OK", kind: .cancel)]))
+                    dialogs.show(.notice(failure.title, message: failure.message))
                 }
             }
         }
@@ -410,48 +401,32 @@ struct SessionView: View {
     }
 
     private func designMaterialExportButton(session: ChatSession, project: Project) -> some View {
-        Button { exportDesignMaterials(session: session, project: project) } label: {
-            HStack(spacing: 6) {
-                Image(systemName: exportingDesignMaterials ? "hourglass" : "doc.zipper")
-                    .font(.system(size: 11, weight: .semibold))
-                Text("Export")
-                    .font(.system(size: 12, weight: .semibold))
-            }
-            .foregroundStyle(exportingDesignMaterials ? Color.secondary : Theme.accent)
-            .padding(.horizontal, 11)
-            .padding(.vertical, 7)
-            .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
-            .contentShape(Rectangle())
+        let label = exportingDesignMaterials
+            ? "Exporting Design materials"
+            : "Export Design materials as a ZIP file"
+        return ActionButton(title: "Export", tone: .outlined, height: 30, size: 12,
+                            icon: exportingDesignMaterials ? "hourglass" : "doc.zipper") {
+            exportDesignMaterials(session: session, project: project)
         }
-        .buttonStyle(.plain)
         .disabled(exportingDesignMaterials)
-        .appTooltip(exportingDesignMaterials
-            ? "Exporting Design materials"
-            : "Export Design materials as a ZIP file")
-        .accessibilityLabel(exportingDesignMaterials
-            ? "Exporting Design materials"
-            : "Export Design materials as a ZIP file")
+        .appTooltip(label)
+        .accessibilityLabel(label)
     }
 
     private func exportDesignMaterials(session: ChatSession, project: Project) {
         guard let materialsURL = store.designFilesURL(for: session),
               store.hasDesignArtifacts(for: session) else {
-            dialogs.show(Dialog(
-                title: "Nothing to export yet",
-                message: "Create a Design first, then export its HTML and supporting files.",
-                actions: [.init(label: "OK", kind: .cancel)]))
+            dialogs.show(.notice("Nothing to export yet",
+                                 message: "Create a Design first, then export its HTML and supporting files."))
             return
         }
 
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [.zip]
-        panel.canCreateDirectories = true
-        panel.nameFieldStringValue = DesignMaterialExporter.suggestedFileName(
-            projectName: project.name, sessionTitle: session.title)
-        panel.prompt = "Export"
-        panel.message = "Export the Design materials as a ZIP file."
-        guard panel.runModal() == .OK, let destination = panel.url else { return }
+        guard let destination = FilePicker.saveFile(
+            suggestedName: DesignMaterialExporter.suggestedFileName(
+                projectName: project.name, sessionTitle: session.title),
+            prompt: "Export",
+            message: "Export the Design materials as a ZIP file.",
+            types: [.zip]) else { return }
 
         exportingDesignMaterials = true
         Task {
@@ -460,10 +435,8 @@ struct SessionView: View {
                 try await DesignMaterialExporter.export(
                     materialsAt: materialsURL, to: destination)
             } catch {
-                dialogs.show(Dialog(
-                    title: "Could not export Design materials",
-                    message: error.localizedDescription,
-                    actions: [.init(label: "OK", kind: .cancel)]))
+                dialogs.show(.notice("Could not export Design materials",
+                                     message: error.localizedDescription))
             }
         }
     }
@@ -537,8 +510,7 @@ struct SessionView: View {
         }
         return HStack(spacing: 7) {
             StateLight(tone: tone, size: 6)
-            StatusCaps(text: tone.word,
-                       tint: tone == .idle ? Color.secondary : tone.colour)
+            StatusCaps(text: tone.word, tint: tone.colour)
             if let since {
                 StatusDot()
                 // A live turn has to keep counting when nothing arrives to redraw it,
@@ -609,13 +581,10 @@ struct SessionView: View {
                                     .font(.system(size: 12.5, weight: .semibold))
                                     .lineLimit(1)
                                 if let snapshot, !snapshot.files.isEmpty {
-                                    Text("+\(snapshot.totalAdded)")
-                                        .foregroundStyle(Theme.addition)
-                                    Text("-\(snapshot.totalRemoved)")
-                                        .foregroundStyle(Theme.deletion)
+                                    DiffPair(added: snapshot.totalAdded,
+                                             removed: snapshot.totalRemoved, size: 10.5)
                                 }
                             }
-                            .font(.mono(10.5, .semibold))
                             .padding(.horizontal, 12)
                             .frame(height: 36)
                             .background(selected ? Theme.card : Color.clear)
@@ -662,7 +631,7 @@ struct SessionView: View {
                              removed: snapshots.reduce(0) { $0 + $1.totalRemoved },
                              size: 11)
                     StatusDot()
-                    StatusValue(text: "\(files) file\(files == 1 ? "" : "s")")
+                    StatusValue(text: counted(files, "file"))
                 }
             }
         }
@@ -780,7 +749,7 @@ struct SessionView: View {
     // rather than left to a session deleted and started over, which costs the conversation.
     @ViewBuilder private func warningStrip(session: ChatSession, project: Project) -> some View {
         if store.isMissing(project) {
-            strip("Folder not found at \(project.collapsedPath). Move it back or remove the project.")
+            WarningStrip("Folder not found at \(project.collapsedPath). Move it back or remove the project.")
         } else if let missing = missingDirectories.first {
             // Which of the two this is comes from the session rather than from the path:
             // a workspace folder and a worktree both turn up in `workingDirectories`, and
@@ -790,13 +759,16 @@ struct SessionView: View {
             // the action cannot point at different folders - a workspace can be missing one
             // of each.
             if let rebuildable = rebuildableCheckouts.first {
-                strip("\(name) not found at \(rebuildable.path.abbreviatedPath). It was removed outside the app.",
-                      action: "Rebuild") { confirmRebuild() }
+                WarningStrip("\(name) not found at \(rebuildable.path.abbreviatedPath). It was removed outside the app.") {
+                    ActionButton(title: "Rebuild", tone: .outlined, height: 26, size: 11.5) {
+                        confirmRebuild()
+                    }
+                }
             } else {
-                strip("\(name) not found at \(missing.abbreviatedPath). Move it back, or delete this session.")
+                WarningStrip("\(name) not found at \(missing.abbreviatedPath). Move it back, or delete this session.")
             }
         } else if !runner.isAvailable(session.agent) {
-            strip("\(session.agent.title) CLI not found on PATH. Sessions cannot run until it is installed.")
+            WarningStrip("\(session.agent.title) CLI not found on PATH. Sessions cannot run until it is installed.")
         }
     }
 
@@ -821,20 +793,14 @@ struct SessionView: View {
         Task {
             let plan = await SessionLifecycle.planRebuild(checkouts)
             guard !plan.isEmpty else {
-                dialogs.show(Dialog(
-                    title: "Nothing here can be rebuilt",
-                    message: "Git could not be asked which branch these folders were on.",
-                    actions: [.init(label: "OK", kind: .cancel)]))
+                dialogs.show(.notice("Nothing here can be rebuilt",
+                                     message: "Git could not be asked which branch these folders were on."))
                 return
             }
-            dialogs.show(Dialog(
-                title: plan.count == 1 ? "Rebuild the missing folder?"
-                                       : "Rebuild the missing folders?",
-                message: SessionLifecycle.rebuildMessage(for: plan),
-                actions: [
-                    .init(label: "Rebuild", kind: .primary) { rebuild(plan) },
-                    .init(label: "Cancel", kind: .cancel)
-                ]))
+            dialogs.show(.confirm(plan.count == 1 ? "Rebuild the missing folder?"
+                                                  : "Rebuild the missing folders?",
+                                  message: SessionLifecycle.rebuildMessage(for: plan),
+                                  action: "Rebuild", kind: .primary) { rebuild(plan) })
         }
     }
 
@@ -846,8 +812,7 @@ struct SessionView: View {
             // what the banner should say.
             defer { sampleMissingFolders() }
             if case .failure(let failure) = await SessionLifecycle.rebuild(plan) {
-                dialogs.show(Dialog(title: failure.title, message: failure.message,
-                                    actions: [.init(label: "OK", kind: .cancel)]))
+                dialogs.show(.notice(failure.title, message: failure.message))
             }
         }
     }
@@ -858,31 +823,12 @@ struct SessionView: View {
         return checkout.worktreePath ?? store.project(projectID)?.path
     }
 
-    // The button sits after the spacer, at the end of the sentence that asks for it, so the
-    // strip reads as a statement and then the way out of it. A banner with nothing to offer
-    // leaves it off and draws as it always did.
-    private func strip(_ message: String, action: String? = nil,
-                       run: (() -> Void)? = nil) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: "exclamationmark.triangle.fill")
-            Text(message).fixedSize(horizontal: false, vertical: true)
-            Spacer()
-            if let action, let run {
-                ActionButton(title: action, tone: .outlined, height: 26, size: 11.5, action: run)
-            }
-        }
-        .font(.system(size: 12, weight: .medium))
-        .foregroundStyle(Theme.warningText)
-        .padding(.horizontal, 20).padding(.vertical, 10)
-        .background(Theme.warningBackground)
-    }
-
     // MARK: - Transcript
 
     private func transcript(_ session: ChatSession) -> some View {
         let state = runner.state(sessionID)
         let projectPath = store.workingDirectory(for: session) ?? ""
-        let textShape = streamingTextShape(session)
+        let shape = transcriptShape(session, state: state)
 
         return ScrollViewReader { proxy in
             ScrollView {
@@ -924,7 +870,7 @@ struct SessionView: View {
                     // the transcript, not its text, so it plays once per whole arrival
                     // and never while a line is still being typed into.
                     .animation(reduceMotion ? nil : .easeOut(duration: 0.2),
-                               value: transcriptShape(session, state: state, textShape: textShape))
+                               value: shape.settled)
             }
             // Opening a transcript starts at the end, where the conversation is.
             .defaultScrollAnchor(.bottom)
@@ -954,19 +900,14 @@ struct SessionView: View {
                 proxy.scrollTo(bottomAnchor, anchor: .bottom)
                 withAnimation(reduceMotion ? nil : .easeOut(duration: 0.16)) { opened = true }
             }
-            .onChange(of: session.messages.count) { scrollToBottom(proxy, animated: true) }
-            // A finished line is worth a glide. A long line is followed in coarse chunks
-            // so streaming tokens do not each perform another scroll operation.
-            .onChange(of: textShape) { old, new in
-                scrollToBottom(proxy, animated: old.lines != new.lines)
+            // Anything new sends a pinned transcript to its end. A whole arrival - a row,
+            // a finished line, a change of state - is worth a glide. A long line still
+            // being typed into is followed in coarse chunks, each without one, so streaming
+            // tokens do not each perform another scroll operation.
+            .onChange(of: shape) { old, new in
+                if new.state != old.state, new.state != .waiting { waitNoticeDismissed = false }
+                scrollToBottom(proxy, animated: old.settled != new.settled)
             }
-            .onChange(of: session.messages.last?.tools.count ?? 0) { scrollToBottom(proxy, animated: true) }
-            .onChange(of: session.messages.last?.thinking?.count ?? 0) { scrollToBottom(proxy, animated: true) }
-            .onChange(of: state) { _, state in
-                if state != .waiting { waitNoticeDismissed = false }
-                scrollToBottom(proxy, animated: true)
-            }
-            .onChange(of: runner.question(sessionID)?.id) { scrollToBottom(proxy, animated: true) }
         }
     }
 
@@ -1005,8 +946,7 @@ struct SessionView: View {
                     .foregroundStyle(Theme.accent)
                     .padding(.horizontal, 12)
                     .frame(height: 34)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(Theme.card))
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
+                    .cardSurface(cornerRadius: 8)
                     .contentShape(RoundedRectangle(cornerRadius: 8))
                 }
                 .buttonStyle(.plain)
@@ -1086,7 +1026,8 @@ struct SessionView: View {
                         }
                         Spacer(minLength: 0)
                     }
-                    trailingActions {
+                    HStack(spacing: 8) {
+                        Spacer(minLength: 0)
                         ActionButton(title: "Stop", tone: .outlined,
                                      height: 28, size: 11.5) {
                             runner.stop(sessionID)
@@ -1101,53 +1042,9 @@ struct SessionView: View {
                 .warningCard()
             }
 
-            // A failed run belongs in the flow of the conversation, not in a dialog.
-            if case .failed(let message) = state {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack(alignment: .top, spacing: 8) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                        Text(message)
-                            .textSelection(.enabled)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Spacer(minLength: 0)
-                    }
-                    trailingActions {
-                        if runner.canContinueAfterFailure(sessionID, store: store) {
-                            ActionButton(title: "Continue", height: 28, size: 11.5) {
-                                runner.continueAfterFailure(sessionID, store: store)
-                            }
-                        }
-                        ActionButton(title: "Dismiss", tone: .outlined,
-                                     height: 28, size: 11.5) {
-                            runner.dismissFailure(sessionID)
-                        }
-                    }
-                }
-                .warningCard()
-            }
-
-            // Nothing went wrong, so a stop gets a button under its transcript note rather
-            // than a card of its own.
-            if runner.canContinueAfterStop(sessionID, store: store) {
-                trailingActions {
-                    ActionButton(title: "Continue", tone: .outlined,
-                                 height: 28, size: 11.5) {
-                        runner.continueAfterStop(sessionID, store: store)
-                    }
-                }
-                .transition(.fadeIn)
-            }
+            TurnEndActions(sessionID: sessionID, state: state)
 
             Color.clear.frame(height: 1).id(bottomAnchor)
-        }
-    }
-
-    // The buttons at the end of the transcript, pushed to the trailing edge the way every
-    // card in the transcript puts them.
-    private func trailingActions(@ViewBuilder _ buttons: () -> some View) -> some View {
-        HStack(spacing: 8) {
-            Spacer(minLength: 0)
-            buttons()
         }
     }
 
@@ -1209,8 +1106,7 @@ struct SessionView: View {
                 })
             }
             let copy = MenuEntry.item("Copy prompt", icon: "doc.on.doc") {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(message.text, forType: .string)
+                Pasteboard.copy(message.text)
             }
             guard !actions.isEmpty else { return [copy] }
             return actions + [.separator, copy]
@@ -1253,36 +1149,38 @@ struct SessionView: View {
         }
     }
 
-    // What the transcript is made of, coarsely: how many rows there are and how many
-    // lines the streaming message has settled. Tokens landing inside a line change the
-    // text but not this, which is what keeps the animation to one beat per addition.
+    // What the transcript is made of, coarsely: how many rows there are, how many lines
+    // the streaming message has settled, and the state around them. Tokens landing inside
+    // a line change the text but not this, which is what keeps the animation to one beat
+    // per addition. The chunk count is the one part that moves with the text, in coarse
+    // steps, so a long line can be followed without every token asking for a scroll.
     private struct TranscriptShape: Equatable {
-        let messages: Int
-        let tools: Int
-        let thoughts: Int
-        let lines: Int
-        let state: SessionState
-        let question: String?
+        var messages: Int
+        var tools: Int
+        var thoughts: Int
+        var lines: Int
+        var state: SessionState
+        var question: String?
+        var chunks: Int
+
+        // The shape with the chunk count set aside: what has changed when something whole
+        // arrives, and what the transcript's animation is keyed on.
+        var settled: TranscriptShape {
+            var shape = self
+            shape.chunks = 0
+            return shape
+        }
     }
 
-    private struct StreamingTextShape: Equatable {
-        let lines: Int
-        let chunks: Int
-    }
-
-    private func transcriptShape(_ session: ChatSession, state: SessionState,
-                                 textShape: StreamingTextShape) -> TranscriptShape {
-        TranscriptShape(messages: session.messages.count,
-                        tools: session.messages.last?.tools.count ?? 0,
-                        thoughts: session.messages.last?.thinking?.count ?? 0,
-                        lines: textShape.lines,
-                        state: state,
-                        question: runner.question(sessionID)?.id)
-    }
-
-    private func streamingTextShape(_ session: ChatSession) -> StreamingTextShape {
+    private func transcriptShape(_ session: ChatSession, state: SessionState) -> TranscriptShape {
         let text = session.messages.last?.text ?? ""
-        return StreamingTextShape(lines: newlineCount(text), chunks: text.utf8.count / 120)
+        return TranscriptShape(messages: session.messages.count,
+                               tools: session.messages.last?.tools.count ?? 0,
+                               thoughts: session.messages.last?.thinking?.count ?? 0,
+                               lines: newlineCount(text),
+                               state: state,
+                               question: runner.question(sessionID)?.id,
+                               chunks: text.utf8.count / 120)
     }
 
     private func newlineCount(_ text: String) -> Int {
@@ -1293,15 +1191,6 @@ struct SessionView: View {
 
     // MARK: - Composer
 
-    // The half-written prompt is the runner's, not this view's: switching sessions builds
-    // the pane again from nothing, and anything held here would go with it.
-    private var attachments: [Attachment] { runner.draft(sessionID).attachments }
-
-    private var draft: Binding<String> {
-        Binding(get: { runner.draft(sessionID).text },
-                set: { text in runner.editDraft(sessionID) { $0.text = text } })
-    }
-
     private func placeholder(state: SessionState) -> String {
         switch state {
         case .waiting: "Say what to do next…"
@@ -1311,99 +1200,30 @@ struct SessionView: View {
     }
 
     private func composer(session: ChatSession, project: Project) -> some View {
-        let workingDirectory = session.worktreePath ?? project.path
-        let blocked = !FileManager.default.fileExists(atPath: workingDirectory)
-            || !runner.isAvailable(session.agent)
         let state = runner.state(sessionID)
-        let busy = state.isBusy
-        let canSend = !blocked && !runner.draft(sessionID).isEmpty
-
-        return VStack(alignment: .leading, spacing: 8) {
-            runChoices(session, project: project)
-            contextNudge(session)
-            queueStrip(busy: busy, blocked: blocked)
-            attachmentStrip
-
-            HStack(alignment: .bottom, spacing: 10) {
-                // Typing during a turn is allowed: what is written goes to the back of the
-                // queue instead of waiting for the agent to be free. A turn parked on a
-                // background task is the one case where it does not queue at all - the
-                // pipe is open, so it goes straight to the agent.
-                ComposerField(text: draft,
-                              isFocused: $composerFocused,
-                              placeholder: placeholder(state: state),
-                              isEnabled: !blocked,
-                              onSubmit: send,
-                              onOversizedPaste: offerTextFile,
-                              onRecallUp: {
-                                  guard let last = runner.queued(sessionID).last else { return false }
-                                  runner.recall(last.id, sessionID: sessionID)
-                                  return true
-                              },
-                              trailingAccessory: {
-                                  SessionBotPicker(avatars: appSettings.agentAvatars,
-                                                   selectedName: botSelection(for: session),
-                                                   sessionID: sessionID,
-                                                   size: 22)
-                              })
-
-                if canSend {
-                    Button(action: send) {
-                        Image(systemName: busy ? "arrow.up.to.line" : "arrow.up")
-                            .font(.system(size: 13, weight: .bold))
-                            .foregroundStyle(.white)
-                            .frame(width: 32, height: 32)
-                            .background(Circle().fill(busy ? Theme.accentFill : Color.black.opacity(0.88)))
-                    }
-                    .buttonStyle(.plain)
-                    .appTooltip(busy ? "Queue this for when the turn ends"
-                                     : "Send (shift-return for a new line)")
-                    .transition(.fadeIn)
-                }
-
-                if state == .stopping {
-                    Image(systemName: "hourglass")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 32, height: 32)
-                        .background(Circle().fill(Theme.field))
-                        .appTooltip("Stopping this turn")
-                } else if busy {
-                    Button {
-                        runner.stop(sessionID)
-                    } label: {
-                        Image(systemName: "stop.fill")
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundStyle(.white)
-                            .frame(width: 32, height: 32)
-                            .background(Circle().fill(Theme.deletion))
-                    }
-                    .buttonStyle(.plain)
-                    .appTooltip("Stop this turn (esc)")
-                } else if !canSend {
-                    // The button keeps its place so the field does not change width as
-                    // soon as there is something to send.
-                    Image(systemName: "arrow.up")
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(.white)
-                        .frame(width: 32, height: 32)
-                        .background(Circle().fill(Color.black.opacity(0.22)))
-                }
-            }
-            .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: canSend)
-        }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 14)
-        .background(Theme.card)
-        .overlay(RoundedRectangle(cornerRadius: 10)
-            .stroke(Theme.accent, lineWidth: dropTargeted ? 2 : 0)
-            .padding(6))
-        .pasteAttachments(enabled: composerFocused && !blocked) { attach($0) }
-        .dropDestination(for: URL.self) { urls, _ in
-            guard !blocked else { return false }
-            attach(Attachments.fromDrop(urls))
-            return true
-        } isTargeted: { dropTargeted = $0 }
+        let blocked = !FileManager.default.fileExists(atPath: session.worktreePath ?? project.path)
+            || !runner.isAvailable(session.agent)
+        return Composer(sessionID: sessionID,
+                        blocked: blocked,
+                        isFocused: $composerFocused,
+                        placeholder: placeholder(state: state),
+                        onOversizedPaste: offerTextFile,
+                        onRecallUp: {
+                            guard let last = runner.queued(sessionID).last else { return false }
+                            runner.recall(last.id, sessionID: sessionID)
+                            return true
+                        },
+                        above: {
+                            runChoices(session, project: project)
+                            contextNudge(session)
+                            queueStrip(busy: state.isBusy, blocked: blocked)
+                        },
+                        accessory: {
+                            SessionBotPicker(avatars: appSettings.agentAvatars,
+                                             selectedName: botSelection(for: session),
+                                             sessionID: sessionID,
+                                             size: 22)
+                        })
     }
 
     // The choices the next turn will run on, on the line the eye is already on when
@@ -1419,13 +1239,7 @@ struct SessionView: View {
         let agent = session.agent
         HStack(spacing: 10) {
             if session.settings?.mcpServersEnabled == false {
-                Text("MCP off")
-                    .font(.mono(10.5, .semibold))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 5)
-                    .background(RoundedRectangle(cornerRadius: 7).fill(Theme.field))
-                    .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.border))
+                MonoChip(text: "MCP off", size: 10.5, bordered: true)
             }
             pinnedSetting(agent.title, help: "This session always runs on \(agent.title).")
             modelControl(session, lastRan: session.usage?.model(for: agent))
@@ -1517,11 +1331,11 @@ struct SessionView: View {
     private func permissionsMenu(agent: AgentKind) -> some View {
         let settings = sessionSettings
         let defaults = runner.defaults(for: agent)
-        return settingMenu(PermissionMode.shortTitle(of: settings.permissionMode ?? defaults.permissionMode),
+        return settingMenu(PermissionMode(stored: settings.permissionMode ?? defaults.permissionMode).shortTitle,
                            overridden: settings.permissionMode != nil,
                            help: "How much the agent asks before it acts.",
-                           defaultTitle: defaultTitle(PermissionMode.shortTitle(of: defaults.permissionMode)),
-                           options: PermissionMode.all.map { (id: $0.mode, title: $0.title) },
+                           defaultTitle: defaultTitle(PermissionMode(stored: defaults.permissionMode).shortTitle),
+                           options: PermissionMode.allCases.map { (id: $0.rawValue, title: $0.title) },
                            selection: Binding(get: { settings.permissionMode },
                                               set: { mode in changeSettings { $0.permissionMode = mode } }))
     }
@@ -1544,11 +1358,10 @@ struct SessionView: View {
                                               }))
     }
 
-    private func pinnedSetting(_ label: String, help: String,
-                               accent: Bool = false) -> some View {
+    private func pinnedSetting(_ label: String, help: String) -> some View {
         Text(label)
-            .font(.system(size: 11, weight: accent ? .semibold : .regular))
-            .foregroundStyle(accent ? Theme.accent : Color.secondary)
+            .font(.system(size: 11))
+            .foregroundStyle(.secondary)
             .fixedSize()
             .appTooltip(help)
     }
@@ -1618,15 +1431,12 @@ struct SessionView: View {
     // Compacting spends a turn and takes the best part of a minute, which is not what a
     // menu row usually costs, so it is said plainly before it starts.
     private func confirmCompact() {
-        dialogs.show(Dialog(
-            title: "Compact this session's context?",
+        dialogs.show(.confirm(
+            "Compact this session's context?",
             message: "The agent reads the conversation so far, replaces it with a summary, and carries on from that. It takes a turn of its own - up to a minute - and counts towards what this session has spent.",
-            actions: [
-                .init(label: "Compact", kind: .primary) {
-                    runner.compact(sessionID, store: store)
-                },
-                .init(label: "Cancel", kind: .cancel),
-            ]))
+            action: "Compact", kind: .primary) {
+                runner.compact(sessionID, store: store)
+            })
     }
 
     // The percentage says how much of the window is in use but not where it went, and the
@@ -1649,7 +1459,7 @@ struct SessionView: View {
         if appSettings.showsCost(for: agent), usage.costUSD > 0 {
             rows.append(Tooltip.Row(label: "Spent", value: Money.short(usage.costUSD)))
         }
-        let turns = usage.turns == 1 ? "1 turn" : "\(usage.turns) turns"
+        let turns = counted(usage.turns, "turn")
         let note = if agent == .codex {
             clearable
                 ? "Current model window after the latest model call. Codex compacts it automatically as it fills. Click for options."
@@ -1684,27 +1494,13 @@ struct SessionView: View {
                     .kerning(1.2)
                 Spacer(minLength: 8)
                 if runner.canCompactContext(sessionID, store: store) {
-                    Button(action: confirmCompact) {
-                        Text("Compact")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 5)
-                            .background(RoundedRectangle(cornerRadius: 7).fill(Theme.accent))
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .appTooltip("Summarises the conversation so far and carries on from it.")
+                    ActionButton(title: "Compact", tone: .green, height: 26, size: 12,
+                                 action: confirmCompact)
+                        .appTooltip("Summarises the conversation so far and carries on from it.")
                 }
-                Button {
+                InlineLink(title: "Clear", size: 12) {
                     runner.clearContext(sessionID, store: store)
-                } label: {
-                    Text("Clear")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(Theme.accent)
-                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
                 .appTooltip("Starts the next turn on a fresh conversation in the same folder.")
                 Button { runner.dismissNudge(sessionID) } label: {
                     Image(systemName: "xmark")
@@ -1720,8 +1516,7 @@ struct SessionView: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.field))
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.attention.opacity(0.4)))
+            .surface(Theme.field, cornerRadius: 8, border: Theme.attention.opacity(0.4))
         }
     }
 
@@ -1741,9 +1536,9 @@ struct SessionView: View {
                         .kerning(1.2)
                     Spacer(minLength: 8)
                     if !busy && !blocked {
-                        Button("Send now") { runner.runQueue(sessionID, store: store) }
-                            .buttonStyle(.plain)
-                            .font(.system(size: 12, weight: .semibold))
+                        InlineLink(title: "Send now", size: 12) {
+                            runner.runQueue(sessionID, store: store)
+                        }
                     }
                 }
                 .foregroundStyle(Theme.accent)
@@ -1782,38 +1577,10 @@ struct SessionView: View {
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(Theme.field))
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
+                    .fieldSurface(cornerRadius: 8)
                 }
             }
         }
-    }
-
-    // What is waiting to go out with the next prompt. Long file names are common, so the
-    // strip scrolls rather than squeezing the chips.
-    @ViewBuilder private var attachmentStrip: some View {
-        if !attachments.isEmpty {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    ForEach(attachments) { attachment in
-                        AttachmentChip(url: attachment.url) {
-                            runner.editDraft(sessionID) { $0.attachments.removeAll { $0.id == attachment.id } }
-                        }
-                    }
-                }
-                .padding(.vertical, 1)
-            }
-        }
-    }
-
-    // The same file twice in one prompt says nothing new.
-    private func attach(_ found: [Attachment]) {
-        runner.editDraft(sessionID) { draft in
-            for item in found where !draft.attachments.contains(where: { $0.url == item.url }) {
-                draft.attachments.append(item)
-            }
-        }
-        composerFocused = true
     }
 
     private func offerTextFile(_ text: String) {
@@ -1821,34 +1588,64 @@ struct SessionView: View {
         let limit = ComposerPaste.characterLimit.formatted()
         let message = "This paste has \(count) characters. Pastes are limited to \(limit) characters "
             + "to keep the composer responsive. Would you like to upload it as a text file instead?"
-        dialogs.show(Dialog(
-            title: "Text is too long to paste",
-            message: message,
-            actions: [
-                .init(label: "Upload as file", kind: .primary) {
-                    guard let attachment = Attachments.fromPastedText(text) else {
-                        dialogs.show(Dialog(
-                            title: "Could not attach the text",
-                            message: "The temporary text file could not be created.",
-                            actions: [.init(label: "OK", kind: .cancel)]))
-                        return
-                    }
-                    attach([attachment])
-                },
-                .init(label: "Cancel", kind: .cancel)
-            ]))
+        dialogs.show(.confirm("Text is too long to paste", message: message,
+                              action: "Upload as file", kind: .primary) {
+            guard let attachment = Attachments.fromPastedText(text) else {
+                dialogs.show(.notice("Could not attach the text",
+                                     message: "The temporary text file could not be created."))
+                return
+            }
+            runner.attach([attachment], to: sessionID)
+            composerFocused = true
+        })
     }
+}
 
-    private func send() {
-        let draft = runner.draft(sessionID)
-        let prompt = draft.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !draft.isEmpty else { return }
-        runner.send(prompt,
-                    attachments: draft.attachments,
-                    customInstructions: draft.customInstructions,
-                    sessionID: sessionID,
-                    store: store)
-        runner.clearDraft(sessionID)
+// What a turn that did not end on its own leaves at the foot of the transcript. A failed
+// run belongs in the flow of the conversation, not in a dialog, so it is a card with the
+// ways out of it. A stop went wrong with nothing, so it gets a button under its
+// transcript note rather than a card of its own.
+struct TurnEndActions: View {
+    @Environment(ProjectStore.self) private var store
+    @Environment(SessionRunner.self) private var runner
+
+    let sessionID: UUID
+    let state: SessionState
+
+    var body: some View {
+        if case .failed(let message) = state {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                    Text(message)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                }
+                HStack(spacing: 8) {
+                    Spacer(minLength: 0)
+                    if runner.canContinueAfterFailure(sessionID, store: store) {
+                        ActionButton(title: "Continue", height: 28, size: 11.5) {
+                            runner.continueAfterFailure(sessionID, store: store)
+                        }
+                    }
+                    ActionButton(title: "Dismiss", tone: .outlined, height: 28, size: 11.5) {
+                        runner.dismissFailure(sessionID)
+                    }
+                }
+            }
+            .warningCard()
+        }
+
+        if runner.canContinueAfterStop(sessionID, store: store) {
+            HStack(spacing: 8) {
+                Spacer(minLength: 0)
+                ActionButton(title: "Continue", tone: .outlined, height: 28, size: 11.5) {
+                    runner.continueAfterStop(sessionID, store: store)
+                }
+            }
+            .transition(.fadeIn)
+        }
     }
 }
 
@@ -2019,7 +1816,6 @@ private struct WaitingNotice: View {
         }
         .font(.system(size: 12, weight: .medium))
         .padding(12)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
+        .cardSurface(cornerRadius: 10)
     }
 }

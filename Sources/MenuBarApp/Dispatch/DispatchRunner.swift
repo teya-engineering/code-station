@@ -21,8 +21,8 @@ final class DispatchRunner {
 
     @ObservationIgnored private let maxResponseBytes: Int
     @ObservationIgnored private let maxRetainedResultBytes: Int
-    @ObservationIgnored private let sessionConfiguration: URLSessionConfiguration
-    @ObservationIgnored private var downloads: [Key: BoundedResponseLoader] = [:]
+    @ObservationIgnored private let session: URLSession
+    @ObservationIgnored private var transfers: [Key: Task<Downloaded, Error>] = [:]
     @ObservationIgnored private var resultOrder: [Key] = []
     @ObservationIgnored private var resultCosts: [Key: Int] = [:]
     @ObservationIgnored private var retainedResultBytes = 0
@@ -34,14 +34,13 @@ final class DispatchRunner {
         precondition(maxRetainedResultBytes >= maxResponseBytes)
         self.maxResponseBytes = maxResponseBytes
         self.maxRetainedResultBytes = maxRetainedResultBytes
-        if let sessionConfiguration {
-            self.sessionConfiguration = sessionConfiguration
-        } else {
+        let configuration = sessionConfiguration ?? {
             let config = URLSessionConfiguration.ephemeral
             config.timeoutIntervalForRequest = 30
             config.httpShouldSetCookies = false
-            self.sessionConfiguration = config
-        }
+            return config
+        }()
+        session = URLSession(configuration: configuration)
     }
 
     func isRunning(_ id: UUID, in environment: ApiEnvironment) -> Bool {
@@ -53,7 +52,7 @@ final class DispatchRunner {
     }
 
     func cancel(_ id: UUID, in environment: ApiEnvironment) {
-        downloads[Key(request: id, environment: environment)]?.cancel()
+        transfers[Key(request: id, environment: environment)]?.cancel()
     }
 
     func send(_ request: SavedRequest, environment: ApiEnvironment,
@@ -72,17 +71,20 @@ final class DispatchRunner {
         }
 
         inFlight.insert(key)
-        let download = BoundedResponseLoader(limit: maxResponseBytes,
-                                             configuration: sessionConfiguration)
-        downloads[key] = download
+        // The transfer is a task of its own so a cancel from the pane can reach it while
+        // this call keeps waiting to store whatever comes of it.
+        let transfer = Task { [session, limit = maxResponseBytes] in
+            try await Self.download(urlRequest, upTo: limit, using: session)
+        }
+        transfers[key] = transfer
         defer {
-            downloads[key] = nil
+            transfers[key] = nil
             inFlight.remove(key)
         }
 
         let started = Date()
         do {
-            let downloaded = try await download.load(urlRequest)
+            let downloaded = try await transfer.value
             let elapsed = Date().timeIntervalSince(started)
             let http = downloaded.response as? HTTPURLResponse
             let headers = (http?.allHeaderFields as? [String: String] ?? [:])
@@ -159,8 +161,7 @@ final class DispatchRunner {
                                     authorization: String?) -> ResolvedRequest {
         // {{env}} is substituted at the last moment, so the saved request stays a
         // template and the same list serves every environment.
-        let url = environment.resolve(request.expandedURL)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let url = environment.resolve(request.expandedURL).trimmed
 
         var headers: [HeaderField] = []
         // Setting a header twice replaces it rather than sending it twice, the way
@@ -242,6 +243,50 @@ final class DispatchRunner {
 
     // MARK: - Reading the response
 
+    private struct Downloaded: Sendable {
+        let data: Data
+        let response: URLResponse
+        let byteCount: Int
+        let isTruncated: Bool
+    }
+
+    // Reads the body up to the limit and stops there, so a server that answers with far
+    // more than expected costs neither the transfer nor the memory of the whole thing.
+    private nonisolated static func download(_ request: URLRequest, upTo limit: Int,
+                                             using session: URLSession) async throws -> Downloaded {
+        let (bytes, response) = try await session.bytes(for: request)
+        let task = bytes.task
+        var body: [UInt8] = []
+        body.reserveCapacity(min(limit, Int(max(0, response.expectedContentLength))))
+        var received = 0
+        var isTruncated = false
+        do {
+            try await withTaskCancellationHandler {
+                for try await byte in bytes {
+                    received += 1
+                    if body.count < limit {
+                        body.append(byte)
+                    } else if !isTruncated {
+                        // Stopping the read is not enough on its own: the transfer keeps
+                        // pulling the rest of the body until the task is told to stop,
+                        // and that stop comes back as the error that ends the loop.
+                        isTruncated = true
+                        task.cancel()
+                    }
+                }
+            } onCancel: {
+                task.cancel()
+            }
+        } catch {
+            guard isTruncated else { throw error }
+        }
+        // A body that was cut short is still reported at the size the server meant to
+        // send, when it said.
+        let expected = isTruncated ? Int(max(0, response.expectedContentLength)) : 0
+        return Downloaded(data: Data(body), response: response,
+                          byteCount: max(received, expected), isTruncated: isTruncated)
+    }
+
     private static func readable(_ data: Data, contentType: String?, isTruncated: Bool) -> String {
         guard !data.isEmpty else { return "" }
         let text: String
@@ -266,131 +311,5 @@ final class DispatchRunner {
                 options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes, .fragmentsAllowed])
         else { return nil }
         return String(data: pretty, encoding: .utf8)
-    }
-}
-
-private struct BoundedURLResponse: @unchecked Sendable {
-    let data: Data
-    let response: URLResponse
-    let byteCount: Int
-    let isTruncated: Bool
-}
-
-// URLSession normally assembles a complete response before returning it. This delegate
-// keeps a prefix instead and stops the task on the first chunk beyond the limit, which
-// bounds both transfer work and application memory for unknown or misleading servers.
-private final class BoundedResponseLoader: NSObject, URLSessionDataDelegate, @unchecked Sendable {
-    private let limit: Int
-    private let configuration: URLSessionConfiguration
-    private let lock = NSLock()
-
-    private var session: URLSession?
-    private var task: URLSessionDataTask?
-    private var continuation: CheckedContinuation<BoundedURLResponse, Error>?
-    private var response: URLResponse?
-    private var data = Data()
-    private var receivedByteCount = 0
-    private var isTruncated = false
-    private var isCancelled = false
-    private var isFinished = false
-
-    init(limit: Int, configuration: URLSessionConfiguration) {
-        self.limit = limit
-        self.configuration = configuration
-    }
-
-    func load(_ request: URLRequest) async throws -> BoundedURLResponse {
-        try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
-                lock.lock()
-                guard !isCancelled else {
-                    lock.unlock()
-                    continuation.resume(throwing: CancellationError())
-                    return
-                }
-                self.continuation = continuation
-                let session = URLSession(configuration: configuration,
-                                         delegate: self,
-                                         delegateQueue: nil)
-                self.session = session
-                let task = session.dataTask(with: request)
-                self.task = task
-                lock.unlock()
-                task.resume()
-            }
-        } onCancel: {
-            self.cancel()
-        }
-    }
-
-    func cancel() {
-        lock.lock()
-        isCancelled = true
-        let task = task
-        lock.unlock()
-        task?.cancel()
-    }
-
-    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask,
-                    didReceive response: URLResponse,
-                    completionHandler: @escaping @Sendable (URLSession.ResponseDisposition) -> Void) {
-        lock.lock()
-        self.response = response
-        lock.unlock()
-        completionHandler(.allow)
-    }
-
-    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive chunk: Data) {
-        lock.lock()
-        guard !isFinished else {
-            lock.unlock()
-            return
-        }
-        receivedByteCount += chunk.count
-        let remaining = max(0, limit - data.count)
-        data.append(contentsOf: chunk.prefix(remaining))
-        let crossedLimit = chunk.count > remaining
-        if crossedLimit { isTruncated = true }
-        lock.unlock()
-
-        if crossedLimit { dataTask.cancel() }
-    }
-
-    func urlSession(_ session: URLSession, task: URLSessionTask,
-                    didCompleteWithError error: (any Error)?) {
-        lock.lock()
-        guard !isFinished, let continuation else {
-            lock.unlock()
-            return
-        }
-        isFinished = true
-        self.continuation = nil
-        self.task = nil
-
-        let result: Result<BoundedURLResponse, Error>
-        if isTruncated, let response {
-            let expected = response.expectedContentLength > 0
-                ? Int(response.expectedContentLength)
-                : 0
-            result = .success(BoundedURLResponse(data: data,
-                                                 response: response,
-                                                 byteCount: max(receivedByteCount, expected),
-                                                 isTruncated: true))
-        } else if isCancelled {
-            result = .failure(CancellationError())
-        } else if let error {
-            result = .failure(error)
-        } else if let response {
-            result = .success(BoundedURLResponse(data: data,
-                                                 response: response,
-                                                 byteCount: receivedByteCount,
-                                                 isTruncated: false))
-        } else {
-            result = .failure(URLError(.badServerResponse))
-        }
-        lock.unlock()
-
-        session.finishTasksAndInvalidate()
-        continuation.resume(with: result)
     }
 }

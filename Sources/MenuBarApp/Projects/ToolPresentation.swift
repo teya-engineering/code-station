@@ -94,8 +94,7 @@ struct ToolPresentation: Sendable {
                 changedFiles = 1
             }
         case "Bash":
-            // Claude wraps shell input in JSON, while Codex sends the command itself.
-            argument = Self.singleLine(input["command"] as? String ?? tool.input)
+            argument = Self.singleLine(Self.shellCommand(in: tool.input) ?? tool.input)
             notesResultLineCount = true
         case "Grep", "Glob":
             argument = input["pattern"] as? String ?? argument
@@ -119,7 +118,7 @@ struct ToolPresentation: Sendable {
             argument = Self.workflowName(input)
         case "TodoWrite":
             if let todos = input["todos"] as? [Any] {
-                argument = "\(todos.count) item" + (todos.count == 1 ? "" : "s")
+                argument = counted(todos.count, "item")
             }
         default:
             if argument.isEmpty { argument = Self.singleLine(tool.input) }
@@ -326,6 +325,15 @@ struct ToolPresentation: Sendable {
 
     private static func object(from input: String) -> [String: Any] {
         (try? JSONSerialization.jsonObject(with: Data(input.utf8))) as? [String: Any] ?? [:]
+    }
+
+    // The command a shell call was given. Claude Code wraps a call's input in JSON, while
+    // Codex hands over the command itself, so the same call arrives in one of two shapes
+    // under the same name. Nil for JSON that names no command.
+    static func shellCommand(in input: String) -> String? {
+        guard let object = (try? JSONSerialization.jsonObject(with: Data(input.utf8))) as? [String: Any]
+        else { return input }
+        return object["command"] as? String
     }
 
     // What a workflow goes by: the saved name it was launched under, the script file it

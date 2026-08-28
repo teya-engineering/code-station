@@ -213,9 +213,7 @@ enum GitActions {
             guard hasUpstream else { return .commits(commits) }
 
             let behind = GitInspector.run(tool, ["rev-list", "--count", "HEAD..@{u}"], in: url)
-            let count = behind.ok
-                ? Int(behind.text.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
-                : 0
+            let count = behind.ok ? Int(behind.trimmedText) ?? 0 : 0
             return count > 0 ? .behindUpstream(count, commits) : .commits(commits)
         }
     }
@@ -234,14 +232,6 @@ enum GitActions {
         }
     }
 
-    // --left-right counts both sides of a three-dot range in one read: the commits only
-    // HEAD has, then the ones only the upstream has.
-    private static func divergence(_ text: String) -> (ahead: Int, behind: Int)? {
-        let fields = text.split(whereSeparator: \.isWhitespace).compactMap { Int($0) }
-        guard fields.count == 2 else { return nil }
-        return (fields[0], fields[1])
-    }
-
     private static func reconcile(_ tool: GitInspector.GitTool, in url: URL,
                                   with target: String) -> GitPullOutcome {
         let fetch = GitInspector.run(tool, ["fetch", "--quiet", "origin"], in: url,
@@ -251,7 +241,7 @@ enum GitActions {
         let counts = GitInspector.run(
             tool, ["rev-list", "--count", "--left-right", "HEAD...\(target)"], in: url)
         guard counts.ok else { return .failed(counts.failureMessage) }
-        guard let (ahead, behind) = divergence(counts.text) else {
+        guard let (ahead, behind) = counts.aheadBehind else {
             return .failed("Could not read how far this branch is from \(target).")
         }
         guard behind > 0 else { return .upToDate }
@@ -292,13 +282,12 @@ enum GitActions {
                                         head: GitInspector.CommandOutput,
                                         unlessAlreadyOn target: String) -> Bool {
         if branch.ok {
-            let name = branch.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let name = branch.trimmedText
             guard name != target else { return true }
             return GitInspector.run(tool, ["switch", name], in: url).ok
         }
         guard head.ok else { return false }
-        let commit = head.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        return GitInspector.run(tool, ["switch", "--detach", commit], in: url).ok
+        return GitInspector.run(tool, ["switch", "--detach", head.trimmedText], in: url).ok
     }
 
     // An autostash that will not go back on cleanly is the one way the reconcile step

@@ -7,6 +7,9 @@ struct SheetAction {
     var icon: String? = nil
     var enabled: Bool = true
     var shortcut: KeyboardShortcut? = nil
+    // Left nil, the action wears the shape of its slot: green as the primary, outlined
+    // as the secondary. A primary that deletes wears the danger tone instead.
+    var tone: ButtonTone? = nil
     let action: () -> Void
 }
 
@@ -15,22 +18,27 @@ struct SheetAction {
 // like part of the toolbar. Escape triggers the same action.
 //
 // A sheet that edits something puts its action next to Cancel. The action only lights
-// up while there is something for it to do. The title is the line of small print at the
-// other end of the bar, saying what the actions will do or where the edits will land.
+// up while there is something for it to do. A sheet with two ways forward, such as
+// Create beside Create and run, puts the quieter one first as the secondary. The title
+// is the line of small print at the other end of the bar, saying what the actions will
+// do or where the edits will land.
 struct SheetFooter<Leading: View>: View {
     private let title: String?
     private let primary: SheetAction?
+    private let secondary: SheetAction?
     private let dismissTitle: String?
     private let dismiss: () -> Void
     private let leading: Leading
 
     init(title: String? = nil,
          primary: SheetAction? = nil,
+         secondary: SheetAction? = nil,
          dismissTitle: String? = nil,
          dismiss: @escaping () -> Void,
          @ViewBuilder leading: () -> Leading) {
         self.title = title
         self.primary = primary
+        self.secondary = secondary
         self.dismissTitle = dismissTitle
         self.dismiss = dismiss
         self.leading = leading()
@@ -48,8 +56,14 @@ struct SheetFooter<Leading: View>: View {
                 }
                 leading
                 Spacer()
+                if let secondary {
+                    ActionButton(title: secondary.title, tone: secondary.tone ?? .outlined,
+                                 size: 13, icon: secondary.icon,
+                                 keyboardShortcut: secondary.shortcut, action: secondary.action)
+                        .disabled(!secondary.enabled)
+                }
                 if let primary {
-                    ActionButton(title: primary.title, tone: .green, size: 13,
+                    ActionButton(title: primary.title, tone: primary.tone ?? .green, size: 13,
                                  icon: primary.icon, keyboardShortcut: primary.shortcut,
                                  action: primary.action)
                         // The Mac shortcut is Cmd-something, but fingers trained
@@ -65,7 +79,8 @@ struct SheetFooter<Leading: View>: View {
                         }
                         .disabled(!primary.enabled)
                 }
-                ActionButton(title: dismissTitle ?? (primary == nil ? "Done" : "Cancel"),
+                ActionButton(title: dismissTitle ?? (primary == nil && secondary == nil
+                                                     ? "Done" : "Cancel"),
                              size: 13, keyboardShortcut: .cancelAction, action: dismiss)
             }
             .padding(.horizontal, 20)
@@ -82,9 +97,9 @@ struct SheetFooter<Leading: View>: View {
 }
 
 extension SheetFooter where Leading == EmptyView {
-    init(title: String? = nil, primary: SheetAction? = nil, dismissTitle: String? = nil,
-         dismiss: @escaping () -> Void) {
-        self.init(title: title, primary: primary, dismissTitle: dismissTitle,
-                  dismiss: dismiss) { EmptyView() }
+    init(title: String? = nil, primary: SheetAction? = nil, secondary: SheetAction? = nil,
+         dismissTitle: String? = nil, dismiss: @escaping () -> Void) {
+        self.init(title: title, primary: primary, secondary: secondary,
+                  dismissTitle: dismissTitle, dismiss: dismiss) { EmptyView() }
     }
 }

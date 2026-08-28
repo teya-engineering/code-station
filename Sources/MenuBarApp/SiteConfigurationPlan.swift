@@ -37,24 +37,20 @@ enum SiteConfigurationAspect: String, CaseIterable, Hashable, Identifiable, Send
     func detail(in defaults: SiteDefaults) -> String {
         switch self {
         case .environments:
-            let count = defaults.environments?.count ?? 0
-            return count == 1 ? "1 environment" : "\(count) environments"
+            return counted(defaults.environments?.count ?? 0, "environment")
         case .apiAccess:
             let oauth = defaults.dispatch?.oauth
             if let clientID = oauth?.clientID, !clientID.isEmpty { return clientID }
             if oauth != nil { return "Sign-in provider" }
             return "No sign-in provider"
         case .requests:
-            let count = defaults.dispatch?.requests?.count ?? 0
-            return count == 1 ? "1 starter request" : "\(count) starter requests"
+            return counted(defaults.dispatch?.requests?.count ?? 0, "starter request")
         case .mcp:
-            let count = defaults.mcp?.presets?.count ?? 0
-            return count == 1 ? "1 MCP preset" : "\(count) MCP presets"
+            return counted(defaults.mcp?.presets?.count ?? 0, "MCP preset")
         case .skills:
             return defaults.skills?.name ?? "No marketplace"
         case .shortcuts:
-            let count = defaults.shortcuts?.count ?? 0
-            return count == 1 ? "1 shortcut" : "\(count) shortcuts"
+            return counted(defaults.shortcuts?.count ?? 0, "shortcut")
         }
     }
 }

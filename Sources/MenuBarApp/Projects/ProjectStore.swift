@@ -29,6 +29,14 @@ struct SessionOpenRequest: Hashable {
     let destination: SessionDestination
 }
 
+// Something that has left the app for good, named by what it was so whatever else is
+// keyed to it can be matched without guessing which kind of id this is.
+enum RemovedOwner: Hashable {
+    case project(UUID)
+    case workspace(UUID)
+    case session(UUID)
+}
+
 // Projects and their conversations. What the app knows about a session - its title, what
 // it cost, where it runs - lives in one index file and is always in memory. The
 // conversation itself is a file per session, read when the session is opened and dropped
@@ -47,7 +55,7 @@ final class ProjectStore {
     // Told when a project, workspace or session leaves the app for good, so whatever else
     // is keyed to it can go at the same time. A running terminal is the reason this
     // exists: the store owns none of that and should not have to know it is there.
-    @ObservationIgnored var onRemoved: ((UUID) -> Void)?
+    @ObservationIgnored var onRemoved: ((RemovedOwner) -> Void)?
     private var sidebarSessionRevision = 0
     var selection: SidebarSelection? {
         // Opening a session is reading it, wherever the click came from, and it is also
@@ -341,7 +349,7 @@ final class ProjectStore {
                  in root: URL = AppPaths.support
                     .appendingPathComponent("ad-hoc-tasks", isDirectory: true))
         -> Result<Project, PersistenceFailure> {
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = name.trimmed
         guard !trimmed.isEmpty else {
             return .failure(PersistenceFailure(message: "Enter a name for the task."))
         }
@@ -356,7 +364,7 @@ final class ProjectStore {
         }
 
         let previousProjectID = selectedProjectID
-        let spec = TaskSpec(prompt: prompt.trimmingCharacters(in: .whitespacesAndNewlines))
+        let spec = TaskSpec(prompt: prompt.trimmed)
         let project = Project(name: trimmed, path: directory.standardizedFileURL.path,
                               kind: .adHoc, task: spec)
         projects.append(project)
@@ -380,45 +388,47 @@ final class ProjectStore {
     }
 
     func removeProject(_ id: UUID) {
+        // A workspace groups at least two folders, so losing one can dissolve it, and
+        // its sessions cannot exist outside it any more than the project's own can.
+        let dissolved = Set(workspaces.filter { workspace in
+            workspace.projectIDs.filter { $0 != id }.count < 2
+        }.map(\.id))
         let affected = Set(sessions.filter { session in
             session.projectID == id
                 || session.sessionProjects?.contains(where: { $0.projectID == id }) == true
+                || session.workspaceID.map(dissolved.contains) == true
         }.map(\.id))
         let removed = project(id)
         projects.removeAll { $0.id == id }
-        onRemoved?(id)
+        onRemoved?(.project(id))
         // A task's folder was created by the app inside its own support directory, so
         // deleting the task takes the folder with it. A user-chosen folder always stays.
         if let removed, removed.kind == .adHoc {
             try? FileManager.default.removeItem(at: removed.url)
         }
-        for sessionID in affected {
-            if case .failure(let failure) = removeSession(sessionID) {
-                saveError = failure.message
-                return
-            }
-        }
         workspaces = workspaces.compactMap { workspace in
+            guard !dissolved.contains(workspace.id) else { return nil }
             var updated = workspace
             updated.projectIDs.removeAll { $0 == id }
             updated.worktreeProjectIDs.removeAll { $0 == id }
-            guard updated.projectIDs.count >= 2 else { return nil }
             if updated.leadProjectID == id, let first = updated.projectIDs.first {
                 updated.leadProjectID = first
             }
             return updated
         }
+        for workspaceID in dissolved { onRemoved?(.workspace(workspaceID)) }
         if selectedProjectID == id { selectedProjectID = projects.first?.id }
         if case .session(let sessionID) = selection, affected.contains(sessionID) { selection = nil }
-        if case .workspace(let workspaceID) = selection, workspace(workspaceID) == nil {
+        if case .workspace(let workspaceID) = selection, dissolved.contains(workspaceID) {
             selection = nil
         }
         saveIndex()
+        removeSessions(affected)
     }
 
     func renameProject(_ id: UUID, to name: String) {
         guard let i = projects.firstIndex(where: { $0.id == id }) else { return }
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = name.trimmed
         guard !trimmed.isEmpty else { return }
         projects[i].name = trimmed
         saveIndex()
@@ -435,7 +445,7 @@ final class ProjectStore {
 
     @discardableResult
     func addWorkspace(name: String, projectIDs: [UUID], leadProjectID: UUID) -> ProjectWorkspace? {
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = name.trimmed
         var seen: Set<UUID> = []
         let members = projectIDs.filter {
             project($0)?.kind == .project && seen.insert($0).inserted
@@ -457,7 +467,7 @@ final class ProjectStore {
 
     func renameWorkspace(_ id: UUID, to name: String) {
         guard let i = workspaces.firstIndex(where: { $0.id == id }) else { return }
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = name.trimmed
         guard !trimmed.isEmpty else { return }
         workspaces[i].name = trimmed
         workspaces.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
@@ -476,15 +486,23 @@ final class ProjectStore {
     func removeWorkspace(_ id: UUID) {
         let affected = Set(sessions.filter { $0.workspaceID == id }.map(\.id))
         workspaces.removeAll { $0.id == id }
-        onRemoved?(id)
-        for sessionID in affected {
-            if case .failure(let failure) = removeSession(sessionID) {
-                saveError = failure.message
-                return
-            }
-        }
+        onRemoved?(.workspace(id))
         if selection == .workspace(id) { selection = nil }
         saveIndex()
+        removeSessions(affected)
+    }
+
+    // Removes each session and keeps going after one refuses, so a session that cannot
+    // be cleaned up does not strand the rest. It runs after the caller's own write on
+    // purpose: a write that lands clears the error it shows, and the reasons a session
+    // stayed are the ones the reader still needs to see.
+    private func removeSessions(_ ids: Set<UUID>) {
+        let failures = ids.compactMap { id -> String? in
+            guard case .failure(let failure) = removeSession(id) else { return nil }
+            return failure.message
+        }
+        guard !failures.isEmpty else { return }
+        saveError = failures.joined(separator: "\n")
     }
 
     func setLeadProject(_ projectID: UUID, inWorkspace id: UUID) {
@@ -699,21 +717,17 @@ final class ProjectStore {
         workingDirectories(for: session).first
     }
 
-    // All roots visible to the agent, with the lead first. Old single-project sessions
-    // have no checkout snapshot and naturally resolve to their existing one-root form.
+    // All roots visible to the agent, with the lead first.
     func workingDirectories(for session: ChatSession) -> [String] {
-        guard let checkouts = session.sessionProjects, !checkouts.isEmpty else {
-            return (session.worktreePath ?? project(session.projectID)?.path).map { [$0] } ?? []
-        }
-        return checkouts.compactMap { checkout in
-            checkout.worktreePath ?? project(checkout.projectID)?.path
-        }
+        checkoutProjects(for: session).compactMap { $0.worktreePath ?? project($0.projectID)?.path }
     }
 
+    // Every checkout the session works in, with the lead first. A single-project session
+    // carries no list of its own, so its one checkout is read off the session itself.
     func checkoutProjects(for session: ChatSession) -> [SessionProject] {
-        session.sessionProjects ?? [SessionProject(projectID: session.projectID,
-                                                  worktreePath: session.worktreePath,
-                                                  worktreeBranch: session.worktreeBranch)]
+        if let checkouts = session.sessionProjects, !checkouts.isEmpty { return checkouts }
+        return [SessionProject(projectID: session.projectID, worktreePath: session.worktreePath,
+                               worktreeBranch: session.worktreeBranch)]
     }
 
     // A Git worktree keeps its writable metadata in the source repository. Codex needs
@@ -959,8 +973,7 @@ final class ProjectStore {
 
     private func fallbackHandoff(for session: ChatSession,
                                  revision: DesignRevision) -> String {
-        let request = transcript(of: session.id).last(where: { $0.role == .user })?.text
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let request = transcript(of: session.id).last(where: { $0.role == .user })?.text.trimmed
         let goal = request.flatMap { $0.isEmpty ? nil : $0 } ?? session.title
         return """
         # \(revision.title) implementation handoff
@@ -993,7 +1006,7 @@ final class ProjectStore {
     // over, since that only ever replaces the untouched "New session".
     func renameSession(_ sessionID: UUID, to title: String) {
         guard let i = index(sessionID) else { return }
-        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = title.trimmed
         guard !trimmed.isEmpty, sessions[i].title != trimmed else { return }
         sessions[i].title = trimmed
         publishSidebarSessions()
@@ -1114,37 +1127,6 @@ final class ProjectStore {
         }
     }
 
-    // Safe only before worktree cleanup starts. Once any checkout may have been removed,
-    // the durable removal has to remain pending and be retried instead.
-    func cancelSessionRemoval(_ sessionID: UUID) -> Result<Void, PersistenceFailure> {
-        guard let pending = pendingSessionRemovals.first(where: { $0.id == sessionID }) else {
-            return .success(())
-        }
-
-        let restored = session(sessionID) == nil
-        if restored {
-            sessions.append(pending.session)
-            markIndexDirty()
-            guard save() else {
-                sessions.removeAll { $0.id == sessionID }
-                return .failure(persistenceFailure("The session could not be restored."))
-            }
-        }
-
-        let updated = pendingSessionRemovals.filter { $0.id != sessionID }
-        switch persistRemovalJournal(updated) {
-        case .success:
-            pendingSessionRemovals = updated
-            if restored { publishSidebarSessions() }
-            saveError = nil
-            return .success(())
-        case .failure(let failure):
-            if restored { sessions.removeAll { $0.id == sessionID } }
-            saveError = failure.message
-            return .failure(failure)
-        }
-    }
-
     func finishSessionRemoval(_ sessionID: UUID) -> Result<Void, PersistenceFailure> {
         guard let pending = pendingSessionRemovals.first(where: { $0.id == sessionID }) else {
             return session(sessionID) == nil
@@ -1154,10 +1136,6 @@ final class ProjectStore {
         }
 
         removeSessionFromMemory(sessionID)
-        // Here rather than where the session leaves memory, because a removal that has
-        // only been prepared can still be called off, and a shell closed by mistake
-        // cannot be put back.
-        onRemoved?(sessionID)
         let transcriptResult = deleteTranscript(sessionID)
         let designResult = deleteDesignDirectory(pending.session)
         markIndexDirty()
@@ -1186,14 +1164,17 @@ final class ProjectStore {
         }
     }
 
+    // A session that leaves memory is out of the app for good: a prepared removal is
+    // never called off, only finished. So this is where whatever else was keyed to the
+    // session, such as a running shell, is told to go too.
     private func removeSessionFromMemory(_ sessionID: UUID) {
-        if let session = session(sessionID) {
-            ToolPresentationCache.forget(session.messages.flatMap(\.tools).map(\.id))
-        }
-        sessions.removeAll { $0.id == sessionID }
+        guard let i = index(sessionID) else { return }
+        ToolPresentationCache.forget(sessions[i].messages.flatMap(\.tools).map(\.id))
+        sessions.remove(at: i)
         publishSidebarSessions()
         clearSessionMemory(sessionID)
         if case .session(sessionID) = selection { selection = nil }
+        onRemoved?(.session(sessionID))
     }
 
     private func clearSessionMemory(_ sessionID: UUID) {
@@ -1358,9 +1339,8 @@ final class ProjectStore {
                                                    files: PersistentFileClient) -> TranscriptRead {
         do {
             guard let data = try files.readIfPresent(url) else { return TranscriptRead() }
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
-            return TranscriptRead(messages: try decoder.decode([ChatMessage].self, from: data))
+            let messages = try PersistentFile.makeDecoder().decode([ChatMessage].self, from: data)
+            return TranscriptRead(messages: messages)
         } catch let error as DecodingError {
             return TranscriptRead(error: PersistentFile.decodeMessage(for: url, error: error))
         } catch {
@@ -1734,9 +1714,6 @@ final class ProjectStore {
                 completion.indexFailure = "The project index was not saved because a transcript could not be saved."
                 return completion
             }
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-            encoder.dateEncodingStrategy = .iso8601
             do {
                 var value = pendingIndex.value
                 for (sessionID, summary) in completion.summaries {
@@ -1745,7 +1722,7 @@ final class ProjectStore {
                     }
                     value.sessions[i].summary = summary.value
                 }
-                let data = try encoder.encode(value)
+                let data = try PersistentFile.makeEncoder().encode(value)
                 try files.write(data, indexURL)
                 completion.indexSucceeded = true
             } catch {
@@ -1813,11 +1790,8 @@ final class ProjectStore {
             return .failure(PersistenceFailure(
                 message: "The pending removal journal could not be loaded and was not overwritten."))
         }
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-        encoder.dateEncodingStrategy = .iso8601
         do {
-            let data = try encoder.encode(RemovalJournal(removals: removals))
+            let data = try PersistentFile.makeEncoder().encode(RemovalJournal(removals: removals))
             let files = files
             try Self.writer.sync { try files.write(data, removalJournalURL) }
             return .success(())
@@ -1846,10 +1820,9 @@ final class ProjectStore {
             return
         }
 
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
         do {
-            pendingSessionRemovals = try decoder.decode(RemovalJournal.self, from: data).removals
+            pendingSessionRemovals = try PersistentFile.makeDecoder()
+                .decode(RemovalJournal.self, from: data).removals
             removalJournalLoadError = nil
         } catch {
             removalJournalLoadError = PersistentFile.decodeMessage(
@@ -1897,11 +1870,9 @@ final class ProjectStore {
             refreshLoadError()
             return
         }
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
         let saved: Persisted
         do {
-            saved = try decoder.decode(Persisted.self, from: data)
+            saved = try PersistentFile.makeDecoder().decode(Persisted.self, from: data)
         } catch {
             indexLoadError = PersistentFile.decodeMessage(for: storeURL, error: error)
             refreshLoadError()

@@ -1,5 +1,4 @@
 import SwiftUI
-import UniformTypeIdentifiers
 
 // The first launch explains the app, imports any shared team setup, and connects a coding
 // agent. Agent installation and sign-in still belong to the CLI, so setup runs those
@@ -29,12 +28,6 @@ struct FirstRunWizard: View {
             switch self {
             case .install(let agent): "install-\(agent.rawValue)"
             case .signIn(let agent): "sign-in-\(agent.rawValue)"
-            }
-        }
-
-        var agent: AgentKind {
-            switch self {
-            case .install(let agent), .signIn(let agent): agent
             }
         }
 
@@ -93,10 +86,7 @@ struct FirstRunWizard: View {
     @State private var claude = ClaudeAgentInfo()
     @State private var codex = CodexAgentInfo()
     @State private var terminalAction: TerminalAction?
-    @State private var repositoryURL = ""
-    @State private var siteConfiguration: SiteConfigurationSelection?
-    @State private var siteConfigurationError: String?
-    @State private var loadingRepository = false
+    @State private var loader = SiteConfigurationLoader()
 
     let onSiteConfigurationLoaded: () -> Void
     let onFinish: () -> Void
@@ -127,8 +117,7 @@ struct FirstRunWizard: View {
         .background(Theme.background)
         .interactiveDismissDisabled()
         .sheet(item: $terminalAction, onDismiss: refreshAgentState) { action in
-            AgentCommandSheet(agent: action.agent,
-                              title: action.title,
+            AgentCommandSheet(title: action.title,
                               note: action.note,
                               command: action.command)
                 .appOverlays()
@@ -239,12 +228,12 @@ struct FirstRunWizard: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, minHeight: 132, alignment: .topLeading)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.border))
+        .cardSurface(cornerRadius: 12)
     }
 
     private var configurationSetup: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        @Bindable var loader = loader
+        return VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Add your team's configuration")
                     .font(.serif(25))
@@ -254,144 +243,30 @@ struct FirstRunWizard: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            HStack(alignment: .top, spacing: 12) {
-                configurationCard(
-                    icon: "doc.badge.plus",
-                    title: "Choose a file",
-                    detail: "Load a site defaults JSON file already on this Mac.") {
-                        ActionButton(title: "Choose JSON file", tone: .outlined,
-                                     icon: "folder", action: chooseConfigurationFile)
-                            .disabled(loadingRepository)
-                    }
-
-                configurationCard(
-                    icon: "arrow.triangle.branch",
-                    title: "Load from GitHub",
-                    detail: "Clone a repository using your existing Git access and read its root configuration file.") {
-                        VStack(alignment: .leading, spacing: 8) {
-                            TextField("https://github.com/org/settings", text: $repositoryURL)
-                                .textFieldStyle(.plain)
-                                .font(.mono(11.5))
-                                .padding(.horizontal, 10)
-                                .frame(height: 34)
-                                .background(RoundedRectangle(cornerRadius: 8).fill(Theme.field))
-                                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
-                                .onSubmit(loadGitHubRepository)
-                            ActionButton(title: loadingRepository ? "Loading…" : "Load repository",
-                                         tone: .outlined,
-                                         icon: loadingRepository ? nil : "arrow.down.circle",
-                                         action: loadGitHubRepository)
-                                .disabled(loadingRepository
-                                    || repositoryURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                                .opacity(loadingRepository ? 0.6 : 1)
-                        }
-                    }
+            SourcePicker(repositoryURL: $loader.repositoryURL,
+                         repositoryTitle: "Load from GitHub",
+                         repositoryDetail: "Clone a repository using your existing Git access and read its root configuration file.",
+                         placeholder: "https://github.com/org/settings",
+                         fileTitle: "Choose a file",
+                         fileDetail: "Load a site defaults JSON file already on this Mac.",
+                         fileButton: "Choose JSON file",
+                         isLoading: loader.isLoading,
+                         loadRepository: loader.loadRepository) {
+                loader.chooseFile(message: "Choose the JSON file containing your organisation's shared Code Station setup.")
             }
 
             Text("A repository can provide site-defaults.json, teya-defaults.json, or one root-level JSON file.")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
 
-            if let siteConfiguration {
-                HStack(alignment: .top, spacing: 10) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(Theme.addition)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(siteConfiguration.sourceName)
-                            .font(.system(size: 12.5, weight: .semibold))
-                        Text(siteConfiguration.summary)
-                            .font(.system(size: 11.5))
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-                .padding(11)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(RoundedRectangle(cornerRadius: 9).fill(Theme.addition.opacity(0.08)))
-                .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.addition.opacity(0.28)))
-            } else if let siteConfigurationError {
-                HStack(alignment: .top, spacing: 9) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(Theme.deletion)
-                    Text(siteConfigurationError)
-                        .font(.system(size: 11.5))
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .lineLimit(4)
-                }
-                .padding(11)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(RoundedRectangle(cornerRadius: 9).fill(Theme.deletion.opacity(0.08)))
-                .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.deletion.opacity(0.25)))
+            if let selection = loader.selection {
+                SourceLoaded(title: selection.sourceName, detail: selection.summary)
+            } else if let failure = loader.failure {
+                SourceFailure(failure)
             }
         }
         .padding(30)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-
-    private func configurationCard<Content: View>(
-        icon: String,
-        title: String,
-        detail: String,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Image(systemName: icon)
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(Theme.accent)
-                .frame(width: 34, height: 34)
-                .background(Circle().fill(Theme.accent.opacity(0.09)))
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title).font(.serif(16))
-                Text(detail)
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 0)
-            content()
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, minHeight: 178, alignment: .topLeading)
-        .background(RoundedRectangle(cornerRadius: 11).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 11).stroke(Theme.border))
-    }
-
-    private func chooseConfigurationFile() {
-        guard !loadingRepository else { return }
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = false
-        panel.canChooseFiles = true
-        panel.allowsMultipleSelection = false
-        panel.allowedContentTypes = [.json]
-        panel.prompt = "Load"
-        panel.message = "Choose the JSON file containing your organisation's shared Code Station setup."
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-
-        do {
-            siteConfiguration = try SiteConfigurationImporter.load(file: url)
-            siteConfigurationError = nil
-        } catch {
-            siteConfiguration = nil
-            siteConfigurationError = error.localizedDescription
-        }
-    }
-
-    private func loadGitHubRepository() {
-        let repository = repositoryURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !loadingRepository, !repository.isEmpty else { return }
-        loadingRepository = true
-        siteConfigurationError = nil
-        Task {
-            do {
-                siteConfiguration = try await SiteConfigurationImporter.load(
-                    gitHubRepository: repository)
-            } catch {
-                siteConfiguration = nil
-                siteConfigurationError = error.localizedDescription
-            }
-            loadingRepository = false
-        }
     }
 
     private var agentSetup: some View {
@@ -445,10 +320,8 @@ struct FirstRunWizard: View {
             .foregroundStyle(selected ? Color.white : Color.primary)
             .padding(.horizontal, 14)
             .frame(maxWidth: .infinity, minHeight: 58)
-            .background(RoundedRectangle(cornerRadius: 11)
-                .fill(selected ? Theme.accentFill : Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: 11)
-                .stroke(selected ? .clear : Theme.border))
+            .surface(selected ? Theme.accentFill : Theme.card, cornerRadius: 11,
+                     border: selected ? .clear : Theme.border)
             .contentShape(RoundedRectangle(cornerRadius: 11))
         }
         .buttonStyle(.plain)
@@ -478,21 +351,16 @@ struct FirstRunWizard: View {
                         .font(.mono(11.5))
                         .textSelection(.enabled)
                     Spacer(minLength: 8)
-                    InlineLink(title: "Copy") {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(selectedAgent.installHint, forType: .string)
-                    }
+                    CopyButton("Copy", size: 12) { selectedAgent.installHint }
                 }
                 .padding(.horizontal, 12)
                 .frame(height: 38)
-                .background(RoundedRectangle(cornerRadius: 8).fill(Theme.field))
-                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
+                .fieldSurface()
             }
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(statusColour.opacity(0.35)))
+        .surface(Theme.card, cornerRadius: 12, border: statusColour.opacity(0.35))
     }
 
     @ViewBuilder private var setupAction: some View {
@@ -548,10 +416,9 @@ struct FirstRunWizard: View {
 
     private var footer: some View {
         HStack(spacing: 10) {
-            if step == .configuration && !loadingRepository {
+            if step == .configuration && !loader.isLoading {
                 InlineLink(title: "Skip and use defaults") {
-                    siteConfiguration = nil
-                    siteConfigurationError = nil
+                    loader.clear()
                     move(to: .agent)
                 }
             } else if step == .agent && !isSignedIn {
@@ -568,7 +435,7 @@ struct FirstRunWizard: View {
                     .disabled(!isSignedIn)
             } else if step == .configuration {
                 ActionButton(title: "Continue", tone: .green) { move(to: .agent) }
-                    .disabled(siteConfiguration == nil || loadingRepository)
+                    .disabled(loader.selection == nil || loader.isLoading)
             } else {
                 ActionButton(title: "Continue", tone: .green) {
                     move(to: Step(rawValue: step.rawValue + 1) ?? .agent)
@@ -594,11 +461,11 @@ struct FirstRunWizard: View {
     }
 
     private func finish() {
-        if let siteConfiguration {
+        if let selection = loader.selection {
             do {
-                try SiteConfigurationImporter.install(siteConfiguration)
+                try SiteConfigurationImporter.install(selection)
             } catch {
-                siteConfigurationError = error.localizedDescription
+                loader.failure = error.localizedDescription
                 move(to: .configuration)
                 return
             }

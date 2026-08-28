@@ -165,17 +165,17 @@ enum GitInspector {
         }
 
         var snapshot = GitSnapshot(state: .ready)
-        snapshot.root = top.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        snapshot.root = top.trimmedText
         let root = URL(fileURLWithPath: snapshot.root)
 
         let head = run(tool, ["rev-parse", "--abbrev-ref", "HEAD"], in: url,
                        timeout: commandTimeout)
         if head.ok {
-            let name = head.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let name = head.trimmedText
             if name == "HEAD" {
                 let sha = run(tool, ["rev-parse", "--short", "HEAD"], in: url,
                               timeout: commandTimeout)
-                snapshot.branch = "detached at " + sha.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                snapshot.branch = "detached at " + sha.trimmedText
             } else {
                 snapshot.branch = name
                 snapshot.onBranch = true
@@ -185,9 +185,7 @@ enum GitInspector {
             snapshot.hasCommits = false
             let symbolic = run(tool, ["symbolic-ref", "--short", "HEAD"], in: url,
                                timeout: commandTimeout)
-            snapshot.branch = symbolic.ok
-                ? symbolic.text.trimmingCharacters(in: .whitespacesAndNewlines)
-                : "HEAD"
+            snapshot.branch = symbolic.ok ? symbolic.trimmedText : "HEAD"
         }
 
         let refs = run(tool, ["for-each-ref", "refs/heads",
@@ -202,8 +200,7 @@ enum GitInspector {
             // contain because git strips it out of the first line.
             let last = run(tool, ["log", "-1", "--format=%ct\t%s"], in: url,
                            timeout: commandTimeout)
-            let parts = last.text.trimmingCharacters(in: .whitespacesAndNewlines)
-                .split(separator: "\t", maxSplits: 1)
+            let parts = last.trimmedText.split(separator: "\t", maxSplits: 1)
             if last.ok, parts.count == 2, let seconds = TimeInterval(parts[0]) {
                 snapshot.lastCommitDate = Date(timeIntervalSince1970: seconds)
                 snapshot.lastCommitSubject = String(parts[1])
@@ -213,16 +210,12 @@ enum GitInspector {
         let upstream = run(tool, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
                            in: url, timeout: commandTimeout)
         if upstream.ok {
-            snapshot.upstream = upstream.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            // left counts commits only in the upstream, right the ones only here.
-            let drift = run(tool, ["rev-list", "--left-right", "--count", "@{u}...HEAD"],
+            snapshot.upstream = upstream.trimmedText
+            let drift = run(tool, ["rev-list", "--left-right", "--count", "HEAD...@{u}"],
                             in: url, timeout: commandTimeout)
-            let counts = drift.text.split(separator: "\t").compactMap {
-                Int($0.trimmingCharacters(in: .whitespacesAndNewlines))
-            }
-            if drift.ok, counts.count == 2 {
-                snapshot.behind = counts[0]
-                snapshot.ahead = counts[1]
+            if let drift = drift.aheadBehind {
+                snapshot.ahead = drift.ahead
+                snapshot.behind = drift.behind
             }
         }
 
@@ -668,9 +661,20 @@ enum GitInspector {
         var truncated = false
 
         var ok: Bool { status == 0 }
+        // Most answers are one line, and git ends every one of them with a newline.
+        var trimmedText: String { text.trimmed }
         var failureMessage: String {
-            let trimmed = errorText.trimmingCharacters(in: .whitespacesAndNewlines)
+            let trimmed = errorText.trimmed
             return trimmed.isEmpty ? "git exited with code \(status)." : trimmed
+        }
+
+        // The two numbers `rev-list --left-right --count ours...theirs` prints: commits
+        // only ours has, then commits only theirs has. Every caller names the local side
+        // first so the pair reads the same way everywhere. Nil when git could not say.
+        var aheadBehind: (ahead: Int, behind: Int)? {
+            let counts = text.split(whereSeparator: \.isWhitespace).compactMap { Int($0) }
+            guard ok, counts.count == 2 else { return nil }
+            return (counts[0], counts[1])
         }
     }
 

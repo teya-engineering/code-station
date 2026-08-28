@@ -110,12 +110,6 @@ struct SiteDefaults: Codable, Sendable, Equatable {
         var title: String?
         var danger: Bool?
 
-        init(name: String, title: String? = nil, danger: Bool? = nil) {
-            self.name = name
-            self.title = title
-            self.danger = danger
-        }
-
         var id: String { name }
 
         // What the pills show. A file that names no title reads well enough capitalised.
@@ -133,23 +127,10 @@ struct SiteDefaults: Codable, Sendable, Equatable {
         // the shared top-level environment list. New configuration files omit this field.
         var environments: Environments?
 
-        init(oauth: OAuth? = nil,
-             requests: [Request]? = nil,
-             environments: Environments? = nil) {
-            self.oauth = oauth
-            self.requests = requests
-            self.environments = environments
-        }
-
         // The two aliases used by older configuration files.
         struct Environments: Codable, Sendable, Equatable {
             var staging: String?
             var production: String?
-
-            init(staging: String? = nil, production: String? = nil) {
-                self.staging = staging
-                self.production = production
-            }
         }
 
         // Only the fields that identify a provider. The client secret and the tokens are
@@ -161,41 +142,17 @@ struct SiteDefaults: Codable, Sendable, Equatable {
             var clientID: String?
             var scope: String?
             var callbackURL: String?
-
-            init(grant: GrantType? = nil,
-                 authURL: String? = nil,
-                 tokenURL: String? = nil,
-                 clientID: String? = nil,
-                 scope: String? = nil,
-                 callbackURL: String? = nil) {
-                self.grant = grant
-                self.authURL = authURL
-                self.tokenURL = tokenURL
-                self.clientID = clientID
-                self.scope = scope
-                self.callbackURL = callbackURL
-            }
         }
 
         struct Request: Codable, Sendable, Equatable {
             var name: String
             var method: HTTPMethod?
             var url: String
-
-            init(name: String, method: HTTPMethod? = nil, url: String) {
-                self.name = name
-                self.method = method
-                self.url = url
-            }
         }
     }
 
     struct MCP: Codable, Sendable, Equatable {
         var presets: [Preset]?
-
-        init(presets: [Preset]? = nil) {
-            self.presets = presets
-        }
 
         struct Preset: Codable, Sendable, Equatable, Identifiable {
             var name: String
@@ -248,8 +205,7 @@ struct SiteDefaults: Codable, Sendable, Equatable {
                 env = try Self.decodeValues(.env, from: values)
                 headers = try Self.decodeValues(.headers, from: values)
 
-                guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                      hasConnection else {
+                guard !name.isBlank, hasConnection else {
                     throw DecodingError.dataCorruptedError(
                         forKey: .name,
                         in: values,
@@ -277,13 +233,9 @@ struct SiteDefaults: Codable, Sendable, Equatable {
             var isRemote: Bool { !hasCommand && hasURL }
             var hasConnection: Bool { hasCommand != hasURL }
 
-            private var hasCommand: Bool {
-                command?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-            }
+            private var hasCommand: Bool { command?.isBlank == false }
 
-            private var hasURL: Bool {
-                url?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-            }
+            private var hasURL: Bool { url?.isBlank == false }
 
             private static func decodeValues(
                 _ key: CodingKeys,
@@ -322,11 +274,6 @@ struct SiteDefaults: Codable, Sendable, Equatable {
             var key: String
             var value: String
 
-            init(key: String, value: String) {
-                self.key = key
-                self.value = value
-            }
-
             var id: String { key }
         }
     }
@@ -348,16 +295,6 @@ struct SiteDefaults: Codable, Sendable, Equatable {
         var marketplace: String
         var repository: String
         var sourceKind: SkillMarketplaceConfiguration.SourceKind?
-
-        init(name: String,
-             marketplace: String,
-             repository: String,
-             sourceKind: SkillMarketplaceConfiguration.SourceKind? = nil) {
-            self.name = name
-            self.marketplace = marketplace
-            self.repository = repository
-            self.sourceKind = sourceKind
-        }
     }
 
     // A command a fresh install starts with, for the ones a whole team runs often enough
@@ -365,11 +302,6 @@ struct SiteDefaults: Codable, Sendable, Equatable {
     struct Shortcut: Codable, Sendable, Equatable {
         var name: String
         var command: String
-
-        init(name: String, command: String) {
-            self.name = name
-            self.command = command
-        }
     }
 }
 
@@ -559,10 +491,8 @@ extension SiteDefaults {
         let presets = mcpPresets.count
         let commands = commandShortcuts.count
         let marketplace = skills == nil ? "no skills marketplace" : "a skills marketplace"
-        return "\(named) environment\(named == 1 ? "" : "s"), "
-            + "\(requests) starter request\(requests == 1 ? "" : "s"), "
-            + "\(presets) MCP preset\(presets == 1 ? "" : "s"), "
-            + "\(commands) shortcut\(commands == 1 ? "" : "s"), and \(marketplace)."
+        return "\(counted(named, "environment")), \(counted(requests, "starter request")), "
+            + "\(counted(presets, "MCP preset")), \(counted(commands, "shortcut")), and \(marketplace)."
     }
 
     // The environments to offer. A file that names none leaves the app on the two most

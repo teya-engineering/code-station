@@ -129,7 +129,6 @@ struct ProjectDetailView: View {
                     requestNewSession(in: project)
                 }
                 .disabled(missing)
-                .opacity(missing ? 0.45 : 1)
             }
             .fixedSize(horizontal: true, vertical: false)
             .layoutPriority(1)
@@ -185,7 +184,7 @@ struct ProjectDetailView: View {
                 if git.behind > 0 { drift("arrow.down", count: git.behind) }
                 StatusCaps(text: dirty == 0
                                ? "CLEAN"
-                               : "\(dirty) UNCOMMITTED FILE\(dirty == 1 ? "" : "S")",
+                               : counted(dirty, "UNCOMMITTED FILE", plural: "UNCOMMITTED FILES"),
                            tint: dirty == 0 ? Color.secondary : Theme.attentionText)
             }
             .fixedSize()
@@ -207,7 +206,7 @@ struct ProjectDetailView: View {
 
     private func driftSentence(_ git: GitSnapshot) -> String {
         var parts: [String] = []
-        if git.ahead > 0 { parts.append("\(git.ahead) commit\(git.ahead == 1 ? "" : "s") to push") }
+        if git.ahead > 0 { parts.append("\(counted(git.ahead, "commit")) to push") }
         if git.behind > 0 { parts.append("\(git.behind) to pull") }
         return parts.isEmpty ? "Open Changes" : parts.joined(separator: ", ") + ". Open Changes."
     }
@@ -255,13 +254,12 @@ struct ProjectDetailView: View {
         .foregroundStyle(tint)
         .padding(.horizontal, 8)
         .frame(height: 20)
-        .background(RoundedRectangle(cornerRadius: 6).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 6)
-            .stroke(running > 0 || failed > 0 ? tint.opacity(0.5) : Theme.border))
+        .surface(Theme.card, cornerRadius: 6,
+                 border: running > 0 || failed > 0 ? tint.opacity(0.5) : Theme.border)
         .appMenu { shortcutMenu(project, saved: saved) }
         .appTooltip(saved.isEmpty
                     ? "Save a command for this project"
-                    : "\(saved.count) saved command\(saved.count == 1 ? "" : "s"), run in the project folder")
+                    : "\(counted(saved.count, "saved command")), run in the project folder")
     }
 
     private func shortcutMenu(_ project: Project, saved: [CommandShortcut]) -> [MenuEntry] {
@@ -425,7 +423,7 @@ struct ProjectDetailView: View {
         if agent == .codex {
             parts.append(CodexSandboxMode.resolved(settings.codexSandboxMode).summary.lowercased())
         } else {
-            parts.append(PermissionMode.shortTitle(of: settings.permissionMode).lowercased())
+            parts.append(PermissionMode(stored: settings.permissionMode).shortTitle.lowercased())
         }
         return parts.joined(separator: " · ")
     }
@@ -489,7 +487,7 @@ struct ProjectDetailView: View {
                 .font(.mono(9.5, .semibold))
                 .kerning(1.1)
                 .foregroundStyle(Theme.attentionText)
-            Text("\(count) worktree\(count == 1 ? "" : "s") with no session")
+            Text("\(counted(count, "worktree")) with no session")
                 .font(.system(size: 12.5, weight: .semibold))
                 .fixedSize()
             Text(orphanedSummary)
@@ -503,7 +501,6 @@ struct ProjectDetailView: View {
                 confirmPruneOrphans(project)
             }
             .disabled(pruningOrphans)
-            .opacity(pruningOrphans ? 0.55 : 1)
         }
         .padding(.horizontal, 13)
         .padding(.vertical, 9)
@@ -567,22 +564,13 @@ struct ProjectDetailView: View {
     // The banner asks for a removal, so it carries the button for it: the same action
     // sits in the sidebar's context menu, which is not where someone reading this looks.
     private func missingFolder(_ project: Project) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "exclamationmark.triangle.fill")
-            Text("Folder not found at \(project.collapsedPath). Move it back or remove the project before starting a session.")
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 8)
+        WarningStrip("Folder not found at \(project.collapsedPath). Move it back or remove the project before starting a session.") {
             ActionButton(title: "Remove project", tone: .outlined, height: 28, size: 11.5) {
                 ProjectRemoval.confirm(project, in: store, runner: runner, shortcuts: shortcuts,
-                               dialogs: dialogs)
+                                       dialogs: dialogs)
             }
             .fixedSize()
         }
-        .font(.system(size: 12, weight: .medium))
-        .foregroundStyle(Theme.warningText)
-        .padding(.horizontal, 24)
-        .padding(.vertical, 10)
-        .background(Theme.warningBackground)
     }
 
     // MARK: - Creating and removing
@@ -608,10 +596,7 @@ struct ProjectDetailView: View {
             case .success:
                 break
             case .failure(let failure):
-                dialogs.show(Dialog(
-                    title: "Could not create the session",
-                    message: failure.message,
-                    actions: [.init(label: "OK", kind: .cancel)]))
+                dialogs.show(.notice("Could not create the session", message: failure.message))
             }
         }
     }
@@ -627,31 +612,23 @@ struct ProjectDetailView: View {
             case .success:
                 break
             case .failure(let failure):
-                dialogs.show(Dialog(
-                    title: failure.title,
-                    message: failure.message,
-                    actions: [.init(label: "OK", kind: .cancel)]))
+                dialogs.show(.notice(failure.title, message: failure.message))
             }
         }
     }
 
     private func confirmRemove(_ session: ChatSession) {
-        dialogs.show(SessionRemoval.confirmation(for: session, in: store,
-                                                 workingTrees: workingTrees) {
-            remove([session])
-        })
+        SessionRemoval.confirm(session, in: store, runner: runner,
+                               workingTrees: workingTrees, dialogs: dialogs)
     }
 
     private func confirmPruneOrphans(_ project: Project) {
         let count = orphanedWorktrees.count
         guard count > 0 else { return }
-        dialogs.show(Dialog(
-            title: "Prune \(count) orphaned worktree\(count == 1 ? "" : "s")?",
+        dialogs.show(.confirm(
+            "Prune \(counted(count, "orphaned worktree"))?",
             message: "These checkouts have no session. Any uncommitted changes in them will be lost. Branches are kept when they have unmerged commits.",
-            actions: [
-                .init(label: "Prune all", kind: .destructive) { pruneOrphans(project) },
-                .init(label: "Cancel", kind: .cancel)
-            ]))
+            action: "Prune all") { pruneOrphans(project) })
     }
 
     private func pruneOrphans(_ project: Project) {
@@ -671,20 +648,8 @@ struct ProjectDetailView: View {
             await refreshWorktrees(for: project)
             pruningOrphans = false
             guard !messages.isEmpty else { return }
-            dialogs.show(Dialog(
-                title: "Could not prune some worktrees",
-                message: messages.joined(separator: "\n"),
-                actions: [.init(label: "OK", kind: .cancel)]))
-        }
-    }
-
-    private func remove(_ sessions: [ChatSession]) {
-        Task {
-            if case .failure(let failure) = await SessionRemoval.run(
-                sessions, in: store, runner: runner) {
-                dialogs.show(Dialog(title: failure.title, message: failure.message,
-                                    actions: [.init(label: "OK", kind: .cancel)]))
-            }
+            dialogs.show(.notice("Could not prune some worktrees",
+                                 message: messages.joined(separator: "\n")))
         }
     }
 
@@ -875,12 +840,8 @@ struct SessionRow: View {
     private func checkoutSummary(_ repositories: [Repository]) -> String {
         let worktrees = repositories.count(where: \.usesWorktree)
         let folders = repositories.count - worktrees
-        if folders == 0 { return count(worktrees, singular: "worktree") }
-        if worktrees == 0 { return count(folders, singular: "folder") }
-        return "\(count(worktrees, singular: "worktree")) · \(count(folders, singular: "folder"))"
-    }
-
-    private func count(_ value: Int, singular: String) -> String {
-        "\(value) \(singular)\(value == 1 ? "" : "s")"
+        if folders == 0 { return counted(worktrees, "worktree") }
+        if worktrees == 0 { return counted(folders, "folder") }
+        return "\(counted(worktrees, "worktree")) · \(counted(folders, "folder"))"
     }
 }

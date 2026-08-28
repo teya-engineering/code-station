@@ -66,10 +66,9 @@ struct TroubleshootRequest {
     }
 
     var userInput: String {
-        let description = problem.trimmingCharacters(in: .whitespacesAndNewlines)
-        return description.isEmpty
+        problem.isBlank
             ? "Troubleshoot the problem shown in the attached files."
-            : description
+            : problem.trimmed
     }
 
     var customInstructions: String {
@@ -234,8 +233,7 @@ struct TroubleshootView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.deletion.opacity(0.09)))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.deletion.opacity(0.18)))
+        .surface(Theme.deletion.opacity(0.09), cornerRadius: 10, border: Theme.deletion.opacity(0.18))
     }
 
     // The skills the diagnosis is told to use, as a row of pills above everything else:
@@ -274,10 +272,8 @@ struct TroubleshootView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
-        .background(RoundedRectangle(cornerRadius: 10)
-            .fill(needsSkill ? Theme.attention.opacity(0.10) : Theme.field))
-        .overlay(RoundedRectangle(cornerRadius: 10)
-            .stroke(needsSkill ? Theme.attention.opacity(0.45) : Theme.border))
+        .surface(needsSkill ? Theme.attention.opacity(0.10) : Theme.field, cornerRadius: 10,
+                 border: needsSkill ? Theme.attention.opacity(0.45) : Theme.border)
     }
 
     private func skillPill(_ name: String) -> some View {
@@ -286,8 +282,7 @@ struct TroubleshootView: View {
             .lineLimit(1)
             .padding(.horizontal, 9)
             .frame(height: 22)
-            .background(RoundedRectangle(cornerRadius: 7).fill(Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.border))
+            .cardSurface(cornerRadius: 7)
             .contentShape(RoundedRectangle(cornerRadius: 7))
             .appContextMenu {
                 [
@@ -441,8 +436,7 @@ struct TroubleshootView: View {
                         .foregroundStyle(Theme.accent)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
-                        .background(RoundedRectangle(cornerRadius: 7).fill(Theme.field))
-                        .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.border))
+                        .fieldSurface(cornerRadius: 7)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -485,7 +479,7 @@ struct TroubleshootView: View {
                             .font(.system(size: 13, weight: .medium))
                         Text(configs.servers.isEmpty
                              ? "Use any servers configured for the selected agent."
-                             : "\(environmentMCPServers.count) managed server\(environmentMCPServers.count == 1 ? "" : "s") available for \(environment.title).")
+                             : "\(counted(environmentMCPServers.count, "managed server")) available for \(environment.title).")
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
                     }
@@ -516,8 +510,7 @@ struct TroubleshootView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(14)
-        .background(RoundedRectangle(cornerRadius: 11).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 11).stroke(Theme.border))
+        .cardSurface(cornerRadius: 11)
     }
 
     private var projectsSection: some View {
@@ -538,14 +531,13 @@ struct TroubleshootView: View {
                     .foregroundStyle(.secondary)
                     .padding(14)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
-                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
+                    .cardSurface(cornerRadius: 10)
             } else {
                 projectFilterField
 
                 Group {
                     if filteredProjects.isEmpty {
-                        Text("No project matches \"\(projectFilter.trimmingCharacters(in: .whitespacesAndNewlines))\".")
+                        Text("No project matches \"\(projectFilter.trimmed)\".")
                             .font(.system(size: 13))
                             .foregroundStyle(.secondary)
                             .padding(14)
@@ -579,8 +571,7 @@ struct TroubleshootView: View {
                         .frame(maxHeight: 170)
                     }
                 }
-                .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
-                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
+                .cardSurface(cornerRadius: 10)
             }
         }
     }
@@ -606,8 +597,7 @@ struct TroubleshootView: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.field))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
+        .fieldSurface(cornerRadius: 8)
     }
 
     private var filteredProjects: [Project] {
@@ -643,7 +633,7 @@ struct TroubleshootView: View {
     }
 
     static func projects(_ projects: [Project], matching filter: String) -> [Project] {
-        let query = filter.trimmingCharacters(in: .whitespacesAndNewlines)
+        let query = filter.trimmed
         guard !query.isEmpty else { return projects }
         return projects.filter {
             $0.name.localizedCaseInsensitiveContains(query)
@@ -668,18 +658,8 @@ struct TroubleshootView: View {
                 }
                 .padding(.top, 9)
                 Spacer(minLength: 12)
-                Button { dismiss() } label: {
-                    Text("Cancel")
-                        .font(.system(size: 13, weight: .semibold))
-                        .padding(.horizontal, 18)
-                        .frame(height: 34)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.card))
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .keyboardShortcut(.cancelAction)
-
+                ActionButton(title: "Cancel", height: 34, size: 13,
+                             keyboardShortcut: .cancelAction) { dismiss() }
                 diagnoseButton
             }
             .padding(.horizontal, 20)
@@ -744,8 +724,7 @@ struct TroubleshootView: View {
         !isStarting
             && mcpConfigurationState == .ready
             && !selectedProjects.isEmpty
-            && (!problem.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                || !attachments.isEmpty)
+            && (!problem.isBlank || !attachments.isEmpty)
             && runner.isAvailable(selectedAgent)
     }
 
@@ -773,14 +752,9 @@ struct TroubleshootView: View {
     }
 
     private func chooseFiles() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = false
-        panel.canChooseFiles = true
-        panel.allowsMultipleSelection = true
-        panel.prompt = "Attach"
-        panel.message = "Choose files that help explain the problem."
-        guard panel.runModal() == .OK else { return }
-        attach(panel.urls.map(Attachment.init(url:)))
+        let urls = FilePicker.chooseFiles(prompt: "Attach",
+                                          message: "Choose files that help explain the problem.")
+        attach(urls.map(Attachment.init(url:)))
     }
 
     private func attach(_ found: [Attachment]) {
@@ -812,10 +786,8 @@ struct TroubleshootView: View {
         guard canDiagnose else { return }
         let projects = orderedSelectedProjects
         guard projects.count == selectedProjects.count else {
-            dialogs.show(Dialog(
-                title: "Could not start the diagnosis",
-                message: "One of the selected projects is no longer available.",
-                actions: [.init(label: "OK", kind: .cancel)]))
+            dialogs.show(.notice("Could not start the diagnosis",
+                                 message: "One of the selected projects is no longer available."))
             return
         }
         if let selectedWorkspace {
@@ -851,15 +823,15 @@ struct TroubleshootView: View {
     private func startDiagnosis(in workspace: ProjectWorkspace) {
         let projects = workspace.projectIDs.compactMap(store.project)
         guard projects.count == workspace.projectIDs.count else {
-            dialogs.show(Dialog(
-                title: "Could not start the diagnosis",
-                message: "One of the workspace projects is no longer available.",
-                actions: [.init(label: "OK", kind: .cancel)]))
+            dialogs.show(.notice("Could not start the diagnosis",
+                                 message: "One of the workspace projects is no longer available."))
             return
         }
         startDiagnosis(projects: projects, workspace: workspace)
     }
 
+    // Four steps, each of which can stop the start: work out which servers to hide,
+    // create the session, save its settings, then send the first prompt.
     private func startDiagnosis(projects: [Project], workspace: ProjectWorkspace?) {
         guard let lead = projects.first else { return }
         isStarting = true
@@ -874,48 +846,32 @@ struct TroubleshootView: View {
             var disabledServers: [String] = []
             if chosenAgent == .codex, !enableMCPServers || !managedServers.isEmpty {
                 do {
-                    let enabledServers = try await codex.enabledServerNames(in: lead.path)
-                    let selectedNames = Set(selectedServers.map(\.name))
-                    disabledServers = enableMCPServers
-                        ? enabledServers.filter { !selectedNames.contains($0) }
-                        : enabledServers
+                    disabledServers = try await codexServersToDisable(
+                        in: lead.path, keeping: selectedServers, mcpEnabled: enableMCPServers)
                 } catch {
-                    isStarting = false
-                    dialogs.show(Dialog(
-                        title: "Could not filter MCP servers",
-                        message: error.localizedDescription,
-                        actions: [.init(label: "OK", kind: .cancel)]))
+                    abandonStart("Could not filter MCP servers", message: error.localizedDescription)
                     return
                 }
             }
 
+            let seed = ProjectStore.SessionSeed(agent: chosenAgent,
+                                                model: runner.defaults(for: chosenAgent).model,
+                                                isTroubleshooting: true)
             let sessionResult: Result<ChatSession, PersistenceFailure>
             if let workspace {
                 let checkouts = projects.map {
                     SessionProject(projectID: $0.id, worktreePath: nil, worktreeBranch: nil)
                 }
-                sessionResult = store.insertSession(
-                    in: workspace.id, projects: checkouts,
-                    seed: .init(agent: chosenAgent,
-                                model: runner.defaults(for: chosenAgent).model,
-                                isTroubleshooting: true))
+                sessionResult = store.insertSession(in: workspace.id, projects: checkouts, seed: seed)
             } else {
-                sessionResult = store.insertSession(
-                    in: lead.id,
-                    seed: .init(agent: chosenAgent,
-                                model: runner.defaults(for: chosenAgent).model,
-                                isTroubleshooting: true))
+                sessionResult = store.insertSession(in: lead.id, seed: seed)
             }
             let session: ChatSession
             switch sessionResult {
             case .success(let created):
                 session = created
             case .failure(let failure):
-                isStarting = false
-                dialogs.show(Dialog(
-                    title: "Could not start the diagnosis",
-                    message: failure.message,
-                    actions: [.init(label: "OK", kind: .cancel)]))
+                abandonStart("Could not start the diagnosis", message: failure.message)
                 return
             }
 
@@ -940,6 +896,21 @@ struct TroubleshootView: View {
                         sessionID: session.id, store: store)
             dismiss()
         }
+    }
+
+    // The servers Codex has switched on that the diagnosis must not see: all of them
+    // while MCP is off, otherwise the ones outside the chosen environment.
+    private func codexServersToDisable(in directory: String, keeping selected: [Server],
+                                       mcpEnabled: Bool) async throws -> [String] {
+        let enabled = try await codex.enabledServerNames(in: directory)
+        guard mcpEnabled else { return enabled }
+        let selectedNames = Set(selected.map(\.name))
+        return enabled.filter { !selectedNames.contains($0) }
+    }
+
+    private func abandonStart(_ title: String, message: String) {
+        isStarting = false
+        dialogs.show(.notice(title, message: message))
     }
 
     private var orderedSelectedProjects: [Project] {

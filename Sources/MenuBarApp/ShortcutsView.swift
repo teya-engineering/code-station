@@ -51,20 +51,9 @@ struct ShortcutsView: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            Button { editor = ShortcutEditorRequest() } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 10, weight: .bold))
-                    Text("Add shortcut")
-                        .font(.system(size: 12, weight: .semibold))
-                }
-                .foregroundStyle(.white)
-                .padding(.horizontal, 13)
-                .padding(.vertical, 7)
-                .background(RoundedRectangle(cornerRadius: 8).fill(Theme.accentFill))
-                .contentShape(RoundedRectangle(cornerRadius: 8))
+            ActionButton(title: "Add shortcut", tone: .green, height: 28, size: 12, icon: "plus") {
+                editor = ShortcutEditorRequest()
             }
-            .buttonStyle(.plain)
         }
         .padding(.horizontal, 20)
         .headerBand()
@@ -85,7 +74,7 @@ struct ShortcutsView: View {
     private var content: some View {
         VStack(spacing: 0) {
             if let error = store.loadError ?? store.saveError {
-                errorBanner(error)
+                WarningStrip(error, icon: "externaldrive.badge.exclamationmark")
             }
             shortcutList
             Divider().overlay(Theme.hairline)
@@ -136,16 +125,7 @@ struct ShortcutsView: View {
                 }
                 Spacer()
                 if let selectedRun, !store.log(selectedRun).isEmpty {
-                    Button { store.clearLog(selectedRun) } label: {
-                        Text("Clear")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(Theme.accent)
-                            .padding(.horizontal, 9)
-                            .padding(.vertical, 4)
-                            .background(RoundedRectangle(cornerRadius: 7).fill(Theme.field))
-                            .contentShape(RoundedRectangle(cornerRadius: 7))
-                    }
-                    .buttonStyle(.plain)
+                    InlineLink(title: "Clear", size: 11) { store.clearLog(selectedRun) }
                 }
             }
 
@@ -165,8 +145,7 @@ struct ShortcutsView: View {
                     scroller.scrollTo(Self.outputBottom, anchor: .bottom)
                 }
             }
-            .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
+            .cardSurface(cornerRadius: 10)
         }
         .padding(20)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -199,21 +178,6 @@ struct ShortcutsView: View {
     private var outputIsPlaceholder: Bool {
         guard let selectedRun else { return true }
         return store.log(selectedRun).isEmpty
-    }
-
-    private func errorBanner(_ message: String) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "externaldrive.badge.exclamationmark")
-                .foregroundStyle(Theme.deletion)
-            Text(message)
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-                .textSelection(.enabled)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer()
-        }
-        .padding(10)
-        .background(Theme.deletion.opacity(0.08))
     }
 
     // Every shortcut on this screen belongs to the Mac, so every run of one is in the
@@ -253,18 +217,12 @@ struct ShortcutsView: View {
     }
 
     private func confirmRemoval(of shortcut: CommandShortcut) {
-        dialogs.show(Dialog(
-            title: "Remove \(shortcut.name)?",
+        dialogs.show(.confirm(
+            "Remove \(shortcut.name)?",
             message: store.state(run(for: shortcut)).isActive
                 ? "This stops the running command and removes the shortcut."
                 : "The command and its saved shortcut will be removed.",
-            actions: [
-                Dialog.Action(label: "Remove", kind: .destructive) {
-                    store.remove(shortcut.id)
-                },
-                Dialog.Action(label: "Cancel", kind: .cancel)
-            ]
-        ))
+            action: "Remove") { store.remove(shortcut.id) })
     }
 
     private static let outputBottom = "shortcut-output-bottom"
@@ -319,14 +277,14 @@ private struct ShortcutRow: View {
                 .opacity(state.isActive ? 0.35 : 1)
             iconButton("trash", label: "Remove \(shortcut.name)", colour: Theme.deletion,
                        action: remove)
-            runButton
+            ActionButton(title: state.isActive ? "Stop" : "Run",
+                         tone: state.isActive ? .danger : .dark, height: 28, size: 12,
+                         action: run)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 11)
-        .background(RoundedRectangle(cornerRadius: 10)
-            .fill(selected ? Theme.accent.opacity(0.06) : Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 10)
-            .stroke(selected ? Theme.accent.opacity(0.5) : Theme.border))
+        .surface(selected ? Theme.accent.opacity(0.06) : Theme.card, cornerRadius: 10,
+                 border: selected ? Theme.accent.opacity(0.5) : Theme.border)
         .contentShape(RoundedRectangle(cornerRadius: 10))
         .onTapGesture(perform: select)
     }
@@ -354,33 +312,8 @@ private struct ShortcutRow: View {
 
     private func iconButton(_ icon: String, label: String, colour: Color = Theme.accent,
                             action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: icon)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(colour)
-                .frame(width: 28, height: 28)
-                .background(RoundedRectangle(cornerRadius: 7).fill(Theme.field))
-                .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.border))
-                .contentShape(RoundedRectangle(cornerRadius: 7))
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(label)
-        .appTooltip(label)
-    }
-
-    private var runButton: some View {
-        Button(action: run) {
-            Text(state.isActive ? "Stop" : "Run")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(state.isActive ? Theme.deletion : Color.white)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 7)
-                .background(RoundedRectangle(cornerRadius: 8)
-                    .fill(state.isActive ? Theme.field : Color.black.opacity(0.88)))
-                .overlay(RoundedRectangle(cornerRadius: 8)
-                    .stroke(state.isActive ? Theme.border : Color.clear))
-                .contentShape(RoundedRectangle(cornerRadius: 8))
-        }
-        .buttonStyle(.plain)
+        GlyphButton(icon: icon, side: 28, tint: colour, action: action)
+            .accessibilityLabel(label)
+            .appTooltip(label)
     }
 }

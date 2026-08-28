@@ -10,7 +10,7 @@ import Observation
 @MainActor
 @Observable
 final class DispatchAuthStore {
-    var active: ApiEnvironment { didSet { if active != oldValue { scheduleSave() } } }
+    var active: ApiEnvironment { didSet { if active != oldValue { saver.schedule() } } }
     private(set) var environments: [ApiEnvironment]
     private var configurations: [ApiEnvironment: OAuthConfig]
     private var siteOAuth: OAuthConfig
@@ -28,6 +28,13 @@ final class DispatchAuthStore {
     private let keychain: KeychainClient
     private(set) var loadError: String?
     private(set) var saveError: String?
+
+    // Editing a settings field lands here once per keystroke, so those are coalesced
+    // into one write the way the request store does it.
+    @ObservationIgnored private lazy var saver = DebouncedSaver { [weak self] in self?.save() }
+    // What the Keychain holds right now, so a save can tell when writing it again would
+    // only store the same value.
+    private var storedKeychainValues: [Keychain.Account: String] = [:]
 
     private struct Persisted: Codable {
         var active: String
@@ -49,15 +56,15 @@ final class DispatchAuthStore {
         var saved: Persisted?
         var legacySaved: LegacyPersisted?
         do {
-            if let data = try PersistentFile.readIfPresent(self.storeURL) {
-                do {
-                    saved = try JSONDecoder.oauth.decode(Persisted.self, from: data)
-                } catch {
-                    legacySaved = try JSONDecoder.oauth.decode(LegacyPersisted.self, from: data)
-                }
+            saved = try PersistentFile.loadJSON(Persisted.self, from: self.storeURL, decoder: .oauth)
+        } catch is DecodingError {
+            // A file from when the environments were a fixed pair names the two outright.
+            do {
+                legacySaved = try PersistentFile.loadJSON(LegacyPersisted.self, from: self.storeURL,
+                                                         decoder: .oauth)
+            } catch {
+                loadFailures.append(PersistentFile.decodeMessage(for: self.storeURL, error: error))
             }
-        } catch let error as DecodingError {
-            loadFailures.append(PersistentFile.decodeMessage(for: self.storeURL, error: error))
         } catch {
             loadFailures.append(PersistentFile.loadMessage(for: self.storeURL, error: error))
         }
@@ -203,7 +210,7 @@ final class DispatchAuthStore {
     func setConfig(_ config: OAuthConfig, for env: ApiEnvironment) {
         guard configurations[env] != config else { return }
         configurations[env] = config
-        scheduleSave()
+        saver.schedule()
     }
 
     private func updateEnvironments(from defaults: SiteDefaults) {
@@ -249,7 +256,7 @@ final class DispatchAuthStore {
     func setBasicPassword(_ password: String, for requestID: UUID) {
         guard basicPassword(for: requestID) != password else { return }
         basicPasswords[requestID] = password.isEmpty ? nil : password
-        scheduleSave()
+        saver.schedule()
     }
 
     // Called when the request itself goes, so a password does not outlive what it was for.
@@ -278,6 +285,38 @@ final class DispatchAuthStore {
 
     // MARK: - Getting a token
 
+    // Every way of getting a token runs through here, so busy, the failure line, the
+    // token and the save behave the same whichever grant or step it is. The work is a
+    // task of its own so the token card can call it off; a caller that needs the answer
+    // right away waits on it. Work that hands the sign-in to the browser answers nil,
+    // since a paste finishes it later.
+    @discardableResult
+    private func attempt(_ env: ApiEnvironment,
+                         _ work: @escaping @MainActor () async throws -> OAuthToken?) -> Task<Void, Never> {
+        busy.insert(env)
+        failures[env] = nil
+        let task = Task { [weak self] in
+            guard let self else { return }
+            defer {
+                self.busy.remove(env)
+                self.attempts[env] = nil
+            }
+            do {
+                guard let token = try await work() else { return }
+                self.tokens[env] = token
+                self.pending[env] = nil
+                self.awaitingPaste.remove(env)
+                self.save()
+            } catch is CancellationError {
+                self.failures[env] = "Sign-in was cancelled."
+            } catch {
+                self.failures[env] = error.localizedDescription
+            }
+        }
+        attempts[env] = task
+        return task
+    }
+
     // Started rather than awaited, so the attempt is a thing that can be called off. A
     // sign-in that goes wrong usually does so in the browser, where nothing comes back to
     // say so and waiting for the timeout is the only other way out.
@@ -290,30 +329,14 @@ final class DispatchAuthStore {
             return
         }
 
-        busy.insert(env)
-        failures[env] = nil
         awaitingPaste.remove(env)
         pending[env] = nil
-        attempts[env] = Task { [weak self] in
-            guard let self else { return }
-            defer {
-                self.busy.remove(env)
-                self.attempts[env] = nil
-            }
-            do {
-                switch config.grant {
-                case .authorizationCodePKCE:
-                    self.tokens[env] = try await self.authorizationCode(env, config: config)
-                case .clientCredentials:
-                    self.tokens[env] = try await self.clientCredentials(config)
-                }
-                self.save()
-            } catch is PausedForPaste {
-                // The browser has the sign-in now; it finishes in submitRedirect.
-            } catch is CancellationError {
-                self.failures[env] = "Sign-in was cancelled."
-            } catch {
-                self.failures[env] = error.localizedDescription
+        attempt(env) {
+            switch config.grant {
+            case .authorizationCodePKCE:
+                try await self.authorizationCode(env, config: config)
+            case .clientCredentials:
+                try await self.clientCredentials(config)
             }
         }
     }
@@ -330,18 +353,12 @@ final class DispatchAuthStore {
         let config = config(for: env).cleaned()
         guard !busy.contains(env), let current = tokens[env], current.matches(config),
               let refreshToken = current.refreshToken else { return }
-        busy.insert(env)
-        failures[env] = nil
-        defer { busy.remove(env) }
-        do {
-            tokens[env] = try await exchange(["grant_type": "refresh_token",
-                                              "refresh_token": refreshToken],
-                                             config: config,
-                                             keepingRefresh: refreshToken)
-            save()
-        } catch {
-            failures[env] = error.localizedDescription
-        }
+        await attempt(env) {
+            try await self.exchange(["grant_type": "refresh_token",
+                                     "refresh_token": refreshToken],
+                                    config: config,
+                                    keepingRefresh: refreshToken)
+        }.value
     }
 
     func clearToken(for env: ApiEnvironment) {
@@ -361,21 +378,16 @@ final class DispatchAuthStore {
         }
         if !isAuthenticated(for: env), config.grant == .clientCredentials,
            config.missing.isEmpty, !busy.contains(env) {
-            busy.insert(env)
-            defer { busy.remove(env) }
-            if let token = try? await clientCredentials(config) {
-                tokens[env] = token
-                save()
-            }
+            await attempt(env) { try await self.clientCredentials(config) }.value
         }
         guard let token = tokens[env], token.matches(config), !token.isExpired else { return nil }
-        let prefix = config.headerPrefix.trimmingCharacters(in: .whitespaces)
+        let prefix = config.headerPrefix
         return prefix.isEmpty ? token.accessToken : "\(prefix) \(token.accessToken)"
     }
 
     // MARK: - The grants
 
-    private func authorizationCode(_ env: ApiEnvironment, config: OAuthConfig) async throws -> OAuthToken {
+    private func authorizationCode(_ env: ApiEnvironment, config: OAuthConfig) async throws -> OAuthToken? {
         let verifier = PKCE.verifier()
         let state = config.state.isEmpty ? UUID().uuidString : config.state
         let authorizeURL = try authorizeURL(config: config, verifier: verifier, state: state)
@@ -386,7 +398,7 @@ final class DispatchAuthStore {
             pending[env] = Pending(verifier: verifier, state: state)
             awaitingPaste.insert(env)
             NSWorkspace.shared.open(authorizeURL)
-            throw PausedForPaste()
+            return nil
         }
 
         guard let port = config.callbackPort else {
@@ -455,10 +467,6 @@ final class DispatchAuthStore {
         let state: String
     }
 
-    // Not a failure: the attempt is paused rather than over, so the button stops spinning
-    // without an error being shown.
-    private struct PausedForPaste: Error {}
-
     func submitRedirect(_ text: String, for env: ApiEnvironment) {
         guard !busy.contains(env), let pending = pending[env] else { return }
         let config = config(for: env).cleaned()
@@ -475,26 +483,8 @@ final class DispatchAuthStore {
                 failures[env] = "The state did not match, so the answer was ignored."
                 return
             }
-            busy.insert(env)
-            failures[env] = nil
-            attempts[env] = Task { [weak self] in
-                guard let self else { return }
-                defer {
-                    self.busy.remove(env)
-                    self.attempts[env] = nil
-                }
-                do {
-                    self.tokens[env] = try await self.redeem(code: code,
-                                                             verifier: pending.verifier,
-                                                             config: config)
-                    self.pending[env] = nil
-                    self.awaitingPaste.remove(env)
-                    self.save()
-                } catch is CancellationError {
-                    self.failures[env] = "Sign-in was cancelled."
-                } catch {
-                    self.failures[env] = error.localizedDescription
-                }
+            attempt(env) {
+                try await self.redeem(code: code, verifier: pending.verifier, config: config)
             }
         }
     }
@@ -544,37 +534,18 @@ final class DispatchAuthStore {
 
     // MARK: - Persistence
 
-    private var saveTask: Task<Void, Never>?
-    // What the Keychain holds right now, so a save can tell when writing it again would
-    // only store the same value.
-    private var storedKeychainValues: [Keychain.Account: String] = [:]
-
-    // Editing a settings field lands here once per keystroke, so those are coalesced
-    // into one write the way the request store does it.
-    private func scheduleSave() {
-        saveTask?.cancel()
-        saveTask = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(400))
-            guard !Task.isCancelled else { return }
-            self?.save()
-        }
-    }
-
     // The secrets and the tokens go to the Keychain; the file keeps the rest, which is
     // just the addresses and the client ids. Keychain writes are slow and synchronous,
     // so they are skipped when the value there already matches.
     @discardableResult
     func save() -> Bool {
-        saveTask?.cancel()
-        saveTask = nil
+        saver.cancel()
         guard loadError == nil else {
             saveError = "Changes were not saved because the existing OAuth settings could not be loaded."
             return false
         }
 
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-        encoder.dateEncodingStrategy = .iso8601
+        let encoder = PersistentFile.makeEncoder()
 
         // The passwords are rebuilt rather than edited in place, so one that has been
         // cleared is dropped from the Keychain instead of lingering under its old name.
@@ -595,7 +566,7 @@ final class DispatchAuthStore {
                 }
             } catch {
                 encodingFailures.append(
-                    "The \(env.rawValue) token could not be encoded: \(error.localizedDescription)")
+                    "The \(env.name) token could not be encoded: \(error.localizedDescription)")
                 continue
             }
             keychainValues[env.tokenAccount] = tokenJSON
@@ -622,7 +593,7 @@ final class DispatchAuthStore {
         }
         let onDisk = Persisted(active: active.name, configurations: cleanConfigurations)
         do {
-            try PersistentFile.write(encoder.encode(onDisk), to: storeURL)
+            try PersistentFile.saveJSON(onDisk, to: storeURL, encoder: encoder)
             saveError = nil
             return true
         } catch {
@@ -644,9 +615,8 @@ private extension ApiEnvironment {
 private extension JSONDecoder {
     // Token endpoints answer in snake_case, and so do the files we write from them.
     static var oauth: JSONDecoder {
-        let decoder = JSONDecoder()
+        let decoder = PersistentFile.makeDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
-        decoder.dateDecodingStrategy = .iso8601
         return decoder
     }
 }

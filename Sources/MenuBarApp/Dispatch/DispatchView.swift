@@ -44,7 +44,7 @@ struct DispatchView: View {
     private var header: some View {
         HStack(spacing: 10) {
             Text("Dispatch").font(.serif(16))
-            Text("\(store.requests.count) request\(store.requests.count == 1 ? "" : "s")")
+            Text(counted(store.requests.count, "request"))
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
             if environment.isDangerous {
@@ -58,31 +58,18 @@ struct DispatchView: View {
                     .foregroundStyle(Theme.deletion)
             }
             Spacer()
-            environmentSwitch
-            Button("Environments") { showingEnvironments = true }
-                .buttonStyle(.plain)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(environment.accent)
+            EnvironmentPills(environments: auth.environments, selected: environment) {
+                auth.active = $0
+            }
+            .frame(maxWidth: 500)
+            .fixedSize(horizontal: true, vertical: false)
+            InlineLink(title: "Environments", tint: environment.accent) {
+                showingEnvironments = true
+            }
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 10)
         .background(environment.isDangerous ? Theme.deletion.opacity(0.10) : Theme.card)
-    }
-
-    private var environmentSwitch: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 2) {
-                ForEach(auth.environments) { env in
-                    EnvironmentSegment(env: env, selected: env == environment) {
-                        auth.active = env
-                    }
-                }
-            }
-            .padding(3)
-        }
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color.black.opacity(0.05)))
-        .frame(maxWidth: 500)
-        .fixedSize(horizontal: true, vertical: false)
     }
 
     // MARK: - Sidebar
@@ -256,13 +243,13 @@ struct DispatchView: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                     Spacer(minLength: 0)
-                    Button("Cancel") { auth.cancelAuthentication(environment) }
-                        .buttonStyle(.plain)
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Theme.deletion)
+                    InlineLink(title: "Cancel", size: 11, tint: Theme.deletion) {
+                        auth.cancelAuthentication(environment)
+                    }
                 }
             } else {
-                Button(tokenAction) {
+                InlineLink(title: ready ? "Re-authenticate" : "Set up credentials",
+                           size: 11, tint: environment.accent) {
                     guard ready else {
                         showingEnvironments = true
                         return
@@ -274,19 +261,11 @@ struct DispatchView: View {
                         showingEnvironments = true
                     }
                 }
-                .buttonStyle(.plain)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(environment.accent)
             }
         }
         .padding(.horizontal, 11)
         .padding(.vertical, 10)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(environment.accent.opacity(0.3)))
-    }
-
-    private var tokenAction: String {
-        auth.config(for: environment).missing.isEmpty ? "Re-authenticate" : "Set up credentials"
+        .surface(Theme.card, cornerRadius: 10, border: environment.accent.opacity(0.3))
     }
 
     // MARK: - Detail
@@ -311,58 +290,28 @@ struct DispatchView: View {
     }
 }
 
-private struct EnvironmentSegment: View {
-    let env: ApiEnvironment
-    let selected: Bool
-    let action: () -> Void
-
-    @State private var hovering = false
-
-    var body: some View {
-        Button(action: action) {
-            Text(env.label)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(selected ? Color.white : Color.secondary)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(RoundedRectangle(cornerRadius: 8)
-                    .fill(selected ? env.accentFill : (hovering ? Theme.field : .clear)))
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering = $0 }
-    }
-}
-
 // The same question whether the delete starts from the sidebar or from the editor.
 @MainActor
 private func deleteDialog(for request: SavedRequest, store: DispatchStore,
                           auth: DispatchAuthStore) -> Dialog {
-    Dialog(
-        title: "Delete \"\(request.name.isEmpty ? "Untitled" : request.name)\"?",
-        message: "The request and everything set up on it are gone for good.",
-        actions: [
-            .init(label: "Delete request", kind: .destructive) {
-                store.remove(request.id)
-                auth.forgetBasicPassword(for: request.id)
-            },
-            .init(label: "Cancel", kind: .cancel)
-        ])
+    Dialog.confirm("Delete \"\(request.name.isEmpty ? "Untitled" : request.name)\"?",
+                   message: "The request and everything set up on it are gone for good.",
+                   action: "Delete request") {
+        store.remove(request.id)
+        auth.forgetBasicPassword(for: request.id)
+    }
 }
 
 @MainActor
 private func deleteFolderDialog(for folder: RequestFolder, store: DispatchStore) -> Dialog {
     let count = store.requestCount(in: folder.id)
-    let requests = "\(count) request\(count == 1 ? "" : "s")"
-    return Dialog(
-        title: "Delete \"\(folder.name)\"?",
-        message: count == 0
-            ? "This empty folder is gone for good."
-            : "The folder is gone. Its \(requests) move to Default.",
-        actions: [
-            .init(label: "Delete folder", kind: .destructive) { store.removeFolder(folder.id) },
-            .init(label: "Cancel", kind: .cancel)
-        ])
+    return Dialog.confirm("Delete \"\(folder.name)\"?",
+                          message: count == 0
+                              ? "This empty folder is gone for good."
+                              : "The folder is gone. Its \(counted(count, "request")) move to Default.",
+                          action: "Delete folder") {
+        store.removeFolder(folder.id)
+    }
 }
 
 private struct FolderRow: View {
@@ -399,8 +348,7 @@ private struct FolderRow: View {
                     .font(.system(size: 13, weight: .semibold))
                     .padding(.horizontal, 6)
                     .padding(.vertical, 4)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(Theme.field))
-                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.border))
+                    .fieldSurface(cornerRadius: 6)
                     .focused($nameFocused)
                     .onSubmit { onRename(draftName) }
                     .onExitCommand(perform: onCancelRename)
@@ -481,9 +429,8 @@ private struct RequestRow: View {
         .padding(.leading, 10)
         .padding(.trailing, 10)
         .padding(.vertical, 8)
-        .background(RoundedRectangle(cornerRadius: 8)
-            .fill(selected ? Theme.card : (hovering ? Theme.field : .clear)))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(selected ? accent.opacity(0.3) : .clear))
+        .surface(selected ? Theme.card : (hovering ? Theme.field : .clear), cornerRadius: 8,
+                 border: selected ? accent.opacity(0.3) : .clear)
         .onHover { hovering = $0 }
     }
 }
@@ -507,7 +454,7 @@ private func resolvedText(_ template: String, env: ApiEnvironment,
     var text = Text(verbatim: "")
     for (index, part) in parts.enumerated() {
         if index > 0 {
-            text = text + Text(env.envValue).font(.mono(size, .bold)).foregroundStyle(env.brightAccent)
+            text = text + Text(env.name).font(.mono(size, .bold)).foregroundStyle(env.brightAccent)
         }
         text = text + Text(part).font(.mono(size)).foregroundStyle(base)
     }
@@ -565,12 +512,9 @@ private struct RequestDetail: View {
                 .textFieldStyle(.plain)
                 .font(.serif(18))
             Spacer(minLength: 8)
-            Button("Delete") {
+            InlineLink(title: "Delete", tint: Theme.deletion) {
                 dialogs.show(deleteDialog(for: draft, store: store, auth: auth))
             }
-                .buttonStyle(.plain)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(Theme.deletion)
         }
         .padding(.horizontal, 20)
         .padding(.top, 18)
@@ -590,8 +534,7 @@ private struct RequestDetail: View {
             .fixedSize()
             .padding(.horizontal, 10)
             .padding(.vertical, 9)
-            .background(RoundedRectangle(cornerRadius: 9).fill(Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
+            .cardSurface(cornerRadius: 9)
             .appMenu {
                 HTTPMethod.allCases.map { method in
                     .item(method.rawValue) { draft.method = method }
@@ -604,9 +547,7 @@ private struct RequestDetail: View {
                 .lineLimit(1)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 9)
-                .background(RoundedRectangle(cornerRadius: 9).fill(Theme.card))
-                .overlay(RoundedRectangle(cornerRadius: 9)
-                    .stroke(environment.accent.opacity(0.35)))
+                .surface(Theme.card, cornerRadius: 9, border: environment.accent.opacity(0.35))
                 .onSubmit(send)
 
             HStack(spacing: 0) {
@@ -669,7 +610,9 @@ private struct RequestDetail: View {
     private var tabs: some View {
         HStack(spacing: 6) {
             ForEach(Tab.allCases) { item in
-                TabButton(title: label(for: item), selected: tab == item) { tab = item }
+                TabButton(title: item.rawValue, detail: detail(for: item), selected: tab == item) {
+                    tab = item
+                }
             }
             Spacer()
         }
@@ -677,30 +620,24 @@ private struct RequestDetail: View {
         .padding(.bottom, 10)
     }
 
-    private func label(for tab: Tab) -> String {
+    // What each tab holds, so a send's shape can be read without opening any of them.
+    private func detail(for tab: Tab) -> String? {
         switch tab {
-        case .queryParams:
-            let count = draft.queryParams.count
-            return count == 0 ? tab.rawValue : "\(tab.rawValue) · \(count)"
-        case .pathParams:
-            let count = draft.pathParams.count
-            return count == 0 ? tab.rawValue : "\(tab.rawValue) · \(count)"
-        case .headers:
-            return draft.headers.isEmpty ? tab.rawValue : "\(tab.rawValue) · \(draft.headers.count)"
-        case .body:
-            return draft.bodyType == .none ? tab.rawValue : "\(tab.rawValue) · \(draft.bodyType.label)"
+        case .queryParams: countDetail(draft.queryParams.count)
+        case .pathParams: countDetail(draft.pathParams.count)
+        case .headers: countDetail(draft.headers.count)
+        case .body: draft.bodyType == .none ? nil : draft.bodyType.label
         case .auth:
-            return "\(tab.rawValue) · \(authSummary)"
+            switch draft.authMode {
+            case .none: "off"
+            case .environmentToken: "\(environment.name) token"
+            case .basic: "basic"
+            }
         }
     }
 
-    // The tab says what a send will attach without having to be opened.
-    private var authSummary: String {
-        switch draft.authMode {
-        case .none: "off"
-        case .environmentToken: "\(environment.rawValue) token"
-        case .basic: "basic"
-        }
+    private func countDetail(_ count: Int) -> String? {
+        count == 0 ? nil : "\(count)"
     }
 
     @ViewBuilder private var editor: some View {
@@ -737,16 +674,8 @@ private struct RequestDetail: View {
                              keyPlaceholder: keyPlaceholder,
                              params: params)
 
-                Button(action: add) {
-                    Text(addLabel)
-                        .font(.system(size: 12, weight: .semibold))
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 9)
-                        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
-                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
-                }
-                .buttonStyle(.plain)
-                .padding(.top, 14)
+                ActionButton(title: addLabel, tone: .outlined, height: 34, size: 12, action: add)
+                    .padding(.top, 14)
             }
             .padding(20)
         }
@@ -791,14 +720,15 @@ private struct RequestDetail: View {
                     authNote("Adds \(auth.config(for: environment).headerPrefix) <token> as the Authorization header, from whichever environment is active when you send. An Authorization header of your own still wins.")
                     EnvironmentTokenControls(env: environment)
                 case .basic:
-                    CaptionedField(caption: "USERNAME",
-                                   placeholder: "username",
-                                   text: $draft.basicUsername)
-                    CaptionedField(caption: "PASSWORD",
-                                   placeholder: "kept in the Keychain, never in the request file",
-                                   text: basicPassword,
-                                   accent: environment.accent,
-                                   secret: true)
+                    LabeledField("USERNAME") {
+                        TextField("username", text: $draft.basicUsername)
+                            .appTextField(size: 11)
+                    }
+                    LabeledField("PASSWORD") {
+                        SecretField(placeholder: "kept in the Keychain, never in the request file",
+                                    text: basicPassword,
+                                    accent: environment.accent)
+                    }
                     authNote("Adds Authorization: Basic <username:password>. The pair is the same in every environment, and base64 hides nothing from anything on the way, so this belongs on https only. An Authorization header of your own still wins.")
                 }
             }
@@ -879,8 +809,7 @@ private struct RequestDetail: View {
                     .font(.mono(12))
                     .scrollContentBackground(.hidden)
                     .padding(8)
-                    .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
-                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
+                    .cardSurface(cornerRadius: 10)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -947,10 +876,8 @@ private struct RequestDetail: View {
             // Built the same way a send does, so the copied command carries a token that
             // is live rather than one that expired while the window sat open.
             let authorization = await authorization(for: request, in: env)
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(
-                CurlCommand.text(for: request, environment: env, authorization: authorization),
-                forType: .string)
+            Pasteboard.copy(CurlCommand.text(for: request, environment: env,
+                                             authorization: authorization))
             copiedCurl = true
             try? await Task.sleep(for: .seconds(2))
             copiedCurl = false
@@ -958,12 +885,13 @@ private struct RequestDetail: View {
     }
 
     private func consequence(of method: HTTPMethod) -> String {
-        switch method {
-        case .delete: "This deletes live data. Switch to a non-live environment if you meant to test."
-        case .post: "This creates live data. Switch to a non-live environment if you meant to test."
-        case .put, .patch: "This changes live data. Switch to a non-live environment if you meant to test."
-        case .get, .head: "This runs against live data. Switch to a non-live environment if you meant to test."
+        let verb = switch method {
+        case .delete: "deletes"
+        case .post: "creates"
+        case .put, .patch: "changes"
+        case .get, .head: "runs against"
         }
+        return "This \(verb) live data. Switch to a non-live environment if you meant to test."
     }
 }
 
@@ -984,25 +912,27 @@ private struct ResolvedRequestBox: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 11)
         .padding(.vertical, 9)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
+        .cardSurface(cornerRadius: 8)
     }
 }
 
+// A tab with, when there is one, a count or a word after it saying what is behind it.
 private struct TabButton: View {
     let title: String
+    var detail: String? = nil
     let selected: Bool
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            Text(title)
+            Text(detail.map { "\(title) · \($0)" } ?? title)
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(selected ? .primary : .secondary)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
-                .background(RoundedRectangle(cornerRadius: 7).fill(selected ? Theme.card : .clear))
-                .overlay(RoundedRectangle(cornerRadius: 7).stroke(selected ? Theme.border : .clear))
+                .surface(selected ? Theme.card : .clear, cornerRadius: 7,
+                         border: selected ? Theme.border : .clear)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
@@ -1014,22 +944,9 @@ private struct AddPill: View {
     let label: String
     let entries: () -> [MenuEntry]
 
-    @State private var hovering = false
-
     var body: some View {
-        HStack(spacing: 6) {
-            Text(label)
-                .font(.system(size: 12, weight: .semibold))
-            Image(systemName: "chevron.down")
-                .font(.system(size: 8, weight: .semibold))
-                .foregroundStyle(.secondary)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 9)
-        .background(RoundedRectangle(cornerRadius: 10).fill(hovering ? Theme.field : Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
-        .onHover { hovering = $0 }
-        .appMenu(entries)
+        ActionButton(title: label, tone: .outlined, height: 34, size: 12, disclosure: true)
+            .appMenu(entries)
     }
 }
 
@@ -1088,9 +1005,8 @@ private struct HeaderRow: View {
         .opacity(header.enabled ? 1 : 0.45)
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 10)
-            .stroke(nameProblem == nil ? Theme.border : Theme.deletion))
+        .surface(Theme.card, cornerRadius: 10,
+                 border: nameProblem == nil ? Theme.border : Theme.deletion)
     }
 }
 
@@ -1158,9 +1074,8 @@ private struct ResponsePane: View {
                 if tabbed(result) {
                     HStack(spacing: 4) {
                         ForEach(ResponseTab.allCases) { item in
-                            TabButton(title: item == .headers
-                                        ? "\(item.rawValue) · \(result.headers.count)"
-                                        : item.rawValue,
+                            TabButton(title: item.rawValue,
+                                      detail: item == .headers ? "\(result.headers.count)" : nil,
                                       selected: shown(for: result) == item) {
                                 tab = item
                             }
@@ -1177,13 +1092,7 @@ private struct ResponsePane: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             } else if let text = copyable, !text.isEmpty {
-                Button(copyLabel) {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(text, forType: .string)
-                }
-                .buttonStyle(.plain)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(Theme.accent)
+                CopyButton(copyLabel) { text }
             }
         }
         .padding(.horizontal, 20)
@@ -1203,9 +1112,7 @@ private struct ResponsePane: View {
                     dragHeight = nil
                     dragStartHeight = nil
                 })
-        .onHover { inside in
-            if inside { NSCursor.resizeUpDown.push() } else { NSCursor.pop() }
-        }
+        .cursorOnHover(.resizeUpDown)
     }
 
     @ViewBuilder private var content: some View {

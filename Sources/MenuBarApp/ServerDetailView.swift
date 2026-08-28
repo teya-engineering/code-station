@@ -12,8 +12,6 @@ struct ServerDetailView: View {
     let serverID: Server.ID
 
     @State private var showingRawJSON = false
-    @State private var copiedClaudeCommand = false
-    @State private var copiedCodexCommand = false
     @State private var editingConnection = false
 
     private var server: Server? { store.servers.first { $0.id == serverID } }
@@ -37,10 +35,6 @@ struct ServerDetailView: View {
                 }
             }
             .sheet(isPresented: $showingRawJSON) { RawJSONView() }
-            .onChange(of: server.env) {
-                copiedClaudeCommand = false
-                copiedCodexCommand = false
-            }
         }
     }
 
@@ -74,20 +68,11 @@ struct ServerDetailView: View {
                 // to run.
                 if !server.isRemote {
                     StatePill(state: state)
-                    Button {
+                    ActionButton(title: state.isActive ? "Stop" : "Start",
+                                 tone: state.isActive ? .danger : .green, size: 13,
+                                 icon: state.isActive ? "stop.fill" : "play.fill") {
                         processes.toggle(server)
-                    } label: {
-                        Label(state.isActive ? "Stop" : "Start",
-                              systemImage: state.isActive ? "stop.fill" : "play.fill")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 8)
-                            .background(RoundedRectangle(cornerRadius: 9)
-                                .fill(state.isActive ? Theme.deletion : Theme.accentFill))
-                            .contentShape(RoundedRectangle(cornerRadius: 9))
                     }
-                    .buttonStyle(.plain)
                 }
                 GlyphButton(icon: "ellipsis")
                     .appMenu {
@@ -178,8 +163,8 @@ struct ServerDetailView: View {
                 }
             }
             HStack(alignment: .top, spacing: 12) {
-                claudeCard(server)
-                codexCard(server)
+                AgentCard(standing: claudeStanding(server))
+                AgentCard(standing: codexStanding(server))
             }
             .fixedSize(horizontal: false, vertical: true)
         }
@@ -199,104 +184,38 @@ struct ServerDetailView: View {
         codex.isRegistered(server.name) ? codex.reregister(server) : codex.add(server)
     }
 
-    private func claudeCard(_ server: Server) -> some View {
-        let registered = claude.isRegistered(server.name)
-        let outOfSync = claude.isOutOfSync(server)
-
-        let tone: AgentCard.Tone
-        let caption: String
-        if !registered {
-            tone = .notRegistered
-            caption = "Not registered - Claude Code can't see this server yet."
-        } else if outOfSync {
-            tone = .outOfSync
-            caption = "The token or URL here differs from the registered one."
-        } else {
-            tone = .inSync
-            caption = "Registered as a user-scope MCP server."
-        }
-
-        var notes: [AgentCard.Note] = []
-        if registered {
-            notes.append(.init(text: "Restart your Claude Code session to load the change."))
-        }
-        if !claude.available {
-            notes.append(.init(text: "Claude Code CLI not found on PATH.", tint: Theme.deletion))
-        }
-        if let error = claude.errors[server.name] {
-            notes.append(.init(text: error, tint: Theme.deletion, mono: true))
-        }
-
-        return AgentCard(
+    // The two managers answer the same questions but share no type, so each is read
+    // into the one shape the card draws from.
+    private func claudeStanding(_ server: Server) -> AgentStanding {
+        AgentStanding(
             title: "Claude Code",
-            tone: tone,
-            caption: caption,
+            available: claude.available,
+            registered: claude.isRegistered(server.name),
+            outOfSync: claude.isOutOfSync(server),
             busy: claude.isBusy(server.name),
-            enabled: claude.available && !claude.isBusy(server.name),
-            registered: registered,
-            onToggle: { registered ? claude.remove(server.name) : claude.add(server) },
-            onUpdate: { claude.reregister(server) },
-            copied: copiedClaudeCommand,
-            onCopy: {
-                if let command = claude.addCommand(for: server) {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(command, forType: .string)
-                    copiedClaudeCommand = true
-                }
-            },
-            notes: notes)
+            error: claude.errors[server.name],
+            unsupported: nil,
+            registeredCaption: "Registered as a user-scope MCP server.",
+            reloadNote: "Restart your Claude Code session to load the change.",
+            toggle: { claude.isRegistered(server.name) ? claude.remove(server.name) : claude.add(server) },
+            update: { claude.reregister(server) },
+            command: { claude.addCommand(for: server) })
     }
 
-    private func codexCard(_ server: Server) -> some View {
-        let supported = codex.supports(server)
-        let registered = codex.isRegistered(server.name)
-        let outOfSync = codex.isOutOfSync(server)
-
-        let tone: AgentCard.Tone
-        let caption: String
-        if !supported {
-            tone = .unsupported
-            caption = codexSupportCaption(server)
-        } else if !registered {
-            tone = .notRegistered
-            caption = "Not registered - Codex can't see this server yet."
-        } else if outOfSync {
-            tone = .outOfSync
-            caption = "The token or URL here differs from the registered one."
-        } else {
-            tone = .inSync
-            caption = "Registered in Codex's MCP configuration."
-        }
-
-        var notes: [AgentCard.Note] = []
-        if registered {
-            notes.append(.init(text: "The next Codex turn loads the change."))
-        }
-        if !codex.available {
-            notes.append(.init(text: "Codex CLI not found on PATH.", tint: Theme.deletion))
-        }
-        if let error = codex.errors[server.name] {
-            notes.append(.init(text: error, tint: Theme.deletion, mono: true))
-        }
-
-        return AgentCard(
+    private func codexStanding(_ server: Server) -> AgentStanding {
+        AgentStanding(
             title: "Codex",
-            tone: tone,
-            caption: caption,
+            available: codex.available,
+            registered: codex.isRegistered(server.name),
+            outOfSync: codex.isOutOfSync(server),
             busy: codex.isBusy(server.name),
-            enabled: supported && codex.available && !codex.isBusy(server.name),
-            registered: registered,
-            onToggle: { registered ? codex.remove(server.name) : codex.add(server) },
-            onUpdate: { codex.reregister(server) },
-            copied: copiedCodexCommand,
-            onCopy: {
-                if let command = codex.addCommand(for: server) {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(command, forType: .string)
-                    copiedCodexCommand = true
-                }
-            },
-            notes: notes)
+            error: codex.errors[server.name],
+            unsupported: codex.supports(server) ? nil : codexSupportCaption(server),
+            registeredCaption: "Registered in Codex's MCP configuration.",
+            reloadNote: "The next Codex turn loads the change.",
+            toggle: { codex.isRegistered(server.name) ? codex.remove(server.name) : codex.add(server) },
+            update: { codex.reregister(server) },
+            command: { codex.addCommand(for: server) })
     }
 
     private func codexSupportCaption(_ server: Server) -> String {
@@ -324,7 +243,7 @@ struct ServerDetailView: View {
                 }
             }
             VStack(alignment: .leading, spacing: 4) {
-                connectionRow(label: server.isRemote ? "URL" : "COMMAND") {
+                connectionRow(server.isRemote ? "URL" : "COMMAND") {
                     if let command = server.command {
                         HStack(spacing: 6) {
                             MonoChip(text: command, size: 13, bordered: true)
@@ -342,7 +261,7 @@ struct ServerDetailView: View {
                     if editingConnection && !server.isRemote {
                         editableVarRow(variable)
                     } else {
-                        connectionRow(label: variable.key.isEmpty ? "KEY" : variable.key) {
+                        connectionRow(variable.key.isEmpty ? "KEY" : variable.key) {
                             Text(variable.value)
                                 .font(.mono(13))
                                 .foregroundStyle(.secondary)
@@ -352,8 +271,8 @@ struct ServerDetailView: View {
                         }
                     }
                 }
-                if let endpoint = processes.endpoints[serverID] {
-                    connectionRow(label: "SERVING AT") {
+                if let endpoint = processes.endpoint(for: serverID) {
+                    connectionRow("SERVING AT") {
                         Text(endpoint)
                             .font(.mono(13))
                             .foregroundStyle(Theme.accent)
@@ -370,26 +289,15 @@ struct ServerDetailView: View {
             }
             .padding(.vertical, 10)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 12).fill(Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.border))
+            .cardSurface(cornerRadius: 12)
         }
     }
 
-    private func connectionRow(label: String,
+    private func connectionRow(_ label: String,
                                @ViewBuilder content: () -> some View) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 16) {
-            Text(label)
-                .font(.mono(11, .semibold))
-                .kerning(0.5)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .frame(width: 180, alignment: .leading)
-            content()
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
+        LabeledRow(label, width: 180, content: content)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
     }
 
     private func editableVarRow(_ variable: EnvVar) -> some View {
@@ -422,10 +330,7 @@ struct ServerDetailView: View {
                 HStack {
                     SectionLabel("OUTPUT")
                     Spacer()
-                    Button("Clear") { processes.clearLog(serverID) }
-                        .buttonStyle(.plain)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Theme.accent)
+                    InlineLink(title: "Clear", size: 13) { processes.clearLog(serverID) }
                 }
                 ScrollView {
                     Text(log)
@@ -444,28 +349,23 @@ struct ServerDetailView: View {
     // MARK: - Footer
 
     private func confirmDelete(_ server: Server) {
-        dialogs.show(Dialog(
-            title: "Delete \(server.name)?",
-            message: "This removes the server from the config file.",
-            actions: [
-                .init(label: "Delete server", kind: .destructive) { store.remove(serverID) },
-                .init(label: "Cancel", kind: .cancel)
-            ]))
+        dialogs.show(.confirm("Delete \(server.name)?",
+                              message: "This removes the server from the config file.",
+                              action: "Delete server") { store.remove(serverID) })
     }
 
     private func footer(_ server: Server) -> some View {
         HStack(spacing: 20) {
-            Button("View raw JSON") { showingRawJSON = true }
-                .buttonStyle(.plain).foregroundStyle(Theme.accent)
-            Button("Delete server") { confirmDelete(server) }
-                .buttonStyle(.plain).foregroundStyle(.red.opacity(0.85))
+            InlineLink(title: "View raw JSON", size: 13) { showingRawJSON = true }
+            InlineLink(title: "Delete server", size: 13, tint: .red.opacity(0.85)) {
+                confirmDelete(server)
+            }
             Spacer()
             if let modified = store.lastModified {
                 Text("Last modified \(modified.formatted(.relative(presentation: .named)))")
                     .font(.system(size: 12)).foregroundStyle(.secondary)
             }
         }
-        .font(.system(size: 13, weight: .medium))
     }
 }
 
@@ -490,7 +390,7 @@ private struct CredentialCard: View {
                 } else {
                     Text(key).font(.mono(13.5, .semibold))
                 }
-                SecretBadge()
+                MonoChip(text: "SECRET", size: 10, tint: Theme.secret, mono: false)
                 Spacer(minLength: 16)
                 if let onDelete {
                     Button(action: onDelete) {
@@ -543,37 +443,79 @@ private struct CredentialCard: View {
 
 // MARK: - Agent card
 
+// What one agent says about this server, read from its manager.
+private struct AgentStanding {
+    let title: String
+    let available: Bool
+    let registered: Bool
+    let outOfSync: Bool
+    let busy: Bool
+    let error: String?
+    // Why the agent cannot take this server, or nil when it can.
+    let unsupported: String?
+    let registeredCaption: String
+    // How a change reaches a running agent, since each picks it up differently.
+    let reloadNote: String
+    let toggle: () -> Void
+    let update: () -> Void
+    let command: () -> String?
+}
+
 // One agent the server can be registered with. The two cards share a row, so each keeps
 // to a compact pill-and-link layout instead of a full-width toolbar.
 private struct AgentCard: View {
-    enum Tone { case inSync, outOfSync, notRegistered, unsupported }
+    let standing: AgentStanding
 
-    struct Note: Identifiable {
-        let id = UUID()
+    private enum Tone { case inSync, outOfSync, notRegistered, unsupported }
+
+    private struct Note: Identifiable {
         let text: String
         var tint: Color? = nil
         var mono = false
+
+        var id: String { text }
     }
 
-    let title: String
-    let tone: Tone
-    let caption: String
-    let busy: Bool
-    let enabled: Bool
-    let registered: Bool
-    let onToggle: () -> Void
-    let onUpdate: () -> Void
-    let copied: Bool
-    let onCopy: () -> Void
-    let notes: [Note]
+    private var tone: Tone {
+        if standing.unsupported != nil { return .unsupported }
+        if !standing.registered { return .notRegistered }
+        return standing.outOfSync ? .outOfSync : .inSync
+    }
+
+    private var caption: String {
+        switch tone {
+        case .unsupported: standing.unsupported ?? ""
+        case .notRegistered: "Not registered - \(standing.title) can't see this server yet."
+        case .outOfSync: "The token or URL here differs from the registered one."
+        case .inSync: standing.registeredCaption
+        }
+    }
+
+    private var enabled: Bool {
+        tone != .unsupported && standing.available && !standing.busy
+    }
+
+    private var notes: [Note] {
+        var notes: [Note] = []
+        if standing.registered {
+            notes.append(Note(text: standing.reloadNote))
+        }
+        if !standing.available {
+            notes.append(Note(text: "\(standing.title) CLI not found on PATH.", tint: Theme.deletion))
+        }
+        if let error = standing.error {
+            notes.append(Note(text: error, tint: Theme.deletion, mono: true))
+        }
+        return notes
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Circle().fill(dot).frame(width: 8, height: 8)
-                Text(title).font(.system(size: 14, weight: .semibold))
+                Text(standing.title).font(.system(size: 14, weight: .semibold))
                 Spacer(minLength: 8)
-                if busy { ProgressView().controlSize(.small) }
+                if standing.busy { ProgressView().controlSize(.small) }
                 Text(stateText)
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(stateTint)
@@ -588,16 +530,18 @@ private struct AgentCard: View {
             if tone != .unsupported {
                 HStack(spacing: 10) {
                     if tone == .outOfSync {
-                        pill("Update", fill: Theme.secret, action: onUpdate)
+                        ActionButton(title: "Update", tone: .attention, height: 28, size: 12,
+                                     action: standing.update)
                     }
-                    pill(registered ? "Remove" : "Add",
-                         fill: registered ? Theme.deletion : Theme.accentFill,
-                         action: onToggle)
+                    ActionButton(title: standing.registered ? "Remove" : "Add",
+                                 tone: standing.registered ? .danger : .green,
+                                 height: 28, size: 12, action: standing.toggle)
                     // Two cards share the row, so the label stays short and the tooltip
                     // carries the detail.
-                    InlineLink(title: copied ? "Copied" : "Copy", size: 12.5,
-                               action: onCopy)
-                        .appTooltip("Copy the \(title) command for this server")
+                    if let command = standing.command() {
+                        CopyButton("Copy", size: 12.5) { command }
+                            .appTooltip("Copy the \(standing.title) command for this server")
+                    }
                     Spacer(minLength: 0)
                 }
                 .disabled(!enabled)
@@ -613,24 +557,7 @@ private struct AgentCard: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.border))
-    }
-
-    private func pill(_ title: String, fill: Color,
-                      action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                .fixedSize()
-                .padding(.horizontal, 13)
-                .padding(.vertical, 7)
-                .background(RoundedRectangle(cornerRadius: 8).fill(fill))
-                .contentShape(RoundedRectangle(cornerRadius: 8))
-        }
-        .buttonStyle(.plain)
+        .cardSurface(cornerRadius: 12)
     }
 
     private var dot: Color {
@@ -661,23 +588,12 @@ private struct AgentCard: View {
 
 // MARK: - Small pieces
 
-private struct SecretBadge: View {
-    var body: some View {
-        Text("SECRET")
-            .font(.system(size: 10, weight: .bold))
-            .foregroundStyle(Theme.secret)
-            .padding(.horizontal, 6).padding(.vertical, 2)
-            .background(RoundedRectangle(cornerRadius: 4).fill(Theme.secret.opacity(0.14)))
-    }
-}
-
 private struct StatePill: View {
     let state: RunState
 
     private var label: String {
         switch state {
         case .stopped: "stopped"
-        case .starting: "starting"
         case .running: "running"
         case .failed: "failed"
         }
@@ -686,7 +602,6 @@ private struct StatePill: View {
     private var color: Color {
         switch state {
         case .stopped: Theme.dotOff
-        case .starting: Theme.secret
         case .running: Theme.dotOn
         case .failed: Theme.deletion
         }

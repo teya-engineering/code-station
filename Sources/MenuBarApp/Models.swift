@@ -24,9 +24,11 @@ struct EnvVar: Identifiable, Equatable {
     var value: String
 
     // A value is treated as a secret when its key looks like a credential.
-    var isSecret: Bool {
+    var isSecret: Bool { Self.isSecretKey(key) }
+
+    static func isSecretKey(_ key: String) -> Bool {
         let k = key.uppercased()
-        return ["TOKEN", "SECRET", "PASSWORD", "APIKEY", "API_KEY", "KEY", "AUTH", "COOKIE", "BEARER"]
+        return ["TOKEN", "SECRET", "PASSWORD", "KEY", "AUTH", "COOKIE", "BEARER"]
             .contains { k.contains($0) }
     }
 }

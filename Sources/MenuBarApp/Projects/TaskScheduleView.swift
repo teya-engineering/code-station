@@ -85,8 +85,7 @@ struct TaskScheduleCard: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.border))
+        .cardSurface(cornerRadius: 12)
         .smoothlyResizes(when: layoutState)
         .onChange(of: schedule) { oldValue, newValue in
             let old = oldValue ?? TaskSchedule()
@@ -98,8 +97,11 @@ struct TaskScheduleCard: View {
     private var intervalEditor: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .bottom, spacing: 10) {
-                field("EVERY", placeholder: "30", text: $draft.intervalText, width: 100)
-                menuField("UNIT", value: draft.intervalUnit.label(for: draft.interval ?? 2)) {
+                LabeledField("EVERY") {
+                    numberField("30", text: $draft.intervalText, width: 100)
+                }
+                OptionMenu(caption: "UNIT",
+                           value: draft.intervalUnit.label(for: draft.interval ?? 2).capitalized) {
                     TaskSchedule.IntervalUnit.allCases.map { unit in
                         .item(unit.label(for: draft.interval ?? 2).capitalized,
                               checked: draft.intervalUnit == unit) {
@@ -107,6 +109,7 @@ struct TaskScheduleCard: View {
                         }
                     }
                 }
+                .frame(width: 130)
                 Spacer(minLength: 0)
             }
 
@@ -119,7 +122,7 @@ struct TaskScheduleCard: View {
 
                 if draft.hasMaximum {
                     HStack(spacing: 7) {
-                        field(nil, placeholder: "10", text: $draft.maximumRunsText, width: 76)
+                        numberField("10", text: $draft.maximumRunsText, width: 76)
                         Text("scheduled runs")
                             .font(.system(size: 12))
                             .foregroundStyle(.secondary)
@@ -141,17 +144,16 @@ struct TaskScheduleCard: View {
             .toggleStyle(.appSwitch)
         }
         .padding(13)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.sunken))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
+        .surface(Theme.sunken, cornerRadius: 10)
     }
 
     private var timeOfDayEditor: some View {
         VStack(alignment: .leading, spacing: 12) {
-            field("TIME", placeholder: "09:00", text: $draft.timeText, width: 120,
-                  note: "Use 24-hour time in HH:mm format.")
+            LabeledField("TIME", note: "Use 24-hour time in HH:mm format.") {
+                numberField("09:00", text: $draft.timeText, width: 120)
+            }
 
-            VStack(alignment: .leading, spacing: 7) {
-                FieldLabel(text: "RECURRENCE")
+            LabeledField("RECURRENCE") {
                 HStack(spacing: 8) {
                     ForEach(TaskSchedule.Recurrence.allCases, id: \.self) { recurrence in
                         ChoicePill(title: recurrence.title,
@@ -163,8 +165,7 @@ struct TaskScheduleCard: View {
             }
 
             if draft.recurrence == .weekly {
-                VStack(alignment: .leading, spacing: 7) {
-                    FieldLabel(text: "DAY")
+                LabeledField("DAY") {
                     HStack(spacing: 6) {
                         ForEach(TaskSchedule.Weekday.allCases, id: \.self) { weekday in
                             ChoicePill(title: weekday.shortTitle,
@@ -178,8 +179,7 @@ struct TaskScheduleCard: View {
             }
         }
         .padding(13)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.sunken))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
+        .surface(Theme.sunken, cornerRadius: 10)
     }
 
     private var footer: some View {
@@ -196,8 +196,7 @@ struct TaskScheduleCard: View {
                     Text("Timer off")
                 }
                 if let schedule, schedule.completedRuns > 0 {
-                    Text("\(schedule.completedRuns) scheduled run"
-                         + "\(schedule.completedRuns == 1 ? "" : "s") completed")
+                    Text("\(counted(schedule.completedRuns, "scheduled run")) completed")
                         .foregroundStyle(.tertiary)
                 }
             }
@@ -209,31 +208,23 @@ struct TaskScheduleCard: View {
                     draft = Draft(schedule ?? TaskSchedule())
                 }
                 .disabled(!isDirty)
-                .opacity(isDirty ? 1 : 0.45)
 
                 ActionButton(title: "Save timer", tone: .green, icon: "clock") {
                     save()
                 }
                 .disabled(!isDirty || issue != nil)
-                .opacity(isDirty && issue == nil ? 1 : 0.45)
             }
         }
     }
 
+    // Why the timer cannot be saved as it stands. The draft knows its own numbers; the
+    // task adds whether it has anything to run.
     private var issue: String? {
         guard draft.isEnabled else { return nil }
-        guard task.task?.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+        guard task.task?.prompt.isBlank == false else {
             return "Add a prompt before turning on scheduled runs."
         }
-        if draft.timing == .interval, draft.interval == nil {
-            return "Enter an interval from 1 to 10,000."
-        }
-        if draft.timing == .timeOfDay, TaskSchedule.parseTime(draft.timeText) == nil {
-            return "Enter a valid time from 00:00 to 23:59."
-        }
-        if draft.timing == .interval, draft.hasMaximum, draft.maximumRuns == nil {
-            return "Enter a maximum from 1 to 10,000 scheduled runs."
-        }
+        if let problem = draft.problem { return problem }
         if TaskRun.automaticValues(for: task) == nil {
             return "Run the task once to save values for every required input, or add "
                 + "defaults to those inputs."
@@ -257,43 +248,13 @@ struct TaskScheduleCard: View {
         onSave(value)
     }
 
-    private func field(_ label: String?, placeholder: String, text: Binding<String>,
-                       width: CGFloat, note: String? = nil) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            if let label { FieldLabel(text: label) }
-            TextField(placeholder, text: text)
-                .textFieldStyle(.plain)
-                .font(.mono(12))
-                .padding(.horizontal, 10)
-                .frame(width: width, height: 32)
-                .background(RoundedRectangle(cornerRadius: 8).fill(Theme.field))
-                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
-            if let note {
-                Text(note)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.tertiary)
-            }
-        }
-    }
-
-    private func menuField(_ label: String, value: String,
-                           entries: @escaping () -> [MenuEntry]) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            FieldLabel(text: label)
-            HStack(spacing: 8) {
-                Text(value.capitalized)
-                    .font(.system(size: 12))
-                Spacer(minLength: 8)
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 8, weight: .semibold))
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 10)
-            .frame(width: 130, height: 32)
-            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.field))
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
-            .appMenu(matchWidth: true) { entries() }
-        }
+    // A number is typed in mono, so a column of them lines up.
+    private func numberField(_ placeholder: String, text: Binding<String>,
+                             width: CGFloat) -> some View {
+        TextField(placeholder, text: text)
+            .font(.mono(12))
+            .appTextField(size: 12)
+            .frame(width: width)
     }
 
     private struct LayoutState: Equatable {
@@ -337,20 +298,36 @@ struct TaskScheduleCard: View {
             Int(maximumRunsText).flatMap { TaskSchedule.countRange.contains($0) ? $0 : nil }
         }
 
-        var schedule: TaskSchedule? {
-            let savedInterval = interval ?? 30
-            let savedTime = TaskSchedule.parseTime(timeText) ?? 9 * 60
-            guard !isEnabled || (timing != .interval || interval != nil),
-                  !isEnabled || (timing != .timeOfDay || TaskSchedule.parseTime(timeText) != nil),
-                  !isEnabled || timing != .interval || !hasMaximum || maximumRuns != nil else {
-                return nil
+        // What is wrong with the numbers, if anything. Only the timing in use is checked:
+        // a bad value on the other side is kept but never runs, and a timer that is off
+        // keeps whatever was typed until it is turned on.
+        var problem: String? {
+            guard isEnabled else { return nil }
+            switch timing {
+            case .interval:
+                if interval == nil { return "Enter an interval from 1 to 10,000." }
+                if hasMaximum, maximumRuns == nil {
+                    return "Enter a maximum from 1 to 10,000 scheduled runs."
+                }
+            case .timeOfDay:
+                if TaskSchedule.parseTime(timeText) == nil {
+                    return "Enter a valid time from 00:00 to 23:59."
+                }
             }
+            return nil
+        }
+
+        // A value that cannot be read falls back to the model's own default, which is
+        // what an unsaved side of the timer would have held anyway.
+        var schedule: TaskSchedule? {
+            guard problem == nil else { return nil }
             var value = TaskSchedule()
             value.isEnabled = isEnabled
             value.timing = timing
-            value.interval = savedInterval
+            value.interval = interval ?? TaskSchedule.defaultInterval
             value.intervalUnit = intervalUnit
-            value.timeOfDayMinutes = savedTime
+            value.timeOfDayMinutes = TaskSchedule.parseTime(timeText)
+                ?? TaskSchedule.defaultTimeOfDayMinutes
             value.recurrence = recurrence
             value.weekday = weekday
             value.maximumRuns = timing == .interval && hasMaximum ? maximumRuns : nil

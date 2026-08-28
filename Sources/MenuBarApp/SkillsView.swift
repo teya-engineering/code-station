@@ -71,10 +71,8 @@ struct SkillsView: View {
                         .foregroundStyle(Theme.attentionText)
                         .padding(.horizontal, 12)
                         .frame(height: 30)
-                        .background(RoundedRectangle(cornerRadius: 8)
-                            .fill(Theme.secret.opacity(0.09)))
-                        .overlay(RoundedRectangle(cornerRadius: 8)
-                            .stroke(Theme.secret.opacity(0.48)))
+                        .surface(Theme.secret.opacity(0.09), cornerRadius: 8,
+                                 border: Theme.secret.opacity(0.48))
                         .contentShape(RoundedRectangle(cornerRadius: 8))
                 }
                 .buttonStyle(.plain)
@@ -95,29 +93,13 @@ struct SkillsView: View {
             .disabled(manager.isRefreshing || manager.isUpdatingAll)
             .appTooltip("Configure marketplace location")
             if manager.isConfigured {
-                Button {
+                ActionButton(title: manager.isRefreshing ? "Refreshing…" : "Refresh",
+                             tone: .sunken,
+                             height: 30,
+                             size: 11.5,
+                             icon: "arrow.clockwise") {
                     Task { await manager.refresh() }
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 10.5, weight: .semibold))
-                            .rotationEffect(manager.isRefreshing ? .degrees(360) : .zero)
-                            .animation(manager.isRefreshing
-                                       ? .linear(duration: 0.9)
-                                           .repeatForever(autoreverses: false)
-                                       : .default,
-                                       value: manager.isRefreshing)
-                        Text(manager.isRefreshing ? "Refreshing…" : "Refresh")
-                            .font(.system(size: 11.5, weight: .semibold))
-                    }
-                    .foregroundStyle(Color.primary)
-                    .padding(.horizontal, 12)
-                    .frame(height: 30)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(Theme.field))
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
-                    .contentShape(RoundedRectangle(cornerRadius: 8))
                 }
-                .buttonStyle(.plain)
                 .disabled(manager.isRefreshing || manager.isUpdatingAll)
                 .appTooltip("Refresh marketplace and installed versions")
             }
@@ -136,11 +118,11 @@ struct SkillsView: View {
         } else {
             VStack(spacing: 0) {
                 if let notice = manager.catalogueNotice {
-                    noticeBanner(notice)
+                    WarningStrip(notice)
                 }
                 ForEach(SkillHost.allCases) { host in
                     if let failure = manager.hostFailure(host) {
-                        noticeBanner("\(host.title) plugin status could not be read. \(failure)")
+                        WarningStrip("\(host.title) plugin status could not be read. \(failure)")
                     }
                 }
                 filterBar
@@ -211,10 +193,7 @@ struct SkillsView: View {
                 currentMarketplaceLocation
                 marketplaceChoices
                 if let setupFailure {
-                    Text(setupFailure)
-                        .font(.system(size: 11.5))
-                        .foregroundStyle(Theme.deletion)
-                        .fixedSize(horizontal: false, vertical: true)
+                    SourceFailure(setupFailure)
                 }
                 Text("Git repositories must contain .claude-plugin/marketplace.json. Local sources must be marketplace JSON files.")
                     .font(.system(size: 11))
@@ -230,7 +209,7 @@ struct SkillsView: View {
 
     private var currentMarketplaceLocation: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Caption(text: "CURRENT LOCATION")
+            SectionLabel("CURRENT LOCATION", style: .field)
             if let configuration = manager.marketplaceConfiguration {
                 HStack(spacing: 8) {
                     Image(systemName: configuration.isLocalFile
@@ -251,109 +230,44 @@ struct SkillsView: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
-        .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
+        .fieldSurface(cornerRadius: 9)
     }
 
     private var marketplaceChoices: some View {
-        HStack(alignment: .top, spacing: 12) {
-            setupCard(icon: "arrow.triangle.branch",
-                      title: "Git repository",
-                      detail: "Clone a repository and refresh it with Git.") {
-                VStack(alignment: .leading, spacing: 8) {
-                    TextField("https://github.com/org/marketplace.git",
-                              text: $repositorySource)
-                        .textFieldStyle(.plain)
-                        .font(.mono(11.5))
-                        .padding(.horizontal, 10)
-                        .frame(height: 34)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.field))
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
-                        .onSubmit(loadRepository)
-                    ActionButton(title: manager.isRefreshing ? "Loading…" : "Load repository",
-                                 tone: .outlined,
-                                 icon: manager.isRefreshing ? nil : "arrow.down.circle",
-                                 action: loadRepository)
-                        .disabled(manager.isRefreshing || trimmedRepository.isEmpty)
-                        .opacity(manager.isRefreshing ? 0.6 : 1)
-                }
-            }
-
-            setupCard(icon: "doc.badge.plus",
-                      title: "Local file",
-                      detail: "Read a marketplace JSON file already on this Mac.") {
-                ActionButton(title: "Choose marketplace file",
-                             tone: .outlined,
-                             icon: "folder",
-                             action: chooseMarketplaceFile)
-                    .disabled(manager.isRefreshing)
-                    .opacity(manager.isRefreshing ? 0.6 : 1)
-            }
-        }
-        .frame(maxWidth: 680)
-    }
-
-    private func setupCard<Content: View>(
-        icon: String,
-        title: String,
-        detail: String,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Image(systemName: icon)
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(Theme.accent)
-                .frame(width: 32, height: 32)
-                .background(Circle().fill(Theme.accent.opacity(0.09)))
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title).font(.serif(15))
-                Text(detail)
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 2)
-            content()
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, minHeight: 170, alignment: .topLeading)
-        .background(RoundedRectangle(cornerRadius: 11).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 11).stroke(Theme.border))
-    }
-
-    private var trimmedRepository: String {
-        repositorySource.trimmingCharacters(in: .whitespacesAndNewlines)
+        SourcePicker(repositoryURL: $repositorySource,
+                     repositoryTitle: "Git repository",
+                     repositoryDetail: "Clone a repository and refresh it with Git.",
+                     placeholder: "https://github.com/org/marketplace.git",
+                     fileTitle: "Local file",
+                     fileDetail: "Read a marketplace JSON file already on this Mac.",
+                     fileButton: "Choose marketplace file",
+                     isLoading: manager.isRefreshing,
+                     loadRepository: loadRepository,
+                     chooseFile: chooseMarketplaceFile)
+            .frame(maxWidth: 680)
     }
 
     private func loadRepository() {
-        let repository = trimmedRepository
+        let repository = repositorySource.trimmed
         guard !manager.isRefreshing, !repository.isEmpty else { return }
-        setupFailure = nil
-        Task {
-            do {
-                try await manager.configure(gitRepository: repository)
-                configuringMarketplace = false
-            } catch {
-                setupFailure = error.localizedDescription
-            }
-        }
+        configure { try await manager.configure(gitRepository: repository) }
     }
 
     private func chooseMarketplaceFile() {
-        guard !manager.isRefreshing else { return }
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = false
-        panel.canChooseFiles = true
-        panel.allowsMultipleSelection = false
-        panel.allowedContentTypes = [.json]
-        panel.prompt = "Load"
-        panel.message = "Choose a marketplace JSON file."
-        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard !manager.isRefreshing,
+              let url = FilePicker.chooseFile(prompt: "Load",
+                                              message: "Choose a marketplace JSON file.",
+                                              types: [.json]) else { return }
+        configure { try await manager.configure(localFile: url) }
+    }
 
+    // The setup form closes only once the marketplace is in place; a failure keeps it
+    // open with the reason under the cards.
+    private func configure(_ work: @escaping () async throws -> Void) {
         setupFailure = nil
         Task {
             do {
-                try await manager.configure(localFile: url)
+                try await work()
                 configuringMarketplace = false
             } catch {
                 setupFailure = error.localizedDescription
@@ -383,8 +297,7 @@ struct SkillsView: View {
             }
             .padding(.horizontal, 10)
             .frame(width: 270, height: 32)
-            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.field))
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
+            .fieldSurface()
 
             HStack(spacing: 6) {
                 ForEach(RepertoireFilter.allCases) { option in
@@ -588,7 +501,7 @@ struct SkillsView: View {
                 SkillHost.allCases.contains { manager.isOutdated(plugin, on: $0) }
             }
             guard matchesFilter else { return false }
-            let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
+            let term = query.trimmed
             guard !term.isEmpty else { return true }
             return plugin.name.localizedCaseInsensitiveContains(term)
                 || plugin.description.localizedCaseInsensitiveContains(term)
@@ -637,18 +550,5 @@ struct SkillsView: View {
 
     private func versionText(_ version: String) -> String {
         version == "unknown" ? "Installed" : version
-    }
-
-    private func noticeBanner(_ text: String) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "exclamationmark.triangle.fill")
-            Text(text).fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
-        }
-        .font(.system(size: 11.5, weight: .medium))
-        .foregroundStyle(Theme.warningText)
-        .padding(.horizontal, 20)
-        .padding(.vertical, 9)
-        .background(Theme.warningBackground)
     }
 }

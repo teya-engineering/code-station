@@ -70,19 +70,6 @@ struct MobileShareSummary: Identifiable {
     var state: String { isConnected ? "Phone connected" : "Waiting for a phone" }
 }
 
-struct RemoteCommand: Decodable, Equatable {
-    let type: String
-    var version: Int?
-    var secret: String?
-    var prompt: String?
-    var requestID: String?
-    var answer: String?
-    var answers: [String: String]?
-    var sessionID: String?
-    var projectID: String?
-    var worktree: Bool?
-}
-
 struct LANInterfaceAddress: Equatable {
     let name: String
     let address: String
@@ -255,7 +242,6 @@ final class MobileAccessController {
     private var expiryTasks: [UUID: Task<Void, Never>] = [:]
     private var streamTask: Task<Void, Never>?
     private(set) var enabled = false
-    private(set) var shares: [MobileScope: MobileShare] = [:]
 
     init(store: ProjectStore, runner: SessionRunner, gitStats: GitStatsCache) {
         self.store = store
@@ -269,14 +255,15 @@ final class MobileAccessController {
         if !enabled { stop() }
     }
 
+    // One code per scope: asking for a scope that is already out hands back its code.
     func share(for scope: MobileScope) -> MobileShare? {
-        shares[scope]
+        pairings.values.first { $0.share.scope == scope }?.share
     }
 
     // Everything a phone can reach right now, newest first. A code that no phone has
     // scanned yet still counts, since it is access that has been given away.
     var activeShares: [MobileShareSummary] {
-        shares.values
+        pairings.values.map(\.share)
             .sorted { $0.createdAt > $1.createdAt }
             .map {
                 MobileShareSummary(id: $0.id, scope: $0.scope,
@@ -294,7 +281,7 @@ final class MobileAccessController {
     // wandered off into another session of the same project.
     func isLive(_ scope: MobileScope) -> Bool {
         if case .session(let id) = scope, isConnected(session: id) { return true }
-        return shares[scope]?.isConnected == true
+        return share(for: scope)?.isConnected == true
     }
 
     func startSharing(_ scope: MobileScope) async throws -> MobileShare {
@@ -302,11 +289,11 @@ final class MobileAccessController {
             throw LANServerFailure(message: "Turn on Mobile access in Settings first.")
         }
         try verify(scope)
-        if let existing = shares[scope] { return existing }
+        if let existing = share(for: scope) { return existing }
 
         let port = try await ensureServer()
         guard let address = LANAddress.currentIPv4() else {
-            if shares.isEmpty { stopServer() }
+            if pairings.isEmpty { stopServer() }
             throw LANServerFailure(
                 message: "No local network address was found. Connect this Mac to the same Wi-Fi as the phone.")
         }
@@ -326,7 +313,6 @@ final class MobileAccessController {
         let share = MobileShare(id: pairingID, scope: scope, url: url,
                                 createdAt: Date(), connectionID: nil)
         pairings[pairingID] = Pairing(share: share, secret: secret, openSession: nil)
-        shares[scope] = share
         scheduleExpiry(for: pairingID)
         return share
     }
@@ -343,14 +329,14 @@ final class MobileAccessController {
     }
 
     func revoke(_ scope: MobileScope) {
-        guard let share = shares.removeValue(forKey: scope) else { return }
+        guard let share = share(for: scope) else { return }
         expiryTasks.removeValue(forKey: share.id)?.cancel()
         pairings[share.id] = nil
         pendingConnections = pendingConnections.filter { $0.value != share.id }
         for (connectionID, reader) in readers where reader.pairingID == share.id {
             drop(connectionID)
         }
-        if shares.isEmpty { stopServer() }
+        if pairings.isEmpty { stopServer() }
         stopStreamIfIdle()
     }
 
@@ -358,7 +344,6 @@ final class MobileAccessController {
         for connectionID in Array(readers.keys) { drop(connectionID) }
         pendingConnections.removeAll()
         pairings.removeAll()
-        shares.removeAll()
         expiryTasks.values.forEach { $0.cancel() }
         expiryTasks.removeAll()
         stopServer()
@@ -369,12 +354,19 @@ final class MobileAccessController {
     // Forgets a phone and lets go of whatever it was holding. The socket closing comes
     // back as `closed`, which finds nothing left to do.
     private func drop(_ connectionID: UUID) {
-        guard let reader = readers.removeValue(forKey: connectionID) else { return }
+        guard forget(connectionID) != nil else { return }
+        server?.close(connectionID)
+    }
+
+    // Lets go of everything kept for one phone, and says which phone it was so the caller
+    // can act on the code it came in on. Nil for a phone that was not being read.
+    private func forget(_ connectionID: UUID) -> Reader? {
+        guard let reader = readers.removeValue(forKey: connectionID) else { return nil }
         views[connectionID] = nil
         lists[connectionID] = nil
         creating.remove(connectionID)
         if let open = reader.openSession { store.release(open, for: .remote) }
-        server?.close(connectionID)
+        return reader
     }
 
     private func ensureServer() async throws -> UInt16 {
@@ -425,38 +417,23 @@ final class MobileAccessController {
         }
 
         switch command.type {
-        case "openSession":
+        case .authenticate:
+            server?.send(Self.error("That mobile command is not supported."), to: connectionID)
+        case .openSession:
             open(command.sessionID, for: connectionID)
-        case "closeSession":
+        case .closeSession:
             leaveSession(connectionID)
-        case "createSession":
+        case .createSession:
             create(command, for: connectionID)
-        case "resync":
+        case .resync:
             if let open = reader.openSession {
                 sendSnapshot(to: connectionID, sessionID: open)
             } else {
                 sendDirectory(to: connectionID, force: true)
             }
-        default:
-            act(command, for: connectionID)
-        }
-    }
-
-    // Everything that speaks to the session the phone is reading. Nothing here can run
-    // from the list, since there is no session for it to land in.
-    private func act(_ command: RemoteCommand, for connectionID: UUID) {
-        guard let sessionID = readers[connectionID]?.openSession else {
-            server?.send(Self.error("Open a session first."), to: connectionID)
-            return
-        }
-        guard store.session(sessionID) != nil else {
-            sessionVanished(connectionID)
-            return
-        }
-
-        switch command.type {
-        case "sendPrompt":
-            let prompt = command.prompt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        case .sendPrompt:
+            guard let sessionID = openSession(of: connectionID) else { return }
+            let prompt = command.prompt?.trimmed ?? ""
             guard !prompt.isEmpty, prompt.count <= 100_000 else {
                 server?.send(Self.error(prompt.isEmpty ? "Write a prompt first."
                                                        : "That prompt is too long."),
@@ -464,17 +441,32 @@ final class MobileAccessController {
                 return
             }
             runner.send(prompt, sessionID: sessionID, store: store)
-        case "stopTurn":
+        case .stopTurn:
+            guard let sessionID = openSession(of: connectionID) else { return }
             runner.stop(sessionID)
-        case "answerPermission":
+        case .answerPermission:
+            guard let sessionID = openSession(of: connectionID) else { return }
             answer(command, sessionID: sessionID, connectionID: connectionID)
-        default:
-            server?.send(Self.error("That mobile command is not supported."), to: connectionID)
         }
     }
 
+    // The session a command that speaks to a session lands in. Nothing of the kind can
+    // run from the list, so a phone on the list is told so, and one whose session has
+    // gone is moved off it.
+    private func openSession(of connectionID: UUID) -> UUID? {
+        guard let sessionID = readers[connectionID]?.openSession else {
+            server?.send(Self.error("Open a session first."), to: connectionID)
+            return nil
+        }
+        guard store.session(sessionID) != nil else {
+            sessionVanished(connectionID)
+            return nil
+        }
+        return sessionID
+    }
+
     private func authenticate(_ command: RemoteCommand, connectionID: UUID) {
-        guard command.type == "authenticate",
+        guard command.type == .authenticate,
               command.version == 1,
               let pairingID = pendingConnections[connectionID],
               var pairing = pairings[pairingID],
@@ -501,7 +493,6 @@ final class MobileAccessController {
         readers[connectionID] = Reader(pairingID: pairingID, scope: scope, openSession: nil)
         pairing.share.connectionID = connectionID
         pairings[pairingID] = pairing
-        shares[scope] = pairing.share
         expiryTasks.removeValue(forKey: pairingID)?.cancel()
 
         // A session code has only one place to be. A phone that dropped while reading is
@@ -534,18 +525,17 @@ final class MobileAccessController {
         }
         let answer: PermissionAnswer?
         switch command.answer {
-        case "allowOnce" where !request.isQuestion:
+        case .allowOnce? where !request.isQuestion:
             answer = .allowOnce
-        case "allowAlways" where !request.isQuestion && request.alwaysTitle != nil:
+        case .allowAlways? where !request.isQuestion && request.alwaysTitle != nil:
             answer = .allowAlways
-        case "deny" where !request.isQuestion:
+        case .deny? where !request.isQuestion:
             answer = .deny
-        case "answers" where request.isQuestion:
+        case .answers? where request.isQuestion:
             let given = command.answers ?? [:]
-            answer = request.questions.allSatisfy {
-                given[$0.text]?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-            } ? .answers(given) : nil
-        default:
+            answer = request.questions.allSatisfy { given[$0.text]?.isBlank == false }
+                ? .answers(given) : nil
+        case .allowOnce?, .allowAlways?, .deny?, .answers?, nil:
             answer = nil
         }
         guard let answer else {
@@ -557,7 +547,7 @@ final class MobileAccessController {
 
         // Saying no is rarely the whole answer: the reason typed with it goes on as a
         // prompt, so the agent hears why rather than only that it was refused.
-        let reason = command.prompt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let reason = command.prompt?.trimmed ?? ""
         if answer == .deny, !reason.isEmpty, reason.count <= 100_000 {
             runner.send(reason, sessionID: sessionID, store: store)
         }
@@ -565,16 +555,11 @@ final class MobileAccessController {
 
     private func closed(_ connectionID: UUID) {
         pendingConnections[connectionID] = nil
-        guard let reader = readers.removeValue(forKey: connectionID) else { return }
-        views[connectionID] = nil
-        lists[connectionID] = nil
-        creating.remove(connectionID)
-        if let open = reader.openSession { store.release(open, for: .remote) }
+        guard let reader = forget(connectionID) else { return }
         if var pairing = pairings[reader.pairingID], pairing.share.connectionID == connectionID {
             pairing.share.connectionID = nil
             pairing.openSession = reader.openSession
             pairings[reader.pairingID] = pairing
-            shares[pairing.share.scope] = pairing.share
             scheduleExpiry(for: reader.pairingID)
         }
         stopStreamIfIdle()
@@ -647,7 +632,7 @@ final class MobileAccessController {
             server?.send(Self.error("\(project.name) is missing from disk."), to: connectionID)
             return
         }
-        let prompt = command.prompt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let prompt = command.prompt?.trimmed ?? ""
         guard prompt.count <= 100_000 else {
             server?.send(Self.error("That prompt is too long."), to: connectionID)
             return
@@ -658,7 +643,7 @@ final class MobileAccessController {
         // made there starts on the app's own defaults.
         let agent = runner.agent
         let model = runner.defaults(for: agent).model
-        let avatar = Preferences.defaultAgentAvatarName(in: .standard)
+        let avatar = Preferences.defaultAgentAvatarName()
         let worktree = command.worktree == true && project.isGitRepository
 
         Task { @MainActor in

@@ -55,14 +55,33 @@ struct OldSessionsView: View {
                                          canToggle: row.cost.canSelect && !isDeleting,
                                          toggle: { toggle(row) })
                     }
-                    if preselectCapped { capNotice }
-                    if designArtifactsAtRisk > 0 { designArtifactsWarning }
-                    if dirtyWorktrees > 0 { dirtyWorktreeWarning }
+                    // Said out loud, so a half-ticked list reads as a decision rather than
+                    // a glitch.
+                    if preselectCapped {
+                        notice(icon: "checklist",
+                               "Only the first \(Self.preselectLimit) sessions are ticked for you. Tick the rest by hand if you want those gone as well.")
+                    }
+                    // What this screen can do that cannot be undone, said before the button
+                    // is reached rather than in a dialog after it.
+                    if designArtifactsAtRisk > 0 {
+                        notice(icon: "paintbrush.pointed", tint: Theme.deletion,
+                               Self.designArtifactsCost(designArtifactsAtRisk, unticked: true))
+                    }
+                    if dirtyWorktrees > 0 {
+                        notice(icon: "exclamationmark.triangle", tint: Theme.deletion,
+                               Self.dirtyWorktreeCost(dirtyWorktrees, unticked: true))
+                    }
                 }
                 .padding(20)
             }
             .frame(maxHeight: 420)
-            footer
+
+            SheetFooter(title: footerNote,
+                        primary: SheetAction(title: deleteLabel,
+                                             enabled: !ticked.isEmpty && !isDeleting,
+                                             tone: .danger, action: confirmDelete),
+                        dismiss: { if !isDeleting { dismiss() } })
+                .disabled(isDeleting)
         }
         .frame(width: 620)
         .background(Theme.background)
@@ -72,9 +91,9 @@ struct OldSessionsView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text("Sessions older than \(days) day\(days == 1 ? "" : "s")")
+            Text("Sessions older than \(counted(days, "day"))")
                 .font(.serif(16))
-            Text("Ticked sessions are removed from the app. Change the \(days) day\(days == 1 ? "" : "s") in Settings.")
+            Text("Ticked sessions are removed from the app. Change the \(counted(days, "day")) in Settings.")
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
         }
@@ -82,103 +101,42 @@ struct OldSessionsView: View {
         .headerBand()
     }
 
-    // Said out loud, so a half-ticked list reads as a decision rather than a glitch.
-    private var capNotice: some View {
+    // A card under the list saying something about the list as a whole. Tinted when it
+    // warns, plain when it only explains.
+    private func notice(icon: String, tint: Color? = nil, _ message: String) -> some View {
         HStack(alignment: .top, spacing: 12) {
-            Image(systemName: "checklist")
+            Image(systemName: icon)
                 .font(.system(size: 13))
-                .foregroundStyle(.secondary)
-            Text("Only the first \(Self.preselectLimit) sessions are ticked for you. Tick the rest by hand if you want those gone as well.")
+                .foregroundStyle(tint ?? Color.secondary)
+            Text(message)
                 .font(.system(size: 12))
-                .foregroundStyle(.primary)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
+        .surface(tint?.opacity(0.07) ?? Theme.card, cornerRadius: 10,
+                 border: tint?.opacity(0.25) ?? Theme.border)
     }
 
-    // The one thing this screen can do that cannot be undone, said before the button is
-    // reached rather than in a dialog after it.
-    private var dirtyWorktreeWarning: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: 13))
-                .foregroundStyle(Theme.deletion)
-            Text(dirtyWorktrees == 1
-                 ? "One session has uncommitted changes in its worktree, so it is left unticked. Deleting it loses those changes; its branch survives if git considers that safe."
-                 : "\(dirtyWorktrees) sessions have uncommitted changes in their worktrees, so they are left unticked. Deleting them loses those changes; their branches survive if git considers that safe.")
-                .font(.system(size: 12))
-                .foregroundStyle(.primary)
-                .fixedSize(horizontal: false, vertical: true)
+    // What deleting would cost, worded for one session or for several. The card that
+    // flags the rows adds that they were left unticked; the dialog that asks again
+    // leaves that out, since by then the user has ticked them.
+    private static func designArtifactsCost(_ count: Int, unticked: Bool) -> String {
+        if count == 1 {
+            return "One Design session contains generated files\(unticked ? ", so it is left unticked" : ""). "
+                + "Deleting it permanently removes its HTML and local assets."
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.deletion.opacity(0.07)))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.deletion.opacity(0.25)))
+        return "\(count) Design sessions contain generated files\(unticked ? ", so they are left unticked" : ""). "
+            + "Deleting them permanently removes their HTML and local assets."
     }
 
-    private var designArtifactsWarning: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: "paintbrush.pointed")
-                .font(.system(size: 13))
-                .foregroundStyle(Theme.deletion)
-            Text(designArtifactsAtRisk == 1
-                 ? "One Design session contains generated files, so it is left unticked. Deleting it permanently removes its HTML and local assets."
-                 : "\(designArtifactsAtRisk) Design sessions contain generated files, so they are left unticked. Deleting them permanently removes their HTML and local assets.")
-                .font(.system(size: 12))
-                .foregroundStyle(.primary)
-                .fixedSize(horizontal: false, vertical: true)
+    private static func dirtyWorktreeCost(_ count: Int, unticked: Bool) -> String {
+        if count == 1 {
+            return "One session has uncommitted changes in its worktree\(unticked ? ", so it is left unticked" : ""). "
+                + "Deleting it loses those changes; its branch survives if git considers that safe."
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.deletion.opacity(0.07)))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.deletion.opacity(0.25)))
-    }
-
-    private var footer: some View {
-        VStack(spacing: 0) {
-            Divider().overlay(Theme.hairline)
-            HStack(spacing: 10) {
-                Text(footerNote)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                    .truncationMode(.tail)
-                Spacer(minLength: 12)
-                Button {
-                    guard !isDeleting else { return }
-                    dismiss()
-                } label: {
-                    Text("Cancel")
-                        .font(.system(size: 13, weight: .semibold))
-                        .padding(.horizontal, 18)
-                        .padding(.vertical, 7)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.card))
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
-                        .contentShape(RoundedRectangle(cornerRadius: 8))
-                }
-                .buttonStyle(.plain)
-                .keyboardShortcut(.cancelAction)
-                .disabled(isDeleting)
-                Button { confirmDelete() } label: {
-                    Text(deleteLabel)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 18)
-                        .padding(.vertical, 7)
-                        .background(RoundedRectangle(cornerRadius: 8)
-                            .fill(ticked.isEmpty ? Theme.dotOff : Theme.deletion))
-                        .contentShape(RoundedRectangle(cornerRadius: 8))
-                }
-                .buttonStyle(.plain)
-                .disabled(ticked.isEmpty || isDeleting)
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 12)
-            .background(Theme.card)
-        }
+        return "\(count) sessions have uncommitted changes in their worktrees\(unticked ? ", so they are left unticked" : ""). "
+            + "Deleting them loses those changes; their branches survive if git considers that safe."
     }
 
     // Which one of them is being worked on, not how many are behind: a count that reads 0
@@ -187,9 +145,7 @@ struct OldSessionsView: View {
         if let progress = deletionProgress {
             return "Deleting \(min(progress.completed + 1, progress.total)) of \(progress.total)…"
         }
-        return ticked.isEmpty
-            ? "Delete"
-            : "Delete \(ticked.count) session\(ticked.count == 1 ? "" : "s")"
+        return ticked.isEmpty ? "Delete" : "Delete \(counted(ticked.count, "session"))"
     }
 
     // The line that explains the button while there is nothing to explain, and names what
@@ -221,7 +177,7 @@ struct OldSessionsView: View {
     private func detail(_ row: Row) -> String {
         var parts = ["last turn " + SessionAge.phrase(since: row.session.lastActivity)]
         if let turns = row.session.usage?.turns, turns > 0 {
-            parts.append("\(turns) turn\(turns == 1 ? "" : "s")")
+            parts.append(counted(turns, "turn"))
         }
         let worktrees = worktreePaths(row.session)
         if let path = worktrees.first {
@@ -307,32 +263,26 @@ struct OldSessionsView: View {
     private func confirmDelete() {
         guard !isDeleting else { return }
         let chosen = rows.filter { ticked.contains($0.id) }
-        let designArtifacts = chosen.filter { $0.cost.deletesDesignArtifacts }
-        let dirtyWorktrees = chosen.filter { $0.cost.worktree.losesWork }
-        guard !designArtifacts.isEmpty || !dirtyWorktrees.isEmpty else {
+        let designArtifacts = chosen.count { $0.cost.deletesDesignArtifacts }
+        let dirtyWorktrees = chosen.count { $0.cost.worktree.losesWork }
+        guard designArtifacts > 0 || dirtyWorktrees > 0 else {
             delete(chosen)
             return
         }
         var consequences: [String] = []
-        if !designArtifacts.isEmpty {
-            consequences.append(designArtifacts.count == 1
-                ? "One selected Design session contains generated files. Deleting it permanently removes its HTML and local assets."
-                : "\(designArtifacts.count) selected Design sessions contain generated files. Deleting them permanently removes their HTML and local assets.")
+        if designArtifacts > 0 {
+            consequences.append(Self.designArtifactsCost(designArtifacts, unticked: false))
         }
-        if !dirtyWorktrees.isEmpty {
-            consequences.append(dirtyWorktrees.count == 1
-                ? "One selected session has uncommitted work in its worktree. Deleting it loses those changes."
-                : "\(dirtyWorktrees.count) selected sessions have uncommitted work in their worktrees. Deleting them loses those changes.")
+        if dirtyWorktrees > 0 {
+            consequences.append(Self.dirtyWorktreeCost(dirtyWorktrees, unticked: false))
         }
-        dialogs.show(Dialog(
-            title: chosen.count == 1
-                ? "Delete a session with saved work?"
-                : "Delete sessions with saved work?",
-            message: consequences.joined(separator: "\n\n"),
-            actions: [
-                .init(label: deleteLabel, kind: .destructive) { delete(chosen) },
-                .init(label: "Cancel", kind: .cancel)
-            ]))
+        dialogs.show(.confirm(chosen.count == 1
+                                  ? "Delete a session with saved work?"
+                                  : "Delete sessions with saved work?",
+                              message: consequences.joined(separator: "\n\n"),
+                              action: deleteLabel) {
+            delete(chosen)
+        })
     }
 
     private func delete(_ chosen: [Row]) {
@@ -366,12 +316,10 @@ struct OldSessionsView: View {
             ticked = ticked.intersection(rows.map(\.id))
             guard failures.isEmpty else {
                 deletionProgress = nil
-                dialogs.show(Dialog(
-                    title: failures.count == 1
-                        ? failures[0].title
-                        : "Could not delete some sessions",
-                    message: failures.map(\.message).joined(separator: "\n"),
-                    actions: [.init(label: "OK", kind: .cancel)]))
+                dialogs.show(.notice(failures.count == 1
+                                         ? failures[0].title
+                                         : "Could not delete some sessions",
+                                     message: failures.map(\.message).joined(separator: "\n")))
                 return
             }
             dismiss()
@@ -393,21 +341,10 @@ private struct SessionChoiceRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            Button(action: toggle) {
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(ticked ? Theme.accentFill : Theme.card)
-                    .frame(width: 22, height: 22)
-                    .overlay(RoundedRectangle(cornerRadius: 6)
-                        .stroke(ticked ? .clear : Theme.border, lineWidth: 1.5))
-                    .overlay {
-                        if ticked {
-                            Image(systemName: "checkmark")
-                                .font(.system(size: 11, weight: .bold))
-                                .foregroundStyle(.white)
-                        }
-                    }
+            Toggle(isOn: Binding(get: { ticked }, set: { _ in toggle() })) {
+                EmptyView()
             }
-            .buttonStyle(.plain)
+            .toggleStyle(.appCheckbox)
 
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 10) {
@@ -428,7 +365,7 @@ private struct SessionChoiceRow: View {
                         .lineLimit(1)
                         .truncationMode(.tail)
                     if hasWorktree {
-                        StatusPill(text: "WT", running: false)
+                        MonoChip(text: "WT")
                     }
                     Spacer(minLength: 0)
                 }
@@ -447,8 +384,7 @@ private struct SessionChoiceRow: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(border))
+        .surface(Theme.card, cornerRadius: 10, border: border)
         .contentShape(Rectangle())
         .onTapGesture(perform: toggle)
         .allowsHitTesting(canToggle)

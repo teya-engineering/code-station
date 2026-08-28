@@ -33,108 +33,88 @@ struct AddServerView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            Text(group.addTitle).font(.serif(26, .semibold))
+        VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 22) {
+                Text(group.addTitle).font(.serif(26, .semibold))
 
-            VStack(alignment: .leading, spacing: 8) {
-                SectionLabel("PRESET")
-                ActionButton(title: preset?.label ?? "Choose a preset",
-                             tone: .sunken,
-                             disclosure: true,
-                             fills: true)
-                    .appMenu(matchWidth: true) {
-                        presets.map { choice in
-                            .item(choice.label,
-                                  checked: choice.name == presetName,
-                                  subtitle: choice.name,
-                                  detail: ServerEnvironmentChoice.title(
-                                    for: choice.environmentTag),
-                                  action: { select(choice) })
+                VStack(alignment: .leading, spacing: 8) {
+                    SectionLabel("PRESET")
+                    ActionButton(title: preset?.label ?? "Choose a preset",
+                                 tone: .sunken,
+                                 disclosure: true,
+                                 fills: true)
+                        .appMenu(matchWidth: true) {
+                            presets.map { choice in
+                                .item(choice.label,
+                                      checked: choice.name == presetName,
+                                      subtitle: choice.name,
+                                      detail: ServerEnvironmentChoice.title(
+                                        for: choice.environmentTag),
+                                      action: { select(choice) })
+                            }
+                        }
+                }
+
+                if let preset {
+                    let environment = requiredValues(in: preset.env)
+                    let headers = requiredValues(in: preset.headers)
+                    if !environment.isEmpty || !headers.isEmpty {
+                        VStack(alignment: .leading, spacing: 12) {
+                            SectionLabel("REQUIRED VALUES")
+                            ForEach(environment) { value in
+                                valueField(value,
+                                           text: dictionaryBinding(value.key,
+                                                                   in: $environmentValues))
+                            }
+                            ForEach(headers) { value in
+                                valueField(value,
+                                           text: dictionaryBinding(value.key,
+                                                                   in: $headerValues))
+                            }
                         }
                     }
-            }
 
-            if let preset {
-                let environment = requiredValues(in: preset.env)
-                let headers = requiredValues(in: preset.headers)
-                if !environment.isEmpty || !headers.isEmpty {
-                    VStack(alignment: .leading, spacing: 12) {
-                        SectionLabel("REQUIRED VALUES")
-                        ForEach(environment) { value in
-                            valueField(value,
-                                       text: dictionaryBinding(value.key,
-                                                               in: $environmentValues))
+                    VStack(alignment: .leading, spacing: 6) {
+                        SectionLabel("PREVIEW")
+                        labeled("name", preset.name)
+                        labeled("transport", preset.isRemote ? (preset.type ?? "http") : "stdio")
+                        if let command = preset.command {
+                            labeled("command", ([command] + (preset.args ?? [])).joined(separator: " "))
                         }
-                        ForEach(headers) { value in
-                            valueField(value,
-                                       text: dictionaryBinding(value.key,
-                                                               in: $headerValues))
-                        }
+                        if let url = preset.url { labeled("url", url) }
+                        labeled("environment",
+                                ServerEnvironmentChoice.title(for: preset.environmentTag))
                     }
+                    .padding(14)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fieldSurface(cornerRadius: 10)
                 }
 
-                VStack(alignment: .leading, spacing: 6) {
-                    SectionLabel("PREVIEW")
-                    labeled("name", preset.name)
-                    labeled("transport", preset.isRemote ? (preset.type ?? "http") : "stdio")
-                    if let command = preset.command {
-                        labeled("command", ([command] + (preset.args ?? [])).joined(separator: " "))
-                    }
-                    if let url = preset.url { labeled("url", url) }
-                    labeled("environment",
-                            ServerEnvironmentChoice.title(for: preset.environmentTag))
+                if exists {
+                    Label("A server with this name already exists. Adding will replace its configuration.",
+                          systemImage: "exclamationmark.triangle")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Theme.secret)
                 }
-                .padding(14)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(RoundedRectangle(cornerRadius: 10).fill(Theme.field))
-                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
             }
+            .padding(28)
 
-            if exists {
-                Label("A server with this name already exists. Adding will replace its configuration.",
-                      systemImage: "exclamationmark.triangle")
-                    .font(.system(size: 12))
-                    .foregroundStyle(Theme.secret)
-            }
-
-            HStack(spacing: 10) {
-                Spacer()
-                Button { dismiss() } label: {
-                    Text("Cancel")
-                        .font(.system(size: 13, weight: .semibold))
-                        .padding(.horizontal, 18)
-                        .padding(.vertical, 7)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.card))
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
-                        .contentShape(RoundedRectangle(cornerRadius: 8))
-                }
-                .buttonStyle(.plain)
-                .keyboardShortcut(.cancelAction)
-                Button {
-                    if let preset {
-                        store.upsert(preset: preset,
-                                     environmentValues: environmentValues,
-                                     headerValues: headerValues)
-                    }
-                    dismiss()
-                } label: {
-                    Text(exists ? "Replace" : "Add")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 18)
-                        .padding(.vertical, 7)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.accentFill))
-                        .contentShape(RoundedRectangle(cornerRadius: 8))
-                }
-                .buttonStyle(.plain)
-                .keyboardShortcut(.defaultAction)
-                .disabled(incomplete)
-                .opacity(incomplete ? 0.4 : 1)
-            }
+            SheetFooter(primary: SheetAction(title: exists ? "Replace" : "Add",
+                                             enabled: !incomplete,
+                                             shortcut: .defaultAction, action: add),
+                        dismiss: { dismiss() })
         }
-        .padding(28)
         .frame(width: 500)
         .background(Theme.background)
+    }
+
+    private func add() {
+        if let preset {
+            store.upsert(preset: preset,
+                         environmentValues: environmentValues,
+                         headerValues: headerValues)
+        }
+        dismiss()
     }
 
     private func requiredValues(in values: [SiteDefaults.MCP.Value]?)
@@ -148,27 +128,20 @@ struct AddServerView: View {
         headerValues = [:]
     }
 
-    @ViewBuilder private func valueField(_ value: SiteDefaults.MCP.Value,
-                                         text: Binding<String>) -> some View {
+    private func valueField(_ value: SiteDefaults.MCP.Value,
+                            text: Binding<String>) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             SectionLabel(value.key)
-            if EnvVar(key: value.key, value: "").isSecret {
-                SecureField(value.key, text: text)
-                    .textFieldStyle(.plain)
-                    .font(.mono(13))
-                    .padding(.horizontal, 11)
-                    .padding(.vertical, 9)
-                    .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
-                    .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
-            } else {
-                TextField(value.key, text: text)
-                    .textFieldStyle(.plain)
-                    .font(.mono(13))
-                    .padding(.horizontal, 11)
-                    .padding(.vertical, 9)
-                    .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
-                    .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
+            Group {
+                if EnvVar.isSecretKey(value.key) {
+                    SecureField(value.key, text: text)
+                } else {
+                    TextField(value.key, text: text)
+                }
             }
+            // Set before the field chrome, so the mono face wins over the chrome's own.
+            .font(.mono(13))
+            .appTextField(cornerRadius: 9)
         }
     }
 

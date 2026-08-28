@@ -4,11 +4,10 @@ import SwiftUI
 
 enum RunState: Equatable {
     case stopped
-    case starting
     case running
     case failed(String)
 
-    var isActive: Bool { self == .starting || self == .running }
+    var isActive: Bool { self == .running }
 }
 
 // Launches and tracks the actual mcp-grafana process for a server. Running state
@@ -17,12 +16,17 @@ enum RunState: Equatable {
 @Observable
 final class ProcessManager {
     private var processes: [Server.ID: Process] = [:]
+    // Only a server run in HTTP mode holds a port; its endpoint is read off it.
     private var ports: [Server.ID: Int] = [:]
     private(set) var states: [Server.ID: RunState] = [:]
-    private(set) var endpoints: [Server.ID: String] = [:]
     private(set) var logs: [Server.ID: String] = [:]
 
     func state(_ id: Server.ID) -> RunState { states[id] ?? .stopped }
+
+    // Where a server run in HTTP mode answers; nil for one on stdio or not running.
+    func endpoint(for id: Server.ID) -> String? {
+        ports[id].map { "http://localhost:\($0)/mcp" }
+    }
 
     func toggle(_ server: Server) {
         state(server.id).isActive ? stop(server.id) : start(server)
@@ -36,15 +40,14 @@ final class ProcessManager {
             return
         }
 
-        let port = nextPort()
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
         // For Grafana with no transport args, run a reachable HTTP server instead of
         // an idle stdio process. Other servers run exactly as configured.
         let httpMode = server.isGrafana && server.args.isEmpty
-        process.arguments = httpMode
-            ? ["-t", "streamable-http", "-address", "localhost:\(port)"]
-            : server.args
+        let port = httpMode ? nextPort() : nil
+        process.arguments = port.map { ["-t", "streamable-http", "-address", "localhost:\($0)"] }
+            ?? server.args
 
         var env = ProcessInfo.processInfo.environment
         env["PATH"] = Self.searchPath
@@ -72,11 +75,9 @@ final class ProcessManager {
         }
 
         do {
-            states[id] = .starting
             try process.run()
             processes[id] = process
             ports[id] = port
-            if httpMode { endpoints[id] = "http://localhost:\(port)/mcp" }
             states[id] = .running
         } catch {
             pipe.fileHandleForReading.readabilityHandler = nil
@@ -130,7 +131,6 @@ final class ProcessManager {
         (processes[id]?.standardOutput as? Pipe)?.fileHandleForReading.readabilityHandler = nil
         processes[id] = nil
         ports[id] = nil
-        endpoints[id] = nil
     }
 
     private func appendLog(_ id: Server.ID, _ text: String) {
@@ -192,14 +192,10 @@ private final class ResolvedCommands: @unchecked Sendable {
     private var paths: [String: String] = [:]
 
     func value(for command: String) -> String? {
-        lock.lock()
-        defer { lock.unlock() }
-        return paths[command]
+        lock.withLock { paths[command] }
     }
 
     func store(_ path: String, for command: String) {
-        lock.lock()
-        defer { lock.unlock() }
-        paths[command] = path
+        lock.withLock { paths[command] = path }
     }
 }

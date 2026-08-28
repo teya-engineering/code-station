@@ -97,6 +97,50 @@ enum CodexSandboxMode: String, CaseIterable {
     }
 }
 
+// The permission modes Claude Code takes, minus the ones that have no place in a desktop
+// app: nothing here can turn every check off. Stored as its raw value, which is the word
+// the CLI's --permission-mode flag takes.
+enum PermissionMode: String, CaseIterable, Identifiable {
+    case acceptEdits, manual, auto
+
+    static let fallback: PermissionMode = .acceptEdits
+
+    // The fallback stands in for nothing chosen and for a mode the app no longer offers.
+    init(stored: String?) {
+        self = stored.flatMap(PermissionMode.init(rawValue:)) ?? .fallback
+    }
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .acceptEdits: "Accept edits, ask about the rest"
+        case .manual: "Ask about everything"
+        case .auto: "Ask only about risky things"
+        }
+    }
+
+    // What the mode is called where a sentence does not fit, like the composer bar.
+    var shortTitle: String {
+        switch self {
+        case .acceptEdits: "Accept edits"
+        case .manual: "Ask everything"
+        case .auto: "Ask risky only"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .acceptEdits:
+            "Edits to files go through on their own. Commands and anything else are asked about."
+        case .manual:
+            "Every edit and every command waits for an answer. The slowest, and the one that shows the most."
+        case .auto:
+            "Claude Code judges each step and only asks about the ones that can do damage."
+        }
+    }
+}
+
 // The models each agent's picker offers. For Claude Code these are the aliases the CLI
 // takes - full names ("claude-opus-5") work too, but an alias always points at the
 // newest of that family, which is what a picker should do. For Codex they are the model
@@ -169,7 +213,7 @@ enum ModelChoice {
 // How long the model spends thinking before it answers. More effort costs more tokens
 // and more time, so it is the first thing to turn down when a limit is close.
 enum EffortChoice {
-    static let claude: [(id: String?, title: String)] = [
+    static let levels: [(id: String?, title: String)] = [
         (nil, "Default"),
         ("low", "Low"),
         ("medium", "Medium"),
@@ -178,20 +222,10 @@ enum EffortChoice {
         ("max", "Max"),
     ]
 
-    static let codex: [(id: String?, title: String)] = [
-        (nil, "Default"),
-        ("low", "Low"),
-        ("medium", "Medium"),
-        ("high", "High"),
-        ("xhigh", "Extra high"),
-        ("max", "Max"),
-    ]
-
+    // Both agents take the same levels. Callers still ask per agent, so a level one CLI
+    // gains and the other does not has one place to be told apart.
     static func all(for agent: AgentKind) -> [(id: String?, title: String)] {
-        switch agent {
-        case .claudeCode: claude
-        case .codex: codex
-        }
+        levels
     }
 
     static func valid(_ id: String?, for agent: AgentKind) -> String? {

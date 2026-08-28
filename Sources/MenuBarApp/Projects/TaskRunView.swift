@@ -27,7 +27,11 @@ struct TaskRunView: View {
                         ForEach(inputs, id: \.name) { input in
                             TaskInputField(input: input, value: binding(for: input))
                         }
-                        noteField
+                        LabeledField("ANYTHING ELSE") {
+                            AppTextEditor(text: $note,
+                                          placeholder: "Added to the end of the prompt, for this run only.",
+                                          minHeight: 60)
+                        }
                         promptPreview
                     }
                     .padding(.vertical, 2)
@@ -37,7 +41,9 @@ struct TaskRunView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(20)
 
-            footer
+            SheetFooter(primary: SheetAction(title: "Run task", icon: "play.fill", enabled: ready,
+                                             shortcut: .defaultAction, action: run),
+                        dismiss: { dismiss() })
         }
         .frame(width: 500)
         .background(Theme.background)
@@ -57,43 +63,14 @@ struct TaskRunView: View {
         }
     }
 
-    private var noteField: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            FieldLabel(text: "ANYTHING ELSE")
-            TextEditor(text: $note)
-                .font(.system(size: 13))
-                .scrollContentBackground(.hidden)
-                .padding(.horizontal, 9)
-                .padding(.vertical, 8)
-                .frame(minHeight: 60)
-                .background(RoundedRectangle(cornerRadius: 10).fill(Theme.field))
-                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
-                .overlay(alignment: .topLeading) {
-                    if note.isEmpty {
-                        Text("Added to the end of the prompt, for this run only.")
-                            .font(.system(size: 13))
-                            .foregroundStyle(.tertiary)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 8)
-                            .allowsHitTesting(false)
-                    }
-                }
-        }
-    }
-
     private var promptPreview: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Button { showingPrompt.toggle() } label: {
-                HStack(spacing: 5) {
-                    Image(systemName: showingPrompt ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 8, weight: .semibold))
-                    Text(showingPrompt ? "Hide the prompt" : "Show the prompt")
-                        .font(.system(size: 12, weight: .semibold))
-                }
-                .foregroundStyle(Theme.accent)
-                .contentShape(Rectangle())
+            DisclosureHeader(isExpanded: $showingPrompt,
+                             show: "Show the prompt", hide: "Hide the prompt") {
+                Text(showingPrompt ? "Hide the prompt" : "Show the prompt")
+                    .font(.system(size: 12, weight: .semibold))
             }
-            .buttonStyle(.plain)
+            .foregroundStyle(Theme.accent)
 
             if showingPrompt {
                 Text(preview.isEmpty ? "Nothing to send yet." : preview)
@@ -102,58 +79,16 @@ struct TaskRunView: View {
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(12)
-                    .background(RoundedRectangle(cornerRadius: 10).fill(Theme.sunken))
-                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
+                    .surface(Theme.sunken, cornerRadius: 10)
                     .transition(.fadeIn)
             }
         }
         .smoothlyResizes(when: showingPrompt)
     }
 
-    private var footer: some View {
-        VStack(spacing: 0) {
-            Divider().overlay(Theme.hairline)
-            HStack(spacing: 12) {
-                Spacer()
-                Button { dismiss() } label: {
-                    Text("Cancel")
-                        .font(.system(size: 13, weight: .semibold))
-                        .padding(.horizontal, 18)
-                        .frame(height: 32)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.card))
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .keyboardShortcut(.cancelAction)
-
-                Button(action: run) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "play.fill")
-                            .font(.system(size: 10, weight: .semibold))
-                        Text("Run task")
-                            .font(.system(size: 13, weight: .semibold))
-                    }
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 18)
-                    .frame(height: 32)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(Theme.accentFill))
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .keyboardShortcut(.defaultAction)
-                .disabled(!ready)
-                .opacity(ready ? 1 : 0.45)
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 12)
-            .background(Theme.card)
-        }
-    }
-
     private var preview: String {
         var text = TaskTemplate.render(spec, values: values)
-        let extra = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        let extra = note.trimmed
         if !extra.isEmpty { text = text.isEmpty ? extra : text + "\n\n" + extra }
         return text
     }
@@ -196,7 +131,7 @@ private struct TaskInputField: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
-                FieldLabel(text: input.title.uppercased())
+                SectionLabel(input.title.uppercased(), style: .field)
                 if !input.required {
                     Text("optional")
                         .font(.system(size: 10))
@@ -204,7 +139,7 @@ private struct TaskInputField: View {
                 }
             }
             control
-            if let hint, !hint.isEmpty {
+            if let hint = input.hint, !hint.isEmpty {
                 Text(hint)
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
@@ -213,29 +148,25 @@ private struct TaskInputField: View {
         }
     }
 
-    private var hint: String? { input.hint }
-
     @ViewBuilder private var control: some View {
         switch input.kind {
         case .text:
             TextField(input.title, text: $value)
-                .textFieldStyle(.plain)
-                .font(.system(size: 13))
-                .padding(.horizontal, 12)
-                .frame(height: 36)
-                .background(RoundedRectangle(cornerRadius: 10).fill(Theme.field))
-                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
+                .appTextField(cornerRadius: 10)
         case .longText:
-            TextEditor(text: $value)
-                .font(.system(size: 13))
-                .scrollContentBackground(.hidden)
-                .padding(.horizontal, 9)
-                .padding(.vertical, 8)
-                .frame(minHeight: 76)
-                .background(RoundedRectangle(cornerRadius: 10).fill(Theme.field))
-                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
+            AppTextEditor(text: $value, placeholder: input.title, minHeight: 76)
         case .choice:
-            choiceControl
+            OptionMenu(value: value.isEmpty ? "Choose" : value) {
+                var entries: [MenuEntry] = input.options.map { option in
+                    .item(option, checked: option == value) { value = option }
+                }
+                if !input.required {
+                    entries.insert(.item("Leave it out", checked: value.isEmpty) { value = "" },
+                                   at: 0)
+                    entries.insert(.separator, at: 1)
+                }
+                return entries
+            }
         case .path:
             pathControl
         case .toggle:
@@ -247,34 +178,6 @@ private struct TaskInputField: View {
                     .lineLimit(2)
             }
             .toggleStyle(.appSwitch)
-        }
-    }
-
-    private var choiceControl: some View {
-        HStack(spacing: 6) {
-            Text(value.isEmpty ? "Choose" : value)
-                .font(.system(size: 13))
-                .foregroundStyle(value.isEmpty ? .tertiary : .primary)
-                .lineLimit(1)
-            Spacer(minLength: 8)
-            Image(systemName: "chevron.down")
-                .font(.system(size: 8, weight: .semibold))
-                .foregroundStyle(.secondary)
-        }
-        .padding(.horizontal, 12)
-        .frame(height: 36)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.field))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
-        .appMenu(matchWidth: true) {
-            var entries: [MenuEntry] = input.options.map { option in
-                .item(option, checked: option == value) { value = option }
-            }
-            if !input.required {
-                entries.insert(.item("Leave it out", checked: value.isEmpty) { value = "" },
-                               at: 0)
-                entries.insert(.separator, at: 1)
-            }
-            return entries
         }
     }
 
@@ -291,12 +194,11 @@ private struct TaskInputField: View {
         }
         .padding(.horizontal, 12)
         .frame(height: 36)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.field))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
+        .fieldSurface(cornerRadius: 10)
     }
 
-    // The file chooser is the one system surface the app keeps, since picking a path
-    // belongs to the Finder rather than to this window.
+    // The shared picker asks for a file or a folder, never either, and this input takes
+    // both, so the panel is set up here.
     private func choosePath() {
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
@@ -306,18 +208,6 @@ private struct TaskInputField: View {
         panel.message = "Pick what \(input.title.lowercased()) should point at."
         guard panel.runModal() == .OK, let url = panel.url else { return }
         value = url.path
-    }
-}
-
-// The small capitals over a field, shared by the run sheet and the task screen.
-struct FieldLabel: View {
-    let text: String
-
-    var body: some View {
-        Text(text)
-            .font(.mono(10, .semibold))
-            .kerning(0.6)
-            .foregroundStyle(.tertiary)
     }
 }
 

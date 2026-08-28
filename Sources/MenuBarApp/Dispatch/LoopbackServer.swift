@@ -13,9 +13,8 @@ import Network
 // though Network's callbacks arrive on their own.
 final class LoopbackServer: @unchecked Sendable {
     private let queue = DispatchQueue(label: "code-station.oauth.callback")
-    private var listener: NWListener?
+    private let listener = HTTPListener()
     private var connections: [NWConnection] = []
-    private var ready: CheckedContinuation<Void, Error>?
     private var waiter: CheckedContinuation<[String: String], Error>?
     // A redirect that lands before anyone asks for it, which the timeout can also fill.
     private var arrived: Result<[String: String], Error>?
@@ -27,7 +26,7 @@ final class LoopbackServer: @unchecked Sendable {
     // Returns once the port is listening, or throws if it cannot be.
     func start(port: UInt16, timeout: TimeInterval = 300) async throws {
         try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
+            _ = try await withCheckedThrowingContinuation { continuation in
                 queue.async { self.begin(port: port, timeout: timeout, ready: continuation) }
             }
         } onCancel: {
@@ -60,8 +59,8 @@ final class LoopbackServer: @unchecked Sendable {
 
     private func begin(port: UInt16,
                        timeout: TimeInterval,
-                       ready continuation: CheckedContinuation<Void, Error>) {
-        ready = continuation
+                       ready continuation: CheckedContinuation<UInt16, Error>) {
+        listener.expect(continuation)
 
         guard let nwPort = NWEndpoint.Port(rawValue: port) else {
             giveUp(OAuthError("\(port) is not a usable port."))
@@ -87,44 +86,27 @@ final class LoopbackServer: @unchecked Sendable {
         parameters.allowLocalEndpointReuse = true
         parameters.requiredInterfaceType = .loopback
 
-        let listener: NWListener
+        let bound: NWListener
         do {
-            listener = try NWListener(using: parameters, on: nwPort)
+            bound = try NWListener(using: parameters, on: nwPort)
         } catch {
             giveUp(OAuthError("Could not listen on port \(nwPort.rawValue): \(error.localizedDescription)."))
             return
         }
 
-        listener.newConnectionHandler = { [weak self] connection in
+        listener.start(bound, on: queue) { [weak self] connection in
+            self?.accept(connection)
+        } failed: { [weak self] error in
             guard let self else { return }
-            self.queue.async { self.accept(connection) }
-        }
-        listener.stateUpdateHandler = { [weak self, weak listener] state in
-            // A listener being retired still reports its state, and that is not news.
-            guard let self, let listener, self.listener === listener else { return }
-            self.queue.async {
-                guard self.listener === listener else { return }
-                switch state {
-                case .ready:
-                    self.resumeReady(.success(()))
-                case .failed(let error):
-                    self.listener = nil
-                    listener.cancel()
-                    guard attemptsLeft > 0, Self.isAddressInUse(error) else {
-                        self.giveUp(OAuthError(
-                            "Could not listen on port \(nwPort.rawValue): \(error.localizedDescription)"))
-                        return
-                    }
-                    self.queue.asyncAfter(deadline: .now() + 0.05) {
-                        self.listen(on: nwPort, attemptsLeft: attemptsLeft - 1)
-                    }
-                default:
-                    break
-                }
+            guard attemptsLeft > 0, Self.isAddressInUse(error) else {
+                self.giveUp(OAuthError(
+                    "Could not listen on port \(nwPort.rawValue): \(error.localizedDescription)"))
+                return
+            }
+            self.queue.asyncAfter(deadline: .now() + 0.05) {
+                self.listen(on: nwPort, attemptsLeft: attemptsLeft - 1)
             }
         }
-        self.listener = listener
-        listener.start(queue: queue)
     }
 
     private static func isAddressInUse(_ error: NWError) -> Bool {
@@ -177,16 +159,10 @@ final class LoopbackServer: @unchecked Sendable {
 
     // MARK: - Finishing
 
-    private func resumeReady(_ result: Result<Void, Error>) {
-        guard let ready else { return }
-        self.ready = nil
-        ready.resume(with: result)
-    }
-
     // Whatever went wrong, both halves have to hear about it: the caller may be waiting
     // on either the bind or the redirect.
     private func giveUp(_ error: Error) {
-        resumeReady(.failure(error))
+        listener.answer(.failure(error))
         finish(.failure(error))
     }
 
@@ -204,8 +180,7 @@ final class LoopbackServer: @unchecked Sendable {
         stopped = true
         timeoutItem?.cancel()
         timeoutItem = nil
-        listener?.cancel()
-        listener = nil
+        listener.cancel()
         connections.forEach { $0.cancel() }
         connections.removeAll()
     }
@@ -213,15 +188,9 @@ final class LoopbackServer: @unchecked Sendable {
     // MARK: - Parsing
 
     static func query(from request: String) -> [String: String]? {
-        guard let line = request.split(separator: "\r\n", maxSplits: 1).first else { return nil }
-        let parts = line.split(separator: " ")
-        guard parts.count >= 2, parts[0] == "GET" else { return nil }
-        // The target is a path, so it only becomes parseable once it is a whole URL.
-        guard let components = URLComponents(string: "http://localhost" + parts[1]),
-              let items = components.queryItems else { return [:] }
-        return Dictionary(items.compactMap { item in
-            item.value.map { (item.name, $0) }
-        }, uniquingKeysWith: { first, _ in first })
+        guard let line = request.split(separator: "\r\n", maxSplits: 1).first,
+              let target = HTTPRequestLine.target(of: line) else { return nil }
+        return HTTPRequestLine.query(in: target)
     }
 
     static func page(title: String, detail: String) -> String {

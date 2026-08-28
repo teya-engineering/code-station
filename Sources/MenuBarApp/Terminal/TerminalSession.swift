@@ -30,6 +30,7 @@ final class TerminalSession: Identifiable {
     @ObservationIgnored private var flushScheduled = false
     @ObservationIgnored private var busyPoll: Task<Void, Never>?
     @ObservationIgnored private var busyMonitoringEnabled = true
+    @ObservationIgnored private let registry: ShellRegistry
     @ObservationIgnored private let onExit: ((TerminalSession) -> Void)?
 
     private static let shell: String = {
@@ -39,10 +40,11 @@ final class TerminalSession: Identifiable {
         return FileManager.default.isExecutableFile(atPath: shell) ? shell : "/bin/zsh"
     }()
 
-    init(directory: String, name: String,
+    init(directory: String, name: String, registry: ShellRegistry = .shared,
          onExit: ((TerminalSession) -> Void)? = nil) {
         self.directory = directory
         self.name = name
+        self.registry = registry
         self.onExit = onExit
         surface = TerminalSurface(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
         surface.terminalDelegate = self
@@ -56,6 +58,7 @@ final class TerminalSession: Identifiable {
 
         let session = self
         let terminal = PTY(
+            registry: registry,
             onOutput: { data in
                 Task { @MainActor in session.receive(data) }
             },
@@ -197,16 +200,25 @@ extension TerminalSession: @preconcurrency TerminalViewDelegate {
     func rangeChanged(source: TerminalView, startY: Int, endY: Int) {}
 }
 
-// A terminal can belong to a project overview or to one chat session. The scope keeps
-// project shells apart from session shells even if their IDs happen to match.
+// A terminal belongs to a project overview, a workspace or one chat session. The kind is
+// part of the key, so the store never has to guess which screen an id belongs to.
 enum TerminalScope: Hashable {
     case project(UUID)
+    case workspace(UUID)
     case session(UUID)
+
+    init(_ owner: RemovedOwner) {
+        switch owner {
+        case .project(let id): self = .project(id)
+        case .workspace(let id): self = .workspace(id)
+        case .session(let id): self = .session(id)
+        }
+    }
 }
 
-// The terminals belonging to each project or chat session, plus how the drawer is sitting.
-// Keeping them here, rather than in the view, is what lets a shell keep running while
-// the drawer is collapsed or another screen is open.
+// The terminals belonging to each screen, plus how the drawer is sitting. Keeping them
+// here, rather than in the view, is what lets a shell keep running while the drawer is
+// collapsed or another screen is open.
 @MainActor
 @Observable
 final class TerminalStore {
@@ -218,6 +230,11 @@ final class TerminalStore {
     private var open: Set<TerminalScope> = []
     @ObservationIgnored private var visibleDrawers: Set<TerminalScope> = []
     private var heights: [TerminalScope: CGFloat] = [:]
+    @ObservationIgnored private let registry: ShellRegistry
+
+    init(registry: ShellRegistry = .shared) {
+        self.registry = registry
+    }
 
     func sessions(for scope: TerminalScope) -> [TerminalSession] { terminals[scope] ?? [] }
 
@@ -270,8 +287,8 @@ final class TerminalStore {
     // project or session whose drawer is never opened.
     @discardableResult
     func add(to scope: TerminalScope, directory: String) -> TerminalSession {
-        let terminal = TerminalSession(directory: directory,
-                                       name: nextName(in: scope)) { [weak self] terminal in
+        let terminal = TerminalSession(directory: directory, name: nextName(in: scope),
+                                       registry: registry) { [weak self] terminal in
             self?.removeExited(terminal, from: scope)
         }
         terminal.start()
@@ -298,43 +315,45 @@ final class TerminalStore {
 
     func close(_ terminal: TerminalSession, in scope: TerminalScope) {
         terminal.stop()
-        terminals[scope]?.removeAll { $0.id == terminal.id }
-        if selected[scope] == terminal.id {
-            selected[scope] = terminals[scope]?.first?.id
-        }
+        remove(terminal, from: scope)
     }
 
     private func removeExited(_ terminal: TerminalSession, from scope: TerminalScope) {
         guard terminals[scope]?.contains(where: { $0.id == terminal.id }) == true else { return }
-        terminals[scope]?.removeAll { $0.id == terminal.id }
-        if selected[scope] == terminal.id {
-            selected[scope] = terminals[scope]?.first?.id
-        }
+        remove(terminal, from: scope)
+        // The last shell going puts the drawer away, since there is nothing left to show.
         if terminals[scope]?.isEmpty == true {
             open.remove(scope)
             visibleDrawers.remove(scope)
         }
     }
 
-    // Everything belonging to a project, workspace or session that has been deleted. Its
-    // shells are still running and nothing on screen can reach them any more, so without
-    // this they would sit there until the app quit. The two scopes are tried against the
-    // one id because a project and a session never share one.
-    func discard(_ id: UUID) {
-        for scope in [TerminalScope.project(id), .session(id)] {
-            for terminal in sessions(for: scope) { terminal.stop() }
-            terminals[scope] = nil
-            selected[scope] = nil
-            heights[scope] = nil
-            open.remove(scope)
-            visibleDrawers.remove(scope)
+    // Takes a tab out of the strip and moves the selection along if it was the one showing.
+    private func remove(_ terminal: TerminalSession, from scope: TerminalScope) {
+        terminals[scope]?.removeAll { $0.id == terminal.id }
+        if selected[scope] == terminal.id {
+            selected[scope] = terminals[scope]?.first?.id
         }
     }
 
+    // Everything belonging to a project, workspace or session that has been deleted. Its
+    // shells are still running and nothing on screen can reach them any more, so without
+    // this they would sit there until the app quit.
+    func discard(_ scope: TerminalScope) {
+        forget(scope)
+    }
+
     func stopEverything() {
-        for terminal in terminals.values.flatMap({ $0 }) { terminal.stop() }
-        terminals = [:]
-        selected = [:]
-        visibleDrawers = []
+        for scope in Set(terminals.keys).union(open).union(heights.keys) { forget(scope) }
+    }
+
+    // The one place a scope is torn down, so nothing stays keyed to a screen that is gone.
+    private func forget(_ scope: TerminalScope) {
+        for terminal in sessions(for: scope) { terminal.stop() }
+        terminals[scope] = nil
+        selected[scope] = nil
+        heights[scope] = nil
+        open.remove(scope)
+        visibleDrawers.remove(scope)
     }
 }

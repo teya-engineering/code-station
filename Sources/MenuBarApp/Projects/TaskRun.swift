@@ -67,9 +67,8 @@ enum TaskRun {
     static func prompt(for spec: TaskSpec?, values: [String: String],
                        note: String) -> String {
         guard let spec else { return "" }
-        let rendered = TaskTemplate.render(spec, values: values)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let extra = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rendered = TaskTemplate.render(spec, values: values).trimmed
+        let extra = note.trimmed
         if extra.isEmpty { return rendered }
         return rendered.isEmpty ? extra : rendered + "\n\n" + extra
     }

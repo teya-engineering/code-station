@@ -58,8 +58,8 @@ struct PermissionCard: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Theme.warningBackground))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.warningText.opacity(0.25)))
+        .surface(Theme.warningBackground, cornerRadius: 12,
+                 border: Theme.warningText.opacity(0.25))
     }
 }
 
@@ -106,8 +106,8 @@ private struct QuestionCard: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Theme.accent.opacity(0.06)))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.accent.opacity(0.25)))
+        .surface(Theme.accent.opacity(0.06), cornerRadius: 12,
+                 border: Theme.accent.opacity(0.25))
     }
 
     private var questionTabs: some View {
@@ -172,12 +172,7 @@ private struct QuestionCard: View {
             // The CLI always offers a way out of the options it was given, so the
             // person is never cornered into an answer that does not fit.
             TextField("Something else…", text: binding(for: question))
-                .textFieldStyle(.plain)
-                .font(.system(size: 12))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 7)
-                .background(RoundedRectangle(cornerRadius: 8).fill(Theme.field))
-                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
+                .appTextField(size: 12)
         }
     }
 
@@ -214,9 +209,8 @@ private struct QuestionCard: View {
             }
             .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 8).fill(chosen ? Theme.accent.opacity(0.10) : Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: 8)
-                .stroke(chosen ? Theme.accent.opacity(0.45) : Theme.border))
+            .surface(chosen ? Theme.accent.opacity(0.10) : Theme.card, cornerRadius: 8,
+                     border: chosen ? Theme.accent.opacity(0.45) : Theme.border)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -273,7 +267,7 @@ private struct QuestionCard: View {
     // Several picks in a multi-select question go back as one comma-separated string,
     // which is the shape the tool reads them in.
     private func answer(for question: AgentQuestion) -> String {
-        let text = (typed[question.text] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = (typed[question.text] ?? "").trimmed
         guard text.isEmpty else { return text }
         let chosen = picked[question.text] ?? []
         return question.options
@@ -299,10 +293,8 @@ private struct CardButton: View {
                 .foregroundStyle(prominent ? Theme.card : Color.primary)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
-                .background(RoundedRectangle(cornerRadius: 8)
-                    .fill(prominent ? tint : tint.opacity(0.18)))
-                .overlay(RoundedRectangle(cornerRadius: 8)
-                    .stroke(prominent ? .clear : tint.opacity(0.6)))
+                .surface(prominent ? tint : tint.opacity(0.18), cornerRadius: 8,
+                         border: prominent ? .clear : tint.opacity(0.6))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

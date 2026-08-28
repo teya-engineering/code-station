@@ -121,66 +121,28 @@ final class TerminalSurface: SwiftTerm.TerminalView {
         applyTheme()
     }
 
-    // SwiftTerm resolves its palette into renderer colours, so dynamic NSColors alone
-    // cannot follow an appearance change. Reinstalling the palette redraws existing
-    // scrollback as well as new output.
+    // SwiftTerm bakes its palette into renderer colours, so an adaptive NSColor cannot
+    // follow an appearance change on its own. Every colour is resolved for the current
+    // appearance here, and reinstalling the palette redraws existing scrollback as well
+    // as new output.
     private func applyTheme() {
-        if Theme.isDark(effectiveAppearance) {
-            nativeBackgroundColor = NSColor(srgbRed: 0.082, green: 0.082, blue: 0.075, alpha: 1)
-            nativeForegroundColor = NSColor(srgbRed: 0.88, green: 0.87, blue: 0.84, alpha: 1)
-            caretColor = NSColor(srgbRed: 0.58, green: 0.76, blue: 0.60, alpha: 1)
-            caretTextColor = NSColor(srgbRed: 0.082, green: 0.082, blue: 0.075, alpha: 1)
-            selectedTextBackgroundColor = NSColor(srgbRed: 0.23, green: 0.30, blue: 0.24, alpha: 1)
-            selectedTextForegroundColor = NSColor(srgbRed: 0.94, green: 0.93, blue: 0.90, alpha: 1)
-            installColors([
-                Self.ansi(0.15, 0.15, 0.14),  // black
-                Self.ansi(0.86, 0.40, 0.35),  // red
-                Self.ansi(0.50, 0.72, 0.52),  // green
-                Self.ansi(0.88, 0.68, 0.35),  // yellow
-                Self.ansi(0.52, 0.65, 0.86),  // blue
-                Self.ansi(0.75, 0.55, 0.78),  // magenta
-                Self.ansi(0.43, 0.72, 0.74),  // cyan
-                Self.ansi(0.80, 0.80, 0.77),  // white
-                Self.ansi(0.45, 0.45, 0.42),  // bright black
-                Self.ansi(0.96, 0.63, 0.58),  // bright red
-                Self.ansi(0.60, 0.80, 0.61),  // bright green
-                Self.ansi(0.94, 0.77, 0.45),  // bright yellow
-                Self.ansi(0.62, 0.73, 0.93),  // bright blue
-                Self.ansi(0.84, 0.65, 0.86),  // bright magenta
-                Self.ansi(0.56, 0.80, 0.81),  // bright cyan
-                Self.ansi(0.94, 0.94, 0.91)   // bright white
-            ])
-        } else {
-            nativeBackgroundColor = NSColor(srgbRed: 0.965, green: 0.961, blue: 0.945, alpha: 1)
-            nativeForegroundColor = NSColor(srgbRed: 0.15, green: 0.15, blue: 0.14, alpha: 1)
-            caretColor = NSColor(srgbRed: 0.20, green: 0.34, blue: 0.24, alpha: 1)
-            caretTextColor = NSColor(srgbRed: 0.965, green: 0.961, blue: 0.945, alpha: 1)
-            selectedTextBackgroundColor = NSColor(srgbRed: 0.80, green: 0.82, blue: 0.79, alpha: 1)
-            selectedTextForegroundColor = NSColor(srgbRed: 0.15, green: 0.15, blue: 0.14, alpha: 1)
-            installColors([
-                Self.ansi(0.20, 0.20, 0.19),  // black
-                Self.ansi(0.75, 0.28, 0.24),  // red
-                Self.ansi(0.24, 0.47, 0.29),  // green
-                Self.ansi(0.72, 0.52, 0.20),  // yellow
-                Self.ansi(0.24, 0.38, 0.60),  // blue
-                Self.ansi(0.52, 0.30, 0.55),  // magenta
-                Self.ansi(0.20, 0.48, 0.51),  // cyan
-                Self.ansi(0.36, 0.36, 0.34),  // white
-                Self.ansi(0.55, 0.55, 0.52),  // bright black
-                Self.ansi(0.82, 0.36, 0.30),  // bright red
-                Self.ansi(0.33, 0.56, 0.36),  // bright green
-                Self.ansi(0.78, 0.60, 0.24),  // bright yellow
-                Self.ansi(0.32, 0.47, 0.70),  // bright blue
-                Self.ansi(0.62, 0.40, 0.64),  // bright magenta
-                Self.ansi(0.26, 0.57, 0.60),  // bright cyan
-                Self.ansi(0.15, 0.15, 0.14)   // bright white
-            ])
-        }
+        let palette: TerminalPalette = Theme.isDark(effectiveAppearance) ? .dark : .light
+        nativeBackgroundColor = resolved(palette.background)
+        nativeForegroundColor = resolved(palette.foreground)
+        caretColor = resolved(palette.caret)
+        caretTextColor = resolved(palette.background)
+        selectedTextBackgroundColor = resolved(palette.selectionBackground)
+        selectedTextForegroundColor = resolved(palette.selectionForeground)
+        installColors(palette.ansi.map(TerminalPalette.ansi))
         needsDisplay = true
     }
 
-    private static func ansi(_ red: Double, _ green: Double, _ blue: Double) -> SwiftTerm.Color {
-        SwiftTerm.Color(red: UInt16(red * 65535), green: UInt16(green * 65535), blue: UInt16(blue * 65535))
+    private func resolved(_ color: NSColor) -> NSColor {
+        var fixed = color
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            fixed = color.usingColorSpace(.sRGB) ?? color
+        }
+        return fixed
     }
 
     // MARK: - Keys the app keeps
@@ -252,5 +214,76 @@ final class TerminalSurface: SwiftTerm.TerminalView {
     deinit {
         if let keyWindowObserver { NotificationCenter.default.removeObserver(keyWindowObserver) }
         if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
+    }
+}
+
+// The colours the shell draws with, one table per appearance. The dark table shares the
+// window's canvas and accent, so the terminal sits flush with the pane around it; those
+// are adaptive colours, which land on their dark values because the table is only ever
+// applied under a dark appearance. The light table is warmer than the window and keeps
+// values of its own.
+private struct TerminalPalette {
+    let background: NSColor
+    let foreground: NSColor
+    let caret: NSColor
+    let selectionBackground: NSColor
+    let selectionForeground: NSColor
+    // The sixteen ANSI colours in their standard order: the eight normal ones, then the
+    // bright set.
+    let ansi: [(Double, Double, Double)]
+
+    static let dark = TerminalPalette(
+        background: Theme.backgroundNSColor,
+        foreground: NSColor(srgbRed: 0.88, green: 0.87, blue: 0.84, alpha: 1),
+        caret: Theme.accentNSColor,
+        selectionBackground: NSColor(srgbRed: 0.23, green: 0.30, blue: 0.24, alpha: 1),
+        selectionForeground: NSColor(srgbRed: 0.94, green: 0.93, blue: 0.90, alpha: 1),
+        ansi: [
+            (0.15, 0.15, 0.14),  // black
+            (0.86, 0.40, 0.35),  // red
+            (0.50, 0.72, 0.52),  // green
+            (0.88, 0.68, 0.35),  // yellow
+            (0.52, 0.65, 0.86),  // blue
+            (0.75, 0.55, 0.78),  // magenta
+            (0.43, 0.72, 0.74),  // cyan
+            (0.80, 0.80, 0.77),  // white
+            (0.45, 0.45, 0.42),  // bright black
+            (0.96, 0.63, 0.58),  // bright red
+            (0.60, 0.80, 0.61),  // bright green
+            (0.94, 0.77, 0.45),  // bright yellow
+            (0.62, 0.73, 0.93),  // bright blue
+            (0.84, 0.65, 0.86),  // bright magenta
+            (0.56, 0.80, 0.81),  // bright cyan
+            (0.94, 0.94, 0.91)   // bright white
+        ])
+
+    static let light = TerminalPalette(
+        background: NSColor(srgbRed: 0.965, green: 0.961, blue: 0.945, alpha: 1),
+        foreground: NSColor(srgbRed: 0.15, green: 0.15, blue: 0.14, alpha: 1),
+        caret: NSColor(srgbRed: 0.20, green: 0.34, blue: 0.24, alpha: 1),
+        selectionBackground: NSColor(srgbRed: 0.80, green: 0.82, blue: 0.79, alpha: 1),
+        selectionForeground: NSColor(srgbRed: 0.15, green: 0.15, blue: 0.14, alpha: 1),
+        ansi: [
+            (0.20, 0.20, 0.19),  // black
+            (0.75, 0.28, 0.24),  // red
+            (0.24, 0.47, 0.29),  // green
+            (0.72, 0.52, 0.20),  // yellow
+            (0.24, 0.38, 0.60),  // blue
+            (0.52, 0.30, 0.55),  // magenta
+            (0.20, 0.48, 0.51),  // cyan
+            (0.36, 0.36, 0.34),  // white
+            (0.55, 0.55, 0.52),  // bright black
+            (0.82, 0.36, 0.30),  // bright red
+            (0.33, 0.56, 0.36),  // bright green
+            (0.78, 0.60, 0.24),  // bright yellow
+            (0.32, 0.47, 0.70),  // bright blue
+            (0.62, 0.40, 0.64),  // bright magenta
+            (0.26, 0.57, 0.60),  // bright cyan
+            (0.15, 0.15, 0.14)   // bright white
+        ])
+
+    static func ansi(_ rgb: (Double, Double, Double)) -> SwiftTerm.Color {
+        SwiftTerm.Color(red: UInt16(rgb.0 * 65535), green: UInt16(rgb.1 * 65535),
+                        blue: UInt16(rgb.2 * 65535))
     }
 }

@@ -1,10 +1,6 @@
 import AppKit
 import SwiftUI
 
-// Colours the chat shares with the rest of the app. They live here rather than in
-// Theme because Theme is a shared file the chat views only read from.
-// Both halves are adaptive: a surface that stayed pink in dark mode would be left holding
-// the white that .primary and .secondary turn into.
 // One turn of the conversation. The user gets a bubble, Claude does not: long
 // answers read better as plain page text than as a giant tinted block.
 struct MessageView: View, Equatable {
@@ -139,13 +135,16 @@ struct MessageView: View, Equatable {
                                   isLive: id == liveBlockID)
                         .transition(.fadeIn)
                 case .prose(_, let text):
-                    VStack(alignment: .leading, spacing: 12) {
-                        prose(text)
+                    // The shared block keeps file previews and transcripts visually
+                    // aligned. Chat adds its own copy affordance because the preview
+                    // already supports text selection.
+                    MarkdownProse(text: text, projectPath: projectPath, textScale: textScale) { segment in
+                        MarkdownCodeBlock(segment: segment)
+                            .transcriptCopyButton(for: segment.text, tooltip: "Copy code", inset: 6)
                     }
                     .padding(.trailing, 32)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .transcriptCopyButton(
-                        for: text.trimmingCharacters(in: .whitespacesAndNewlines))
+                    .transcriptCopyButton(for: text.trimmed)
                 case .thinking(_, let text):
                     ThinkingBlock(text: text)
                         .transition(.fadeIn)
@@ -165,23 +164,6 @@ struct MessageView: View, Equatable {
             return .handled
         })
     }
-
-    @ViewBuilder private func prose(_ text: String) -> some View {
-        ForEach(MessageSegment.split(text)) { segment in
-            if segment.isCode {
-                CodeBlock(segment: segment)
-                    .transition(.fadeIn)
-            } else {
-                ForEach(MarkdownBlock.parse(segment.text)) { block in
-                    MarkdownBlockView(block: block,
-                                      projectPath: projectPath,
-                                      textScale: textScale)
-                        .equatable()
-                        .transition(.fadeIn)
-                }
-            }
-        }
-    }
 }
 
 // The instructions carried alongside a prompt. They are the same on every turn of a
@@ -194,21 +176,13 @@ private struct InstructionBubble: View {
         HStack(spacing: 0) {
             Spacer(minLength: 80)
             VStack(alignment: .leading, spacing: 6) {
-                Button { expanded.toggle() } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 9, weight: .semibold))
-                            .rotationEffect(.degrees(expanded ? 90 : 0))
-                            .frame(width: 10)
-                        Text(expanded ? "Instructions" : "Instructions\u{2026} click to expand")
-                            .scaledText(13)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                    }
-                    .contentShape(Rectangle())
+                DisclosureHeader(isExpanded: $expanded,
+                                 show: "Show instructions", hide: "Hide instructions") {
+                    Text(expanded ? "Instructions" : "Instructions\u{2026} click to expand")
+                        .scaledText(13)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                 }
-                .buttonStyle(.plain)
-                .appTooltip(expanded ? "Hide instructions" : "Show instructions")
 
                 if expanded {
                     Text(text)
@@ -223,8 +197,8 @@ private struct InstructionBubble: View {
             .padding(.leading, 14)
             .padding(.trailing, 42)
             .padding(.vertical, 10)
-            .background(RoundedRectangle(cornerRadius: 12).fill(Theme.secret.opacity(0.14)))
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.secret.opacity(0.30)))
+            .surface(Theme.secret.opacity(0.14), cornerRadius: 12,
+                     border: Theme.secret.opacity(0.30))
         }
         .smoothlyResizes(when: expanded)
     }
@@ -238,26 +212,17 @@ private struct ThinkingBlock: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Button { expanded.toggle() } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 9, weight: .semibold))
-                        .rotationEffect(.degrees(expanded ? 90 : 0))
-                        .frame(width: 10)
-                    Text(expanded ? "Thought" : "Thought · \(firstLine)")
-                        .scaledText(12)
-                        .italic()
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-                .foregroundStyle(.secondary)
-                .contentShape(Rectangle())
+            DisclosureHeader(isExpanded: $expanded, show: "Show thinking", hide: "Hide thinking") {
+                Text(expanded ? "Thought" : "Thought · \(firstLine)")
+                    .scaledText(12)
+                    .italic()
+                    .lineLimit(1)
+                    .truncationMode(.tail)
             }
-            .buttonStyle(.plain)
-            .appTooltip(expanded ? "Hide thinking" : "Show thinking")
+            .foregroundStyle(.secondary)
 
             if expanded {
-                Text(text.trimmingCharacters(in: .whitespacesAndNewlines))
+                Text(text.trimmed)
                     .scaledText(12)
                     .italic()
                     .foregroundStyle(.secondary)
@@ -281,36 +246,19 @@ private struct ThinkingBlock: View {
     }
 }
 
-// The transcript's copy affordance, shared by whole messages and by single code blocks.
-// It only exists while the pointer is over its owner, so the tick it shows after a copy
-// clears itself when the pointer leaves.
+// The transcript's copy affordance, shared by whole messages and by single code blocks:
+// the copy button on a small card lifted off the page, since it floats over text rather
+// than sitting in a row of its own.
 private struct CopyPill: View {
     let text: String
     let tooltip: String
 
-    @State private var copied = false
-
     var body: some View {
-        Button {
-            Self.copy(text)
-            copied = true
-        } label: {
-            Image(systemName: copied ? "checkmark" : "doc.on.doc")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(copied ? Theme.addition : Theme.accent)
-                .frame(width: 24, height: 24)
-                .background(RoundedRectangle(cornerRadius: 6).fill(Theme.card))
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.border))
-                .shadow(color: .black.opacity(0.08), radius: 2, y: 1)
-                .contentShape(RoundedRectangle(cornerRadius: 6))
-        }
-        .buttonStyle(.plain)
-        .appTooltip(copied ? "Copied" : tooltip)
-    }
-
-    static func copy(_ text: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
+        CopyButton(size: 11) { text }
+            .frame(width: 24, height: 24)
+            .cardSurface(cornerRadius: 6)
+            .shadow(color: .black.opacity(0.08), radius: 2, y: 1)
+            .appTooltip(tooltip)
     }
 }
 
@@ -353,7 +301,7 @@ private struct TranscriptCopyButton: ViewModifier {
             .onHover { hovering = $0 }
             .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: hovering)
             .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: descendantHovering)
-            .accessibilityAction(named: tooltip) { CopyPill.copy(text) }
+            .accessibilityAction(named: tooltip) { Pasteboard.copy(text) }
             .transformPreference(DescendantCopyHoverKey.self) { $0 = $0 || hovering }
     }
 }
@@ -380,7 +328,7 @@ struct MessageSegment: Identifiable {
             // Odd chunks sit between a pair of fences, so they are the code.
             let isCode = !index.isMultiple(of: 2)
             if !isCode {
-                let prose = part.trimmingCharacters(in: .whitespacesAndNewlines)
+                let prose = part.trimmed
                 if !prose.isEmpty {
                     segments.append(MessageSegment(id: index, text: prose, isCode: false))
                 }
@@ -403,16 +351,5 @@ struct MessageSegment: Identifiable {
             }
         }
         return segments
-    }
-}
-
-private struct CodeBlock: View {
-    let segment: MessageSegment
-
-    var body: some View {
-        // The shared block keeps file previews and transcripts visually aligned. Chat adds
-        // its own copy affordance because the preview already supports text selection.
-        MarkdownCodeBlock(segment: segment)
-            .transcriptCopyButton(for: segment.text, tooltip: "Copy code", inset: 6)
     }
 }

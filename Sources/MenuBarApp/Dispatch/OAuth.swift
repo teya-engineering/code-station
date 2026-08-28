@@ -124,7 +124,7 @@ enum RedirectAnswer {
     case unreadable
 
     static func parse(_ text: String) -> RedirectAnswer {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = text.trimmed
         guard !trimmed.isEmpty else { return .unreadable }
 
         if let items = URLComponents(string: trimmed)?.queryItems, !items.isEmpty {

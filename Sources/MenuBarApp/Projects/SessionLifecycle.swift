@@ -72,12 +72,11 @@ enum SessionLifecycle {
             return .failure(Failure(title: "Could not create a worktree",
                                     message: failure.message))
         case .success(let created):
+            let worktree = CreatedWorktree(path: created.path, projectPath: project.path,
+                                           branch: created.branch)
             guard store.project(project.id) != nil else {
-                let cleanup = await worktrees.remove(created.path, project.path, created.branch)
-                return .failure(Failure(
-                    title: "Could not create the session",
-                    message: cleanupMessage("The project is no longer in the app.",
-                                            cleanup: cleanup)))
+                return await creationFailure("The project is no longer in the app.",
+                                             created: [worktree], worktrees: worktrees)
             }
             switch store.insertSession(in: project.id,
                                        worktreePath: created.path,
@@ -88,10 +87,9 @@ enum SessionLifecycle {
             case .success(let session):
                 return .success(session)
             case .failure(let failure):
-                let cleanup = await worktrees.remove(created.path, project.path, created.branch)
-                return .failure(Failure(
-                    title: "Could not save the session",
-                    message: cleanupMessage(failure.message, cleanup: cleanup)))
+                return await creationFailure(failure.message,
+                                             title: "Could not save the session",
+                                             created: [worktree], worktrees: worktrees)
             }
         }
     }
@@ -358,6 +356,8 @@ enum SessionLifecycle {
         let branch: String?
     }
 
+    // A session that could not be made leaves nothing behind: the worktrees made for it
+    // go too, newest first, and a cleanup that fails is said alongside the reason.
     private static func creationFailure(
         _ message: String,
         title: String = "Could not create the session",
@@ -375,13 +375,5 @@ enum SessionLifecycle {
             ? message
             : message + " Cleanup also failed: " + cleanupFailures.joined(separator: " ")
         return .failure(Failure(title: title, message: detail))
-    }
-
-    private static func cleanupMessage(
-        _ message: String,
-        cleanup: Result<Void, GitWorktree.Failure>
-    ) -> String {
-        guard case .failure(let failure) = cleanup else { return message }
-        return message + " Cleanup also failed: " + failure.message
     }
 }

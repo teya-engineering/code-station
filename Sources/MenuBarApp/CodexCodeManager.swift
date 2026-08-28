@@ -27,12 +27,14 @@ final class CodexCodeManager {
         var errorDescription: String? { message }
     }
 
+    private let registrar = CLIRegistrar(command: "codex",
+                                         notFoundMessage: "Codex CLI not found on PATH.")
     private(set) var entries: [String: Entry] = [:]
-    private(set) var busy: Set<String> = []
-    private(set) var bulkBusy = false
     private(set) var isRefreshing = false
-    private(set) var errors: [String: String] = [:]
     let available: Bool
+
+    var bulkBusy: Bool { registrar.bulkBusy }
+    var errors: [String: String] { registrar.errors }
 
     private var knownServers: [String: Server] = [:]
     private var refreshID = UUID()
@@ -42,7 +44,7 @@ final class CodexCodeManager {
     }
 
     func isRegistered(_ name: String) -> Bool { entries[name] != nil }
-    func isBusy(_ name: String) -> Bool { busy.contains(name) }
+    func isBusy(_ name: String) -> Bool { registrar.isBusy(name) }
 
     func supports(_ server: Server) -> Bool {
         if server.isRemote {
@@ -67,6 +69,8 @@ final class CodexCodeManager {
 
     // Codex exposes its server names and each registered server as JSON, which avoids
     // needing to parse its TOML file and keeps this compatible with config format changes.
+    // A refresh started while another is still asking the CLI wins: the older one stops
+    // at its next step and leaves the entries to the newer one.
     func refresh(_ servers: [Server]) {
         knownServers = Dictionary(uniqueKeysWithValues: servers.map { ($0.name, $0) })
         let id = UUID()
@@ -77,7 +81,22 @@ final class CodexCodeManager {
             isRefreshing = false
             return
         }
-        refreshServerNames(codexPath, fallbackNames: servers.map(\.name), refreshID: id)
+        let fallbackNames = servers.map(\.name)
+        Task {
+            let listed = await Self.output(codexPath, ["mcp", "list", "--json"])
+            let names = listed.flatMap { Self.serverNames(in: Data($0.utf8)) } ?? fallbackNames
+            var found: [String: Entry] = [:]
+            for name in names {
+                guard refreshID == id else { return }
+                if let output = await Self.output(codexPath, ["mcp", "get", name, "--json"]),
+                   let entry = Entry(json: output) {
+                    found[name] = entry
+                }
+            }
+            guard refreshID == id else { return }
+            entries = found
+            isRefreshing = false
+        }
     }
 
     func addCommand(for server: Server) -> String? {
@@ -87,7 +106,7 @@ final class CodexCodeManager {
 
     func add(_ server: Server) {
         guard let args = Self.addArguments(for: server, executable: resolvedCommand(server)) else {
-            errors[server.name] = unsupportedMessage(server)
+            registrar.errors[server.name] = unsupportedMessage(server)
             return
         }
         knownServers[server.name] = server
@@ -101,7 +120,7 @@ final class CodexCodeManager {
     // Remove then add so a changed command, URL or token replaces the old registration.
     func reregister(_ server: Server) {
         guard let args = Self.addArguments(for: server, executable: resolvedCommand(server)) else {
-            errors[server.name] = unsupportedMessage(server)
+            registrar.errors[server.name] = unsupportedMessage(server)
             return
         }
         knownServers[server.name] = server
@@ -129,52 +148,27 @@ final class CodexCodeManager {
         guard let codexPath = ProcessManager.resolve("codex") else {
             throw DiscoveryFailure(message: "Codex CLI not found on PATH.")
         }
-        let searchPath = ProcessManager.searchPath
-
-        return try await Task.detached {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: codexPath)
-            process.currentDirectoryURL = URL(fileURLWithPath: directory)
-            process.arguments = ["mcp", "list", "--json"]
-            var environment = ProcessInfo.processInfo.environment
-            environment["PATH"] = searchPath
-            process.environment = environment
-
-            let output = Pipe()
-            let errors = Pipe()
-            CommandRunner.closeOnExec(output, errors)
-            process.standardOutput = output
-            process.standardError = errors
-            let outputReader = Task.detached {
-                output.fileHandleForReading.readDataToEndOfFile()
-            }
-            let errorReader = Task.detached {
-                errors.fileHandleForReading.readDataToEndOfFile()
-            }
-
-            do {
-                try process.run()
-            } catch {
-                output.fileHandleForWriting.closeFile()
-                errors.fileHandleForWriting.closeFile()
-                throw DiscoveryFailure(message: "Could not start Codex: \(error.localizedDescription)")
-            }
-            process.waitUntilExit()
-            let data = await outputReader.value
-            let errorData = await errorReader.value
-
-            guard process.terminationStatus == 0 else {
-                let message = String(decoding: errorData, as: UTF8.self)
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                throw DiscoveryFailure(message: message.isEmpty
-                    ? "Codex could not list its MCP servers."
-                    : message)
-            }
-            guard let servers = try? JSONDecoder().decode([ListedServer].self, from: data) else {
-                throw DiscoveryFailure(message: "Codex returned an unreadable MCP server list.")
-            }
-            return servers.filter(\.enabled).map(\.name)
-        }.value
+        let result: CommandRunner.Output
+        do {
+            result = try await CommandRunner.run(executable: codexPath,
+                                                 arguments: ["mcp", "list", "--json"],
+                                                 currentDirectory: URL(fileURLWithPath: directory),
+                                                 environment: CLIRegistrar.environment,
+                                                 timeout: .seconds(30))
+        } catch {
+            throw DiscoveryFailure(message: "Could not run Codex: \(error.localizedDescription)")
+        }
+        guard result.succeeded else {
+            let message = result.errorOutput.trimmed
+            throw DiscoveryFailure(message: message.isEmpty
+                ? "Codex could not list its MCP servers."
+                : message)
+        }
+        guard let servers = try? JSONDecoder().decode([ListedServer].self,
+                                                      from: Data(result.output.utf8)) else {
+            throw DiscoveryFailure(message: "Codex returned an unreadable MCP server list.")
+        }
+        return servers.filter(\.enabled).map(\.name)
     }
 
     // Kept separate from process handling so the supported Codex CLI forms stay easy
@@ -202,6 +196,16 @@ final class CodexCodeManager {
         return servers.map(\.name).sorted()
     }
 
+    // What one `codex mcp` read printed, or nil when the CLI could not be run or said no.
+    private nonisolated static func output(_ codexPath: String, _ arguments: [String]) async -> String? {
+        guard let result = try? await CommandRunner.run(executable: codexPath,
+                                                        arguments: arguments,
+                                                        environment: CLIRegistrar.environment,
+                                                        timeout: .seconds(30)),
+              result.succeeded else { return nil }
+        return result.output
+    }
+
     private func resolvedCommand(_ server: Server) -> String? {
         guard let command = server.command, !command.isEmpty else { return nil }
         return ProcessManager.resolve(command) ?? command
@@ -223,155 +227,10 @@ final class CodexCodeManager {
         return "\"\(server.name)\" needs a command or url to register."
     }
 
-    private func refreshServerNames(_ codexPath: String, fallbackNames: [String],
-                                    refreshID: UUID) {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: codexPath)
-        process.arguments = ["mcp", "list", "--json"]
-        process.standardInput = FileHandle.nullDevice
-        var env = ProcessInfo.processInfo.environment
-        env["PATH"] = ProcessManager.searchPath
-        process.environment = env
-        let output = Pipe()
-        let errors = Pipe()
-        CommandRunner.closeOnExec(output, errors)
-        process.standardOutput = output
-        process.standardError = errors
-        let outputReader = Task.detached {
-            output.fileHandleForReading.readDataToEndOfFile()
-        }
-        let errorReader = Task.detached {
-            errors.fileHandleForReading.readDataToEndOfFile()
-        }
-
-        let manager = self
-        process.terminationHandler = { finished in
-            Task { @MainActor in
-                guard refreshID == manager.refreshID else { return }
-                let data = await outputReader.value
-                _ = await errorReader.value
-                let names = finished.terminationStatus == 0
-                    ? Self.serverNames(in: data) ?? fallbackNames
-                    : fallbackNames
-                manager.refreshEntry(codexPath, names: names, index: 0,
-                                     entries: [:], refreshID: refreshID)
-            }
-        }
-
-        do {
-            try process.run()
-        } catch {
-            output.fileHandleForWriting.closeFile()
-            errors.fileHandleForWriting.closeFile()
-            refreshEntry(codexPath, names: fallbackNames, index: 0,
-                         entries: [:], refreshID: refreshID)
-        }
-    }
-
-    private func refreshEntry(_ codexPath: String, names: [String], index: Int,
-                              entries: [String: Entry], refreshID: UUID) {
-        guard refreshID == self.refreshID else { return }
-        guard index < names.count else {
-            self.entries = entries
-            isRefreshing = false
-            return
-        }
-
-        let name = names[index]
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: codexPath)
-        process.arguments = ["mcp", "get", name, "--json"]
-        process.standardInput = FileHandle.nullDevice
-        var env = ProcessInfo.processInfo.environment
-        env["PATH"] = ProcessManager.searchPath
-        process.environment = env
-        let pipe = Pipe()
-        CommandRunner.closeOnExec(pipe)
-        process.standardOutput = pipe
-        process.standardError = pipe
-        let reader = Task.detached {
-            String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-        }
-
-        let manager = self
-        process.terminationHandler = { finished in
-            Task { @MainActor in
-                guard refreshID == manager.refreshID else { return }
-                let output = await reader.value
-                var nextEntries = entries
-                if finished.terminationStatus == 0, let entry = Entry(json: output) {
-                    nextEntries[name] = entry
-                }
-                manager.refreshEntry(codexPath, names: names, index: index + 1,
-                                     entries: nextEntries, refreshID: refreshID)
-            }
-        }
-
-        do {
-            try process.run()
-        } catch {
-            pipe.fileHandleForWriting.closeFile()
-            refreshEntry(codexPath, names: names, index: index + 1,
-                         entries: entries, refreshID: refreshID)
-        }
-    }
-
     private func runSteps(_ steps: [[String]], names: [String]) {
-        guard let codexPath = ProcessManager.resolve("codex") else {
-            for name in names { errors[name] = "Codex CLI not found on PATH." }
-            return
-        }
-        for name in names { busy.insert(name); errors[name] = nil }
-        if names.count > 1 { bulkBusy = true }
-        runStep(codexPath, steps, index: 0, names: names, failure: nil)
-    }
-
-    private func runStep(_ codexPath: String, _ steps: [[String]], index: Int,
-                         names: [String], failure: String?) {
-        guard index < steps.count else {
-            for name in names { busy.remove(name) }
-            bulkBusy = false
-            if let failure { for name in names { errors[name] = failure } }
+        registrar.run(steps, names: names) { [weak self] in
+            guard let self else { return }
             refresh(Array(knownServers.values).sorted { $0.name < $1.name })
-            return
-        }
-
-        let arguments = steps[index]
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: codexPath)
-        process.arguments = arguments
-        process.standardInput = FileHandle.nullDevice
-        var env = ProcessInfo.processInfo.environment
-        env["PATH"] = ProcessManager.searchPath
-        process.environment = env
-        let pipe = Pipe()
-        CommandRunner.closeOnExec(pipe)
-        process.standardOutput = pipe
-        process.standardError = pipe
-        let reader = Task.detached {
-            String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-        }
-
-        let manager = self
-        process.terminationHandler = { finished in
-            let code = finished.terminationStatus
-            Task { @MainActor in
-                let output = await reader.value
-                var nextFailure = failure
-                if code != 0, !arguments.contains("remove") {
-                    let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
-                    nextFailure = trimmed.isEmpty ? "Command failed (exit \(code))." : trimmed
-                }
-                manager.runStep(codexPath, steps, index: index + 1, names: names, failure: nextFailure)
-            }
-        }
-
-        do {
-            try process.run()
-        } catch {
-            pipe.fileHandleForWriting.closeFile()
-            for name in names { busy.remove(name); errors[name] = error.localizedDescription }
-            bulkBusy = false
         }
     }
 }

@@ -23,9 +23,7 @@ struct NewSessionView: View {
     // passes: what the local refs already say, then the same read again after a fetch,
     // so the sheet is honest immediately and accurate a moment later.
     @State private var freshness: GitFreshness.Report?
-    // The fetch pass is still running. Creating waits for it, so a session cannot start
-    // from an answer that was about to change, and so the warning a fetch turns up is
-    // seen before the choice is made rather than after.
+    // The fetch pass is still running, which holds the footer's button.
     @State private var fetching: Bool
     // Where the session should start when the checkout is stale. The three states are
     // shown as choices instead of making an unchecked pair of boxes mean a third answer.
@@ -35,16 +33,10 @@ struct NewSessionView: View {
     // goes quiet: a click anywhere while git works could only start the same work twice
     // or abandon it half done.
     @State private var pulling = false
-    // Leaving this unset is deliberate: the app-wide choice remains the default until
-    // this one launch says otherwise, so cancelling the sheet cannot change it.
     @State private var selectedAgent: AgentKind?
     // The filename is saved with the session so the photo and its personality stay in
     // force for every turn. The built-in Default bot is ready before settings load.
     @State private var selectedAvatarName = AgentAvatarSelection.defaultName
-
-    // Comfortably past a fetch that is merely slow, so waiting this long means something
-    // is wrong rather than busy.
-    private static let longestWait: Duration = .seconds(12)
 
     init(project: Project, onCreate: @escaping (NewSessionChoice) -> Void) {
         self.project = project
@@ -79,8 +71,7 @@ struct NewSessionView: View {
                     selectWorktree: selectWorktree,
                     selectProjectFolder: selectProjectFolder)
                     .padding(14)
-                    .background(RoundedRectangle(cornerRadius: 11).fill(Theme.card))
-                    .overlay(RoundedRectangle(cornerRadius: 11).stroke(Theme.border))
+                    .cardSurface(cornerRadius: 11)
 
                 if project.isGitRepository,
                    let report = freshness, report.isStale || (useWorktree && report.dirty) {
@@ -96,13 +87,22 @@ struct NewSessionView: View {
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 20)
-            footer
+
+            NewSessionFooter(sessionType: sessionType,
+                             sessionID: sessionID,
+                             note: footerNote,
+                             fetching: fetching,
+                             updating: pulling ? (freshness?.defaultBranch ?? "the checkout") : nil,
+                             selectedAgent: $selectedAgent,
+                             selectedAvatarName: $selectedAvatarName,
+                             create: create,
+                             dismiss: { dismiss() })
         }
         .frame(width: 560)
         .background(Theme.background)
         .disabled(pulling)
         .interactiveDismissDisabled(pulling)
-        .onAppear { selectInitialAvatar() }
+        .onAppear { selectedAvatarName = appSettings.defaultAgentAvatarName }
         .task {
             guard project.isGitRepository else { return }
             let local = await GitFreshness.check(at: project.path, fetch: false)
@@ -115,15 +115,6 @@ struct NewSessionView: View {
                 }
                 fetching = false
             }
-        }
-        // Only the fetch itself is bounded, and every git command in the app shares one
-        // queue, so the pass can take longer than the sheet should ever hold the button
-        // for. Past this the sheet gives up waiting rather than becoming a dead end; a
-        // report that lands afterwards is still shown.
-        .task {
-            guard project.isGitRepository else { return }
-            try? await Task.sleep(for: Self.longestWait)
-            withAnimation(.easeOut(duration: 0.2)) { fetching = false }
         }
     }
 
@@ -143,119 +134,17 @@ struct NewSessionView: View {
         .padding(20)
     }
 
-    private var footer: some View {
-        VStack(spacing: 0) {
-            Divider().overlay(Theme.hairline)
-            HStack(alignment: .top, spacing: 10) {
-                if sessionType == .troubleshoot {
-                    Text("Troubleshoot uses the project folder and opens diagnosis setup next.")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                } else if pulling {
-                    ProgressView().controlSize(.small)
-                    Text("Updating \(freshness?.defaultBranch ?? "the checkout") from origin…")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                } else if fetching {
-                    ProgressView().controlSize(.small)
-                    Text("Fetching branch information…")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text(project.isGitRepository && useWorktree
-                         ? "A worktree is removed when its session is deleted."
-                         : "Changes land straight in your project folder.")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                }
-                Spacer(minLength: 12)
-                Button { dismiss() } label: {
-                    Text("Cancel")
-                        .font(.system(size: 13, weight: .semibold))
-                        .padding(.horizontal, 18)
-                        .padding(.vertical, 7)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.card))
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
-                        .contentShape(RoundedRectangle(cornerRadius: 8))
-                        .opacity(pulling ? 0.5 : 1)
-                }
-                .buttonStyle(.plain)
-                .keyboardShortcut(.cancelAction)
-                if sessionType != .troubleshoot {
-                    SessionBotPicker(avatars: appSettings.agentAvatars,
-                                     selectedName: $selectedAvatarName,
-                                     sessionID: sessionID)
-                }
-                createButton
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 12)
-            .background(Theme.card)
+    private var footerNote: String {
+        if sessionType == .troubleshoot {
+            return "Troubleshoot uses the project folder and opens diagnosis setup next."
         }
+        return project.isGitRepository && useWorktree
+            ? "A worktree is removed when its session is deleted."
+            : "Changes land straight in your project folder."
     }
-
-    private var createButton: some View {
-        VStack(alignment: .trailing, spacing: 3) {
-            HStack(spacing: 0) {
-                Button { create() } label: {
-                    Text(sessionType == .troubleshoot ? "Continue" : "Create session")
-                        .font(.system(size: 13, weight: .semibold))
-                        .padding(.horizontal, 18)
-                        .frame(height: 32)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .keyboardShortcut(.defaultAction)
-
-                if sessionType != .troubleshoot, runner.availableAgents.count > 1 {
-                    Rectangle()
-                        .fill(.white.opacity(0.35))
-                        .frame(width: 1, height: 16)
-
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 9, weight: .bold))
-                        .frame(width: 32, height: 32)
-                        .contentShape(Rectangle())
-                        .appMenu { agentMenu() }
-                        .accessibilityLabel("Choose coding agent")
-                }
-            }
-            .foregroundStyle(.white)
-            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.accentFill))
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-            .opacity(canCreate ? 1 : 0.5)
-            .disabled(!canCreate)
-
-            Text(sessionType == .troubleshoot ? "Add the problem and evidence next." : agentNote)
-                .font(.system(size: 10.5))
-                .foregroundStyle(sessionType != .troubleshoot && chosenAgent == nil
-                                 ? Theme.deletion : .secondary)
-        }
-    }
-
-    // Nothing can start while git still has the answer in hand: before the fetch lands
-    // the sheet cannot say what the session would fork from, and a pull is still moving
-    // the checkout it would fork from.
-    private var busy: Bool { fetching || pulling }
 
     private var chosenAgent: AgentKind? {
         runner.agentForNewSession(selected: selectedAgent)
-    }
-
-    private var canCreate: Bool {
-        sessionType == .troubleshoot || (!busy && chosenAgent != nil)
-    }
-
-    private var agentNote: String {
-        guard let chosenAgent else { return "No coding agent found on PATH." }
-        if runner.availableAgents.count == 1 || selectedAgent != nil {
-            return "Will use \(chosenAgent.title)"
-        }
-        return "Uses default: \(chosenAgent.title)"
-    }
-
-    private func selectInitialAvatar() {
-        selectedAvatarName = appSettings.defaultAgentAvatarName
     }
 
     private func selectWorktree() {
@@ -273,23 +162,10 @@ struct NewSessionView: View {
         startPoint = .remote
     }
 
-    private func agentMenu() -> [MenuEntry] {
-        runner.availableAgents.map { agent in
-            .item(agent.title,
-                  checked: chosenAgent == agent,
-                  subtitle: agent == .codex
-                      ? "OpenAI's coding agent."
-                      : "Anthropic's coding agent.") {
-                selectedAgent = agent
-            }
-        }
-    }
-
     // The update the user asked for runs here, while the sheet is still up: it can take a
     // while, and a sheet that closed on the click would leave nothing saying the work is
-    // still going, or free to be started again. On failure the session is not created -
-    // the user asked to start from the latest commits, and quietly starting from stale
-    // ones instead would betray that - so the sheet stays for another try or a cancel.
+    // still going, or free to be started again. On failure the sheet stays for another
+    // try or a cancel.
     private func create() {
         guard sessionType != .troubleshoot else {
             showingTroubleshoot = true
@@ -305,28 +181,15 @@ struct NewSessionView: View {
         Task {
             if let error = await GitActions.updateCheckout(to: branch, at: project.path) {
                 pulling = false
-                showUpdateFailure(error, report: report)
+                dialogs.show(.updateFailure(error, project: project.name, report: report,
+                                            forWorktree: useWorktree) {
+                    startPoint = .remote
+                    finish()
+                })
                 return
             }
             finish()
         }
-    }
-
-    private func showUpdateFailure(_ error: String, report: GitFreshness.Report) {
-        var actions: [Dialog.Action] = []
-        if useWorktree, let remote = report.remoteRef {
-            actions.append(.init(label: "Start from \(remote)", kind: .primary) {
-                startPoint = .remote
-                finish()
-            })
-        }
-        actions.append(.init(label: actions.isEmpty ? "OK" : "Cancel", kind: .cancel))
-        dialogs.show(Dialog(
-            title: report.defaultBranchHasDiverged
-                ? "Could not rebase \(report.defaultBranch ?? "the checkout")"
-                : "Could not update \(project.name)",
-            message: error,
-            actions: actions))
     }
 
     private func finish() {
@@ -441,8 +304,8 @@ struct FreshnessNotice: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
-        .background(RoundedRectangle(cornerRadius: 11).fill(Theme.attention.opacity(0.08)))
-        .overlay(RoundedRectangle(cornerRadius: 11).stroke(Theme.attention.opacity(0.3)))
+        .surface(Theme.attention.opacity(0.08), cornerRadius: 11,
+                 border: Theme.attention.opacity(0.3))
     }
 
     private func choice(_ value: SessionStartPoint, title: String, detail: String) -> some View {
@@ -484,7 +347,7 @@ struct FreshnessNotice: View {
 
     private var updateDetail: String {
         if report.defaultBranchHasDiverged {
-            return "Keeps \(commitCount(report.defaultBranchAhead, name: "local commit")) and includes \(commitCount(report.defaultBranchBehind, name: "remote commit"))."
+            return "Keeps \(counted(report.defaultBranchAhead, "local commit")) and includes \(counted(report.defaultBranchBehind, "remote commit"))."
         }
         return "Changes the project folder before the session is created."
     }
@@ -494,7 +357,7 @@ struct FreshnessNotice: View {
             return "Leaves the project folder unchanged."
         }
         if report.defaultBranchAhead > 0 {
-            return "Leaves \(branch) and \(commitCount(report.defaultBranchAhead, name: "local commit")) unchanged."
+            return "Leaves \(branch) and \(counted(report.defaultBranchAhead, "local commit")) unchanged."
         }
         return "Leaves \(branch) and its local commits unchanged."
     }
@@ -507,11 +370,7 @@ struct FreshnessNotice: View {
         guard report.behind > 0, let remote = report.remoteRef ?? report.defaultBranch else {
             return "Does not change the project folder."
         }
-        return "Does not include \(commitCount(report.behind, name: "commit")) from \(remote)."
-    }
-
-    private func commitCount(_ count: Int, name: String) -> String {
-        "\(count) \(name)\(count == 1 ? "" : "s")"
+        return "Does not include \(counted(report.behind, "commit")) from \(remote)."
     }
 
     // The trouble as one or two sentences: the wrong branch, the missing commits, and
@@ -526,7 +385,7 @@ struct FreshnessNotice: View {
             sentences.append(divergence)
         } else if report.behind > 0, let target = report.remoteRef ?? report.defaultBranch {
             let subject = sentences.isEmpty ? (report.currentBranch ?? "The checkout") : "It"
-            sentences.append("\(subject) is \(report.behind) commit\(report.behind == 1 ? "" : "s") behind \(target).")
+            sentences.append("\(subject) is \(counted(report.behind, "commit")) behind \(target).")
         }
         if report.fetchAttempted && !report.fetched {
             sentences.append(report.lastFetch.map {

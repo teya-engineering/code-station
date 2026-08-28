@@ -202,13 +202,7 @@ enum GitWorktree {
     private static func worktreeAdd(_ tool: GitInspector.GitTool,
                                     _ arguments: [String]) -> Result<Void, Failure> {
         let result = GitInspector.run(tool, arguments)
-        guard result.ok else {
-            let stderr = result.errorText.trimmingCharacters(in: .whitespacesAndNewlines)
-            return .failure(Failure(message: stderr.isEmpty
-                ? "git worktree add exited with code \(result.status)."
-                : stderr))
-        }
-        return .success(())
+        return result.ok ? .success(()) : .failure(Failure(message: result.failureMessage))
     }
 
     // Where a rebuilt checkout would get its commits. Read before anything is changed so a
@@ -245,7 +239,7 @@ enum GitWorktree {
                                              "--format=%(refname)", "refs/remotes/*/" + branch])
         let refs = listed.text
             .components(separatedBy: "\n")
-            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .map(\.trimmed)
             .filter { !$0.isEmpty }
         // Origin wins when several remotes carry the name, rather than whichever git listed
         // first. Naming the ref also keeps git from guessing, which it gives up on in
@@ -382,7 +376,7 @@ enum GitHead {
     private static func read(_ path: String) -> String? {
         guard let head = try? String(contentsOfFile: path + "/.git/HEAD", encoding: .utf8) else { return nil }
         let reference = "ref: refs/heads/"
-        let line = head.trimmingCharacters(in: .whitespacesAndNewlines)
+        let line = head.trimmed
         guard line.hasPrefix(reference) else { return nil }
         return String(line.dropFirst(reference.count))
     }

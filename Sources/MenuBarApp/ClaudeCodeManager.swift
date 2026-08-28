@@ -18,11 +18,13 @@ final class ClaudeCodeManager {
     }
 
     private let configURL: URL
+    private let registrar = CLIRegistrar(command: "claude",
+                                         notFoundMessage: "Claude Code CLI not found on PATH.")
     private(set) var entries: [String: Entry] = [:]
-    private(set) var busy: Set<String> = []
-    private(set) var bulkBusy = false
-    private(set) var errors: [String: String] = [:]
     let available: Bool
+
+    var bulkBusy: Bool { registrar.bulkBusy }
+    var errors: [String: String] { registrar.errors }
 
     init() {
         configURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude.json")
@@ -31,7 +33,7 @@ final class ClaudeCodeManager {
     }
 
     func isRegistered(_ name: String) -> Bool { entries[name] != nil }
-    func isBusy(_ name: String) -> Bool { busy.contains(name) }
+    func isBusy(_ name: String) -> Bool { registrar.isBusy(name) }
 
     // True when the server exists in Claude Code but its command, args or env differ
     // from what the app holds (for example after the token was changed here). Remote
@@ -81,7 +83,7 @@ final class ClaudeCodeManager {
 
     func add(_ server: Server) {
         guard let args = addArgs(for: server) else {
-            errors[server.name] = notFoundMessage(server)
+            registrar.errors[server.name] = notFoundMessage(server)
             return
         }
         runSteps([args], names: [server.name])
@@ -94,7 +96,7 @@ final class ClaudeCodeManager {
     // Remove then add, so a changed token or URL replaces the old registration.
     func reregister(_ server: Server) {
         guard let args = addArgs(for: server) else {
-            errors[server.name] = notFoundMessage(server)
+            registrar.errors[server.name] = notFoundMessage(server)
             return
         }
         runSteps([removeArgs(server.name), args], names: [server.name])
@@ -152,73 +154,7 @@ final class ClaudeCodeManager {
         return env
     }
 
-    // Run the `claude` binary directly, one step at a time. No login shell: it would
-    // source the user's profile, which can spawn daemons that inherit the output pipe
-    // and keep it open, hanging the read forever. Steps run in order so writes to
-    // ~/.claude.json never race.
     private func runSteps(_ steps: [[String]], names: [String]) {
-        guard let claudePath = ProcessManager.resolve("claude") else {
-            for name in names { errors[name] = "Claude Code CLI not found on PATH." }
-            return
-        }
-        for name in names { busy.insert(name); errors[name] = nil }
-        if names.count > 1 { bulkBusy = true }
-        runStep(claudePath, steps, index: 0, names: names, failure: nil)
-    }
-
-    private func runStep(_ claudePath: String, _ steps: [[String]], index: Int,
-                         names: [String], failure: String?) {
-        guard index < steps.count else {
-            for name in names { busy.remove(name) }
-            bulkBusy = false
-            if let failure { for name in names { errors[name] = failure } }
-            refresh()
-            return
-        }
-
-        let arguments = steps[index]
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: claudePath)
-        process.arguments = arguments
-        process.standardInput = FileHandle.nullDevice
-        var env = ProcessInfo.processInfo.environment
-        env["PATH"] = ProcessManager.searchPath
-        process.environment = env
-        let pipe = Pipe()
-        CommandRunner.closeOnExec(pipe)
-        process.standardOutput = pipe
-        process.standardError = pipe
-
-        // Drain the pipe while the process runs. Waiting until termination to read
-        // deadlocks on output larger than the pipe buffer: the child blocks on write
-        // and never exits.
-        let reader = Task.detached {
-            String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-        }
-
-        let manager = self
-        process.terminationHandler = { finished in
-            let code = finished.terminationStatus
-            Task { @MainActor in
-                let output = await reader.value
-                // A failing "remove" is fine (the server may not exist yet); only
-                // a failing "add" is a real error worth surfacing.
-                var nextFailure = failure
-                if code != 0, !arguments.contains("remove") {
-                    let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
-                    nextFailure = trimmed.isEmpty ? "Command failed (exit \(code))." : trimmed
-                }
-                manager.runStep(claudePath, steps, index: index + 1, names: names, failure: nextFailure)
-            }
-        }
-
-        do {
-            try process.run()
-        } catch {
-            // Nothing will ever write to the pipe, so close our end to unblock the reader.
-            pipe.fileHandleForWriting.closeFile()
-            for name in names { busy.remove(name); errors[name] = error.localizedDescription }
-            bulkBusy = false
-        }
+        registrar.run(steps, names: names) { [weak self] in self?.refresh() }
     }
 }

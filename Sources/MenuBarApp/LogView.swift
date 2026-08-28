@@ -20,10 +20,7 @@ struct LogView: View {
             header
             content
             SheetFooter(dismiss: { dismiss() }) {
-                Button("Reveal in Finder") { SessionLog.revealInFinder() }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Theme.accent)
+                InlineLink(title: "Reveal in Finder") { SessionLog.revealInFinder() }
             }
         }
         .frame(width: 760, height: 560)

@@ -150,16 +150,13 @@ struct ChangesView: View {
                 }
 
                 if mode == .changes {
-                    Text(files.isEmpty ? "no changes" : "\(files.count) file\(files.count == 1 ? "" : "s")")
+                    Text(files.isEmpty ? "no changes" : counted(files.count, "file"))
                         .font(.system(size: 13))
                         .foregroundStyle(.secondary)
 
                     if !files.isEmpty {
-                        HStack(spacing: 8) {
-                            Text("+\(snapshot.totalAdded)").foregroundStyle(Theme.addition)
-                            Text("-\(snapshot.totalRemoved)").foregroundStyle(Theme.deletion)
-                        }
-                        .font(.mono(13, .medium))
+                        DiffPair(added: snapshot.totalAdded, removed: snapshot.totalRemoved,
+                                 size: 13, spacing: 8, weight: .medium)
                     }
                 }
 
@@ -265,40 +262,21 @@ struct ChangesView: View {
     // MARK: - Commit
 
     private var commitBar: some View {
-        let blocked = busy || commitMessage.trimmingCharacters(in: .whitespaces).isEmpty
-            || selectedFiles.isEmpty
+        let blocked = busy || commitMessage.isBlank || selectedFiles.isEmpty
         return VStack(spacing: 8) {
             HStack(spacing: 10) {
                 TextField("Commit message", text: $commitMessage)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 13))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 7)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(Theme.field))
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
+                    .appTextField()
                     .focused($commitFocused)
                     .onSubmit { commit() }
 
-                Button { commit() } label: {
-                    Text(amend ? "Amend" : "Commit")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.88)))
-                        .contentShape(RoundedRectangle(cornerRadius: 8))
-                }
-                .buttonStyle(.plain)
-                .disabled(blocked)
-                .opacity(blocked ? 0.4 : 1)
+                ActionButton(title: amend ? "Amend" : "Commit", height: 30, size: 12) { commit() }
+                    .disabled(blocked)
 
-                Button("Cancel") {
+                InlineLink(title: "Cancel", tint: Color.secondary) {
                     committing = false
                     if amend { amend = false }
                 }
-                .buttonStyle(.plain)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.secondary)
             }
 
             HStack(spacing: 16) {
@@ -307,7 +285,7 @@ struct ChangesView: View {
                     set: { on in excluded = on ? [] : Set(files.map(\.id)) }
                 )) {
                     Text(excluded.isEmpty
-                         ? "All \(files.count) file\(files.count == 1 ? "" : "s") selected"
+                         ? "All \(counted(files.count, "file")) selected"
                          : "\(selectedFiles.count) of \(files.count) files selected")
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
@@ -335,7 +313,7 @@ struct ChangesView: View {
     }
 
     private func commit() {
-        let message = commitMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        let message = commitMessage.trimmed
         let chosen = selectedFiles
         guard !message.isEmpty, !busy, !chosen.isEmpty else { return }
         let everything = excluded.isEmpty
@@ -348,7 +326,7 @@ struct ChangesView: View {
                                                   amend: fold, at: repoRoot)
             working = nil
             if let error {
-                fail(fold ? "Could not amend" : "Could not commit", error)
+                dialogs.show(.notice(fold ? "Could not amend" : "Could not commit", message: error))
             } else {
                 // The message only clears once it is safely in a commit, so a failed
                 // attempt can be fixed and retried without retyping it.
@@ -370,44 +348,55 @@ struct ChangesView: View {
             if mode == .history {
                 historyContent
             } else if files.isEmpty {
-                message(icon: "checkmark.seal", title: "No uncommitted changes",
-                        detail: "The working tree matches the last commit.")
+                PaneMessage(icon: "checkmark.seal", title: "No uncommitted changes",
+                            detail: "The working tree matches the last commit.")
             } else {
-                fileList
-                if fileSelection.activeID != nil {
+                list(files, isOpen: selected != nil, row: row)
+                if let file = selected {
                     Divider().overlay(Theme.hairline)
-                    diffPane
+                    diffPane(truncationHint: "Open the file to see the rest.",
+                             reveal: { reveal(file) }) {
+                        Text(file.fileName).font(.serif(15, .semibold)).lineLimit(1)
+                        Text(file.kind.label).font(.system(size: 11)).foregroundStyle(.secondary)
+                        if fileSelection.ids.count > 1 {
+                            Text("\(fileSelection.ids.count) files selected")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 }
             }
         case .notARepo:
-            message(icon: "folder", title: "Not a git repository",
-                    detail: "This folder is not tracked by git, so there is nothing to compare against.")
+            PaneMessage(icon: "folder", title: "Not a git repository",
+                        detail: "This folder is not tracked by git, so there is nothing to compare against.")
         case .missingFolder:
-            message(icon: "questionmark.folder", title: "Folder not found",
-                    detail: root.abbreviatedPath)
+            PaneMessage(icon: "questionmark.folder", title: "Folder not found",
+                        detail: root.abbreviatedPath)
         case .gitMissing:
-            message(icon: "exclamationmark.triangle", title: "git not found",
-                    detail: "Install the command line developer tools or add git to your PATH.")
+            PaneMessage(icon: "exclamationmark.triangle", title: "git not found",
+                        detail: "Install the command line developer tools or add git to your PATH.")
         case .failed(let reason):
-            message(icon: "exclamationmark.triangle", title: "Could not read this repository",
-                    detail: reason, mono: true)
+            PaneMessage(icon: "exclamationmark.triangle", title: "Could not read this repository",
+                        detail: reason, mono: true)
         case nil:
             Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
-    private var fileList: some View {
+    // The rows above a diff, for files and for commits alike. The list fills the pane
+    // until something is open, then gives the diff the room.
+    private func list<Item: Identifiable, Row: View>(
+        _ items: [Item], isOpen: Bool, @ViewBuilder row: @escaping (Item) -> Row) -> some View {
         ScrollView {
             LazyVStack(spacing: 2) {
-                ForEach(files) { file in
-                    row(file)
+                ForEach(items) { item in
+                    row(item)
                 }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
         }
-        // Give the diff the room once a file is open, otherwise fill the pane.
-        .frame(maxHeight: fileSelection.activeID == nil ? .infinity : 260)
+        .frame(maxHeight: isOpen ? 260 : .infinity)
     }
 
     private func row(_ file: GitChange) -> some View {
@@ -455,8 +444,8 @@ struct ChangesView: View {
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
-            .background(RoundedRectangle(cornerRadius: 8).fill(isSelected ? Theme.card : .clear))
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(isSelected ? Theme.border : .clear))
+            .surface(isSelected ? Theme.card : .clear, cornerRadius: 8,
+                     border: isSelected ? Theme.border : .clear)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -465,10 +454,7 @@ struct ChangesView: View {
             [.item("Commit This File…") { beginCommit(with: file) },
              .separator,
              .item("Reveal in Finder") { reveal(file) },
-             .item("Copy Path") {
-                 NSPasteboard.general.clearContents()
-                 NSPasteboard.general.setString(fileURL(file).path, forType: .string)
-             },
+             .item("Copy Path") { Pasteboard.copy(fileURL(file).path) },
              .separator,
              .item("Discard Changes", kind: .destructive) { confirmDiscard(file) }]
         }
@@ -499,43 +485,38 @@ struct ChangesView: View {
 
     // MARK: - Diff
 
-    @ViewBuilder private var diffPane: some View {
+    // The open diff under its title row. A file and a commit differ only in what the row
+    // says, whether Finder can show the thing, and where the rest of a cut-short diff can
+    // be read.
+    private func diffPane<Title: View>(truncationHint: String, reveal: (() -> Void)? = nil,
+                                       @ViewBuilder title: () -> Title) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            if let file = selected {
-                HStack(spacing: 10) {
-                    Text(file.fileName).font(.serif(15, .semibold)).lineLimit(1)
-                    Text(file.kind.label).font(.system(size: 11)).foregroundStyle(.secondary)
-                    if fileSelection.ids.count > 1 {
-                        Text("\(fileSelection.ids.count) files selected")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    if loadingDiff { ProgressView().controlSize(.small) }
-                    Button("Reveal in Finder") { reveal(file) }
-                        .buttonStyle(.plain)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(Theme.accent)
-                    Button {
-                        closeDiff()
-                    } label: {
-                        Image(systemName: "xmark").font(.system(size: 11, weight: .semibold))
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
+            HStack(spacing: 10) {
+                title()
+                Spacer()
+                if loadingDiff { ProgressView().controlSize(.small) }
+                if let reveal {
+                    InlineLink(title: "Reveal in Finder", action: reveal)
                 }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 10)
+                Button {
+                    closeDiff()
+                } label: {
+                    Image(systemName: "xmark").font(.system(size: 11, weight: .semibold))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
             }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 10)
 
-            diffBody(truncationHint: "Open the file to see the rest.")
+            diffBody(truncationHint: truncationHint)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Theme.card)
     }
 
-    // The rendered diff below a pane header, shared by the file pane and the commit
-    // pane so both truncate and report notes the same way.
+    // The rendered diff below a pane header, so a file and a commit truncate and report
+    // notes the same way.
     @ViewBuilder private func diffBody(truncationHint: String) -> some View {
         if let note = diff?.note {
             Text(note)
@@ -563,36 +544,31 @@ struct ChangesView: View {
 
     @ViewBuilder private var historyContent: some View {
         if let historyNote {
-            message(icon: "exclamationmark.triangle", title: "Could not read the history",
-                    detail: historyNote, mono: true)
+            PaneMessage(icon: "exclamationmark.triangle", title: "Could not read the history",
+                        detail: historyNote, mono: true)
         } else if let commits {
             if commits.isEmpty {
-                message(icon: "clock", title: "No commits yet",
-                        detail: "This branch has no history to show.")
+                PaneMessage(icon: "clock", title: "No commits yet",
+                            detail: "This branch has no history to show.")
             } else {
-                historyList(commits)
-                if selectedCommit != nil {
+                list(commits, isOpen: selectedCommit != nil, row: commitRow)
+                if let commit = selectedCommit {
                     Divider().overlay(Theme.hairline)
-                    commitDiffPane
+                    diffPane(truncationHint: "Run git show in a terminal to see the rest.") {
+                        Text(commit.subject).font(.serif(15, .semibold)).lineLimit(1)
+                        Text(commit.shortHash)
+                            .font(.mono(11, .medium))
+                            .foregroundStyle(.secondary)
+                        Text("\(commit.author), \(commit.relativeDate)")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
                 }
             }
         } else {
             Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-    }
-
-    private func historyList(_ commits: [GitCommitSummary]) -> some View {
-        ScrollView {
-            LazyVStack(spacing: 2) {
-                ForEach(commits) { commit in
-                    commitRow(commit)
-                }
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-        }
-        // Give the diff the room once a commit is open, otherwise fill the pane.
-        .frame(maxHeight: selectedCommit == nil ? .infinity : 260)
     }
 
     private func commitRow(_ commit: GitCommitSummary) -> some View {
@@ -619,55 +595,14 @@ struct ChangesView: View {
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
-            .background(RoundedRectangle(cornerRadius: 8).fill(isSelected ? Theme.card : .clear))
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(isSelected ? Theme.border : .clear))
+            .surface(isSelected ? Theme.card : .clear, cornerRadius: 8,
+                     border: isSelected ? Theme.border : .clear)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .appContextMenu {
-            [.item("Copy Hash") {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(commit.hash, forType: .string)
-            }]
+            [.item("Copy Hash") { Pasteboard.copy(commit.hash) }]
         }
-    }
-
-    @ViewBuilder private var commitDiffPane: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if let commit = selectedCommit {
-                HStack(spacing: 10) {
-                    Text(commit.subject).font(.serif(15, .semibold)).lineLimit(1)
-                    Text(commit.shortHash)
-                        .font(.mono(11, .medium))
-                        .foregroundStyle(.secondary)
-                    Text("\(commit.author), \(commit.relativeDate)")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                    Spacer()
-                    if loadingDiff { ProgressView().controlSize(.small) }
-                    Button {
-                        closeDiff()
-                    } label: {
-                        Image(systemName: "xmark").font(.system(size: 11, weight: .semibold))
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
-                }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 10)
-            }
-
-            diffBody(truncationHint: "Run git show in a terminal to see the rest.")
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(Theme.card)
-    }
-
-    // MARK: - Shared pieces
-
-    private func message(icon: String, title: String, detail: String, mono: Bool = false) -> some View {
-        PaneMessage(icon: icon, title: title, detail: detail, mono: mono)
     }
 
     // MARK: - Actions
@@ -689,25 +624,21 @@ struct ChangesView: View {
     private func report(_ outcome: GitPullOutcome) {
         switch outcome {
         case .upToDate:
-            dialogs.show(Dialog(
-                title: "Already up to date",
-                message: "There were no new commits to pull from origin.",
-                actions: [.init(label: "OK", kind: .primary)]))
+            dialogs.show(.notice("Already up to date",
+                                 message: "There were no new commits to pull from origin."))
         case .updated(let commits):
             dialogs.show(pullResultDialog(commits: commits, hasStashConflict: false))
         case .updatedWithStashConflict(let commits):
             dialogs.show(pullResultDialog(commits: commits, hasStashConflict: true))
         case .failed(let error):
-            fail("Could not pull", error)
+            dialogs.show(.notice("Could not pull", message: error))
         }
     }
 
     private func pullResultDialog(commits: [GitRemoteCommit], hasStashConflict: Bool) -> Dialog {
-        let count = commits.count
+        let pulled = "Pulled \(counted(commits.count, "commit"))"
         return Dialog(
-            title: hasStashConflict
-                ? "Pulled \(count) commit\(count == 1 ? "" : "s"), with conflicts"
-                : "Pulled \(count) commit\(count == 1 ? "" : "s")",
+            title: hasStashConflict ? "\(pulled), with conflicts" : pulled,
             message: hasStashConflict
                 ? "Origin's commits are in, but your uncommitted changes could not go back on "
                     + "top of them cleanly. The files hold both versions between conflict markers, "
@@ -715,7 +646,7 @@ struct ChangesView: View {
                 : "These commits were pulled from origin.",
             content: AnyView(remoteCommitList(commits,
                                               emptyMessage: "There were no commits to show.")),
-            actions: [.init(label: "OK", kind: .primary)],
+            actions: [.init(label: "OK", kind: .cancel)],
             width: 520)
     }
 
@@ -759,7 +690,7 @@ struct ChangesView: View {
                 dialogs.show(behindDialog(behind: behind, commits: commits, upstream: upstream,
                                           hasUpstream: hasUpstream, root: root))
             case .failed(let error):
-                fail("Could not check commits to push", error)
+                dialogs.show(.notice("Could not check commits to push", message: error))
             }
         }
     }
@@ -769,7 +700,7 @@ struct ChangesView: View {
         let count = commits.count
         let title = count == 0
             ? (hasUpstream ? "Push branch?" : "Publish branch?")
-            : "Push \(count) commit\(count == 1 ? "" : "s")?"
+            : "Push \(counted(count, "commit"))?"
         let message = upstream.map {
             count == 0
                 ? "No commits are ahead of \($0)."
@@ -800,7 +731,7 @@ struct ChangesView: View {
         let mine = commits.count == 1 ? "your commit" : "your \(commits.count) commits"
         return Dialog(
             title: "Pull before pushing",
-            message: "\(target) has \(behind) commit\(behind == 1 ? "" : "s") this branch does "
+            message: "\(target) has \(counted(behind, "commit")) this branch does "
                 + "not, so origin would refuse the push. Pulling first puts \(mine) on top.",
             content: AnyView(remoteCommitList(
                 commits, emptyMessage: "There are no new commits to send.")),
@@ -823,7 +754,7 @@ struct ChangesView: View {
             let outcome = await GitActions.pull(at: root)
             if case .failed(let error) = outcome {
                 working = nil
-                fail("Could not pull", error)
+                dialogs.show(.notice("Could not pull", message: error))
                 await reload()
                 return
             }
@@ -831,7 +762,7 @@ struct ChangesView: View {
             let error = await GitActions.push(hasUpstream: hasUpstream, at: root)
             working = nil
             if let error {
-                fail("Could not push", error)
+                dialogs.show(.notice("Could not push", message: error))
             } else {
                 report(outcome)
             }
@@ -882,14 +813,9 @@ struct ChangesView: View {
             working = progress
             let error = await action()
             working = nil
-            if let error { fail(failure, error) }
+            if let error { dialogs.show(.notice(failure, message: error)) }
             await reload()
         }
-    }
-
-    private func fail(_ title: String, _ message: String) {
-        dialogs.show(Dialog(title: title, message: message,
-                            actions: [.init(label: "OK", kind: .cancel)]))
     }
 
     private func reload(fetchOrigin: Bool = false) async {
@@ -897,7 +823,7 @@ struct ChangesView: View {
         if fetchOrigin, snapshot?.state == .ready,
            let error = await GitActions.fetchOrigin(at: repoRoot) {
             guard !Task.isCancelled else { return }
-            fail("Could not refresh origin", error)
+            dialogs.show(.notice("Could not refresh origin", message: error))
         }
         let fresh = await GitInspector.snapshot(at: root, lane: .interactive)
         guard !Task.isCancelled else { return }

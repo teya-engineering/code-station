@@ -30,7 +30,7 @@ enum DesignMaterialExporter {
             .joined()
             .split(whereSeparator: \.isWhitespace)
             .joined(separator: " ")
-        let stem = String(safeName.prefix(180)).trimmingCharacters(in: .whitespacesAndNewlines)
+        let stem = String(safeName.prefix(180)).trimmed
         return "\(stem.isEmpty ? "Design materials" : stem).zip"
     }
 
@@ -70,7 +70,7 @@ enum DesignMaterialExporter {
             throw ExportError.couldNotCreateArchive(error.localizedDescription)
         }
         guard output.succeeded else {
-            let detail = output.errorOutput.trimmingCharacters(in: .whitespacesAndNewlines)
+            let detail = output.errorOutput.trimmed
             throw ExportError.couldNotCreateArchive(
                 detail.isEmpty ? "ditto exited with status \(output.status)." : detail)
         }

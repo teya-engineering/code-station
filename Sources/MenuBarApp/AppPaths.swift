@@ -223,7 +223,7 @@ enum Preferences {
                             effort: text("claudeDefaultEffort") ?? text("defaultEffort"),
                             permissionMode: store.string(forKey: "claudePermissionMode")
                                 ?? store.string(forKey: "permissionMode")
-                                ?? "acceptEdits")
+                                ?? PermissionMode.fallback.rawValue)
         case .codex:
             SessionSettings(model: text("codexDefaultModel") ?? text("defaultModel"),
                             effort: text("codexDefaultEffort") ?? text("defaultEffort"),
@@ -237,7 +237,8 @@ enum Preferences {
         case .claudeCode:
             set(settings.model, "claudeDefaultModel")
             set(settings.effort, "claudeDefaultEffort")
-            store.set(settings.permissionMode ?? "acceptEdits", forKey: "claudePermissionMode")
+            store.set(PermissionMode(stored: settings.permissionMode).rawValue,
+                      forKey: "claudePermissionMode")
         case .codex:
             set(settings.model, "codexDefaultModel")
             set(settings.effort, "codexDefaultEffort")

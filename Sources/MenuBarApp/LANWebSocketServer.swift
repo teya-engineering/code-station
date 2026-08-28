@@ -119,6 +119,7 @@ final class LANWebSocketServer: @unchecked Sendable {
         let headers: [String: String]
         let consumedBytes: Int
 
+        // Nil until the whole head has arrived, and for anything that is not a GET.
         static func parse(_ data: Data) -> Request? {
             let separator = Data("\r\n\r\n".utf8)
             guard let range = data.range(of: separator),
@@ -126,9 +127,8 @@ final class LANWebSocketServer: @unchecked Sendable {
                 return nil
             }
             let lines = text.components(separatedBy: "\r\n")
-            guard let first = lines.first else { return nil }
-            let parts = first.split(separator: " ")
-            guard parts.count >= 2, parts[0] == "GET" else { return nil }
+            guard let first = lines.first,
+                  let target = HTTPRequestLine.target(of: first[...]) else { return nil }
             let headers = Dictionary(lines.dropFirst().compactMap { line -> (String, String)? in
                 guard let colon = line.firstIndex(of: ":") else { return nil }
                 let name = line[..<colon].trimmingCharacters(in: .whitespaces).lowercased()
@@ -136,7 +136,7 @@ final class LANWebSocketServer: @unchecked Sendable {
                     .trimmingCharacters(in: .whitespaces)
                 return (name, value)
             }, uniquingKeysWith: { first, _ in first })
-            return Request(target: String(parts[1]),
+            return Request(target: target,
                            headers: headers,
                            consumedBytes: range.upperBound)
         }
@@ -147,9 +147,8 @@ final class LANWebSocketServer: @unchecked Sendable {
     private let onOpen: @Sendable (ConnectionID, String) -> Void
     private let onMessage: @Sendable (ConnectionID, String) -> Void
     private let onClose: @Sendable (ConnectionID) -> Void
-    private var listener: NWListener?
+    private let listener = HTTPListener()
     private var clients: [ConnectionID: Client] = [:]
-    private var ready: CheckedContinuation<UInt16, Error>?
 
     init(page: Data,
          onOpen: @escaping @Sendable (ConnectionID, String) -> Void,
@@ -180,9 +179,8 @@ final class LANWebSocketServer: @unchecked Sendable {
 
     func stop() {
         queue.async {
-            self.resumeReady(.failure(LANServerFailure(message: "Mobile access stopped.")))
-            self.listener?.cancel()
-            self.listener = nil
+            self.listener.answer(.failure(LANServerFailure(message: "Mobile access stopped.")))
+            self.listener.cancel()
             for id in Array(self.clients.keys) {
                 self.finish(id, sendClose: true)
             }
@@ -190,51 +188,26 @@ final class LANWebSocketServer: @unchecked Sendable {
     }
 
     private func begin(_ continuation: CheckedContinuation<UInt16, Error>) {
-        guard listener == nil else {
+        guard !listener.isListening else {
             continuation.resume(throwing: LANServerFailure(
                 message: "Mobile access is already listening."))
             return
         }
-        ready = continuation
-
+        let bound: NWListener
         do {
-            let listener = try NWListener(using: .tcp, on: .any)
-            listener.newConnectionHandler = { [weak self] connection in
-                self?.accept(connection)
-            }
-            listener.stateUpdateHandler = { [weak self, weak listener] state in
-                guard let self, let listener else { return }
-                guard self.listener === listener else { return }
-                switch state {
-                case .ready:
-                    guard let port = listener.port?.rawValue else {
-                        self.resumeReady(.failure(LANServerFailure(
-                            message: "The mobile access port could not be read.")))
-                        return
-                    }
-                    self.resumeReady(.success(port))
-                case .failed(let error):
-                    self.resumeReady(.failure(LANServerFailure(
-                        message: "Mobile access could not listen: \(error.localizedDescription)")))
-                    listener.cancel()
-                    self.listener = nil
-                default:
-                    break
-                }
-            }
-            self.listener = listener
-            listener.start(queue: queue)
+            bound = try NWListener(using: .tcp, on: .any)
         } catch {
-            ready = nil
             continuation.resume(throwing: LANServerFailure(
                 message: "Mobile access could not start: \(error.localizedDescription)"))
+            return
         }
-    }
-
-    private func resumeReady(_ result: Result<UInt16, Error>) {
-        guard let ready else { return }
-        self.ready = nil
-        ready.resume(with: result)
+        listener.expect(continuation)
+        listener.start(bound, on: queue) { [weak self] connection in
+            self?.accept(connection)
+        } failed: { [weak self] error in
+            self?.listener.answer(.failure(LANServerFailure(
+                message: "Mobile access could not listen: \(error.localizedDescription)")))
+        }
     }
 
     private func accept(_ connection: NWConnection) {
@@ -279,7 +252,7 @@ final class LANWebSocketServer: @unchecked Sendable {
             return
         }
         guard let request = Request.parse(client.requestData) else { return }
-        let path = URLComponents(string: "http://localhost\(request.target)")?.path ?? ""
+        let path = HTTPRequestLine.path(in: request.target)
 
         if path.hasPrefix("/mobile/") {
             reply(status: "200 OK", body: page, contentType: "text/html; charset=utf-8", to: client)

@@ -21,8 +21,7 @@ enum SessionRemoval {
                 case .success:
                     onSuccess?()
                 case .failure(let failure):
-                    dialogs.show(Dialog(title: failure.title, message: failure.message,
-                                        actions: [.init(label: "OK", kind: .cancel)]))
+                    dialogs.show(.notice(failure.title, message: failure.message))
                 }
             }
         })
@@ -50,7 +49,7 @@ enum SessionRemoval {
         }
         if !worktrees.isEmpty {
             consequences.append(
-                "Its \(worktrees.count) worktree\(worktrees.count == 1 ? " goes" : "s go") with it."
+                "Its \(counted(worktrees.count, "worktree")) \(worktrees.count == 1 ? "goes" : "go") with it."
                     + (dirty > 0
                        ? " \(dirty) \(dirty == 1 ? "has" : "have") uncommitted changes that will be lost."
                        : " Branches are kept if they have unmerged commits."))
@@ -63,21 +62,17 @@ enum SessionRemoval {
         } else {
             worktrees.isEmpty ? "Delete session" : "Delete session and worktrees"
         }
-        return Dialog(
-            title: "Delete \"\(session.title)\"?",
-            message: consequences.joined(separator: " "),
-            actions: [
-                .init(label: deleteLabel, kind: .destructive, handler: onConfirm),
-                .init(label: "Cancel", kind: .cancel)
-            ])
+        return .confirm("Delete \"\(session.title)\"?",
+                        message: consequences.joined(separator: " "),
+                        action: deleteLabel, handler: onConfirm)
     }
 
     // Removes each session, keeping going after one refuses so that a single session still
     // running does not strand the rest. One failure speaks for itself; several are worth
     // naming as a group before the reasons, so the count is not something the reader has
-    // to work out.
+    // to work out. The group is named by the caller, since a task's sessions are its runs.
     static func run(_ sessions: [ChatSession], in store: ProjectStore, runner: SessionRunner,
-                    worktrees: WorktreeOperations = .live) async
+                    worktrees: WorktreeOperations = .live, groupNoun: String = "sessions") async
         -> Result<Void, SessionLifecycle.Failure> {
         var failures: [SessionLifecycle.Failure] = []
         for session in sessions {
@@ -88,7 +83,7 @@ enum SessionRemoval {
         }
         guard failures.isEmpty else {
             return .failure(SessionLifecycle.Failure(
-                title: failures.count == 1 ? failures[0].title : "Could not delete some sessions",
+                title: failures.count == 1 ? failures[0].title : "Could not delete some \(groupNoun)",
                 message: failures.map(\.message).joined(separator: "\n")))
         }
         return .success(())

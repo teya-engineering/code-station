@@ -80,13 +80,10 @@ enum OldSessionSweep {
             guard stillStale(session) else { continue }
             var cost: SessionRemovalCost?
             if !policy.includesSavedWork {
-                let worktreePaths = store.checkoutProjects(for: session)
-                    .compactMap(\.worktreePath)
-                let worktree = await SessionCost.settledOutcome(worktrees: worktreePaths,
-                                                                inspect: inspect)
-                let settled = SessionRemovalCost(
-                    worktree: worktree,
-                    deletesDesignArtifacts: store.hasDesignArtifacts(for: session))
+                let settled = await SessionCost.settledCost(
+                    worktrees: store.checkoutProjects(for: session).compactMap(\.worktreePath),
+                    deletesDesignArtifacts: store.hasDesignArtifacts(for: session),
+                    inspect: inspect)
                 guard settled.losesNothing else { continue }
                 cost = settled
             }

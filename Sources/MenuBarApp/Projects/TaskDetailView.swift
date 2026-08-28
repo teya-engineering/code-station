@@ -120,10 +120,10 @@ struct TaskDetailView: View {
             StatusRule()
 
             HStack(spacing: 7) {
-                StatusCaps(text: "\(runs.count) RUN\(runs.count == 1 ? "" : "S")")
+                StatusCaps(text: counted(runs.count, "run").uppercased())
                 if !inputs.isEmpty {
                     StatusDot()
-                    StatusCaps(text: "\(inputs.count) INPUT\(inputs.count == 1 ? "" : "S")")
+                    StatusCaps(text: counted(inputs.count, "input").uppercased())
                 }
             }
 
@@ -147,8 +147,7 @@ struct TaskDetailView: View {
         return Button { store.selectSession(session.id) } label: {
             HStack(spacing: 7) {
                 StateLight(tone: tone, size: 6)
-                StatusCaps(text: tone.word,
-                           tint: tone == .idle ? Color.secondary : tone.colour)
+                StatusCaps(text: tone.word, tint: tone.colour)
                 StatusDot()
                 StatusValue(text: RelativeTime.short(session.lastActivity))
             }
@@ -197,7 +196,9 @@ struct TaskDetailView: View {
         VStack(alignment: .leading, spacing: 13) {
             SectionRule(title: "PROMPT") { EmptyView() }
 
-            TaskPromptEditor(prompt: $prompt, minHeight: 110)
+            AppTextEditor(text: $prompt,
+                          placeholder: "What should the agent do on every run?",
+                          minHeight: 110)
 
             Text("Anything in double braces is a hole the run fills in: write {{ticket}} and every run asks for a ticket before it starts.")
                 .font(.system(size: 12))
@@ -210,8 +211,7 @@ struct TaskDetailView: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.border))
+        .cardSurface(cornerRadius: 12)
     }
 
     private func runList(_ task: Project, runs: [ChatSession], inputs: [TaskInput]) -> some View {
@@ -294,7 +294,6 @@ struct TaskDetailView: View {
                 run(task)
             }
             .disabled(!runReady(task))
-            .opacity(runReady(task) ? 1 : 0.45)
             .appTooltip(runBusy(task)
                 ? "A run is still working in this folder."
                 : TaskRun.needsInput(task)
@@ -398,11 +397,11 @@ struct TaskDetailView: View {
         let defaults = runner.defaults(for: agent)
         return RunChoice(
             badge: "ASKS",
-            label: PermissionMode.shortTitle(of: override ?? defaults.permissionMode),
+            label: PermissionMode(stored: override ?? defaults.permissionMode).shortTitle,
             overridden: override != nil,
             help: "How much the agent asks before it acts.",
-            defaultTitle: defaultTitle(PermissionMode.shortTitle(of: defaults.permissionMode)),
-            options: PermissionMode.all.map { (id: $0.mode, title: $0.title) },
+            defaultTitle: defaultTitle(PermissionMode(stored: defaults.permissionMode).shortTitle),
+            options: PermissionMode.allCases.map { (id: $0.rawValue, title: $0.title) },
             selection: Binding(get: { override },
                                set: { mode in
                                    changeSpec(task) { $0.permissionMode = mode }
@@ -544,10 +543,7 @@ struct TaskDetailView: View {
         if case .failure(let failure) = TaskRun.run(
             task, values: values, note: note, store: store, runner: runner,
             agentAvatarName: appSettings.defaultAgentAvatarName) {
-            dialogs.show(Dialog(
-                title: "Could not run the task",
-                message: failure.message,
-                actions: [.init(label: "OK", kind: .cancel)]))
+            dialogs.show(.notice("Could not run the task", message: failure.message))
         }
     }
 
@@ -568,21 +564,12 @@ struct TaskDetailView: View {
     // banner names the way out rather than leaving a dead task in the list, and the
     // sentence offers the button rather than the button arriving unannounced.
     private func missingFolder(_ task: Project) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "exclamationmark.triangle.fill")
-            Text("Folder not found at \(task.collapsedPath). The task cannot run without it. Delete the task to clear it out.")
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 8)
+        WarningStrip("Folder not found at \(task.collapsedPath). The task cannot run without it. Delete the task to clear it out.") {
             ActionButton(title: "Delete task", tone: .outlined, height: 28, size: 11.5) {
                 ProjectRemoval.confirm(task, in: store, runner: runner, shortcuts: shortcuts,
-                               dialogs: dialogs)
+                                       dialogs: dialogs)
             }
             .fixedSize()
         }
-        .font(.system(size: 12, weight: .medium))
-        .foregroundStyle(Theme.warningText)
-        .padding(.horizontal, 24)
-        .padding(.vertical, 10)
-        .background(Theme.warningBackground)
     }
 }

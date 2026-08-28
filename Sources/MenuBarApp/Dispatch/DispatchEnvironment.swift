@@ -21,8 +21,6 @@ struct ApiEnvironment: Identifiable, Hashable, Sendable {
     }
 
     var id: String { name }
-    var rawValue: String { name }
-    var envValue: String { name }
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.name == rhs.name
@@ -46,4 +44,64 @@ struct ApiEnvironment: Identifiable, Hashable, Sendable {
 
     // The brighter accent for the rail, the dots and the resolved {{env}} segment.
     var brightAccent: Color { isDangerous ? Theme.deletion : Theme.addition }
+
+    // The pill tone that wears the same fill, for the buttons that act in this environment.
+    var buttonTone: ButtonTone { isDangerous ? .danger : .green }
+}
+
+// The row that picks an environment: one pill per configured environment, the chosen
+// one filled in its own colour. Dispatch's header and the Environments sheet both pick
+// with it, so a switch reads the same wherever it is made.
+struct EnvironmentPills: View {
+    let environments: [ApiEnvironment]
+    let selected: ApiEnvironment
+    // The Environments sheet also shows what {{env}} resolves to, beside a label that
+    // differs from it.
+    var showsNames = false
+    let choose: (ApiEnvironment) -> Void
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 2) {
+                ForEach(environments) { env in
+                    EnvironmentPill(env: env, selected: env == selected, showsName: showsNames) {
+                        choose(env)
+                    }
+                }
+            }
+            .padding(3)
+        }
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color.black.opacity(0.05)))
+    }
+}
+
+private struct EnvironmentPill: View {
+    let env: ApiEnvironment
+    let selected: Bool
+    let showsName: Bool
+    let action: () -> Void
+
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Text(env.label)
+                    .font(.system(size: 12, weight: .semibold))
+                if showsName, env.label != env.name {
+                    Text(env.name)
+                        .font(.mono(10, .medium))
+                        .opacity(0.72)
+                }
+            }
+            .foregroundStyle(selected ? Color.white : Color.secondary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(RoundedRectangle(cornerRadius: 8)
+                .fill(selected ? env.accentFill : (hovering ? Theme.field : .clear)))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+    }
 }

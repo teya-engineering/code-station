@@ -23,8 +23,7 @@ struct MarkdownBlock: Identifiable, Equatable {
         var paragraph: [String] = []
 
         func flushParagraph() {
-            let joined = paragraph.joined(separator: "\n")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let joined = paragraph.joined(separator: "\n").trimmed
             paragraph = []
             if !joined.isEmpty { kinds.append(.paragraph(joined)) }
         }
@@ -751,7 +750,7 @@ struct MarkdownBlockView: View, Equatable {
                 ForEach(Array(parts.enumerated()), id: \.offset) { _, part in
                     switch part {
                     case .text(let piece):
-                        let trimmed = piece.trimmingCharacters(in: .whitespacesAndNewlines)
+                        let trimmed = piece.trimmed
                         if !trimmed.isEmpty { paragraphText(trimmed) }
                     case .image(let alt, let url):
                         InlineImageView(url: url, label: alt.isEmpty ? nil : alt)
@@ -800,27 +799,62 @@ struct MarkdownBlockView: View, Equatable {
     }
 }
 
-// A complete Markdown page shared by chat and file previews. Fenced code is separated
-// before block parsing because the prose parser deliberately handles prose only.
+// Markdown drawn as a page. Fenced code is split out first, since the block parser
+// deliberately handles prose only, and everything between the fences is parsed into
+// blocks. The transcript and the file preview both draw with this, and differ only in
+// what they hang on a code block and whether a long page is built as it scrolls.
+struct MarkdownProse<Code: View>: View {
+    let text: String
+    let projectPath: String
+    let textScale: CGFloat
+    var lazy = false
+    let codeBlock: (MessageSegment) -> Code
+
+    init(text: String, projectPath: String, textScale: CGFloat, lazy: Bool = false,
+         @ViewBuilder codeBlock: @escaping (MessageSegment) -> Code) {
+        self.text = text
+        self.projectPath = projectPath
+        self.textScale = textScale
+        self.lazy = lazy
+        self.codeBlock = codeBlock
+    }
+
+    var body: some View {
+        if lazy {
+            LazyVStack(alignment: .leading, spacing: 12) { blocks }
+        } else {
+            VStack(alignment: .leading, spacing: 12) { blocks }
+        }
+    }
+
+    private var blocks: some View {
+        ForEach(MessageSegment.split(text)) { segment in
+            if segment.isCode {
+                codeBlock(segment)
+                    .transition(.fadeIn)
+            } else {
+                ForEach(MarkdownBlock.parse(segment.text)) { block in
+                    MarkdownBlockView(block: block,
+                                      projectPath: projectPath,
+                                      textScale: textScale)
+                        .equatable()
+                        .transition(.fadeIn)
+                }
+            }
+        }
+    }
+}
+
+// A whole file rendered for the preview pane. Built lazily, since a document can run to
+// far more blocks than a message and only the part on screen needs drawing.
 struct MarkdownDocumentView: View, Equatable {
     let text: String
     let basePath: String
     let textScale: CGFloat
 
     var body: some View {
-        LazyVStack(alignment: .leading, spacing: 12) {
-            ForEach(MessageSegment.split(text)) { segment in
-                if segment.isCode {
-                    MarkdownCodeBlock(segment: segment)
-                } else {
-                    ForEach(MarkdownBlock.parse(segment.text)) { block in
-                        MarkdownBlockView(block: block,
-                                          projectPath: basePath,
-                                          textScale: textScale)
-                            .equatable()
-                    }
-                }
-            }
+        MarkdownProse(text: text, projectPath: basePath, textScale: textScale, lazy: true) {
+            MarkdownCodeBlock(segment: $0)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -846,8 +880,7 @@ struct MarkdownCodeBlock: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.field))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
+        .fieldSurface(cornerRadius: 10)
     }
 }
 
@@ -873,9 +906,8 @@ private struct MarkdownTableView: View {
                 }
             }
         }
-        .background(Theme.card)
         .clipShape(RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
+        .cardSurface(cornerRadius: 8)
     }
 
     // Every cell stretches, so columns share the width evenly and long cells wrap

@@ -43,91 +43,63 @@ struct ShortcutEditorView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            Text(editing ? "Edit shortcut" : "Add shortcut")
-                .font(.serif(24, .semibold))
+        VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 20) {
+                Text(editing ? "Edit shortcut" : "Add shortcut")
+                    .font(.serif(24, .semibold))
 
-            VStack(alignment: .leading, spacing: 8) {
-                SectionLabel("NAME")
-                TextField("Local service", text: $name)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 13))
+                VStack(alignment: .leading, spacing: 8) {
+                    SectionLabel("NAME")
+                    TextField("Local service", text: $name)
+                        .appTextField(cornerRadius: 9)
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    SectionLabel("COMMAND")
+                    TextEditor(text: $command)
+                        .font(.mono(12))
+                        .scrollContentBackground(.hidden)
+                        .padding(7)
+                        .frame(height: 140)
+                        .fieldSurface(cornerRadius: 9)
+
+                    Toggle(isOn: $availableInAllProjects) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Available in all projects")
+                                .font(.system(size: 12, weight: .semibold))
+                            Text(availabilityDetail)
+                                .font(.system(size: 10.5))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .toggleStyle(.appCheckbox)
                     .padding(.horizontal, 11)
                     .padding(.vertical, 9)
-                    .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
-                    .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
-            }
+                    .cardSurface(cornerRadius: 9)
 
-            VStack(alignment: .leading, spacing: 8) {
-                SectionLabel("COMMAND")
-                TextEditor(text: $command)
-                    .font(.mono(12))
-                    .scrollContentBackground(.hidden)
-                    .padding(7)
-                    .frame(height: 140)
-                    .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
-                    .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
-
-                Toggle(isOn: $availableInAllProjects) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Available in all projects")
-                            .font(.system(size: 12, weight: .semibold))
-                        Text(availabilityDetail)
-                            .font(.system(size: 10.5))
-                            .foregroundStyle(.secondary)
-                    }
+                    Text(runsIn)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                .toggleStyle(.appCheckbox)
-                .padding(.horizontal, 11)
-                .padding(.vertical, 9)
-                .background(RoundedRectangle(cornerRadius: 9).fill(Theme.card))
-                .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
-
-                Text(runsIn)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
             }
+            .padding(28)
 
-            HStack(spacing: 10) {
-                Spacer()
-                Button { dismiss() } label: {
-                    Text("Cancel")
-                        .font(.system(size: 13, weight: .semibold))
-                        .padding(.horizontal, 18)
-                        .padding(.vertical, 7)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.card))
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
-                        .contentShape(RoundedRectangle(cornerRadius: 8))
-                }
-                .buttonStyle(.plain)
-                .keyboardShortcut(.cancelAction)
-
-                Button {
-                    onSave(CommandShortcut(id: id, name: trimmedName,
-                                           command: trimmedCommand,
-                                           projectID: availableInAllProjects
-                                               ? nil : projectIDWhenPrivate,
-                                           availableInAllProjects: availableInAllProjects))
-                    dismiss()
-                } label: {
-                    Text(editing ? "Save" : "Add")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 18)
-                        .padding(.vertical, 7)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.accentFill))
-                        .contentShape(RoundedRectangle(cornerRadius: 8))
-                }
-                .buttonStyle(.plain)
-                .keyboardShortcut(.defaultAction)
-                .disabled(!canSave)
-                .opacity(canSave ? 1 : 0.4)
-            }
+            SheetFooter(primary: SheetAction(title: editing ? "Save" : "Add",
+                                             enabled: !name.isBlank && !command.isBlank,
+                                             shortcut: .defaultAction, action: save),
+                        dismiss: { dismiss() })
         }
-        .padding(28)
         .frame(width: 520)
         .background(Theme.background)
+    }
+
+    private func save() {
+        onSave(CommandShortcut(id: id, name: name.trimmed,
+                               command: command.trimmed,
+                               projectID: availableInAllProjects ? nil : projectIDWhenPrivate,
+                               availableInAllProjects: availableInAllProjects))
+        dismiss()
     }
 
     private var availabilityDetail: String {
@@ -150,17 +122,5 @@ struct ShortcutEditorView: View {
             "your home folder"
         }
         return "Runs with zsh in \(place). Output is captured, so the run can report how it ended."
-    }
-
-    private var trimmedName: String {
-        name.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private var trimmedCommand: String {
-        command.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private var canSave: Bool {
-        !trimmedName.isEmpty && !trimmedCommand.isEmpty
     }
 }

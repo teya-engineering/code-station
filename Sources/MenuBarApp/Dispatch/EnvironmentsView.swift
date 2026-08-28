@@ -30,12 +30,8 @@ struct EnvironmentsView: View {
                     grantRow
 
                     if config.wrappedValue.grant.usesBrowser {
-                        CaptionedField(caption: "AUTH URL",
-                                       placeholder: "https://id.example/oauth/authorize",
-                                       text: config.authURL)
-                        CaptionedField(caption: "CALLBACK URL",
-                                       placeholder: "http://127.0.0.1:8234/callback",
-                                       text: config.callbackURL)
+                        field("AUTH URL", "https://id.example/oauth/authorize", config.authURL)
+                        field("CALLBACK URL", "http://127.0.0.1:8234/callback", config.callbackURL)
                         Text(config.wrappedValue.usesLoopback
                              ? "The browser is sent back here when you sign in, so the identity provider has to allow this exact URL for the client. If it refuses, put the callback it does allow here instead and paste the code back by hand."
                              : "This callback is not on your machine, so the browser cannot hand the code back on its own. Sign in, then paste the address the browser ends on.")
@@ -44,29 +40,19 @@ struct EnvironmentsView: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
 
-                    CaptionedField(caption: "ACCESS TOKEN URL",
-                                   placeholder: "https://id.example/oauth/token",
-                                   text: config.tokenURL)
-                    CaptionedField(caption: "CLIENT ID",
-                                   placeholder: "client id",
-                                   text: config.clientID)
-                    CaptionedField(caption: "CLIENT SECRET",
-                                   placeholder: "kept in the Keychain, empty for a public client",
-                                   text: config.clientSecret,
-                                   accent: shown.accent,
-                                   secret: true)
-                    CaptionedField(caption: "SCOPE",
-                                   placeholder: "space separated",
-                                   text: config.scope)
+                    field("ACCESS TOKEN URL", "https://id.example/oauth/token", config.tokenURL)
+                    field("CLIENT ID", "client id", config.clientID)
+                    LabeledField("CLIENT SECRET") {
+                        SecretField(placeholder: "kept in the Keychain, empty for a public client",
+                                    text: config.clientSecret,
+                                    accent: shown.accent)
+                    }
+                    field("SCOPE", "space separated", config.scope)
                     if config.wrappedValue.grant.usesBrowser {
-                        CaptionedField(caption: "STATE",
-                                       placeholder: "generated when left blank",
-                                       text: config.state)
+                        field("STATE", "generated when left blank", config.state)
                     }
 
-                    CaptionedField(caption: "HEADER PREFIX",
-                                   placeholder: "Bearer",
-                                   text: config.headerPrefix)
+                    field("HEADER PREFIX", "Bearer", config.headerPrefix)
                         .frame(width: 220)
 
                     OptionMenu(caption: "CLIENT AUTHENTICATION",
@@ -107,6 +93,14 @@ struct EnvironmentsView: View {
         .background(Theme.background)
     }
 
+    private func field(_ label: String, _ placeholder: String,
+                       _ text: Binding<String>) -> some View {
+        LabeledField(label) {
+            TextField(placeholder, text: text)
+                .appTextField(size: 11)
+        }
+    }
+
     private var config: Binding<OAuthConfig> {
         let env = shown
         return Binding(
@@ -143,36 +137,10 @@ struct EnvironmentsView: View {
     }
 
     private var tabs: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                ForEach(auth.environments) { env in
-                    Button {
-                        selected = env
-                    } label: {
-                        HStack(spacing: 6) {
-                            Text(env.label)
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(env == shown ? Color.white : Color.primary)
-                            if env.label != env.name {
-                                Text(env.name)
-                                    .font(.mono(10, .medium))
-                                    .foregroundStyle(env == shown
-                                                     ? Color.white.opacity(0.72)
-                                                     : Color.secondary)
-                            }
-                        }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .background(RoundedRectangle(cornerRadius: 9)
-                            .fill(env == shown ? env.accentFill : Theme.field))
-                        .overlay(RoundedRectangle(cornerRadius: 9)
-                            .stroke(env == shown ? .clear : Theme.border))
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
+        EnvironmentPills(environments: auth.environments, selected: shown, showsNames: true) {
+            selected = $0
         }
+        .fixedSize(horizontal: true, vertical: false)
     }
 
     private var envRow: some View {
@@ -183,7 +151,7 @@ struct EnvironmentsView: View {
             Text("resolves to")
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
-            Text(shown.envValue)
+            Text(shown.name)
                 .font(.mono(12, .bold))
                 .foregroundStyle(shown.accent)
             Spacer()
@@ -192,8 +160,7 @@ struct EnvironmentsView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .background(RoundedRectangle(cornerRadius: 9).fill(shown.brightAccent.opacity(0.10)))
-        .overlay(RoundedRectangle(cornerRadius: 9).stroke(shown.accent.opacity(0.22)))
+        .surface(shown.brightAccent.opacity(0.10), cornerRadius: 9, border: shown.accent.opacity(0.22))
     }
 
     private var grantRow: some View {
@@ -241,10 +208,7 @@ struct EnvironmentTokenControls: View {
                 .font(.system(size: 12, weight: .medium))
 
             if auth.tokens[env] != nil, !auth.busy.contains(env) {
-                Button("Clear") { auth.clearToken(for: env) }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.secondary)
+                InlineLink(title: "Clear", size: 11, tint: .secondary) { auth.clearToken(for: env) }
             }
 
             Spacer()
@@ -252,29 +216,19 @@ struct EnvironmentTokenControls: View {
             if auth.busy.contains(env) || auth.awaitingPaste.contains(env) {
                 // Nothing tells the app that the browser tab was closed or that the
                 // provider showed an error page, so calling it off has to be a button.
-                Button("Cancel") { auth.cancelAuthentication(env) }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(Theme.deletion)
+                InlineLink(title: "Cancel", size: 11, tint: Theme.deletion) {
+                    auth.cancelAuthentication(env)
+                }
             } else {
-                Button {
+                ActionButton(title: buttonLabel, tone: env.buttonTone, height: 28, size: 11) {
                     beforeAuthenticate?()
                     auth.authenticate(env)
-                } label: {
-                    Text(buttonLabel)
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 7)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(env.accentFill))
                 }
-                .buttonStyle(.plain)
             }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .background(RoundedRectangle(cornerRadius: 9).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
+        .cardSurface(cornerRadius: 9)
     }
 
     private var buttonLabel: String {
@@ -293,25 +247,12 @@ struct EnvironmentTokenControls: View {
 
             HStack(spacing: 8) {
                 TextField("https://…/callback?code=…", text: $pasted)
-                    .textFieldStyle(.plain)
-                    .font(.mono(11))
                     .lineLimit(1)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 7)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(Theme.card))
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
+                    .appTextField(size: 11)
                     .onSubmit(finish)
 
-                Button(action: finish) {
-                    Text("Finish")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 7)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(env.accentFill))
-                }
-                .buttonStyle(.plain)
-                .disabled(pasted.isEmpty || auth.busy.contains(env))
+                ActionButton(title: "Finish", tone: env.buttonTone, height: 30, size: 12, action: finish)
+                    .disabled(pasted.isEmpty || auth.busy.contains(env))
             }
         }
     }
@@ -322,53 +263,34 @@ struct EnvironmentTokenControls: View {
     }
 }
 
-struct Caption: View {
-    let text: String
-
-    var body: some View {
-        Text(text)
-            .font(.mono(10, .medium))
-            .kerning(0.9)
-            .foregroundStyle(.secondary)
-    }
-}
-
-struct CaptionedField: View {
-    let caption: String
+// A field for a secret: hidden until asked for, so a shared screen does not give a
+// password away, with the reveal sitting inside the field's own chrome.
+struct SecretField: View {
     let placeholder: String
     @Binding var text: String
     var accent: Color = Theme.accent
-    var secret = false
 
     @State private var revealed = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Caption(text: caption)
-
-            HStack(spacing: 8) {
-                Group {
-                    if secret && !revealed {
-                        SecureField(placeholder, text: $text)
-                    } else {
-                        TextField(placeholder, text: $text)
-                    }
-                }
-                .textFieldStyle(.plain)
-                .font(.mono(11))
-                .lineLimit(1)
-
-                if secret {
-                    Button(revealed ? "Hide" : "Reveal") { revealed.toggle() }
-                        .buttonStyle(.plain)
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(accent)
+        HStack(spacing: 8) {
+            Group {
+                if revealed {
+                    TextField(placeholder, text: $text)
+                } else {
+                    SecureField(placeholder, text: $text)
                 }
             }
-            .padding(.horizontal, 11)
-            .padding(.vertical, 9)
-            .background(RoundedRectangle(cornerRadius: 9).fill(Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
+            .textFieldStyle(.plain)
+            .font(.system(size: 11))
+            .lineLimit(1)
+
+            InlineLink(title: revealed ? "Hide" : "Reveal", size: 11, tint: accent) {
+                revealed.toggle()
+            }
         }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .fieldSurface(cornerRadius: 8)
     }
 }

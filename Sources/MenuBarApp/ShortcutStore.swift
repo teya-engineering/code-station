@@ -92,15 +92,6 @@ final class ShortcutStore {
         var isFailure: Bool {
             if case .failed = self { true } else { false }
         }
-
-        // When this state was reached, for the runs that have finished one way or the
-        // other. Nil while nothing has been run, which is when there is no age to show.
-        var since: Date? {
-            switch self {
-            case .stopped: nil
-            case .running(let date), .finished(let date), .failed(_, _, let date): date
-            }
-        }
     }
 
     private struct Persisted: Codable {
@@ -122,15 +113,11 @@ final class ShortcutStore {
     private var importedSiteShortcutIDs = Set(SiteDefaults.current.commandShortcuts.map(\.id))
 
     let storageURL: URL
-    private let files: PersistentFileClient
     @ObservationIgnored private var tasks: [ShortcutRun: Task<Void, Never>] = [:]
     @ObservationIgnored private var runTokens: [ShortcutRun: UUID] = [:]
 
-    init(storageURL: URL? = nil,
-         files: PersistentFileClient = .live,
-         siteDefaults: SiteDefaults = .current) {
+    init(storageURL: URL? = nil, siteDefaults: SiteDefaults = .current) {
         self.storageURL = storageURL ?? AppPaths.supportFile("shortcuts.json")
-        self.files = files
         shortcuts = siteDefaults.commandShortcuts
         importedSiteShortcutIDs = Set(siteDefaults.commandShortcuts.map(\.id))
         load(siteDefaults: siteDefaults)
@@ -237,10 +224,12 @@ final class ShortcutStore {
 
     // MARK: - Persistence
 
+    // A file that cannot be read and one that cannot be understood are told apart, since
+    // the first is about permissions and the second about what is in it.
     func load(siteDefaults: SiteDefaults = .current) {
         let data: Data?
         do {
-            data = try files.readIfPresent(storageURL)
+            data = try PersistentFile.readIfPresent(storageURL)
         } catch {
             loadError = PersistentFile.loadMessage(for: storageURL, error: error)
             return
@@ -255,13 +244,10 @@ final class ShortcutStore {
         }
 
         do {
-            let persisted = try JSONDecoder().decode(Persisted.self, from: data)
+            let persisted = try PersistentFile.makeDecoder().decode(Persisted.self, from: data)
             let ids = Set(persisted.shortcuts.map(\.id))
             guard ids.count == persisted.shortcuts.count,
-                  persisted.shortcuts.allSatisfy({
-                      !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                          && !$0.command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                  }) else {
+                  persisted.shortcuts.allSatisfy({ !$0.name.isBlank && !$0.command.isBlank }) else {
                 throw InvalidFile()
             }
             shortcuts = persisted.shortcuts
@@ -281,13 +267,11 @@ final class ShortcutStore {
             return false
         }
 
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         do {
             let importedIDs = importedSiteShortcutIDs.sorted { $0.uuidString < $1.uuidString }
-            let data = try encoder.encode(Persisted(shortcuts: shortcuts,
-                                                    importedSiteShortcutIDs: importedIDs))
-            try files.write(data, storageURL)
+            try PersistentFile.saveJSON(
+                Persisted(shortcuts: shortcuts, importedSiteShortcutIDs: importedIDs),
+                to: storageURL)
             saveError = nil
             return true
         } catch {
@@ -301,8 +285,8 @@ final class ShortcutStore {
     @discardableResult
     func add(name: String, command: String, projectID: UUID? = nil,
              availableInAllProjects: Bool = false) -> CommandShortcut.ID? {
-        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let command = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = name.trimmed
+        let command = command.trimmed
         guard !name.isEmpty, !command.isEmpty else { return nil }
         let shortcut = CommandShortcut(
             name: name,
@@ -316,8 +300,8 @@ final class ShortcutStore {
     }
 
     func update(_ shortcut: CommandShortcut) {
-        let name = shortcut.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let command = shortcut.command.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = shortcut.name.trimmed
+        let command = shortcut.command.trimmed
         guard !name.isEmpty, !command.isEmpty,
               !isRunningAnywhere(shortcut.id),
               let index = shortcuts.firstIndex(where: { $0.id == shortcut.id }) else { return }

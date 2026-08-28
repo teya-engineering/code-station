@@ -173,7 +173,7 @@ private nonisolated func cliVersion(at path: String, searchPath: String) async -
         timeout: .seconds(5),
         outputByteLimit: 65_536
     ), output.succeeded else { return nil }
-    let trimmed = output.output.trimmingCharacters(in: .whitespacesAndNewlines)
+    let trimmed = output.output.trimmed
     return trimmed.isEmpty ? nil : trimmed
 }
 
@@ -201,10 +201,7 @@ struct AgentSettingsView: View {
         VStack(alignment: .leading, spacing: 20) {
             defaultAgent.id(SettingsSearchTarget.agentDefault.id)
             agentTabs.id(SettingsSearchTarget.agentConfigure.id)
-            switch selectedAgent {
-            case .claudeCode: claudeSection
-            case .codex: codexSection
-            }
+            agentSection(for: selectedAgent)
         }
         .sheet(item: $loggingIn, onDismiss: { refresh() }) { agent in
             AgentLoginSheet(agent: agent).appOverlays()
@@ -235,19 +232,7 @@ struct AgentSettingsView: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     Spacer(minLength: 0)
-                    HStack(spacing: 8) {
-                        Text(runner.agent.title)
-                            .font(.system(size: 13, weight: .medium))
-                        Image(systemName: "chevron.up.chevron.down")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.horizontal, 12)
-                    .frame(height: 34)
-                    .background(RoundedRectangle(cornerRadius: 9).fill(Theme.field))
-                    .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
-                    .contentShape(Rectangle())
-                    .appMenu(matchWidth: true) {
+                    OptionMenu(value: runner.agent.title) {
                         AgentKind.allCases.map { agent in
                             .item(agent.title,
                                   checked: runner.agent == agent,
@@ -258,6 +243,7 @@ struct AgentSettingsView: View {
                             }
                         }
                     }
+                    .fixedSize(horizontal: true, vertical: false)
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 13)
@@ -286,6 +272,115 @@ struct AgentSettingsView: View {
         var updated = defaults
         edit(&updated)
         runner.setDefaults(updated, for: selectedAgent)
+    }
+
+    // MARK: - One agent
+
+    // What the pane shows about an agent, read off whichever info object owns it, so
+    // the screen itself is drawn once for both.
+    private struct AgentProfile {
+        let heading: String
+        let path: String?
+        let version: String?
+        let account: String?
+        let plan: String?
+        let usage: [AccountUsageWindow]
+        let usageCheckedAt: Date?
+        let usageLoading: Bool
+        let usageEmptyMessage: String
+        let usageNote: String
+        let fileTitle: String
+        let configFile: String
+        let refresh: () -> Void
+    }
+
+    private func profile(for agent: AgentKind) -> AgentProfile {
+        switch agent {
+        case .claudeCode:
+            AgentProfile(
+                heading: "CLAUDE CODE",
+                path: claude.path,
+                version: claude.version,
+                account: claude.account.map { account in
+                    account.name.map { "\($0) · \(account.email)" } ?? account.email
+                },
+                plan: claude.account?.plan,
+                usage: claudeUsage,
+                usageCheckedAt: runner.rateLimitsUpdatedAt[.claudeCode],
+                usageLoading: false,
+                usageEmptyMessage: "Run a Claude Code turn to receive its account usage here.",
+                usageNote: "Claude Code sends account limits while a turn is running. This is the latest report from this app.",
+                fileTitle: "Claude Code settings",
+                configFile: ".claude/settings.json",
+                refresh: { claude.refresh() })
+        case .codex:
+            AgentProfile(
+                heading: "CODEX",
+                path: codex.path,
+                version: codex.version,
+                account: codex.account.map { account in
+                    account.email.map { "\(account.method) · \($0)" } ?? account.method
+                },
+                plan: codex.account?.plan,
+                usage: codex.usage?.windows ?? [],
+                usageCheckedAt: codex.usage?.checkedAt,
+                usageLoading: codex.isRefreshingUsage,
+                usageEmptyMessage: codex.account == nil
+                    ? "Sign in to Codex to view account usage."
+                    : "Codex did not return account usage details.",
+                usageNote: "Read directly from your Codex account when this page opens or refreshes.",
+                fileTitle: "Codex config",
+                configFile: ".codex/config.toml",
+                refresh: { codex.refresh() })
+        }
+    }
+
+    private func agentSection(for agent: AgentKind) -> some View {
+        let profile = profile(for: agent)
+        return VStack(alignment: .leading, spacing: 20) {
+            ChoiceBlock(profile.heading) {
+                SettingsCard {
+                    statusRow(installed: profile.path != nil,
+                              signedIn: profile.account != nil,
+                              refresh: profile.refresh)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 12)
+                    SettingsRowDivider()
+                    if profile.path == nil {
+                        missingCard(agent)
+                    } else {
+                        details(profile)
+                    }
+                    SettingsRowDivider()
+                    signInRow(agent)
+                }
+            }
+            .id(SettingsSearchTarget.agentDetails.id)
+            accountUsage(profile).id(SettingsSearchTarget.agentUsage.id)
+            model(for: agent).id(SettingsSearchTarget.agentModel.id)
+            effort(for: agent).id(SettingsSearchTarget.agentEffort.id)
+            permissions(for: agent).id(SettingsSearchTarget.agentPermissions.id)
+            cost(for: agent).id(SettingsSearchTarget.agentCost.id)
+            files(title: profile.fileTitle,
+                  note: "The CLI's own configuration, at ~/\(profile.configFile). It belongs to \(agent.title), so the app only points at it.",
+                  path: FileManager.default.homeDirectoryForCurrentUser
+                      .appendingPathComponent(profile.configFile).path)
+                .id(SettingsSearchTarget.agentFiles.id)
+        }
+    }
+
+    private func details(_ profile: AgentProfile) -> some View {
+        Group {
+            detailRow("Version", profile.version ?? "…")
+            SettingsRowDivider()
+            detailRow("Account", profile.account ?? "Signed out.")
+            if let plan = profile.plan {
+                SettingsRowDivider()
+                detailRow("Plan", plan)
+            }
+            SettingsRowDivider()
+            detailRow("Path", profile.path ?? "", mono: true)
+        }
     }
 
     private func model(for agent: AgentKind) -> some View {
@@ -325,35 +420,25 @@ struct AgentSettingsView: View {
         }
     }
 
-    // Hiding it only takes the figure off the screen. Sessions still record what they
-    // spent, so turning this back on shows the full total rather than starting again.
-    private func cost(for agent: AgentKind) -> some View {
-        ChoiceBlock("COST", note: agent == .codex
-                    ? "Codex reports no cost of its own, so its sessions have nothing to show until it does."
-                    : nil) {
-            SettingsCard {
-                SettingsToggleRow(
-                    "Show what a session has spent",
-                    detail: "The dollar figure on the session bar, and the Spent line in the hints.",
-                    isOn: Binding(get: { appSettings.showsCost(for: agent) },
-                                  set: { appSettings.setShowsCost($0, for: agent) }))
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 13)
-            }
+    @ViewBuilder private func permissions(for agent: AgentKind) -> some View {
+        switch agent {
+        case .claudeCode: claudePermissions
+        case .codex: codexPermissions
         }
     }
 
     private var claudePermissions: some View {
         ChoiceBlock("PERMISSIONS") {
             SettingsCard {
-                ForEach(PermissionMode.all.indices, id: \.self) { index in
-                    let choice = PermissionMode.all[index]
+                let modes = PermissionMode.allCases
+                ForEach(modes.indices, id: \.self) { index in
+                    let choice = modes[index]
                     OptionRow(title: choice.title,
                               detail: choice.detail,
-                              selected: (defaults.permissionMode ?? "acceptEdits") == choice.mode) {
-                        change { $0.permissionMode = choice.mode }
+                              selected: PermissionMode(stored: defaults.permissionMode) == choice) {
+                        change { $0.permissionMode = choice.rawValue }
                     }
-                    if index < PermissionMode.all.count - 1 { SettingsRowDivider() }
+                    if index < modes.count - 1 { SettingsRowDivider() }
                 }
             }
         }
@@ -376,121 +461,21 @@ struct AgentSettingsView: View {
         }
     }
 
-    // MARK: - Claude Code
-
-    private var claudeSection: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            ChoiceBlock("CLAUDE CODE") {
-                SettingsCard {
-                    statusRow(installed: claude.path != nil,
-                              signedIn: claude.account != nil) { claude.refresh() }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 12)
-                    SettingsRowDivider()
-                    if claude.path == nil {
-                        missingCard(.claudeCode)
-                        SettingsRowDivider()
-                        signInRow(.claudeCode)
-                    } else {
-                        claudeDetails
-                    }
-                }
+    // Hiding it only takes the figure off the screen. Sessions still record what they
+    // spent, so turning this back on shows the full total rather than starting again.
+    private func cost(for agent: AgentKind) -> some View {
+        ChoiceBlock("COST", note: agent == .codex
+                    ? "Codex reports no cost of its own, so its sessions have nothing to show until it does."
+                    : nil) {
+            SettingsCard {
+                SettingsToggleRow(
+                    "Show what a session has spent",
+                    detail: "The dollar figure on the session bar, and the Spent line in the hints.",
+                    isOn: Binding(get: { appSettings.showsCost(for: agent) },
+                                  set: { appSettings.setShowsCost($0, for: agent) }))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 13)
             }
-            .id(SettingsSearchTarget.agentDetails.id)
-            accountUsage(windows: claudeUsage,
-                         checkedAt: runner.rateLimitsUpdatedAt[.claudeCode],
-                         isLoading: false,
-                         emptyMessage: "Run a Claude Code turn to receive its account usage here.",
-                         note: "Claude Code sends account limits while a turn is running. This is the latest report from this app.")
-                .id(SettingsSearchTarget.agentUsage.id)
-            model(for: .claudeCode).id(SettingsSearchTarget.agentModel.id)
-            effort(for: .claudeCode).id(SettingsSearchTarget.agentEffort.id)
-            claudePermissions.id(SettingsSearchTarget.agentPermissions.id)
-            cost(for: .claudeCode).id(SettingsSearchTarget.agentCost.id)
-            files(
-                title: "Claude Code settings",
-                note: "The CLI's own configuration, at ~/.claude/settings.json. It belongs to Claude Code, so the app only points at it.",
-                path: FileManager.default.homeDirectoryForCurrentUser
-                    .appendingPathComponent(".claude/settings.json").path)
-                .id(SettingsSearchTarget.agentFiles.id)
-        }
-    }
-
-    private var claudeDetails: some View {
-        Group {
-            detailRow("Version", claude.version ?? "…")
-            SettingsRowDivider()
-            detailRow("Account", claude.account.map { account in
-                account.name.map { "\($0) · \(account.email)" } ?? account.email
-            } ?? "Signed out.")
-            if let plan = claude.account?.plan {
-                SettingsRowDivider()
-                detailRow("Plan", plan)
-            }
-            SettingsRowDivider()
-            detailRow("Path", claude.path ?? "", mono: true)
-            SettingsRowDivider()
-            signInRow(.claudeCode)
-        }
-    }
-
-    // MARK: - Codex
-
-    private var codexSection: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            ChoiceBlock("CODEX") {
-                SettingsCard {
-                    statusRow(installed: codex.path != nil,
-                              signedIn: codex.account != nil) { codex.refresh() }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 12)
-                    SettingsRowDivider()
-                    if codex.path == nil {
-                        missingCard(.codex)
-                        SettingsRowDivider()
-                        signInRow(.codex)
-                    } else {
-                        codexDetails
-                    }
-                }
-            }
-            .id(SettingsSearchTarget.agentDetails.id)
-            accountUsage(windows: codex.usage?.windows ?? [],
-                         checkedAt: codex.usage?.checkedAt,
-                         isLoading: codex.isRefreshingUsage,
-                         emptyMessage: codex.account == nil
-                             ? "Sign in to Codex to view account usage."
-                             : "Codex did not return account usage details.",
-                         note: "Read directly from your Codex account when this page opens or refreshes.")
-                .id(SettingsSearchTarget.agentUsage.id)
-            model(for: .codex).id(SettingsSearchTarget.agentModel.id)
-            effort(for: .codex).id(SettingsSearchTarget.agentEffort.id)
-            codexPermissions.id(SettingsSearchTarget.agentPermissions.id)
-            cost(for: .codex).id(SettingsSearchTarget.agentCost.id)
-            files(
-                title: "Codex config",
-                note: "The CLI's own configuration, at ~/.codex/config.toml. It belongs to Codex, so the app only points at it.",
-                path: FileManager.default.homeDirectoryForCurrentUser
-                    .appendingPathComponent(".codex/config.toml").path)
-                .id(SettingsSearchTarget.agentFiles.id)
-        }
-    }
-
-    private var codexDetails: some View {
-        Group {
-            detailRow("Version", codex.version ?? "…")
-            SettingsRowDivider()
-            detailRow("Account", codex.account.map { account in
-                account.email.map { "\(account.method) · \($0)" } ?? account.method
-            } ?? "Signed out.")
-            if let plan = codex.account?.plan {
-                SettingsRowDivider()
-                detailRow("Plan", plan)
-            }
-            SettingsRowDivider()
-            detailRow("Path", codex.path ?? "", mono: true)
-            SettingsRowDivider()
-            signInRow(.codex)
         }
     }
 
@@ -507,23 +492,22 @@ struct AgentSettingsView: View {
         .sorted { $0.title < $1.title }
     }
 
-    private func accountUsage(windows: [AccountUsageWindow], checkedAt: Date?, isLoading: Bool,
-                              emptyMessage: String, note: String) -> some View {
-        ChoiceBlock("CURRENT USAGE", note: note) {
+    private func accountUsage(_ profile: AgentProfile) -> some View {
+        ChoiceBlock("CURRENT USAGE", note: profile.usageNote) {
             SettingsCard {
-                if isLoading {
+                if profile.usageLoading {
                     usageMessage("Checking current usage…")
-                } else if windows.isEmpty {
-                    usageMessage(emptyMessage)
+                } else if profile.usage.isEmpty {
+                    usageMessage(profile.usageEmptyMessage)
                 } else {
+                    let windows = profile.usage
                     ForEach(windows.indices, id: \.self) { index in
-                        let window = windows[index]
-                        usageRow(window)
-                        if index < windows.count - 1 || checkedAt != nil {
+                        usageRow(windows[index])
+                        if index < windows.count - 1 || profile.usageCheckedAt != nil {
                             SettingsRowDivider()
                         }
                     }
-                    if let checkedAt {
+                    if let checkedAt = profile.usageCheckedAt {
                         Text("Updated \(checkedAt.formatted(date: .abbreviated, time: .shortened))")
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
@@ -581,10 +565,7 @@ struct AgentSettingsView: View {
             Text(!installed ? "Not installed" : !signedIn ? "Not signed in" : "Connected")
                 .font(.system(size: 13, weight: .semibold))
             Spacer(minLength: 0)
-            Button("Refresh", action: refresh)
-                .buttonStyle(.plain)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(Theme.accent)
+            InlineLink(title: "Refresh", action: refresh)
         }
     }
 
@@ -598,38 +579,16 @@ struct AgentSettingsView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func signInNote(_ agent: AgentKind) -> some View {
-        Text("Sessions run whichever \"\(agent.command)\" is first on PATH. Signing in or out happens in the CLI itself; the button opens it right here, and Refresh picks the change up.")
-            .font(.system(size: 12))
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-    }
-
-    private func loginButton(_ agent: AgentKind) -> some View {
-        Button {
-            loggingIn = agent
-        } label: {
-            HStack(spacing: 6) {
-                Text(">_")
-                    .font(.mono(11, .bold))
-                Text("Run \(agent.loginCommand)")
-                    .font(.system(size: 12, weight: .semibold))
-            }
-            .foregroundStyle(Color.primary)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 7)
-            .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-
     private func signInRow(_ agent: AgentKind) -> some View {
         HStack(alignment: .center, spacing: 12) {
-            signInNote(agent)
+            Text("Sessions run whichever \"\(agent.command)\" is first on PATH. Signing in or out happens in the CLI itself; the button opens it right here, and Refresh picks the change up.")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
-            loginButton(agent)
+            ActionButton(title: "Run \(agent.loginCommand)", tone: .outlined, icon: "terminal") {
+                loggingIn = agent
+            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
@@ -665,12 +624,9 @@ struct AgentSettingsView: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     Spacer(minLength: 0)
-                    Button("Reveal") {
+                    InlineLink(title: "Reveal") {
                         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
                     }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Theme.accent)
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 13)
@@ -684,7 +640,6 @@ struct AgentSettingsView: View {
 // there. The shell dies with the sheet, and whoever opened it re-reads the account
 // afterwards.
 struct AgentCommandSheet: View {
-    let agent: AgentKind
     let title: String
     let note: String
     let command: String
@@ -733,7 +688,6 @@ private struct AgentLoginSheet: View {
 
     var body: some View {
         AgentCommandSheet(
-            agent: agent,
             title: "Sign in to \(agent.title)",
             note: "Follow the CLI's login below, then close this when it is done.",
             command: agent.loginCommand)
