@@ -71,9 +71,7 @@ struct ActivitySpine: View {
             }
             Spacer(minLength: 8)
             if hasRunningCalls && !showsRows {
-                Text("running")
-                    .scaledMono(10.5)
-                    .foregroundStyle(.tertiary)
+                RunningWord()
             }
         }
         .foregroundStyle(.secondary)
@@ -261,9 +259,7 @@ private struct SpineRow: View {
     }
 
     private var running: some View {
-        Text("running")
-            .scaledMono(10.5)
-            .foregroundStyle(.tertiary)
+        RunningWord()
     }
 
     private var failed: some View {

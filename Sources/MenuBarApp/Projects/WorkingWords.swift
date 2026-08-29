@@ -60,3 +60,48 @@ struct WorkingGlyph: View {
         .frame(width: 13, alignment: .center)
     }
 }
+
+// A quiet sign that a tool call is still alive. One letter dips out at a time, then the
+// whole word rests before the next pass, so the status moves without competing with the
+// command beside it.
+struct RunningWord: View {
+    private static let letters = Array("running")
+    private static let frameRate: TimeInterval = 0.16
+    private static let restingFrames = 4
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Group {
+            if reduceMotion {
+                word(activeLetter: nil)
+            } else {
+                TimelineView(.periodic(from: .now, by: Self.frameRate)) { context in
+                    word(activeLetter: Self.activeLetter(at: context.date))
+                }
+            }
+        }
+        .scaledMono(10.5)
+        .foregroundStyle(.tertiary)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("running")
+    }
+
+    private func word(activeLetter: Int?) -> some View {
+        HStack(spacing: 0) {
+            ForEach(Self.letters.indices, id: \.self) { index in
+                Text(String(Self.letters[index]))
+                    .opacity(index == activeLetter ? 0.2 : 1)
+            }
+        }
+        .animation(.easeInOut(duration: 0.12), value: activeLetter)
+    }
+
+    // An absolute clock lets redraws preserve the current pass instead of making the
+    // first letter blink again whenever new output arrives.
+    private static func activeLetter(at date: Date) -> Int? {
+        let frame = Int(date.timeIntervalSinceReferenceDate / frameRate)
+            % (letters.count + restingFrames)
+        return frame < letters.count ? frame : nil
+    }
+}
