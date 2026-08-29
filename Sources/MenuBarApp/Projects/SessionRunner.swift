@@ -1218,15 +1218,16 @@ final class SessionRunner {
             TreeSnapshots.shared.baseline(at: workingDirectory, using: git)
         }
 
-        // The whole turn, tool calls included, lands in this one message.
+        // The whole ordinary turn, tool calls included, lands in this one message. A recap
+        // is only for its card, so its reply stays private to the turn.
         let reply = ChatMessage(role: .assistant)
-        store.append(reply, to: sessionID)
+        if recap == nil { store.append(reply, to: sessionID) }
 
         // Takes back everything above: the config file, the empty reply and the hold on
         // the transcript, then says why the turn did not run.
         func fail(_ message: String) {
             if let mcpConfigURL { try? FileManager.default.removeItem(at: mcpConfigURL) }
-            store.removeMessage(reply.id, from: sessionID)
+            if recap == nil { store.removeMessage(reply.id, from: sessionID) }
             store.release(sessionID, for: .running)
             setState(.failed(message), for: sessionID)
         }
@@ -1628,6 +1629,11 @@ final class SessionRunner {
             case .text(let text):
                 setState(.streaming, for: sessionID)
                 refreshCodexContextAfterModelActivity(turn, sessionID: sessionID, store: store)
+                if turn.recap != nil {
+                    if !turn.recapText.isEmpty { turn.recapText += "\n\n" }
+                    turn.recapText += text
+                    continue
+                }
                 freshReply(turn, sessionID: sessionID, store: store)
                 store.updateMessage(turn.messageID, in: sessionID) { message in
                     // Each event carries a complete block, and blocks are split around
@@ -2166,9 +2172,7 @@ final class SessionRunner {
 
     private func finishRecap(_ turn: Turn, attempt: RecapAttempt, status: Int32,
                              sessionID: UUID, store: ProjectStore) {
-        let streamed = store.transcript(of: sessionID)
-            .first(where: { $0.id == turn.messageID })?.text
-        store.removeMessage(turn.messageID, from: sessionID)
+        let streamed = turn.recapText
         store.release(sessionID, for: .running)
 
         let completedNormally = !turn.stopRequested && turn.failure == nil && status == 0
@@ -2270,6 +2274,8 @@ final class SessionRunner {
         var failure: String?
         var lastStreamError: String?
         var resultMessage: String?
+        // Recap text belongs to the recap card and never becomes a transcript message.
+        var recapText = ""
         var receivedCompletion = false
         // Whether anything the turn said has come through yet. A result before that
         // belongs to a turn the app never asked for, so it is not this turn ending.

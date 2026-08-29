@@ -59,6 +59,48 @@ struct SessionRecapStoreTests {
 
 @MainActor
 struct SessionRecapRunnerTests {
+    @Test func keepsAPromptRecapOutOfTheTranscriptWhileItStreams() async throws {
+        let harness = try RunnerHarness(agent: .codex, script: """
+        input=$(cat)
+        count_file="$folder/count"
+        count=0
+        if [ -f "$count_file" ]; then count=$(cat "$count_file"); fi
+        count=$((count + 1))
+        printf '%s' "$count" > "$count_file"
+        printf '%s\n' '{"type":"thread.started","thread_id":"thread-1"}'
+        if [ "$count" -eq 1 ]; then
+            printf '%s\n' '{"type":"item.completed","item":{"id":"answer-1","item_type":"agent_message","text":"Initial response"}}'
+        else
+            printf '%s\n' '{"type":"item.completed","item":{"id":"answer-2","item_type":"agent_message","text":"The change is complete. Review it next."}}'
+            : > "$folder/recap-streamed"
+            while [ ! -f "$folder/release-recap" ]; do sleep 0.01; done
+        fi
+        printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":2}}'
+        """)
+        defer { harness.tearDown() }
+        harness.store.selection = .session(harness.session.id)
+
+        harness.runner.send("Make the change", sessionID: harness.session.id,
+                            store: harness.store)
+        #expect(await waitUntil { harness.runner.state(harness.session.id) == .idle })
+        #expect(harness.runner.recap(harness.session.id, store: harness.store))
+        #expect(await waitUntil {
+            FileManager.default.fileExists(atPath: harness.scratch.path("recap-streamed").path)
+                && harness.runner.state(harness.session.id) == .streaming
+        })
+
+        #expect(harness.runner.isRecapping(harness.session.id))
+        #expect(harness.store.transcript(of: harness.session.id).map(\.text)
+            == ["Make the change", "Initial response"])
+
+        try Data().write(to: harness.scratch.path("release-recap"))
+        #expect(await waitUntil { harness.store.recap(for: harness.session.id) != nil })
+        #expect(harness.store.recap(for: harness.session.id)?.text
+            == "The change is complete. Review it next.")
+        #expect(harness.store.transcript(of: harness.session.id).map(\.text)
+            == ["Make the change", "Initial response"])
+    }
+
     @Test func usesClaudeCodesNativeRecapWithoutAddingItToTheTranscript() async throws {
         let harness = try RunnerHarness(agent: .claudeCode, script: """
         IFS= read -r input
@@ -124,6 +166,8 @@ struct SessionRecapRunnerTests {
         #expect(await waitUntil { harness.store.recap(for: harness.session.id) != nil })
 
         #expect(harness.store.recap(for: harness.session.id)?.source == .prompt)
+        #expect(harness.store.transcript(of: harness.session.id).map(\.text)
+            == ["Make the change", "Initial response"])
         let fallback = try String(contentsOf: harness.scratch.path("prompt-3.txt"), encoding: .utf8)
         #expect(fallback.contains("Write a recap of this conversation"))
     }
@@ -153,6 +197,8 @@ struct SessionRecapRunnerTests {
 
         #expect(await waitUntil { harness.store.recap(for: harness.session.id) != nil })
         #expect(harness.store.recap(for: harness.session.id)?.source == .prompt)
+        #expect(harness.store.transcript(of: harness.session.id).map(\.text)
+            == ["Do the work", "Work complete"])
         #expect(harness.store.hasFinished(harness.session.id))
     }
 
