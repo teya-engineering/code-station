@@ -357,18 +357,6 @@ struct SessionView: View {
                 if appSettings.mobileAccessEnabled {
                     MobileAccessButton(scope: .session(sessionID))
                 }
-                let recapTarget = visibleConversationID
-                if store.session(recapTarget)?.hasAgentConversation == true {
-                    let recapping = runner.isRecapping(recapTarget)
-                    ActionButton(title: recapping ? "Recapping" : "Recap",
-                                 tone: .outlined, height: 30, size: 12,
-                                 icon: recapping ? "hourglass" : "sparkles",
-                                 action: generateRecap)
-                        .disabled(recapping || !runner.canRecap(recapTarget, store: store))
-                        .appTooltip(recapping
-                            ? "Generating a session recap"
-                            : "Summarise this conversation")
-                }
                 HeaderTabToggle(selection: $tab, options: headerTabs(for: session))
                 if store.isDesignMode(session), store.hasDesignArtifacts(for: session) {
                     designMaterialExportButton(session: session, project: project)
@@ -467,11 +455,11 @@ struct SessionView: View {
 
     // MARK: - Status strip
 
-    // Everything that describes the session rather than names it, on one thin line that
-    // holds exactly three things: what it is doing, what it has changed, and one chip for
-    // the facts it is looked up by. Reading it is a glance along a line rather than a hunt
-    // across a header and a footer, and it stays a glance however much a session collects
-    // - the chip is one width whether or not there is a pull request behind it.
+    // Everything that describes the session rather than names it, on one thin line: what
+    // it is doing, actions about that state, what it has changed, and one chip for the facts
+    // it is looked up by. Reading it is a glance along a line rather than a hunt across a
+    // header and a footer, and it stays a glance however much a session collects - the chip
+    // is one width whether or not there is a pull request behind it.
     //
     // How full the window is runs along the bottom edge as a hairline. It is the reading
     // that moves every turn, so it stays in sight, but it is a line rather than words: a
@@ -485,8 +473,20 @@ struct SessionView: View {
             .flatMap { gitStats.snapshot(at: $0) }
         let facts = facts(session, repository: repository)
         let tone = SessionTone(sessionID, store: store, runner: runner)
+        let recapTarget = visibleConversationID
         return HStack(spacing: 14) {
             state(session, tone: tone)
+            if store.session(recapTarget)?.hasAgentConversation == true {
+                let recapping = runner.isRecapping(recapTarget)
+                ActionButton(title: recapping ? "Recapping" : "Recap",
+                             tone: .outlined, height: 24, size: 10.5,
+                             icon: recapping ? "hourglass" : "sparkles",
+                             action: generateRecap)
+                    .disabled(recapping || !runner.canRecap(recapTarget, store: store))
+                    .appTooltip(recapping
+                        ? "Generating a session recap"
+                        : "Summarise this conversation")
+            }
             diffStats(session)
             Spacer(minLength: 12)
             SessionFactsChip(facts: facts,
