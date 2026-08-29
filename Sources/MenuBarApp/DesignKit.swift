@@ -578,6 +578,9 @@ enum ButtonTone {
     // The amber the app uses for things that want a look, for an action that puts a
     // drifted setting right.
     case attention
+    // The quieter amber used by an unread item whose action is to reveal it rather than
+    // resolve it. Once read, it can return to the ordinary outlined treatment.
+    case attentionOutlined
     // Beside a primary one, or on its own where the action is a choice rather than the
     // point of the row.
     case outlined
@@ -648,6 +651,7 @@ struct ActionButton: View {
     private var label: Color {
         switch tone {
         case .dark, .green, .danger, .attention: Color.white
+        case .attentionOutlined: Theme.attentionText
         case .outlined, .sunken: Color.primary
         }
     }
@@ -658,6 +662,8 @@ struct ActionButton: View {
         case .green: lit ? Theme.accentFill.opacity(0.86) : Theme.accentFill
         case .danger: lit ? Theme.deletion.opacity(0.86) : Theme.deletion
         case .attention: lit ? Theme.secret.opacity(0.86) : Theme.secret
+        case .attentionOutlined:
+            lit ? Theme.attention.opacity(0.14) : Theme.attention.opacity(0.08)
         case .outlined: lit ? Theme.field : .clear
         case .sunken: lit ? Theme.border : Theme.field
         }
@@ -666,6 +672,7 @@ struct ActionButton: View {
     private var stroke: Color {
         switch tone {
         case .dark, .green, .danger, .attention: .clear
+        case .attentionOutlined: Theme.attention.opacity(0.38)
         case .outlined, .sunken: Theme.border
         }
     }

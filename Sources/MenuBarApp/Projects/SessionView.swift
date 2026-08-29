@@ -147,6 +147,8 @@ struct SessionView: View {
     @State private var exportingDesignMaterials = false
     @State private var transcriptWindow = TranscriptWindow()
     @State private var transcriptPinnedToBottom = true
+    @State private var recapOpen = false
+    @State private var recapNeedsAttention = false
     // False until this session's transcript has been scrolled to its end. The pane is
     // rebuilt per session, so it starts false on every switch without being reset.
     @State private var opened = false
@@ -183,15 +185,16 @@ struct SessionView: View {
             let projectDirectory = directory(for: selectedProjectID ?? session.projectID,
                                              in: session) ?? workingDirectory
             let designFilesURL = store.designFilesURL(for: session)
+            let recap = store.recap(for: sessionID)
             let explorerDirectory = explorerShowsDesignFiles
                 ? designFilesURL?.path ?? projectDirectory
                 : projectDirectory
             VStack(spacing: 0) {
                 header(session: session, project: project)
-                // The facts card hangs off the strip and over whatever is under it. A
-                // VStack draws its children in order, so without this the card would be
-                // covered by the transcript it opens across.
-                statusStrip(session)
+                // Cards anchored to the strip hang over whatever is under it. A VStack
+                // draws its children in order, so without this the transcript would cover
+                // them.
+                statusStrip(session, recap: recap)
                     .zIndex(1)
                 warningStrip(session: session, project: project)
                 if store.designHasUpdated(for: session) {
@@ -200,17 +203,6 @@ struct SessionView: View {
                 if showsDirectoryBar(for: session, designFilesURL: designFilesURL) {
                     sessionDirectoryBar(session, designFilesURL: designFilesURL)
                 }
-                if let recap = store.recap(for: sessionID) {
-                    SessionRecapView(
-                        recap: recap,
-                        regenerating: runner.isRecapping(visibleConversationID),
-                        regenerate: generateRecap,
-                        dismiss: dismissRecap)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 12)
-                    .transition(.fadeIn)
-                }
-
                 switch tab {
                 case .conversation:
                     // A Build session keeps its Design behind the Design tab.
@@ -247,7 +239,11 @@ struct SessionView: View {
                 }
             }
             .background(Theme.background)
-            .onAppear { composerFocused = true }
+            .onAppear {
+                composerFocused = true
+                recapOpen = recap != nil
+                recapNeedsAttention = recap != nil
+            }
             .sheet(item: $shortcutEditor) { request in
                 ShortcutEditorView(request: request) { shortcut in
                     if request.shortcut == nil {
@@ -261,6 +257,7 @@ struct SessionView: View {
                 .appOverlays()
             }
             .background(terminalShortcut(directory: workingDirectory))
+            .background(recapShortcut)
             .background(stopShortcut)
             .onChange(of: terminalFocused) { _, focused in
                 if focused { composerFocused = false }
@@ -286,6 +283,18 @@ struct SessionView: View {
             }
             .onChange(of: completedToolCount) {
                 refreshStats(workingDirectories, after: .milliseconds(350))
+            }
+            .onChange(of: recap) { previous, current in
+                guard previous != current else { return }
+                if current == nil {
+                    recapOpen = false
+                    recapNeedsAttention = false
+                } else {
+                    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.14)) {
+                        recapOpen = true
+                    }
+                    recapNeedsAttention = store.hasFinished(sessionID)
+                }
             }
             .onChange(of: runner.state(sessionID)) { _, state in
                 if !state.isBusy {
@@ -465,7 +474,7 @@ struct SessionView: View {
     // that moves every turn, so it stays in sight, but it is a line rather than words: a
     // window filling up needs nothing done about it until it is nearly full, and then the
     // composer says so in words.
-    private func statusStrip(_ session: ChatSession) -> some View {
+    private func statusStrip(_ session: ChatSession, recap: SessionRecap?) -> some View {
         // The lead checkout is the one this line speaks for, the same root the stats
         // refresh puts first. The cache only ever holds snapshots of a readable
         // repository, so having one is the same as the repository being ready.
@@ -478,14 +487,15 @@ struct SessionView: View {
             state(session, tone: tone)
             if store.session(recapTarget)?.hasAgentConversation == true {
                 let recapping = runner.isRecapping(recapTarget)
-                ActionButton(title: recapping ? "Recapping" : "Recap",
-                             tone: .outlined, height: 24, size: 10.5,
-                             icon: recapping ? "hourglass" : "sparkles",
-                             action: generateRecap)
-                    .disabled(recapping || !runner.canRecap(recapTarget, store: store))
-                    .appTooltip(recapping
-                        ? "Generating a session recap"
-                        : "Summarise this conversation")
+                SessionRecapControl(
+                    recap: recap,
+                    regenerating: recapping,
+                    canRegenerate: runner.canRecap(recapTarget, store: store),
+                    isOpen: recapOpen,
+                    needsAttention: recapNeedsAttention,
+                    toggle: toggleRecap,
+                    regenerate: generateRecap,
+                    close: closeRecap)
             }
             diffStats(session)
             Spacer(minLength: 12)
@@ -738,8 +748,18 @@ struct SessionView: View {
         let target = visibleConversationID
         let state = runner.state(target)
         if state.isBusy, state != .stopping, dialogs.current == nil, !menus.isOpen,
-           !terminalFocused {
+           !terminalFocused, !recapOpen {
             Button("") { runner.stop(target) }
+                .keyboardShortcut(.escape, modifiers: [])
+                .opacity(0)
+        }
+    }
+
+    // The visible card has the first claim on Escape. In particular, closing a recap that
+    // is being refreshed must not also stop the agent turn doing the refresh.
+    @ViewBuilder private var recapShortcut: some View {
+        if recapOpen, dialogs.current == nil, !menus.isOpen, !terminalFocused {
+            Button("") { closeRecap() }
                 .keyboardShortcut(.escape, modifiers: [])
                 .opacity(0)
         }
@@ -813,9 +833,21 @@ struct SessionView: View {
         _ = runner.recap(visibleConversationID, store: store)
     }
 
-    private func dismissRecap() {
+    private func toggleRecap() {
+        guard store.recap(for: sessionID) != nil else {
+            generateRecap()
+            return
+        }
+        recapNeedsAttention = false
         withAnimation(reduceMotion ? nil : .easeOut(duration: 0.14)) {
-            store.markSessionSeen(sessionID)
+            recapOpen.toggle()
+        }
+    }
+
+    private func closeRecap() {
+        recapNeedsAttention = false
+        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.14)) {
+            recapOpen = false
         }
     }
 
