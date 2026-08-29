@@ -229,6 +229,23 @@ struct AppPathsTests {
         #expect(Preferences.designEnabled(in: defaults))
     }
 
+    @Test @MainActor func sessionResumeBriefsDefaultOnAndPersist() throws {
+        let suite = "code-station-resume-brief-tests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let avatar = root.appendingPathComponent("avatar.png")
+        let settings = AppSettings(agentAvatarURL: avatar, preferences: defaults)
+
+        #expect(Preferences.sessionResumeBriefsEnabled(in: defaults))
+        #expect(settings.sessionResumeBriefsEnabled)
+
+        settings.sessionResumeBriefsEnabled = false
+
+        #expect(!Preferences.sessionResumeBriefsEnabled(in: defaults))
+        #expect(!AppSettings(agentAvatarURL: avatar, preferences: defaults)
+            .sessionResumeBriefsEnabled)
+    }
+
     @Test @MainActor func appSettingsPersistsTheSidebarSessionLimit() throws {
         let suite = "code-station-app-sidebar-session-limit-tests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))

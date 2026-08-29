@@ -36,4 +36,12 @@ struct SettingsSearchTests {
         #expect(result.tab == .general)
         #expect(result.target == .generalOrphanedWorktrees)
     }
+
+    @Test func findsSessionResumeBriefs() throws {
+        let result = try #require(SettingsSearchIndex.results(for: "catch up summary").first)
+
+        #expect(result.title == "Session resume briefs")
+        #expect(result.tab == .general)
+        #expect(result.target == .generalResumeBriefs)
+    }
 }

@@ -201,7 +201,7 @@ struct SessionView: View {
                 if showsDirectoryBar(for: session, designFilesURL: designFilesURL) {
                     sessionDirectoryBar(session, designFilesURL: designFilesURL)
                 }
-                if let resumeBrief {
+                if appSettings.sessionResumeBriefsEnabled, let resumeBrief {
                     SessionResumeBriefView(
                         brief: resumeBrief,
                         openChanges: {
@@ -267,6 +267,9 @@ struct SessionView: View {
             .background(stopShortcut)
             .onChange(of: terminalFocused) { _, focused in
                 if focused { composerFocused = false }
+            }
+            .onChange(of: appSettings.sessionResumeBriefsEnabled) {
+                refreshResumeBrief()
             }
             .task(id: sessionID) {
                 selectedProjectID = session.projectID
@@ -803,7 +806,9 @@ struct SessionView: View {
     }
 
     private func refreshResumeBrief() {
-        resumeBrief = store.resumeBrief(for: sessionID)
+        resumeBrief = appSettings.sessionResumeBriefsEnabled
+            ? store.resumeBrief(for: sessionID)
+            : nil
         store.clearFinished(sessionID)
     }
 

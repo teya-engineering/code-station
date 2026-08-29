@@ -117,6 +117,13 @@ final class AppSettings {
         didSet { Preferences.setMobileAccessEnabled(mobileAccessEnabled) }
     }
 
+    var sessionResumeBriefsEnabled: Bool {
+        didSet {
+            Preferences.setSessionResumeBriefsEnabled(
+                sessionResumeBriefsEnabled, in: preferences)
+        }
+    }
+
     // Whether the money a session has spent is on screen, one answer per agent. The
     // choice sits with the agent because only some CLIs report a cost at all.
     private var costShown: [AgentKind: Bool]
@@ -134,6 +141,7 @@ final class AppSettings {
         sidebarSessionLimit = Preferences.sidebarSessionLimit(in: preferences)
         sidebarIconSet = Preferences.sidebarIconSet(in: preferences)
         diceBearAvatarStyle = Preferences.diceBearAvatarStyle(in: preferences)
+        sessionResumeBriefsEnabled = Preferences.sessionResumeBriefsEnabled(in: preferences)
         hasCompletedOnboarding = Preferences.hasCompletedOnboarding(in: preferences)
         costShown = Dictionary(uniqueKeysWithValues: AgentKind.allCases.map {
             ($0, Preferences.showCost(for: $0))
@@ -452,6 +460,7 @@ struct SettingsView: View {
         case .general:
             VStack(alignment: .leading, spacing: 20) {
                 sidebar.id(SettingsSearchTarget.generalSidebar.id)
+                resumeBriefs.id(SettingsSearchTarget.generalResumeBriefs.id)
                 oldSessions.id(SettingsSearchTarget.generalOldSessions.id)
                 orphanedWorktrees.id(SettingsSearchTarget.generalOrphanedWorktrees.id)
                 skillRefresh.id(SettingsSearchTarget.generalSkills.id)
@@ -499,6 +508,20 @@ struct SettingsView: View {
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 13)
+            }
+        }
+    }
+
+    private var resumeBriefs: some View {
+        @Bindable var settings = settings
+        return ChoiceBlock("SESSION RETURN") {
+            SettingsCard {
+                SettingsToggleRow(
+                    "Session resume briefs",
+                    detail: "Shows a short summary of requests, agent reports, actions, and file changes that arrived while you were in another session or app.",
+                    isOn: $settings.sessionResumeBriefsEnabled)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 13)
             }
         }
     }
@@ -1489,6 +1512,7 @@ private struct DayField: View {
 
 enum SettingsSearchTarget: String, Hashable {
     case generalSidebar
+    case generalResumeBriefs
     case generalOldSessions
     case generalOrphanedWorktrees
     case generalSkills
@@ -1528,6 +1552,8 @@ enum SettingsSearchIndex {
     static let entries = [
         result("Sessions shown", .general, .generalSidebar,
                "sidebar recent project workspace see more limit"),
+        result("Session resume briefs", .general, .generalResumeBriefs,
+               "catch up return summary last visit agent report actions files changes toggle"),
         result("Old sessions", .general, .generalOldSessions,
                "count old after days delete automatically review clear stale design saved work uncommitted"),
         result("Orphaned worktrees", .general, .generalOrphanedWorktrees,

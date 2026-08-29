@@ -414,6 +414,19 @@ enum Preferences {
         store.set(enabled, forKey: "designEnabled")
     }
 
+    // A missing value means enabled so existing installations get the catch-up aid. An
+    // explicit false is kept, unlike UserDefaults.bool which cannot tell the two apart.
+    static func sessionResumeBriefsEnabled(in store: UserDefaults = .standard) -> Bool {
+        guard store.object(forKey: "sessionResumeBriefsEnabled") != nil else { return true }
+        return store.bool(forKey: "sessionResumeBriefsEnabled")
+    }
+
+    static func setSessionResumeBriefsEnabled(
+        _ enabled: Bool, in store: UserDefaults = .standard
+    ) {
+        store.set(enabled, forKey: "sessionResumeBriefsEnabled")
+    }
+
     // Mobile access exposes live session control to another device, so it stays off until
     // someone deliberately opts into the experimental surface.
     static func mobileAccessEnabled(in store: UserDefaults = .standard) -> Bool {
