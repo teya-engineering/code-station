@@ -147,6 +147,7 @@ struct SessionView: View {
     @State private var exportingDesignMaterials = false
     @State private var transcriptWindow = TranscriptWindow()
     @State private var transcriptPinnedToBottom = true
+    @State private var transcriptScrollRequest = 0
     @State private var resumeBrief: SessionResumeBrief?
     // False until this session's transcript has been scrolled to its end. The pane is
     // rebuilt per session, so it starts false on every switch without being reset.
@@ -208,6 +209,7 @@ struct SessionView: View {
                             acknowledgeResumeBrief()
                             openChanges()
                         },
+                        viewLatest: viewLatestResumeActivity,
                         dismiss: acknowledgeResumeBrief)
                     .padding(.horizontal, 20)
                     .padding(.vertical, 12)
@@ -819,6 +821,13 @@ struct SessionView: View {
         }
     }
 
+    private func viewLatestResumeActivity() {
+        acknowledgeResumeBrief()
+        tab = .conversation
+        transcriptPinnedToBottom = true
+        transcriptScrollRequest += 1
+    }
+
     // What the rebuild would do is worked out before it is offered, so the confirmation names
     // where the commits come from instead of guessing. Promising work that is not there would
     // be worse than offering nothing.
@@ -941,6 +950,10 @@ struct SessionView: View {
             .onChange(of: shape) { old, new in
                 if new.state != old.state, new.state != .waiting { waitNoticeDismissed = false }
                 scrollToBottom(proxy, animated: old.settled != new.settled)
+            }
+            .onChange(of: transcriptScrollRequest) {
+                transcriptPinnedToBottom = true
+                scrollToBottom(proxy, animated: true)
             }
         }
     }

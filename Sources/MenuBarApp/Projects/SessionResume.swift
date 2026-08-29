@@ -156,63 +156,87 @@ struct SessionResumeBrief: Equatable, Sendable {
 struct SessionResumeBriefView: View {
     let brief: SessionResumeBrief
     let openChanges: () -> Void
+    let viewLatest: () -> Void
     let dismiss: () -> Void
 
+    @State private var expanded = false
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 9) {
+        VStack(alignment: .leading, spacing: expanded ? 10 : 0) {
+            HStack(spacing: 10) {
                 Image(systemName: "arrow.uturn.backward.circle.fill")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(Theme.attentionText)
-                Text("SINCE YOUR LAST VISIT")
-                    .font(.mono(10, .semibold))
-                    .kerning(1.1)
-                    .foregroundStyle(Theme.attentionText)
-                StatusDot()
-                Text(brief.seenAt.formatted(date: .abbreviated, time: .shortened))
-                    .font(.mono(10))
-                    .foregroundStyle(.tertiary)
-                Spacer(minLength: 12)
-                GlyphButton(icon: "xmark", side: 25, action: dismiss)
-                    .appTooltip("Dismiss return brief")
-                    .accessibilityLabel("Dismiss return brief")
-            }
 
-            if let request = brief.lastRequest {
-                resumeLine(label: "LAST REQUEST", text: request, weight: .semibold)
-            }
-            if let report = brief.agentReport {
-                resumeLine(label: "AGENT REPORTED", text: report)
-            }
-
-            HStack(spacing: 8) {
-                if brief.changedFiles > 0 {
-                    MonoChip(text: counted(brief.changedFiles, "FILE").uppercased(),
-                             tint: Theme.accent)
-                }
-                if brief.added > 0 || brief.removed > 0 {
-                    DiffPair(added: brief.added, removed: brief.removed, size: 10.5)
-                }
-                if brief.completedCalls > 0 {
-                    MonoChip(text: counted(brief.completedCalls, "ACTION").uppercased())
-                }
-                if brief.failedCalls > 0 {
-                    MonoChip(text: counted(brief.failedCalls, "FAILED ACTION").uppercased(),
-                             tint: Theme.deletion)
-                }
-                if brief.runningCalls > 0 {
-                    MonoChip(text: "\(brief.runningCalls) STILL RUNNING",
-                             tint: Theme.addition)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("UPDATED WHILE YOU WERE AWAY")
+                        .font(.mono(10, .semibold))
+                        .kerning(1)
+                        .foregroundStyle(Theme.attentionText)
+                    Text("Last seen \(brief.seenAt.formatted(date: .abbreviated, time: .shortened))")
+                        .font(.mono(9.5))
+                        .foregroundStyle(.tertiary)
                 }
 
                 Spacer(minLength: 12)
 
-                if brief.hasChanges {
-                    ActionButton(title: "Review changes", tone: .attention,
-                                 height: 28, size: 11.5, action: openChanges)
+                if expanded {
+                    GlyphButton(icon: "chevron.up", side: 25) {
+                        withAnimation(.easeOut(duration: 0.14)) { expanded = false }
+                    }
+                    .appTooltip("Collapse catch-up")
+                    .accessibilityLabel("Collapse catch-up")
                 } else {
-                    ActionButton(title: brief.failedCalls > 0 ? "Inspect failure" : "Review result",
-                                 tone: .outlined, height: 28, size: 11.5, action: dismiss)
+                    ActionButton(title: "Catch up", tone: .outlined,
+                                 height: 27, size: 11.5) {
+                        withAnimation(.easeOut(duration: 0.16)) { expanded = true }
+                    }
+                }
+
+                GlyphButton(icon: "xmark", side: 25, action: dismiss)
+                    .appTooltip("Mark as read")
+                    .accessibilityLabel("Mark catch-up as read")
+            }
+
+            if expanded {
+                Divider().overlay(Theme.hairline)
+
+                if let request = brief.lastRequest {
+                    resumeLine(label: "YOUR REQUEST", text: request, weight: .semibold)
+                }
+                if let report = brief.agentReport {
+                    resumeLine(label: "LATEST UPDATE", text: report)
+                }
+
+                HStack(spacing: 8) {
+                    if brief.changedFiles > 0 {
+                        MonoChip(text: counted(brief.changedFiles, "FILE").uppercased(),
+                                 tint: Theme.accent)
+                    }
+                    if brief.added > 0 || brief.removed > 0 {
+                        DiffPair(added: brief.added, removed: brief.removed, size: 10.5)
+                    }
+                    if brief.completedCalls > 0 {
+                        MonoChip(text: counted(brief.completedCalls, "TOOL RUN").uppercased())
+                    }
+                    if brief.failedCalls > 0 {
+                        MonoChip(text: counted(brief.failedCalls, "FAILED").uppercased(),
+                                 tint: Theme.deletion)
+                    }
+                    if brief.runningCalls > 0 {
+                        MonoChip(text: "\(brief.runningCalls) STILL RUNNING",
+                                 tint: Theme.addition)
+                    }
+
+                    Spacer(minLength: 12)
+
+                    if brief.hasChanges {
+                        ActionButton(title: "Review changes", tone: .attention,
+                                     height: 28, size: 11.5, action: openChanges)
+                    } else {
+                        ActionButton(title: latestActionTitle, tone: .outlined,
+                                     height: 28, size: 11.5, action: viewLatest)
+                    }
                 }
             }
         }
@@ -220,6 +244,12 @@ struct SessionResumeBriefView: View {
         .padding(.vertical, 12)
         .surface(Theme.attention.opacity(0.08), cornerRadius: 11,
                  border: Theme.attention.opacity(0.38))
+    }
+
+    private var latestActionTitle: String {
+        if brief.failedCalls > 0 { return "View failure" }
+        if brief.runningCalls > 0 { return "View progress" }
+        return "View latest"
     }
 
     private func resumeLine(label: String, text: String,

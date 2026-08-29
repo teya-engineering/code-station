@@ -518,7 +518,7 @@ struct SettingsView: View {
             SettingsCard {
                 SettingsToggleRow(
                     "Session resume briefs",
-                    detail: "Shows a short summary of requests, agent reports, actions, and file changes that arrived while you were in another session or app.",
+                    detail: "Shows a compact catch-up prompt when requests, agent updates, tool runs, or file changes arrive while you are in another session or app.",
                     isOn: $settings.sessionResumeBriefsEnabled)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 13)
