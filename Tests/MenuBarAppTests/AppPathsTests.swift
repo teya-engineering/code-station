@@ -229,21 +229,30 @@ struct AppPathsTests {
         #expect(Preferences.designEnabled(in: defaults))
     }
 
-    @Test @MainActor func sessionResumeBriefsDefaultOnAndPersist() throws {
-        let suite = "code-station-resume-brief-tests-\(UUID().uuidString)"
+    @Test @MainActor func sessionRecapsDefaultOnAndPersist() throws {
+        let suite = "code-station-recap-tests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let avatar = root.appendingPathComponent("avatar.png")
         let settings = AppSettings(agentAvatarURL: avatar, preferences: defaults)
 
-        #expect(Preferences.sessionResumeBriefsEnabled(in: defaults))
-        #expect(settings.sessionResumeBriefsEnabled)
+        #expect(Preferences.sessionRecapsEnabled(in: defaults))
+        #expect(settings.sessionRecapsEnabled)
 
-        settings.sessionResumeBriefsEnabled = false
+        settings.sessionRecapsEnabled = false
 
-        #expect(!Preferences.sessionResumeBriefsEnabled(in: defaults))
+        #expect(!Preferences.sessionRecapsEnabled(in: defaults))
         #expect(!AppSettings(agentAvatarURL: avatar, preferences: defaults)
-            .sessionResumeBriefsEnabled)
+            .sessionRecapsEnabled)
+    }
+
+    @Test func sessionRecapsRespectTheOldCatchUpOptOut() throws {
+        let suite = "code-station-recap-migration-tests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(false, forKey: "sessionResumeBriefsEnabled")
+
+        #expect(!Preferences.sessionRecapsEnabled(in: defaults))
     }
 
     @Test @MainActor func appSettingsPersistsTheSidebarSessionLimit() throws {

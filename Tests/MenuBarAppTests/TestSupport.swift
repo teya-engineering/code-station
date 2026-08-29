@@ -174,7 +174,8 @@ final class RunnerHarness {
 
     init(agent: AgentKind, script: String,
          stalledAfter: TimeInterval = 5 * 60,
-         stallCheckInterval: Duration = .seconds(5)) throws {
+         stallCheckInterval: Duration = .seconds(5),
+         automaticRecapsEnabled: @escaping () -> Bool = { false }) throws {
         scratch = ScratchDirectory(prefix: "runner-\(agent.rawValue)")
         executable = scratch.path("\(agent.rawValue)-fixture")
         try FixtureCLI.write(script, to: executable)
@@ -185,7 +186,8 @@ final class RunnerHarness {
         session = try store.insertSession(in: project.id, seed: .init(agent: agent)).get()
         runner = SessionRunner(paths: [agent: executable.path],
                                stalledAfter: stalledAfter,
-                               stallCheckInterval: stallCheckInterval)
+                               stallCheckInterval: stallCheckInterval,
+                               automaticRecapsEnabled: automaticRecapsEnabled)
     }
 
     // Snapshots only mean anything inside a repository, so a test that expects one has

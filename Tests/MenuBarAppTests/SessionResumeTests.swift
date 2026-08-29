@@ -2,84 +2,27 @@ import Foundation
 import Testing
 @testable import MenuBarApp
 
-struct SessionResumeTests {
-    private let projectPath = "/tmp/resume-project"
-
-    @Test func summarizesEvidenceSinceTheLastVisit() throws {
-        let seenAt = Date(timeIntervalSince1970: 1_800_000_000)
-        let request = ChatMessage(role: .user, text: "Fix the retry order")
-        let initialReply = ChatMessage(role: .assistant, text: "I will inspect it.")
-        let boundary = SessionResumeBoundary(
-            messages: [request, initialReply], seenAt: seenAt)
-        let editInput = #"{"file_path":"/tmp/resume-project/Sources/App.swift","old_string":"old","new_string":"new"}"#
-        let completed = [
-            ToolUse(id: "edit-\(UUID())", name: "Edit", input: editInput, result: "ok"),
-            ToolUse(id: "test-\(UUID())", name: "Bash", input: "swift test", result: "ok"),
-            ToolUse(id: "lint-\(UUID())", name: "Bash", input: "swift lint",
-                    result: "lint failed", isError: true)
-        ]
-        let finalReply = ChatMessage(
-            role: .assistant,
-            text: "I am applying the change.\n\n# Implemented the retry change.\nThe focused tests pass.",
-            tools: completed)
-
-        let brief = try #require(SessionResumeBrief.make(
-            messages: [request, initialReply, finalReply],
-            boundary: boundary,
-            projectPath: projectPath))
-
-        #expect(brief.seenAt == seenAt)
-        #expect(brief.lastRequest == "Fix the retry order")
-        #expect(brief.agentReport == "Implemented the retry change.")
-        #expect(brief.completedCalls == 3)
-        #expect(brief.failedCalls == 1)
-        #expect(brief.runningCalls == 0)
-        #expect(brief.changedFiles == 1)
-        #expect(brief.added == 1)
-        #expect(brief.removed == 1)
+struct SessionRecapTests {
+    @Test func cleansARecapForPlainTextDisplay() {
+        #expect(SessionRecap.cleaned("  ## Goal\n\nDone \u{2014} continue with tests.  ")
+            == "Goal Done - continue with tests.")
     }
 
-    @Test func noticesACallThatFinishedInsideTheExistingReply() throws {
-        let request = ChatMessage(role: .user, text: "Run the tests")
-        var reply = ChatMessage(
-            role: .assistant,
-            tools: [ToolUse(id: "running-\(UUID())", name: "Bash", input: "swift test")])
-        let boundary = SessionResumeBoundary(messages: [request, reply])
-
-        reply.text = "All tests passed."
-        reply.tools[0].result = "ok"
-        let brief = try #require(SessionResumeBrief.make(
-            messages: [request, reply], boundary: boundary, projectPath: projectPath))
-
-        #expect(brief.agentReport == "All tests passed.")
-        #expect(brief.completedCalls == 1)
-        #expect(brief.failedCalls == 0)
-        #expect(brief.runningCalls == 0)
+    @Test func rejectsClaudeCodeControlMessages() {
+        #expect(SessionRecap.nativeText(from: "Couldn't generate a recap. Run with --debug.") == nil)
+        #expect(SessionRecap.nativeText(from: "Nothing to recap yet - send a message first.") == nil)
+        #expect(SessionRecap.nativeText(from: "Recap cancelled.") == nil)
     }
 
-    @Test func quotesOnlyTextThatArrivedAfterTheBoundary() throws {
-        let request = ChatMessage(role: .user, text: "Explain the result")
-        var reply = ChatMessage(role: .assistant, text: "Already read.\n")
-        let boundary = SessionResumeBoundary(messages: [request, reply])
-
-        reply.text += "New result is ready."
-        let brief = try #require(SessionResumeBrief.make(
-            messages: [request, reply], boundary: boundary, projectPath: projectPath))
-
-        #expect(brief.agentReport == "New result is ready.")
-    }
-
-    @Test func makesNoBriefWhenTheTranscriptHasNotChanged() {
-        let messages = [ChatMessage(role: .user, text: "Nothing new")]
-        let boundary = SessionResumeBoundary(messages: messages)
-
-        #expect(SessionResumeBrief.make(
-            messages: messages, boundary: boundary, projectPath: projectPath) == nil)
+    @Test func acceptsAClaudeCodeRecap() {
+        #expect(SessionRecap.nativeText(
+            from: "The retry change is complete and tested. Review the diff next.")
+            == "The retry change is complete and tested. Review the diff next.")
     }
 }
 
 @MainActor
-struct SessionResumeStoreTests {
+struct SessionRecapStoreTests {
     private let store: ProjectStore
     private let scratch: ScratchDirectory
     private let project: Project
@@ -89,26 +32,146 @@ struct SessionResumeStoreTests {
         project = try TestStore.project(in: store)
     }
 
-    @Test func persistsTheBoundaryWhenLeavingASession() throws {
+    @Test func persistsTheLatestRecapOutsideTheTranscript() throws {
         let session = store.newSession(in: project.id)
-        let request = ChatMessage(role: .user, text: "Keep my place")
-        let reply = ChatMessage(role: .assistant, text: "This is where you stopped.")
-        store.append(request, to: session.id)
-        store.append(reply, to: session.id)
+        let recap = SessionRecap(text: "The work is complete.",
+                                 generatedAt: Date(timeIntervalSince1970: 1_800_000_000),
+                                 source: .prompt)
 
-        store.selectHome()
+        store.setRecap(recap, for: session.id)
         #expect(store.save())
 
-        let boundary = try #require(store.session(session.id)?.resumeBoundary)
-        #expect(boundary.messageID == reply.id)
-        #expect(boundary.textLength == reply.text.count)
-
         let reloaded = try #require(ProjectStore(storeURL: store.storeURL).session(session.id))
-        let reloadedBoundary = try #require(reloaded.resumeBoundary)
-        #expect(reloadedBoundary.messageID == boundary.messageID)
-        #expect(reloadedBoundary.textLength == boundary.textLength)
-        #expect(reloadedBoundary.toolCount == boundary.toolCount)
-        #expect(reloadedBoundary.pendingToolIDs == boundary.pendingToolIDs)
-        #expect(abs(reloadedBoundary.seenAt.timeIntervalSince(boundary.seenAt)) < 1)
+        #expect(reloaded.recap == recap)
+        #expect(store.transcript(of: session.id).isEmpty)
+    }
+
+    @Test func markingTheSessionSeenDismissesItsRecap() {
+        let session = store.newSession(in: project.id)
+        store.setRecap(SessionRecap(text: "Ready to review.", generatedAt: Date(),
+                                    source: .claudeCode), for: session.id)
+
+        store.markSessionSeen(session.id)
+
+        #expect(store.recap(for: session.id) == nil)
+    }
+}
+
+@MainActor
+struct SessionRecapRunnerTests {
+    @Test func usesClaudeCodesNativeRecapWithoutAddingItToTheTranscript() async throws {
+        let harness = try RunnerHarness(agent: .claudeCode, script: """
+        IFS= read -r input
+        count_file="$folder/count"
+        count=0
+        if [ -f "$count_file" ]; then count=$(cat "$count_file"); fi
+        count=$((count + 1))
+        printf '%s' "$count" > "$count_file"
+        printf '%s' "$input" > "$folder/prompt-$count.txt"
+        printf '%s\n' '{"type":"system","subtype":"init","session_id":"claude-1"}'
+        if [ "$count" -eq 1 ]; then
+            printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"Initial response"}]}}'
+            printf '%s\n' '{"type":"result","is_error":false,"result":"Initial response"}'
+        else
+            printf '%s\n' '{"type":"result","is_error":false,"result":"The retry change is complete and tested. Review the diff next."}'
+        fi
+        """)
+        defer { harness.tearDown() }
+        harness.store.selection = .session(harness.session.id)
+
+        harness.runner.send("Improve retries", sessionID: harness.session.id,
+                            store: harness.store)
+        #expect(await waitUntil { harness.runner.state(harness.session.id) == .idle })
+        #expect(harness.runner.recap(harness.session.id, store: harness.store))
+        #expect(await waitUntil { harness.store.recap(for: harness.session.id) != nil })
+
+        let recap = try #require(harness.store.recap(for: harness.session.id))
+        #expect(recap.source == .claudeCode)
+        #expect(recap.text == "The retry change is complete and tested. Review the diff next.")
+        #expect(harness.store.transcript(of: harness.session.id).map(\.text)
+            == ["Improve retries", "Initial response"])
+        let command = try String(contentsOf: harness.scratch.path("prompt-2.txt"), encoding: .utf8)
+        #expect(command.contains("/recap"))
+    }
+
+    @Test func fallsBackToAPromptWhenTheNativeRecapIsUnavailable() async throws {
+        let harness = try RunnerHarness(agent: .claudeCode, script: """
+        IFS= read -r input
+        count_file="$folder/count"
+        count=0
+        if [ -f "$count_file" ]; then count=$(cat "$count_file"); fi
+        count=$((count + 1))
+        printf '%s' "$count" > "$count_file"
+        printf '%s' "$input" > "$folder/prompt-$count.txt"
+        printf '%s\n' '{"type":"system","subtype":"init","session_id":"claude-1"}'
+        if [ "$count" -eq 1 ]; then
+            printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"Initial response"}]}}'
+            printf '%s\n' '{"type":"result","is_error":false,"result":"Initial response"}'
+        elif [ "$count" -eq 2 ]; then
+            printf '%s\n' '{"type":"result","is_error":false,"result":"Could not generate a recap because it is disabled."}'
+        else
+            printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"The change is ready. Review it next."}]}}'
+            printf '%s\n' '{"type":"result","is_error":false,"result":"The change is ready. Review it next."}'
+        fi
+        """)
+        defer { harness.tearDown() }
+        harness.store.selection = .session(harness.session.id)
+
+        harness.runner.send("Make the change", sessionID: harness.session.id,
+                            store: harness.store)
+        #expect(await waitUntil { harness.runner.state(harness.session.id) == .idle })
+        #expect(harness.runner.recap(harness.session.id, store: harness.store))
+        #expect(await waitUntil { harness.store.recap(for: harness.session.id) != nil })
+
+        #expect(harness.store.recap(for: harness.session.id)?.source == .prompt)
+        let fallback = try String(contentsOf: harness.scratch.path("prompt-3.txt"), encoding: .utf8)
+        #expect(fallback.contains("Write a recap of this conversation"))
+    }
+
+    @Test func automaticallyRecapsOnlyAnUnseenFinishedTurn() async throws {
+        let harness = try RunnerHarness(agent: .codex, script: """
+        input=$(cat)
+        count_file="$folder/count"
+        count=0
+        if [ -f "$count_file" ]; then count=$(cat "$count_file"); fi
+        count=$((count + 1))
+        printf '%s' "$count" > "$count_file"
+        printf '%s\n' '{"type":"thread.started","thread_id":"thread-1"}'
+        if [ "$count" -eq 1 ]; then
+            printf '%s\n' '{"type":"item.completed","item":{"id":"answer-1","item_type":"agent_message","text":"Work complete"}}'
+        else
+            printf '%s\n' '{"type":"item.completed","item":{"id":"answer-2","item_type":"agent_message","text":"The requested work is complete. Review the result next."}}'
+        fi
+        printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":2}}'
+        """, automaticRecapsEnabled: { true })
+        defer { harness.tearDown() }
+        let other = harness.store.newSession(in: harness.session.projectID)
+        harness.store.selection = .session(other.id)
+
+        harness.runner.send("Do the work", sessionID: harness.session.id,
+                            store: harness.store)
+
+        #expect(await waitUntil { harness.store.recap(for: harness.session.id) != nil })
+        #expect(harness.store.recap(for: harness.session.id)?.source == .prompt)
+        #expect(harness.store.hasFinished(harness.session.id))
+    }
+
+    @Test func doesNotAutomaticallyRecapATurnThatFinishesOnScreen() async throws {
+        let harness = try RunnerHarness(agent: .codex, script: """
+        input=$(cat)
+        printf '%s' "$input" > "$folder/prompt.txt"
+        printf '%s\n' '{"type":"thread.started","thread_id":"thread-1"}'
+        printf '%s\n' '{"type":"item.completed","item":{"id":"answer-1","item_type":"agent_message","text":"Work complete"}}'
+        printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":2}}'
+        """, automaticRecapsEnabled: { true })
+        defer { harness.tearDown() }
+        harness.store.selection = .session(harness.session.id)
+
+        harness.runner.send("Do the work", sessionID: harness.session.id,
+                            store: harness.store)
+
+        #expect(await waitUntil { harness.runner.state(harness.session.id) == .idle })
+        #expect(harness.store.recap(for: harness.session.id) == nil)
+        #expect(!harness.runner.isRecapping(harness.session.id))
     }
 }

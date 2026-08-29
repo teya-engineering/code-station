@@ -100,6 +100,7 @@ final class SessionRunner {
         [UUID: (id: UUID, task: Task<Void, Never>)] = [:]
     @ObservationIgnored private let stalledAfter: TimeInterval
     @ObservationIgnored private let stallCheckInterval: Duration
+    @ObservationIgnored private let automaticRecapsEnabled: () -> Bool
 
     // How Claude Code says it no longer holds the conversation we asked to resume.
     private static let lostConversation = "No conversation found with session ID"
@@ -109,10 +110,14 @@ final class SessionRunner {
 
     init(configs: ConfigStore? = nil, paths: [AgentKind: String]? = nil,
          stalledAfter: TimeInterval = 5 * 60,
-         stallCheckInterval: Duration = .seconds(5)) {
+         stallCheckInterval: Duration = .seconds(5),
+         automaticRecapsEnabled: @escaping () -> Bool = {
+             Preferences.sessionRecapsEnabled()
+         }) {
         self.configs = configs
         self.stalledAfter = stalledAfter
         self.stallCheckInterval = stallCheckInterval
+        self.automaticRecapsEnabled = automaticRecapsEnabled
         defaultsByAgent = Dictionary(uniqueKeysWithValues: AgentKind.allCases.map {
             ($0, Preferences.sessionDefaults(for: $0))
         })
@@ -253,6 +258,28 @@ final class SessionRunner {
     }
 
     // A prompt waiting for its turn to start.
+    enum RecapMode: Equatable, Sendable {
+        case claudeCode
+        case prompt
+    }
+
+    enum RecapRestingState: Equatable, Sendable {
+        case idle
+        case failed(String)
+
+        var sessionState: SessionState {
+            switch self {
+            case .idle: .idle
+            case .failed(let message): .failed(message)
+            }
+        }
+    }
+
+    struct RecapAttempt: Equatable, Sendable {
+        let mode: RecapMode
+        let restingState: RecapRestingState
+    }
+
     struct QueuedPrompt: Identifiable, Equatable, Sendable {
         let id = UUID()
         let text: String
@@ -262,6 +289,7 @@ final class SessionRunner {
         // typed at the agent. It travels down the same pipe but is not a line of the
         // conversation, so it does not appear as one.
         var isAppCommand = false
+        var recap: RecapAttempt? = nil
 
         var prompt: String {
             guard let customInstructions else { return text }
@@ -371,6 +399,7 @@ final class SessionRunner {
         for agent in AgentKind.allCases {
             store.clearAgentSessionID(agent: agent, for: sessionID)
         }
+        store.markSessionSeen(sessionID)
         store.clearContextUsage(for: sessionID)
         records[sessionID]?.nudgeDismissed = false
         store.append(
@@ -469,6 +498,7 @@ final class SessionRunner {
     // checks as a prompt typed by hand.
     private func resume(_ sessionID: UUID, after reason: ResumeReason, store: ProjectStore) {
         records[sessionID, default: SessionRecord()].continuable = nil
+        store.markSessionSeen(sessionID)
         store.append(ChatMessage(role: .system, text: reason.note), to: sessionID)
         records[sessionID]?.queue.insert(
             QueuedPrompt(text: Self.recoveryPrompt, attachments: [], customInstructions: nil,
@@ -588,6 +618,7 @@ final class SessionRunner {
             customInstructions: instructions)
 
         store.truncateTranscript(from: messageID, in: sessionID)
+        store.markSessionSeen(sessionID)
         store.restoreAgentSessionIDs(claudeSessionID: checkpoint.claudeSessionID,
                                      codexSessionID: checkpoint.codexSessionID,
                                      for: sessionID)
@@ -615,6 +646,7 @@ final class SessionRunner {
     @discardableResult
     func compact(_ sessionID: UUID, store: ProjectStore) -> Bool {
         guard canCompactContext(sessionID, store: store) else { return false }
+        store.markSessionSeen(sessionID)
         // A turn that says nothing for the best part of a minute needs to say why.
         let notice = ChatMessage(role: .system, text: "Compacting the context…")
         store.append(notice, to: sessionID)
@@ -646,6 +678,60 @@ final class SessionRunner {
         }
     }
 
+    // MARK: - Recapping the conversation
+
+    // Claude Code has a local recap command. Codex compaction is opaque and cannot be
+    // shown to a person, so it receives the same focused summary request used when the
+    // Claude Code command is missing or unavailable.
+    nonisolated static let recapPrompt = """
+    Do not use tools or change files. Write a recap of this conversation in at most 50 words and one or two plain sentences. State the overall goal, what is complete or currently blocked, and the next useful action. Use no markdown. Return only the recap.
+    """
+
+    func isRecapping(_ sessionID: UUID) -> Bool {
+        guard let record = records[sessionID] else { return false }
+        return record.turn?.recap != nil || record.queue.contains { $0.recap != nil }
+    }
+
+    func canRecap(_ sessionID: UUID, store: ProjectStore) -> Bool {
+        guard let session = store.session(sessionID), session.hasAgentConversation,
+              !state(sessionID).isBusy, !isBeingRemoved(sessionID) else { return false }
+        return !isRecapping(sessionID)
+    }
+
+    @discardableResult
+    func recap(_ sessionID: UUID, store: ProjectStore) -> Bool {
+        requestRecap(sessionID, store: store)
+    }
+
+    @discardableResult
+    private func requestRecap(_ sessionID: UUID, store: ProjectStore) -> Bool {
+        guard canRecap(sessionID, store: store), let session = store.session(sessionID) else {
+            return false
+        }
+        let restingState: RecapRestingState = if case .failed(let message) = state(sessionID) {
+            .failed(message)
+        } else {
+            .idle
+        }
+        let mode: RecapMode = session.agent == .claudeCode ? .claudeCode : .prompt
+        let prompt = mode == .claudeCode ? "/recap" : Self.recapPrompt
+        records[sessionID, default: SessionRecord()].queue.append(QueuedPrompt(
+            text: prompt,
+            attachments: [],
+            customInstructions: nil,
+            isAppCommand: true,
+            recap: RecapAttempt(mode: mode, restingState: restingState)))
+        SessionLog.note("generating session recap", session: sessionID)
+        runQueue(sessionID, store: store)
+        return true
+    }
+
+    private func requestAutomaticRecap(_ sessionID: UUID, unseen: Bool,
+                                       store: ProjectStore) {
+        guard unseen, automaticRecapsEnabled() else { return }
+        _ = requestRecap(sessionID, store: store)
+    }
+
     // MARK: - The nearly-full nudge
 
     // Above this the session is close enough to the end of its window to be worth
@@ -671,6 +757,7 @@ final class SessionRunner {
         let text = prompt.trimmed
         let instructions = customInstructions?.trimmed
         guard !text.isEmpty || !attachments.isEmpty || instructions?.isEmpty == false else { return }
+        store.markSessionSeen(sessionID)
 
         // The window commands are answered by the app rather than sent on as prompts, so
         // that typing one and picking it off the meter do the same thing. Anything hanging
@@ -690,6 +777,7 @@ final class SessionRunner {
     func sendAppCommand(_ prompt: String, attachments: [Attachment] = [],
                         sessionID: UUID, store: ProjectStore) {
         guard !isBeingRemoved(sessionID), store.session(sessionID) != nil else { return }
+        store.markSessionSeen(sessionID)
         records[sessionID, default: SessionRecord()].queue.append(QueuedPrompt(
             text: prompt,
             attachments: attachments,
@@ -712,7 +800,7 @@ final class SessionRunner {
         guard !record.state.isBusy,
               let next = record.queue.first,
               let session = store.session(sessionID) else { return }
-        records[sessionID]?.continuable = nil
+        if next.recap == nil { records[sessionID]?.continuable = nil }
 
         // Two agents sharing any direct project folder would edit the same files under
         // each other. Workspace sessions therefore conflict when any root overlaps.
@@ -742,7 +830,7 @@ final class SessionRunner {
         let avatarSequence = nextAvatarSequence(for: sessionID)
         launch(Self.prompt(next.prompt, with: next.attachments), attachments: next.attachments,
                sessionID: sessionID, store: store, avatarSequence: avatarSequence,
-               canRetryWithoutResume: true)
+               canRetryWithoutResume: true, recap: next.recap)
     }
 
     private func nextAvatarSequence(for sessionID: UUID) -> Int {
@@ -1081,7 +1169,8 @@ final class SessionRunner {
     // here, so a turn that never ran leaves nothing behind.
     private func launch(_ prompt: String, attachments: [Attachment], sessionID: UUID,
                         store: ProjectStore, avatarSequence: Int,
-                        canRetryWithoutResume: Bool) {
+                        canRetryWithoutResume: Bool,
+                        recap: RecapAttempt? = nil) {
         // Read the session again rather than passing it in: a retry runs after the stored
         // claudeSessionID has been cleared, and must not try to resume anything.
         guard let session = store.session(sessionID) else { return }
@@ -1158,7 +1247,8 @@ final class SessionRunner {
                              messageID: reply.id, attachments: attachments,
                              avatarSequence: avatarSequence,
                              canRetryWithoutResume: canRetryWithoutResume,
-                             mcpConfigURL: mcpConfigURL, sessionID: sessionID, store: store)
+                             mcpConfigURL: mcpConfigURL, recap: recap,
+                             sessionID: sessionID, store: store)
         } catch {
             SessionLog.note("could not start: \(error.localizedDescription)", session: sessionID)
             fail("Could not start \(agent.title): \(error.localizedDescription)")
@@ -1232,6 +1322,7 @@ final class SessionRunner {
     private func spawn(_ plan: TurnPlan, agentPath: String, workingDirectory: String,
                        messageID: UUID, attachments: [Attachment], avatarSequence: Int,
                        canRetryWithoutResume: Bool, mcpConfigURL: URL?,
+                       recap: RecapAttempt?,
                        sessionID: UUID, store: ProjectStore) throws -> Turn {
         var env = ProcessInfo.processInfo.environment
         env["PATH"] = ProcessManager.searchPath
@@ -1283,7 +1374,8 @@ final class SessionRunner {
                         prompt: plan.prompt, workingDirectory: workingDirectory,
                         attachments: attachments, resumed: plan.resumed,
                         avatarSequence: avatarSequence,
-                        canRetryWithoutResume: canRetryWithoutResume, mcpConfigURL: mcpConfigURL)
+                        canRetryWithoutResume: canRetryWithoutResume,
+                        mcpConfigURL: mcpConfigURL, recap: recap)
         let token = turn.token
         let runner = self
         let buffer = LineBuffer()
@@ -1706,6 +1798,7 @@ final class SessionRunner {
                     continue
                 }
                 turn.receivedCompletion = true
+                turn.resultMessage = message
                 if isError {
                     turn.failure = message ?? "\(turn.agent.title) reported an error."
                 } else {
@@ -1952,6 +2045,12 @@ final class SessionRunner {
         records[sessionID]?.asked = []
         cleanUp(turn)
 
+        if let recap = turn.recap {
+            finishRecap(turn, attempt: recap, status: status,
+                        sessionID: sessionID, store: store)
+            return
+        }
+
         // A turn that produced nothing at all would otherwise leave a blank assistant
         // bubble sitting under the failure.
         removeReplyIfEmpty(turn, sessionID: sessionID, store: store)
@@ -1974,15 +2073,18 @@ final class SessionRunner {
                 resume(sessionID, after: .stalledTurn, store: store)
                 return
             }
+            let unseen: Bool
             if let failure = turn.stopFailure {
                 setState(.failed(failure), for: sessionID)
-                store.noteTurnEnded(for: sessionID)
+                unseen = store.noteTurnEnded(for: sessionID)
             } else {
                 setState(.idle, for: sessionID)
                 noteStop(sessionID, store: store)
+                unseen = store.noteTurnEnded(for: sessionID)
             }
             store.release(sessionID, for: .running)
             resumeDesignWorkflowQueues(after: sessionID, store: store)
+            requestAutomaticRecap(sessionID, unseen: unseen, store: store)
             return
         }
 
@@ -2004,12 +2106,13 @@ final class SessionRunner {
             // A queued prompt starting straight away means the session has not stopped
             // working, and there is nothing to come back to yet.
             if !state(sessionID).isBusy {
-                store.noteTurnEnded(for: sessionID)
+                let unseen = store.noteTurnEnded(for: sessionID)
                 if let session = store.session(sessionID) {
                     AppNotifier.shared.turnEnded(
                         sessionID: store.userFacingSessionID(for: sessionID),
                         sessionTitle: session.title, failure: nil)
                 }
+                requestAutomaticRecap(sessionID, unseen: unseen, store: store)
             }
             return
         }
@@ -2052,12 +2155,68 @@ final class SessionRunner {
         setState(.failed(message), for: sessionID)
         store.release(sessionID, for: .running)
         resumeDesignWorkflowQueues(after: sessionID, store: store)
-        store.noteTurnEnded(for: sessionID)
+        let unseen = store.noteTurnEnded(for: sessionID)
         if let session = store.session(sessionID) {
             AppNotifier.shared.turnEnded(
                 sessionID: store.userFacingSessionID(for: sessionID),
                 sessionTitle: session.title, failure: message)
         }
+        requestAutomaticRecap(sessionID, unseen: unseen, store: store)
+    }
+
+    private func finishRecap(_ turn: Turn, attempt: RecapAttempt, status: Int32,
+                             sessionID: UUID, store: ProjectStore) {
+        let streamed = store.transcript(of: sessionID)
+            .first(where: { $0.id == turn.messageID })?.text
+        store.removeMessage(turn.messageID, from: sessionID)
+        store.release(sessionID, for: .running)
+
+        let completedNormally = !turn.stopRequested && turn.failure == nil && status == 0
+            && (turn.agent != .codex || turn.receivedCompletion)
+        let text: String? = if completedNormally {
+            switch attempt.mode {
+            case .claudeCode:
+                SessionRecap.nativeText(from: streamed)
+                    ?? SessionRecap.nativeText(from: turn.resultMessage)
+            case .prompt:
+                SessionRecap.cleaned(streamed) ?? SessionRecap.cleaned(turn.resultMessage)
+            }
+        } else {
+            nil
+        }
+
+        if let text {
+            let source: SessionRecap.Source = attempt.mode == .claudeCode
+                ? .claudeCode : .prompt
+            store.setRecap(SessionRecap(text: text, generatedAt: Date(), source: source),
+                           for: sessionID)
+            setState(attempt.restingState.sessionState, for: sessionID)
+            SessionLog.note("session recap finished", session: sessionID)
+            runQueue(sessionID, store: store)
+            resumeDesignWorkflowQueues(after: sessionID, store: store)
+            return
+        }
+
+        if attempt.mode == .claudeCode, !turn.stopRequested {
+            records[sessionID, default: SessionRecord()].queue.insert(QueuedPrompt(
+                text: Self.recapPrompt,
+                attachments: [],
+                customInstructions: nil,
+                isAppCommand: true,
+                recap: RecapAttempt(mode: .prompt, restingState: attempt.restingState)),
+                at: 0)
+            setState(attempt.restingState.sessionState, for: sessionID)
+            SessionLog.note("native recap unavailable; using summary prompt", session: sessionID)
+            runQueue(sessionID, store: store)
+            resumeDesignWorkflowQueues(after: sessionID, store: store)
+            return
+        }
+
+        setState(attempt.restingState.sessionState, for: sessionID)
+        SessionLog.note(turn.stopRequested ? "session recap stopped" : "session recap failed",
+                        session: sessionID)
+        runQueue(sessionID, store: store)
+        resumeDesignWorkflowQueues(after: sessionID, store: store)
     }
 
     private func resumeDesignWorkflowQueues(after sessionID: UUID, store: ProjectStore) {
@@ -2105,10 +2264,12 @@ final class SessionRunner {
         let resumed: Bool
         let canRetryWithoutResume: Bool
         let mcpConfigURL: URL?
+        let recap: RecapAttempt?
         var agentSessionID: String?
         var stderr = ""
         var failure: String?
         var lastStreamError: String?
+        var resultMessage: String?
         var receivedCompletion = false
         // Whether anything the turn said has come through yet. A result before that
         // belongs to a turn the app never asked for, so it is not this turn ending.
@@ -2167,7 +2328,7 @@ final class SessionRunner {
         init(processGroup: pid_t, agent: AgentKind, messageID: UUID, input: Pipe,
              output: Pipe, errorOutput: Pipe, prompt: String, workingDirectory: String,
              attachments: [Attachment], resumed: Bool, avatarSequence: Int,
-             canRetryWithoutResume: Bool, mcpConfigURL: URL?) {
+             canRetryWithoutResume: Bool, mcpConfigURL: URL?, recap: RecapAttempt?) {
             self.processGroup = processGroup
             self.agent = agent
             self.messageID = messageID
@@ -2181,6 +2342,7 @@ final class SessionRunner {
             self.resumed = resumed
             self.canRetryWithoutResume = canRetryWithoutResume
             self.mcpConfigURL = mcpConfigURL
+            self.recap = recap
         }
     }
 }

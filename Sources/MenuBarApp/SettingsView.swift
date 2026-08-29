@@ -117,10 +117,9 @@ final class AppSettings {
         didSet { Preferences.setMobileAccessEnabled(mobileAccessEnabled) }
     }
 
-    var sessionResumeBriefsEnabled: Bool {
+    var sessionRecapsEnabled: Bool {
         didSet {
-            Preferences.setSessionResumeBriefsEnabled(
-                sessionResumeBriefsEnabled, in: preferences)
+            Preferences.setSessionRecapsEnabled(sessionRecapsEnabled, in: preferences)
         }
     }
 
@@ -141,7 +140,7 @@ final class AppSettings {
         sidebarSessionLimit = Preferences.sidebarSessionLimit(in: preferences)
         sidebarIconSet = Preferences.sidebarIconSet(in: preferences)
         diceBearAvatarStyle = Preferences.diceBearAvatarStyle(in: preferences)
-        sessionResumeBriefsEnabled = Preferences.sessionResumeBriefsEnabled(in: preferences)
+        sessionRecapsEnabled = Preferences.sessionRecapsEnabled(in: preferences)
         hasCompletedOnboarding = Preferences.hasCompletedOnboarding(in: preferences)
         costShown = Dictionary(uniqueKeysWithValues: AgentKind.allCases.map {
             ($0, Preferences.showCost(for: $0))
@@ -460,7 +459,7 @@ struct SettingsView: View {
         case .general:
             VStack(alignment: .leading, spacing: 20) {
                 sidebar.id(SettingsSearchTarget.generalSidebar.id)
-                resumeBriefs.id(SettingsSearchTarget.generalResumeBriefs.id)
+                recaps.id(SettingsSearchTarget.generalRecaps.id)
                 oldSessions.id(SettingsSearchTarget.generalOldSessions.id)
                 orphanedWorktrees.id(SettingsSearchTarget.generalOrphanedWorktrees.id)
                 skillRefresh.id(SettingsSearchTarget.generalSkills.id)
@@ -512,14 +511,14 @@ struct SettingsView: View {
         }
     }
 
-    private var resumeBriefs: some View {
+    private var recaps: some View {
         @Bindable var settings = settings
         return ChoiceBlock("SESSION RETURN") {
             SettingsCard {
                 SettingsToggleRow(
-                    "Session resume briefs",
-                    detail: "Shows a compact catch-up prompt when requests, agent updates, tool runs, or file changes arrive while you are in another session or app.",
-                    isOn: $settings.sessionResumeBriefsEnabled)
+                    "Automatic session recaps",
+                    detail: "Creates a short recap after a turn finishes while you are in another session or app. You can still request one manually when this is off.",
+                    isOn: $settings.sessionRecapsEnabled)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 13)
             }
@@ -1512,7 +1511,7 @@ private struct DayField: View {
 
 enum SettingsSearchTarget: String, Hashable {
     case generalSidebar
-    case generalResumeBriefs
+    case generalRecaps
     case generalOldSessions
     case generalOrphanedWorktrees
     case generalSkills
@@ -1552,8 +1551,8 @@ enum SettingsSearchIndex {
     static let entries = [
         result("Sessions shown", .general, .generalSidebar,
                "sidebar recent project workspace see more limit"),
-        result("Session resume briefs", .general, .generalResumeBriefs,
-               "catch up return summary last visit agent report actions files changes toggle"),
+        result("Automatic session recaps", .general, .generalRecaps,
+               "recap catch up return summary conversation finish away manual toggle"),
         result("Old sessions", .general, .generalOldSessions,
                "count old after days delete automatically review clear stale design saved work uncommitted"),
         result("Orphaned worktrees", .general, .generalOrphanedWorktrees,

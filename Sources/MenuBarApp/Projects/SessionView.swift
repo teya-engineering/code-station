@@ -148,7 +148,6 @@ struct SessionView: View {
     @State private var transcriptWindow = TranscriptWindow()
     @State private var transcriptPinnedToBottom = true
     @State private var transcriptScrollRequest = 0
-    @State private var resumeBrief: SessionResumeBrief?
     // False until this session's transcript has been scrolled to its end. The pane is
     // rebuilt per session, so it starts false on every switch without being reset.
     @State private var opened = false
@@ -202,15 +201,13 @@ struct SessionView: View {
                 if showsDirectoryBar(for: session, designFilesURL: designFilesURL) {
                     sessionDirectoryBar(session, designFilesURL: designFilesURL)
                 }
-                if appSettings.sessionResumeBriefsEnabled, let resumeBrief {
-                    SessionResumeBriefView(
-                        brief: resumeBrief,
-                        openChanges: {
-                            acknowledgeResumeBrief()
-                            openChanges()
-                        },
-                        viewLatest: viewLatestResumeActivity,
-                        dismiss: acknowledgeResumeBrief)
+                if let recap = store.recap(for: sessionID) {
+                    SessionRecapView(
+                        recap: recap,
+                        regenerating: runner.isRecapping(visibleConversationID),
+                        viewLatest: viewLatestRecap,
+                        regenerate: generateRecap,
+                        dismiss: dismissRecap)
                     .padding(.horizontal, 20)
                     .padding(.vertical, 12)
                     .transition(.fadeIn)
@@ -270,9 +267,6 @@ struct SessionView: View {
             .onChange(of: terminalFocused) { _, focused in
                 if focused { composerFocused = false }
             }
-            .onChange(of: appSettings.sessionResumeBriefsEnabled) {
-                refreshResumeBrief()
-            }
             .task(id: sessionID) {
                 selectedProjectID = session.projectID
                 explorerShowsDesignFiles = designFilesURL != nil
@@ -282,7 +276,7 @@ struct SessionView: View {
                 runner.refreshContext(sessionID, store: store)
                 // Scanning a conversation means having it, and it is still being read in.
                 await store.transcriptReady(sessionID)
-                refreshResumeBrief()
+                store.clearFinished(sessionID)
                 store.findPullRequest(in: sessionID)
             }
             // These folders only go missing while another program has the keyboard, so
@@ -290,11 +284,10 @@ struct SessionView: View {
             .onReceive(NotificationCenter.default.publisher(
                 for: NSApplication.didBecomeActiveNotification)) { _ in
                 sampleMissingFolders()
-                refreshResumeBrief()
+                store.clearFinished(sessionID)
             }
             .onChange(of: completedToolCount) {
                 refreshStats(workingDirectories, after: .milliseconds(350))
-                if resumeBrief != nil { refreshResumeBrief() }
             }
             .onChange(of: runner.state(sessionID)) { _, state in
                 if !state.isBusy {
@@ -303,7 +296,6 @@ struct SessionView: View {
                     // into a strip with a way out of it.
                     sampleMissingFolders()
                     refreshStats(workingDirectories, after: .milliseconds(350))
-                    if resumeBrief != nil { refreshResumeBrief() }
                 }
             }
         } else {
@@ -366,6 +358,18 @@ struct SessionView: View {
             HStack(spacing: 8) {
                 if appSettings.mobileAccessEnabled {
                     MobileAccessButton(scope: .session(sessionID))
+                }
+                let recapTarget = visibleConversationID
+                if store.session(recapTarget)?.hasAgentConversation == true {
+                    let recapping = runner.isRecapping(recapTarget)
+                    ActionButton(title: recapping ? "Recapping" : "Recap",
+                                 tone: .outlined, height: 30, size: 12,
+                                 icon: recapping ? "hourglass" : "sparkles",
+                                 action: generateRecap)
+                        .disabled(recapping || !runner.canRecap(recapTarget, store: store))
+                        .appTooltip(recapping
+                            ? "Generating a session recap"
+                            : "Summarise this conversation")
                 }
                 HeaderTabToggle(selection: $tab, options: headerTabs(for: session))
                 if store.isDesignMode(session), store.hasDesignArtifacts(for: session) {
@@ -807,22 +811,18 @@ struct SessionView: View {
         if rebuildable != rebuildableCheckouts { rebuildableCheckouts = rebuildable }
     }
 
-    private func refreshResumeBrief() {
-        resumeBrief = appSettings.sessionResumeBriefsEnabled
-            ? store.resumeBrief(for: sessionID)
-            : nil
-        store.clearFinished(sessionID)
+    private func generateRecap() {
+        _ = runner.recap(visibleConversationID, store: store)
     }
 
-    private func acknowledgeResumeBrief() {
-        store.markSessionSeen(sessionID)
+    private func dismissRecap() {
         withAnimation(reduceMotion ? nil : .easeOut(duration: 0.14)) {
-            resumeBrief = nil
+            store.markSessionSeen(sessionID)
         }
     }
 
-    private func viewLatestResumeActivity() {
-        acknowledgeResumeBrief()
+    private func viewLatestRecap() {
+        dismissRecap()
         tab = .conversation
         transcriptPinnedToBottom = true
         transcriptScrollRequest += 1

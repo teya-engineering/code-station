@@ -414,17 +414,22 @@ enum Preferences {
         store.set(enabled, forKey: "designEnabled")
     }
 
-    // A missing value means enabled so existing installations get the catch-up aid. An
-    // explicit false is kept, unlike UserDefaults.bool which cannot tell the two apart.
-    static func sessionResumeBriefsEnabled(in store: UserDefaults = .standard) -> Bool {
-        guard store.object(forKey: "sessionResumeBriefsEnabled") != nil else { return true }
-        return store.bool(forKey: "sessionResumeBriefsEnabled")
+    // The old catch-up preference maps directly to automatic recaps, so an existing opt-out
+    // remains respected after the feature changes shape.
+    static func sessionRecapsEnabled(in store: UserDefaults = .standard) -> Bool {
+        if store.object(forKey: "sessionRecapsEnabled") != nil {
+            return store.bool(forKey: "sessionRecapsEnabled")
+        }
+        if store.object(forKey: "sessionResumeBriefsEnabled") != nil {
+            return store.bool(forKey: "sessionResumeBriefsEnabled")
+        }
+        return true
     }
 
-    static func setSessionResumeBriefsEnabled(
+    static func setSessionRecapsEnabled(
         _ enabled: Bool, in store: UserDefaults = .standard
     ) {
-        store.set(enabled, forKey: "sessionResumeBriefsEnabled")
+        store.set(enabled, forKey: "sessionRecapsEnabled")
     }
 
     // Mobile access exposes live session control to another device, so it stays off until

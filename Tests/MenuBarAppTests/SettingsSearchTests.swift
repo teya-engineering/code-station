@@ -37,11 +37,11 @@ struct SettingsSearchTests {
         #expect(result.target == .generalOrphanedWorktrees)
     }
 
-    @Test func findsSessionResumeBriefs() throws {
-        let result = try #require(SettingsSearchIndex.results(for: "catch up summary").first)
+    @Test func findsAutomaticSessionRecaps() throws {
+        let result = try #require(SettingsSearchIndex.results(for: "recap summary").first)
 
-        #expect(result.title == "Session resume briefs")
+        #expect(result.title == "Automatic session recaps")
         #expect(result.tab == .general)
-        #expect(result.target == .generalResumeBriefs)
+        #expect(result.target == .generalRecaps)
     }
 }
