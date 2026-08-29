@@ -2,11 +2,10 @@ import AppKit
 import SwiftUI
 
 // What a session is besides its name: the branch it is on, the pull request it opened,
-// what it runs on and how full its window is. Spread along the status strip they crowd
-// out the two readings that are actually watched - what the session is doing and what it
-// has changed - so they are collapsed into one chip that opens when it is asked a
-// question. The chip keeps the window reading, which is the only one of them that moves
-// on its own; the rest are looked up when something needs doing about them.
+// what it runs on and how full its window is. Most stay in one chip so they do not crowd
+// out the two readings that are watched - what the session is doing and what it has
+// changed. The pull request also has a direct shortcut because it is an action rather
+// than just a reading.
 struct SessionFacts: Equatable {
     var branch: String?
     var pullRequest: PullRequest?
@@ -19,9 +18,9 @@ struct SessionFacts: Equatable {
 
     // What the chip says while it is shut. How full the window is, since that is the one
     // fact behind the chip that moves every turn and the only one worth a glance rather
-    // than a lookup - the branch, the pull request and the rest are asked for once and
-    // then known. Before the first turn there is no window to read, so the chip says what
-    // it is instead of what it holds.
+    // than a lookup - the branch and the rest are asked for once and then known. Before
+    // the first turn there is no window to read, so the chip says what it is instead of
+    // what it holds.
     var summary: String? {
         if let context { return Self.percent(context) }
         return isEmpty ? nil : "Details"

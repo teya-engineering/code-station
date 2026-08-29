@@ -473,10 +473,9 @@ struct SessionView: View {
     // MARK: - Status strip
 
     // Everything that describes the session rather than names it, on one thin line: what
-    // it is doing, actions about that state, what it has changed, and one chip for the facts
-    // it is looked up by. Reading it is a glance along a line rather than a hunt across a
-    // header and a footer, and it stays a glance however much a session collects - the chip
-    // is one width whether or not there is a pull request behind it.
+    // it is doing, actions about that state, what it has changed, where that work went,
+    // and one chip for the facts it is looked up by. Reading it is a glance along a line
+    // rather than a hunt across a header and a footer.
     //
     // How full the window is runs along the bottom edge as a hairline. It is the reading
     // that moves every turn, so it stays in sight, but it is a line rather than words: a
@@ -511,6 +510,9 @@ struct SessionView: View {
                     regenerate: generateRecap,
                     close: closeRecap)
             }
+            if let pullRequest = session.pullRequest {
+                pullRequestLink(pullRequest)
+            }
             SessionFactsChip(facts: facts,
                              openChanges: openChanges,
                              contextActions: contextActions,
@@ -541,6 +543,33 @@ struct SessionView: View {
             cost: appSettings.showsCost(for: session.agent) && cost > 0 ? cost : nil,
             context: session.usage?.contextFraction(for: session.agent),
             agent: session.agent)
+    }
+
+    // The destination of the work stays visible after the command finishes instead of
+    // being hidden in Details. It is the only item on this line that leaves the app.
+    private func pullRequestLink(_ pullRequest: PullRequest) -> some View {
+        Button {
+            guard let url = URL(string: pullRequest.url) else { return }
+            NSWorkspace.shared.open(url)
+        } label: {
+            HStack(spacing: 5) {
+                // Verbatim keeps large PR numbers free of locale grouping separators.
+                Text(verbatim: "PR #\(pullRequest.number)")
+                    .font(.mono(10.5, .semibold))
+                Image(systemName: "arrow.up.right")
+                    .font(.system(size: 8, weight: .semibold))
+            }
+            .foregroundStyle(Theme.accent)
+            .frame(height: 22)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .appTooltip {
+            Tooltip(title: "Pull request #\(pullRequest.number)",
+                    subtitle: pullRequest.url,
+                    note: "Opens in the browser.")
+        }
+        .accessibilityLabel("Open pull request #\(pullRequest.number)")
     }
 
     // "RUNNING · 4m", "WAITING · 12m", "IDLE · 2h": the state and how long it has been
