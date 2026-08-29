@@ -169,7 +169,8 @@ struct SessionRecapRunnerTests {
         #expect(harness.store.transcript(of: harness.session.id).map(\.text)
             == ["Make the change", "Initial response"])
         let fallback = try String(contentsOf: harness.scratch.path("prompt-3.txt"), encoding: .utf8)
-        #expect(fallback.contains("Write a recap of this conversation"))
+        #expect(fallback.contains("Use simple English and at most 35 words"))
+        #expect(fallback.contains("Leave out background, minor details, and commentary"))
     }
 
     @Test func automaticallyRecapsOnlyAnUnseenFinishedTurn() async throws {

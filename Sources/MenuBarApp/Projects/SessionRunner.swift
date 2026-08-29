@@ -684,7 +684,7 @@ final class SessionRunner {
     // shown to a person, so it receives the same focused summary request used when the
     // Claude Code command is missing or unavailable.
     nonisolated static let recapPrompt = """
-    Do not use tools or change files. Write a recap of this conversation in at most 50 words and one or two plain sentences. State the overall goal, what is complete or currently blocked, and the next useful action. Use no markdown. Return only the recap.
+    Do not use tools or change files. Write a short, easy-to-read recap of this conversation. Use simple English and at most 35 words. Include only the main goal, the result or blocker, and the next step when one is needed. Leave out background, minor details, and commentary. Use no markdown. Return only the recap.
     """
 
     func isRecapping(_ sessionID: UUID) -> Bool {
