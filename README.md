@@ -10,7 +10,10 @@ Teya Code Station is a macOS app for running Codex and Claude Code across local 
 
 - **Run agents side by side.** Choose Codex or Claude Code for each session, then run independent sessions in their own Git worktrees without having them edit the same checkout.
 - **Work across repositories.** Group related projects into a reusable workspace with one lead working directory and attach the others to the same conversation.
+- **Come back caught up.** Ask for a short session recap at any time, or create one automatically when a turn finishes while you are elsewhere. Recaps stay outside the conversation, so they do not add noise to the agent's context.
 - **Stay close to the work.** Review and commit changes, browse files, use a terminal, manage MCP servers and skills, send HTTP requests, inspect Docker, run shortcuts, and start guided troubleshooting without leaving the app.
+
+[![Code Station showing a concise recap above a completed coding-agent session](docs/images/session-recap.webp)](https://teya-engineering.github.io/code-station/#recaps)
 
 The [project website](https://teya-engineering.github.io/code-station/#features) has the complete feature overview and more product screenshots.
 
