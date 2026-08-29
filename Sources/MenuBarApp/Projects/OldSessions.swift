@@ -17,6 +17,14 @@ enum OldSessions {
             .filter { $0.lastActivity < cutoff }
             .sorted { $0.lastActivity < $1.lastActivity }
     }
+
+    static func nextOldAt(_ days: Int, in sessions: [ChatSession], now: Date = Date()) -> Date? {
+        let age = Double(days) * 86_400
+        return sessions
+            .map { $0.lastActivity.addingTimeInterval(age) }
+            .filter { $0 > now }
+            .min()
+    }
 }
 
 // One policy owns the whole automatic-cleanup choice. The destructive modes are ordered

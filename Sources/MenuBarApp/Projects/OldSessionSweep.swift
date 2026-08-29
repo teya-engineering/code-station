@@ -7,8 +7,9 @@ import Foundation
 // protected or are part of the unattended deletion.
 @MainActor
 enum OldSessionSweep {
-    static let interval: Duration = .seconds(3_600)
+    static let monitorInterval: Duration = .seconds(1)
     nonisolated static let gracePeriod: TimeInterval = 3_600
+    nonisolated static let retryInterval: TimeInterval = 3_600
     // A backlog is cleared over several passes rather than in one go, so turning this on
     // with hundreds of stale sessions does not spend the next while shelling out to git.
     static let batchLimit = 50
@@ -17,16 +18,20 @@ enum OldSessionSweep {
     // eligible session a full warning hour, including the first pass after launch.
     struct EligibilityBuffer {
         private var firstSeenAt: [UUID: Date] = [:]
+        private var retryAt: [UUID: Date] = [:]
 
         var nextReadyAt: Date? {
-            firstSeenAt.values
-                .map { $0.addingTimeInterval(OldSessionSweep.gracePeriod) }
+            firstSeenAt.map { sessionID, firstSeen in
+                max(firstSeen.addingTimeInterval(OldSessionSweep.gracePeriod),
+                    retryAt[sessionID] ?? .distantPast)
+            }
                 .min()
         }
 
         mutating func ready(_ sessions: [ChatSession], now: Date) -> [ChatSession] {
             let eligibleIDs = Set(sessions.map(\.id))
             firstSeenAt = firstSeenAt.filter { eligibleIDs.contains($0.key) }
+            retryAt = retryAt.filter { eligibleIDs.contains($0.key) }
 
             for session in sessions where firstSeenAt[session.id] == nil {
                 firstSeenAt[session.id] = now
@@ -34,12 +39,19 @@ enum OldSessionSweep {
 
             return sessions.filter { session in
                 guard let firstSeen = firstSeenAt[session.id] else { return false }
-                return now.timeIntervalSince(firstSeen) >= gracePeriod
+                let warningEnds = firstSeen.addingTimeInterval(gracePeriod)
+                return now >= max(warningEnds, retryAt[session.id] ?? .distantPast)
             }
+        }
+
+        mutating func retry(_ sessionID: UUID, at date: Date) {
+            guard firstSeenAt[sessionID] != nil else { return }
+            retryAt[sessionID] = date
         }
 
         mutating func remove(_ sessionID: UUID) {
             firstSeenAt[sessionID] = nil
+            retryAt[sessionID] = nil
         }
     }
 
@@ -62,7 +74,7 @@ enum OldSessionSweep {
                     inspect: SessionCost.Inspect = SessionCost.live) async -> Int {
         guard policy.deletesAutomatically else { return 0 }
         var deleted = 0
-        let eligible = due(days: days, in: store.userSessions, now: now,
+        let eligible = due(days: days, in: store.sidebarSessions, now: now,
                            isBusy: { runner.state($0).isBusy },
                            isOpen: { store.selection == .session($0) })
         let due = buffer.ready(eligible, now: now)
@@ -78,6 +90,8 @@ enum OldSessionSweep {
         for session in due {
             guard !Task.isCancelled else { break }
             guard stillStale(session) else { continue }
+            buffer.retry(session.id,
+                         at: now.addingTimeInterval(OldSessionSweep.retryInterval))
             var cost: SessionRemovalCost?
             if !policy.includesSavedWork {
                 let settled = await SessionCost.settledCost(

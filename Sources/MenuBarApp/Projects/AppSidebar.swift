@@ -40,7 +40,7 @@ struct AppSidebar: View {
     @State private var hoveringHome = false
     @FocusState private var filterFocused: Bool
 
-    private static let oldSessionRefreshInterval: Duration = .seconds(3_600)
+    private static let oldSessionRefreshInterval: TimeInterval = 3_600
 
     private struct OldSessionSummary: Equatable {
         var sessions = 0
@@ -49,8 +49,14 @@ struct AppSidebar: View {
     }
 
     private struct OldSessionRefreshRule: Equatable {
+        struct Session: Equatable {
+            let id: UUID
+            let isBusy: Bool
+        }
+
         let days: Int
-        let sessionCount: Int
+        let oldSessions: [Session]
+        let nextOldAt: Date?
     }
 
     var body: some View {
@@ -1116,8 +1122,15 @@ struct AppSidebar: View {
     }
 
     private var oldSessionRefreshRule: OldSessionRefreshRule {
-        OldSessionRefreshRule(days: oldSessionDays,
-                              sessionCount: store.sidebarSessions.count)
+        let sessions = store.sidebarSessions
+        return OldSessionRefreshRule(
+            days: oldSessionDays,
+            oldSessions: OldSessions.olderThan(oldSessionDays, in: sessions).map {
+                OldSessionRefreshRule.Session(
+                    id: $0.id,
+                    isBusy: runner.state($0.id).isBusy)
+            },
+            nextOldAt: OldSessions.nextOldAt(oldSessionDays, in: sessions))
     }
 
     private func refreshOldSessions() async {
@@ -1142,8 +1155,14 @@ struct AppSidebar: View {
     private func refreshOldSessionsHourly() async {
         while !Task.isCancelled {
             await refreshOldSessions()
+            let now = Date()
+            let hourlyRefresh = now.addingTimeInterval(
+                Self.oldSessionRefreshInterval)
+            let nextOldSession = OldSessions.nextOldAt(
+                oldSessionDays, in: store.sidebarSessions, now: now)
+            let nextRefresh = min(hourlyRefresh, nextOldSession ?? .distantFuture)
             do {
-                try await Task.sleep(for: Self.oldSessionRefreshInterval)
+                try await Task.sleep(for: .seconds(max(0, nextRefresh.timeIntervalSinceNow)))
             } catch {
                 return
             }

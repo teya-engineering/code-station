@@ -201,10 +201,11 @@ struct RootView: View {
             await OldSessionSweep.run(days: rule.days, policy: rule.policy, store: store,
                                       runner: runner, buffer: &buffer, now: now)
             guard !Task.isCancelled else { return }
-            let nextSweepAt = Date().addingTimeInterval(OldSessionSweep.gracePeriod)
-            oldSessionDeletionAt = buffer.nextReadyAt.map { max($0, nextSweepAt) }
+            if oldSessionDeletionAt != buffer.nextReadyAt {
+                oldSessionDeletionAt = buffer.nextReadyAt
+            }
             do {
-                try await Task.sleep(for: OldSessionSweep.interval)
+                try await Task.sleep(for: OldSessionSweep.monitorInterval)
             } catch {
                 return
             }
@@ -213,37 +214,40 @@ struct RootView: View {
 
     private func monitorOrphanedWorktrees() async {
         let automaticallyPrunes = settings.autoPruneOrphanedWorktrees
-        var buffer = OrphanedWorktreeSweep.EligibilityBuffer()
+        orphanedWorktrees.setAutomaticPruningEnabled(automaticallyPrunes)
+        var nextDiscoveryAt = Date.distantPast
 
         while !Task.isCancelled {
             let now = Date()
-            let found = await orphanedWorktrees.refresh(in: store)
-            guard !Task.isCancelled else { return }
+            if now >= nextDiscoveryAt {
+                _ = await orphanedWorktrees.refresh(in: store, now: now)
+                guard !Task.isCancelled else { return }
+                nextDiscoveryAt = Date().addingTimeInterval(
+                    OrphanedWorktreeSweep.discoveryInterval)
+            }
 
             if automaticallyPrunes {
-                let due = buffer.ready(found, now: now)
-                let result = await orphanedWorktrees.prune(due)
-                for worktree in result.removed { buffer.remove(worktree.id) }
-                orphanCleanupError = result.failures.isEmpty
-                    ? nil
-                    : result.failures.map(\.message).joined(separator: "\n")
-                if !result.removed.isEmpty {
-                    SessionLog.note("orphan worktree sweep pruned count=\(result.removed.count)")
+                let due = orphanedWorktrees.automaticPruningCandidates(now: now)
+                if !due.isEmpty {
+                    let result = await orphanedWorktrees.prune(due, now: now)
+                    orphanCleanupError = result.failures.isEmpty
+                        ? nil
+                        : result.failures.map(\.message).joined(separator: "\n")
+                    if !result.removed.isEmpty {
+                        SessionLog.note(
+                            "orphan worktree sweep pruned count=\(result.removed.count)")
+                    }
+                    if !result.failures.isEmpty {
+                        SessionLog.note(
+                            "orphan worktree sweep failed count=\(result.failures.count)")
+                    }
                 }
-                if !result.failures.isEmpty {
-                    SessionLog.note("orphan worktree sweep failed count=\(result.failures.count)")
-                }
-                let nextSweepAt = Date().addingTimeInterval(
-                    OrphanedWorktreeSweep.gracePeriod)
-                orphanedWorktrees.setAutomaticDeletionAt(
-                    buffer.nextReadyAt.map { max($0, nextSweepAt) })
             } else {
                 orphanCleanupError = nil
-                orphanedWorktrees.setAutomaticDeletionAt(nil)
             }
 
             do {
-                try await Task.sleep(for: OrphanedWorktreeSweep.interval)
+                try await Task.sleep(for: OrphanedWorktreeSweep.monitorInterval)
             } catch {
                 return
             }

@@ -56,22 +56,28 @@ enum OrphanedWorktreeDiscovery {
 // Automatic pruning uses the same warning model as old sessions. An orphan must remain
 // visible for a full hour in this run of the app before it can be removed without asking.
 enum OrphanedWorktreeSweep {
-    static let interval: Duration = .seconds(3_600)
+    static let monitorInterval: Duration = .seconds(1)
+    nonisolated static let discoveryInterval: TimeInterval = 3_600
     nonisolated static let gracePeriod: TimeInterval = 3_600
+    nonisolated static let retryInterval: TimeInterval = 3_600
     static let batchLimit = 50
 
     struct EligibilityBuffer {
         private var firstSeenAt: [String: Date] = [:]
+        private var retryAt: [String: Date] = [:]
 
         var nextReadyAt: Date? {
-            firstSeenAt.values
-                .map { $0.addingTimeInterval(OrphanedWorktreeSweep.gracePeriod) }
+            firstSeenAt.map { worktreeID, firstSeen in
+                max(firstSeen.addingTimeInterval(OrphanedWorktreeSweep.gracePeriod),
+                    retryAt[worktreeID] ?? .distantPast)
+            }
                 .min()
         }
 
         mutating func ready(_ worktrees: [OrphanedWorktree], now: Date) -> [OrphanedWorktree] {
             let eligibleIDs = Set(worktrees.map(\.id))
             firstSeenAt = firstSeenAt.filter { eligibleIDs.contains($0.key) }
+            retryAt = retryAt.filter { eligibleIDs.contains($0.key) }
 
             for worktree in worktrees where firstSeenAt[worktree.id] == nil {
                 firstSeenAt[worktree.id] = now
@@ -79,12 +85,19 @@ enum OrphanedWorktreeSweep {
 
             return Array(worktrees.filter { worktree in
                 guard let firstSeen = firstSeenAt[worktree.id] else { return false }
-                return now.timeIntervalSince(firstSeen) >= OrphanedWorktreeSweep.gracePeriod
+                let warningEnds = firstSeen.addingTimeInterval(gracePeriod)
+                return now >= max(warningEnds, retryAt[worktree.id] ?? .distantPast)
             }.prefix(OrphanedWorktreeSweep.batchLimit))
+        }
+
+        mutating func retry(_ worktreeID: String, at date: Date) {
+            guard firstSeenAt[worktreeID] != nil else { return }
+            retryAt[worktreeID] = date
         }
 
         mutating func remove(_ worktreeID: String) {
             firstSeenAt[worktreeID] = nil
+            retryAt[worktreeID] = nil
         }
     }
 }
@@ -102,16 +115,27 @@ final class OrphanedWorktreeMonitor {
     private(set) var worktrees: [OrphanedWorktree] = []
     private(set) var automaticDeletionAt: Date?
     private(set) var isPruning = false
+    private var automaticPruningEnabled = false
+    private var eligibilityBuffer = OrphanedWorktreeSweep.EligibilityBuffer()
 
-    func refresh(in store: ProjectStore) async -> [OrphanedWorktree] {
+    func setAutomaticPruningEnabled(_ enabled: Bool, now: Date = Date()) {
+        if automaticPruningEnabled != enabled {
+            eligibilityBuffer = OrphanedWorktreeSweep.EligibilityBuffer()
+        }
+        automaticPruningEnabled = enabled
+        synchronizeEligibility(now: now)
+    }
+
+    func refresh(in store: ProjectStore, now: Date = Date()) async -> [OrphanedWorktree] {
         let found = await OrphanedWorktreeDiscovery.find(in: store)
         guard !Task.isCancelled else { return worktrees }
         worktrees = found
-        if worktrees.isEmpty { automaticDeletionAt = nil }
+        synchronizeEligibility(now: now)
         return found
     }
 
-    func replace(_ projectWorktrees: [GitWorktree.Orphaned], for project: Project) {
+    func replace(_ projectWorktrees: [GitWorktree.Orphaned], for project: Project,
+                 now: Date = Date()) {
         worktrees.removeAll { $0.projectID == project.id }
         worktrees += projectWorktrees.map {
             OrphanedWorktree(projectID: project.id,
@@ -127,14 +151,18 @@ final class OrphanedWorktreeMonitor {
                 ? $0.path.localizedStandardCompare($1.path) == .orderedAscending
                 : projects == .orderedAscending
         }
-        if worktrees.isEmpty { automaticDeletionAt = nil }
+        synchronizeEligibility(now: now)
     }
 
-    func setAutomaticDeletionAt(_ date: Date?) {
-        automaticDeletionAt = worktrees.isEmpty ? nil : date
+    func automaticPruningCandidates(now: Date = Date()) -> [OrphanedWorktree] {
+        guard automaticPruningEnabled else { return [] }
+        let candidates = eligibilityBuffer.ready(worktrees, now: now)
+        updateAutomaticDeletionAt()
+        return candidates
     }
 
-    func prune(_ candidates: [OrphanedWorktree], remove: Remove? = nil) async -> PruneResult {
+    func prune(_ candidates: [OrphanedWorktree], now: Date = Date(),
+               remove: Remove? = nil) async -> PruneResult {
         guard !isPruning else { return PruneResult(removed: [], failures: []) }
         isPruning = true
         defer { isPruning = false }
@@ -146,6 +174,7 @@ final class OrphanedWorktreeMonitor {
         }
         var removed: [OrphanedWorktree] = []
         var failures: [GitWorktree.Failure] = []
+        var failedIDs: [String] = []
         for worktree in candidates {
             guard !Task.isCancelled else { break }
             switch await operation(worktree) {
@@ -153,11 +182,30 @@ final class OrphanedWorktreeMonitor {
                 removed.append(worktree)
             case .failure(let failure):
                 failures.append(failure)
+                failedIDs.append(worktree.id)
             }
         }
         let removedIDs = Set(removed.map(\.id))
         worktrees.removeAll { removedIDs.contains($0.id) }
-        if worktrees.isEmpty { automaticDeletionAt = nil }
+        for worktree in removed { eligibilityBuffer.remove(worktree.id) }
+        let retryAt = now.addingTimeInterval(OrphanedWorktreeSweep.retryInterval)
+        for worktreeID in failedIDs { eligibilityBuffer.retry(worktreeID, at: retryAt) }
+        synchronizeEligibility(now: now)
         return PruneResult(removed: removed, failures: failures)
+    }
+
+    private func synchronizeEligibility(now: Date) {
+        guard automaticPruningEnabled else {
+            eligibilityBuffer = OrphanedWorktreeSweep.EligibilityBuffer()
+            if automaticDeletionAt != nil { automaticDeletionAt = nil }
+            return
+        }
+        _ = eligibilityBuffer.ready(worktrees, now: now)
+        updateAutomaticDeletionAt()
+    }
+
+    private func updateAutomaticDeletionAt() {
+        let nextReadyAt = eligibilityBuffer.nextReadyAt
+        if automaticDeletionAt != nextReadyAt { automaticDeletionAt = nextReadyAt }
     }
 }

@@ -128,6 +128,21 @@ struct OldSessionSweepTests {
             [old], now: now.addingTimeInterval(OldSessionSweep.gracePeriod * 2)).isEmpty)
     }
 
+    @Test func waitsBeforeRetryingASessionThatCouldNotBeDeleted() {
+        let old = session(daysAgo: 8)
+        var buffer = OldSessionSweep.EligibilityBuffer()
+        let warningEnds = now.addingTimeInterval(OldSessionSweep.gracePeriod)
+        let retryAt = warningEnds.addingTimeInterval(OldSessionSweep.retryInterval)
+
+        _ = buffer.ready([old], now: now)
+        #expect(buffer.ready([old], now: warningEnds) == [old])
+        buffer.retry(old.id, at: retryAt)
+
+        #expect(buffer.nextReadyAt == retryAt)
+        #expect(buffer.ready([old], now: retryAt.addingTimeInterval(-1)).isEmpty)
+        #expect(buffer.ready([old], now: retryAt) == [old])
+    }
+
     @Test func deletesAStillEligibleSessionAfterTheWarningHour() async throws {
         let old = agedSession()
         let firstSeen = Date()

@@ -56,6 +56,45 @@ struct OrphanedWorktreeSweepTests {
         #expect(ready.count == OrphanedWorktreeSweep.batchLimit)
     }
 
+    @Test func replacingVisibleWorktreesStartsTheAutomaticPruningCountdown() {
+        let orphan = worktree("one")
+        let project = Project(id: orphan.projectID,
+                              name: orphan.projectName,
+                              path: orphan.projectPath)
+        let monitor = OrphanedWorktreeMonitor()
+        monitor.setAutomaticPruningEnabled(true, now: now)
+
+        monitor.replace([
+            GitWorktree.Orphaned(path: orphan.path,
+                                 branch: orphan.branch,
+                                 allocatedBytes: orphan.allocatedBytes)
+        ], for: project, now: now)
+
+        #expect(monitor.automaticDeletionAt
+            == now.addingTimeInterval(OrphanedWorktreeSweep.gracePeriod))
+        #expect(monitor.automaticPruningCandidates(now: now).isEmpty)
+    }
+
+    @Test func disablingAutomaticPruningClearsTheCountdown() {
+        let orphan = worktree("one")
+        let project = Project(id: orphan.projectID,
+                              name: orphan.projectName,
+                              path: orphan.projectPath)
+        let monitor = OrphanedWorktreeMonitor()
+        monitor.setAutomaticPruningEnabled(true, now: now)
+        monitor.replace([
+            GitWorktree.Orphaned(path: orphan.path,
+                                 branch: orphan.branch,
+                                 allocatedBytes: orphan.allocatedBytes)
+        ], for: project, now: now)
+
+        monitor.setAutomaticPruningEnabled(false, now: now)
+
+        #expect(monitor.automaticDeletionAt == nil)
+        #expect(monitor.automaticPruningCandidates(
+            now: now.addingTimeInterval(OrphanedWorktreeSweep.gracePeriod)).isEmpty)
+    }
+
     @Test func removesSuccessfulCheckoutsAndKeepsFailuresVisible() async {
         let removed = worktree("removed")
         let kept = worktree("kept")
