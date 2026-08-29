@@ -64,16 +64,35 @@ struct SessionRecapControl: View {
     private static let cardWidth: CGFloat = 430
     private static let gap: CGFloat = 7
 
+    private var isGeneratingInitialRecap: Bool { regenerating && recap == nil }
+
     var body: some View {
         ActionButton(
-            title: regenerating && recap == nil ? "Recapping" : "Recap",
+            title: isGeneratingInitialRecap ? "Recapping" : "Recap",
             tone: needsAttention ? .attentionOutlined : .outlined,
             height: Self.triggerHeight,
             size: 10.5,
-            icon: regenerating ? "hourglass" : "sparkles",
-            action: toggle)
+            icon: "sparkles",
+            action: isGeneratingInitialRecap ? nil : toggle)
             // An existing recap can still be closed while its replacement is running.
-            .disabled(recap == nil && (regenerating || !canRegenerate))
+            .disabled(recap == nil && !regenerating && !canRegenerate)
+            .symbolEffect(
+                .variableColor.iterative.reversing,
+                options: .repeating.speed(0.8),
+                isActive: isGeneratingInitialRecap && !reduceMotion)
+            .background {
+                if isGeneratingInitialRecap {
+                    RoundedRectangle(cornerRadius: Self.triggerHeight * 0.25)
+                        .fill(Theme.accent.opacity(0.08))
+                }
+            }
+            .overlay {
+                if isGeneratingInitialRecap {
+                    RoundedRectangle(cornerRadius: Self.triggerHeight * 0.25)
+                        .stroke(Theme.accent.opacity(0.5), lineWidth: 1)
+                        .allowsHitTesting(false)
+                }
+            }
             .appTooltip(tooltip)
             .accessibilityLabel("Session recap")
             .accessibilityValue(accessibilityValue)
@@ -87,7 +106,7 @@ struct SessionRecapControl: View {
                         .accessibilityHidden(true)
                 }
             }
-            .overlay(alignment: .topLeading) {
+            .overlay(alignment: .topTrailing) {
                 if let recap, isOpen {
                     VStack(spacing: 0) {
                         Color.clear.frame(height: Self.gap)

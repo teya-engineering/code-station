@@ -194,7 +194,7 @@ struct SessionView: View {
                 // Cards anchored to the strip hang over whatever is under it. A VStack
                 // draws its children in order, so without this the transcript would cover
                 // them.
-                statusStrip(session, recap: recap)
+                statusStrip(session, project: project, recap: recap)
                     .zIndex(1)
                 warningStrip(session: session, project: project)
                 if store.designHasUpdated(for: session) {
@@ -367,9 +367,6 @@ struct SessionView: View {
                     MobileAccessButton(scope: .session(sessionID))
                 }
                 HeaderTabToggle(selection: $tab, options: headerTabs(for: session))
-                if store.isDesignMode(session), store.hasDesignArtifacts(for: session) {
-                    designMaterialExportButton(session: session, project: project)
-                }
                 TerminalToggle(isOpen: terminals.isOpen(terminalScope),
                                directory: session.worktreePath ?? project.path) {
                     toggleTerminal(directory: session.worktreePath ?? project.path)
@@ -393,6 +390,17 @@ struct SessionView: View {
         tabs.append((store.isDesignMode(session) ? "Project Changes" : "Changes", .changes))
         tabs.append(("Explorer", .explorer))
         return tabs
+    }
+
+    private func isDesignTabSelected(for session: ChatSession) -> Bool {
+        switch tab {
+        case .design:
+            true
+        case .conversation:
+            !session.isImplementingDesign && store.designConversation(for: session.id) != nil
+        case .changes, .explorer:
+            false
+        }
     }
 
     private func designUpdateStrip(_ session: ChatSession) -> some View {
@@ -425,7 +433,7 @@ struct SessionView: View {
         let label = exportingDesignMaterials
             ? "Exporting Design materials"
             : "Export Design materials as a ZIP file"
-        return ActionButton(title: "Export", tone: .outlined, height: 30, size: 12,
+        return ActionButton(title: "Export", tone: .outlined, height: 24, size: 10.5,
                             icon: exportingDesignMaterials ? "hourglass" : "doc.zipper") {
             exportDesignMaterials(session: session, project: project)
         }
@@ -474,7 +482,8 @@ struct SessionView: View {
     // that moves every turn, so it stays in sight, but it is a line rather than words: a
     // window filling up needs nothing done about it until it is nearly full, and then the
     // composer says so in words.
-    private func statusStrip(_ session: ChatSession, recap: SessionRecap?) -> some View {
+    private func statusStrip(_ session: ChatSession, project: Project,
+                             recap: SessionRecap?) -> some View {
         // The lead checkout is the one this line speaks for, the same root the stats
         // refresh puts first. The cache only ever holds snapshots of a readable
         // repository, so having one is the same as the repository being ready.
@@ -485,6 +494,11 @@ struct SessionView: View {
         let recapTarget = visibleConversationID
         return HStack(spacing: 14) {
             state(session, tone: tone)
+            diffStats(session)
+            Spacer(minLength: 12)
+            if isDesignTabSelected(for: session), store.hasDesignArtifacts(for: session) {
+                designMaterialExportButton(session: session, project: project)
+            }
             if store.session(recapTarget)?.hasAgentConversation == true {
                 let recapping = runner.isRecapping(recapTarget)
                 SessionRecapControl(
@@ -497,8 +511,6 @@ struct SessionView: View {
                     regenerate: generateRecap,
                     close: closeRecap)
             }
-            diffStats(session)
-            Spacer(minLength: 12)
             SessionFactsChip(facts: facts,
                              openChanges: openChanges,
                              contextActions: contextActions,
