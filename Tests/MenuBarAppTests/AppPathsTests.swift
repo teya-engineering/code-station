@@ -229,20 +229,20 @@ struct AppPathsTests {
         #expect(Preferences.designEnabled(in: defaults))
     }
 
-    @Test @MainActor func sessionRecapsDefaultOnAndPersist() throws {
+    @Test @MainActor func sessionRecapsDefaultOffAndPersist() throws {
         let suite = "code-station-recap-tests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let avatar = root.appendingPathComponent("avatar.png")
         let settings = AppSettings(agentAvatarURL: avatar, preferences: defaults)
 
-        #expect(Preferences.sessionRecapsEnabled(in: defaults))
-        #expect(settings.sessionRecapsEnabled)
-
-        settings.sessionRecapsEnabled = false
-
         #expect(!Preferences.sessionRecapsEnabled(in: defaults))
-        #expect(!AppSettings(agentAvatarURL: avatar, preferences: defaults)
+        #expect(!settings.sessionRecapsEnabled)
+
+        settings.sessionRecapsEnabled = true
+
+        #expect(Preferences.sessionRecapsEnabled(in: defaults))
+        #expect(AppSettings(agentAvatarURL: avatar, preferences: defaults)
             .sessionRecapsEnabled)
     }
 

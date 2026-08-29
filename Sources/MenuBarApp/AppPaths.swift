@@ -423,7 +423,7 @@ enum Preferences {
         if store.object(forKey: "sessionResumeBriefsEnabled") != nil {
             return store.bool(forKey: "sessionResumeBriefsEnabled")
         }
-        return true
+        return false
     }
 
     static func setSessionRecapsEnabled(

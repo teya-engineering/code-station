@@ -47,12 +47,10 @@ struct SessionRecap: Codable, Equatable, Sendable {
 }
 
 // A recap is already short, so it is shown whole instead of hiding its useful part behind
-// an expansion control. The transcript remains the full record and the button leads back
-// to its latest point.
+// an expansion control. The transcript remains the full record.
 struct SessionRecapView: View {
     let recap: SessionRecap
     let regenerating: Bool
-    let viewLatest: () -> Void
     let regenerate: () -> Void
     let dismiss: () -> Void
 
@@ -91,12 +89,6 @@ struct SessionRecapView: View {
                 .lineSpacing(2)
                 .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
-
-            HStack {
-                Spacer(minLength: 12)
-                ActionButton(title: "View latest", tone: .outlined,
-                             height: 28, size: 11.5, action: viewLatest)
-            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
