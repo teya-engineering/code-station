@@ -21,6 +21,7 @@ enum DesignHandoffLifecycle {
     }
 
     static func startImplementation(_ designSessionID: UUID, revision: DesignRevision,
+                                    additionalContext: String? = nil,
                                     store: ProjectStore, runner: SessionRunner)
         -> Result<Void, Failure> {
         let title = "Could not start implementation"
@@ -33,12 +34,14 @@ enum DesignHandoffLifecycle {
             return .failure(Failure(title: title,
                                     message: "The implementation session is no longer available."))
         }
-        store.append(ChatMessage(
-            role: .system,
-            text: "Implementation started from \(revision.title). Return to the Design tab to refine it and send updates."),
-            to: designSessionID)
+        let context = additionalContext?.trimmed
+        var notice = "Implementation started from \(revision.title). Return to the Design tab to refine it and send updates."
+        if let context, !context.isEmpty {
+            notice += "\n\nAdditional context:\n\(context)"
+        }
+        store.append(ChatMessage(role: .system, text: notice), to: designSessionID)
         runner.sendAppCommand(
-            implementationPrompt(revision),
+            implementationPrompt(revision, additionalContext: context),
             attachments: store.implementationReferenceAttachments(for: implementation),
             sessionID: designSessionID,
             store: store)
@@ -75,8 +78,9 @@ enum DesignHandoffLifecycle {
         }
     }
 
-    private static func implementationPrompt(_ revision: DesignRevision) -> String {
-        """
+    static func implementationPrompt(_ revision: DesignRevision,
+                                     additionalContext: String? = nil) -> String {
+        let base = """
         Implement the scoped change represented by the approved \(revision.title) in the \
         production application. Inspect the current implementation, then read the attached \
         handoff and Design materials. Treat the Design as the gap to close, not a complete \
@@ -89,6 +93,14 @@ enum DesignHandoffLifecycle {
         project's existing components, tokens, patterns, and architecture. Resolve \
         implementation details from the real code, cover the important states and \
         accessibility behavior, and run the relevant tests.
+        """
+        guard let context = additionalContext?.trimmed, !context.isEmpty else { return base }
+        return """
+        \(base)
+
+        Additional implementation context from the user:
+
+        \(context)
         """
     }
 }

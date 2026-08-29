@@ -342,7 +342,7 @@ struct DesignView: View {
                             ActionButton(title: preparingHandoff ? "Preparing…" : "Implement",
                                          tone: .green, height: 28, size: 11,
                                          icon: preparingHandoff ? "hourglass" : "hammer.fill") {
-                                requestImplementationSnapshot()
+                                showImplementationDialog()
                             }
                             .disabled(preparingHandoff || runner.state(sessionID).isBusy)
                         }
@@ -451,10 +451,26 @@ struct DesignView: View {
         composerFocused = true
     }
 
-    private func requestImplementationSnapshot() {
+    private func showImplementationDialog() {
+        let draft = DesignImplementationDraft()
+        dialogs.show(Dialog(
+            title: "Implement this Design?",
+            message: "Add guidance if the canvas shows multiple options, or leave this blank to implement the Design as shown.",
+            content: AnyView(DesignImplementationContextEditor(draft: draft)),
+            actions: [
+                .init(label: "Implement", kind: .primary) {
+                    requestImplementationSnapshot(additionalContext: draft.text)
+                },
+                .init(label: "Cancel", kind: .cancel),
+            ],
+            width: 460))
+    }
+
+    private func requestImplementationSnapshot(additionalContext: String? = nil) {
         guard canvas.revision != nil else { return }
         preparingHandoff = true
-        snapshotRequest = DesignSnapshotRequest(purpose: .handoff)
+        snapshotRequest = DesignSnapshotRequest(purpose: .handoff,
+                                                additionalContext: additionalContext)
     }
 
     private func receiveSnapshot(_ image: NSImage?, request: DesignSnapshotRequest) {
@@ -467,7 +483,10 @@ struct DesignView: View {
             runner.attach([attachment], to: sessionID)
             composerFocused = true
         case .handoff:
-            Task { await prepareHandoff(screenshot: image.flatMap(DesignArtifacts.pngData)) }
+            Task {
+                await prepareHandoff(screenshot: image.flatMap(DesignArtifacts.pngData),
+                                     additionalContext: request.additionalContext)
+            }
         case .revision:
             Task { await saveRevision(screenshot: image.flatMap(DesignArtifacts.pngData)) }
         }
@@ -491,7 +510,7 @@ struct DesignView: View {
         preparingHandoff = false
     }
 
-    private func prepareHandoff(screenshot: Data?) async {
+    private func prepareHandoff(screenshot: Data?, additionalContext: String?) async {
         guard let session = store.session(sessionID) else {
             preparingHandoff = false
             return
@@ -517,7 +536,8 @@ struct DesignView: View {
                 }
             } else {
                 switch DesignHandoffLifecycle.startImplementation(
-                    sessionID, revision: revision, store: store, runner: runner) {
+                    sessionID, revision: revision, additionalContext: additionalContext,
+                    store: store, runner: runner) {
                 case .success:
                     break
                 case .failure(let failure):
@@ -562,6 +582,27 @@ struct DesignView: View {
                     dialogs.show(.notice("Could not restore the Design", message: failure.message))
                 }
             })
+    }
+}
+
+@MainActor
+@Observable
+private final class DesignImplementationDraft {
+    var text = ""
+}
+
+private struct DesignImplementationContextEditor: View {
+    @Bindable var draft: DesignImplementationDraft
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            SectionLabel("ADDITIONAL CONTEXT", style: .field)
+            AppTextEditor(
+                text: $draft.text,
+                placeholder: "For example: use the second checkout option and keep the current navigation.",
+                minHeight: 96)
+        }
+        .padding(.top, 6)
     }
 }
 
@@ -748,6 +789,7 @@ struct DesignSnapshotRequest: Equatable {
     let id = UUID()
     let purpose: Purpose
     var rect: CGRect?
+    var additionalContext: String?
 }
 
 private struct DesignWebView: NSViewRepresentable {

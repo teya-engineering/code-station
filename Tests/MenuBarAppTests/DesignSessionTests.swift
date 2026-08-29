@@ -175,6 +175,21 @@ struct DesignSessionTests {
         #expect(restored.designFilesURL(for: restoredImplementation) != nil)
     }
 
+    @Test func implementationPromptIncludesOptionalUserContext() {
+        let revision = DesignRevision(
+            id: UUID(), number: 3, createdAt: Date(), sourceRevisions: [:], screens: [])
+
+        let guided = DesignHandoffLifecycle.implementationPrompt(
+            revision, additionalContext: "  Use the second option.\nKeep the existing header.  ")
+        let unguided = DesignHandoffLifecycle.implementationPrompt(
+            revision, additionalContext: " \n ")
+
+        #expect(guided.contains("approved Design v3"))
+        #expect(guided.contains("Additional implementation context from the user:"))
+        #expect(guided.hasSuffix("Use the second option.\nKeep the existing header."))
+        #expect(!unguided.contains("Additional implementation context from the user:"))
+    }
+
     @Test func savingAVersionDoesNotSendItToBuild() throws {
         let design = store.newSession(in: project.id, seed: .init(mode: .design))
         _ = try writeDesign(for: design, in: store, html: "<html>Draft</html>")
