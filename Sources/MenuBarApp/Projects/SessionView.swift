@@ -147,6 +147,7 @@ struct SessionView: View {
     @State private var exportingDesignMaterials = false
     @State private var transcriptWindow = TranscriptWindow()
     @State private var transcriptPinnedToBottom = true
+    @State private var resumeBrief: SessionResumeBrief?
     // False until this session's transcript has been scrolled to its end. The pane is
     // rebuilt per session, so it starts false on every switch without being reset.
     @State private var opened = false
@@ -199,6 +200,18 @@ struct SessionView: View {
                 }
                 if showsDirectoryBar(for: session, designFilesURL: designFilesURL) {
                     sessionDirectoryBar(session, designFilesURL: designFilesURL)
+                }
+                if let resumeBrief {
+                    SessionResumeBriefView(
+                        brief: resumeBrief,
+                        openChanges: {
+                            acknowledgeResumeBrief()
+                            openChanges()
+                        },
+                        dismiss: acknowledgeResumeBrief)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 12)
+                    .transition(.fadeIn)
                 }
 
                 switch tab {
@@ -264,6 +277,7 @@ struct SessionView: View {
                 runner.refreshContext(sessionID, store: store)
                 // Scanning a conversation means having it, and it is still being read in.
                 await store.transcriptReady(sessionID)
+                refreshResumeBrief()
                 store.findPullRequest(in: sessionID)
             }
             // These folders only go missing while another program has the keyboard, so
@@ -271,9 +285,11 @@ struct SessionView: View {
             .onReceive(NotificationCenter.default.publisher(
                 for: NSApplication.didBecomeActiveNotification)) { _ in
                 sampleMissingFolders()
+                refreshResumeBrief()
             }
             .onChange(of: completedToolCount) {
                 refreshStats(workingDirectories, after: .milliseconds(350))
+                if resumeBrief != nil { refreshResumeBrief() }
             }
             .onChange(of: runner.state(sessionID)) { _, state in
                 if !state.isBusy {
@@ -282,6 +298,7 @@ struct SessionView: View {
                     // into a strip with a way out of it.
                     sampleMissingFolders()
                     refreshStats(workingDirectories, after: .milliseconds(350))
+                    if resumeBrief != nil { refreshResumeBrief() }
                 }
             }
         } else {
@@ -783,6 +800,18 @@ struct SessionView: View {
         if missing != missingDirectories { missingDirectories = missing }
         let rebuildable = SessionLifecycle.rebuildableCheckouts(of: session, in: store)
         if rebuildable != rebuildableCheckouts { rebuildableCheckouts = rebuildable }
+    }
+
+    private func refreshResumeBrief() {
+        resumeBrief = store.resumeBrief(for: sessionID)
+        store.clearFinished(sessionID)
+    }
+
+    private func acknowledgeResumeBrief() {
+        store.markSessionSeen(sessionID)
+        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.14)) {
+            resumeBrief = nil
+        }
     }
 
     // What the rebuild would do is worked out before it is offered, so the confirmation names

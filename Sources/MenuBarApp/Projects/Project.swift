@@ -563,6 +563,10 @@ struct ChatSession: Identifiable, Codable, Equatable {
     // in the transcript; this is kept so the run list can say what each run was about
     // without opening it.
     var taskValues: [String: String]?
+    // The edge of the transcript the person had reached before leaving. It lives with the
+    // session metadata so returning can decide whether the transcript has anything new
+    // without first treating the whole conversation as unread.
+    var resumeBoundary: SessionResumeBoundary?
     var summary = SessionSummary()
 
     // Empty until the store loads it, and empty again once nothing holds this session,
@@ -626,7 +630,7 @@ struct ChatSession: Identifiable, Codable, Equatable {
         case claudeSessionID, codexSessionID, createdAt
         case worktreePath, worktreeBranch
         case workspaceID, sessionProjects, settings, usage, agentAvatarName
-        case pullRequest, taskValues, summary, messages
+        case pullRequest, taskValues, resumeBoundary, summary, messages
     }
 
     init(id: UUID = UUID(), projectID: UUID, agent: AgentKind = .claudeCode) {
@@ -668,6 +672,8 @@ struct ChatSession: Identifiable, Codable, Equatable {
         agentAvatarName = try container.decodeIfPresent(String.self, forKey: .agentAvatarName)
         pullRequest = try container.decodeIfPresent(PullRequest.self, forKey: .pullRequest)
         taskValues = try container.decodeIfPresent([String: String].self, forKey: .taskValues)
+        resumeBoundary = try container.decodeIfPresent(
+            SessionResumeBoundary.self, forKey: .resumeBoundary)
         summary = try container.decodeIfPresent(SessionSummary.self, forKey: .summary) ?? SessionSummary()
         messages = try container.decodeIfPresent([ChatMessage].self, forKey: .messages) ?? []
         transcriptLoaded = !messages.isEmpty
@@ -708,6 +714,7 @@ struct ChatSession: Identifiable, Codable, Equatable {
         try container.encodeIfPresent(agentAvatarName, forKey: .agentAvatarName)
         try container.encodeIfPresent(pullRequest, forKey: .pullRequest)
         try container.encodeIfPresent(taskValues, forKey: .taskValues)
+        try container.encodeIfPresent(resumeBoundary, forKey: .resumeBoundary)
         try container.encode(summary, forKey: .summary)
     }
 

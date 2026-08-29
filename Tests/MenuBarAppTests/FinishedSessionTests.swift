@@ -38,6 +38,16 @@ struct FinishedSessionTests {
         #expect(store.finishedCount(in: project.id) == 0)
     }
 
+    @Test func marksTheSelectedSessionWhenTheAppIsInactive() {
+        let open = store.newSession(in: project.id)
+
+        store.applicationWillResignActive()
+        store.noteTurnEnded(for: open.id)
+
+        #expect(store.hasFinished(open.id))
+        #expect(store.finishedCount(in: project.id) == 1)
+    }
+
     @Test func openingTheSessionClearsIt() {
         let background = store.newSession(in: project.id)
         let open = store.newSession(in: project.id)

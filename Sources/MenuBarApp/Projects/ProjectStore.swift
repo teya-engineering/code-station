@@ -62,7 +62,10 @@ final class ProjectStore {
         // what brings the conversation into memory - and lets the last one go.
         didSet {
             guard selection != oldValue else { return }
-            if case .session(let id) = oldValue { release(id, for: .open) }
+            if case .session(let id) = oldValue {
+                markSessionSeen(id)
+                release(id, for: .open)
+            }
             if case .session(let id) = selection {
                 finished.remove(id)
                 hold(id, for: .open)
@@ -86,6 +89,7 @@ final class ProjectStore {
     // This is about live attention rather than the conversation, so it is not saved: a
     // relaunch is not something to catch up on.
     private(set) var finished: Set<UUID> = []
+    @ObservationIgnored private var applicationIsActive = true
 
     let storeURL: URL
     // One file per conversation, named by session id.
@@ -297,18 +301,72 @@ final class ProjectStore {
 
     // MARK: - Turns worth knowing about
 
-    // A turn that ended. The session on screen needs no marker, since its result is
-    // already being read.
+    // A turn that ended. The session on screen needs no marker while the app is active,
+    // since its result is already being read. A selected session can still finish while
+    // another app has the keyboard, so that result stays marked until this app returns.
     func noteTurnEnded(for sessionID: UUID) {
         let visibleID = userFacingSessionID(for: sessionID)
         if sessionID != visibleID {
-            if holds[sessionID]?.contains(.open) == true { return }
-        } else if case .session(let open) = selection, open == visibleID {
+            if applicationIsActive, holds[sessionID]?.contains(.open) == true { return }
+        } else if applicationIsActive,
+                  case .session(let open) = selection, open == visibleID {
             return
         }
         if holds[sessionID]?.contains(.remote) == true { return }
         guard sessions.contains(where: { $0.id == visibleID }) else { return }
         finished.insert(visibleID)
+    }
+
+    // Leaving the app is another way to stop reading the selected conversation. The
+    // boundary is taken before background work can add to it and persisted in the small
+    // session index, so it survives both eviction and an app relaunch.
+    func applicationWillResignActive() {
+        applicationIsActive = false
+        if case .session(let sessionID) = selection { markSessionSeen(sessionID) }
+    }
+
+    func applicationDidBecomeActive() {
+        applicationIsActive = true
+    }
+
+    func clearFinished(_ sessionID: UUID) {
+        finished.remove(userFacingSessionID(for: sessionID))
+    }
+
+    // Records every loaded conversation behind the visible session. A Build can have a
+    // separate Design conversation, and both can keep working while the session is away.
+    func markSessionSeen(_ sessionID: UUID) {
+        let visibleID = userFacingSessionID(for: sessionID)
+        var changed = false
+        for conversationID in resumeConversationIDs(for: visibleID) {
+            guard let i = index(conversationID), sessions[i].transcriptLoaded else { continue }
+            sessions[i].resumeBoundary = SessionResumeBoundary(messages: sessions[i].messages)
+            changed = true
+        }
+        finished.remove(visibleID)
+        if changed { scheduleIndexSave() }
+    }
+
+    func resumeBrief(for sessionID: UUID) -> SessionResumeBrief? {
+        let visibleID = userFacingSessionID(for: sessionID)
+        for conversationID in resumeConversationIDs(for: visibleID) {
+            guard let session = session(conversationID), session.transcriptLoaded,
+                  let boundary = session.resumeBoundary else { continue }
+            let root = workingDirectory(for: session)
+                ?? project(session.projectID)?.path
+                ?? ""
+            if let brief = SessionResumeBrief.make(
+                messages: session.messages, boundary: boundary, projectPath: root) {
+                return brief
+            }
+        }
+        return nil
+    }
+
+    private func resumeConversationIDs(for visibleID: UUID) -> [UUID] {
+        guard let designID = designSession(for: visibleID)?.id,
+              designID != visibleID else { return [visibleID] }
+        return [visibleID, designID]
     }
 
     func hasFinished(_ sessionID: UUID) -> Bool { finished.contains(sessionID) }

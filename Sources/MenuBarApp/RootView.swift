@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 // The whole window: one sidebar listing projects and their sessions. The detail pane
@@ -62,6 +63,14 @@ struct RootView: View {
             if case .session(let sessionID) = selection {
                 AppNotifier.shared.clear(sessionID: sessionID)
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(
+            for: NSApplication.willResignActiveNotification)) { _ in
+            store.applicationWillResignActive()
+        }
+        .onReceive(NotificationCenter.default.publisher(
+            for: NSApplication.didBecomeActiveNotification)) { _ in
+            store.applicationDidBecomeActive()
         }
         .task { await resumePendingSessionRemovals() }
         .task(id: skillsRefreshRule) { await refreshSkillsAutomatically() }
