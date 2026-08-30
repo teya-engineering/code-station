@@ -71,7 +71,7 @@ struct WorkingSetToolCallVisibility {
         showingAll = true
     }
 
-    mutating func reset() {
+    mutating func hideOlder() {
         showingAll = false
     }
 }
@@ -199,7 +199,7 @@ struct SessionWorkingSet: View {
         }
         .frame(width: Self.width)
         .background(Theme.sidebar)
-        .onChange(of: session.id) { _, _ in toolCallVisibility.reset() }
+        .onChange(of: session.id) { _, _ in toolCallVisibility.hideOlder() }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Working set")
     }
@@ -274,9 +274,23 @@ struct SessionWorkingSet: View {
                 emptyRow("No tool calls yet.")
             } else {
                 LazyVStack(spacing: 0) {
-                    if hidden > 0 {
-                        WorkingSetSeeMoreRow(count: hidden) {
-                            toolCallVisibility.showAll()
+                    if toolCalls.count > WorkingSetToolCallVisibility.limit {
+                        if hidden > 0 {
+                            WorkingSetToolCallVisibilityRow(
+                                icon: "ellipsis",
+                                title: "See \(hidden) more…",
+                                accessibilityLabel: "Show \(hidden) older tool calls"
+                            ) {
+                                toolCallVisibility.showAll()
+                            }
+                        } else {
+                            WorkingSetToolCallVisibilityRow(
+                                icon: "chevron.up",
+                                title: "Hide",
+                                accessibilityLabel: "Show only the five newest tool calls"
+                            ) {
+                                toolCallVisibility.hideOlder()
+                            }
                         }
                         Divider().overlay(Theme.hairline)
                     }
@@ -368,8 +382,10 @@ struct SessionWorkingSet: View {
 
 }
 
-private struct WorkingSetSeeMoreRow: View {
-    let count: Int
+private struct WorkingSetToolCallVisibilityRow: View {
+    let icon: String
+    let title: String
+    let accessibilityLabel: String
     let action: () -> Void
 
     @State private var hovering = false
@@ -377,9 +393,9 @@ private struct WorkingSetSeeMoreRow: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 6) {
-                Image(systemName: "ellipsis")
+                Image(systemName: icon)
                     .font(.system(size: 8, weight: .bold))
-                Text("See \(count) more…")
+                Text(title)
                     .font(.mono(9.5, .semibold))
             }
             .foregroundStyle(.secondary)
@@ -392,7 +408,7 @@ private struct WorkingSetSeeMoreRow: View {
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
         .animation(.easeOut(duration: 0.12), value: hovering)
-        .accessibilityLabel("Show \(count) older tool calls")
+        .accessibilityLabel(accessibilityLabel)
     }
 }
 

@@ -116,12 +116,12 @@ struct SessionWorkingSetTests {
         #expect(visibility.visible(toolCalls(9)).count == 9)
     }
 
-    @Test func resettingToolCallVisibilityRestoresTheLimit() {
+    @Test func hidingOlderToolCallsRestoresTheLimit() {
         let calls = toolCalls(8)
         var visibility = WorkingSetToolCallVisibility()
         visibility.showAll()
 
-        visibility.reset()
+        visibility.hideOlder()
 
         #expect(visibility.visible(calls).map(\.id) == calls.suffix(5).map(\.id))
     }
