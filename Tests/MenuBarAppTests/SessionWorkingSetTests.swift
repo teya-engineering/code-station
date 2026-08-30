@@ -37,6 +37,10 @@ struct SessionWorkingSetTests {
             "MCP · github.search",
             "TodoWrite · 2 items",
         ])
+        #expect(calls.map(\.tool.id) == [
+            "read", "edit", "shell", "agent", "search", "mcp", "todos",
+        ])
+        #expect(calls[2].tool.result == "passed")
     }
 
     @Test func mapsRunningCompletedAndFailedToolCalls() {
@@ -113,6 +117,36 @@ struct SessionWorkingSetTests {
         #expect(calls.map(\.title) == ["Read · first", "Read · second"])
         #expect(Set(calls.map(\.id)).count == 2)
         #expect(repeated.map(\.id) == calls.map(\.id))
+    }
+
+    @Test @MainActor func openToolDetailsFollowCompletionAndToggleClosed() {
+        let runningTool = ToolUse(id: "raw", name: "Bash", input: "swift test")
+        let running = WorkingSetToolCall(id: "message\u{0}0",
+                                         title: "Bash · swift test",
+                                         state: .running,
+                                         tool: runningTool)
+        let presenter = ToolCallDetailPresenter()
+        let anchor = CGRect(x: 20, y: 40, width: 260, height: 50)
+
+        presenter.toggle(running, projectPath: "/project", from: anchor)
+
+        #expect(presenter.current?.call == running)
+        #expect(presenter.anchor == anchor)
+
+        let completedTool = ToolUse(id: "raw", name: "Bash", input: "swift test",
+                                    result: "passed")
+        let completed = WorkingSetToolCall(id: running.id,
+                                           title: running.title,
+                                           state: .completed,
+                                           tool: completedTool)
+        presenter.refresh(completed, projectPath: "/project")
+
+        #expect(presenter.current?.call == completed)
+        #expect(presenter.generation == 2)
+
+        presenter.toggle(completed, projectPath: "/project", from: anchor)
+
+        #expect(presenter.current == nil)
     }
 
     @Test func listsEachCollaboratingAgentSeparately() {

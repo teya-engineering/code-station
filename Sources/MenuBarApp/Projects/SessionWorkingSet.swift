@@ -55,6 +55,7 @@ struct WorkingSetToolCall: Identifiable, Equatable {
     let id: String
     let title: String
     let state: State
+    let tool: ToolUse
 }
 
 enum WorkingSetSummary {
@@ -91,7 +92,8 @@ enum WorkingSetSummary {
             return WorkingSetToolCall(
                 id: occurrence.id,
                 title: presentation.label,
-                state: state)
+                state: state,
+                tool: occurrence.tool)
         }
     }
 
@@ -251,22 +253,7 @@ struct SessionWorkingSet: View {
                 LazyVStack(spacing: 0) {
                     ForEach(Array(toolCalls.enumerated()), id: \.element.id) { index, toolCall in
                         if index > 0 { Divider().overlay(Theme.hairline) }
-                        HStack(alignment: .top, spacing: 8) {
-                            toolCallIcon(toolCall.state)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(toolCall.title)
-                                    .font(.mono(10))
-                                    .lineLimit(2)
-                                    .truncationMode(.middle)
-                                Text(toolCall.state.label)
-                                    .font(.mono(8.5))
-                                    .foregroundStyle(.secondary)
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .padding(.horizontal, 11)
-                        .padding(.vertical, 9)
-                        .accessibilityElement(children: .combine)
+                        WorkingSetToolCallRow(call: toolCall, projectPath: projectPath)
                     }
                 }
             }
@@ -350,21 +337,75 @@ struct SessionWorkingSet: View {
             .accessibilityLabel(kind.label)
     }
 
-    private func toolCallIcon(_ state: WorkingSetToolCall.State) -> some View {
-        let colour: Color = switch state {
-        case .running, .completed: Theme.dotOn
-        case .failed: Theme.deletion
-        case .interrupted: Theme.secret
+}
+
+private struct WorkingSetToolCallRow: View {
+    @Environment(ToolCallDetailPresenter.self) private var details
+
+    let call: WorkingSetToolCall
+    let projectPath: String
+
+    @State private var anchor = FrameAnchor()
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: showDetails) {
+            HStack(alignment: .top, spacing: 8) {
+                icon
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(call.title)
+                        .font(.mono(10))
+                        .lineLimit(2)
+                        .truncationMode(.middle)
+                    Text(call.state.label)
+                        .font(.mono(8.5))
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(.horizontal, 11)
+            .padding(.vertical, 9)
+            .background(hovering ? Theme.field : Color.clear)
+            .contentShape(Rectangle())
         }
-        return Image(systemName: state.symbol)
+        .buttonStyle(.plain)
+        .background(FrameAnchorView(anchor: anchor))
+        .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.12), value: hovering)
+        .onChange(of: call) { _, call in
+            details.refresh(call, projectPath: projectPath)
+        }
+        .onDisappear { details.dismiss(callID: call.id) }
+        .accessibilityLabel(call.title)
+        .accessibilityValue(call.state.label)
+        .accessibilityHint("Shows the tool call input and output")
+    }
+
+    private var icon: some View {
+        let colour = call.state.colour
+        return Image(systemName: call.state.symbol)
             .font(.system(size: 8, weight: .bold))
             .foregroundStyle(colour)
             .frame(width: 18, height: 18)
             .background(Circle().fill(colour.opacity(0.12)))
-            .overlay(Circle().stroke(colour.opacity(state == .running ? 0.35 : 0)))
+            .overlay(Circle().stroke(colour.opacity(call.state == .running ? 0.35 : 0)))
             .accessibilityHidden(true)
     }
 
+    private func showDetails() {
+        guard let frame = anchor.frame() else { return }
+        details.toggle(call, projectPath: projectPath, from: frame)
+    }
+}
+
+extension WorkingSetToolCall.State {
+    var colour: Color {
+        switch self {
+        case .running, .completed: Theme.dotOn
+        case .failed: Theme.deletion
+        case .interrupted: Theme.secret
+        }
+    }
 }
 
 private struct WorkingSetPanel<Content: View>: View {

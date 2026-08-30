@@ -9,7 +9,7 @@ import SwiftUI
 struct ActivitySpine: View {
     let nodes: [ToolNode]
     let projectPath: String
-    let openChanges: () -> Void
+    var openChanges: (() -> Void)? = nil
     // Whether the turn is still working through this block. Its calls having all reported
     // in does not mean the work behind it is over: the model writes its next words before
     // it makes its next call, and a call interrupted mid-turn never reports in at all.
@@ -121,6 +121,26 @@ private func workDone(calls: Int, agents: Int) -> String {
     return counted(agents, "agent") + " · " + work
 }
 
+// The same expanded call the transcript draws, without the surrounding activity block.
+// The Working Set puts it in a card of its own when a compact row is clicked.
+struct ToolCallExpandedDetail: View {
+    let tool: ToolUse
+    let projectPath: String
+    let isRunning: Bool
+
+    var body: some View {
+        SpineRow(
+            node: ToolNode(tool: tool),
+            presentation: ToolPresentationCache.presentation(
+                for: tool, projectPath: projectPath),
+            projectPath: projectPath,
+            isExpanded: true,
+            onToggle: nil,
+            openChanges: nil,
+            working: isRunning)
+    }
+}
+
 private struct SpineRow: View {
     @Environment(\.textScale) private var textScale
     @Environment(\.runningAgents) private var runningAgents
@@ -129,8 +149,9 @@ private struct SpineRow: View {
     let presentation: ToolPresentation
     let projectPath: String
     let isExpanded: Bool
-    let onToggle: () -> Void
-    let openChanges: () -> Void
+    let onToggle: (() -> Void)?
+    let openChanges: (() -> Void)?
+    var working: Bool? = nil
 
     // An edit's own diff is the point of its row, so it is drawn without being asked
     // for. Clicking such a row puts it away again rather than opening anything further:
@@ -143,7 +164,7 @@ private struct SpineRow: View {
     // Whether there is still work behind this row. An agent sent to the background
     // answers its own call the moment it starts, so a row that stands for one cannot go
     // by its call having reported in.
-    private var isWorking: Bool { node.isWorking(agents: runningAgents) }
+    private var isWorking: Bool { working ?? node.isWorking(agents: runningAgents) }
 
     private var hasDiff: Bool {
         !presentation.changes.isEmpty && !tool.isError && node.children.isEmpty
@@ -153,12 +174,14 @@ private struct SpineRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Button(action: putsDiffAway ? { diffPutAway.toggle() } : onToggle) {
-                row
-                    .padding(.vertical, 4)
-                    .contentShape(Rectangle())
+            if let action = putsDiffAway ? { diffPutAway.toggle() } : onToggle {
+                Button(action: action) {
+                    paddedRow
+                }
+                .buttonStyle(.plain)
+            } else {
+                paddedRow
             }
-            .buttonStyle(.plain)
 
             if showsDiff {
                 // A command that changed several files gets a diff for each, in the order
@@ -179,6 +202,12 @@ private struct SpineRow: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .smoothlyResizes(when: diffPutAway)
+    }
+
+    private var paddedRow: some View {
+        row
+            .padding(.vertical, 4)
+            .contentShape(Rectangle())
     }
 
     // A command's diff was measured off the working tree rather than sent with the call,
@@ -330,7 +359,7 @@ private struct EditDiffCard: View {
     @Environment(\.textScale) private var textScale
 
     let change: ToolPresentation.FileChange
-    let openChanges: () -> Void
+    let openChanges: (() -> Void)?
 
     private static let visibleLines = 120
 
@@ -353,7 +382,9 @@ private struct EditDiffCard: View {
             DiffPair(added: change.added, removed: change.removed,
                      size: 11 * textScale, weight: .medium)
             Spacer(minLength: 8)
-            InlineLink(title: "Open in Changes", size: 11, action: openChanges)
+            if let openChanges {
+                InlineLink(title: "Open in Changes", size: 11, action: openChanges)
+            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)

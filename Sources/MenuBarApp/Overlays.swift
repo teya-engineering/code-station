@@ -20,15 +20,18 @@ private struct AppOverlays: ViewModifier {
     @State private var dialogs = DialogPresenter()
     @State private var menus = MenuPresenter()
     @State private var tooltips = TooltipPresenter()
+    @State private var toolCallDetails = ToolCallDetailPresenter()
 
     func body(content: Content) -> some View {
         content
+            .overlay { ToolCallDetailHost() }
             .overlay { ContextMenuHost() }
             .overlay { TooltipHost() }
             .overlay { DialogHost() }
             .environment(dialogs)
             .environment(menus)
             .environment(tooltips)
+            .environment(toolCallDetails)
     }
 }
 

@@ -1001,7 +1001,9 @@ struct SessionView: View {
                     if workingSetVisible {
                         workingSet(session)
                             .overlay(alignment: .leading) {
-                                if isDocked { Divider().overlay(Theme.hairline) }
+                                if isDocked {
+                                    Rectangle().fill(Theme.hairline).frame(width: 1)
+                                }
                             }
                             .shadow(color: isDocked ? .clear : .black.opacity(0.16),
                                     radius: isDocked ? 0 : 18,
