@@ -86,7 +86,6 @@ struct SessionWorkingSet: View {
         var id: String { root + "\u{0}" + change.path }
     }
 
-    private var state: SessionState { runner.state(session.id) }
     private var tone: SessionTone { SessionTone(session.id, store: store, runner: runner) }
     private var projectPath: String { store.workingDirectory(for: session) ?? "" }
     private var queued: [SessionRunner.QueuedPrompt] { runner.queued(session.id) }
@@ -101,7 +100,6 @@ struct SessionWorkingSet: View {
             header
             ScrollView {
                 VStack(spacing: 11) {
-                    nowPanel
                     if !activities.isEmpty { activityPanel }
                     nextPanel
                     filesPanel
@@ -137,54 +135,6 @@ struct SessionWorkingSet: View {
         }
         .padding(.horizontal, 14)
         .headerBand(height: Theme.subHeaderHeight)
-    }
-
-    private var nowPanel: some View {
-        WorkingSetPanel(title: "NOW", trailing: nowTrailing) {
-            if state.isBusy {
-                VStack(alignment: .leading, spacing: 9) {
-                    Text(currentActivity)
-                        .font(.mono(10.5))
-                        .lineLimit(3)
-                        .truncationMode(.middle)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text("Running in \((projectPath as NSString).lastPathComponent)")
-                        .font(.system(size: 10.5))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    HStack(spacing: 8) {
-                        Text(state == .stopping ? "Stopping the current turn" : "Output stays in the conversation")
-                            .font(.mono(8.5))
-                            .foregroundStyle(.secondary)
-                        Spacer(minLength: 0)
-                        if state != .stopping {
-                            ActionButton(title: "Stop", tone: .danger, height: 25, size: 10) {
-                                runner.stop(session.id)
-                            }
-                        }
-                    }
-                }
-                .padding(11)
-            } else {
-                emptyRow("No turn is running.")
-            }
-        }
-    }
-
-    private var nowTrailing: String? {
-        guard state.isBusy, let started = runner.turnStarted(session.id) else { return nil }
-        return RelativeTime.duration(since: started)
-    }
-
-    private var currentActivity: String {
-        if let tool = runner.runningTool(session.id) {
-            return ToolPresentation(tool: tool, projectPath: projectPath).label
-        }
-        if state == .waiting {
-            return "Waiting for \(BackgroundTaskPhrase.of(runner.backgroundTasks(session.id)))"
-        }
-        return "\(session.agent.title) is working"
     }
 
     private var nextPanel: some View {
