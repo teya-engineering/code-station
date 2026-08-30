@@ -1,54 +1,69 @@
+import Foundation
 import SwiftUI
 
-struct WorkingSetCommand: Identifiable, Equatable {
-    enum State: Equatable {
-        case running
-        case completed
-        case failed
+struct WorkingSetActivity: Identifiable, Equatable {
+    enum Kind: Equatable {
+        case agent
+        case backgroundTask
 
         var label: String {
             switch self {
-            case .running: "running"
-            case .completed: "completed"
-            case .failed: "failed"
+            case .agent: "agent"
+            case .backgroundTask: "background task"
             }
         }
 
         var symbol: String {
             switch self {
-            case .running: "ellipsis"
-            case .completed: "checkmark"
-            case .failed: "xmark"
+            case .agent: "person.fill"
+            case .backgroundTask: "gearshape.fill"
             }
         }
     }
 
     let id: String
-    let command: String
-    let state: State
+    let title: String
+    let kind: Kind
 }
 
 enum WorkingSetSummary {
-    static func verificationCommands(in messages: [ChatMessage], projectPath: String,
-                                     limit: Int = 4) -> [WorkingSetCommand] {
-        messages.flatMap(\.tools)
-            .filter { $0.name == "Bash" }
-            .suffix(max(0, limit))
-            .map { tool in
-                let presentation = ToolPresentation(tool: tool, projectPath: projectPath)
-                let state: WorkingSetCommand.State = if tool.isRunning {
-                    .running
-                } else if tool.isError {
-                    .failed
-                } else {
-                    .completed
+    static func activities(runningTools: [ToolUse], backgroundTasks: [BackgroundTask],
+                           projectPath: String) -> [WorkingSetActivity] {
+        let agents = runningTools.filter(\.startsAgents).flatMap { tool in
+            if let names = collaboratingAgentNames(in: tool) {
+                return names.enumerated().map { index, name in
+                    WorkingSetActivity(id: "\(tool.id)#\(index)", title: name, kind: .agent)
                 }
-                return WorkingSetCommand(id: tool.id,
-                                         command: presentation.argument.isEmpty
-                                            ? presentation.label
-                                            : presentation.argument,
-                                         state: state)
             }
+
+            let presentation = ToolPresentation(tool: tool, projectPath: projectPath)
+            return [WorkingSetActivity(id: tool.id,
+                                       title: presentation.argument.isEmpty
+                                        ? presentation.verb
+                                        : presentation.argument,
+                                       kind: .agent)]
+        }
+
+        let tasks = backgroundTasks.map { task in
+            let isAgent = task.agentName?.isBlank == false
+                || task.kind == "local_agent" || task.kind == "local_workflow"
+            return WorkingSetActivity(id: "background:\(task.id)", title: task.label,
+                                      kind: isAgent ? .agent : .backgroundTask)
+        }
+        return agents + tasks
+    }
+
+    // Codex reports one collaboration call for a whole team. Its synthetic tool input
+    // carries the names as a comma-separated field, so each live agent can have its own row.
+    private static func collaboratingAgentNames(in tool: ToolUse) -> [String]? {
+        guard tool.name == "Agent", let data = tool.input.data(using: .utf8),
+              let input = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let action = input["description"] as? String,
+              ["spawned", "resumed", "sent more work", "closed", "waiting"].contains(action),
+              let names = input["name"] as? String else { return nil }
+        let split = names.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        return split.isEmpty ? nil : split
     }
 }
 
@@ -75,8 +90,10 @@ struct SessionWorkingSet: View {
     private var tone: SessionTone { SessionTone(session.id, store: store, runner: runner) }
     private var projectPath: String { store.workingDirectory(for: session) ?? "" }
     private var queued: [SessionRunner.QueuedPrompt] { runner.queued(session.id) }
-    private var commands: [WorkingSetCommand] {
-        WorkingSetSummary.verificationCommands(in: session.messages, projectPath: projectPath)
+    private var activities: [WorkingSetActivity] {
+        WorkingSetSummary.activities(runningTools: runner.runningTools(session.id),
+                                     backgroundTasks: runner.activeBackgroundTasks(session.id),
+                                     projectPath: projectPath)
     }
 
     var body: some View {
@@ -85,9 +102,9 @@ struct SessionWorkingSet: View {
             ScrollView {
                 VStack(spacing: 11) {
                     nowPanel
+                    if !activities.isEmpty { activityPanel }
                     nextPanel
                     filesPanel
-                    verificationPanel
                 }
                 .padding(11)
             }
@@ -199,6 +216,39 @@ struct SessionWorkingSet: View {
         }
     }
 
+    private var activityPanel: some View {
+        WorkingSetPanel(title: "AGENTS & TASKS",
+                        trailing: counted(activities.count, "active item")) {
+            VStack(spacing: 0) {
+                ForEach(Array(activities.enumerated()), id: \.element.id) { index, activity in
+                    if index > 0 { Divider().overlay(Theme.hairline) }
+                    HStack(spacing: 8) {
+                        Image(systemName: activity.kind.symbol)
+                            .font(.system(size: 8, weight: .semibold))
+                            .foregroundStyle(Theme.dotOn)
+                            .frame(width: 18, height: 18)
+                            .background(Circle().fill(Theme.dotOn.opacity(0.12)))
+                            .accessibilityHidden(true)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(activity.title)
+                                .font(.mono(10.5, .semibold))
+                                .lineLimit(2)
+                                .truncationMode(.middle)
+                            Text(activity.kind.label)
+                                .font(.mono(8.5))
+                                .foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        RunningWord()
+                    }
+                    .padding(.horizontal, 11)
+                    .padding(.vertical, 9)
+                    .accessibilityElement(children: .combine)
+                }
+            }
+        }
+    }
+
     private var filesPanel: some View {
         let files = touchedFiles
         return WorkingSetPanel(title: "TOUCHED FILES",
@@ -235,37 +285,6 @@ struct SessionWorkingSet: View {
                         .buttonStyle(.plain)
                         .appTooltip("Open \(file.change.path) in Changes")
                         .accessibilityLabel("Open \(file.change.path) in Changes")
-                    }
-                }
-            }
-        }
-    }
-
-    private var verificationPanel: some View {
-        let completed = commands.count { $0.state == .completed }
-        let trailing = commands.isEmpty ? nil : "\(completed) of \(commands.count) completed"
-        return WorkingSetPanel(title: "VERIFICATION", trailing: trailing) {
-            if commands.isEmpty {
-                emptyRow("No commands have run yet.")
-            } else {
-                VStack(spacing: 0) {
-                    ForEach(Array(commands.enumerated()), id: \.element.id) { index, command in
-                        if index > 0 { Divider().overlay(Theme.hairline) }
-                        HStack(alignment: .top, spacing: 8) {
-                            verificationIcon(command.state)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(command.command)
-                                    .font(.mono(10))
-                                    .lineLimit(2)
-                                    .truncationMode(.middle)
-                                Text(command.state.label)
-                                    .font(.mono(8.5))
-                                    .foregroundStyle(.secondary)
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .padding(.horizontal, 11)
-                        .padding(.vertical, 9)
                     }
                 }
             }
@@ -318,19 +337,6 @@ struct SessionWorkingSet: View {
             .accessibilityLabel(kind.label)
     }
 
-    private func verificationIcon(_ state: WorkingSetCommand.State) -> some View {
-        let colour: Color = switch state {
-        case .running, .completed: Theme.dotOn
-        case .failed: Theme.deletion
-        }
-        return Image(systemName: state.symbol)
-            .font(.system(size: 8, weight: .bold))
-            .foregroundStyle(colour)
-            .frame(width: 18, height: 18)
-            .background(Circle().fill(colour.opacity(0.12)))
-            .overlay(Circle().stroke(colour.opacity(state == .running ? 0.35 : 0)))
-            .accessibilityLabel(state.label)
-    }
 }
 
 private struct WorkingSetPanel<Content: View>: View {

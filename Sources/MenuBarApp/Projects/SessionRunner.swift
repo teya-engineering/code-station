@@ -168,6 +168,9 @@ final class SessionRunner {
 
     func runningTool(_ sessionID: UUID) -> ToolUse? { records[sessionID]?.runningTools.last }
 
+    // The full set is used where parallel agent calls need a row of their own.
+    func runningTools(_ sessionID: UUID) -> [ToolUse] { records[sessionID]?.runningTools ?? [] }
+
     // Which of the agents this session started are still working, for the rows that
     // stand for them.
     func runningAgents(_ sessionID: UUID) -> Set<String> { records[sessionID]?.agentsAtWork ?? [] }
@@ -198,6 +201,12 @@ final class SessionRunner {
     // still working alongside it.
     func backgroundTasks(_ sessionID: UUID) -> [BackgroundTask] {
         records[sessionID]?.wait?.tasks ?? []
+    }
+
+    // Tasks are live as soon as the CLI reports them. The narrower backgroundTasks view
+    // above remains for places that specifically describe a turn parked on those tasks.
+    func activeBackgroundTasks(_ sessionID: UUID) -> [BackgroundTask] {
+        records[sessionID]?.turn?.pendingTasks ?? []
     }
 
     // When the wait began, so a parked session counts from the moment it stopped working

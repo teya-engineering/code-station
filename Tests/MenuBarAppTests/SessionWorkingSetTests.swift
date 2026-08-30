@@ -4,43 +4,35 @@ import Testing
 
 @Suite("Session working set")
 struct SessionWorkingSetTests {
-    @Test func verificationContainsOnlyRecordedShellCommands() {
-        var completed = ToolUse(id: "completed", name: "Bash",
-                                input: #"{"command":"swift test --filter URLTests"}"#,
-                                result: "12 tests passed")
-        completed.isError = false
-        let read = ToolUse(id: "read", name: "Read",
-                           input: #"{"file_path":"/project/README.md"}"#,
-                           result: "contents")
-        var failed = ToolUse(id: "failed", name: "Bash",
-                             input: #"{"command":"swift test"}"#,
-                             result: "1 test failed")
-        failed.isError = true
-        let running = ToolUse(id: "running", name: "Bash",
-                              input: #"{"command":"swift build"}"#)
-        let message = ChatMessage(role: .assistant,
-                                  tools: [completed, read, failed, running])
+    @Test func listsEachCollaboratingAgentSeparately() {
+        let team = ToolUse(id: "team", name: "Agent",
+                           input: #"{"name":"search_east, search_west","description":"waiting"}"#)
 
-        let commands = WorkingSetSummary.verificationCommands(
-            in: [message], projectPath: "/project")
+        let activities = WorkingSetSummary.activities(
+            runningTools: [team], backgroundTasks: [], projectPath: "/project")
 
-        #expect(commands.map(\.id) == ["completed", "failed", "running"])
-        #expect(commands.map(\.command) == [
-            "swift test --filter URLTests", "swift test", "swift build",
-        ])
-        #expect(commands.map(\.state) == [.completed, .failed, .running])
+        #expect(activities.map(\.title) == ["search_east", "search_west"])
+        #expect(activities.map(\.kind) == [.agent, .agent])
     }
 
-    @Test func verificationKeepsTheNewestCommandsWithinItsLimit() {
-        let tools = (1...6).map { number in
-            ToolUse(id: "\(number)", name: "Bash", input: "command \(number)", result: "done")
-        }
-        let message = ChatMessage(role: .assistant, tools: tools)
+    @Test func includesForegroundAgentsAndBackgroundWork() {
+        let foreground = ToolUse(id: "reviewer", name: "Task",
+                                 input: #"{"subagent_type":"reviewer","description":"review the diff"}"#)
+        let backgroundAgent = BackgroundTask(id: "agent", kind: "local_agent",
+                                             description: "run tests", agentName: "tester")
+        let backgroundCommand = BackgroundTask(id: "server", kind: "local_bash",
+                                               description: "npm run dev")
+        let ordinaryTool = ToolUse(id: "read", name: "Read", input: "README.md")
 
-        let commands = WorkingSetSummary.verificationCommands(
-            in: [message], projectPath: "/project", limit: 3)
+        let activities = WorkingSetSummary.activities(
+            runningTools: [foreground, ordinaryTool],
+            backgroundTasks: [backgroundAgent, backgroundCommand],
+            projectPath: "/project")
 
-        #expect(commands.map(\.id) == ["4", "5", "6"])
+        #expect(activities.map(\.title) == [
+            "reviewer · review the diff", "tester · run tests", "npm run dev",
+        ])
+        #expect(activities.map(\.kind) == [.agent, .agent, .backgroundTask])
     }
 
     @Test func visibilityIsRememberedIndependentlyForEachSession() throws {

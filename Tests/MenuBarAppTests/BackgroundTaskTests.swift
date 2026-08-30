@@ -170,6 +170,26 @@ struct BackgroundTaskTests {
 
     // MARK: - Holding the turn open, and letting it go
 
+    // A task can run alongside the main turn before that turn parks on it. The working
+    // set needs the live list during both phases, while wait-specific UI stays empty here.
+    @MainActor @Test func exposesTasksWhileTheMainTurnIsStillWorking() async throws {
+        let fixture = try turn(script: """
+        printf '%s\\n' '{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"t1","task_type":"local_bash","description":"npm run dev"}]}'
+        wait_for "$folder/continue"
+        printf '%s\\n' '{"type":"result","subtype":"success","is_error":false,"result":"done"}'
+        """)
+        defer { fixture.tearDown() }
+
+        #expect(await waitUntil {
+            fixture.runner.activeBackgroundTasks(fixture.session.id).count == 1
+        })
+        #expect(fixture.runner.backgroundTasks(fixture.session.id).isEmpty)
+
+        try Data().write(to: fixture.scratch.path("continue"))
+        #expect(await waitUntil { fixture.runner.state(fixture.session.id) == .idle })
+        #expect(fixture.runner.activeBackgroundTasks(fixture.session.id).isEmpty)
+    }
+
     // The whole point of the hold: the turn has answered, the process is still alive, and
     // what it is waiting for is on hand to say so.
     // End to end: the agent named when the task started rides through to the line the row
