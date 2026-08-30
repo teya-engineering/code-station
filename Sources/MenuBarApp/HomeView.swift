@@ -132,8 +132,14 @@ struct HomeView: View {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 2),
                       spacing: 12) {
                 ForEach(waiting.prefix(4)) { live in
+                    let recapTarget = recapTarget(for: live.session)
                     NeedsYouCard(live: live,
                                  hasChanges: hasChanges(in: live.session),
+                                 recap: store.recap(for: live.session.id),
+                                 recapping: runner.isRecapping(recapTarget),
+                                 canRecap: runner.canRecap(recapTarget, store: store),
+                                 offersManualRecap: !appSettings.sessionRecapsEnabled,
+                                 onRecap: { _ = runner.recap(recapTarget, store: store) },
                                  onOpen: { destination in
                                      store.selectSession(live.session.id,
                                                          destination: destination)
@@ -154,6 +160,11 @@ struct HomeView: View {
             return session.summary.added > 0 || session.summary.removed > 0
         }
         return roots.contains(where: workingTrees.isDirty)
+    }
+
+    private func recapTarget(for session: ChatSession) -> UUID {
+        guard !session.isImplementingDesign else { return session.id }
+        return store.designConversation(for: session.id)?.id ?? session.id
     }
 
     private func runningNow(_ running: [HomeLive]) -> some View {
@@ -337,6 +348,11 @@ private struct StatCard: View {
 private struct NeedsYouCard: View {
     let live: HomeLive
     let hasChanges: Bool
+    let recap: SessionRecap?
+    let recapping: Bool
+    let canRecap: Bool
+    let offersManualRecap: Bool
+    let onRecap: () -> Void
     let onOpen: (SessionDestination) -> Void
 
     var body: some View {
@@ -361,12 +377,16 @@ private struct NeedsYouCard: View {
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
 
-            Text(live.activity)
-                .font(.system(size: 12.5))
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            if let recap, live.permission == nil {
+                HomeRecap(recap: recap)
+            } else {
+                Text(live.activity)
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
 
             HStack(spacing: 8) {
                 if live.permission != nil {
@@ -375,6 +395,16 @@ private struct NeedsYouCard: View {
                     ActionButton(title: "Review changes") { onOpen(.changes) }
                 } else {
                     ActionButton(title: "Review result") { onOpen(.conversation) }
+                }
+                if live.permission == nil, recap == nil {
+                    if recapping {
+                        ActionButton(title: "Recapping", tone: .outlined,
+                                     icon: "sparkles")
+                            .disabled(true)
+                    } else if offersManualRecap, canRecap {
+                        ActionButton(title: "Generate recap", tone: .outlined,
+                                     icon: "sparkles", action: onRecap)
+                    }
                 }
                 Spacer(minLength: 6)
                 DiffPair(added: live.session.summary.added,
@@ -387,6 +417,36 @@ private struct NeedsYouCard: View {
         .background(RoundedRectangle(cornerRadius: 12).fill(Theme.card))
         .overlay(RoundedRectangle(cornerRadius: 12)
             .stroke(Theme.attention.opacity(0.45), lineWidth: 1.3))
+    }
+}
+
+private struct HomeRecap: View {
+    let recap: SessionRecap
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 9) {
+            Image(systemName: "sparkles")
+                .font(.system(size: 11.5, weight: .semibold))
+                .foregroundStyle(Theme.attentionText)
+                .padding(.top, 1)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("SESSION RECAP")
+                    .font(.mono(9, .semibold))
+                    .kerning(0.8)
+                    .foregroundStyle(Theme.attentionText)
+                Text(recap.text)
+                    .font(.system(size: 12.5))
+                    .lineSpacing(1)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+            }
+        }
+        .padding(.horizontal, 11)
+        .padding(.vertical, 9)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .surface(Theme.attention.opacity(0.07), cornerRadius: 8,
+                 border: Theme.attention.opacity(0.32))
     }
 }
 
