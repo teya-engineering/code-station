@@ -99,6 +99,33 @@ struct SessionWorkingSetTests {
         #expect(calls.map(\.title) == (1...12).map { "Tool · target \($0)" })
     }
 
+    @Test func initiallyShowsOnlyTheNewestFiveToolCalls() {
+        let calls = toolCalls(8)
+        let visibility = WorkingSetToolCallVisibility()
+
+        #expect(visibility.visible(calls).map(\.id) == calls.suffix(5).map(\.id))
+    }
+
+    @Test func showingMoreIncludesTheWholeToolCallHistory() {
+        let calls = toolCalls(8)
+        var visibility = WorkingSetToolCallVisibility()
+
+        visibility.showAll()
+
+        #expect(visibility.visible(calls) == calls)
+        #expect(visibility.visible(toolCalls(9)).count == 9)
+    }
+
+    @Test func resettingToolCallVisibilityRestoresTheLimit() {
+        let calls = toolCalls(8)
+        var visibility = WorkingSetToolCallVisibility()
+        visibility.showAll()
+
+        visibility.reset()
+
+        #expect(visibility.visible(calls).map(\.id) == calls.suffix(5).map(\.id))
+    }
+
     @Test func givesRepeatedRawToolIDsDistinctStableRowIDs() {
         let first = ChatMessage(role: .assistant, tools: [
             ToolUse(id: "reused", name: "Read",
@@ -193,5 +220,14 @@ struct SessionWorkingSetTests {
         Preferences.setWorkingSetVisible(false, for: second, in: defaults)
 
         #expect(Preferences.workingSetVisibility(in: defaults) == [first: true, second: false])
+    }
+
+    private func toolCalls(_ count: Int) -> [WorkingSetToolCall] {
+        (1...count).map { number in
+            let tool = ToolUse(id: "raw-\(number)", name: "Tool",
+                               input: "target \(number)", result: "done")
+            return WorkingSetToolCall(id: "call-\(number)", title: "Tool \(number)",
+                                      state: .completed, tool: tool)
+        }
     }
 }

@@ -58,6 +58,24 @@ struct WorkingSetToolCall: Identifiable, Equatable {
     let tool: ToolUse
 }
 
+struct WorkingSetToolCallVisibility {
+    static let limit = 5
+
+    private var showingAll = false
+
+    func visible(_ toolCalls: [WorkingSetToolCall]) -> [WorkingSetToolCall] {
+        showingAll ? toolCalls : Array(toolCalls.suffix(Self.limit))
+    }
+
+    mutating func showAll() {
+        showingAll = true
+    }
+
+    mutating func reset() {
+        showingAll = false
+    }
+}
+
 enum WorkingSetSummary {
     static func toolCalls(in messages: [ChatMessage], activeTools: [ToolUse],
                           projectPath: String) -> [WorkingSetToolCall] {
@@ -144,6 +162,8 @@ struct SessionWorkingSet: View {
     @Environment(SessionRunner.self) private var runner
     @Environment(GitStatsCache.self) private var gitStats
 
+    @State private var toolCallVisibility = WorkingSetToolCallVisibility()
+
     let session: ChatSession
     let close: () -> Void
     let openChange: (_ projectID: UUID, _ root: String, _ path: String) -> Void
@@ -179,6 +199,7 @@ struct SessionWorkingSet: View {
         }
         .frame(width: Self.width)
         .background(Theme.sidebar)
+        .onChange(of: session.id) { _, _ in toolCallVisibility.reset() }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Working set")
     }
@@ -245,13 +266,21 @@ struct SessionWorkingSet: View {
             in: session.messages,
             activeTools: runner.runningTools(session.id),
             projectPath: projectPath)
+        let visible = toolCallVisibility.visible(toolCalls)
+        let hidden = toolCalls.count - visible.count
         return WorkingSetPanel(title: "TOOL CALLS",
                                trailing: toolCalls.isEmpty ? nil : counted(toolCalls.count, "call")) {
             if toolCalls.isEmpty {
                 emptyRow("No tool calls yet.")
             } else {
                 LazyVStack(spacing: 0) {
-                    ForEach(Array(toolCalls.enumerated()), id: \.element.id) { index, toolCall in
+                    if hidden > 0 {
+                        WorkingSetSeeMoreRow(count: hidden) {
+                            toolCallVisibility.showAll()
+                        }
+                        Divider().overlay(Theme.hairline)
+                    }
+                    ForEach(Array(visible.enumerated()), id: \.element.id) { index, toolCall in
                         if index > 0 { Divider().overlay(Theme.hairline) }
                         WorkingSetToolCallRow(call: toolCall, projectPath: projectPath)
                     }
@@ -337,6 +366,34 @@ struct SessionWorkingSet: View {
             .accessibilityLabel(kind.label)
     }
 
+}
+
+private struct WorkingSetSeeMoreRow: View {
+    let count: Int
+    let action: () -> Void
+
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 8, weight: .bold))
+                Text("See \(count) more…")
+                    .font(.mono(9.5, .semibold))
+            }
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 11)
+            .padding(.vertical, 9)
+            .background(hovering ? Theme.field : Color.clear)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.12), value: hovering)
+        .accessibilityLabel("Show \(count) older tool calls")
+    }
 }
 
 private struct WorkingSetToolCallRow: View {
