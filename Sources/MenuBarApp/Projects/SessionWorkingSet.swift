@@ -26,7 +26,75 @@ struct WorkingSetActivity: Identifiable, Equatable {
     let kind: Kind
 }
 
+struct WorkingSetToolCall: Identifiable, Equatable {
+    enum State: Equatable {
+        case running
+        case completed
+        case failed
+        case interrupted
+
+        var label: String {
+            switch self {
+            case .running: "running"
+            case .completed: "completed"
+            case .failed: "failed"
+            case .interrupted: "interrupted"
+            }
+        }
+
+        var symbol: String {
+            switch self {
+            case .running: "ellipsis"
+            case .completed: "checkmark"
+            case .failed: "xmark"
+            case .interrupted: "exclamationmark"
+            }
+        }
+    }
+
+    let id: String
+    let title: String
+    let state: State
+}
+
 enum WorkingSetSummary {
+    static func toolCalls(in messages: [ChatMessage], activeTools: [ToolUse],
+                          projectPath: String) -> [WorkingSetToolCall] {
+        let occurrences: [(id: String, tool: ToolUse)] = messages.flatMap { message in
+            message.tools.enumerated().map { index, tool in
+                (message.id.uuidString + "\u{0}" + String(index), tool)
+            }
+        }
+
+        var activeCounts = activeTools.reduce(into: [:]) { counts, tool in
+            counts[tool.id, default: 0] += 1
+        }
+        var activeOccurrences: Set<String> = []
+        // A CLI can reuse an id in a later turn, while the runner only knows the raw id.
+        // Matching from the end keeps an old unfinished call from looking live again.
+        for occurrence in occurrences.reversed() where occurrence.tool.isRunning {
+            guard let count = activeCounts[occurrence.tool.id], count > 0 else { continue }
+            activeOccurrences.insert(occurrence.id)
+            activeCounts[occurrence.tool.id] = count - 1
+        }
+
+        return occurrences.map { occurrence in
+            let presentation = ToolPresentationCache.presentation(
+                for: occurrence.tool, projectPath: projectPath)
+            let state: WorkingSetToolCall.State = if !occurrence.tool.isRunning {
+                occurrence.tool.isError ? .failed : .completed
+            } else if activeOccurrences.contains(occurrence.id) {
+                .running
+            } else {
+                .interrupted
+            }
+            return WorkingSetToolCall(
+                id: occurrence.id,
+                title: presentation.label,
+                state: state)
+        }
+    }
+
     static func activities(runningTools: [ToolUse], backgroundTasks: [BackgroundTask],
                            projectPath: String) -> [WorkingSetActivity] {
         let agents = runningTools.filter(\.startsAgents).flatMap { tool in
@@ -101,6 +169,7 @@ struct SessionWorkingSet: View {
             ScrollView {
                 VStack(spacing: 11) {
                     if !activities.isEmpty { activityPanel }
+                    toolCallsPanel
                     filesPanel
                 }
                 .padding(11)
@@ -164,6 +233,41 @@ struct SessionWorkingSet: View {
                     .padding(.horizontal, 11)
                     .padding(.vertical, 9)
                     .accessibilityElement(children: .combine)
+                }
+            }
+        }
+    }
+
+    private var toolCallsPanel: some View {
+        let toolCalls = WorkingSetSummary.toolCalls(
+            in: session.messages,
+            activeTools: runner.runningTools(session.id),
+            projectPath: projectPath)
+        return WorkingSetPanel(title: "TOOL CALLS",
+                               trailing: toolCalls.isEmpty ? nil : counted(toolCalls.count, "call")) {
+            if toolCalls.isEmpty {
+                emptyRow("No tool calls yet.")
+            } else {
+                LazyVStack(spacing: 0) {
+                    ForEach(Array(toolCalls.enumerated()), id: \.element.id) { index, toolCall in
+                        if index > 0 { Divider().overlay(Theme.hairline) }
+                        HStack(alignment: .top, spacing: 8) {
+                            toolCallIcon(toolCall.state)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(toolCall.title)
+                                    .font(.mono(10))
+                                    .lineLimit(2)
+                                    .truncationMode(.middle)
+                                Text(toolCall.state.label)
+                                    .font(.mono(8.5))
+                                    .foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .padding(.horizontal, 11)
+                        .padding(.vertical, 9)
+                        .accessibilityElement(children: .combine)
+                    }
                 }
             }
         }
@@ -244,6 +348,21 @@ struct SessionWorkingSet: View {
             .frame(width: 18, height: 18)
             .background(RoundedRectangle(cornerRadius: 5).fill(colour.opacity(0.14)))
             .accessibilityLabel(kind.label)
+    }
+
+    private func toolCallIcon(_ state: WorkingSetToolCall.State) -> some View {
+        let colour: Color = switch state {
+        case .running, .completed: Theme.dotOn
+        case .failed: Theme.deletion
+        case .interrupted: Theme.secret
+        }
+        return Image(systemName: state.symbol)
+            .font(.system(size: 8, weight: .bold))
+            .foregroundStyle(colour)
+            .frame(width: 18, height: 18)
+            .background(Circle().fill(colour.opacity(0.12)))
+            .overlay(Circle().stroke(colour.opacity(state == .running ? 0.35 : 0)))
+            .accessibilityHidden(true)
     }
 
 }
