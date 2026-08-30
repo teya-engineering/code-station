@@ -988,27 +988,32 @@ struct SessionView: View {
 
     private func conversation(session: ChatSession, project: Project) -> some View {
         GeometryReader { geometry in
-            if geometry.size.width >= 800 {
-                HStack(spacing: 0) {
-                    conversationContent(session: session, project: project)
-                    if workingSetVisible {
-                        Divider().overlay(Theme.hairline)
-                        workingSet(session)
-                            .transition(.move(edge: .trailing).combined(with: .opacity))
-                    }
-                }
-            } else {
+            let isDocked = geometry.size.width >= 800
+            ZStack(alignment: .trailing) {
+                conversationContent(session: session, project: project)
+                    .padding(.trailing,
+                             isDocked && workingSetVisible ? SessionWorkingSet.width : 0)
+                    // The transcript takes its final width in one layout pass. Animating
+                    // that width makes every line wrap again on every animation frame.
+                    .animation(nil, value: workingSetVisible)
+
                 ZStack(alignment: .trailing) {
-                    conversationContent(session: session, project: project)
                     if workingSetVisible {
                         workingSet(session)
-                            .shadow(color: .black.opacity(0.16), radius: 18, x: -5)
+                            .overlay(alignment: .leading) {
+                                if isDocked { Divider().overlay(Theme.hairline) }
+                            }
+                            .shadow(color: isDocked ? .clear : .black.opacity(0.16),
+                                    radius: isDocked ? 0 : 18,
+                                    x: isDocked ? 0 : -5)
                             .transition(.move(edge: .trailing).combined(with: .opacity))
                     }
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+                .animation(reduceMotion ? nil : .easeOut(duration: 0.18),
+                           value: workingSetVisible)
             }
         }
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: workingSetVisible)
     }
 
     private func conversationContent(session: ChatSession, project: Project) -> some View {

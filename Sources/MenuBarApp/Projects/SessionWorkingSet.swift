@@ -68,6 +68,8 @@ enum WorkingSetSummary {
 }
 
 struct SessionWorkingSet: View {
+    static let width: CGFloat = 304
+
     @Environment(ProjectStore.self) private var store
     @Environment(SessionRunner.self) private var runner
     @Environment(GitStatsCache.self) private var gitStats
@@ -104,7 +106,7 @@ struct SessionWorkingSet: View {
                 .padding(11)
             }
         }
-        .frame(width: 304)
+        .frame(width: Self.width)
         .background(Theme.sidebar)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Working set")
