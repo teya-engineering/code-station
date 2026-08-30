@@ -99,6 +99,13 @@ final class AppSettings {
         }
     }
 
+    var opensWorkingSetByDefault: Bool {
+        didSet {
+            Preferences.setOpensWorkingSetByDefault(opensWorkingSetByDefault,
+                                                    in: preferences)
+        }
+    }
+
     var diceBearAvatarStyle: DiceBearAvatarStyle {
         didSet {
             Preferences.setDiceBearAvatarStyle(diceBearAvatarStyle, in: preferences)
@@ -139,6 +146,7 @@ final class AppSettings {
         autoPruneOrphanedWorktrees = Preferences.autoPruneOrphanedWorktrees(in: preferences)
         sidebarSessionLimit = Preferences.sidebarSessionLimit(in: preferences)
         sidebarIconSet = Preferences.sidebarIconSet(in: preferences)
+        opensWorkingSetByDefault = Preferences.opensWorkingSetByDefault(in: preferences)
         diceBearAvatarStyle = Preferences.diceBearAvatarStyle(in: preferences)
         sessionRecapsEnabled = Preferences.sessionRecapsEnabled(in: preferences)
         hasCompletedOnboarding = Preferences.hasCompletedOnboarding(in: preferences)
@@ -161,6 +169,7 @@ final class AppSettings {
         textSize = .standard
         diceBearAvatarStyle = .waves
         sidebarIconSet = .diceBear
+        opensWorkingSetByDefault = false
     }
 
     func completeOnboarding() {
@@ -469,6 +478,7 @@ struct SettingsView: View {
         case .appearance:
             VStack(alignment: .leading, spacing: 20) {
                 appearance.id(SettingsSearchTarget.appearanceTheme.id)
+                workingSet.id(SettingsSearchTarget.appearanceWorkingSet.id)
                 personalisation
             }
             .transition(.fadeIn)
@@ -673,6 +683,20 @@ struct SettingsView: View {
                     }
                 }
                 .padding(14)
+            }
+        }
+    }
+
+    private var workingSet: some View {
+        @Bindable var settings = settings
+        return ChoiceBlock("SESSION LAYOUT") {
+            SettingsCard {
+                SettingsToggleRow(
+                    "Open working set automatically",
+                    detail: "Opens the Working Set when an agent starts work in a session with no saved panel choice. Opening or closing it yourself is remembered.",
+                    isOn: $settings.opensWorkingSetByDefault)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 13)
             }
         }
     }
@@ -1517,6 +1541,7 @@ enum SettingsSearchTarget: String, Hashable {
     case generalSkills
     case generalSystem
     case appearanceTheme
+    case appearanceWorkingSet
     case appearanceSidebarIcons
     case appearanceDefaultBot
     case agentDefault
@@ -1569,6 +1594,8 @@ enum SettingsSearchIndex {
                "appearance system light dark macos"),
         result("Session text", .appearance, .appearanceTheme,
                "appearance size small regular large transcript diff terminal"),
+        result("Open working set automatically", .appearance, .appearanceWorkingSet,
+               "appearance session layout panel sidebar default first turn agent closed open"),
         result("Sidebar icons", .appearance, .appearanceSidebarIcons,
                "appearance style monogram dicebear motion still animated"),
         result("Default bot", .appearance, .appearanceDefaultBot,

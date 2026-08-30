@@ -292,6 +292,22 @@ struct AppPathsTests {
         #expect(restored.diceBearAvatarStyle == .landscape)
     }
 
+    @Test @MainActor func workingSetStartsClosedAndItsDefaultPersists() throws {
+        let suite = "code-station-working-set-default-tests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let avatar = root.appendingPathComponent("avatar.png")
+        let settings = AppSettings(agentAvatarURL: avatar, preferences: defaults)
+
+        #expect(!settings.opensWorkingSetByDefault)
+
+        settings.opensWorkingSetByDefault = true
+
+        #expect(Preferences.opensWorkingSetByDefault(in: defaults))
+        #expect(AppSettings(agentAvatarURL: avatar, preferences: defaults)
+            .opensWorkingSetByDefault)
+    }
+
     @Test func storesAndResetsAnExternalSiteConfigurationPath() throws {
         let suite = "code-station-site-defaults-tests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))

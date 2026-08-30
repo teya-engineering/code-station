@@ -44,4 +44,12 @@ struct SettingsSearchTests {
         #expect(result.tab == .general)
         #expect(result.target == .generalRecaps)
     }
+
+    @Test func findsTheWorkingSetDefault() throws {
+        let result = try #require(SettingsSearchIndex.results(for: "working set").first)
+
+        #expect(result.title == "Open working set automatically")
+        #expect(result.tab == .appearance)
+        #expect(result.target == .appearanceWorkingSet)
+    }
 }

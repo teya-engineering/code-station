@@ -1041,7 +1041,8 @@ struct SessionView: View {
     }
 
     private func openWorkingSetForLiveTurnIfNeeded() {
-        guard runner.state(sessionID).isBusy,
+        guard appSettings.opensWorkingSetByDefault,
+              runner.state(sessionID).isBusy,
               Preferences.workingSetVisibility()[sessionID] == nil else { return }
         setWorkingSetVisible(true)
     }

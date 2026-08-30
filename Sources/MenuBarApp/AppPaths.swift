@@ -197,8 +197,8 @@ enum Preferences {
                   forKey: "sidebarSessionLimit")
     }
 
-    // A missing entry means the session has never made a choice. The session view uses
-    // that to open the working set for a live turn, while an explicit close stays closed
+    // A missing entry means the session has never made a choice, so the app-level default
+    // decides whether a live turn opens the working set. A session-specific choice wins
     // on later turns and launches.
     static func workingSetVisibility(in store: UserDefaults = .standard) -> [UUID: Bool] {
         let saved = store.dictionary(forKey: "workingSetVisibility") ?? [:]
@@ -217,6 +217,15 @@ enum Preferences {
         store.set(Dictionary(uniqueKeysWithValues: visibility.map {
             ($0.key.uuidString, $0.value)
         }), forKey: "workingSetVisibility")
+    }
+
+    static func opensWorkingSetByDefault(in store: UserDefaults = .standard) -> Bool {
+        store.bool(forKey: "opensWorkingSetByDefault")
+    }
+
+    static func setOpensWorkingSetByDefault(_ opens: Bool,
+                                            in store: UserDefaults = .standard) {
+        store.set(opens, forKey: "opensWorkingSetByDefault")
     }
 
     // Which agent runs the sessions. Everything else about an agent lives in its own
