@@ -149,6 +149,11 @@ struct SidebarAvatarTests {
         #expect(DiceBearAvatarStyle.blobs.primaryColour(in: svg)?.rgb == 0xbe185d)
         #expect(DiceBearAvatarStyle.shapes.primaryColour(in: svg) == nil)
         #expect(DiceBearAvatarStyle.landscape.primaryColour(in: svg) == nil)
+
+        let wider = try #require(SidebarAvatar.artworkURL(style: .botttsNeutral, index: 1))
+        let widerSVG = try String(contentsOf: wider, encoding: .utf8)
+
+        #expect(DiceBearAvatarStyle.botttsNeutral.primaryColour(in: widerSVG)?.rgb == 0x7681f5)
     }
 
     @Test func bundlesAnimationAndReducedMotionInTheSVG() throws {
@@ -166,6 +171,8 @@ struct SidebarAvatarTests {
         #expect(DiceBearAvatarStyle.squircles.usesWebAnimation(for: .animated))
         #expect(!DiceBearAvatarStyle.squircles.usesWebAnimation(for: .still))
         #expect(!DiceBearAvatarStyle.stripes.usesWebAnimation(for: .animated))
+        #expect(!DiceBearAvatarStyle.weave.usesWebAnimation(for: .animated))
+        #expect(!DiceBearAvatarStyle.botttsNeutral.usesWebAnimation(for: .animated))
     }
 
     @Test func rendersEveryStaticAvatarWithItsReferencedLayers() throws {
@@ -196,6 +203,8 @@ struct SidebarAvatarTests {
             "--dbwa-t: 0.25 !important;",
             "--dbsp-t: 0.55 !important;",
             "--dbla-t: 0.2 !important;",
+            "--dbcr-t: 0.55 !important;",
+            "--dbmo-t: 0.55 !important;",
         ] {
             #expect(animated.contains(timing))
         }
@@ -206,7 +215,7 @@ struct SidebarAvatarTests {
     @Test func offersEveryRequestedStyle() {
         #expect(DiceBearAvatarStyle.allCases.map(\.rawValue) == [
             "squircles", "planets", "shapes", "blobs", "waves", "sprouts", "stripes",
-            "landscape"
+            "landscape", "weave", "critters", "moods", "bottts-neutral"
         ])
     }
 }

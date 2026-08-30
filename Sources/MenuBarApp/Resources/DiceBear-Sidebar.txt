@@ -9,12 +9,20 @@ Sources:
 - https://www.dicebear.com/styles/sprouts/
 - https://www.dicebear.com/styles/stripes/
 - https://www.dicebear.com/styles/landscape/
+- https://www.dicebear.com/styles/weave/
+- https://www.dicebear.com/styles/critters/
+- https://www.dicebear.com/styles/moods/
+- https://www.dicebear.com/styles/bottts-neutral/
 
 Creator: DiceBear
 License: CC0 1.0 Universal
 License details: https://creativecommons.org/publicdomain/zero/1.0/
 
+Bottts Neutral is the exception. It is a remix of Bottts by Pablo Stanley
+(https://bottts.com/), which is free for personal and commercial use.
+
 The sidebar-avatar-*.svg files use seeds code-station-sidebar-<style>-01 through
 code-station-sidebar-<style>-64. Animated styles include the medium animation variant,
 which the app speeds up by style so the motion stays visible at sidebar size. The app
 bundles these files and makes no runtime network requests to DiceBear.
+Scripts/generate-sidebar-avatars.sh regenerates them.

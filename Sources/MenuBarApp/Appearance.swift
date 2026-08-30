@@ -50,6 +50,10 @@ enum DiceBearAvatarStyle: String, CaseIterable, Identifiable {
     case sprouts
     case stripes
     case landscape
+    case weave
+    case critters
+    case moods
+    case botttsNeutral = "bottts-neutral"
 
     var id: String { rawValue }
 
@@ -63,12 +67,24 @@ enum DiceBearAvatarStyle: String, CaseIterable, Identifiable {
         case .sprouts: "Sprouts"
         case .stripes: "Stripes"
         case .landscape: "Landscape"
+        case .weave: "Weave"
+        case .critters: "Critters"
+        case .moods: "Moods"
+        case .botttsNeutral: "Bottts Neutral"
         }
     }
 
-    var supportsAnimation: Bool { self != .stripes }
+    var supportsAnimation: Bool {
+        switch self {
+        case .stripes, .weave, .botttsNeutral: false
+        default: true
+        }
+    }
 
     var usesArtworkPrimaryColour: Bool {
-        self != .shapes && self != .landscape
+        switch self {
+        case .shapes, .landscape, .weave: false
+        default: true
+        }
     }
 }

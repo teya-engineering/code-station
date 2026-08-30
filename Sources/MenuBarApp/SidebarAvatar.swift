@@ -216,17 +216,15 @@ private struct SidebarAvatarArtwork {
 }
 
 struct SidebarAvatarPrimaryColour: Equatable, Sendable {
-    private static let backgroundMarker = #"<rect width="100" height="100" fill=""#
-
     let rgb: UInt32
 
     init?(svg: String) {
-        guard let marker = svg.range(of: Self.backgroundMarker, options: .backwards),
-              let end = svg.index(marker.upperBound, offsetBy: 7, limitedBy: svg.endIndex) else {
-            return nil
-        }
-        let value = svg[marker.upperBound..<end]
-        guard value.first == "#", let rgb = UInt32(value.dropFirst(), radix: 16) else {
+        // The background fills the whole canvas, and the canvas is not the same size in
+        // every style. The last match is the one the drawing sits on; earlier ones belong
+        // to layers kept in the definitions block.
+        let background = /<rect width="\d+" height="\d+" fill="#([0-9a-fA-F]{6})"/
+        guard let match = svg.matches(of: background).last,
+              let rgb = UInt32(match.1, radix: 16) else {
             return nil
         }
         self.rgb = rgb
@@ -248,7 +246,8 @@ extension DiceBearAvatarStyle {
     func primaryColour(in svg: String) -> SidebarAvatarPrimaryColour? {
         guard usesArtworkPrimaryColour else { return nil }
         // These styles put their identity colour on the full-bleed background. Shapes
-        // and Landscape use several peers, so neither has one colour to claim as primary.
+        // and Landscape use several peers, so neither has one colour to claim as primary,
+        // and Weave keeps its colour in the bands over a background too pale to tint with.
         return SidebarAvatarPrimaryColour(svg: svg)
     }
 }
@@ -389,6 +388,8 @@ enum DiceBearAvatarDocument {
               --dbwa-t: 0.25 !important;
               --dbsp-t: 0.55 !important;
               --dbla-t: 0.2 !important;
+              --dbcr-t: 0.55 !important;
+              --dbmo-t: 0.55 !important;
             }
             """
         }
