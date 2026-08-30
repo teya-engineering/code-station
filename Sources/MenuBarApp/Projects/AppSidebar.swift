@@ -243,7 +243,7 @@ struct AppSidebar: View {
                         Image(systemName: "magnifyingglass")
                             .font(.system(size: 10.5, weight: .semibold))
                             .foregroundStyle(.tertiary)
-                        Text("Filter projects, sessions, files, actions")
+                        Text("Filter projects, sessions, actions")
                             .font(.system(size: 12.5))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
@@ -259,7 +259,7 @@ struct AppSidebar: View {
                     .contentShape(RoundedRectangle(cornerRadius: 9))
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Filter projects, sessions, files, and actions")
+                .accessibilityLabel("Filter projects, sessions, and actions")
                 .appTooltip("Filter Code Station (command-K)")
             }
         }

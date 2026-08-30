@@ -23,18 +23,18 @@ struct GlobalCommandPaletteTests {
 
     @Test func everyQueryWordCanMatchAcrossTheRow() {
         let match = GlobalCommandItem(
-            destination: .file(sessionID: UUID(), root: "/workspace", path: "Sources/SessionView.swift"),
-            category: .files,
-            group: .files,
-            title: "SessionView.swift",
-            subtitle: "Code Station · Sources/MenuBarApp/Projects",
-            keywords: "modified working tree",
-            priority: 4)
+            destination: .session(UUID()),
+            category: .sessions,
+            group: .recent,
+            title: "Fix command palette",
+            subtitle: "Code Station · Waiting for review",
+            keywords: "sidebar navigation",
+            priority: 2)
         let other = item(.project(UUID()), category: .projects, group: .projects,
-                         title: "Session tools", priority: 3)
+                         title: "Command tools", priority: 3)
 
         let results = GlobalCommandSearch.results(
-            in: [other, match], query: "session projects modified", category: .all)
+            in: [other, match], query: "command station navigation", category: .all)
 
         #expect(results.map(\.id) == [match.id])
     }
@@ -61,6 +61,32 @@ struct GlobalCommandPaletteTests {
             in: [containing, exact], query: "payments", category: .all)
 
         #expect(results.map(\.id) == [exact.id, containing.id])
+    }
+
+    @Test func resultWindowLoadsBoundedPages() {
+        var window = GlobalCommandResultWindow(openingPage: 3, step: 2)
+        let results = Array(0..<8)
+
+        #expect(Array(window.visibleResults(in: results)) == [0, 1, 2])
+        #expect(window.hasMore(totalCount: results.count))
+
+        window.loadMore(totalCount: results.count)
+        #expect(Array(window.visibleResults(in: results)) == [0, 1, 2, 3, 4])
+
+        window.loadMore(totalCount: results.count)
+        window.loadMore(totalCount: results.count)
+        #expect(Array(window.visibleResults(in: results)) == results)
+        #expect(!window.hasMore(totalCount: results.count))
+    }
+
+    @Test func resultWindowResetsToItsOpeningPage() {
+        var window = GlobalCommandResultWindow(openingPage: 2, step: 3)
+        let results = Array(0..<6)
+
+        window.loadMore(totalCount: results.count)
+        window.reset()
+
+        #expect(Array(window.visibleResults(in: results)) == [0, 1])
     }
 
     private func item(_ destination: GlobalCommandDestination,

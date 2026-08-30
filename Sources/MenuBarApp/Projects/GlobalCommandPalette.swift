@@ -25,7 +25,6 @@ enum GlobalCommandCategory: String, CaseIterable, Identifiable {
     case all
     case sessions
     case projects
-    case files
     case actions
 
     var id: Self { self }
@@ -35,7 +34,6 @@ enum GlobalCommandCategory: String, CaseIterable, Identifiable {
         case .all: "All"
         case .sessions: "Sessions"
         case .projects: "Projects"
-        case .files: "Files"
         case .actions: "Actions"
         }
     }
@@ -45,7 +43,6 @@ enum GlobalCommandGroup: Int, CaseIterable, Comparable {
     case needsYou
     case recent
     case projects
-    case files
     case actions
 
     static func < (lhs: Self, rhs: Self) -> Bool {
@@ -57,7 +54,6 @@ enum GlobalCommandGroup: Int, CaseIterable, Comparable {
         case .needsYou: "NEEDS YOU"
         case .recent: "RECENT"
         case .projects: "PROJECTS"
-        case .files: "TOUCHED FILES"
         case .actions: "ACTIONS"
         }
     }
@@ -67,7 +63,6 @@ enum GlobalCommandDestination: Hashable {
     case session(UUID)
     case project(UUID)
     case workspace(UUID)
-    case file(sessionID: UUID, root: String, path: String)
     case newSession
     case settings
 }
@@ -120,6 +115,35 @@ enum GlobalCommandSearch {
     }
 }
 
+struct GlobalCommandResultWindow: Equatable {
+    let openingPage: Int
+    let step: Int
+    private(set) var visibleCount: Int
+
+    init(openingPage: Int = 40, step: Int = 40) {
+        self.openingPage = max(1, openingPage)
+        self.step = max(1, step)
+        visibleCount = self.openingPage
+    }
+
+    func visibleResults<Element>(in results: [Element]) -> ArraySlice<Element> {
+        results.prefix(visibleCount)
+    }
+
+    func hasMore(totalCount: Int) -> Bool {
+        visibleCount < totalCount
+    }
+
+    mutating func loadMore(totalCount: Int) {
+        guard hasMore(totalCount: totalCount) else { return }
+        visibleCount = min(totalCount, visibleCount + step)
+    }
+
+    mutating func reset() {
+        visibleCount = openingPage
+    }
+}
+
 private extension String {
     var foldedForSearch: String {
         folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
@@ -130,7 +154,6 @@ private extension String {
 struct GlobalCommandPalette: View {
     @Environment(ProjectStore.self) private var store
     @Environment(SessionRunner.self) private var runner
-    @Environment(GitStatsCache.self) private var gitStats
     @Environment(GlobalCommandPaletteController.self) private var controller
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -139,6 +162,7 @@ struct GlobalCommandPalette: View {
     @State private var query = ""
     @State private var category = GlobalCommandCategory.all
     @State private var selected: GlobalCommandDestination?
+    @State private var resultWindow = GlobalCommandResultWindow()
     @FocusState private var searchFocused: Bool
 
     private var results: [GlobalCommandItem] {
@@ -146,10 +170,11 @@ struct GlobalCommandPalette: View {
     }
 
     var body: some View {
+        let results = results
         VStack(spacing: 0) {
             searchBar
             categories
-            resultList
+            resultList(results)
             footer
         }
         .background(Theme.card)
@@ -160,14 +185,15 @@ struct GlobalCommandPalette: View {
         .accessibilityLabel("Filter Code Station")
         .accessibilityAddTraits(.isModal)
         .task {
+            resultWindow.reset()
             selected = results.first?.destination
             await Task.yield()
             searchFocused = true
-            await refreshTouchedFiles()
         }
-        .onChange(of: query) { _, _ in selectFirst() }
-        .onChange(of: category) { _, _ in selectFirst() }
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.14), value: results.map(\.id))
+        .onChange(of: query) { _, _ in resetResults() }
+        .onChange(of: category) { _, _ in resetResults() }
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.14),
+                   value: resultWindow.visibleResults(in: results).map(\.id))
     }
 
     private var searchBar: some View {
@@ -175,7 +201,7 @@ struct GlobalCommandPalette: View {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(.tertiary)
-            TextField("Filter projects, sessions, files, and actions", text: $query)
+            TextField("Filter projects, sessions, and actions", text: $query)
                 .textFieldStyle(.plain)
                 .font(.system(size: 15))
                 .focused($searchFocused)
@@ -215,11 +241,12 @@ struct GlobalCommandPalette: View {
         .padding(.vertical, 10)
     }
 
-    private var resultList: some View {
-        ScrollViewReader { proxy in
+    private func resultList(_ results: [GlobalCommandItem]) -> some View {
+        let visibleResults = resultWindow.visibleResults(in: results)
+        return ScrollViewReader { proxy in
             ScrollView {
                 if results.isEmpty {
-                    Text("No matching projects, sessions, files, or actions.")
+                    Text("No matching projects, sessions, or actions.")
                         .font(.system(size: 12.5))
                         .foregroundStyle(.secondary)
                         .padding(.vertical, 44)
@@ -227,7 +254,7 @@ struct GlobalCommandPalette: View {
                 } else {
                     LazyVStack(alignment: .leading, spacing: 2) {
                         ForEach(GlobalCommandGroup.allCases, id: \.self) { group in
-                            let grouped = results.filter { $0.group == group }
+                            let grouped = visibleResults.filter { $0.group == group }
                             if !grouped.isEmpty {
                                 Text(group.title)
                                     .font(.mono(9, .semibold))
@@ -241,6 +268,15 @@ struct GlobalCommandPalette: View {
                                         .id(item.id)
                                 }
                             }
+                        }
+                        if resultWindow.hasMore(totalCount: results.count) {
+                            Color.clear
+                                .frame(height: 1)
+                                .id(resultWindow.visibleCount)
+                                .onAppear {
+                                    resultWindow.loadMore(totalCount: results.count)
+                                }
+                                .accessibilityHidden(true)
                         }
                     }
                     .padding(.horizontal, 8)
@@ -324,7 +360,7 @@ struct GlobalCommandPalette: View {
                                     stacked: true,
                                     side: 32)
             }
-        case .session(let id), .file(let id, _, _):
+        case .session(let id):
             if let session = store.sidebarSession(id) ?? store.session(id),
                let workspace = session.workspaceID.flatMap(store.workspace) {
                 SidebarIdentityTile(avatar: workspace.sidebarAvatar,
@@ -383,16 +419,28 @@ struct GlobalCommandPalette: View {
         }
     }
 
-    private func selectFirst() {
+    private func resetResults() {
+        resultWindow.reset()
         selected = results.first?.destination
     }
 
     private func moveSelection(by offset: Int) {
-        guard !results.isEmpty else { return }
+        let results = results
+        let visibleResults = resultWindow.visibleResults(in: results)
+        guard !visibleResults.isEmpty else { return }
         let index = selected.flatMap { destination in
-            results.firstIndex { $0.destination == destination }
+            visibleResults.firstIndex { $0.destination == destination }
         } ?? (offset > 0 ? -1 : 0)
-        selected = results[(index + offset + results.count) % results.count].destination
+        if offset > 0,
+           index == visibleResults.count - 1,
+           resultWindow.hasMore(totalCount: results.count) {
+            resultWindow.loadMore(totalCount: results.count)
+            selected = results[index + 1].destination
+            return
+        }
+        selected = visibleResults[
+            (index + offset + visibleResults.count) % visibleResults.count
+        ].destination
     }
 
     private func activateSelection() {
@@ -410,33 +458,10 @@ struct GlobalCommandPalette: View {
             store.selectProject(id, revealingInSidebar: true)
         case .workspace(let id):
             store.selectWorkspace(id)
-        case .file(let sessionID, let root, let path):
-            store.selectSession(sessionID, destination: .change(root: root, path: path))
         case .newSession:
             controller.requestNewSession()
         case .settings:
             openSettings()
-        }
-    }
-
-    private func refreshTouchedFiles() async {
-        var seen: Set<String> = []
-        let roots = store.sidebarSessions
-            .sorted { $0.lastActivity > $1.lastActivity }
-            .flatMap(store.workingDirectories)
-            .filter { seen.insert($0).inserted }
-            .filter { !gitStats.isFresh(at: $0, within: .seconds(5)) }
-            .prefix(16)
-
-        await withTaskGroup(of: (String, GitSnapshot).self) { group in
-            for root in roots {
-                group.addTask {
-                    (root, await GitInspector.snapshot(at: root, lane: .interactive))
-                }
-            }
-            for await (root, snapshot) in group where !Task.isCancelled {
-                gitStats.store(snapshot, at: root)
-            }
         }
     }
 
@@ -503,34 +528,6 @@ struct GlobalCommandPalette: View {
                 keywords: project.path,
                 badge: project.kind == .adHoc ? "TASK" : "PROJECT",
                 priority: 3))
-        }
-
-        var seenFiles: Set<String> = []
-        let fileSessions = store.sidebarSessions.sorted {
-            if $0.id == selectedSessionID { return true }
-            if $1.id == selectedSessionID { return false }
-            return $0.lastActivity > $1.lastActivity
-        }
-        for session in fileSessions {
-            for checkout in store.checkoutProjects(for: session) {
-                guard let project = store.project(checkout.projectID) else { continue }
-                let root = checkout.worktreePath ?? project.path
-                guard let snapshot = gitStats.snapshot(at: root) else { continue }
-                for file in snapshot.files {
-                    let key = root + "\u{0}" + file.path
-                    guard seenFiles.insert(key).inserted else { continue }
-                    found.append(GlobalCommandItem(
-                        destination: .file(sessionID: session.id, root: root, path: file.path),
-                        category: .files,
-                        group: .files,
-                        title: file.fileName,
-                        subtitle: "\(project.name) · \(file.path)",
-                        keywords: "\(root) \(file.kind.label) \(session.title)",
-                        badge: "FILE",
-                        priority: 4,
-                        activity: session.lastActivity))
-                }
-            }
         }
 
         found.append(GlobalCommandItem(
