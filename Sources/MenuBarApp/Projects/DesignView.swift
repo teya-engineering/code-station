@@ -601,6 +601,7 @@ private struct DesignImplementationContextEditor: View {
                 text: $draft.text,
                 placeholder: "For example: use the second checkout option and keep the current navigation.",
                 minHeight: 96)
+                .frame(height: 96)
         }
         .padding(.top, 6)
     }
