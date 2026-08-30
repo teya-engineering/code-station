@@ -61,23 +61,25 @@ struct WorkingGlyph: View {
     }
 }
 
-// A quiet sign that a tool call is still alive. One letter dips out at a time, then the
-// whole word rests before the next pass, so the status moves without competing with the
-// command beside it.
+// A quiet sign that a tool call is still alive. A soft green light crosses the word, then
+// rests before the next pass. The grey word stays crisp underneath, so movement never
+// makes the status harder to read.
 struct RunningWord: View {
     private static let letters = Array("running")
-    private static let frameRate: TimeInterval = 0.16
+    private static let frameRate: TimeInterval = 0.22
     private static let restingFrames = 4
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var phaseOffset = Int.random(in: 0..<(letters.count + restingFrames))
 
     var body: some View {
         Group {
             if reduceMotion {
-                word(activeLetter: nil)
+                word(highlightedLetter: nil)
             } else {
                 TimelineView(.periodic(from: .now, by: Self.frameRate)) { context in
-                    word(activeLetter: Self.activeLetter(at: context.date))
+                    word(highlightedLetter: Self.highlightedLetter(at: context.date,
+                                                                  phaseOffset: phaseOffset))
                 }
             }
         }
@@ -87,20 +89,36 @@ struct RunningWord: View {
         .accessibilityLabel("running")
     }
 
-    private func word(activeLetter: Int?) -> some View {
+    private func word(highlightedLetter: Int?) -> some View {
         HStack(spacing: 0) {
             ForEach(Self.letters.indices, id: \.self) { index in
-                Text(String(Self.letters[index]))
-                    .opacity(index == activeLetter ? 0.2 : 1)
+                let strength = Self.highlightStrength(at: index,
+                                                      highlightedLetter: highlightedLetter)
+                ZStack {
+                    Text(String(Self.letters[index]))
+                    Text(String(Self.letters[index]))
+                        .foregroundStyle(Theme.addition)
+                        .opacity(strength)
+                        .shadow(color: Theme.addition.opacity(0.3 * strength), radius: 2)
+                }
             }
         }
-        .animation(.easeInOut(duration: 0.12), value: activeLetter)
+        .animation(.easeInOut(duration: 0.26), value: highlightedLetter)
     }
 
-    // An absolute clock lets redraws preserve the current pass instead of making the
-    // first letter blink again whenever new output arrives.
-    private static func activeLetter(at date: Date) -> Int? {
-        let frame = Int(date.timeIntervalSinceReferenceDate / frameRate)
+    private static func highlightStrength(at index: Int, highlightedLetter: Int?) -> Double {
+        guard let highlightedLetter else { return 0 }
+        return switch abs(index - highlightedLetter) {
+        case 0: 1
+        case 1: 0.28
+        default: 0
+        }
+    }
+
+    // The absolute clock preserves the pass across redraws. A stable offset per view
+    // keeps a group of running agents from lighting the same letter in unison.
+    private static func highlightedLetter(at date: Date, phaseOffset: Int) -> Int? {
+        let frame = (Int(date.timeIntervalSinceReferenceDate / frameRate) + phaseOffset)
             % (letters.count + restingFrames)
         return frame < letters.count ? frame : nil
     }
