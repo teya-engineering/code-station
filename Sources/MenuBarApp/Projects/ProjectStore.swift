@@ -22,6 +22,7 @@ struct PendingSessionRemoval: Identifiable, Codable, Equatable {
 enum SessionDestination: Hashable {
     case conversation
     case changes
+    case change(root: String, path: String)
 }
 
 struct SessionOpenRequest: Hashable {

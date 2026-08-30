@@ -132,6 +132,7 @@ struct SessionView: View {
     @Environment(AppSettings.self) private var appSettings
     @Environment(GitStatsCache.self) private var gitStats
     @Environment(ShortcutStore.self) private var shortcuts
+    @Environment(GlobalCommandPaletteController.self) private var commandPalette
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let sessionID: UUID
 
@@ -149,6 +150,8 @@ struct SessionView: View {
     @State private var transcriptPinnedToBottom = true
     @State private var recapOpen = false
     @State private var recapNeedsAttention = false
+    @State private var workingSetVisible: Bool
+    @State private var requestedChange: RequestedChange?
     // False until this session's transcript has been scrolled to its end. The pane is
     // rebuilt per session, so it starts false on every switch without being reset.
     @State private var opened = false
@@ -172,9 +175,26 @@ struct SessionView: View {
     private let bottomAnchor = "transcript-bottom"
     private var terminalScope: TerminalScope { .session(sessionID) }
 
+    private struct RequestedChange: Hashable {
+        let root: String
+        let path: String
+    }
+
     init(sessionID: UUID, opening: SessionDestination = .conversation) {
         self.sessionID = sessionID
-        _tab = State(initialValue: opening == .changes ? .changes : .conversation)
+        switch opening {
+        case .conversation:
+            _tab = State(initialValue: .conversation)
+            _requestedChange = State(initialValue: nil)
+        case .changes:
+            _tab = State(initialValue: .changes)
+            _requestedChange = State(initialValue: nil)
+        case .change(let root, let path):
+            _tab = State(initialValue: .changes)
+            _requestedChange = State(initialValue: RequestedChange(root: root, path: path))
+        }
+        _workingSetVisible = State(
+            initialValue: Preferences.workingSetVisibility()[sessionID] ?? false)
     }
 
     var body: some View {
@@ -210,9 +230,7 @@ struct SessionView: View {
                        let design = store.designConversation(for: session.id) {
                         DesignView(sessionID: design.id)
                     } else {
-                        transcript(session)
-                        Divider().overlay(Theme.hairline)
-                        composer(session: session, project: project)
+                        conversation(session: session, project: project)
                     }
                 case .design:
                     if let design = store.designSession(for: session.id) {
@@ -221,7 +239,9 @@ struct SessionView: View {
                         DesignReferenceView(sessionID: session.id)
                     }
                 case .changes:
-                    ChangesView(root: projectDirectory)
+                    ChangesView(root: requestedChange?.root ?? projectDirectory,
+                                initiallySelectedPath: requestedChange?.path)
+                        .id(requestedChange)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 case .explorer:
                     ExplorerView(root: explorerDirectory)
@@ -243,6 +263,7 @@ struct SessionView: View {
                 composerFocused = true
                 recapOpen = recap != nil
                 recapNeedsAttention = recap != nil
+                openWorkingSetForLiveTurnIfNeeded()
             }
             .sheet(item: $shortcutEditor) { request in
                 ShortcutEditorView(request: request) { shortcut in
@@ -263,7 +284,12 @@ struct SessionView: View {
                 if focused { composerFocused = false }
             }
             .task(id: sessionID) {
-                selectedProjectID = session.projectID
+                selectedProjectID = requestedChange.flatMap { change in
+                    store.checkoutProjects(for: session).first { checkout in
+                        let root = checkout.worktreePath ?? store.project(checkout.projectID)?.path
+                        return root == change.root
+                    }?.projectID
+                } ?? session.projectID
                 explorerShowsDesignFiles = designFilesURL != nil
                 openShortcutRun = nil
                 sampleMissingFolders()
@@ -297,6 +323,7 @@ struct SessionView: View {
                 }
             }
             .onChange(of: runner.state(sessionID)) { _, state in
+                openWorkingSetForLiveTurnIfNeeded()
                 if !state.isBusy {
                     // The runner checks the same folders before it launches and refuses the
                     // turn if one is gone, so the end of a turn is where that failure turns
@@ -366,6 +393,7 @@ struct SessionView: View {
                 if appSettings.mobileAccessEnabled {
                     MobileAccessButton(scope: .session(sessionID))
                 }
+                workingSetToggle
                 HeaderTabToggle(selection: $tab, options: headerTabs(for: session))
                 TerminalToggle(isOpen: terminals.isOpen(terminalScope),
                                directory: session.worktreePath ?? project.path) {
@@ -377,6 +405,31 @@ struct SessionView: View {
         }
         .padding(.horizontal, 20)
         .headerBand()
+    }
+
+    private var workingSetToggle: some View {
+        let isOpen = tab == .conversation && workingSetVisible
+        return Button {
+            if isOpen {
+                setWorkingSetVisible(false)
+            } else {
+                tab = .conversation
+                setWorkingSetVisible(true)
+            }
+        } label: {
+            Image(systemName: "sidebar.right")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(isOpen ? Theme.accent : Color.secondary)
+                .frame(width: 34, height: 34)
+                .surface(isOpen ? Theme.accent.opacity(0.08) : Theme.card,
+                         cornerRadius: 9,
+                         border: isOpen ? Theme.accent.opacity(0.25) : Theme.border)
+                .contentShape(RoundedRectangle(cornerRadius: 9))
+        }
+        .buttonStyle(.plain)
+        .appTooltip(isOpen ? "Close working set" : "Open working set")
+        .accessibilityLabel(isOpen ? "Close working set" : "Open working set")
+        .accessibilityValue(isOpen ? "open" : "closed")
     }
 
     private func headerTabs(for session: ChatSession) -> [(label: String, value: Tab)] {
@@ -645,6 +698,7 @@ struct SessionView: View {
                             && (tab == .changes || !explorerShowsDesignFiles)
                         Button {
                             selectedProjectID = project.id
+                            requestedChange = nil
                             if tab == .explorer { explorerShowsDesignFiles = false }
                         } label: {
                             HStack(spacing: 7) {
@@ -789,7 +843,7 @@ struct SessionView: View {
         let target = visibleConversationID
         let state = runner.state(target)
         if state.isBusy, state != .stopping, dialogs.current == nil, !menus.isOpen,
-           !terminalFocused, !recapOpen {
+           !terminalFocused, !recapOpen, !commandPalette.isPresented {
             Button("") { runner.stop(target) }
                 .keyboardShortcut(.escape, modifiers: [])
                 .opacity(0)
@@ -931,6 +985,66 @@ struct SessionView: View {
     }
 
     // MARK: - Transcript
+
+    private func conversation(session: ChatSession, project: Project) -> some View {
+        GeometryReader { geometry in
+            if geometry.size.width >= 800 {
+                HStack(spacing: 0) {
+                    conversationContent(session: session, project: project)
+                    if workingSetVisible {
+                        Divider().overlay(Theme.hairline)
+                        workingSet(session)
+                            .transition(.move(edge: .trailing).combined(with: .opacity))
+                    }
+                }
+            } else {
+                ZStack(alignment: .trailing) {
+                    conversationContent(session: session, project: project)
+                    if workingSetVisible {
+                        workingSet(session)
+                            .shadow(color: .black.opacity(0.16), radius: 18, x: -5)
+                            .transition(.move(edge: .trailing).combined(with: .opacity))
+                    }
+                }
+            }
+        }
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: workingSetVisible)
+    }
+
+    private func conversationContent(session: ChatSession, project: Project) -> some View {
+        VStack(spacing: 0) {
+            transcript(session)
+            Divider().overlay(Theme.hairline)
+            composer(session: session, project: project)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func workingSet(_ session: ChatSession) -> some View {
+        SessionWorkingSet(
+            session: session,
+            close: { setWorkingSetVisible(false) },
+            editQueuedPrompt: { prompt in
+                runner.recall(prompt.id, sessionID: sessionID)
+                composerFocused = true
+            },
+            openChange: { projectID, root, path in
+                selectedProjectID = projectID
+                requestedChange = RequestedChange(root: root, path: path)
+                tab = .changes
+            })
+    }
+
+    private func setWorkingSetVisible(_ visible: Bool) {
+        workingSetVisible = visible
+        Preferences.setWorkingSetVisible(visible, for: sessionID)
+    }
+
+    private func openWorkingSetForLiveTurnIfNeeded() {
+        guard runner.state(sessionID).isBusy,
+              Preferences.workingSetVisibility()[sessionID] == nil else { return }
+        setWorkingSetVisible(true)
+    }
 
     private func transcript(_ session: ChatSession) -> some View {
         let state = runner.state(sessionID)
@@ -1178,6 +1292,7 @@ struct SessionView: View {
     }
 
     private func openChanges() {
+        requestedChange = nil
         tab = .changes
     }
 

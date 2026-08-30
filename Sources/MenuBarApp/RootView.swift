@@ -14,7 +14,9 @@ struct RootView: View {
     @Environment(SessionRunner.self) private var runner
     @Environment(MobileAccessController.self) private var mobileAccess
     @Environment(OrphanedWorktreeMonitor.self) private var orphanedWorktrees
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var skills = SkillsManager()
+    @State private var commandPalette = GlobalCommandPaletteController()
     // Only ever one at a time, and a second one asked for while the first is up would
     // replace it rather than stack, so which one is showing is a single choice.
     @State private var sheet: Sheet?
@@ -40,8 +42,15 @@ struct RootView: View {
                                 onDismiss: { dismissedAttention = attention })
                     .padding(.top, 12)
             }
+            if commandPalette.isPresented {
+                commandPaletteLayer
+                    .transition(.opacity)
+                    .zIndex(10)
+            }
         }
         .background(Theme.background)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.14),
+                   value: commandPalette.isPresented)
         .onChange(of: attention) { oldValue, newValue in
             if oldValue != newValue { dismissedAttention = nil }
         }
@@ -85,6 +94,23 @@ struct RootView: View {
                 .opacity(0)
                 .keyboardShortcut(",", modifiers: .command)
         )
+        .background(
+            Button("") {
+                guard sheet == nil else { return }
+                commandPalette.open()
+            }
+            .buttonStyle(.plain)
+            .opacity(0)
+            .keyboardShortcut("k", modifiers: .command)
+        )
+        .background {
+            if commandPalette.isPresented {
+                Button("") { commandPalette.close() }
+                    .buttonStyle(.plain)
+                    .opacity(0)
+                    .keyboardShortcut(.escape, modifiers: [])
+            }
+        }
         // Growing the text is Cmd+ in the View menu, which AppKit only matches on a
         // shifted key. The unshifted key most people actually press is the same command,
         // so it is answered here rather than as a second line in the menu saying the same
@@ -97,6 +123,7 @@ struct RootView: View {
                 .keyboardShortcut("=", modifiers: .command)
         )
         .environment(skills)
+        .environment(commandPalette)
         .environment(\.textScale, settings.textSize.scale)
         .appOverlays()
         // A sheet is a window of its own, so the layer under it cannot draw over it; each
@@ -104,6 +131,25 @@ struct RootView: View {
         .sheet(item: $sheet) { sheet in
             sheetContent(sheet).appOverlays()
         }
+    }
+
+    private var commandPaletteLayer: some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .top) {
+                Color.black.opacity(0.17)
+                    .contentShape(Rectangle())
+                    .onTapGesture { commandPalette.close() }
+
+                GlobalCommandPalette(openSettings: {
+                    commandPalette.close()
+                    sheet = .settings
+                })
+                .frame(width: min(720, geometry.size.width - 64),
+                       height: min(620, geometry.size.height - 64))
+                .padding(.top, 28)
+            }
+        }
+        .ignoresSafeArea()
     }
 
     // The tools and settings that open over the window. Each is a setup job rather than a

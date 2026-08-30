@@ -17,6 +17,7 @@ struct AppSidebar: View {
     @Environment(WorkingTreeWatch.self) private var workingTrees
     @Environment(OrphanedWorktreeMonitor.self) private var orphanedWorktrees
     @Environment(MobileAccessController.self) private var mobileAccess
+    @Environment(GlobalCommandPaletteController.self) private var commandPalette
 
     // A project is expanded by default while it is the selected one. Explicit choices
     // win over that default and are restored when the app opens again.
@@ -33,6 +34,7 @@ struct AppSidebar: View {
     @State private var sessionToReveal: UUID?
     @State private var sessionVisibility = SidebarSessionVisibility()
     @State private var filterText = ""
+    @State private var sidebarFilterOpen = false
     @State private var revealedFilterContainerID: UUID?
     @State private var oldSessionSummary = OldSessionSummary()
     @State private var hoveringOldSessions = false
@@ -71,6 +73,9 @@ struct AppSidebar: View {
         .background(keyboardShortcuts)
         .task { await watchWorkingTrees() }
         .task(id: oldSessionRefreshRule) { await refreshOldSessionsHourly() }
+        .onChange(of: commandPalette.newSessionRequest) { _, _ in
+            startSessionInSelection()
+        }
         .sheet(item: $choosingSessionKind) { project in
             NewSessionView(project: project) { choice in
                 startSession(choice, in: project)
@@ -226,10 +231,43 @@ struct AppSidebar: View {
         .onTapGesture { openNoticedSession(noticed.session) }
     }
 
-    // Narrows the list to the projects, workspaces and sessions that contain what is
-    // typed. It filters rather than searches: the rail keeps its order and simply drops
-    // the rows that do not match.
+    // The visible control opens the app-wide filter. Command-F keeps the narrower tree
+    // filter for someone who only wants to trim this rail without leaving its context.
     private var filterBar: some View {
+        Group {
+            if sidebarFilterOpen || !filterText.isEmpty {
+                sidebarFilterField
+            } else {
+                Button { commandPalette.open() } label: {
+                    HStack(spacing: 7) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 10.5, weight: .semibold))
+                            .foregroundStyle(.tertiary)
+                        Text("Filter projects, sessions, files, actions")
+                            .font(.system(size: 12.5))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                        Spacer(minLength: 4)
+                        Text("⌘K")
+                            .font(.mono(9.5))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .fieldSurface(cornerRadius: 9)
+                    .contentShape(RoundedRectangle(cornerRadius: 9))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Filter projects, sessions, files, and actions")
+                .appTooltip("Filter Code Station (command-K)")
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.bottom, 10)
+    }
+
+    private var sidebarFilterField: some View {
         HStack(spacing: 7) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 10.5, weight: .semibold))
@@ -238,28 +276,28 @@ struct AppSidebar: View {
                 .textFieldStyle(.plain)
                 .font(.system(size: 12.5))
                 .focused($filterFocused)
-            if filterText.isEmpty {
-                Text("⌘F")
-                    .font(.mono(9.5))
-                    .foregroundStyle(.tertiary)
-            } else {
-                Button {
+            Text("⌘F")
+                .font(.mono(9.5))
+                .foregroundStyle(.tertiary)
+            Button {
+                if filterText.isEmpty {
+                    sidebarFilterOpen = false
+                    filterFocused = false
+                } else {
                     filterText = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.tertiary)
-                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
-                .appTooltip("Clear filter")
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+                    .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .appTooltip(filterText.isEmpty ? "Close project filter" : "Clear filter")
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
         .fieldSurface(cornerRadius: 9)
-        .padding(.horizontal, 14)
-        .padding(.bottom, 10)
         .onChange(of: filterText) { _, _ in revealedFilterContainerID = nil }
     }
 
@@ -1277,7 +1315,14 @@ struct AppSidebar: View {
         ZStack {
             Button("") { startSessionInSelection() }
                 .keyboardShortcut("n", modifiers: .command)
-            Button("") { filterFocused = true }
+            Button("") {
+                commandPalette.close()
+                sidebarFilterOpen = true
+                Task {
+                    await Task.yield()
+                    filterFocused = true
+                }
+            }
                 .keyboardShortcut("f", modifiers: .command)
             Button("") { jumpToFirstNeedingAttention() }
                 .keyboardShortcut("a", modifiers: [.command, .shift])

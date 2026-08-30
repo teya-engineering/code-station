@@ -65,6 +65,7 @@ struct ChangeFileSelection: Equatable {
 // the header carries the little git a review ends in: switch branch, commit, pull, push.
 struct ChangesView: View {
     let root: String
+    let initiallySelectedPath: String?
 
     private enum Mode: Hashable { case changes, history }
 
@@ -92,6 +93,7 @@ struct ChangesView: View {
     @State private var diff: FileDiff?
     @State private var diffText: NSAttributedString?
     @State private var loadingDiff = false
+    @State private var appliedInitialSelection = false
 
     private var files: [GitChange] { snapshot?.files ?? [] }
     private var selected: GitChange? { files.first { $0.id == fileSelection.activeID } }
@@ -104,6 +106,11 @@ struct ChangesView: View {
     private var canAmend: Bool {
         guard let snapshot, snapshot.hasCommits else { return false }
         return snapshot.upstream == nil || snapshot.ahead > 0
+    }
+
+    init(root: String, initiallySelectedPath: String? = nil) {
+        self.root = root
+        self.initiallySelectedPath = initiallySelectedPath
     }
 
     var body: some View {
@@ -845,6 +852,14 @@ struct ChangesView: View {
         // Keep the open file open across a refresh, but only if it still has changes.
         let orderedIDs = fresh.files.map(\.id)
         fileSelection.retain(Set(orderedIDs), in: orderedIDs)
+        if !appliedInitialSelection {
+            appliedInitialSelection = true
+            if let initiallySelectedPath,
+               fresh.files.contains(where: { $0.id == initiallySelectedPath }) {
+                fileSelection.select(initiallySelectedPath, in: orderedIDs,
+                                     extendingRange: false, toggling: false)
+            }
+        }
         if let selectedID = fileSelection.activeID,
            let file = fresh.files.first(where: { $0.id == selectedID }) {
             await loadDiff(file, root: fresh.root)
