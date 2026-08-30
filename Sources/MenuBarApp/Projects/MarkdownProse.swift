@@ -703,7 +703,7 @@ struct MarkdownBlockView: View, Equatable {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.top, level <= 2 ? 6 : 2)
         case .table(let table):
-            MarkdownTableView(table: table)
+            MarkdownTableView(table: table, textScale: textScale)
         case .list(let items):
             VStack(alignment: .leading, spacing: 7) {
                 ForEach(Array(items.enumerated()), id: \.offset) { _, item in
@@ -886,20 +886,22 @@ struct MarkdownCodeBlock: View {
 
 private struct MarkdownTableView: View {
     let table: MarkdownTable
+    let textScale: CGFloat
 
     var body: some View {
-        Grid(alignment: .topLeading, horizontalSpacing: 0, verticalSpacing: 0) {
-            GridRow {
+        let columnWidths = preferredColumnWidths
+        VStack(alignment: .leading, spacing: 0) {
+            MarkdownTableRowLayout(preferredWidths: columnWidths) {
                 ForEach(table.header.indices, id: \.self) { column in
                     cell(table.header[column], column: column, header: true)
-                        .background(Theme.field)
                 }
             }
+            .background(Theme.field)
             ForEach(table.rows.indices, id: \.self) { row in
                 Rectangle()
                     .fill(Theme.hairline)
                     .frame(height: 1)
-                GridRow {
+                MarkdownTableRowLayout(preferredWidths: columnWidths) {
                     ForEach(table.rows[row].indices, id: \.self) { column in
                         cell(table.rows[row][column], column: column, header: false)
                     }
@@ -910,8 +912,8 @@ private struct MarkdownTableView: View {
         .cardSurface(cornerRadius: 8)
     }
 
-    // Every cell stretches, so columns share the width evenly and long cells wrap
-    // instead of pushing the table past the page.
+    // Every row uses the same preferred widths, so columns stay aligned while wider
+    // content gets more room than a short number or label.
     private func cell(_ text: String, column: Int, header: Bool) -> some View {
         let alignment = table.alignments.indices.contains(column)
             ? table.alignments[column] : .leading
@@ -922,6 +924,19 @@ private struct MarkdownTableView: View {
             .frame(maxWidth: .infinity, alignment: frameAlignment(alignment))
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
+    }
+
+    private var preferredColumnWidths: [CGFloat] {
+        table.header.indices.map { column in
+            let values = [table.header[column]] + table.rows.compactMap { row in
+                row.indices.contains(column) ? row[column] : nil
+            }
+            let longest = values.map {
+                AttributedString.inlineMarkdown($0).characters.count
+            }.max() ?? 0
+            let contentWidth = CGFloat(longest) * 6.5 * textScale
+            return min(180, max(MarkdownTableRowLayout.minimumColumnWidth, contentWidth + 20))
+        }
     }
 
     private func textAlignment(_ alignment: MarkdownTable.ColumnAlignment) -> TextAlignment {
@@ -938,5 +953,65 @@ private struct MarkdownTableView: View {
         case .center: .center
         case .trailing: .trailing
         }
+    }
+}
+
+private struct MarkdownTableRowLayout: Layout {
+    static let minimumColumnWidth: CGFloat = 52
+
+    let preferredWidths: [CGFloat]
+
+    func sizeThatFits(proposal: ProposedViewSize,
+                      subviews: Subviews,
+                      cache: inout ()) -> CGSize {
+        let widths = columnWidths(availableWidth: proposal.width, count: subviews.count)
+        let height = zip(subviews, widths).map { subview, width in
+            subview.sizeThatFits(ProposedViewSize(width: width, height: nil)).height
+        }.max() ?? 0
+        return CGSize(width: widths.reduce(0, +), height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect,
+                       proposal: ProposedViewSize,
+                       subviews: Subviews,
+                       cache: inout ()) {
+        let widths = columnWidths(availableWidth: bounds.width, count: subviews.count)
+        var x = bounds.minX
+        for (subview, width) in zip(subviews, widths) {
+            subview.place(at: CGPoint(x: x, y: bounds.minY),
+                          anchor: .topLeading,
+                          proposal: ProposedViewSize(width: width, height: bounds.height))
+            x += width
+        }
+    }
+
+    private func columnWidths(availableWidth: CGFloat?, count: Int) -> [CGFloat] {
+        guard count > 0 else { return [] }
+        let preferred = (0..<count).map { column in
+            preferredWidths.indices.contains(column)
+                ? max(Self.minimumColumnWidth, preferredWidths[column])
+                : Self.minimumColumnWidth
+        }
+        guard let availableWidth, availableWidth.isFinite, availableWidth > 0 else {
+            return preferred
+        }
+
+        let preferredTotal = preferred.reduce(0, +)
+        if availableWidth >= preferredTotal {
+            let extra = (availableWidth - preferredTotal) / CGFloat(count)
+            return preferred.map { $0 + extra }
+        }
+
+        let minimumTotal = Self.minimumColumnWidth * CGFloat(count)
+        guard availableWidth > minimumTotal else {
+            return Array(repeating: availableWidth / CGFloat(count), count: count)
+        }
+
+        let shrinkableTotal = preferredTotal - minimumTotal
+        guard shrinkableTotal > 0 else {
+            return Array(repeating: availableWidth / CGFloat(count), count: count)
+        }
+        let scale = (availableWidth - minimumTotal) / shrinkableTotal
+        return preferred.map { Self.minimumColumnWidth + ($0 - Self.minimumColumnWidth) * scale }
     }
 }

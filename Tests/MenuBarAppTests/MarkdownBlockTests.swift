@@ -278,6 +278,55 @@ struct MarkdownBlockTests {
         let frames = textViews.map { host.convert($0.bounds, from: $0) }.sorted { $0.minY < $1.minY }
         #expect(frames[0].maxY <= frames[1].minY)
     }
+
+    @Test @MainActor func laysOutLinkedTableCellsWithoutOverlapping() throws {
+        let table = MarkdownTable(
+            header: ["Price", "Area", "Address", "Beds", "Station", "Walk", "Commute", "Garden"],
+            alignments: Array(repeating: .leading, count: 8),
+            rows: [
+                ["£750,000", "Hayes", "[Hawthorndene Road, BR2](https://example.com/one)", "4",
+                 "Hayes", "<0.25 mi", "59 min", "134 m²"],
+                ["£760,000", "Hayes", "[Cameron Road, Bromley](https://example.com/two)", "3",
+                 "Bromley South", "15 min", "53 min", "195 m²"],
+                ["£800,000", "Coulsdon S", "[Byron Avenue, CR5](https://example.com/three)", "5",
+                 "Coulsdon Town", "<0.25 mi", "51 min", "250 m²"],
+            ])
+        let firstRow = MarkdownTable(header: table.header,
+                                     alignments: table.alignments,
+                                     rows: Array(table.rows.prefix(1)))
+        let tooltipPresenter = TooltipPresenter()
+        let view = MarkdownBlockView(
+            block: MarkdownBlock(id: 0, kind: .table(firstRow)),
+            projectPath: "/tmp",
+            textScale: 1)
+            .equatable()
+            .environment(tooltipPresenter)
+        let host = NSHostingView(rootView: view)
+        host.frame = CGRect(x: 0, y: 0, width: 620, height: 800)
+        host.layoutSubtreeIfNeeded()
+        host.rootView = MarkdownBlockView(
+            block: MarkdownBlock(id: 0, kind: .table(table)),
+            projectPath: "/tmp",
+            textScale: 1)
+            .equatable()
+            .environment(tooltipPresenter)
+        host.layoutSubtreeIfNeeded()
+
+        let textViews = host.descendants.compactMap { $0 as? NSTextView }
+        try #require(textViews.count == 3)
+        #expect(textViews.allSatisfy { $0.frame.width >= 80 })
+        for textView in textViews {
+            let layoutManager = try #require(textView.layoutManager)
+            let container = try #require(textView.textContainer)
+            layoutManager.ensureLayout(for: container)
+            #expect(textView.frame.height >= ceil(layoutManager.usedRect(for: container).height))
+        }
+
+        let frames = textViews.map { host.convert($0.bounds, from: $0) }.sorted { $0.minY < $1.minY }
+        for pair in zip(frames, frames.dropFirst()) {
+            #expect(pair.0.maxY <= pair.1.minY)
+        }
+    }
 }
 
 private extension NSView {
