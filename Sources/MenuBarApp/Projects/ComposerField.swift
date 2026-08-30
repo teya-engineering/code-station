@@ -14,10 +14,12 @@ struct ComposerField<TrailingAccessory: View>: View {
     let onSubmit: () -> Void
     let onOversizedPaste: (String) -> Void
     let trailingAccessory: TrailingAccessory
-    // Arrow-up in an empty box asks for the last prompt back, the way a shell recalls
-    // history. Returns whether there was one to recall, so the key can fall through to
-    // ordinary cursor movement when there was not.
+    // Arrow-up on the first line asks for an earlier prompt, the way a shell recalls
+    // history, and arrow-down on the last line comes back towards the present. Each
+    // returns whether it had a prompt to give, so the key can fall through to ordinary
+    // cursor movement when it did not.
     var onRecallUp: (() -> Bool)? = nil
+    var onRecallDown: (() -> Bool)? = nil
 
     // Past this the box stops growing and the text scrolls inside it, so a long prompt
     // can never push the transcript off the screen.
@@ -29,6 +31,7 @@ struct ComposerField<TrailingAccessory: View>: View {
          isEnabled: Bool, onSubmit: @escaping () -> Void,
          onOversizedPaste: @escaping (String) -> Void,
          onRecallUp: (() -> Bool)? = nil,
+         onRecallDown: (() -> Bool)? = nil,
          @ViewBuilder trailingAccessory: () -> TrailingAccessory) {
         _text = text
         _isFocused = isFocused
@@ -37,6 +40,7 @@ struct ComposerField<TrailingAccessory: View>: View {
         self.onSubmit = onSubmit
         self.onOversizedPaste = onOversizedPaste
         self.onRecallUp = onRecallUp
+        self.onRecallDown = onRecallDown
         self.trailingAccessory = trailingAccessory()
     }
 
@@ -51,6 +55,7 @@ struct ComposerField<TrailingAccessory: View>: View {
                  onSubmit: onSubmit,
                  onOversizedPaste: onOversizedPaste,
                  onRecallUp: onRecallUp,
+                 onRecallDown: onRecallDown,
                  onHeightChange: { height = $0 })
             .frame(height: min(max(height, line), line * CGFloat(maxLines)))
             .overlay(alignment: .topLeading) {
@@ -88,6 +93,7 @@ private struct TextArea: NSViewRepresentable {
     let onSubmit: () -> Void
     let onOversizedPaste: (String) -> Void
     let onRecallUp: (() -> Bool)?
+    let onRecallDown: (() -> Bool)?
     let onHeightChange: (CGFloat) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -134,6 +140,9 @@ private struct TextArea: NSViewRepresentable {
         // Writing back what the user just typed would drop the insertion point.
         if textView.string != text {
             textView.string = text
+            // A prompt arriving from elsewhere is there to be worked on, so the caret
+            // goes to the end of it rather than staying wherever the old text left it.
+            textView.setSelectedRange(NSRange(location: (text as NSString).length, length: 0))
             context.coordinator.reportHeight(of: textView)
         }
 
@@ -185,13 +194,36 @@ private struct TextArea: NSViewRepresentable {
                 textView.insertText("\n", replacementRange: textView.selectedRange())
                 return true
             case #selector(NSResponder.moveUp(_:)):
-                // Only an empty box recalls: with text in hand the key keeps moving the
-                // cursor, so editing a long prompt is never hijacked.
-                if textView.string.isEmpty, parent.onRecallUp?() == true { return true }
+                // Only the first line recalls, so a press in the middle of a prompt that
+                // runs over several lines is always the cursor's. Whether an earlier
+                // prompt should replace what is there at all is the runner's call, since
+                // only it knows a walk is under way.
+                if isOnFirstLine(textView), parent.onRecallUp?() == true { return true }
+                return false
+            case #selector(NSResponder.moveDown(_:)):
+                if isOnLastLine(textView), parent.onRecallDown?() == true { return true }
                 return false
             default:
                 return false
             }
+        }
+
+        // Which line the caret is on, counted by the newlines the person typed rather
+        // than by where the text happens to wrap, so the answer does not change with the
+        // width of the window.
+        private func isOnFirstLine(_ textView: NSTextView) -> Bool {
+            let text = textView.string as NSString
+            let caret = min(textView.selectedRange().location, text.length)
+            return text.range(of: "\n", options: .backwards,
+                              range: NSRange(location: 0, length: caret)).location == NSNotFound
+        }
+
+        private func isOnLastLine(_ textView: NSTextView) -> Bool {
+            let text = textView.string as NSString
+            let caret = min(NSMaxRange(textView.selectedRange()), text.length)
+            return text.range(of: "\n",
+                              range: NSRange(location: caret, length: text.length - caret))
+                .location == NSNotFound
         }
 
         func focusChanged(_ focused: Bool) {

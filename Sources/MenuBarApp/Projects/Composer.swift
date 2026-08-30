@@ -21,6 +21,7 @@ struct Composer<Above: View, Accessory: View>: View {
     var inset: CGFloat = 20
     let onOversizedPaste: (String) -> Void
     var onRecallUp: (() -> Bool)? = nil
+    var onRecallDown: (() -> Bool)? = nil
     @ViewBuilder let above: Above
     @ViewBuilder let accessory: Accessory
 
@@ -53,7 +54,8 @@ struct Composer<Above: View, Accessory: View>: View {
                               isEnabled: !blocked,
                               onSubmit: send,
                               onOversizedPaste: onOversizedPaste,
-                              onRecallUp: onRecallUp) {
+                              onRecallUp: onRecallUp,
+                              onRecallDown: onRecallDown) {
                     accessory
                 }
 

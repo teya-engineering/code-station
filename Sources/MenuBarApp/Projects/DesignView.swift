@@ -233,6 +233,8 @@ struct DesignView: View {
                         placeholder: busy ? "Queue the next revision…" : "Describe what to design…",
                         inset: 12,
                         onOversizedPaste: attachPastedText,
+                        onRecallUp: { runner.recallEarlier(sessionID, store: store) },
+                        onRecallDown: { runner.recallLater(sessionID, store: store) },
                         above: {
                             ScrollView(.horizontal, showsIndicators: false) {
                                 SessionRunSettingsControls(sessionID: sessionID)

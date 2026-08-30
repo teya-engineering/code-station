@@ -1437,11 +1437,8 @@ struct SessionView: View {
                         isFocused: $composerFocused,
                         placeholder: placeholder(state: state),
                         onOversizedPaste: offerTextFile,
-                        onRecallUp: {
-                            guard let last = runner.queued(sessionID).last else { return false }
-                            runner.recall(last.id, sessionID: sessionID)
-                            return true
-                        },
+                        onRecallUp: { runner.recallEarlier(sessionID, store: store) },
+                        onRecallDown: { runner.recallLater(sessionID, store: store) },
                         above: {
                             runChoices(session, project: project)
                             contextNudge(session)

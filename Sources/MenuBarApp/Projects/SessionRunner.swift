@@ -85,6 +85,9 @@ final class SessionRunner {
     // without the words going with it. Kept apart from the record because it changes on
     // every keystroke, and a change to the record redraws every row that watches a session.
     private var drafts: [UUID: Draft] = [:]
+    // How far back through the earlier prompts the arrow keys have walked. Nothing on
+    // screen says a walk is under way, so it does not have to redraw anything.
+    @ObservationIgnored private var walks: [UUID: PromptWalk] = [:]
     // How wide the canvas is showing the design, in CSS pixels. The agent writes HTML it
     // never sees rendered, so without this it designs for a window it imagined and the
     // layout overflows the pane the user actually has open. Only known while the canvas
@@ -340,7 +343,10 @@ final class SessionRunner {
         drafts[sessionID] = draft.isEmpty ? nil : draft
     }
 
-    func clearDraft(_ sessionID: UUID) { drafts[sessionID] = nil }
+    func clearDraft(_ sessionID: UUID) {
+        drafts[sessionID] = nil
+        walks[sessionID] = nil
+    }
 
     // The canvas reports its own width as it is resized. Sub-pixel changes would rewrite
     // the system prompt for no visible difference, so only whole pixels are kept.
@@ -367,6 +373,7 @@ final class SessionRunner {
         let item = queue[index]
         records[sessionID]?.queue.remove(at: index)
         preserveDraft(at: index, sessionID: sessionID)
+        walks[sessionID] = nil
         drafts[sessionID] = Draft(text: item.text,
                                   attachments: item.attachments,
                                   customInstructions: item.customInstructions)
@@ -382,6 +389,68 @@ final class SessionRunner {
                          attachments: current.attachments,
                          customInstructions: current.customInstructions),
             at: index)
+    }
+
+    // MARK: - Walking back through earlier prompts
+
+    // How far back through the prompts already sent the arrow keys have gone.
+    private struct PromptWalk {
+        // The number of steps taken, where one is the most recent prompt.
+        var position: Int
+        // The text the walk last put in the composer. Once the box holds something else
+        // the prompt has been edited, which ends the walk: the arrows belong to the text
+        // being written rather than to the history behind it.
+        var shown: String
+    }
+
+    // The up arrow, once the field has decided the caret is on its first line. A prompt
+    // still waiting in the queue takes the press, since one about to run is the more
+    // pressing thing to get back; with the queue empty the press walks into the prompts
+    // already sent, a step further back each time. Returns whether there was anything to
+    // give, so the key can fall through to ordinary cursor movement when there was not.
+    @discardableResult
+    func recallEarlier(_ sessionID: UUID, store: ProjectStore) -> Bool {
+        let history = PromptHistory.entries(in: store.transcript(of: sessionID))
+        // A walk already under way carries on from where it reached, whatever is in the
+        // box, because the box holds what the last step put there.
+        if let walk = walks[sessionID], walk.shown == draft(sessionID).text {
+            let next = walk.position + 1
+            guard next <= history.count else { return false }
+            return show(history[next - 1], at: next, sessionID: sessionID)
+        }
+        // Starting one is different: with anything written the key keeps moving the
+        // cursor, so a prompt part way through being typed is never thrown away.
+        guard draft(sessionID).text.isEmpty else { return false }
+        if let waiting = queued(sessionID).last {
+            recall(waiting.id, sessionID: sessionID)
+            return true
+        }
+        // Files waiting to go with the next prompt are the start of one, so they hold the
+        // box in the same way written words do.
+        guard draft(sessionID).isEmpty, let recent = history.first else { return false }
+        return show(recent, at: 1, sessionID: sessionID)
+    }
+
+    // The down arrow, once the field has decided the caret is on its last line. Only a
+    // walk still showing what it produced answers it, stepping back towards the present
+    // and leaving the box empty again at the end, where the walk began.
+    @discardableResult
+    func recallLater(_ sessionID: UUID, store: ProjectStore) -> Bool {
+        guard let walk = walks[sessionID], walk.shown == draft(sessionID).text else { return false }
+        let previous = walk.position - 1
+        guard previous > 0 else {
+            clearDraft(sessionID)
+            return true
+        }
+        let history = PromptHistory.entries(in: store.transcript(of: sessionID))
+        guard previous <= history.count else { return false }
+        return show(history[previous - 1], at: previous, sessionID: sessionID)
+    }
+
+    private func show(_ text: String, at position: Int, sessionID: UUID) -> Bool {
+        walks[sessionID] = PromptWalk(position: position, shown: text)
+        drafts[sessionID] = Draft(text: text)
+        return true
     }
 
     // MARK: - Clearing the context
@@ -621,6 +690,7 @@ final class SessionRunner {
         // belong to, so they come back to the composer with it.
         let instructions = transcript.indices.contains(index + 1)
             && transcript[index + 1].role == .instructions ? transcript[index + 1].text : nil
+        walks[sessionID] = nil
         drafts[sessionID] = Draft(
             text: message.text,
             attachments: (message.attachments ?? []).map { Attachment(url: URL(fileURLWithPath: $0)) },
@@ -1129,6 +1199,7 @@ final class SessionRunner {
         codexContextRefreshes.removeValue(forKey: sessionID)?.task.cancel()
         records[sessionID] = nil
         drafts[sessionID] = nil
+        walks[sessionID] = nil
         canvasWidths[sessionID] = nil
     }
 
