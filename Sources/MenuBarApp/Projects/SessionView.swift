@@ -1024,10 +1024,6 @@ struct SessionView: View {
         SessionWorkingSet(
             session: session,
             close: { setWorkingSetVisible(false) },
-            editQueuedPrompt: { prompt in
-                runner.recall(prompt.id, sessionID: sessionID)
-                composerFocused = true
-            },
             openChange: { projectID, root, path in
                 selectedProjectID = projectID
                 requestedChange = RequestedChange(root: root, path: path)

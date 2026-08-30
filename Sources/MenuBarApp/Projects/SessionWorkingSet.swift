@@ -74,7 +74,6 @@ struct SessionWorkingSet: View {
 
     let session: ChatSession
     let close: () -> Void
-    let editQueuedPrompt: (SessionRunner.QueuedPrompt) -> Void
     let openChange: (_ projectID: UUID, _ root: String, _ path: String) -> Void
 
     private struct TouchedFile: Identifiable {
@@ -88,7 +87,6 @@ struct SessionWorkingSet: View {
 
     private var tone: SessionTone { SessionTone(session.id, store: store, runner: runner) }
     private var projectPath: String { store.workingDirectory(for: session) ?? "" }
-    private var queued: [SessionRunner.QueuedPrompt] { runner.queued(session.id) }
     private var activities: [WorkingSetActivity] {
         WorkingSetSummary.activities(runningTools: runner.runningTools(session.id),
                                      backgroundTasks: runner.activeBackgroundTasks(session.id),
@@ -101,7 +99,6 @@ struct SessionWorkingSet: View {
             ScrollView {
                 VStack(spacing: 11) {
                     if !activities.isEmpty { activityPanel }
-                    nextPanel
                     filesPanel
                 }
                 .padding(11)
@@ -135,35 +132,6 @@ struct SessionWorkingSet: View {
         }
         .padding(.horizontal, 14)
         .headerBand(height: Theme.subHeaderHeight)
-    }
-
-    private var nextPanel: some View {
-        WorkingSetPanel(title: "NEXT",
-                        trailing: queued.isEmpty ? nil : counted(queued.count, "queued prompt")) {
-            if queued.isEmpty {
-                emptyRow("Nothing is queued.")
-            } else {
-                VStack(spacing: 0) {
-                    ForEach(Array(queued.enumerated()), id: \.element.id) { index, prompt in
-                        if index > 0 { Divider().overlay(Theme.hairline) }
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(prompt.text.isBlank ? "Prompt with attachments" : prompt.text)
-                                .font(.system(size: 11.5))
-                                .lineLimit(3)
-                                .fixedSize(horizontal: false, vertical: true)
-                            HStack(spacing: 12) {
-                                inlineButton("Edit") { editQueuedPrompt(prompt) }
-                                inlineButton("Remove", tint: .secondary) {
-                                    runner.unqueue(prompt.id, sessionID: session.id)
-                                }
-                            }
-                        }
-                        .padding(11)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                }
-            }
-        }
     }
 
     private var activityPanel: some View {
@@ -259,17 +227,6 @@ struct SessionWorkingSet: View {
             .foregroundStyle(.secondary)
             .padding(11)
             .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func inlineButton(_ title: String, tint: Color = Theme.accent,
-                              action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(tint)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
     }
 
     private func workingSetStatus(_ kind: GitStatusKind) -> some View {
