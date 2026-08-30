@@ -4,7 +4,7 @@ import Testing
 
 @Suite("Session working set")
 struct SessionWorkingSetTests {
-    @Test func listsEveryKindOfToolCallAcrossMessagesInOrder() {
+    @Test func listsRegularToolCallsAcrossMessagesInOrder() {
         let first = ChatMessage(role: .assistant, tools: [
             ToolUse(id: "read", name: "Read",
                     input: #"{"file_path":"/project/README.md"}"#, result: "contents"),
@@ -32,13 +32,12 @@ struct SessionWorkingSetTests {
             "Read · README.md",
             "Edit · Sources/App.swift",
             "Bash · swift test",
-            "Agent · reviewer · review the diff",
             "WebSearch · Swift Observation",
             "MCP · github.search",
             "TodoWrite · 2 items",
         ])
         #expect(calls.map(\.tool.id) == [
-            "read", "edit", "shell", "agent", "search", "mcp", "todos",
+            "read", "edit", "shell", "search", "mcp", "todos",
         ])
         #expect(calls[2].tool.result == "passed")
     }
@@ -126,6 +125,23 @@ struct SessionWorkingSetTests {
         #expect(visibility.visible(calls).map(\.id) == calls.suffix(5).map(\.id))
     }
 
+    @Test func eachToolCallListExpandsIndependently() {
+        let calls = toolCalls(8)
+        var visibility = WorkingSetToolCallVisibility()
+
+        visibility.showAll(in: "agent-a")
+
+        #expect(visibility.visible(calls, in: "agent-a") == calls)
+        #expect(visibility.visible(calls, in: "agent-b").map(\.id)
+                == calls.suffix(5).map(\.id))
+        #expect(visibility.visible(calls).map(\.id) == calls.suffix(5).map(\.id))
+
+        visibility.hideOlder(in: "agent-a")
+
+        #expect(visibility.visible(calls, in: "agent-a").map(\.id)
+                == calls.suffix(5).map(\.id))
+    }
+
     @Test func givesRepeatedRawToolIDsDistinctStableRowIDs() {
         let first = ChatMessage(role: .assistant, tools: [
             ToolUse(id: "reused", name: "Read",
@@ -179,12 +195,15 @@ struct SessionWorkingSetTests {
     @Test func listsEachCollaboratingAgentSeparately() {
         let team = ToolUse(id: "team", name: "Agent",
                            input: #"{"name":"search_east, search_west","description":"waiting"}"#)
+        let message = ChatMessage(role: .assistant, tools: [team])
 
         let activities = WorkingSetSummary.activities(
-            runningTools: [team], backgroundTasks: [], projectPath: "/project")
+            in: [message], activeTools: [team], backgroundTasks: [],
+            runningAgentIDs: [], projectPath: "/project")
 
         #expect(activities.map(\.title) == ["search_east", "search_west"])
         #expect(activities.map(\.kind) == [.agent, .agent])
+        #expect(activities.map(\.state) == [.running, .running])
     }
 
     @Test func includesForegroundAgentsAndBackgroundWork() {
@@ -195,16 +214,108 @@ struct SessionWorkingSetTests {
         let backgroundCommand = BackgroundTask(id: "server", kind: "local_bash",
                                                description: "npm run dev")
         let ordinaryTool = ToolUse(id: "read", name: "Read", input: "README.md")
+        let message = ChatMessage(role: .assistant, tools: [foreground, ordinaryTool])
 
         let activities = WorkingSetSummary.activities(
-            runningTools: [foreground, ordinaryTool],
+            in: [message], activeTools: [foreground, ordinaryTool],
             backgroundTasks: [backgroundAgent, backgroundCommand],
+            runningAgentIDs: ["agent"],
             projectPath: "/project")
 
         #expect(activities.map(\.title) == [
             "reviewer · review the diff", "tester · run tests", "npm run dev",
         ])
         #expect(activities.map(\.kind) == [.agent, .agent, .backgroundTask])
+        #expect(activities.map(\.state) == [.running, .running, .running])
+    }
+
+    @Test func completedAgentsPersistWithTheirActionsNestedUnderThem() throws {
+        let agent = ToolUse(
+            id: "reviewer", name: "Task",
+            input: #"{"subagent_type":"reviewer","description":"review the diff"}"#,
+            result: "review complete")
+        let read = ToolUse(
+            id: "read", name: "Read",
+            input: #"{"file_path":"/project/Sources/App.swift"}"#,
+            result: "contents", parentID: agent.id)
+        let shell = ToolUse(
+            id: "test", name: "Bash",
+            input: #"{"command":"swift test"}"#,
+            result: "passed", parentID: agent.id)
+        let message = ChatMessage(role: .assistant, tools: [agent, read, shell])
+
+        let activities = WorkingSetSummary.activities(
+            in: [message], activeTools: [], backgroundTasks: [],
+            runningAgentIDs: [], projectPath: "/project")
+
+        let activity = try #require(activities.first)
+        #expect(activities.count == 1)
+        #expect(activity.title == "reviewer · review the diff")
+        #expect(activity.state == .completed)
+        #expect(activity.actions.map(\.title) == [
+            "Read · Sources/App.swift", "Bash · swift test",
+        ])
+        #expect(activity.actions.map(\.state) == [.completed, .completed])
+        #expect(WorkingSetSummary.toolCalls(in: [message], activeTools: [],
+                                            projectPath: "/project").isEmpty)
+    }
+
+    @Test func actionsStayWithTheAgentThatExecutedThem() throws {
+        let lead = ToolUse(id: "lead", name: "Agent", input: "lead", result: "done")
+        let helper = ToolUse(id: "helper", name: "Agent", input: "helper", result: "done",
+                             parentID: lead.id)
+        let leadAction = ToolUse(id: "lead-read", name: "Read", input: "Lead.swift",
+                                 result: "done", parentID: lead.id)
+        let helperAction = ToolUse(id: "helper-read", name: "Read", input: "Helper.swift",
+                                   result: "done", parentID: helper.id)
+        let ordinary = ToolUse(id: "root", name: "Bash", input: "swift test", result: "done")
+        let message = ChatMessage(
+            role: .assistant,
+            tools: [lead, helper, leadAction, helperAction, ordinary])
+
+        let activities = WorkingSetSummary.activities(
+            in: [message], activeTools: [], backgroundTasks: [],
+            runningAgentIDs: [], projectPath: "/project")
+
+        #expect(activities.count == 2)
+        #expect(activities[0].actions.map(\.tool.id) == ["lead-read"])
+        #expect(activities[1].actions.map(\.tool.id) == ["helper-read"])
+        #expect(WorkingSetSummary.toolCalls(
+            in: [message], activeTools: [], projectPath: "/project").map(\.tool.id) == ["root"])
+    }
+
+    @Test func repeatedCollaborationUpdatesKeepOneDurableRowPerAgent() {
+        let spawned = ToolUse(
+            id: "spawn", name: "Agent",
+            input: #"{"name":"east, west","description":"spawned"}"#,
+            result: "done")
+        let waiting = ToolUse(
+            id: "wait", name: "Agent",
+            input: #"{"name":"east, west","description":"waiting"}"#)
+        let message = ChatMessage(role: .assistant, tools: [spawned, waiting])
+
+        let activities = WorkingSetSummary.activities(
+            in: [message], activeTools: [waiting], backgroundTasks: [],
+            runningAgentIDs: [], projectPath: "/project")
+
+        #expect(activities.map(\.title) == ["east", "west"])
+        #expect(activities.map(\.state) == [.running, .running])
+    }
+
+    @Test func aBackgroundAgentUsesItsPersistedRow() throws {
+        let receipt = "launched. agentId: af1aa370 (internal)"
+        let agent = ToolUse(id: "launch", name: "Agent", input: "reviewer", result: receipt)
+        let message = ChatMessage(role: .assistant, tools: [agent])
+        let task = BackgroundTask(id: "af1aa370", kind: "local_agent",
+                                  description: "review", agentName: "reviewer")
+
+        let activities = WorkingSetSummary.activities(
+            in: [message], activeTools: [], backgroundTasks: [task],
+            runningAgentIDs: [task.id], projectPath: "/project")
+
+        let activity = try #require(activities.first)
+        #expect(activities.count == 1)
+        #expect(activity.state == .running)
     }
 
     @Test func visibilityIsRememberedIndependentlyForEachSession() throws {
