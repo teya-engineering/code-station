@@ -337,6 +337,43 @@ enum Preferences {
         store.set(date, forKey: "skillsLastRefresh")
     }
 
+    static func appUpdateLastCheck(in store: UserDefaults = .standard) -> Date? {
+        store.object(forKey: "appUpdateLastCheck") as? Date
+    }
+
+    static func setAppUpdateLastCheck(_ date: Date?, in store: UserDefaults = .standard) {
+        store.set(date, forKey: "appUpdateLastCheck")
+    }
+
+    static func cachedAppUpdateRelease(
+        in store: UserDefaults = .standard
+    ) -> AppUpdateRelease? {
+        guard let data = store.data(forKey: "cachedAppUpdateRelease") else { return nil }
+        return try? JSONDecoder().decode(AppUpdateRelease.self, from: data)
+    }
+
+    static func setCachedAppUpdateRelease(
+        _ release: AppUpdateRelease?,
+        in store: UserDefaults = .standard
+    ) {
+        guard let release, let data = try? JSONEncoder().encode(release) else {
+            store.removeObject(forKey: "cachedAppUpdateRelease")
+            return
+        }
+        store.set(data, forKey: "cachedAppUpdateRelease")
+    }
+
+    static func dismissedAppUpdateVersion(in store: UserDefaults = .standard) -> String? {
+        store.string(forKey: "dismissedAppUpdateVersion")
+    }
+
+    static func setDismissedAppUpdateVersion(
+        _ version: String?,
+        in store: UserDefaults = .standard
+    ) {
+        store.set(version, forKey: "dismissedAppUpdateVersion")
+    }
+
     // The skills a diagnosis is told to use. The choice belongs to the person rather than
     // to any one problem, so the next Troubleshoot opens with the last one already made.
     static func troubleshootSkills(in store: UserDefaults = .standard) -> Set<String> {

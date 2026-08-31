@@ -13,6 +13,7 @@ struct AppSidebar: View {
     @Environment(SessionRunner.self) private var runner
     @Environment(ShortcutStore.self) private var shortcuts
     @Environment(DialogPresenter.self) private var dialogs
+    @Environment(AppUpdateChecker.self) private var appUpdates
     @Environment(AppSettings.self) private var appSettings
     @Environment(WorkingTreeWatch.self) private var workingTrees
     @Environment(OrphanedWorktreeMonitor.self) private var orphanedWorktrees
@@ -1067,7 +1068,8 @@ struct AppSidebar: View {
                     .appMenu(edge: .top, matchWidth: true, addMenu)
                     .accessibilityLabel("Add a project, workspace, or task")
 
-                SettingsButton(showsUpdate: skills.updateCount > 0)
+                SettingsButton(showsUpdate: skills.updateCount > 0
+                               || appUpdates.availableRelease != nil)
                     .toolsMenu(tools, skills: skills, edge: .top)
             }
 

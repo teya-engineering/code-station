@@ -34,13 +34,14 @@ private struct ToolsMenuModifier: ViewModifier {
     @Environment(DockerService.self) private var docker
     @Environment(DispatchAuthStore.self) private var dispatchAuth
     @Environment(ShortcutStore.self) private var shortcuts
+    @Environment(AppUpdateChecker.self) private var appUpdates
 
     func body(content: Content) -> some View {
         content.appMenu(edge: edge, refreshOnOpen: { await docker.refresh() }) { entries }
     }
 
     private var entries: [MenuEntry] {
-        [
+        var entries: [MenuEntry] = [
             .cards([
                 MenuCardItem(label: "MCP servers", icon: "server.rack",
                              detail: "\(configs.servers.count)",
@@ -61,10 +62,19 @@ private struct ToolsMenuModifier: ViewModifier {
                 MenuCardItem(label: "Troubleshoot", icon: "stethoscope",
                              detail: "Agent diagnosis",
                              handler: actions.openTroubleshoot)
-            ]),
-            .separator,
-            .item("Settings", detail: "⌘,", action: actions.openSettings)
+            ])
         ]
+        if let release = appUpdates.availableRelease {
+            entries.append(.separator)
+            entries.append(.item("Teya Code Station \(release.version)",
+                                 icon: "arrow.down.circle",
+                                 showsUpdate: true,
+                                 subtitle: "A new version is available",
+                                 action: appUpdates.openReleasePage))
+        }
+        entries.append(.separator)
+        entries.append(.item("Settings", detail: "⌘,", action: actions.openSettings))
+        return entries
     }
 
     private var dockerDetail: (text: String, colour: Color?) {
