@@ -25,8 +25,8 @@ struct SessionWorkingSetTests {
                     result: "done"),
         ])
 
-        let calls = WorkingSetSummary.toolCalls(in: [first, second], activeTools: [],
-                                                projectPath: "/project")
+        let calls = mainThreadCalls(in: [first, second], activeTools: [],
+                                    projectPath: "/project")
 
         #expect(calls.map(\.title) == [
             "Read · README.md",
@@ -56,7 +56,7 @@ struct SessionWorkingSetTests {
                                   tools: [running, completed, failed,
                                           runningWithAnEarlyErrorFlag])
 
-        let calls = WorkingSetSummary.toolCalls(
+        let calls = mainThreadCalls(
             in: [message], activeTools: [running, runningWithAnEarlyErrorFlag],
             projectPath: "/project")
 
@@ -67,8 +67,8 @@ struct SessionWorkingSetTests {
         let stopped = ToolUse(id: "stopped", name: "Bash", input: "swift test")
         let message = ChatMessage(role: .assistant, tools: [stopped])
 
-        let calls = WorkingSetSummary.toolCalls(in: [message], activeTools: [],
-                                                projectPath: "/project")
+        let calls = mainThreadCalls(in: [message], activeTools: [],
+                                    projectPath: "/project")
 
         #expect(calls.map(\.state) == [.interrupted])
     }
@@ -79,8 +79,8 @@ struct SessionWorkingSetTests {
         let first = ChatMessage(role: .assistant, tools: [older])
         let second = ChatMessage(role: .assistant, tools: [newer])
 
-        let calls = WorkingSetSummary.toolCalls(in: [first, second], activeTools: [newer],
-                                                projectPath: "/project")
+        let calls = mainThreadCalls(in: [first, second], activeTools: [newer],
+                                    projectPath: "/project")
 
         #expect(calls.map(\.title) == ["Bash · first command", "Bash · second command"])
         #expect(calls.map(\.state) == [.interrupted, .running])
@@ -92,8 +92,8 @@ struct SessionWorkingSetTests {
         }
         let message = ChatMessage(role: .assistant, tools: tools)
 
-        let calls = WorkingSetSummary.toolCalls(in: [message], activeTools: [],
-                                                projectPath: "/project")
+        let calls = mainThreadCalls(in: [message], activeTools: [],
+                                    projectPath: "/project")
 
         #expect(calls.map(\.title) == (1...12).map { "Tool · target \($0)" })
     }
@@ -152,10 +152,10 @@ struct SessionWorkingSetTests {
                     input: #"{"file_path":"/project/second"}"#, result: "done"),
         ])
 
-        let calls = WorkingSetSummary.toolCalls(in: [first, second], activeTools: [],
-                                                projectPath: "/project")
-        let repeated = WorkingSetSummary.toolCalls(in: [first, second], activeTools: [],
-                                                   projectPath: "/project")
+        let calls = mainThreadCalls(in: [first, second], activeTools: [],
+                                    projectPath: "/project")
+        let repeated = mainThreadCalls(in: [first, second], activeTools: [],
+                                       projectPath: "/project")
 
         #expect(calls.map(\.title) == ["Read · first", "Read · second"])
         #expect(Set(calls.map(\.id)).count == 2)
@@ -256,8 +256,8 @@ struct SessionWorkingSetTests {
             "Read · Sources/App.swift", "Bash · swift test",
         ])
         #expect(activity.actions.map(\.state) == [.completed, .completed])
-        #expect(WorkingSetSummary.toolCalls(in: [message], activeTools: [],
-                                            projectPath: "/project").isEmpty)
+        #expect(mainThreadCalls(in: [message], activeTools: [],
+                                projectPath: "/project").isEmpty)
     }
 
     @Test func actionsStayWithTheAgentThatExecutedThem() throws {
@@ -280,7 +280,7 @@ struct SessionWorkingSetTests {
         #expect(activities.count == 2)
         #expect(activities[0].actions.map(\.tool.id) == ["lead-read"])
         #expect(activities[1].actions.map(\.tool.id) == ["helper-read"])
-        #expect(WorkingSetSummary.toolCalls(
+        #expect(mainThreadCalls(
             in: [message], activeTools: [], projectPath: "/project").map(\.tool.id) == ["root"])
     }
 
@@ -331,6 +331,216 @@ struct SessionWorkingSetTests {
         Preferences.setWorkingSetVisible(false, for: second, in: defaults)
 
         #expect(Preferences.workingSetVisibility(in: defaults) == [first: true, second: false])
+    }
+
+    @Test func agentSpansKeepTheirPlaceBetweenMainThreadCalls() {
+        let before = ToolUse(id: "before", name: "Bash",
+                             input: #"{"command":"swift build"}"#, result: "done")
+        let agent = ToolUse(id: "reviewer", name: "Task",
+                            input: #"{"subagent_type":"reviewer","description":"review"}"#,
+                            result: "done")
+        let action = ToolUse(id: "read", name: "Read",
+                             input: #"{"file_path":"/project/App.swift"}"#,
+                             result: "done", parentID: agent.id)
+        let after = ToolUse(id: "after", name: "Bash",
+                            input: #"{"command":"swift test"}"#, result: "done")
+        let message = ChatMessage(role: .assistant,
+                                  tools: [before, agent, action, after])
+
+        let entries = timeline(in: [message])
+
+        #expect(entries.map(\.title) == [
+            "Bash · swift build", "reviewer · review", "Bash · swift test",
+        ])
+        #expect(spans(in: entries).map { $0.actions.map(\.tool.id) } == [["read"]])
+        #expect(WorkingSetSummary.eventCount(in: entries) == 3)
+    }
+
+    @Test func tasksTheCLIReportedOnItsOwnLandAtTheEnd() {
+        let call = ToolUse(id: "read", name: "Read",
+                           input: #"{"file_path":"/project/README.md"}"#, result: "done")
+        let task = BackgroundTask(id: "server", kind: "local_bash",
+                                  description: "npm run dev")
+
+        let entries = timeline(in: [ChatMessage(role: .assistant, tools: [call])],
+                               backgroundTasks: [task])
+
+        #expect(entries.map(\.title) == ["Read · README.md", "npm run dev"])
+    }
+
+    @Test func theRunningSetNamesWhatEachAgentIsDoingNow() {
+        let agent = ToolUse(id: "explorer", name: "Task",
+                            input: #"{"subagent_type":"explorer","description":"explore"}"#)
+        let action = ToolUse(id: "read", name: "Read",
+                             input: #"{"file_path":"/project/DesignKit.swift"}"#,
+                             parentID: agent.id)
+        let command = ToolUse(id: "build", name: "Bash",
+                              input: #"{"command":"swift build"}"#)
+        let task = BackgroundTask(id: "recap", kind: "local_bash",
+                                  description: "session recap")
+        let message = ChatMessage(role: .assistant, tools: [agent, action, command])
+
+        let running = WorkingSetSummary.running(in: timeline(
+            in: [message], activeTools: [agent, action, command],
+            backgroundTasks: [task]))
+
+        #expect(running.map(\.title) == [
+            "explorer · explore", "Bash · swift build", "session recap",
+        ])
+        #expect(running.map(\.origin) == [.agent, .mainThread, .backgroundTask])
+        #expect(running.map(\.detail) == [
+            "now: Read · DesignKit.swift", "main thread", "background task",
+        ])
+    }
+
+    @Test func finishedWorkIsNotRunning() {
+        let agent = ToolUse(id: "reviewer", name: "Task", input: "reviewer", result: "done")
+        let command = ToolUse(id: "build", name: "Bash", input: "swift build",
+                              result: "done")
+        let message = ChatMessage(role: .assistant, tools: [agent, command])
+
+        #expect(WorkingSetSummary.running(in: timeline(in: [message])).isEmpty)
+    }
+
+    @Test func changedFilesAreAttributedToTheAgentThatLastWroteThem() {
+        let agent = ToolUse(id: "fixer", name: "Task",
+                            input: #"{"subagent_type":"fixer","description":"fix"}"#,
+                            result: "done")
+        let agentEdit = ToolUse(id: "edit-a", name: "Edit",
+                                input: #"{"file_path":"/project/Sources/App.swift"}"#,
+                                result: "done", parentID: agent.id)
+        let mainEdit = ToolUse(id: "edit-b", name: "Write",
+                               input: #"{"file_path":"/project/Sources/Theme.swift"}"#,
+                               result: "done")
+        let read = ToolUse(id: "read", name: "Read",
+                           input: #"{"file_path":"/project/Sources/Read.swift"}"#,
+                           result: "done")
+        let message = ChatMessage(role: .assistant,
+                                  tools: [agent, agentEdit, mainEdit, read])
+
+        let written = WorkingSetSummary.attribution(in: timeline(in: [message]),
+                                                    projectPath: "/project")
+
+        #expect(written.count == 2)
+        #expect(WorkingSetSummary.attributor(of: "Sources/App.swift", in: "/project",
+                                             from: written)
+                == WorkingSetAttribution(name: "fixer · fix", isAgent: true))
+        #expect(WorkingSetSummary.attributor(of: "Sources/Theme.swift", in: "/project",
+                                             from: written) == .mainThread)
+        // A file nothing wrote is the main loop's, since only edits name a path.
+        #expect(WorkingSetSummary.attributor(of: "Sources/Read.swift", in: "/project",
+                                             from: written) == .mainThread)
+    }
+
+    @Test func aFileEditedTwiceNamesWhoeverWroteItLast() {
+        let agent = ToolUse(id: "fixer", name: "Task", input: "fixer", result: "done")
+        let agentEdit = ToolUse(id: "edit-a", name: "Edit",
+                                input: #"{"file_path":"/project/App.swift"}"#,
+                                result: "done", parentID: agent.id)
+        let mainEdit = ToolUse(id: "edit-b", name: "Edit",
+                               input: #"{"file_path":"/project/App.swift"}"#,
+                               result: "done")
+        let message = ChatMessage(role: .assistant,
+                                  tools: [agent, agentEdit, mainEdit])
+
+        let written = WorkingSetSummary.attribution(in: timeline(in: [message]),
+                                                    projectPath: "/project")
+
+        #expect(WorkingSetSummary.attributor(of: "App.swift", in: "/project",
+                                             from: written) == .mainThread)
+    }
+
+    @Test func aWorktreeCopyIsAttributedThroughTheTailOfItsPath() {
+        let edit = ToolUse(id: "edit", name: "Edit",
+                           input: #"{"file_path":"/project/Sources/App.swift"}"#,
+                           result: "done")
+        let agent = ToolUse(id: "fixer", name: "Task",
+                            input: #"{"subagent_type":"fixer"}"#, result: "done")
+        var owned = edit
+        owned.id = "owned"
+        owned.parentID = agent.id
+        let message = ChatMessage(role: .assistant, tools: [agent, owned])
+
+        let written = WorkingSetSummary.attribution(in: timeline(in: [message]),
+                                                    projectPath: "/project")
+
+        #expect(WorkingSetSummary.attributor(of: "Sources/App.swift",
+                                             in: "/worktrees/copy", from: written).name
+                == "fixer")
+    }
+
+    @Test func spansFollowTheirAgentUntilOpenedByHand() {
+        var spans = WorkingSetSpanExpansion()
+
+        #expect(spans.isExpanded("agent", running: true))
+        #expect(!spans.isExpanded("agent", running: false))
+
+        spans.toggle("agent", running: true)
+
+        // Closed while it ran, it stays closed once the agent has finished.
+        #expect(!spans.isExpanded("agent", running: true))
+        #expect(!spans.isExpanded("agent", running: false))
+
+        spans.reset()
+
+        #expect(spans.isExpanded("agent", running: true))
+    }
+
+    @Test func theTimelineShowsOnlyItsNewestFiveEntriesUntilOpened() {
+        let tools = (1...8).map { number in
+            ToolUse(id: "raw-\(number)", name: "Tool", input: "target \(number)",
+                    result: "done")
+        }
+        let entries = timeline(in: [ChatMessage(role: .assistant, tools: tools)])
+        var visibility = WorkingSetToolCallVisibility()
+
+        #expect(visibility.visible(entries, in: "timeline").map(\.title)
+                == (4...8).map { "Tool · target \($0)" })
+
+        visibility.showAll(in: "timeline")
+
+        #expect(visibility.visible(entries, in: "timeline").count == 8)
+    }
+
+    @Test func aCallWithoutAStampIsPlacedAtTheTurnItSitsIn() {
+        let turn = Date(timeIntervalSince1970: 1_700_000_000)
+        let stampedAt = turn.addingTimeInterval(30)
+        var stamped = ToolUse(id: "edit", name: "Edit", input: "App.swift", result: "done")
+        stamped.startedAt = stampedAt
+        let unstamped = ToolUse(id: "read", name: "Read", input: "README.md",
+                                result: "done")
+        let message = ChatMessage(role: .assistant, tools: [stamped, unstamped],
+                                  date: turn)
+
+        let calls = mainThreadCalls(in: [message], activeTools: [],
+                                    projectPath: "/project")
+
+        #expect(calls.map(\.startedAt) == [stampedAt, turn])
+    }
+
+    private func timeline(in messages: [ChatMessage], activeTools: [ToolUse] = [],
+                          backgroundTasks: [BackgroundTask] = [])
+        -> [WorkingSetTimelineEntry] {
+        WorkingSetSummary.timeline(in: messages, activeTools: activeTools,
+                                   backgroundTasks: backgroundTasks,
+                                   runningAgentIDs: [], projectPath: "/project")
+    }
+
+    // Everything the main loop ran, which is what the timeline shows at its root.
+    private func mainThreadCalls(in messages: [ChatMessage], activeTools: [ToolUse],
+                                 projectPath: String) -> [WorkingSetToolCall] {
+        WorkingSetSummary.timeline(in: messages, activeTools: activeTools,
+                                   backgroundTasks: [], runningAgentIDs: [],
+                                   projectPath: projectPath)
+            .compactMap { entry in
+                if case .call(let call) = entry.content { call } else { nil }
+            }
+    }
+
+    private func spans(in entries: [WorkingSetTimelineEntry]) -> [WorkingSetActivity] {
+        entries.compactMap { entry in
+            if case .agent(let activity) = entry.content { activity } else { nil }
+        }
     }
 
     private func toolCalls(_ count: Int) -> [WorkingSetToolCall] {

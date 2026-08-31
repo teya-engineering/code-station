@@ -83,6 +83,29 @@ struct RunningDot: View {
     }
 }
 
+// The same dot, breathing, for the one thing that is happening right now rather than
+// merely recently. Held steady under Reduce Motion, which is the setting that exists to
+// stop exactly this.
+struct PulsingDot: View {
+    var colour: Color = Theme.dotOn
+    var size: CGFloat = 6
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var dim = false
+
+    var body: some View {
+        Circle()
+            .fill(colour)
+            .frame(width: size, height: size)
+            .opacity(dim ? 0.35 : 1)
+            .animation(reduceMotion
+                       ? nil
+                       : .easeInOut(duration: 0.8).repeatForever(autoreverses: true),
+                       value: dim)
+            .onAppear { dim = !reduceMotion }
+    }
+}
+
 // MARK: - Warnings
 
 // A surface that carries a warning: a failed turn, a stalled agent, a configuration that

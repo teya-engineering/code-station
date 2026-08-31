@@ -52,6 +52,9 @@ struct ToolPresentation: Sendable {
         argument.isEmpty ? verb : "\(verb) · \(argument)"
     }
     var fileName: String?
+    // The file the call names in its own input, as it named it. What ties an edit to the
+    // change git later reports for that path.
+    var filePath: String?
     var added: Int?
     var removed: Int?
     var changes: [FileChange] = []
@@ -71,9 +74,10 @@ struct ToolPresentation: Sendable {
         verb = tool.name
         let input = Self.object(from: tool.input)
 
-        if let filePath = input["file_path"] as? String ?? input["notebook_path"] as? String {
-            argument = Self.relativize(filePath, to: projectPath)
-            fileName = (filePath as NSString).lastPathComponent
+        if let path = input["file_path"] as? String ?? input["notebook_path"] as? String {
+            argument = Self.relativize(path, to: projectPath)
+            fileName = (path as NSString).lastPathComponent
+            filePath = path
         }
 
         switch tool.name {

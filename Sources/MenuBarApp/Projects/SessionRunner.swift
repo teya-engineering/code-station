@@ -1753,6 +1753,7 @@ final class SessionRunner {
                     // the call back in place when the turn is drawn.
                     var placed = tool
                     placed.textOffset = message.text.count
+                    placed.startedAt = Date()
                     message.tools.append(placed)
                 }
 
@@ -1852,9 +1853,15 @@ final class SessionRunner {
                 turn.taskAgents[id] = name
 
             case .backgroundTasks(let tasks):
+                let started = Dictionary(turn.pendingTasks.map { ($0.id, $0.startedAt) },
+                                         uniquingKeysWith: { first, _ in first })
                 let named = tasks.map { task in
                     var task = task
                     task.agentName = turn.taskAgents[task.id]
+                    // The CLI resends the whole list every time any of it changes, so a
+                    // task keeps the moment it was first seen rather than restarting the
+                    // clock beside it on every report.
+                    task.startedAt = started[task.id] ?? task.startedAt
                     return task
                 }
                 turn.pendingTasks = named

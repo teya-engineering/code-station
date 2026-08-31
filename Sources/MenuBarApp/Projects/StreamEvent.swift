@@ -59,6 +59,9 @@ struct BackgroundTask: Identifiable, Equatable, Sendable {
     // agents sent after the same thing read the same without it, and it is the name the
     // CLIs use for a running agent themselves.
     var agentName: String?
+    // When the task was first reported. The CLI only ever sends the list of what is
+    // running, so this is the only thing a row counting the task up can count from.
+    var startedAt = Date()
 
     var label: String {
         let named = [agentName, description].compactMap { $0 }.filter { !$0.isEmpty }

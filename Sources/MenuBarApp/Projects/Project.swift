@@ -231,6 +231,10 @@ struct ToolUse: Identifiable, Codable, Equatable, Sendable {
     // in once the snapshot behind it comes back, which is a beat after the result. Nil for
     // an edit, which describes its own change, and for a call that changed nothing.
     var written: WrittenChange?
+    // When the call reached the app. Neither CLI sends a time, so it is stamped as the
+    // call arrives. Optional so conversations written before the app kept it still
+    // decode; those fall back to the time of the turn they sit in.
+    var startedAt: Date?
 
     var isRunning: Bool { result == nil }
 
