@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   release:
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 60
 
     steps:
@@ -31,8 +31,10 @@ jobs:
             echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
           fi
 
-      # O macos-15 ja traz Xcode 16.x (Swift 6) por omissao. Se um dia precisares
-      # de fixar a versao, descomenta o passo maxim-lobanov/setup-xcode.
+      # O macos-26 traz Xcode 26.x (Swift 6.3) por omissao — o mesmo toolchain do
+      # desenvolvimento local; com o macos-15 (Swift 6.1) o strict concurrency
+      # rejeita codigo que o 6.3 aceita. Se um dia precisares de fixar a versao,
+      # descomenta o passo maxim-lobanov/setup-xcode.
       # - uses: maxim-lobanov/setup-xcode@v1
       #   with:
       #     xcode-version: '16.4'
