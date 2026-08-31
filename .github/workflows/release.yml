@@ -5,14 +5,9 @@ name: Release
 on:
   push:
     tags: ['v*']
+  # Run it again from the same tag, for a build that failed on something
+  # transient. Pick the tag in the ref dropdown; there is nothing to type.
   workflow_dispatch:
-    inputs:
-      version:
-        description: 'Version to build (e.g.: 1.2.0)'
-        required: true
-
-permissions:
-  contents: write
 
 jobs:
   release:
@@ -21,19 +16,46 @@ jobs:
     # declare it. Without this the secrets.* are empty and the certificate
     # import fails.
     environment: release
+    permissions:
+      contents: write
     timeout-minutes: 60
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          # The job's token has contents: write. Left in .git/config it would be
+          # readable by everything else that runs here, and nothing needs it.
+          persist-credentials: false
 
+      # The version always comes from the ref, so the tag and the commit being
+      # built cannot name different things.
       - name: Work out the version
         id: v
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          if [ "$GITHUB_REF_TYPE" != "tag" ]; then
+            echo "::error::run this from a v* tag, not from a branch"
+            exit 1
           fi
+          version="${GITHUB_REF_NAME#v}"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z]+)*$ ]]; then
+            echo "::error::not a version: $version"
+            exit 1
+          fi
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+
+      # A tag says nothing about the commit it points at, so a v* tag on an
+      # unmerged branch would otherwise reach the signing key without ever
+      # having been reviewed. Runs before any secret touches the runner.
+      - name: Refuse to release a commit that is not on main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          status="$(gh api "repos/$GITHUB_REPOSITORY/compare/main...$GITHUB_REF_NAME" --jq .status)"
+          case "$status" in
+            behind|identical) echo "$GITHUB_REF_NAME is on main" ;;
+            *) echo "::error::$GITHUB_REF_NAME is not on main (compare says '$status'); merge it first"
+               exit 1 ;;
+          esac
 
       # macos-26 ships Xcode 26.x (Swift 6.3) by default - the same toolchain as
       # local development; on macos-15 (Swift 6.1) strict concurrency rejects
@@ -45,6 +67,11 @@ jobs:
       - name: Toolchain
         run: swift --version && xcodebuild -version
 
+      # Resolving here rather than during the build keeps dependency manifests,
+      # which SwiftPM compiles and runs, away from the loaded signing key.
+      - name: Resolve dependencies
+        run: swift package resolve
+
       - name: Import the Developer ID certificate
         env:
           CERT_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
@@ -53,7 +80,7 @@ jobs:
           KEYCHAIN="$RUNNER_TEMP/build.keychain-db"
           KEYCHAIN_PASSWORD="$(uuidgen)"
 
-          echo "$CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          printf '%s' "$CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
 
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
           security set-keychain-settings -lut 3600 "$KEYCHAIN"
@@ -75,7 +102,7 @@ jobs:
           AC_API_KEY_P8: ${{ secrets.AC_API_KEY_P8 }}
         run: |
           mkdir -p "$RUNNER_TEMP/private_keys"
-          echo "$AC_API_KEY_P8" | base64 --decode \
+          printf '%s' "$AC_API_KEY_P8" | base64 --decode \
             > "$RUNNER_TEMP/private_keys/AuthKey.p8"
 
       - name: Build, sign, notarize, package
@@ -85,17 +112,19 @@ jobs:
           AC_API_ISSUER_ID: ${{ secrets.AC_API_ISSUER_ID }}
           TEAM_ID: QZG8V8U2Y6
           BUILD_NUMBER: ${{ github.run_number }}
-        run: ./Scripts/release.sh "${{ steps.v.outputs.version }}"
+          VERSION: ${{ steps.v.outputs.version }}
+        run: ./Scripts/release.sh "$VERSION"
 
       - name: Clean the secrets off the runner
         if: always()
         run: rm -rf "$RUNNER_TEMP/private_keys" "$RUNNER_TEMP/build.keychain-db"
 
       - name: Publish the GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
+          # No target_commitish: the tag already exists by now, and GitHub
+          # discards it in that case rather than moving the tag.
           tag_name: v${{ steps.v.outputs.version }}
-          target_commitish: ${{ github.sha }}
           name: Teya Code Station ${{ steps.v.outputs.version }}
           draft: true          # review it before making it public
           generate_release_notes: true
