@@ -3,29 +3,30 @@
 <plist version="1.0">
 <dict>
     <!--
-      Deliberadamente minimo. O hardened runtime e' obrigatorio para notarizar.
-      A app nao esta em sandbox, por isso rede, ficheiros e spawn de processos
-      (codex / claude, git, shell) funcionam sem entitlements nenhuns.
+      Deliberately minimal. The hardened runtime is required for notarization.
+      The app is not sandboxed, so network, files and spawning processes
+      (codex / claude, git, shell) all work with no entitlements at all.
 
-      Se depois de assinar a app rebentar ao arrancar ou ao lancar um agente,
-      acrescenta SO a que for precisa, uma de cada vez:
+      If the app starts crashing on launch, or when starting an agent, only
+      after it is signed, add ONLY the one you need, one at a time:
 
       <key>com.apple.security.cs.allow-jit</key><true/>
-          -> so se a propria app compilar codigo em runtime (nao e' o caso
-             dos agentes: esses sao processos filhos com assinatura propria).
+          -> only if the app itself compiles code at runtime (not the case
+             for the agents: those are child processes with their own
+             signature).
 
       <key>com.apple.security.cs.disable-library-validation</key><true/>
-          -> so se a app carregar dylibs/plugins de terceiros nao assinados
-             pela mesma Team ID.
+          -> only if the app loads third-party dylibs or plugins that are not
+             signed by the same Team ID.
 
       <key>com.apple.security.cs.allow-dyld-environment-variables</key><true/>
-          -> so se definires DYLD_* para os processos filhos.
+          -> only if you set DYLD_* for the child processes.
 
       <key>com.apple.security.automation.apple-events</key><true/>
-          -> so se a app enviar Apple Events (ex.: controlar o Terminal.app).
+          -> only if the app sends Apple Events (e.g. driving Terminal.app).
 
-      Cada entitlement destes enfraquece o hardened runtime. Nao os metas
-      "por seguranca" - mete-os por sintoma.
+      Each of these weakens the hardened runtime. Do not add them "to be
+      safe" - add them in response to a symptom.
     -->
 </dict>
 </plist>
