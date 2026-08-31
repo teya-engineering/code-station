@@ -182,7 +182,6 @@ struct WorkspaceDetailView: View {
                 if hasMissingProjects(workspace) { missingFolders(workspace) }
                 projects(workspace)
                 sessionList(workspace, sessions: sessions)
-                defaults(workspace)
                 removal(workspace, sessions: sessions)
             }
             .padding(24)
@@ -586,12 +585,6 @@ struct WorkspaceDetailView: View {
 
     // MARK: - Footer
 
-    private func defaults(_ workspace: ProjectWorkspace) -> some View {
-        FooterStrip(title: "Workspace defaults", detail: defaultsSummary(workspace)) {
-            InlineLink(title: "Change →", size: 12.5) { creatingSession = workspace }
-        }
-    }
-
     // The way out of a workspace, at the end of the page rather than in the header, so it
     // is never the button next to the one that starts work.
     private func removal(_ workspace: ProjectWorkspace,
@@ -604,31 +597,6 @@ struct WorkspaceDetailView: View {
                 WorkspaceRemoval.confirm(workspace, in: store, runner: runner, dialogs: dialogs)
             }
         }
-    }
-
-    private func defaultsSummary(_ workspace: ProjectWorkspace) -> String {
-        let agent = runner.agent
-        let settings = runner.defaults(for: agent)
-        var parts = [agent.title]
-        if let model = ModelChoice.valid(settings.model, for: agent) {
-            parts.append(ModelChoice.title(of: model))
-        }
-        if let effort = EffortChoice.valid(settings.effort, for: agent) {
-            parts.append("\(EffortChoice.summary(of: effort, agent: agent)) effort")
-        }
-        parts.append(worktreeSummary(workspace))
-        return parts.joined(separator: " · ")
-    }
-
-    private func worktreeSummary(_ workspace: ProjectWorkspace) -> String {
-        let repositories = workspace.projectIDs.compactMap(store.project).filter(\.isGitRepository)
-        let worktrees = repositories.filter { workspace.worktreeProjectIDs.contains($0.id) }
-        if worktrees.isEmpty { return "project folders throughout" }
-        if worktrees.count == repositories.count { return "worktree on every repository" }
-        if worktrees.count == 1, worktrees[0].id == workspace.leadProjectID {
-            return "worktree on the lead project only"
-        }
-        return "worktree on \(worktrees.count) of \(repositories.count) repositories"
     }
 
     // MARK: - Helpers

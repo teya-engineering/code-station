@@ -343,7 +343,6 @@ struct ProjectDetailView: View {
         return ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 sessionList(project, sessions: available)
-                defaults(project)
             }
             .padding(24)
         }
@@ -399,34 +398,6 @@ struct ProjectDetailView: View {
                 }
             }
         }
-    }
-
-    private func defaults(_ project: Project) -> some View {
-        FooterStrip(title: "Session defaults", detail: defaultsSummary) {
-            InlineLink(title: "Change →", size: 12.5) {
-                requestNewSession(in: project)
-            }
-        }
-    }
-
-    // What the next session will start with, read from the app defaults the new-session
-    // sheet would preselect.
-    private var defaultsSummary: String {
-        let agent = runner.agent
-        let settings = runner.defaults(for: agent)
-        var parts = [agent.title]
-        if let model = ModelChoice.valid(settings.model, for: agent) {
-            parts.append(ModelChoice.title(of: model))
-        }
-        if let effort = EffortChoice.valid(settings.effort, for: agent) {
-            parts.append("\(EffortChoice.summary(of: effort, agent: agent)) effort")
-        }
-        if agent == .codex {
-            parts.append(CodexSandboxMode.resolved(settings.codexSandboxMode).summary.lowercased())
-        } else {
-            parts.append(PermissionMode(stored: settings.permissionMode).shortTitle.lowercased())
-        }
-        return parts.joined(separator: " · ")
     }
 
     private func emptySessions(_ project: Project) -> some View {
