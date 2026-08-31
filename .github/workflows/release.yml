@@ -94,6 +94,9 @@ jobs:
       - name: Publish the GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          # Explicit so workflow_dispatch runs work too - without it the action
+          # falls back to github.ref, which is a branch on dispatch.
+          tag_name: v${{ steps.v.outputs.version }}
           name: Teya Code Station ${{ steps.v.outputs.version }}
           draft: true          # review it before making it public
           generate_release_notes: true
