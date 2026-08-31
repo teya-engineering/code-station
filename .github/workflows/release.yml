@@ -17,6 +17,10 @@ permissions:
 jobs:
   release:
     runs-on: macos-26
+    # Os segredos de assinatura vivem no ambiente release, por isso o job tem de
+    # o declarar. Sem isto os secrets.* ficam vazios e a importacao do
+    # certificado falha.
+    environment: release
     timeout-minutes: 60
 
     steps:
