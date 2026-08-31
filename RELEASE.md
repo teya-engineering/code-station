@@ -8,8 +8,8 @@ Team ID: `QZG8V8U2Y6` · Bundle ID: `com.teya.code-station`
 
 - [x] Certificado **Developer ID Application — Teya Services Limited**, válido até 2031-09-01
 - [x] Certificado descarregado e instalado na Keychain
-- [ ] Chave de API do App Store Connect no sítio certo
-- [ ] Primeira release manual
+- [x] Chave de API do App Store Connect no sítio certo (`~/private_keys/AuthKey_2VM7JH4JUA.p8`)
+- [x] Primeira release manual (1.0.0, notarizada e validada com quarentena a 2026-08-31)
 - [ ] Workflow de CI
 
 ## 1. Instalar o certificado
