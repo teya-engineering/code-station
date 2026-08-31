@@ -291,6 +291,9 @@ enum CommandRunner {
             throw RunError.launch("Could not connect the child process streams.")
         }
         if let currentDirectory {
+            // The unsuffixed posix_spawn_file_actions_addchdir only exists in the
+            // macOS 26 SDK, so building with an older SDK (CI) fails to find it.
+            // The _np variant is available since 10.15 and remains on 26.
             let result = currentDirectory.path.withCString {
                 posix_spawn_file_actions_addchdir_np(&actions, $0)
             }
