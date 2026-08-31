@@ -46,6 +46,22 @@ struct CommandRunnerTests {
         #expect(output.output == "from standard input")
     }
 
+    @Test func runsInTheRequestedWorkingDirectory() async throws {
+        let folder = scratch.path("workspace")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+
+        let output = try await CommandRunner.run(
+            executable: "/bin/pwd",
+            currentDirectory: folder,
+            timeout: .seconds(2)
+        )
+
+        #expect(output.succeeded)
+        let reported = URL(fileURLWithPath: output.output.trimmed).resolvingSymlinksInPath().path
+        let expected = folder.resolvingSymlinksInPath().path
+        #expect(reported == expected)
+    }
+
     @Test func timesOutACommandThatDoesNotExit() async {
         do {
             _ = try await CommandRunner.run(

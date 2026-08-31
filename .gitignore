@@ -1,6 +1,7 @@
 # Swift Package Manager
 .build/
 .swiftpm/
+.swiftpm-cache/
 Package.resolved
 
 # Build output
