@@ -14,6 +14,7 @@ struct RootView: View {
     @Environment(SessionRunner.self) private var runner
     @Environment(MobileAccessController.self) private var mobileAccess
     @Environment(OrphanedWorktreeMonitor.self) private var orphanedWorktrees
+    @Environment(AppUpdateChecker.self) private var appUpdates
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var skills = SkillsManager()
     @State private var commandPalette = GlobalCommandPaletteController()
@@ -36,12 +37,19 @@ struct RootView: View {
                 detail
             }
             ScheduledTaskRunner()
-            if let attention, attention != dismissedAttention {
-                AttentionBanner(title: attention.title,
-                                message: attention.message,
-                                onDismiss: { dismissedAttention = attention })
-                    .padding(.top, 12)
+            VStack(spacing: 8) {
+                if let attention, attention != dismissedAttention {
+                    AttentionBanner(title: attention.title,
+                                    message: attention.message,
+                                    onDismiss: { dismissedAttention = attention })
+                }
+                if let release = appUpdates.announcedRelease {
+                    AppUpdateBanner(release: release,
+                                    onViewRelease: appUpdates.openReleasePage,
+                                    onDismiss: appUpdates.dismissAnnouncement)
+                }
             }
+            .padding(.top, 12)
             if commandPalette.isPresented {
                 commandPaletteLayer
                     .transition(.opacity)
@@ -82,6 +90,7 @@ struct RootView: View {
             store.applicationDidBecomeActive()
         }
         .task { await resumePendingSessionRemovals() }
+        .task { await appUpdates.checkIfNeeded() }
         .task(id: skillsRefreshRule) { await refreshSkillsAutomatically() }
         .task(id: sweepRule) { await deleteOldSessionsAutomatically() }
         .task(id: settings.autoPruneOrphanedWorktrees) { await monitorOrphanedWorktrees() }
@@ -411,6 +420,47 @@ private struct AttentionBanner: View {
         .padding(.vertical, 9)
         .frame(maxWidth: 720, alignment: .leading)
         .surface(Theme.card, cornerRadius: 10, border: Theme.deletion.opacity(0.45))
+        .shadow(color: Color.black.opacity(0.12), radius: 12, y: 4)
+    }
+}
+
+private struct AppUpdateBanner: View {
+    let release: AppUpdateRelease
+    let onViewRelease: () -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 10) {
+            Image(systemName: "arrow.down.circle.fill")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Theme.accent)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Teya Code Station \(release.version) is available")
+                    .font(.system(size: 12, weight: .semibold))
+                Text("View the release notes and download the signed update from GitHub.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            ActionButton(title: "View release", tone: .outlined, height: 28, size: 11,
+                         action: onViewRelease)
+            Button(action: onDismiss) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 22, height: 22)
+                    .background(Circle().fill(Theme.field))
+                    .overlay(Circle().stroke(Theme.border))
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .appTooltip("Dismiss")
+            .accessibilityLabel("Dismiss update \(release.version)")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .frame(maxWidth: 720, alignment: .leading)
+        .surface(Theme.card, cornerRadius: 10, border: Theme.accent.opacity(0.42))
         .shadow(color: Color.black.opacity(0.12), radius: 12, y: 4)
     }
 }
