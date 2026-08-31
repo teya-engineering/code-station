@@ -160,7 +160,7 @@ struct GlobalCommandPalette: View {
     let openSettings: () -> Void
 
     @State private var query = ""
-    @State private var category = GlobalCommandCategory.all
+    @State private var category = GlobalCommandCategory.projects
     @State private var selected: GlobalCommandDestination?
     @State private var resultWindow = GlobalCommandResultWindow()
     @FocusState private var searchFocused: Bool
