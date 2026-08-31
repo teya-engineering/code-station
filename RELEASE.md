@@ -1,46 +1,46 @@
-# Publicar o Teya Code Station
+# Publishing Teya Code Station
 
-Distribuição fora da App Store: **Developer ID Application + hardened runtime + notarização + DMG**. Sem isto, quem faz download vê *"não pode ser aberto porque a Apple não conseguiu verificar se contém software malicioso"*.
+Distribution outside the App Store: **Developer ID Application + hardened runtime + notarization + DMG**. Without this, anyone who downloads it sees *"cannot be opened because Apple cannot check it for malicious software"*.
 
 Team ID: `QZG8V8U2Y6` · Bundle ID: `com.teya.code-station`
 
-## 0. O que já está feito
+## 0. What is already done
 
-- [x] Certificado **Developer ID Application — Teya Services Limited**, válido até 2031-09-01
-- [x] Certificado descarregado e instalado na Keychain
-- [x] Chave de API do App Store Connect no sítio certo (`~/private_keys/AuthKey_2VM7JH4JUA.p8`)
-- [x] Primeira release manual (1.0.0, notarizada e validada com quarentena a 2026-08-31)
-- [ ] Workflow de CI
+- [x] **Developer ID Application - Teya Services Limited** certificate, valid until 2031-09-01
+- [x] Certificate downloaded and installed in the Keychain
+- [x] App Store Connect API key in the right place (`~/private_keys/AuthKey_2VM7JH4JUA.p8`)
+- [x] First manual release (1.0.0, notarized and checked with quarantine on 2026-08-31)
+- [ ] CI workflow
 
-## 1. Instalar o certificado
+## 1. Install the certificate
 
-Na página do certificado, clica **Download**, depois duplo-clique no `.cer`. Confirma:
+On the certificate page, click **Download**, then double-click the `.cer`. Check it:
 
 ```bash
 security find-identity -v -p codesigning
 ```
 
-Tem de aparecer:
+This has to show up:
 
 ```
 1) ABC123… "Developer ID Application: Teya Services Limited (QZG8V8U2Y6)"
 ```
 
-Se aparecer o certificado mas o `codesign` falhar com *"no identity found"*, é porque a chave privada não está nesta máquina. A chave privada só existe no Mac onde geraste o `.certSigningRequest`. Nesse caso, exporta de lá o par certificado+chave como `.p12`.
+If the certificate shows up but `codesign` fails with *"no identity found"*, the private key is not on this machine. The private key only exists on the Mac where you generated the `.certSigningRequest`. In that case, export the certificate and key pair from there as a `.p12`.
 
-## 2. Chave de API do App Store Connect
+## 2. App Store Connect API key
 
-Guarda o `.p8` fora do repositório (ex.: `~/private_keys/AuthKey_XXXXXXXXXX.p8`). Precisas de três coisas: o ficheiro, o **Key ID** e o **Issuer ID** (App Store Connect → Users and Access → Integrations → Keys).
+Keep the `.p8` outside the repository (for example `~/private_keys/AuthKey_XXXXXXXXXX.p8`). You need three things: the file, the **Key ID** and the **Issuer ID** (App Store Connect → Users and Access → Integrations → Keys).
 
-## 3. Ficheiros a adicionar ao repo
+## 3. Files to add to the repo
 
 ```
-Resources/CodeStation.entitlements   # hardened runtime, mínimo
-Scripts/release.sh                   # build → assinar → notarizar → DMG
-.github/workflows/release.yml        # o mesmo, em CI, por tag
+Resources/CodeStation.entitlements   # hardened runtime, minimal
+Scripts/release.sh                   # build → sign → notarize → DMG
+.github/workflows/release.yml        # the same, in CI, per tag
 ```
 
-## 4. Release manual (faz esta primeiro)
+## 4. Manual release (do this one first)
 
 ```bash
 export AC_API_KEY_PATH=~/private_keys/AuthKey_XXXXXXXXXX.p8
@@ -50,63 +50,63 @@ export AC_API_ISSUER_ID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 ./Scripts/release.sh 1.0.0
 ```
 
-O script faz, por esta ordem:
+The script does this, in order:
 
 1. `./build-app.sh release`
-2. escreve a versão no `Info.plist`
-3. reassina tudo com Developer ID, `--options runtime --timestamp` (substitui a assinatura ad-hoc do `build-app.sh`)
-4. `notarytool submit --wait` da `.app` → `stapler staple`
-5. cria o DMG com atalho para `/Applications`, assina, notariza e faz staple
-6. valida com `spctl` e escreve o SHA-256
+2. writes the version into `Info.plist`
+3. re-signs everything with Developer ID, `--options runtime --timestamp` (replaces the ad-hoc signature left by `build-app.sh`)
+4. `notarytool submit --wait` on the `.app` → `stapler staple`
+5. builds the DMG with a shortcut to `/Applications`, signs it, notarizes it and staples it
+6. checks it with `spctl` and writes the SHA-256
 
-Demora tipicamente 5–15 minutos, quase tudo à espera da Apple.
+It usually takes 5-15 minutes, almost all of it waiting on Apple.
 
-### O teste que interessa
+### The test that matters
 
-**Não testes no Mac onde compilaste** — não tem quarentena. Manda o DMG para outra máquina (ou simula):
+**Do not test on the Mac you built on** - it has no quarantine. Send the DMG to another machine (or fake the flag):
 
 ```bash
 xattr -w com.apple.quarantine "0081;00000000;Safari;" TeyaCodeStation-1.0.0.dmg
 ```
 
-Depois abre normalmente. Tem de abrir sem avisos e sem botão direito → Abrir.
+Then open it as usual. It has to open with no warnings and without right-click → Open.
 
-## 5. Automatizar
+## 5. Automate it
 
-Secrets a criar em Settings → Secrets and variables → Actions:
+Secrets to create in Settings → Secrets and variables → Actions:
 
-| Secret | Como obter |
+| Secret | How to get it |
 |---|---|
-| `MACOS_CERTIFICATE_P12` | Keychain Access → certificado + chave → Export `.p12` → `base64 -i cert.p12 \| pbcopy` |
-| `MACOS_CERTIFICATE_PASSWORD` | a password que puseste ao exportar o `.p12` |
+| `MACOS_CERTIFICATE_P12` | Keychain Access → certificate + key → Export `.p12` → `base64 -i cert.p12 \| pbcopy` |
+| `MACOS_CERTIFICATE_PASSWORD` | the password you set when exporting the `.p12` |
 | `AC_API_KEY_P8` | `base64 -i AuthKey_XXXX.p8 \| pbcopy` |
-| `AC_API_KEY_ID` | Key ID (10 caracteres) |
+| `AC_API_KEY_ID` | Key ID (10 characters) |
 | `AC_API_ISSUER_ID` | Issuer ID (UUID) |
 
-Depois:
+Then:
 
 ```bash
 git tag v1.0.0 && git push origin v1.0.0
 ```
 
-O workflow cria uma **draft release** com o DMG e o `.sha256`. Revês e publicas.
+The workflow creates a **draft release** with the DMG and the `.sha256`. You review it and publish it.
 
-## 6. Actualizar a página
+## 6. Update the page
 
-https://teya-engineering.github.io/code-station/ diz hoje para clonar e correr `./build-app.sh`. Depois da primeira release, o caminho principal passa a ser:
+https://teya-engineering.github.io/code-station/ currently tells people to clone the repo and run `./build-app.sh`. After the first release, the main path becomes:
 
-- botão de download apontando para `https://github.com/teya-engineering/code-station/releases/latest`
-- requisitos: macOS 14+
-- build a partir do código passa a ser a secção "para contribuidores"
+- a download button pointing at `https://github.com/teya-engineering/code-station/releases/latest`
+- requirements: macOS 14+
+- building from source moves into a "for contributors" section
 
-Nota: o `build-app.sh` injecta `site-defaults.json` no bundle. Decide se a build pública leva defaults ou vai sem configuração — o que for para dentro do `.app` fica assinado e é distribuído a toda a gente.
+Note: `build-app.sh` injects `site-defaults.json` into the bundle. Decide whether the public build ships with defaults or with no configuration at all - whatever goes inside the `.app` is signed and handed to everyone.
 
-## Problemas comuns
+## Common problems
 
-| Sintoma | Causa |
+| Symptom | Cause |
 |---|---|
-| `notarytool` devolve `Invalid` | corre `xcrun notarytool log <id> --key … --key-id … --issuer …`; quase sempre é um binário sem hardened runtime ou sem secure timestamp |
-| App crasha só depois de assinada | falta um entitlement — vê os comentários em `CodeStation.entitlements` e acrescenta um de cada vez |
-| `The signature does not include a secure timestamp` | faltou `--timestamp`, ou a máquina não tinha rede ao assinar |
-| `spctl` diz `rejected` mesmo notarizado | esqueceste o `stapler staple`, ou testaste um ficheiro sem quarentena |
-| Erro de keychain em CI | falta o `security set-key-partition-list` |
+| `notarytool` returns `Invalid` | run `xcrun notarytool log <id> --key … --key-id … --issuer …`; it is nearly always a binary without hardened runtime or without a secure timestamp |
+| App only crashes once it is signed | a missing entitlement - read the comments in `CodeStation.entitlements` and add them one at a time |
+| `The signature does not include a secure timestamp` | `--timestamp` was missing, or the machine had no network while signing |
+| `spctl` says `rejected` even though it is notarized | you forgot `stapler staple`, or you tested a file with no quarantine |
+| Keychain error in CI | `security set-key-partition-list` is missing |
