@@ -57,7 +57,9 @@ struct CommandRunnerTests {
         )
 
         #expect(output.succeeded)
-        #expect(output.output.trimmed == folder.path)
+        let reported = URL(fileURLWithPath: output.output.trimmed).resolvingSymlinksInPath().path
+        let expected = folder.resolvingSymlinksInPath().path
+        #expect(reported == expected)
     }
 
     @Test func timesOutACommandThatDoesNotExit() async {
