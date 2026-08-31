@@ -292,11 +292,7 @@ enum CommandRunner {
         }
         if let currentDirectory {
             let result = currentDirectory.path.withCString {
-                if #available(macOS 26.0, *) {
-                    posix_spawn_file_actions_addchdir(&actions, $0)
-                } else {
-                    posix_spawn_file_actions_addchdir_np(&actions, $0)
-                }
+                posix_spawn_file_actions_addchdir_np(&actions, $0)
             }
             guard result == 0 else {
                 throw RunError.launch(String(cString: strerror(result)))
