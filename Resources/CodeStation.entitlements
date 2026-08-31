@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+      Deliberadamente minimo. O hardened runtime e' obrigatorio para notarizar.
+      A app nao esta em sandbox, por isso rede, ficheiros e spawn de processos
+      (codex / claude, git, shell) funcionam sem entitlements nenhuns.
+
+      Se depois de assinar a app rebentar ao arrancar ou ao lancar um agente,
+      acrescenta SO a que for precisa, uma de cada vez:
+
+      <key>com.apple.security.cs.allow-jit</key><true/>
+          -> so se a propria app compilar codigo em runtime (nao e' o caso
+             dos agentes: esses sao processos filhos com assinatura propria).
+
+      <key>com.apple.security.cs.disable-library-validation</key><true/>
+          -> so se a app carregar dylibs/plugins de terceiros nao assinados
+             pela mesma Team ID.
+
+      <key>com.apple.security.cs.allow-dyld-environment-variables</key><true/>
+          -> so se definires DYLD_* para os processos filhos.
+
+      <key>com.apple.security.automation.apple-events</key><true/>
+          -> so se a app enviar Apple Events (ex.: controlar o Terminal.app).
+
+      Cada entitlement destes enfraquece o hardened runtime. Nao os metas
+      "por seguranca" - mete-os por sintoma.
+    -->
+</dict>
+</plist>
