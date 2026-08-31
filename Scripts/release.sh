@@ -32,10 +32,10 @@ ENTITLEMENTS="Resources/CodeStation.entitlements"
 : "${AC_API_KEY_ID:?falta AC_API_KEY_ID}"
 : "${AC_API_ISSUER_ID:?falta AC_API_ISSUER_ID}"
 
-NOTARY=(xcrun notarytool
-        --key "$AC_API_KEY_PATH"
-        --key-id "$AC_API_KEY_ID"
-        --issuer "$AC_API_ISSUER_ID")
+# As credenciais vao DEPOIS do subcomando: "notarytool submit <file> --key ..."
+NOTARY_ARGS=(--key "$AC_API_KEY_PATH"
+             --key-id "$AC_API_KEY_ID"
+             --issuer "$AC_API_ISSUER_ID")
 
 step() { printf '\n\033[1m==> %s\033[0m\n' "$1"; }
 
@@ -90,7 +90,7 @@ step "A notarizar a app (pode demorar 1-15 min)"
 ZIP="build/$APP_NAME-notarize.zip"
 rm -f "$ZIP"
 /usr/bin/ditto -c -k --keepParent "$APP" "$ZIP"
-"${NOTARY[@]}" submit "$ZIP" --wait
+xcrun notarytool submit "$ZIP" --wait "${NOTARY_ARGS[@]}"
 xcrun stapler staple "$APP"
 rm -f "$ZIP"
 
@@ -108,7 +108,7 @@ rm -rf "$STAGE"
 
 step "A assinar e notarizar o DMG"
 codesign --force --sign "$IDENTITY" --timestamp "$DMG"
-"${NOTARY[@]}" submit "$DMG" --wait
+xcrun notarytool submit "$DMG" --wait "${NOTARY_ARGS[@]}"
 xcrun stapler staple "$DMG"
 
 # ---------------------------------------------------------------- 5. validar
