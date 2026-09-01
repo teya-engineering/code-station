@@ -320,15 +320,24 @@ struct ContextMenuHost: View {
         }
         let hasChecks = items.contains(where: \.checked)
         let hasIcons = items.contains { $0.icon != nil || $0.image != nil }
+        let hasCheckedIcons = items.contains {
+            $0.checked && ($0.icon != nil || $0.image != nil)
+        }
+        // A check and an icon share one slot unless a row needs to show both.
+        let usesSharedMarkColumn = hasChecks && hasIcons && !hasCheckedIcons
 
         return MenuContentScrollView(maxHeight: maxHeight) {
-            menuContent(hasChecks: hasChecks, hasIcons: hasIcons)
+            menuContent(hasChecks: hasChecks,
+                        hasIcons: hasIcons,
+                        usesSharedMarkColumn: usesSharedMarkColumn)
         }
         .frame(minWidth: menuMinimumWidth, alignment: .leading)
         .floatingCard(cornerRadius: 11)
     }
 
-    private func menuContent(hasChecks: Bool, hasIcons: Bool) -> some View {
+    private func menuContent(hasChecks: Bool,
+                             hasIcons: Bool,
+                             usesSharedMarkColumn: Bool) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(presenter.entries.enumerated()), id: \.offset) { _, entry in
                 switch entry {
@@ -336,6 +345,7 @@ struct ContextMenuHost: View {
                     MenuItemRow(item: item,
                                 checkColumn: hasChecks,
                                 iconColumn: hasIcons,
+                                usesSharedMarkColumn: usesSharedMarkColumn,
                                 action: item.handler == nil ? nil : { presenter.run(item) },
                                 detailAction: item.detailHandler == nil
                                     ? nil : { presenter.runDetail(item) })
@@ -343,7 +353,8 @@ struct ContextMenuHost: View {
                 case .searchable(let searchable):
                     SearchableMenuItemsView(searchable: searchable,
                                             checkColumn: hasChecks,
-                                            iconColumn: hasIcons)
+                                            iconColumn: hasIcons,
+                                            usesSharedMarkColumn: usesSharedMarkColumn)
                         .transition(.fadeIn)
                 case .cards(let items):
                     MenuCardGrid(items: items) { presenter.run($0) }
@@ -423,6 +434,7 @@ private struct SearchableMenuItemsView: View {
     let searchable: SearchableMenuItems
     let checkColumn: Bool
     let iconColumn: Bool
+    let usesSharedMarkColumn: Bool
 
     @Environment(MenuPresenter.self) private var presenter
     @State private var filter = ""
@@ -472,6 +484,7 @@ private struct SearchableMenuItemsView: View {
                     MenuItemRow(item: indexed.item,
                                 checkColumn: checkColumn,
                                 iconColumn: iconColumn,
+                                usesSharedMarkColumn: usesSharedMarkColumn,
                                 action: indexed.item.handler == nil
                                     ? nil : { presenter.run(indexed.item) },
                                 detailAction: indexed.item.detailHandler == nil
@@ -567,6 +580,7 @@ private struct MenuItemRow: View {
     let item: MenuItem
     let checkColumn: Bool
     let iconColumn: Bool
+    let usesSharedMarkColumn: Bool
     let action: (() -> Void)?
     let detailAction: (() -> Void)?
 
@@ -586,14 +600,18 @@ private struct MenuItemRow: View {
 
     private var row: some View {
         HStack(spacing: 7) {
-            if checkColumn {
+            if checkColumn && !usesSharedMarkColumn {
                 Image(systemName: "checkmark")
                     .font(.system(size: 10, weight: .semibold))
                     .frame(width: 12)
                     .opacity(item.checked ? 1 : 0)
             }
             if iconColumn {
-                if let image = item.image {
+                if usesSharedMarkColumn && item.checked {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 10, weight: .semibold))
+                        .frame(width: 22, height: 22)
+                } else if let image = item.image {
                     menuImage(image)
                 } else {
                     Image(systemName: item.icon ?? "square")
