@@ -5,6 +5,7 @@ enum AgentPersonality: String, CaseIterable, Codable, Sendable {
     case sextou
     case british
     case manager
+    case frenchManager = "french-manager"
 
     var title: String {
         switch self {
@@ -14,6 +15,7 @@ enum AgentPersonality: String, CaseIterable, Codable, Sendable {
         case .sextou: "Sextou"
         case .british: "British"
         case .manager: "Manager"
+        case .frenchManager: "French Manager"
         }
     }
 
@@ -25,6 +27,7 @@ enum AgentPersonality: String, CaseIterable, Codable, Sendable {
         case .sextou: "Brazilian energy, gambiarra certified."
         case .british: "Puts the kettle on before anything else."
         case .manager: "Files a ticket before every keystroke."
+        case .frenchManager: "Turns every problem into a point de suivi."
         }
     }
 
@@ -129,6 +132,26 @@ enum AgentPersonality: String, CaseIterable, Codable, Sendable {
                 "Double-clicking on this", "Circling back on it", "Putting a pin in that",
                 "Raising it at standup", "Splitting this into two tickets",
                 "Checking the definition of done", "Adding it to the risk register"
+            ]
+        case .frenchManager:
+            [
+                "Scheduling un point rapide", "Preparing le comité de pilotage",
+                "Updating le rétroplanning", "Requesting le compte rendu",
+                "Calling this structurant", "Making it more stratégique",
+                "Aligning avec la direction", "Waiting for le go",
+                "Launching un atelier", "Reviewing le périmètre",
+                "Checking la gouvernance", "Adding une slide",
+                "Seeking un arbitrage", "Moving it to vendredi",
+                "Booking a pause café", "Reframing le besoin",
+                "Challenging le planning", "Validating les prochaines étapes",
+                "Tracking les indicateurs", "Optimising les ressources",
+                "Sharing la vision", "Escalating au directeur",
+                "Calling another comité", "Starting with le contexte",
+                "Ending with le plan d'action", "Sending le support",
+                "Discussing le budget", "Making the deck more impactant",
+                "Checking everyone's disponibilité", "Moving the point après déjeuner",
+                "Confirming who fait quoi", "Planning the prochain point",
+                "Requesting une validation formelle", "Keeping it très haut niveau"
             ]
         }
     }

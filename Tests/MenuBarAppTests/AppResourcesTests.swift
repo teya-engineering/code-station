@@ -11,8 +11,8 @@ struct AppResourcesTests {
     }
 
     @Test func findsEveryAvatar() {
-        for personality in AgentPersonality.allCases {
-            #expect(AppResources.bundle.url(forResource: "avatar-\(personality.rawValue)",
+        for name in AgentAvatarArt.legacyArtworkNames {
+            #expect(AppResources.bundle.url(forResource: "avatar-\(name)",
                                             withExtension: "png") != nil)
         }
 

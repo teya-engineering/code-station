@@ -259,6 +259,7 @@ enum AgentAvatarArt {
         .sextou: 13,
         .british: 5,
         .manager: 10,
+        .frenchManager: 22,
     ]
 
     private static let sessionPictures: [Int: Data] = Dictionary(
@@ -272,9 +273,13 @@ enum AgentAvatarArt {
 
     // Builds before Moods used these files as their photo-less bot artwork. They remain
     // bundled so those saved bots are still recognized as stock rather than user photos.
-    private static let legacyPictures: [Data] = AgentPersonality.allCases.compactMap {
+    static let legacyArtworkNames = [
+        "default", "sarcastic", "cat", "sextou", "british", "manager"
+    ]
+
+    private static let legacyPictures: [Data] = legacyArtworkNames.compactMap {
         AppResources.bundle
-            .url(forResource: "avatar-\($0.rawValue)", withExtension: "png")
+            .url(forResource: "avatar-\($0)", withExtension: "png")
             .flatMap { try? Data(contentsOf: $0) }
     }
 
