@@ -474,6 +474,7 @@ struct AppSidebar: View {
                         // own height, or it opens onto a gap under the last card.
                         .animation(.easeOut(duration: 0.26),
                                    value: visibilityKey(grouped, workspaceGroups: workspaceGroups))
+                        .animation(.easeOut(duration: 0.22), value: itemOrderKey)
                         .animation(.easeOut(duration: 0.22),
                                    value: sessionOrderKey(grouped,
                                                           workspaceGroups: workspaceGroups))
@@ -491,6 +492,13 @@ struct AppSidebar: View {
 
     private var sections: [SidebarSection] {
         appSettings.projectGrouping.sections(of: orderedItems)
+    }
+
+    // Stable identities make SwiftUI move the existing rows to their sorted positions.
+    // The order itself must be the animation value because pinning changes neither sort
+    // preference, and pinning a session may leave the order inside its container unchanged.
+    private var itemOrderKey: [UUID] {
+        sections.flatMap(\.items).map(\.id)
     }
 
     private var filter: SidebarFilter { SidebarFilter(filterText) }
