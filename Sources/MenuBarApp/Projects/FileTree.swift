@@ -92,6 +92,16 @@ enum FilePreview: Sendable, Equatable {
 // Every call hops off the main thread. A folder with a few thousand entries, or a file
 // that turns out to live on a slow disk, is enough to freeze the window otherwise.
 enum FileTree {
+    struct CopyFailure: Sendable, Equatable {
+        let name: String
+        let message: String
+    }
+
+    struct CopyResult: Sendable, Equatable {
+        var copied: [URL] = []
+        var failures: [CopyFailure] = []
+    }
+
     // Past this the file is named and sized but not opened. The text view lays out only
     // what is on screen, so length costs little, but the whole file is still held in
     // memory twice over while it is open.
@@ -191,6 +201,68 @@ enum FileTree {
         }
     }
 
+    static func copy(_ sources: [URL], into directory: URL) async -> CopyResult {
+        await Task.detached(priority: .userInitiated) {
+            let files = FileManager.default
+            var destinationIsDirectory: ObjCBool = false
+            guard files.fileExists(atPath: directory.path, isDirectory: &destinationIsDirectory),
+                  destinationIsDirectory.boolValue else {
+                return CopyResult(failures: sources.map {
+                    CopyFailure(name: $0.lastPathComponent,
+                                message: "The destination folder is no longer there.")
+                })
+            }
+
+            var result = CopyResult()
+            for source in sources {
+                do {
+                    let values = try source.resourceValues(forKeys: [.isDirectoryKey,
+                                                                      .isSymbolicLinkKey])
+                    let isDirectory = values.isDirectory == true && values.isSymbolicLink != true
+                    guard !isDirectory || !directory.isInside(source) else {
+                        result.failures.append(CopyFailure(
+                            name: source.lastPathComponent,
+                            message: "A folder cannot be copied into itself."))
+                        continue
+                    }
+
+                    let destination = availableCopyURL(for: source,
+                                                       isDirectory: isDirectory,
+                                                       in: directory,
+                                                       files: files)
+                    try files.copyItem(at: source, to: destination)
+                    result.copied.append(destination)
+                } catch {
+                    result.failures.append(CopyFailure(name: source.lastPathComponent,
+                                                       message: error.localizedDescription))
+                }
+            }
+            return result
+        }.value
+    }
+
+    private static func availableCopyURL(for source: URL, isDirectory: Bool,
+                                         in directory: URL, files: FileManager) -> URL {
+        let original = directory.appendingPathComponent(source.lastPathComponent,
+                                                        isDirectory: isDirectory)
+        guard files.fileExists(atPath: original.path) else { return original }
+
+        let fileExtension = isDirectory ? "" : source.pathExtension
+        let baseName = isDirectory || fileExtension.isEmpty
+            ? source.lastPathComponent
+            : source.deletingPathExtension().lastPathComponent
+        var copyNumber = 1
+        while true {
+            let suffix = copyNumber == 1 ? " copy" : " copy \(copyNumber)"
+            let name = fileExtension.isEmpty
+                ? baseName + suffix
+                : baseName + suffix + "." + fileExtension
+            let candidate = directory.appendingPathComponent(name, isDirectory: isDirectory)
+            if !files.fileExists(atPath: candidate.path) { return candidate }
+            copyNumber += 1
+        }
+    }
+
     static func preview(of url: URL) async -> FilePreview {
         await Task.detached(priority: .userInitiated) {
             let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
@@ -233,6 +305,14 @@ enum FileTree {
                 return error.localizedDescription
             }
         }.value
+    }
+}
+
+private extension URL {
+    func isInside(_ directory: URL) -> Bool {
+        let parent = directory.resolvingSymlinksInPath().standardizedFileURL.path
+        let child = resolvingSymlinksInPath().standardizedFileURL.path
+        return child == parent || child.hasPrefix(parent + "/")
     }
 }
 

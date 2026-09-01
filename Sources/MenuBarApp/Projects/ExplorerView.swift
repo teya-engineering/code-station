@@ -24,6 +24,7 @@ struct ExplorerView: View {
     @State private var renderingMarkdown = false
     @State private var showHidden = true
     @State private var language: CodeLanguage?
+    @State private var pastingFiles = false
     @FocusState private var treeFocused: Bool
 
     // The text as loaded sits next to the draft, so "anything to save" and "anything to
@@ -55,6 +56,10 @@ struct ExplorerView: View {
         .background(Theme.background)
         .background(findShortcut)
         .background(ExplorerSearchShortcut { showFileSearch() })
+        .background(ExplorerFileShortcuts(
+            enabled: treeFocused && dialogs.current == nil && !pastingFiles,
+            onCopy: copySelected,
+            onPaste: pasteFiles))
         .onChange(of: findQuery) {
             findSelection = 0
             refreshFind()
@@ -209,7 +214,8 @@ struct ExplorerView: View {
         }
         .buttonStyle(.plain)
         .appContextMenu {
-            [.item("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([node.url]) },
+            [.item("Copy") { copy(node) },
+             .item("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([node.url]) },
              .item("Open with default app") { NSWorkspace.shared.open(node.url) },
              .item("Copy Path") { Pasteboard.copy(node.path) }]
         }
@@ -516,6 +522,48 @@ struct ExplorerView: View {
         node.path.pathRelative(to: root) ?? node.path
     }
 
+    private func copySelected() -> Bool {
+        guard let selected else { return false }
+        copy(selected)
+        return true
+    }
+
+    private func copy(_ node: FileNode) {
+        Pasteboard.copy(node.url)
+    }
+
+    private func pasteFiles() -> Bool {
+        let sources = Pasteboard.fileURLs()
+        guard !sources.isEmpty else { return false }
+
+        let destination = pasteDestination(for: sources)
+        let rootAtStart = root
+        pastingFiles = true
+        Task {
+            let result = await FileTree.copy(sources, into: destination)
+            pastingFiles = false
+            guard root == rootAtStart else { return }
+
+            if !result.copied.isEmpty {
+                if destination.path != root { expanded.insert(destination.path) }
+                await load(destination.path)
+            }
+            guard !result.failures.isEmpty else { return }
+            dialogs.show(.notice(
+                result.failures.count == 1 ? "Could not paste the item" : "Could not paste some items",
+                message: result.failures.map { "\($0.name): \($0.message)" }.joined(separator: "\n")))
+        }
+        return true
+    }
+
+    private func pasteDestination(for sources: [URL]) -> URL {
+        guard let selected else { return rootURL }
+        guard selected.isDirectory else { return selected.url.deletingLastPathComponent() }
+        let selectedURL = selected.url.standardizedFileURL
+        let copyingSelection = sources.contains { $0.standardizedFileURL == selectedURL }
+        return copyingSelection ? selected.url.deletingLastPathComponent() : selected.url
+    }
+
     // MARK: - Actions
 
     // The pane is reused as the session changes, so everything the last folder left behind
@@ -673,5 +721,78 @@ struct ExplorerView: View {
                 original = text
             }
         }
+    }
+}
+
+private struct ExplorerFileShortcuts: NSViewRepresentable {
+    let enabled: Bool
+    let onCopy: () -> Bool
+    let onPaste: () -> Bool
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(enabled: enabled, onCopy: onCopy, onPaste: onPaste)
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        let view = AnchorView()
+        context.coordinator.anchor = view
+        context.coordinator.start()
+        return view
+    }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        context.coordinator.anchor = view
+        context.coordinator.enabled = enabled
+        context.coordinator.onCopy = onCopy
+        context.coordinator.onPaste = onPaste
+    }
+
+    static func dismantleNSView(_ view: NSView, coordinator: Coordinator) {
+        coordinator.stop()
+    }
+
+    @MainActor
+    final class Coordinator {
+        weak var anchor: NSView?
+        var enabled: Bool
+        var onCopy: () -> Bool
+        var onPaste: () -> Bool
+
+        private var token: Any?
+
+        init(enabled: Bool, onCopy: @escaping () -> Bool, onPaste: @escaping () -> Bool) {
+            self.enabled = enabled
+            self.onCopy = onCopy
+            self.onPaste = onPaste
+        }
+
+        func start() {
+            guard token == nil else { return }
+            token = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                let handled = MainActor.assumeIsolated { self.handle(event) }
+                return handled ? nil : event
+            }
+        }
+
+        private func handle(_ event: NSEvent) -> Bool {
+            guard enabled, anchor?.window === NSApp.keyWindow,
+                  event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command else {
+                return false
+            }
+            return switch event.charactersIgnoringModifiers?.lowercased() {
+            case "c": onCopy()
+            case "v": onPaste()
+            default: false
+            }
+        }
+
+        func stop() {
+            if let token { NSEvent.removeMonitor(token) }
+            token = nil
+        }
+    }
+
+    private final class AnchorView: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
     }
 }

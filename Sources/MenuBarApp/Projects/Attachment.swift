@@ -28,9 +28,8 @@ enum Attachments {
     // copying a file in Finder also puts its name on the clipboard as text and a
     // preview of it as an image, and the file itself is what was meant.
     static func fromClipboard(_ pasteboard: NSPasteboard = .general) -> [Attachment] {
-        let options: [NSPasteboard.ReadingOptionKey: Any] = [.urlReadingFileURLsOnly: true]
-        if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: options) as? [URL],
-           !urls.isEmpty {
+        let urls = Pasteboard.fileURLs(from: pasteboard)
+        if !urls.isEmpty {
             return urls.map { Attachment(url: $0) }
         }
         // Apps that copy text often put a picture of it on the clipboard as well -

@@ -97,6 +97,53 @@ struct FileTreeTests {
             of: URL(fileURLWithPath: "/elsewhere/View.swift"), beneath: root).isEmpty)
     }
 
+    @Test func copiesFilesAndFolders() async throws {
+        let sourceFolder = root.appendingPathComponent("source/Guide")
+        let destination = root.appendingPathComponent("destination")
+        try FileManager.default.createDirectory(at: sourceFolder, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+        try Data("hello".utf8).write(to: sourceFolder.appendingPathComponent("README.md"))
+
+        let result = await FileTree.copy([sourceFolder], into: destination)
+
+        #expect(result.failures.isEmpty)
+        #expect(result.copied.map(\.lastPathComponent) == ["Guide"])
+        #expect(try String(contentsOf: destination.appendingPathComponent("Guide/README.md"),
+                           encoding: .utf8) == "hello")
+    }
+
+    @Test func keepsExistingItemsWhenCopyNamesCollide() async throws {
+        let source = root.appendingPathComponent("source/notes.txt")
+        let destination = root.appendingPathComponent("destination")
+        try FileManager.default.createDirectory(at: source.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+        try Data("new".utf8).write(to: source)
+        try Data("first".utf8).write(to: destination.appendingPathComponent("notes.txt"))
+        try Data("second".utf8).write(to: destination.appendingPathComponent("notes copy.txt"))
+
+        let result = await FileTree.copy([source], into: destination)
+
+        #expect(result.failures.isEmpty)
+        #expect(result.copied.map(\.lastPathComponent) == ["notes copy 2.txt"])
+        #expect(try String(contentsOf: destination.appendingPathComponent("notes.txt"),
+                           encoding: .utf8) == "first")
+        #expect(try String(contentsOf: destination.appendingPathComponent("notes copy 2.txt"),
+                           encoding: .utf8) == "new")
+    }
+
+    @Test func refusesToCopyAFolderInsideItself() async throws {
+        let source = root.appendingPathComponent("source")
+        let destination = source.appendingPathComponent("nested")
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+
+        let result = await FileTree.copy([source], into: destination)
+
+        #expect(result.copied.isEmpty)
+        #expect(result.failures.map(\.name) == ["source"])
+        #expect(!FileManager.default.fileExists(atPath: destination.appendingPathComponent("source").path))
+    }
+
     @Test func movesUpAndDownThroughVisibleRows() {
         let rows = navigationRows()
 
