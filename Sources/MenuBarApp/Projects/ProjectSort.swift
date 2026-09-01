@@ -115,16 +115,24 @@ enum ProjectSort: String, CaseIterable, Identifiable {
     }
 
     func apply(to items: [SidebarItem], sessions: [ChatSession]) -> [SidebarItem] {
+        let pinnedContainerIDs = Set(sessions.lazy.filter(\.isPinned).map {
+            $0.workspaceID ?? $0.projectID
+        })
+
         switch self {
         case .name:
             return items.sorted { a, b in
-                if a.isPinned != b.isPinned { return a.isPinned }
+                let aIsPinned = a.isPinned || pinnedContainerIDs.contains(a.id)
+                let bIsPinned = b.isPinned || pinnedContainerIDs.contains(b.id)
+                if aIsPinned != bIsPinned { return aIsPinned }
                 return byName(a, b)
             }
         case .lastUsed:
             let latest = lastActivity(in: sessions)
             return items.sorted { a, b in
-                if a.isPinned != b.isPinned { return a.isPinned }
+                let aIsPinned = a.isPinned || pinnedContainerIDs.contains(a.id)
+                let bIsPinned = b.isPinned || pinnedContainerIDs.contains(b.id)
+                if aIsPinned != bIsPinned { return aIsPinned }
                 // An item with no sessions has never been used, so it falls below the ones
                 // that have. Equal times fall back to the name, so the list never wobbles.
                 switch (latest[a.id], latest[b.id]) {

@@ -42,6 +42,34 @@ struct ProjectSortTests {
                 == ["zebra", "Alpha"])
     }
 
+    @Test func projectsWithPinnedSessionsComeFirstUnderEverySort() {
+        let pinned = Project(name: "zebra", path: "/z")
+        let recent = Project(name: "Alpha", path: "/a")
+        var pinnedSession = session(in: pinned, hoursAgo: 100)
+        pinnedSession.isPinned = true
+        let sessions = [pinnedSession, session(in: recent, hoursAgo: 1)]
+        let items = [recent, pinned].map(SidebarItem.project)
+
+        #expect(ProjectSort.name.apply(to: items, sessions: sessions).map(\.name)
+                == ["zebra", "Alpha"])
+        #expect(ProjectSort.lastUsed.apply(to: items, sessions: sessions).map(\.name)
+                == ["zebra", "Alpha"])
+    }
+
+    @Test func workspacesWithPinnedSessionsComeFirst() {
+        let lead = Project(name: "workspace lead", path: "/lead")
+        let project = Project(name: "Alpha", path: "/alpha")
+        let workspace = ProjectWorkspace(name: "zebra", projectIDs: [lead.id],
+                                         leadProjectID: lead.id)
+        var pinnedSession = session(in: workspace, lead: lead, hoursAgo: 100)
+        pinnedSession.isPinned = true
+        let sessions = [pinnedSession, session(in: project, hoursAgo: 1)]
+        let items: [SidebarItem] = [.project(project), .workspace(workspace)]
+
+        #expect(ProjectSort.lastUsed.apply(to: items, sessions: sessions).map(\.name)
+                == ["zebra", "Alpha"])
+    }
+
     @Test func pinnedSessionsComeBeforeMoreRecentSessions() {
         let project = Project(name: "project", path: "/project")
         var pinned = session(in: project, hoursAgo: 100)
