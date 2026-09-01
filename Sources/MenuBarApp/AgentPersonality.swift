@@ -27,7 +27,7 @@ enum AgentPersonality: String, CaseIterable, Codable, Sendable {
         case .sextou: "Brazilian energy, gambiarra certified."
         case .british: "Puts the kettle on before anything else."
         case .manager: "Files a ticket before every keystroke."
-        case .frenchManager: "Turns every problem into a point de suivi."
+        case .frenchManager: "Calls a point de suivi."
         }
     }
 
