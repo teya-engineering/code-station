@@ -219,11 +219,9 @@ struct ChangesView: View {
         HStack(spacing: 6) {
             Image(systemName: "arrow.triangle.branch").font(.system(size: 12))
             Text(snapshot.branch).font(.mono(13, .medium)).lineLimit(1)
-            if !snapshot.branches.isEmpty {
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(.secondary)
-            }
+            Image(systemName: "chevron.down")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(.secondary)
         }
         .foregroundStyle(.primary)
         .appMenu { branchMenu(snapshot) }
@@ -232,7 +230,13 @@ struct ChangesView: View {
 
     private func branchMenu(_ snapshot: GitSnapshot) -> [MenuEntry] {
         guard !busy else { return [] }
-        return snapshot.branches.map { branch in
+        var entries: [MenuEntry] = [
+            .item("Create new branch", icon: "plus") {
+                showCreateBranchDialog(from: snapshot.branch)
+            },
+            .separator
+        ]
+        entries.append(contentsOf: snapshot.branches.map { branch in
             let current = snapshot.onBranch && branch == snapshot.branch
             return .item(branch, checked: current) {
                 guard !current else { return }
@@ -240,6 +244,27 @@ struct ChangesView: View {
                     await GitActions.switchBranch(branch, at: repoRoot)
                 }
             }
+        })
+        return entries
+    }
+
+    private func showCreateBranchDialog(from branch: String) {
+        let draft = BranchDraft()
+        dialogs.show(Dialog(
+            title: "Create new branch",
+            message: "Create it from \(branch) and switch to it.",
+            content: AnyView(BranchNameEditor(draft: draft)),
+            actions: [
+                .init(label: "Create branch", kind: .primary, handler: {
+                    createBranch(draft.name.trimmed)
+                }, isEnabled: { !draft.name.isBlank }),
+                .init(label: "Cancel", kind: .cancel)
+            ]))
+    }
+
+    private func createBranch(_ branch: String) {
+        perform("Creating \(branch)…", failure: "Could not create branch") {
+            await GitActions.createBranch(branch, at: repoRoot)
         }
     }
 
@@ -982,6 +1007,24 @@ struct ChangesView: View {
         } else {
             NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: url.deletingLastPathComponent().path)
         }
+    }
+}
+
+@MainActor
+@Observable
+private final class BranchDraft {
+    var name = ""
+}
+
+private struct BranchNameEditor: View {
+    @Bindable var draft: BranchDraft
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        TextField("Branch name", text: $draft.name)
+            .appTextField()
+            .focused($focused)
+            .task { focused = true }
     }
 }
 

@@ -101,6 +101,26 @@ struct GitActionsTests {
         #expect(error?.isEmpty == false)
     }
 
+    @Test func createsAndSwitchesToANewBranch() async throws {
+        let repo = try GitRepo()
+
+        let error = await GitActions.createBranch("feature", at: repo.path)
+        #expect(error == nil)
+
+        let after = await GitInspector.snapshot(at: repo.path)
+        #expect(after.branch == "feature")
+        #expect(after.branches.contains("feature"))
+    }
+
+    @Test func reportsWhyCreatingABranchFailed() async throws {
+        let repo = try GitRepo()
+
+        let error = await GitActions.createBranch("main", at: repo.path)
+
+        #expect(error?.isEmpty == false)
+        #expect(await GitInspector.snapshot(at: repo.path).branch == "main")
+    }
+
     @Test func pushPublishesABranchWithNoUpstream() async throws {
         let repo = try GitRepo()
         let remote = try GitRepo.bare()

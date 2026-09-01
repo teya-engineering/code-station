@@ -57,6 +57,12 @@ enum GitActions {
         }
     }
 
+    static func createBranch(_ branch: String, at root: String) async -> String? {
+        await perform(at: root) { tool, url in
+            GitInspector.run(tool, ["switch", "-c", branch], in: url)
+        }
+    }
+
     // Commits everything the changes list shows, staged or not, the way the screen
     // presents it: one working tree, one commit. With `amend` the result replaces the
     // last commit instead of following it.
