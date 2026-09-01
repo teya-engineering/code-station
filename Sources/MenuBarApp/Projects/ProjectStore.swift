@@ -241,12 +241,12 @@ final class ProjectStore {
 
     func standaloneSessions(for projectID: UUID) -> [ChatSession] {
         userSessions.filter { $0.projectID == projectID && $0.workspaceID == nil }
-            .sorted { $0.lastActivity > $1.lastActivity }
+            .sorted(by: SessionSort.pinnedFirstByLastActivity)
     }
 
     func sessions(in workspaceID: UUID) -> [ChatSession] {
         userSessions.filter { $0.workspaceID == workspaceID }
-            .sorted { $0.lastActivity > $1.lastActivity }
+            .sorted(by: SessionSort.pinnedFirstByLastActivity)
     }
 
     var selectedSession: ChatSession? {
@@ -496,6 +496,13 @@ final class ProjectStore {
         saveIndex()
     }
 
+    func setPinned(_ isPinned: Bool, forProject id: UUID) {
+        guard let i = projects.firstIndex(where: { $0.id == id }),
+              projects[i].isPinned != isPinned else { return }
+        projects[i].isPinned = isPinned
+        saveIndex()
+    }
+
     func changeSidebarAvatar(forProject id: UUID) {
         guard let i = projects.firstIndex(where: { $0.id == id }),
               let next = projects[i].sidebarAvatar.randomArtworkIndex() else { return }
@@ -533,6 +540,13 @@ final class ProjectStore {
         guard !trimmed.isEmpty else { return }
         workspaces[i].name = trimmed
         workspaces.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        saveIndex()
+    }
+
+    func setPinned(_ isPinned: Bool, forWorkspace id: UUID) {
+        guard let i = workspaces.firstIndex(where: { $0.id == id }),
+              workspaces[i].isPinned != isPinned else { return }
+        workspaces[i].isPinned = isPinned
         saveIndex()
     }
 
@@ -1071,6 +1085,13 @@ final class ProjectStore {
         let trimmed = title.trimmed
         guard !trimmed.isEmpty, sessions[i].title != trimmed else { return }
         sessions[i].title = trimmed
+        publishSidebarSessions()
+        saveIndex()
+    }
+
+    func setPinned(_ isPinned: Bool, forSession sessionID: UUID) {
+        guard let i = index(sessionID), sessions[i].isPinned != isPinned else { return }
+        sessions[i].isPinned = isPinned
         publishSidebarSessions()
         saveIndex()
     }

@@ -175,7 +175,6 @@ struct WorkspaceDetailView: View {
 
     private func content(_ workspace: ProjectWorkspace) -> some View {
         let sessions = store.sessions(in: workspace.id)
-            .sorted { $0.lastActivity > $1.lastActivity }
 
         return ScrollView {
             VStack(alignment: .leading, spacing: 22) {
@@ -573,6 +572,10 @@ struct WorkspaceDetailView: View {
     private func sessionMenu(_ session: ChatSession) -> [MenuEntry] {
         [
             .item("Open session") { store.selectSession(session.id) },
+            .item(session.isPinned ? "Unpin" : "Pin",
+                  icon: session.isPinned ? "pin.slash" : "pin") {
+                store.setPinned(!session.isPinned, forSession: session.id)
+            },
             .separator,
             .item("Delete session", kind: .destructive) { confirmRemove(session) }
         ]

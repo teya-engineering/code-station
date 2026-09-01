@@ -265,6 +265,10 @@ struct TaskDetailView: View {
     private func runMenu(_ session: ChatSession, task: Project) -> [MenuEntry] {
         [
             .item("Open run") { store.selectSession(session.id) },
+            .item(session.isPinned ? "Unpin" : "Pin",
+                  icon: session.isPinned ? "pin.slash" : "pin") {
+                store.setPinned(!session.isPinned, forSession: session.id)
+            },
             .item("Reveal in Finder") {
                 NSWorkspace.shared.activateFileViewerSelecting([task.url])
             },

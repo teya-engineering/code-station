@@ -24,6 +24,13 @@ enum SidebarItem: Identifiable {
         case .project(let project): project.kind == .adHoc ? .tasks : .projects
         }
     }
+
+    var isPinned: Bool {
+        switch self {
+        case .project(let project): project.isPinned
+        case .workspace(let workspace): workspace.isPinned
+        }
+    }
 }
 
 // The kinds the rail can be split into, in the order the sections are shown. The raw
@@ -110,10 +117,14 @@ enum ProjectSort: String, CaseIterable, Identifiable {
     func apply(to items: [SidebarItem], sessions: [ChatSession]) -> [SidebarItem] {
         switch self {
         case .name:
-            return items.sorted(by: byName)
+            return items.sorted { a, b in
+                if a.isPinned != b.isPinned { return a.isPinned }
+                return byName(a, b)
+            }
         case .lastUsed:
             let latest = lastActivity(in: sessions)
             return items.sorted { a, b in
+                if a.isPinned != b.isPinned { return a.isPinned }
                 // An item with no sessions has never been used, so it falls below the ones
                 // that have. Equal times fall back to the name, so the list never wobbles.
                 switch (latest[a.id], latest[b.id]) {
@@ -136,5 +147,12 @@ enum ProjectSort: String, CaseIterable, Identifiable {
 
     private func byName(_ a: SidebarItem, _ b: SidebarItem) -> Bool {
         a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
+    }
+}
+
+enum SessionSort {
+    static func pinnedFirstByLastActivity(_ a: ChatSession, _ b: ChatSession) -> Bool {
+        if a.isPinned != b.isPinned { return a.isPinned }
+        return a.lastActivity > b.lastActivity
     }
 }

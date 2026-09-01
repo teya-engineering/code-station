@@ -64,6 +64,7 @@ struct Project: Identifiable, Codable, Equatable {
     var name: String
     var path: String
     var kind: Kind
+    var isPinned: Bool
     // Nil keeps the stable icon derived from the project's identity. Once changed, the
     // chosen bundled artwork follows the project everywhere it appears.
     var sidebarAvatarIndex: Int?
@@ -83,11 +84,12 @@ struct Project: Identifiable, Codable, Equatable {
     }
 
     init(id: UUID = UUID(), name: String, path: String, kind: Kind = .project,
-         sidebarAvatarIndex: Int? = nil, task: TaskSpec? = nil) {
+         isPinned: Bool = false, sidebarAvatarIndex: Int? = nil, task: TaskSpec? = nil) {
         self.id = id
         self.name = name
         self.path = path
         self.kind = kind
+        self.isPinned = isPinned
         self.sidebarAvatarIndex = sidebarAvatarIndex
         self.task = task
     }
@@ -98,7 +100,7 @@ struct Project: Identifiable, Codable, Equatable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, path, kind, sidebarAvatarIndex, task
+        case id, name, path, kind, isPinned, sidebarAvatarIndex, task
     }
 
     init(from decoder: any Decoder) throws {
@@ -108,6 +110,7 @@ struct Project: Identifiable, Codable, Equatable {
         path = try container.decode(String.self, forKey: .path)
         kind = try container.decodeIfPresent(Kind.self, forKey: .kind)
             ?? Self.legacyKind(for: path)
+        isPinned = try container.decodeIfPresent(Bool.self, forKey: .isPinned) ?? false
         sidebarAvatarIndex = try container.decodeIfPresent(Int.self,
                                                             forKey: .sidebarAvatarIndex)
         task = try container.decodeIfPresent(TaskSpec.self, forKey: .task)
@@ -134,23 +137,27 @@ struct ProjectWorkspace: Identifiable, Codable, Equatable {
     var name: String
     var projectIDs: [UUID]
     var leadProjectID: UUID
+    var isPinned: Bool
     var sidebarAvatarIndex: Int?
     // Each session can still override its checkout mode. These are only the choices
     // preselected when a session starts, which keeps repeated workspace setup quick.
     var worktreeProjectIDs: [UUID]
 
     init(id: UUID = UUID(), name: String, projectIDs: [UUID], leadProjectID: UUID,
-         sidebarAvatarIndex: Int? = nil, worktreeProjectIDs: [UUID]? = nil) {
+         isPinned: Bool = false, sidebarAvatarIndex: Int? = nil,
+         worktreeProjectIDs: [UUID]? = nil) {
         self.id = id
         self.name = name
         self.projectIDs = projectIDs
         self.leadProjectID = leadProjectID
+        self.isPinned = isPinned
         self.sidebarAvatarIndex = sidebarAvatarIndex
         self.worktreeProjectIDs = worktreeProjectIDs ?? projectIDs
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, projectIDs, leadProjectID, sidebarAvatarIndex, worktreeProjectIDs
+        case id, name, projectIDs, leadProjectID, isPinned, sidebarAvatarIndex
+        case worktreeProjectIDs
     }
 
     init(from decoder: any Decoder) throws {
@@ -159,6 +166,7 @@ struct ProjectWorkspace: Identifiable, Codable, Equatable {
         name = try container.decode(String.self, forKey: .name)
         projectIDs = try container.decode([UUID].self, forKey: .projectIDs)
         leadProjectID = try container.decode(UUID.self, forKey: .leadProjectID)
+        isPinned = try container.decodeIfPresent(Bool.self, forKey: .isPinned) ?? false
         sidebarAvatarIndex = try container.decodeIfPresent(Int.self,
                                                             forKey: .sidebarAvatarIndex)
         // Workspaces written before checkout defaults existed already opened every Git
@@ -525,6 +533,7 @@ struct ChatSession: Identifiable, Codable, Equatable {
     var id: UUID = UUID()
     var projectID: UUID
     var title: String = "New session"
+    var isPinned = false
     var isTroubleshooting = false
     var agent: AgentKind
     var mode: SessionMode = .chat
@@ -628,7 +637,7 @@ struct ChatSession: Identifiable, Codable, Equatable {
     // encodes to. It is still decoded: a file written before the split holds every
     // conversation inline, and that is what the store moves out on the first launch.
     private enum CodingKeys: String, CodingKey {
-        case id, projectID, title, isTroubleshooting, agent, mode, designPhase
+        case id, projectID, title, isPinned, isTroubleshooting, agent, mode, designPhase
         case designRevisions, approvedDesignRevisionID, sourceDesignSessionID
         case handedOffDesignRevisionID, designSourceSessionID
         case claudeSessionID, codexSessionID, createdAt
@@ -648,6 +657,7 @@ struct ChatSession: Identifiable, Codable, Equatable {
         id = try container.decode(UUID.self, forKey: .id)
         projectID = try container.decode(UUID.self, forKey: .projectID)
         title = try container.decodeIfPresent(String.self, forKey: .title) ?? "New session"
+        isPinned = try container.decodeIfPresent(Bool.self, forKey: .isPinned) ?? false
         isTroubleshooting = try container.decodeIfPresent(Bool.self, forKey: .isTroubleshooting)
             ?? false
         designSourceSessionID = try container.decodeIfPresent(
@@ -692,6 +702,7 @@ struct ChatSession: Identifiable, Codable, Equatable {
         try container.encode(id, forKey: .id)
         try container.encode(projectID, forKey: .projectID)
         try container.encode(title, forKey: .title)
+        try container.encode(isPinned, forKey: .isPinned)
         try container.encode(isTroubleshooting, forKey: .isTroubleshooting)
         try container.encode(agent, forKey: .agent)
         try container.encode(mode, forKey: .mode)

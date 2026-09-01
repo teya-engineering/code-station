@@ -61,13 +61,15 @@ struct OldSessionSweepTests {
     @Test func takesOnlyWhatHasGoneQuietAndIsNeitherOpenNorRunning() {
         let running = session(daysAgo: 30)
         let open = session(daysAgo: 20)
-        let sessions = [session(daysAgo: 0.5), running, open, session(daysAgo: 8)]
+        var pinned = session(daysAgo: 40)
+        pinned.isPinned = true
+        let sessions = [session(daysAgo: 0.5), running, open, pinned, session(daysAgo: 8)]
 
         let due = OldSessionSweep.due(days: 7, in: sessions, now: now,
                                       isBusy: { $0 == running.id },
                                       isOpen: { $0 == open.id })
 
-        #expect(due.map(\.id) == [sessions[3].id])
+        #expect(due.map(\.id) == [sessions[4].id])
     }
 
     @Test func clearsALongBacklogOverSeveralPasses() {
@@ -268,6 +270,31 @@ struct OldSessionSweepTests {
         #expect(deleted == 0)
         #expect(store.session(old.id) != nil)
         #expect(store.selection == .session(old.id))
+    }
+
+    @Test func keepsASessionPinnedWhileItsWorktreeIsBeingChecked() async throws {
+        let store = store
+        let old = agedSession(worktreePath: try folderOnDisk())
+        let firstSeen = Date()
+        var buffer = OldSessionSweep.EligibilityBuffer()
+
+        _ = await OldSessionSweep.run(
+            days: 7, policy: .deleteSafe, store: store, runner: runner,
+            buffer: &buffer, now: firstSeen) { _ in
+                Issue.record("git should not be checked during the warning hour")
+                return self.snapshot(changedFiles: 0)
+            }
+
+        let deleted = await OldSessionSweep.run(
+            days: 7, policy: .deleteSafe, store: store, runner: runner,
+            buffer: &buffer,
+            now: firstSeen.addingTimeInterval(OldSessionSweep.gracePeriod)) { _ in
+                await MainActor.run { store.setPinned(true, forSession: old.id) }
+                return self.snapshot(changedFiles: 0)
+            }
+
+        #expect(deleted == 0)
+        #expect(store.session(old.id)?.isPinned == true)
     }
 
     // MARK: - What git has to say first

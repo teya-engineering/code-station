@@ -29,6 +29,30 @@ struct ProjectSortTests {
         #expect(sorted.map(\.name) == ["Alpha", "beta", "zebra"])
     }
 
+    @Test func pinnedItemsComeFirstUnderEverySort() {
+        let pinned = Project(name: "zebra", path: "/z", isPinned: true)
+        let recent = Project(name: "Alpha", path: "/a")
+        let sessions = [session(in: pinned, hoursAgo: 100),
+                        session(in: recent, hoursAgo: 1)]
+        let items = [recent, pinned].map(SidebarItem.project)
+
+        #expect(ProjectSort.name.apply(to: items, sessions: sessions).map(\.name)
+                == ["zebra", "Alpha"])
+        #expect(ProjectSort.lastUsed.apply(to: items, sessions: sessions).map(\.name)
+                == ["zebra", "Alpha"])
+    }
+
+    @Test func pinnedSessionsComeBeforeMoreRecentSessions() {
+        let project = Project(name: "project", path: "/project")
+        var pinned = session(in: project, hoursAgo: 100)
+        pinned.isPinned = true
+        let recent = session(in: project, hoursAgo: 1)
+
+        let sorted = [recent, pinned].sorted(by: SessionSort.pinnedFirstByLastActivity)
+
+        #expect(sorted.map(\.id) == [pinned.id, recent.id])
+    }
+
     @Test func ordersByTheNewestSessionInEachProject() {
         let old = Project(name: "old", path: "/old")
         let recent = Project(name: "recent", path: "/recent")

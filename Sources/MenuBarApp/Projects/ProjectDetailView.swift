@@ -339,7 +339,6 @@ struct ProjectDetailView: View {
 
     private func sessions(_ project: Project) -> some View {
         let available = store.standaloneSessions(for: project.id)
-            .sorted { $0.lastActivity > $1.lastActivity }
         return ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 sessionList(project, sessions: available)
@@ -440,6 +439,10 @@ struct ProjectDetailView: View {
     private func sessionMenu(_ session: ChatSession, project: Project) -> [MenuEntry] {
         [
             .item("Open session") { store.selectSession(session.id) },
+            .item(session.isPinned ? "Unpin" : "Pin",
+                  icon: session.isPinned ? "pin.slash" : "pin") {
+                store.setPinned(!session.isPinned, forSession: session.id)
+            },
             .item("Reveal in Finder") {
                 NSWorkspace.shared.activateFileViewerSelecting(
                     [URL(fileURLWithPath: session.worktreePath ?? project.path)])
@@ -681,10 +684,13 @@ struct SessionRow: View {
                             .truncationMode(.middle)
                     }
                 }
-                Text(session.title)
-                    .font(.system(size: 14, weight: .semibold))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                HStack(spacing: 6) {
+                    Text(session.title)
+                        .font(.system(size: 14, weight: .semibold))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    if session.isPinned { PinnedMark() }
+                }
             }
             .frame(minWidth: 220, idealWidth: 280, maxWidth: 320, alignment: .leading)
 
@@ -729,6 +735,7 @@ struct SessionRow: View {
             .stroke(tone.ring, lineWidth: tone.ringWidth))
         .contentShape(RoundedRectangle(cornerRadius: 12))
         .onTapGesture(perform: onOpen)
+        .appContextMenu(menu)
         .accessibilityAction(named: "Open session", onOpen)
         .animation(.easeOut(duration: 0.12), value: hovering)
         .onHover { hovering = $0 }

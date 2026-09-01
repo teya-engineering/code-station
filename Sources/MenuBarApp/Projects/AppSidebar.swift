@@ -49,12 +49,15 @@ struct AppSidebar: View {
         var sessions = 0
         var losesWork = 0
         var losesNothing = 0
+        var unpinnedSessions = 0
+        var unpinnedLosesNothing = 0
     }
 
     private struct OldSessionRefreshRule: Equatable {
         struct Session: Equatable {
             let id: UUID
             let isBusy: Bool
+            let isPinned: Bool
         }
 
         let days: Int
@@ -531,7 +534,9 @@ struct AppSidebar: View {
     private var groupedSessions: [UUID: [ChatSession]] {
         var groups = Dictionary(grouping: store.sidebarSessions.filter { $0.workspaceID == nil },
                                 by: \.projectID)
-        for key in groups.keys { groups[key]?.sort { $0.lastActivity > $1.lastActivity } }
+        for key in groups.keys {
+            groups[key]?.sort(by: SessionSort.pinnedFirstByLastActivity)
+        }
         return groups
     }
 
@@ -540,7 +545,7 @@ struct AppSidebar: View {
             session.workspaceID.map { ($0, session) }
         }, by: \.0)
         return groups.mapValues { rows in
-            rows.map(\.1).sorted { $0.lastActivity > $1.lastActivity }
+            rows.map(\.1).sorted(by: SessionSort.pinnedFirstByLastActivity)
         }
     }
 
@@ -579,7 +584,11 @@ struct AppSidebar: View {
                 }
             }
             .appContextMenu {
-                [.item("Rename…") { renamingID = workspace.id },
+                [.item(workspace.isPinned ? "Unpin" : "Pin",
+                       icon: workspace.isPinned ? "pin.slash" : "pin") {
+                     store.setPinned(!workspace.isPinned, forWorkspace: workspace.id)
+                 },
+                 .item("Rename…") { renamingID = workspace.id },
                  .item("New session") { choosingWorkspaceSession = workspace },
                  .separator,
                  .item("Delete workspace", kind: .destructive) {
@@ -705,7 +714,11 @@ struct AppSidebar: View {
                 .contentShape(Rectangle())
                 .onTapGesture { store.selectSession(session.id) }
                 .appContextMenu {
-                    [.item("Rename…") { renamingID = session.id },
+                    [.item(session.isPinned ? "Unpin" : "Pin",
+                           icon: session.isPinned ? "pin.slash" : "pin") {
+                         store.setPinned(!session.isPinned, forSession: session.id)
+                     },
+                     .item("Rename…") { renamingID = session.id },
                      .separator,
                      .item("Delete session", kind: .destructive) {
                          confirmRemoveSession(session)
@@ -738,8 +751,13 @@ struct AppSidebar: View {
     // Tasks and projects share the row but not its menu: a task is run rather than
     // started, and deleting it takes its app-owned folder along.
     private func headerMenu(_ project: Project) -> [MenuEntry] {
+        let pin = MenuEntry.item(project.isPinned ? "Unpin" : "Pin",
+                                 icon: project.isPinned ? "pin.slash" : "pin") {
+            store.setPinned(!project.isPinned, forProject: project.id)
+        }
         if project.kind == .adHoc {
-            return [.item("Run task") { runTask(project) },
+            return [pin,
+                    .item("Run task") { runTask(project) },
                     .item("Rename…") { renamingID = project.id },
                     .separator,
                     .item("Reveal in Finder") {
@@ -750,7 +768,8 @@ struct AppSidebar: View {
                     .item("Clear idle runs", kind: .destructive) { confirmClearSessions(in: project) },
                     .item("Delete task", kind: .destructive) { confirmRemoveProject(project) }]
         }
-        return [.item("Rename…") { renamingID = project.id },
+        return [pin,
+                .item("Rename…") { renamingID = project.id },
                 .item("New session") { requestNewSession(in: project) },
                 .separator,
                 .item("Reveal in Finder") {
@@ -1156,8 +1175,8 @@ struct AppSidebar: View {
     private func automaticallyDeletedCount(in summary: OldSessionSummary) -> Int {
         switch appSettings.oldSessionCleanupPolicy {
         case .review: 0
-        case .deleteSafe: summary.losesNothing
-        case .deleteAll: summary.sessions
+        case .deleteSafe: summary.unpinnedLosesNothing
+        case .deleteAll: summary.unpinnedSessions
         }
     }
 
@@ -1168,7 +1187,8 @@ struct AppSidebar: View {
             oldSessions: OldSessions.olderThan(oldSessionDays, in: sessions).map {
                 OldSessionRefreshRule.Session(
                     id: $0.id,
-                    isBusy: runner.state($0.id).isBusy)
+                    isBusy: runner.state($0.id).isBusy,
+                    isPinned: $0.isPinned)
             },
             nextOldAt: OldSessions.nextOldAt(oldSessionDays, in: sessions))
     }
@@ -1178,6 +1198,8 @@ struct AppSidebar: View {
             .filter { !runner.state($0.id).isBusy }
         var losesWork = 0
         var losesNothing = 0
+        var unpinnedSessions = 0
+        var unpinnedLosesNothing = 0
         for session in sessions {
             guard !Task.isCancelled else { return }
             let cost = await SessionCost.settledCost(
@@ -1185,11 +1207,17 @@ struct AppSidebar: View {
                 deletesDesignArtifacts: store.hasDesignArtifacts(for: session))
             if cost.losesWork { losesWork += 1 }
             if cost.losesNothing { losesNothing += 1 }
+            if !session.isPinned {
+                unpinnedSessions += 1
+                if cost.losesNothing { unpinnedLosesNothing += 1 }
+            }
         }
         guard !Task.isCancelled else { return }
         oldSessionSummary = OldSessionSummary(sessions: sessions.count,
                                               losesWork: losesWork,
-                                              losesNothing: losesNothing)
+                                              losesNothing: losesNothing,
+                                              unpinnedSessions: unpinnedSessions,
+                                              unpinnedLosesNothing: unpinnedLosesNothing)
     }
 
     private func refreshOldSessionsHourly() async {
@@ -1571,6 +1599,7 @@ private struct WorkspaceHeaderRow: View {
                     Text(workspace.name)
                         .font(.system(size: 13.5, weight: .semibold))
                         .lineLimit(1)
+                    if workspace.isPinned { PinnedMark() }
                     if finishedCount > 0 { FinishedDot() }
                 }
 
@@ -1688,6 +1717,7 @@ private struct ProjectHeaderRow: View {
                         .font(.system(size: 13.5, weight: .semibold))
                         .lineLimit(1)
                         .truncationMode(.tail)
+                    if project.isPinned { PinnedMark() }
                     if let schedule = project.task?.schedule, schedule.isActive {
                         Image(systemName: "clock.fill")
                             .font(.system(size: 9.5, weight: .semibold))
@@ -1847,6 +1877,16 @@ private struct MobileConnectionMark: View {
     }
 }
 
+struct PinnedMark: View {
+    var body: some View {
+        Image(systemName: "pin.fill")
+            .font(.system(size: 9.5, weight: .semibold))
+            .foregroundStyle(Theme.accent)
+            .appTooltip("Pinned")
+            .accessibilityLabel("Pinned")
+    }
+}
+
 // A session as a compact card. It carries the same state, title and activity the session
 // shows on its project and on Home, so it reads the same wherever it is met.
 private struct SessionCard: View {
@@ -1885,6 +1925,7 @@ private struct SessionCard: View {
                     .foregroundStyle(tone.colour)
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
+                if session.isPinned { PinnedMark() }
                 if session.worktreePath != nil {
                     MonoChip(text: "WT", size: 8.5)
                 }
