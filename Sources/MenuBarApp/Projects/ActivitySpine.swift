@@ -65,7 +65,7 @@ struct ActivitySpine: View {
     private var foldableBlock: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
-            if showsRows { cards.transition(.fadeIn) }
+            if showsRows { cards.transition(.fold) }
         }
         .padding(.horizontal, showsRows ? 2 : 13)
         .padding(.vertical, showsRows ? 0 : 8)
