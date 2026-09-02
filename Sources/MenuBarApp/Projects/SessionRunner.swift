@@ -1766,6 +1766,7 @@ final class SessionRunner {
                     toolName = message.tools[i].name
                     message.tools[i].result = output
                     message.tools[i].isError = isError
+                    message.tools[i].finishedAt = Date()
                     // An agent that has reported back is no longer partway through
                     // anything, and its last words are in the result.
                     message.tools[i].status = nil

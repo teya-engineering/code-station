@@ -1,8 +1,11 @@
 import SwiftUI
 
-// Sequential tool calls share one block, but every call keeps its own visible row. A row
-// expands in place - an edit shows the diff it made, a call that started an agent shows
-// everything that agent did, and everything else shows its input and output.
+// Sequential tool calls share one block, and every call in it is a card: a band naming
+// its state and its tool, with the argument and what came back, and a body that opens on
+// the work itself. A running command opens on a terminal showing the command and a clock;
+// an edit opens on the diff it made; a call that started an agent opens on everything
+// that agent did. A finished card folds down to its band, so a run of calls reads as a
+// stack of receipts.
 //
 // The block itself folds down to a single summary line, so a finished turn reads as what
 // Claude said rather than as a page of the work behind it.
@@ -15,7 +18,8 @@ struct ActivitySpine: View {
     // it makes its next call, and a call interrupted mid-turn never reports in at all.
     // Only the end of the turn says the block is done.
     var isLive = false
-    // A nested spine already sits behind a row the reader opened, so it draws in full.
+    // A nested spine already sits inside the card of the agent that made its calls, so it
+    // draws in full and a size down.
     var isFoldable = true
 
     @Environment(\.runningAgents) private var runningAgents
@@ -25,7 +29,7 @@ struct ActivitySpine: View {
     // turn is on it and folded once the turn has moved on.
     @State private var showsCalls: Bool?
 
-    // Having opened a row is asking for the block, so the fold that comes with the end of
+    // Having opened a card is asking for the block, so the fold that comes with the end of
     // the turn does not take back what the reader unfolded while the calls ran.
     private var showsRows: Bool {
         Self.rowsAreVisible(isFoldable: isFoldable,
@@ -45,16 +49,28 @@ struct ActivitySpine: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if isFoldable { header }
-            if showsRows { rows.transition(.fadeIn) }
+        Group {
+            if isFoldable {
+                foldableBlock
+            } else {
+                cards
+            }
         }
-        .padding(.horizontal, 13)
-        .padding(.vertical, showsRows ? 11 : 8)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 11).fill(Theme.sunken))
         .smoothlyResizes(when: expanded)
         .smoothlyResizes(when: showsRows)
+    }
+
+    // Folded, the block is a sunken line saying what ran. Open, the cards carry their own
+    // surfaces, so the fill goes and they sit on the page like the rest of the turn.
+    private var foldableBlock: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            header
+            if showsRows { cards.transition(.fadeIn) }
+        }
+        .padding(.horizontal, showsRows ? 2 : 13)
+        .padding(.vertical, showsRows ? 0 : 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 11).fill(showsRows ? .clear : Theme.sunken))
     }
 
     private var header: some View {
@@ -75,7 +91,7 @@ struct ActivitySpine: View {
             }
         }
         .foregroundStyle(.secondary)
-        .padding(.bottom, showsRows ? 7 : 0)
+        .padding(.bottom, showsRows ? 8 : 0)
     }
 
     // Enough of what ran to say whether the block is worth opening, without opening it.
@@ -89,15 +105,16 @@ struct ActivitySpine: View {
             + (verbs.count > 3 ? "…" : "")
     }
 
-    private var rows: some View {
-        VStack(alignment: .leading, spacing: 0) {
+    private var cards: some View {
+        VStack(alignment: .leading, spacing: 8) {
             ForEach(nodes, id: \.id) { node in
-                SpineRow(
+                SpineCard(
                     node: node,
                     presentation: ToolPresentationCache.presentation(
                         for: node.tool, projectPath: projectPath),
                     projectPath: projectPath,
                     isExpanded: expanded.contains(node.id),
+                    small: !isFoldable,
                     onToggle: {
                         if expanded.contains(node.id) {
                             expanded.remove(node.id)
@@ -112,7 +129,7 @@ struct ActivitySpine: View {
     }
 }
 
-// How much ran, said the same way wherever it is said: on a folded block, and on the row
+// How much ran, said the same way wherever it is said: on a folded block, and on the band
 // of a call that handed its work on. Agents are counted apart from calls, since a
 // fan-out's size is the team it put to work.
 private func workDone(calls: Int, agents: Int) -> String {
@@ -121,15 +138,15 @@ private func workDone(calls: Int, agents: Int) -> String {
     return counted(agents, "agent") + " · " + work
 }
 
-// The same expanded call the transcript draws, without the surrounding activity block.
-// The Working Set puts it in a card of its own when a compact row is clicked.
+// The same open card the transcript draws, without its band: the Working Set puts it in a
+// card of its own when a compact row is clicked, and that card names the call itself.
 struct ToolCallExpandedDetail: View {
     let tool: ToolUse
     let projectPath: String
     let isRunning: Bool
 
     var body: some View {
-        SpineRow(
+        SpineCard(
             node: ToolNode(tool: tool),
             presentation: ToolPresentationCache.presentation(
                 for: tool, projectPath: projectPath),
@@ -137,11 +154,37 @@ struct ToolCallExpandedDetail: View {
             isExpanded: true,
             onToggle: nil,
             openChanges: nil,
-            working: isRunning)
+            working: isRunning,
+            bodyOnly: true)
     }
 }
 
-private struct SpineRow: View {
+// What a card's band says about its call. The word carries the state on its own, so a
+// reader who cannot tell the dots apart is told the same thing.
+enum SpineCardState: Equatable {
+    case running, done, failed
+
+    init(isWorking: Bool, isError: Bool) {
+        self = isWorking ? .running : isError ? .failed : .done
+    }
+
+    var word: String {
+        switch self {
+        case .running: "RUNNING"
+        case .done: "DONE"
+        case .failed: "FAILED"
+        }
+    }
+
+    var dot: Color {
+        switch self {
+        case .running, .done: Theme.dotOn
+        case .failed: Theme.deletion
+        }
+    }
+}
+
+private struct SpineCard: View {
     @Environment(\.textScale) private var textScale
     @Environment(\.runningAgents) private var runningAgents
 
@@ -149,126 +192,119 @@ private struct SpineRow: View {
     let presentation: ToolPresentation
     let projectPath: String
     let isExpanded: Bool
+    // The cards inside an agent's body are drawn a size down, so the agent's own band
+    // still reads as the heading over them.
+    var small = false
     let onToggle: (() -> Void)?
     let openChanges: (() -> Void)?
     var working: Bool? = nil
+    // Just the body, for a host that has a band of its own.
+    var bodyOnly = false
 
-    // An edit's own diff is the point of its row, so it is drawn without being asked
-    // for. Clicking such a row puts it away again rather than opening anything further:
-    // what a row would otherwise open is the call's input, which for an edit is the diff
-    // already on screen.
-    @State private var diffPutAway = false
+    private static let cornerRadius: CGFloat = 10
 
     private var tool: ToolUse { node.tool }
 
-    // Whether there is still work behind this row. An agent sent to the background
-    // answers its own call the moment it starts, so a row that stands for one cannot go
+    // Whether there is still work behind this card. An agent sent to the background
+    // answers its own call the moment it starts, so a card that stands for one cannot go
     // by its call having reported in.
     private var isWorking: Bool { working ?? node.isWorking(agents: runningAgents) }
+
+    private var state: SpineCardState { SpineCardState(isWorking: isWorking, isError: tool.isError) }
+
+    // A running card is open on its work whether or not it was asked for: the work is
+    // what the turn is doing right now. Once it is done it folds unless the reader opened it.
+    private var showsBody: Bool { bodyOnly || isWorking || isExpanded }
+
+    private var isCommand: Bool { tool.name == "Bash" }
+
+    // The terminal shows the command in full, so the band above it gives up its copy.
+    private var bandShowsArgument: Bool { !(isCommand && showsBody) }
 
     private var hasDiff: Bool {
         !presentation.changes.isEmpty && !tool.isError && node.children.isEmpty
     }
 
-    private var showsDiff: Bool { hasDiff && !diffPutAway }
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if let action = putsDiffAway ? { diffPutAway.toggle() } : onToggle {
-                Button(action: action) {
-                    paddedRow
+        if bodyOnly {
+            cardBody
+        } else {
+            VStack(alignment: .leading, spacing: 0) {
+                if let onToggle {
+                    Button(action: onToggle) { band }
+                        .buttonStyle(.plain)
+                } else {
+                    band
                 }
-                .buttonStyle(.plain)
-            } else {
-                paddedRow
-            }
-
-            if showsDiff {
-                // A command that changed several files gets a diff for each, in the order
-                // git listed them.
-                VStack(alignment: .leading, spacing: 6) {
-                    ForEach(presentation.changes) { change in
-                        EditDiffCard(change: change, openChanges: openChanges)
-                    }
+                if showsBody {
+                    Divider().overlay(Theme.hairline)
+                    cardBody.transition(.fadeIn)
                 }
-                .padding(.bottom, 8)
-                .transition(.fadeIn)
             }
-            if isExpanded {
-                detail
-                    .padding(.bottom, 8)
-                    .transition(.fadeIn)
-            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .surface(Theme.card, cornerRadius: Self.cornerRadius,
+                     border: state == .running ? Theme.dotOn.opacity(0.35) : Theme.border)
+            .clipShape(RoundedRectangle(cornerRadius: Self.cornerRadius))
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .smoothlyResizes(when: diffPutAway)
     }
 
-    private var paddedRow: some View {
-        row
-            .padding(.vertical, 4)
-            .contentShape(Rectangle())
-    }
+    // MARK: - Band
 
-    // A command's diff was measured off the working tree rather than sent with the call,
-    // so the command itself is still worth opening and the diff stays where it is.
-    private var putsDiffAway: Bool { hasDiff && presentation.diffIsTheInput }
-
-    // The verb sits in a column of its own so a run of calls reads down the left edge as
-    // a list of what was done, with the targets lining up beside it.
-    private var row: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 10) {
-                Text(presentation.verb)
-                    .scaledMono(11.5, .semibold)
-                    .lineLimit(1)
-                    // The verb sits in its own column, so the column has to grow with it
-                    // or the longer verbs lose their tails at the larger sizes.
-                    .frame(width: 38 * textScale, alignment: .leading)
+    // The band is tinted the way the NOW panel of the Working Set is while its call runs,
+    // so the one card still moving is picked out of the stack.
+    private var band: some View {
+        HStack(spacing: 10) {
+            dot
+            Text("\(state.word) · \(tool.name.uppercased())")
+                .kerning(1)
+                .scaledMono(small ? 9.5 : 10.5, .bold)
+                .foregroundStyle(state == .running
+                                 ? AnyShapeStyle(Theme.addition)
+                                 : AnyShapeStyle(.primary))
+                .lineLimit(1)
+                .fixedSize()
+            if bandShowsArgument {
                 Text(presentation.argument)
                     .scaledMono(11.5)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                Spacer(minLength: 8)
-                note
             }
-            // A fan-out can run for many minutes behind one row, so while it does, the
-            // row carries whatever its agents were last doing.
-            if let live = liveLine {
-                Text(live)
-                    .scaledText(11)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .padding(.leading, 48)
-            }
+            Spacer(minLength: 8)
+            meta
+        }
+        .padding(.horizontal, 14)
+        .frame(maxWidth: .infinity)
+        .frame(height: (small ? 32 : 38) * textScale)
+        .background(state == .running ? Theme.dotOn.opacity(0.07) : Theme.statusBand)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityLabel)
+    }
+
+    @ViewBuilder private var dot: some View {
+        if state == .running {
+            PulsingDot(size: 8)
+        } else {
+            Circle()
+                .fill(state.dot)
+                .frame(width: 8, height: 8)
         }
     }
 
-    private var liveLine: String? {
-        guard tool.startsAgents, isWorking else { return nil }
-        if let newest = node.newestDescendant, newest.tool.isRunning {
-            return ToolPresentationCache.presentation(for: newest.tool, projectPath: projectPath).label
-        }
-        return tool.status
+    private var accessibilityLabel: String {
+        var parts = [state.word.lowercased(), tool.name]
+        if !presentation.argument.isEmpty { parts.append(presentation.argument) }
+        if let note = noteText { parts.append(note) }
+        if let clock = clockText { parts.append(clock) }
+        return parts.joined(separator: ", ")
     }
 
-    @ViewBuilder private var note: some View {
-        if !node.children.isEmpty {
-            HStack(spacing: 6) {
-                if tool.isError { failed }
-                if isWorking { running }
-                Text(workDone(calls: node.callCount, agents: node.agentCount))
-                    .scaledMono(10.5)
-                    .foregroundStyle(.tertiary)
-            }
-        } else if isWorking {
-            running
-        } else if tool.isError {
-            failed
-        } else if let added = presentation.added, let removed = presentation.removed {
-            HStack(spacing: 6) {
+    // What came back and how long it took, at the right of the band.
+    private var meta: some View {
+        HStack(spacing: 6) {
+            if let added = presentation.added, let removed = presentation.removed,
+               node.children.isEmpty, !tool.isError {
                 // A command can change a whole set of files at once, and how many is as
                 // much of the story as how many lines moved.
                 if presentation.changedFiles > 1 {
@@ -276,35 +312,142 @@ private struct SpineRow: View {
                         .scaledMono(10.5)
                         .foregroundStyle(.tertiary)
                 }
-                DiffPair(added: added, removed: removed, size: 10.5)
+                DiffPair(added: added, removed: removed, size: 10.5 * textScale)
+            } else if let note = noteText {
+                Text(note)
+                    .scaledMono(10.5)
+                    .foregroundStyle(.tertiary)
             }
-        } else if presentation.notesResultLineCount, let result = tool.result {
-            // A command that printed nothing is worth saying out loud: without it the row
-            // is indistinguishable from one whose output is simply collapsed.
-            Text(result.isEmpty ? "no output" : counted(lineCount(result), "line"))
+            if hasClock {
+                Text("·")
+                    .scaledMono(10.5)
+                    .foregroundStyle(.tertiary)
+                clock
+            }
+        }
+        .lineLimit(1)
+        .fixedSize()
+    }
+
+    private var noteText: String? {
+        if !node.children.isEmpty {
+            return workDone(calls: node.callCount, agents: node.agentCount)
+        }
+        if isWorking || tool.isError { return nil }
+        if let added = presentation.added, let removed = presentation.removed {
+            let files = presentation.changedFiles > 1 ? "\(presentation.changedFiles) files, " : ""
+            return "\(files)+\(added) −\(removed)"
+        }
+        if presentation.notesResultLineCount, let result = tool.result {
+            // A command that printed nothing is worth saying out loud: without it the band
+            // is indistinguishable from one whose output is simply folded away.
+            return result.isEmpty ? "no output" : counted(lineCount(result), "line")
+        }
+        return nil
+    }
+
+    private var hasClock: Bool {
+        isWorking ? tool.startedAt != nil : tool.duration != nil
+    }
+
+    // Ticking while the call runs, then the span it took once it has reported in. A
+    // background agent's call reports in at once, so its clock runs on from the start.
+    @ViewBuilder private var clock: some View {
+        if isWorking, let startedAt = tool.startedAt {
+            ElapsedTime(since: startedAt, size: 10.5, scaled: true)
+        } else if let text = clockText {
+            Text(text)
                 .scaledMono(10.5)
                 .foregroundStyle(.tertiary)
+                .monospacedDigit()
         }
     }
 
-    private var running: some View {
-        RunningWord()
+    private var clockText: String? {
+        if isWorking {
+            return tool.startedAt.map { ElapsedTime.reading(Date().timeIntervalSince($0)) }
+        }
+        return tool.duration.map(ElapsedTime.duration)
     }
 
-    private var failed: some View {
-        Image(systemName: "exclamationmark.triangle.fill")
-            .font(.system(size: 11))
-            .foregroundStyle(Theme.deletion)
-    }
+    // MARK: - Body
 
-    @ViewBuilder private var detail: some View {
-        if !node.children.isEmpty {
+    @ViewBuilder private var cardBody: some View {
+        if tool.startsAgents {
             agentWork
+        } else if isCommand {
+            terminal
+            if hasDiff { diffs }
+        } else if hasDiff, presentation.diffIsTheInput {
+            // An edit's input is the change itself, so the diff is the whole of it.
+            diffs
         } else if tool.isError, let result = tool.result, !result.isEmpty {
-            outputBox(result, tinted: true)
+            plain(result, tinted: true)
         } else {
-            if !tool.input.isEmpty { outputBox(tool.input, tinted: false) }
-            if let result = tool.result, !result.isEmpty { outputBox(result, tinted: false) }
+            if !tool.input.isEmpty { plain(tool.input, tinted: false) }
+            if hasDiff { diffs }
+            if let result = tool.result, !result.isEmpty {
+                if !tool.input.isEmpty { Divider().overlay(Theme.hairline) }
+                plain(result, tinted: false)
+            }
+        }
+    }
+
+    // The command as the shell saw it, then what it printed. The band's argument is the
+    // same command squeezed onto one line; this is the real thing, so a multi-line script
+    // keeps its lines.
+    private var terminal: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text("$")
+                        .foregroundStyle(Theme.terminalDim)
+                    Text(command)
+                        .fontWeight(.semibold)
+                        .textSelection(.enabled)
+                }
+                if isWorking {
+                    // The CLI hands a command's output over whole once it ends, so while
+                    // it runs there is nothing to print yet but the prompt waiting.
+                    BlinkingCursor()
+                } else if let result = tool.result {
+                    if result.isEmpty {
+                        Text("no output")
+                            .foregroundStyle(Theme.terminalDim)
+                    } else {
+                        Text(result)
+                            .foregroundStyle(tool.isError ? Theme.terminalFailure : Theme.terminalText)
+                            .textSelection(.enabled)
+                    }
+                }
+            }
+            .lineSpacing(3)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+        }
+        // Output can be a whole build log, so cap it and let the body scroll. The cap
+        // follows the text, so the body shows about the same number of lines at any size.
+        .frame(maxHeight: 240 * textScale)
+        .scaledMono(12)
+        .foregroundStyle(Theme.terminalText)
+        .background(Theme.terminal)
+    }
+
+    private var command: String {
+        ToolPresentation.shellCommand(in: tool.input) ?? tool.input
+    }
+
+    // A command that changed several files gets a diff for each, in the order git listed
+    // them. They sit in the body without frames of their own, one over the other.
+    private var diffs: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(presentation.changes) { change in
+                if change.id != presentation.changes.first?.id {
+                    Divider().overlay(Theme.hairline)
+                }
+                EditDiffCard(change: change, openChanges: openChanges, framed: false)
+            }
         }
     }
 
@@ -312,40 +455,43 @@ private struct SpineRow: View {
     // words while it worked open it, and its report closes it: that report is the only
     // part of all this the conversation itself gets back.
     private var agentWork: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 0) {
             if let status = tool.status, !status.isEmpty {
                 Text(status)
                     .scaledText(11)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
             }
-            ActivitySpine(nodes: node.children, projectPath: projectPath,
-                          openChanges: openChanges, isFoldable: false)
+            if !node.children.isEmpty {
+                ActivitySpine(nodes: node.children, projectPath: projectPath,
+                              openChanges: openChanges, isFoldable: false)
+                    .padding(.horizontal, 10)
+                    .padding(.top, tool.status?.isEmpty == false ? 0 : 10)
+                    .padding(.bottom, 10)
+            }
             if let result = tool.result, !result.isEmpty {
-                outputBox(result, tinted: tool.isError)
+                plain(result, tinted: tool.isError)
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .cardSurface(cornerRadius: 10)
     }
 
-    private func outputBox(_ text: String, tinted: Bool) -> some View {
+    private func plain(_ text: String, tinted: Bool) -> some View {
         ScrollView {
             Text(text)
                 .scaledMono(11)
-                .foregroundStyle(tinted ? Theme.warningText : .primary)
+                .foregroundStyle(tinted ? AnyShapeStyle(Theme.warningText) : AnyShapeStyle(.secondary))
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(10)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
         }
         // Tool output can be a whole file, so cap it and let the box scroll. The cap
         // follows the text, so the box shows about the same number of lines at any size.
         .frame(maxHeight: 220 * textScale)
-        .surface(tinted ? Theme.warningBackground : Theme.field, cornerRadius: 8)
-        .padding(.bottom, 4)
+        .background(tinted ? Theme.warningBackground : .clear)
     }
 
     private func lineCount(_ text: String) -> Int {
@@ -353,24 +499,55 @@ private struct SpineRow: View {
     }
 }
 
+// The block cursor a shell leaves at the prompt while a command runs. Held steady under
+// Reduce Motion, like the dot on the band above it.
+private struct BlinkingCursor: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.textScale) private var textScale
+    @State private var hidden = false
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 1)
+            .fill(Theme.terminalText)
+            .frame(width: 7 * textScale, height: 13 * textScale)
+            .opacity(hidden ? 0 : 0.8)
+            .animation(reduceMotion
+                       ? nil
+                       : .linear(duration: 0.55).repeatForever(autoreverses: true),
+                       value: hidden)
+            .onAppear { hidden = !reduceMotion }
+            .accessibilityHidden(true)
+    }
+}
+
 // One file's worth of what a call changed, shown as a small inline diff. This is a
-// preview: the full working tree diff lives behind "Open in Changes".
+// preview: the full working tree diff lives behind "Open in Changes". Framed, it is a
+// card of its own; unframed, it fills the body of the card it belongs to.
 private struct EditDiffCard: View {
     @Environment(\.textScale) private var textScale
 
     let change: ToolPresentation.FileChange
     let openChanges: (() -> Void)?
+    var framed = true
 
     private static let visibleLines = 120
 
     var body: some View {
+        if framed {
+            content
+                .cardSurface(cornerRadius: 10)
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+        } else {
+            content
+        }
+    }
+
+    private var content: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
             Divider().overlay(Theme.hairline)
             lines
         }
-        .cardSurface(cornerRadius: 10)
-        .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 
     private var header: some View {
@@ -480,7 +657,7 @@ private struct EditDiffCard: View {
 }
 
 // The agents the running turn still has out, by the id the CLI gave them. It travels in
-// the environment because the rows that need it sit at the bottom of the transcript, and
+// the environment because the cards that need it sit at the bottom of the transcript, and
 // a message is drawn again only when the message itself changes - which the agents coming
 // and going does not do.
 private struct RunningAgentsKey: EnvironmentKey {

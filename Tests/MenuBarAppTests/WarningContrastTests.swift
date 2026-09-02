@@ -47,6 +47,30 @@ struct WarningContrastTests {
         }
     }
 
+    // The card a tool call is drawn as: the state word on the tinted band of a running
+    // call, and the terminal body underneath, which stays dark in both appearances.
+    @Test func toolCallCardIsReadableInBothAppearances() throws {
+        for appearance in try appearances() {
+            let card = try swatch(Theme.card, in: appearance)
+            let runningBand = try swatch(Theme.dotOn, in: appearance).faded(to: 0.07).over(card)
+            let terminal = try swatch(Theme.terminal, in: appearance)
+
+            let pairs: [(String, Swatch, Swatch)] = [
+                ("running state", try swatch(Theme.addition, in: appearance), runningBand),
+                ("argument", try swatch(Color(nsColor: .labelColor), in: appearance),
+                 try swatch(Theme.statusBand, in: appearance)),
+                ("terminal text", try swatch(Theme.terminalText, in: appearance), terminal),
+                ("terminal prompt", try swatch(Theme.terminalDim, in: appearance), terminal),
+                ("terminal failure", try swatch(Theme.terminalFailure, in: appearance), terminal)
+            ]
+
+            for (part, ink, background) in pairs {
+                #expect(ink.contrast(against: background) >= 4.5,
+                        "\(part) on \(appearance.name.rawValue)")
+            }
+        }
+    }
+
     private func appearances() throws -> [NSAppearance] {
         [try #require(NSAppearance(named: .aqua)), try #require(NSAppearance(named: .darkAqua))]
     }

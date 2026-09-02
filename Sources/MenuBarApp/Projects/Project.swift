@@ -243,8 +243,18 @@ struct ToolUse: Identifiable, Codable, Equatable, Sendable {
     // call arrives. Optional so conversations written before the app kept it still
     // decode; those fall back to the time of the turn they sit in.
     var startedAt: Date?
+    // When the call's result reached the app, stamped the same way. Nil while the call
+    // runs, and for a call interrupted mid-turn, which never reports in.
+    var finishedAt: Date?
 
     var isRunning: Bool { result == nil }
+
+    // How long the call took, from its arrival to its result. Nil until it has reported
+    // in, and for conversations written before the app kept both times.
+    var duration: TimeInterval? {
+        guard let startedAt, let finishedAt else { return nil }
+        return max(0, finishedAt.timeIntervalSince(startedAt))
+    }
 
     // Calls that stand for an agent rather than for work done in this conversation.
     // Their rows read as a container: what matters is what ran inside them.

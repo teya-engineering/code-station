@@ -422,27 +422,6 @@ private struct WorkingSetInk {
     }
 }
 
-// Counts up while something runs. The row has to keep ticking when nothing arrives to
-// redraw it, which is the case the panel exists for.
-private struct ElapsedTime: View {
-    let since: Date
-
-    var body: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { context in
-            Text(Self.reading(context.date.timeIntervalSince(since)))
-                .font(.mono(8.5))
-                .foregroundStyle(.tertiary)
-                .monospacedDigit()
-        }
-    }
-
-    static func reading(_ seconds: TimeInterval) -> String {
-        let whole = Int(max(0, seconds))
-        guard whole >= 60 else { return "\(whole)s" }
-        return "\(whole / 60)m \(whole % 60)s"
-    }
-}
-
 // The quiet reading at the right of a panel header.
 private struct PanelReading: View {
     let text: String?

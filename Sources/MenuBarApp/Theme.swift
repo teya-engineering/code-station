@@ -89,6 +89,24 @@ enum Theme {
         light: NSColor(srgbRed: 0.98, green: 0.90, blue: 0.88, alpha: 1),
         dark: NSColor(srgbRed: 0.22, green: 0.11, blue: 0.10, alpha: 1))
 
+    // The terminal a command's output is read in. Dark in both appearances, so a command
+    // reads as a shell would print it rather than as another card, and so the same run of
+    // text looks the same whichever appearance the reader is in.
+    static let terminal = adaptive(
+        light: NSColor(srgbRed: 0.169, green: 0.173, blue: 0.149, alpha: 1),
+        dark: NSColor(srgbRed: 0.051, green: 0.055, blue: 0.047, alpha: 1))
+    static let terminalText = adaptive(
+        light: NSColor(srgbRed: 0.925, green: 0.914, blue: 0.867, alpha: 1),
+        dark: NSColor(srgbRed: 0.894, green: 0.886, blue: 0.847, alpha: 1))
+    static let terminalDim = adaptive(
+        light: NSColor(srgbRed: 0.612, green: 0.608, blue: 0.573, alpha: 1),
+        dark: NSColor(srgbRed: 0.545, green: 0.541, blue: 0.510, alpha: 1))
+    // The output of a command that failed. Lighter than `deletion`, which would sink into
+    // the dark surface; WarningContrastTests measures it there.
+    static let terminalFailure = adaptive(
+        light: NSColor(srgbRed: 0.886, green: 0.541, blue: 0.494, alpha: 1),
+        dark: NSColor(srgbRed: 0.851, green: 0.388, blue: 0.357, alpha: 1))
+
     static let border = adaptive(
         light: NSColor(srgbRed: 0.46, green: 0.42, blue: 0.34, alpha: 0.1),
         dark: NSColor(srgbRed: 1, green: 1, blue: 1, alpha: 0.1))
