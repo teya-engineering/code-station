@@ -238,13 +238,18 @@ private struct SpineCard: View {
                 }
                 if showsBody {
                     Divider().overlay(Theme.hairline)
-                    cardBody.transition(.fadeIn)
+                    cardBody.transition(.fold)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .surface(Theme.card, cornerRadius: Self.cornerRadius,
                      border: state == .running ? Theme.dotOn.opacity(0.35) : Theme.border)
             .clipShape(RoundedRectangle(cornerRadius: Self.cornerRadius))
+            // A call reporting in folds the body away, drops the band's tint and stills
+            // the dot all at once. Animating that keeps a finished command from snapping
+            // shut under the eye that was reading it.
+            .smoothlyResizes(when: showsBody)
+            .smoothlyResizes(when: state)
         }
     }
 

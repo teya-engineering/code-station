@@ -445,6 +445,10 @@ extension AnyTransition {
     static var fadeIn: AnyTransition {
         .asymmetric(insertion: .opacity, removal: .identity)
     }
+
+    // For content that closes onto nothing rather than onto the view that replaces it: it
+    // fades as the frame around it shrinks, so the close is seen out instead of cut.
+    static var fold: AnyTransition { .opacity }
 }
 
 extension View {
