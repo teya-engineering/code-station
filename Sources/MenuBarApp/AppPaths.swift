@@ -119,7 +119,7 @@ enum AppPaths {
 // The handful of things that are preferences rather than data: what was open last time.
 // macOS has a place for these, so they do not belong in the file holding the projects.
 // A preference takes the store as a parameter where a settings object or a test reads
-// its own UserDefaults; the rest only ever read the standard one.
+// its own UserDefaults; convenience properties keep app-wide callers on the standard one.
 enum Preferences {
     private static var store: UserDefaults { .standard }
 
@@ -320,13 +320,18 @@ enum Preferences {
         store.set(enabled, forKey: "autoPruneOrphanedWorktrees")
     }
 
-    static var skillsRefreshInterval: SkillsRefreshInterval {
-        get {
-            guard store.object(forKey: "skillsRefreshInterval") != nil else { return .fiveDays }
-            return SkillsRefreshInterval(rawValue: store.integer(forKey: "skillsRefreshInterval"))
-                ?? .fiveDays
-        }
-        set { store.set(newValue.rawValue, forKey: "skillsRefreshInterval") }
+    static func skillsRefreshInterval(in store: UserDefaults = .standard)
+        -> SkillsRefreshInterval {
+        guard store.object(forKey: "skillsRefreshInterval") != nil else { return .fiveDays }
+        return SkillsRefreshInterval(rawValue: store.integer(forKey: "skillsRefreshInterval"))
+            ?? .fiveDays
+    }
+
+    static func setSkillsRefreshInterval(
+        _ interval: SkillsRefreshInterval,
+        in store: UserDefaults = .standard
+    ) {
+        store.set(interval.rawValue, forKey: "skillsRefreshInterval")
     }
 
     static func skillsLastRefresh(in store: UserDefaults = .standard) -> Date? {
@@ -405,26 +410,41 @@ enum Preferences {
 
     // How the sidebar orders projects. An unset key reads as the alphabetical order,
     // which is the one the list has always been in.
-    static var projectSort: ProjectSort {
-        get { store.string(forKey: "projectSort").flatMap(ProjectSort.init(rawValue:)) ?? .name }
-        set { store.set(newValue.rawValue, forKey: "projectSort") }
+    static func projectSort(in store: UserDefaults = .standard) -> ProjectSort {
+        store.string(forKey: "projectSort").flatMap(ProjectSort.init(rawValue:)) ?? .name
+    }
+
+    static func setProjectSort(_ sort: ProjectSort, in store: UserDefaults = .standard) {
+        store.set(sort.rawValue, forKey: "projectSort")
     }
 
     // Whether the sidebar splits into sections by kind. An unset key reads as the flat
     // list the rail has always shown.
-    static var projectGrouping: ProjectGrouping {
-        get {
-            store.string(forKey: "projectGrouping")
-                .flatMap(ProjectGrouping.init(rawValue:)) ?? .flat
-        }
-        set { store.set(newValue.rawValue, forKey: "projectGrouping") }
+    static func projectGrouping(in store: UserDefaults = .standard) -> ProjectGrouping {
+        store.string(forKey: "projectGrouping")
+            .flatMap(ProjectGrouping.init(rawValue:)) ?? .flat
+    }
+
+    static func setProjectGrouping(
+        _ grouping: ProjectGrouping,
+        in store: UserDefaults = .standard
+    ) {
+        store.set(grouping.rawValue, forKey: "projectGrouping")
     }
 
     // Which terminal opens a shell in a window of its own. Held as a bundle ID so the
     // choice survives the app being moved or renamed. Unset follows the system.
     static var terminalBundleID: String? {
-        get { text("terminalBundleID") }
-        set { set(newValue, "terminalBundleID") }
+        get { terminalBundleID(in: store) }
+        set { setTerminalBundleID(newValue, in: store) }
+    }
+
+    static func terminalBundleID(in store: UserDefaults = .standard) -> String? {
+        text("terminalBundleID", in: store)
+    }
+
+    static func setTerminalBundleID(_ id: String?, in store: UserDefaults = .standard) {
+        set(id, "terminalBundleID", in: store)
     }
 
     // A saved external site file sits ahead of the conventional and bundled locations.
@@ -443,9 +463,12 @@ enum Preferences {
         store.set(url.standardizedFileURL.path, forKey: "siteDefaultsPath")
     }
 
-    static var appearance: Appearance {
-        get { store.string(forKey: "appearance").flatMap(Appearance.init(rawValue:)) ?? .system }
-        set { store.set(newValue.rawValue, forKey: "appearance") }
+    static func appearance(in store: UserDefaults = .standard) -> Appearance {
+        store.string(forKey: "appearance").flatMap(Appearance.init(rawValue:)) ?? .system
+    }
+
+    static func setAppearance(_ appearance: Appearance, in store: UserDefaults = .standard) {
+        store.set(appearance.rawValue, forKey: "appearance")
     }
 
     static func sidebarIconSet(in store: UserDefaults = .standard) -> SidebarIconSet {
@@ -469,9 +492,12 @@ enum Preferences {
 
     // How large a session's own text is drawn. A reading size belongs to the person at the
     // machine rather than to any one session, so there is a single answer for the app.
-    static var textSize: TextSize {
-        get { store.string(forKey: "textSize").flatMap(TextSize.init(rawValue:)) ?? .standard }
-        set { store.set(newValue.rawValue, forKey: "textSize") }
+    static func textSize(in store: UserDefaults = .standard) -> TextSize {
+        store.string(forKey: "textSize").flatMap(TextSize.init(rawValue:)) ?? .standard
+    }
+
+    static func setTextSize(_ textSize: TextSize, in store: UserDefaults = .standard) {
+        store.set(textSize.rawValue, forKey: "textSize")
     }
 
     static func designEnabled(in store: UserDefaults = .standard) -> Bool {
@@ -514,13 +540,17 @@ enum Preferences {
     // defaults are, because what a CLI reports about cost is its own business. On unless
     // it is turned off: the figure is still recorded either way, so this only decides
     // whether it is on screen.
-    static func showCost(for agent: AgentKind) -> Bool {
+    static func showCost(for agent: AgentKind, in store: UserDefaults = .standard) -> Bool {
         let key = showCostKey(agent)
         guard store.object(forKey: key) != nil else { return true }
         return store.bool(forKey: key)
     }
 
-    static func setShowCost(_ shown: Bool, for agent: AgentKind) {
+    static func setShowCost(
+        _ shown: Bool,
+        for agent: AgentKind,
+        in store: UserDefaults = .standard
+    ) {
         store.set(shown, forKey: showCostKey(agent))
     }
 
@@ -529,6 +559,10 @@ enum Preferences {
     }
 
     private static func text(_ key: String) -> String? {
+        text(key, in: store)
+    }
+
+    private static func text(_ key: String, in store: UserDefaults) -> String? {
         store.string(forKey: key).flatMap { $0.isEmpty ? nil : $0 }
     }
 
@@ -537,6 +571,10 @@ enum Preferences {
     }
 
     private static func set(_ text: String?, _ key: String) {
+        set(text, key, in: store)
+    }
+
+    private static func set(_ text: String?, _ key: String, in store: UserDefaults) {
         if let text, !text.isEmpty {
             store.set(text, forKey: key)
         } else {

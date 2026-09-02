@@ -3,8 +3,8 @@ import Foundation
 // One hole in a task's prompt, and how the run sheet should ask for it. Everything past
 // the name is dressing: a placeholder with nothing saved for it is still asked for, as a
 // required line of text.
-struct TaskInput: Codable, Equatable {
-    enum Kind: String, Codable, CaseIterable {
+struct TaskInput: Codable, Equatable, Sendable {
+    enum Kind: String, Codable, CaseIterable, Sendable {
         case text, longText, choice, path, toggle
 
         var title: String {

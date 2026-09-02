@@ -121,7 +121,7 @@ final class ProjectStore {
     // bytes are on disk.
     private var evictWhenWritten: Set<UUID> = []
 
-    private struct Persisted: Codable {
+    private struct Persisted: Codable, Sendable {
         var projects: [Project]
         var sessions: [ChatSession]
         // Optional so an index written before workspaces existed still decodes.
@@ -264,15 +264,14 @@ final class ProjectStore {
 
     // MARK: - What is on screen
     //
-    // Every choice here runs from a click and is only a preference, so it takes the
-    // debounced write: a waiting one blocks the main actor until the writer queue drains,
-    // which is long enough to be felt. Quitting flushes whatever is still owed.
+    // Navigation is a preference, not project data. Persist it directly so moving around
+    // the app never rewrites the project index.
 
     // Home sits above project navigation. The last project stays remembered so leaving
     // Home takes the user back to the same working context instead of changing their place.
     func selectHome() {
         selection = .home
-        scheduleIndexSave()
+        persistSelection()
     }
 
     // Choosing a project is different from opening a conversation. Keeping the two
@@ -282,7 +281,7 @@ final class ProjectStore {
         selectedProjectID = id
         selection = nil
         if revealingInSidebar { projectToReveal = id }
-        scheduleIndexSave()
+        persistSelection()
     }
 
     func selectSession(_ id: UUID, destination: SessionDestination = .conversation) {
@@ -291,13 +290,19 @@ final class ProjectStore {
         selectedProjectID = session.projectID
         sessionOpenRequest = SessionOpenRequest(sessionID: visibleID, destination: destination)
         selection = .session(visibleID)
-        scheduleIndexSave()
+        persistSelection()
     }
 
     func selectWorkspace(_ id: UUID) {
         guard workspace(id) != nil else { return }
         selection = .workspace(id)
-        scheduleIndexSave()
+        persistSelection()
+    }
+
+    private func persistSelection() {
+        Preferences.selectedSessionID = if case .session(let id) = selection { id } else { nil }
+        Preferences.selectedWorkspaceID = if case .workspace(let id) = selection { id } else { nil }
+        Preferences.selectedProjectID = selectedProjectID
     }
 
     // MARK: - Turns worth knowing about
@@ -1413,7 +1418,7 @@ final class ProjectStore {
         sessions[i].transcriptLoaded = true
     }
 
-    private struct TranscriptRead: @unchecked Sendable {
+    private struct TranscriptRead: Sendable {
         var messages: [ChatMessage] = []
         var error: String?
     }
@@ -1663,7 +1668,7 @@ final class ProjectStore {
     // disk before its next line waits on it.
     private static let writer = DispatchQueue(label: "com.teya.code-station.project-store-writes")
 
-    private struct PendingTranscript: @unchecked Sendable {
+    private struct PendingTranscript: Sendable {
         let sessionID: UUID
         let revision: Int
         let messages: [ChatMessage]
@@ -1671,7 +1676,7 @@ final class ProjectStore {
         let url: URL
     }
 
-    private struct PendingIndex: @unchecked Sendable {
+    private struct PendingIndex: Sendable {
         let revision: Int
         let value: Persisted
     }
@@ -1746,13 +1751,7 @@ final class ProjectStore {
 
         var persisted: PendingIndex?
         if indexDirty, blockedFailures.isEmpty {
-            var openSessionID: UUID?
-            var openWorkspaceID: UUID?
-            if case .session(let id) = selection { openSessionID = id }
-            if case .workspace(let id) = selection { openWorkspaceID = id }
-            Preferences.selectedSessionID = openSessionID
-            Preferences.selectedWorkspaceID = openWorkspaceID
-            Preferences.selectedProjectID = selectedProjectID
+            persistSelection()
             persisted = PendingIndex(revision: indexRevision,
                                      value: Persisted(projects: projects, sessions: sessions,
                                                       workspaces: workspaces))

@@ -42,7 +42,7 @@ enum AgentKind: String, CaseIterable, Codable, Sendable, Identifiable {
 // and can be changed between turns; nil uses the CLI's own default. Nil for the other
 // session controls keeps following the app default. In the app defaults, nil leaves the
 // flag off entirely.
-struct SessionSettings: Codable, Equatable {
+struct SessionSettings: Codable, Equatable, Sendable {
     var model: String?
     var effort: String?
     var permissionMode: String?
@@ -255,7 +255,7 @@ struct TurnUsage: Equatable, Sendable {
 
 // Everything the session has spent so far. Persisted with the conversation, so the
 // numbers survive a restart the way the transcript does.
-struct SessionUsage: Codable, Equatable {
+struct SessionUsage: Codable, Equatable, Sendable {
     var costUSD: Double = 0
     var inputTokens = 0
     var outputTokens = 0

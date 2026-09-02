@@ -3,7 +3,7 @@ import Foundation
 // A task schedule keeps both its rule and the small amount of state needed to resume it
 // after an app restart. The app must be running for a task to start. A missed occurrence
 // is handled once when the app is available again instead of replaying a backlog.
-struct TaskSchedule: Codable, Equatable {
+struct TaskSchedule: Codable, Equatable, Sendable {
     static let countRange = 1...10_000
     static let timeOfDayRange = 0..<(24 * 60)
     // What a schedule starts as, and what the editor falls back to when its field holds
@@ -11,12 +11,12 @@ struct TaskSchedule: Codable, Equatable {
     static let defaultInterval = 30
     static let defaultTimeOfDayMinutes = 9 * 60
 
-    enum Timing: String, Codable, CaseIterable, Hashable {
+    enum Timing: String, Codable, CaseIterable, Hashable, Sendable {
         case interval
         case timeOfDay
     }
 
-    enum IntervalUnit: String, Codable, CaseIterable, Hashable {
+    enum IntervalUnit: String, Codable, CaseIterable, Hashable, Sendable {
         case minutes
         case hours
 
@@ -35,7 +35,7 @@ struct TaskSchedule: Codable, Equatable {
         }
     }
 
-    enum Recurrence: String, Codable, CaseIterable, Hashable {
+    enum Recurrence: String, Codable, CaseIterable, Hashable, Sendable {
         case daily
         case weekdays
         case weekly
@@ -49,7 +49,7 @@ struct TaskSchedule: Codable, Equatable {
         }
     }
 
-    enum Weekday: Int, Codable, CaseIterable, Hashable {
+    enum Weekday: Int, Codable, CaseIterable, Hashable, Sendable {
         case monday = 2
         case tuesday = 3
         case wednesday = 4

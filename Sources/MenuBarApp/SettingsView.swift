@@ -51,8 +51,8 @@ final class AppSettings {
         }
     }
 
-    var oldSessionDays = Preferences.oldSessionDays() {
-        didSet { Preferences.setOldSessionDays(oldSessionDays) }
+    var oldSessionDays: Int {
+        didSet { Preferences.setOldSessionDays(oldSessionDays, in: preferences) }
     }
 
     var oldSessionCleanupPolicy: OldSessionCleanupPolicy {
@@ -68,27 +68,29 @@ final class AppSettings {
         }
     }
 
-    var skillsRefreshInterval = Preferences.skillsRefreshInterval {
-        didSet { Preferences.skillsRefreshInterval = skillsRefreshInterval }
+    var skillsRefreshInterval: SkillsRefreshInterval {
+        didSet {
+            Preferences.setSkillsRefreshInterval(skillsRefreshInterval, in: preferences)
+        }
     }
 
-    var projectSort = Preferences.projectSort {
-        didSet { Preferences.projectSort = projectSort }
+    var projectSort: ProjectSort {
+        didSet { Preferences.setProjectSort(projectSort, in: preferences) }
     }
 
-    var projectGrouping = Preferences.projectGrouping {
-        didSet { Preferences.projectGrouping = projectGrouping }
+    var projectGrouping: ProjectGrouping {
+        didSet { Preferences.setProjectGrouping(projectGrouping, in: preferences) }
     }
 
     // nil follows whatever macOS hands a .command file, so the app has a sensible terminal
     // before the user has thought about it.
-    var terminalBundleID = Preferences.terminalBundleID {
-        didSet { Preferences.terminalBundleID = terminalBundleID }
+    var terminalBundleID: String? {
+        didSet { Preferences.setTerminalBundleID(terminalBundleID, in: preferences) }
     }
 
-    var appearance = Preferences.appearance {
+    var appearance: Appearance {
         didSet {
-            Preferences.appearance = appearance
+            Preferences.setAppearance(appearance, in: preferences)
             appearance.apply()
         }
     }
@@ -112,16 +114,16 @@ final class AppSettings {
         }
     }
 
-    var textSize = Preferences.textSize {
-        didSet { Preferences.textSize = textSize }
+    var textSize: TextSize {
+        didSet { Preferences.setTextSize(textSize, in: preferences) }
     }
 
-    var designEnabled = Preferences.designEnabled() {
-        didSet { Preferences.setDesignEnabled(designEnabled) }
+    var designEnabled: Bool {
+        didSet { Preferences.setDesignEnabled(designEnabled, in: preferences) }
     }
 
-    var mobileAccessEnabled = Preferences.mobileAccessEnabled() {
-        didSet { Preferences.setMobileAccessEnabled(mobileAccessEnabled) }
+    var mobileAccessEnabled: Bool {
+        didSet { Preferences.setMobileAccessEnabled(mobileAccessEnabled, in: preferences) }
     }
 
     var sessionRecapsEnabled: Bool {
@@ -142,16 +144,25 @@ final class AppSettings {
          preferences: UserDefaults = .standard) {
         self.agentAvatarURL = agentAvatarURL
         self.preferences = preferences
+        oldSessionDays = Preferences.oldSessionDays(in: preferences)
         oldSessionCleanupPolicy = Preferences.oldSessionCleanupPolicy(in: preferences)
         autoPruneOrphanedWorktrees = Preferences.autoPruneOrphanedWorktrees(in: preferences)
         sidebarSessionLimit = Preferences.sidebarSessionLimit(in: preferences)
+        skillsRefreshInterval = Preferences.skillsRefreshInterval(in: preferences)
+        projectSort = Preferences.projectSort(in: preferences)
+        projectGrouping = Preferences.projectGrouping(in: preferences)
+        terminalBundleID = Preferences.terminalBundleID(in: preferences)
+        appearance = Preferences.appearance(in: preferences)
         sidebarIconSet = Preferences.sidebarIconSet(in: preferences)
         opensWorkingSetByDefault = Preferences.opensWorkingSetByDefault(in: preferences)
         diceBearAvatarStyle = Preferences.diceBearAvatarStyle(in: preferences)
+        textSize = Preferences.textSize(in: preferences)
+        designEnabled = Preferences.designEnabled(in: preferences)
+        mobileAccessEnabled = Preferences.mobileAccessEnabled(in: preferences)
         sessionRecapsEnabled = Preferences.sessionRecapsEnabled(in: preferences)
         hasCompletedOnboarding = Preferences.hasCompletedOnboarding(in: preferences)
         costShown = Dictionary(uniqueKeysWithValues: AgentKind.allCases.map {
-            ($0, Preferences.showCost(for: $0))
+            ($0, Preferences.showCost(for: $0, in: preferences))
         })
         let avatars = AgentAvatarFile.loadAll(from: agentAvatarURL)
         let preferredName = Preferences.defaultAgentAvatarName(in: preferences)
@@ -192,7 +203,7 @@ final class AppSettings {
 
     func setShowsCost(_ shown: Bool, for agent: AgentKind) {
         costShown[agent] = shown
-        Preferences.setShowCost(shown, for: agent)
+        Preferences.setShowCost(shown, for: agent, in: preferences)
     }
 
     func importAgentAvatars(from urls: [URL], personality: AgentPersonality = .standard) throws {

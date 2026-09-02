@@ -33,6 +33,7 @@ struct ActivitySpineTests {
     }
 }
 
+@MainActor
 struct SpineCardTests {
 
     @Test func aFinishedCallKnowsHowLongItTook() {

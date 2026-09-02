@@ -274,6 +274,90 @@ struct AppPathsTests {
         #expect(restored.sidebarSessionLimit == 10)
     }
 
+    @Test @MainActor func appSettingsKeepsInjectedPreferenceStoresIsolated() throws {
+        let firstSuite = "code-station-app-settings-first-\(UUID().uuidString)"
+        let secondSuite = "code-station-app-settings-second-\(UUID().uuidString)"
+        let firstDefaults = try #require(UserDefaults(suiteName: firstSuite))
+        let secondDefaults = try #require(UserDefaults(suiteName: secondSuite))
+        defer {
+            firstDefaults.removePersistentDomain(forName: firstSuite)
+            secondDefaults.removePersistentDomain(forName: secondSuite)
+            Appearance.system.apply()
+        }
+        let avatar = root.appendingPathComponent("avatar.png")
+
+        Preferences.setOldSessionDays(42, in: firstDefaults)
+        Preferences.setSkillsRefreshInterval(.oneDay, in: firstDefaults)
+        Preferences.setProjectSort(.lastUsed, in: firstDefaults)
+        Preferences.setProjectGrouping(.kind, in: firstDefaults)
+        Preferences.setTerminalBundleID("com.example.FirstTerminal", in: firstDefaults)
+        Preferences.setAppearance(.dark, in: firstDefaults)
+        Preferences.setTextSize(.larger, in: firstDefaults)
+        Preferences.setDesignEnabled(true, in: firstDefaults)
+        Preferences.setMobileAccessEnabled(true, in: firstDefaults)
+        Preferences.setShowCost(false, for: .codex, in: firstDefaults)
+
+        let first = AppSettings(agentAvatarURL: avatar, preferences: firstDefaults)
+        let second = AppSettings(agentAvatarURL: avatar, preferences: secondDefaults)
+
+        #expect(first.oldSessionDays == 42)
+        #expect(first.skillsRefreshInterval == .oneDay)
+        #expect(first.projectSort == .lastUsed)
+        #expect(first.projectGrouping == .kind)
+        #expect(first.terminalBundleID == "com.example.FirstTerminal")
+        #expect(first.appearance == .dark)
+        #expect(first.textSize == .larger)
+        #expect(first.designEnabled)
+        #expect(first.mobileAccessEnabled)
+        #expect(!first.showsCost(for: .codex))
+
+        #expect(second.oldSessionDays == OldSessions.defaultDays)
+        #expect(second.skillsRefreshInterval == .fiveDays)
+        #expect(second.projectSort == .name)
+        #expect(second.projectGrouping == .flat)
+        #expect(second.terminalBundleID == nil)
+        #expect(second.appearance == .system)
+        #expect(second.textSize == .standard)
+        #expect(!second.designEnabled)
+        #expect(!second.mobileAccessEnabled)
+        #expect(second.showsCost(for: .codex))
+
+        first.oldSessionDays = 21
+        first.skillsRefreshInterval = .thirtyDays
+        first.projectSort = .name
+        first.projectGrouping = .flat
+        first.terminalBundleID = "com.example.UpdatedTerminal"
+        first.appearance = .light
+        first.textSize = .small
+        first.designEnabled = false
+        first.mobileAccessEnabled = false
+        first.setShowsCost(true, for: .codex)
+
+        #expect(Preferences.oldSessionDays(in: firstDefaults) == 21)
+        #expect(Preferences.skillsRefreshInterval(in: firstDefaults) == .thirtyDays)
+        #expect(Preferences.projectSort(in: firstDefaults) == .name)
+        #expect(Preferences.projectGrouping(in: firstDefaults) == .flat)
+        #expect(Preferences.terminalBundleID(in: firstDefaults)
+                == "com.example.UpdatedTerminal")
+        #expect(Preferences.appearance(in: firstDefaults) == .light)
+        #expect(Preferences.textSize(in: firstDefaults) == .small)
+        #expect(!Preferences.designEnabled(in: firstDefaults))
+        #expect(!Preferences.mobileAccessEnabled(in: firstDefaults))
+        #expect(Preferences.showCost(for: .codex, in: firstDefaults))
+
+        let restoredSecond = AppSettings(agentAvatarURL: avatar, preferences: secondDefaults)
+        #expect(restoredSecond.oldSessionDays == OldSessions.defaultDays)
+        #expect(restoredSecond.skillsRefreshInterval == .fiveDays)
+        #expect(restoredSecond.projectSort == .name)
+        #expect(restoredSecond.projectGrouping == .flat)
+        #expect(restoredSecond.terminalBundleID == nil)
+        #expect(restoredSecond.appearance == .system)
+        #expect(restoredSecond.textSize == .standard)
+        #expect(!restoredSecond.designEnabled)
+        #expect(!restoredSecond.mobileAccessEnabled)
+        #expect(restoredSecond.showsCost(for: .codex))
+    }
+
     @Test @MainActor func appSettingsPersistsSidebarAvatarChoices() throws {
         let suite = "code-station-sidebar-avatar-tests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))

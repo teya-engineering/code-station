@@ -5,6 +5,7 @@ import Testing
 
 // Finding the terminals installed on a Mac comes down to one question: of all the apps
 // that claim a shell script, which ones would run it rather than open it for editing.
+@Suite(.serialized)
 struct SystemTerminalTests {
     private let scratch = ScratchDirectory(prefix: "system-terminal-tests")
 
