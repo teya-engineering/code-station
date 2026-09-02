@@ -134,8 +134,7 @@ struct DesignView: View {
                     ForEach(session.messages) { message in
                         MessageView(message: message,
                                     projectPath: projectPath,
-                                    isTurnActive: state.isBusy
-                                        && message.id == session.messages.last?.id,
+                                    isLatestMessage: message.id == session.messages.last?.id,
                                     textScale: textScale,
                                     openChanges: {},
                                     availableWidth: width - 32)

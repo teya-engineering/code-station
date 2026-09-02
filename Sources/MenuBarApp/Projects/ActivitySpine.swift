@@ -13,11 +13,9 @@ struct ActivitySpine: View {
     let nodes: [ToolNode]
     let projectPath: String
     var openChanges: (() -> Void)? = nil
-    // Whether the turn is still working through this block. Its calls having all reported
-    // in does not mean the work behind it is over: the model writes its next words before
-    // it makes its next call, and a call interrupted mid-turn never reports in at all.
-    // Only the end of the turn says the block is done.
-    var isLive = false
+    // The latest block stays open while there is nothing after it, including after its
+    // calls finish. New conversation activity moves this marker and folds the old block.
+    var isCurrent = false
     // A nested spine already sits inside the card of the agent that made its calls, so it
     // draws in full and a size down.
     var isFoldable = true
@@ -34,18 +32,18 @@ struct ActivitySpine: View {
     private var showsRows: Bool {
         Self.rowsAreVisible(isFoldable: isFoldable,
                             userChoice: showsCalls,
-                            isLive: isLive,
+                            isCurrent: isCurrent,
                             hasExpandedRows: !expanded.isEmpty)
     }
 
     private var hasRunningCalls: Bool {
-        isLive && nodes.contains { $0.isWorking(agents: runningAgents) }
+        isCurrent && nodes.contains { $0.isWorking(agents: runningAgents) }
     }
 
     nonisolated static func rowsAreVisible(isFoldable: Bool, userChoice: Bool?,
-                                            isLive: Bool,
+                                            isCurrent: Bool,
                                             hasExpandedRows: Bool) -> Bool {
-        !isFoldable || (userChoice ?? (isLive || hasExpandedRows))
+        !isFoldable || (userChoice ?? (isCurrent || hasExpandedRows))
     }
 
     var body: some View {

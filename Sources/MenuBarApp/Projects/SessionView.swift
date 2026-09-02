@@ -1181,13 +1181,9 @@ struct SessionView: View {
 
             ForEach(messages) { message in
                 let isLastMessage = message.id == session.messages.last?.id
-                let isTurnActive = state.isBusy
-                    && !runner.isRecapping(sessionID)
-                    && message.role == .assistant
-                    && isLastMessage
                 MessageView(message: message,
                             projectPath: projectPath,
-                            isTurnActive: isTurnActive,
+                            isLatestMessage: isLastMessage,
                             textScale: appSettings.textSize.scale,
                             openChanges: { openChanges() },
                             promptMenu: promptMenu(for: message))

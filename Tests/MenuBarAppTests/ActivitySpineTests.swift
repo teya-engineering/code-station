@@ -4,31 +4,31 @@ import Testing
 
 struct ActivitySpineTests {
 
-    @Test func staysOpenWhileTheTurnIsWorkingThroughIt() {
+    @Test func staysOpenWhileItIsTheCurrentBlock() {
         #expect(ActivitySpine.rowsAreVisible(isFoldable: true,
                                              userChoice: nil,
-                                             isLive: true,
+                                             isCurrent: true,
                                              hasExpandedRows: false))
     }
 
-    @Test func foldsOnceTheTurnHasEnded() {
+    @Test func foldsOnceNewActivityFollowsIt() {
         #expect(!ActivitySpine.rowsAreVisible(isFoldable: true,
                                               userChoice: nil,
-                                              isLive: false,
+                                              isCurrent: false,
                                               hasExpandedRows: false))
     }
 
     @Test func staysOpenWhileTheReaderHasARowExpanded() {
         #expect(ActivitySpine.rowsAreVisible(isFoldable: true,
                                              userChoice: nil,
-                                             isLive: false,
+                                             isCurrent: false,
                                              hasExpandedRows: true))
     }
 
-    @Test func keepsAReadersChoiceAfterTheTurnEnds() {
+    @Test func keepsAReadersChoiceAfterNewActivity() {
         #expect(ActivitySpine.rowsAreVisible(isFoldable: true,
                                              userChoice: true,
-                                             isLive: false,
+                                             isCurrent: false,
                                              hasExpandedRows: false))
     }
 }

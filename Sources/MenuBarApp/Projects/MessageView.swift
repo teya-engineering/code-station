@@ -6,7 +6,7 @@ import SwiftUI
 struct MessageView: View, Equatable {
     let message: ChatMessage
     let projectPath: String
-    let isTurnActive: Bool
+    let isLatestMessage: Bool
     let textScale: CGFloat
     let openChanges: () -> Void
     var availableWidth: CGFloat?
@@ -21,7 +21,7 @@ struct MessageView: View, Equatable {
     // compared.
     nonisolated static func == (a: MessageView, b: MessageView) -> Bool {
         a.message == b.message && a.projectPath == b.projectPath
-            && a.isTurnActive == b.isTurnActive && a.textScale == b.textScale
+            && a.isLatestMessage == b.isLatestMessage && a.textScale == b.textScale
             && a.availableWidth == b.availableWidth
     }
 
@@ -114,12 +114,16 @@ struct MessageView: View, Equatable {
         return max(0, userBubbleWidth - horizontalPadding)
     }
 
-    // The last block of work in a turn that is still going. The model can say a great deal
-    // between two calls, so the block is left open until the turn ends rather than until
-    // its last call reports in.
-    private var liveBlockID: Int? {
-        guard isTurnActive else { return nil }
-        return message.blocks.last { if case .tools = $0 { true } else { false } }?.id
+    // The last tool block stays open until anything follows it. This spans message
+    // boundaries, so sending the next prompt also folds the work above it.
+    private var currentToolBlockID: Int? {
+        Self.currentToolBlockID(in: message.blocks, messageIsCurrent: isLatestMessage)
+    }
+
+    nonisolated static func currentToolBlockID(in blocks: [MessageBlock],
+                                               messageIsCurrent: Bool) -> Int? {
+        guard messageIsCurrent, case .tools(let id, _) = blocks.last else { return nil }
+        return id
     }
 
     // The turn reads down the page in the order it happened, so a call the model made
@@ -132,7 +136,7 @@ struct MessageView: View, Equatable {
                     ActivitySpine(nodes: nodes,
                                   projectPath: projectPath,
                                   openChanges: openChanges,
-                                  isLive: id == liveBlockID)
+                                  isCurrent: id == currentToolBlockID)
                         .transition(.fadeIn)
                 case .prose(_, let text):
                     // The shared block keeps file previews and transcripts visually
