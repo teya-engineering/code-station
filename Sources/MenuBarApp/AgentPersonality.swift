@@ -131,7 +131,8 @@ enum AgentPersonality: String, CaseIterable, Codable, Sendable {
                 "Booking a retro about this", "Chasing sign-off", "Parking it for now",
                 "Double-clicking on this", "Circling back on it", "Putting a pin in that",
                 "Raising it at standup", "Splitting this into two tickets",
-                "Checking the definition of done", "Adding it to the risk register"
+                "Checking the definition of done", "Adding it to the risk register",
+                "Calling it structurant and hoping nobody asks why"
             ]
         case .frenchManager:
             [
@@ -151,7 +152,13 @@ enum AgentPersonality: String, CaseIterable, Codable, Sendable {
                 "Discussing le budget", "Making the deck more impactant",
                 "Checking everyone's disponibilité", "Moving the point après déjeuner",
                 "Confirming who fait quoi", "Planning the prochain point",
-                "Requesting une validation formelle", "Keeping it très haut niveau"
+                "Requesting une validation formelle", "Keeping it très haut niveau",
+                "Preparing a comité with enough slides to block sunlight",
+                "Updating the rétroplanning for the fourth time today",
+                "Making it more stratégique with a blue triangle",
+                "Checking the gouvernance, just in case it exists",
+                "Validating the prochaines étapes, pending more validation",
+                "Keeping it très high-level to avoid a real decision"
             ]
         }
     }
