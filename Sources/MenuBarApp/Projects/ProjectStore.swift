@@ -822,6 +822,16 @@ final class ProjectStore {
         }
     }
 
+    // Remembers a folder the person opened up from a permission card, so every turn after
+    // this one starts with the same view and does not ask again.
+    func grantDirectory(_ path: String, to sessionID: UUID) {
+        guard let i = index(sessionID), !sessions[i].grantedDirectories.contains(path) else {
+            return
+        }
+        sessions[i].grantedDirectories.append(path)
+        saveIndex()
+    }
+
     // What a run of a task was given for the holes in its prompt, kept on the run so the
     // list can say what each one was about.
     func setTaskValues(_ values: [String: String], for sessionID: UUID) {

@@ -1341,7 +1341,9 @@ struct SessionView: View {
     // happen belongs. The turn is parked until it is answered.
     @ViewBuilder private var pendingQuestion: some View {
         if let request = runner.question(sessionID) {
-            PermissionCard(request: request) { answer in
+            PermissionCard(request: request,
+                           workingDirectories: store.session(sessionID)
+                               .map(store.workingDirectories(for:)) ?? []) { answer in
                 runner.answer(request, with: answer, sessionID: sessionID, store: store)
             }
             .id(request.id)

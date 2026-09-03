@@ -143,7 +143,9 @@ struct DesignView: View {
                     }
 
                     if let request = runner.question(sessionID) {
-                        PermissionCard(request: request) { answer in
+                        PermissionCard(request: request,
+                                       workingDirectories: store.session(sessionID)
+                                           .map(store.workingDirectories(for:)) ?? []) { answer in
                             runner.answer(request, with: answer,
                                           sessionID: sessionID, store: store)
                         }

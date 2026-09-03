@@ -6,6 +6,9 @@ import SwiftUI
 // for, so each gets its own card.
 struct PermissionCard: View {
     let request: PermissionRequest
+    // The folders the session already has a view of, which is what says whether this call
+    // is being asked about because of where it reaches rather than what it does.
+    var workingDirectories: [String] = []
     let onAnswer: (PermissionAnswer) -> Void
 
     var body: some View {
@@ -14,6 +17,14 @@ struct PermissionCard: View {
         } else {
             approval
         }
+    }
+
+    private var outside: String? { request.directoryOutside(workingDirectories) }
+
+    // The button carries the folder's own name; the line above it carries the whole path,
+    // which is where the reader checks it is the folder they think it is.
+    private func name(of directory: String) -> String {
+        URL(fileURLWithPath: directory).lastPathComponent
     }
 
     private var approval: some View {
@@ -47,9 +58,28 @@ struct PermissionCard: View {
                     .background(RoundedRectangle(cornerRadius: 8).fill(Theme.field))
             }
 
+            // Nearly every repeat of the same question comes from a call reaching outside
+            // the session's folders. Saying so turns a prompt that looks arbitrary - six
+            // identical commands went through, this one did not - into one with an
+            // obvious answer, and the answer is the next button along.
+            if let outside {
+                Text("Reaches \(outside.abbreviatedPath), outside this session's folders.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             HStack(spacing: 8) {
                 CardButton(title: "Allow", prominent: true) { onAnswer(.allowOnce) }
-                if let always = request.alwaysTitle {
+                // The folder takes the place of "always allow" rather than sitting beside
+                // it, because when the folder is the reason it is also the better answer:
+                // allowing the whole tool everywhere is a far wider yes than the question
+                // being asked, and it would not stop the next call into the same folder.
+                if let outside {
+                    CardButton(title: "Allow, and add \(name(of: outside))") {
+                        onAnswer(.allowAddingDirectory(outside))
+                    }
+                } else if let always = request.alwaysTitle {
                     CardButton(title: always) { onAnswer(.allowAlways) }
                 }
                 Spacer(minLength: 0)

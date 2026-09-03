@@ -252,6 +252,12 @@ final class SessionRunner {
             return
         }
 
+        // The answer opened the folder for the process that asked. Keeping it on the
+        // session is what carries it into every turn after this one.
+        if case .allowAddingDirectory(let directory) = answer {
+            store.grantDirectory(directory, to: sessionID)
+        }
+
         // The turn goes on writing after this, and what it writes has to read as having
         // come after the answer rather than above it.
         if case .answers(let given) = answer, !given.isEmpty,
@@ -1378,7 +1384,8 @@ final class SessionRunner {
         let designDirectories = designArtifact.map { [$0.deletingLastPathComponent().path] } ?? []
         let referenceDirectories = implementationReference.map { [$0.path] } ?? []
         let additionalDirectories = unique(
-            projectDirectories + attachmentDirectories + designDirectories + referenceDirectories)
+            projectDirectories + attachmentDirectories + designDirectories
+                + referenceDirectories + session.grantedDirectories)
         let writableRoots = unique(additionalDirectories + store.gitMetadataDirectories(for: session))
         let arguments = Self.arguments(
             agent: agent,

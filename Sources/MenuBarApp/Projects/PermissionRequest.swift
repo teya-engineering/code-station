@@ -42,6 +42,9 @@ struct AgentQuestion: Identifiable, Equatable, Sendable {
 enum PermissionAnswer: Equatable, Sendable {
     case allowOnce
     case allowAlways
+    // Allow, and give the session a view of a folder it could not see. The folder goes
+    // back with the answer, which is what makes it hold for the rest of this turn.
+    case allowAddingDirectory(String)
     case deny
     // Question text to what the person picked or typed.
     case answers([String: String])
@@ -51,6 +54,7 @@ enum PermissionAnswer: Equatable, Sendable {
         switch self {
         case .allowOnce: "allow"
         case .allowAlways: "allow always"
+        case .allowAddingDirectory(let directory): "allow and add \(directory)"
         case .deny: "deny"
         case .answers(let given): counted(given.count, "answer")
         }
@@ -142,13 +146,22 @@ extension PermissionRequest {
         case .deny:
             decision = ["behavior": "deny",
                         "message": "The user did not allow this. Do not try it again without asking."]
-        case .allowOnce, .allowAlways, .answers:
+        case .allowOnce, .allowAlways, .allowAddingDirectory, .answers:
             var updated = (try? JSONSerialization.jsonObject(with: input)) as? [String: Any] ?? [:]
             if case .answers(let given) = answer { updated["answers"] = given }
             decision = ["behavior": "allow", "updatedInput": updated]
             if case .allowAlways = answer, let suggestions,
                let list = try? JSONSerialization.jsonObject(with: suggestions) {
                 decision["updatedPermissions"] = list
+            }
+            // The CLI takes a folder the same way it takes a rule, and applies it to the
+            // session it is already running. Without this the turn would go on asking
+            // about every further call into the folder that was just opened up, and only
+            // the next turn - which starts a new process - would be any quieter.
+            if case .allowAddingDirectory(let directory) = answer {
+                decision["updatedPermissions"] = [["type": "addDirectories",
+                                                   "directories": [directory],
+                                                   "destination": "session"]]
             }
         }
 

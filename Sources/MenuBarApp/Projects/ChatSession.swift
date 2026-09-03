@@ -88,6 +88,10 @@ struct ChatSession: Identifiable, Codable, Equatable, Sendable {
     // workspace at creation time, ordered with the lead project first.
     var workspaceID: UUID?
     var sessionProjects: [SessionProject]?
+    // Folders outside every checkout that the person opened up from a permission card.
+    // The agent's own view of them lasts as long as its process, and each turn starts a
+    // new one, so the grant has to be kept here and handed over again every turn.
+    var grantedDirectories: [String] = []
     // Optional so conversations written before the app had either still decode. Both
     // read as "nothing chosen yet" and "nothing spent yet".
     var settings: SessionSettings?
