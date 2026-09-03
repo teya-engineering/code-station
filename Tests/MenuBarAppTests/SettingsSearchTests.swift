@@ -52,4 +52,12 @@ struct SettingsSearchTests {
         #expect(result.tab == .appearance)
         #expect(result.target == .appearanceWorkingSet)
     }
+
+    @Test func findsEnvironmentCredentials() throws {
+        let result = try #require(SettingsSearchIndex.results(for: "environment credentials").first)
+
+        #expect(result.title == "Current configuration")
+        #expect(result.tab == .advanced)
+        #expect(result.target == .advancedConfiguration)
+    }
 }

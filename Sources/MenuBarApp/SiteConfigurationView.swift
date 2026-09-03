@@ -29,6 +29,7 @@ struct SiteConfigurationSection: View {
     @State private var chosen: Set<SiteConfigurationAspect> = []
     @State private var editor: SiteConfigurationAspect?
     @State private var showingDispatch = false
+    @State private var showingEnvironmentAccess = false
     @State private var showingMCP = false
     @State private var showingSkills = false
     @State private var showingShortcuts = false
@@ -47,6 +48,9 @@ struct SiteConfigurationSection: View {
         }
         .sheet(isPresented: $showingDispatch, onDismiss: refreshConfiguration) {
             DispatchView().appOverlays()
+        }
+        .sheet(isPresented: $showingEnvironmentAccess) {
+            EnvironmentsView().appOverlays()
         }
         .sheet(isPresented: $showingMCP) {
             ConfigManagerView().appOverlays()
@@ -120,6 +124,30 @@ struct SiteConfigurationSection: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 0)
+            configurationActions(for: aspect)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .contentShape(Rectangle())
+    }
+
+    @ViewBuilder private func configurationActions(for aspect: SiteConfigurationAspect) -> some View {
+        if aspect == .apiAccess {
+            HStack(spacing: 7) {
+                ActionButton(title: "Shared defaults",
+                             tone: .sunken,
+                             height: 28,
+                             size: 11.5) {
+                    editor = .apiAccess
+                }
+                ActionButton(title: "Environment credentials",
+                             tone: .sunken,
+                             height: 28,
+                             size: 11.5) {
+                    showingEnvironmentAccess = true
+                }
+            }
+        } else {
             ActionButton(title: actionTitle(for: aspect),
                          tone: .sunken,
                          height: 28,
@@ -127,9 +155,6 @@ struct SiteConfigurationSection: View {
                 open(aspect)
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .contentShape(Rectangle())
     }
 
     private func actionTitle(for aspect: SiteConfigurationAspect) -> String {
@@ -320,7 +345,7 @@ private struct SiteConfigurationEditorView: View {
     var body: some View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 3) {
-                Text("Configure \(aspect.title)").font(.serif(16))
+                Text(editorTitle).font(.serif(16))
                 Text(editorNote)
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
@@ -354,6 +379,10 @@ private struct SiteConfigurationEditorView: View {
         }
         .frame(width: 660)
         .background(Theme.background)
+    }
+
+    private var editorTitle: String {
+        aspect == .apiAccess ? "Configure shared API defaults" : "Configure \(aspect.title)"
     }
 
     private var editorNote: String {

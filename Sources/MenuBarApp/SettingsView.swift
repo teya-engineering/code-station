@@ -1634,7 +1634,7 @@ enum SettingsSearchIndex {
         result("Agent files", .agents, .agentFiles,
                "claude settings json codex config toml reveal"),
         result("Current configuration", .advanced, .advancedConfiguration,
-               "json environments api access starter requests mcp presets skills marketplace shortcuts"),
+               "json environments api access credentials oauth shared defaults starter requests mcp presets skills marketplace shortcuts"),
         result("Reset from file", .advanced, .advancedReset,
                "repository url github load choose file restore aspects"),
         result("Design", .experimental, .experimentalFeatures,
