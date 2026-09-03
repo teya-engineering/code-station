@@ -141,56 +141,86 @@ enum PermissionMode: String, CaseIterable, Identifiable {
     }
 }
 
-// The models each agent's picker offers. For Claude Code these are the aliases the CLI
-// takes - full names ("claude-opus-5") work too, but an alias always points at the
-// newest of that family, which is what a picker should do. For Codex they are the model
-// ids its CLI takes.
+// The models each agent's picker offers. Claude Code publishes stable aliases but no
+// account-aware catalog, so those stay curated here. Codex supplies its choices through
+// the local app server; the fallback keeps settings usable with older or offline CLIs.
 enum ModelChoice {
-    static let claude: [(id: String?, title: String, detail: String)] = [
-        (nil, "Default", "Whatever Claude Code is set to use."),
-        ("opus", "Opus", "The strongest reasoning, and the slowest."),
-        ("sonnet", "Sonnet", "The everyday balance of speed and depth."),
-        ("haiku", "Haiku", "The fastest and cheapest; best for small, mechanical work."),
-        ("fable", "Fable", "Tuned for writing and long-form prose."),
+    struct Option: Identifiable, Equatable, Sendable {
+        let id: String?
+        let title: String
+        let detail: String
+        var supportedEfforts: [String]? = nil
+        var isDefault = false
+    }
+
+    static let claude: [Option] = [
+        Option(id: nil, title: "Default", detail: "Whatever Claude Code is set to use."),
+        Option(id: "opus", title: "Opus", detail: "The strongest reasoning, and the slowest."),
+        Option(id: "sonnet", title: "Sonnet", detail: "The everyday balance of speed and depth."),
+        Option(id: "haiku", title: "Haiku", detail: "The fastest and cheapest; best for small, mechanical work."),
+        Option(id: "fable", title: "Fable", detail: "Tuned for writing and long-form prose."),
     ]
 
-    static let codex: [(id: String?, title: String, detail: String)] = [
-        (nil, "Default", "Whatever Codex is set to use."),
-        ("gpt-5.6-sol", "Sol", "The strongest reasoning, for long and hard work."),
-        ("gpt-5.6-terra", "Terra", "The everyday balance of speed and depth."),
-        ("gpt-5.6-luna", "Luna", "The fastest and cheapest; best for small, mechanical work."),
+    static let codexFallback: [Option] = [
+        Option(id: nil, title: "Default", detail: "Whatever Codex is set to use."),
+        Option(id: "gpt-5.6-sol", title: "Sol", detail: "The strongest reasoning, for long and hard work."),
+        Option(id: "gpt-5.6-terra", title: "Terra", detail: "The everyday balance of speed and depth."),
+        Option(id: "gpt-5.6-luna", title: "Luna", detail: "The fastest and cheapest; best for small, mechanical work."),
     ]
 
-    static func options(for agent: AgentKind) -> [(id: String?, title: String, detail: String)] {
+    static func options(for agent: AgentKind, codexModels: [Option]? = nil) -> [Option] {
         switch agent {
-        case .claudeCode: claude
-        case .codex: codex
+        case .claudeCode: return claude
+        case .codex:
+            guard let codexModels else { return codexFallback }
+            return [Option(id: nil, title: "Default",
+                           detail: "Whatever Codex is set to use.")] + codexModels
         }
     }
 
-    // An id that belongs to another agent can exist on an older mixed session. It reads
-    // as "nothing chosen" instead of being sent and refused.
-    static func valid(_ id: String?, for agent: AgentKind) -> String? {
-        guard let id, !id.isEmpty,
-              options(for: agent).contains(where: { $0.id == id }) else { return nil }
+    static func valid(_ id: String?, for agent: AgentKind,
+                      codexModels: [Option]? = nil) -> String? {
+        guard let id, !id.isEmpty else { return nil }
+        switch agent {
+        case .claudeCode:
+            guard claude.contains(where: { $0.id == id }) || id.hasPrefix("claude-")
+            else { return nil }
+        case .codex:
+            if let codexModels {
+                guard codexModels.contains(where: { $0.id == id }) else { return nil }
+            } else {
+                guard !claude.contains(where: { $0.id == id }), !id.hasPrefix("claude-")
+                else { return nil }
+            }
+        }
         return id
     }
 
-    static func title(of id: String?) -> String {
-        (claude + codex).first { $0.id == id }?.title ?? id ?? "Default"
+    static func title(of id: String?, codexModels: [Option]? = nil) -> String {
+        (claude + (codexModels ?? codexFallback)).first { $0.id == id }?.title
+            ?? id.map(shortName) ?? "Default"
     }
 
     // How the app-wide choice reads on the row that says a session is following it.
-    static func summary(of id: String?, agent: AgentKind) -> String {
+    static func summary(of id: String?, agent: AgentKind,
+                        codexModels: [Option]? = nil) -> String {
         guard let id, !id.isEmpty else { return "Whatever \(agent.title) is set to use" }
-        return title(of: id)
+        return title(of: id, codexModels: codexModels)
+    }
+
+    static func inferredAgent(of id: String?) -> AgentKind? {
+        guard let id, !id.isEmpty else { return nil }
+        if claude.contains(where: { $0.id == id }) || id.hasPrefix("claude-") {
+            return .claudeCode
+        }
+        return .codex
     }
 
     // What the CLI reports a turn ran on, cut down to the part worth reading in a strip:
     // "claude-haiku-4-5-20251001" is mostly prefix and a release date, and the family and
     // its number are all that separate one model from another at a glance.
     static func shortName(of canonical: String) -> String {
-        if let choice = (claude + codex).first(where: { $0.id == canonical }) {
+        if let choice = (claude + codexFallback).first(where: { $0.id == canonical }) {
             return choice.title
         }
 
@@ -213,30 +243,57 @@ enum ModelChoice {
 // How long the model spends thinking before it answers. More effort costs more tokens
 // and more time, so it is the first thing to turn down when a limit is close.
 enum EffortChoice {
-    static let levels: [(id: String?, title: String)] = [
-        (nil, "Default"),
-        ("low", "Low"),
-        ("medium", "Medium"),
-        ("high", "High"),
-        ("xhigh", "Extra high"),
-        ("max", "Max"),
-    ]
-
-    // Both agents take the same levels. Callers still ask per agent, so a level one CLI
-    // gains and the other does not has one place to be told apart.
-    static func all(for agent: AgentKind) -> [(id: String?, title: String)] {
-        levels
+    struct Option: Identifiable, Equatable, Sendable {
+        let id: String?
+        let title: String
     }
 
-    static func valid(_ id: String?, for agent: AgentKind) -> String? {
+    static let levels: [Option] = [
+        Option(id: nil, title: "Default"),
+        Option(id: "low", title: "Low"),
+        Option(id: "medium", title: "Medium"),
+        Option(id: "high", title: "High"),
+        Option(id: "xhigh", title: "Extra high"),
+        Option(id: "max", title: "Max"),
+    ]
+
+    static func all(for agent: AgentKind, model: String? = nil,
+                    codexModels: [ModelChoice.Option]? = nil) -> [Option] {
+        guard agent == .codex, let codexModels else { return levels }
+        let selected = model.flatMap { selected in
+            codexModels.first { $0.id == selected }
+        } ?? codexModels.first(where: \.isDefault)
+        guard let efforts = selected?.supportedEfforts, !efforts.isEmpty else { return levels }
+        return [Option(id: nil, title: "Default")] + efforts.map {
+            Option(id: $0, title: title(of: $0))
+        }
+    }
+
+    static func valid(_ id: String?, for agent: AgentKind, model: String? = nil,
+                      codexModels: [ModelChoice.Option]? = nil) -> String? {
         guard let id, !id.isEmpty,
-              all(for: agent).contains(where: { $0.id == id }) else { return nil }
+              all(for: agent, model: model, codexModels: codexModels)
+                .contains(where: { $0.id == id }) else { return nil }
         return id
     }
 
-    static func summary(of id: String?, agent: AgentKind) -> String {
+    static func summary(of id: String?, agent: AgentKind, model: String? = nil,
+                        codexModels: [ModelChoice.Option]? = nil) -> String {
         guard let id, !id.isEmpty else { return "Whatever \(agent.title) is set to use" }
-        return all(for: agent).first { $0.id == id }?.title ?? id
+        return all(for: agent, model: model, codexModels: codexModels)
+            .first { $0.id == id }?.title ?? Self.title(of: id)
+    }
+
+    private static func title(of id: String) -> String {
+        switch id {
+        case "low": "Low"
+        case "medium": "Medium"
+        case "high": "High"
+        case "xhigh": "Extra high"
+        case "max": "Max"
+        case "ultra": "Ultra"
+        default: id.replacingOccurrences(of: "_", with: " ").capitalized
+        }
     }
 }
 

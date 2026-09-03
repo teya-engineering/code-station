@@ -281,6 +281,62 @@ struct CommandRunnerTests {
         #expect(usage?.windows.map(\.usedPercent) == [12])
     }
 
+    @Test func codexModelReaderCollectsEveryPage() async throws {
+        let script = scratch.path("codex-models")
+        try FixtureCLI.write("""
+        IFS= read -r initialize
+        printf '%s\\n' '{"id":1,"result":{}}'
+        IFS= read -r first
+        printf '%s\\n' '{"id":2,"result":{"data":[{"id":"catalog-astra","model":"gpt-5.6-astra","displayName":"Astra","description":"Fast account model.","hidden":false,"supportedReasoningEfforts":[{"reasoningEffort":"low"},{"reasoningEffort":"ultra"}],"isDefault":true}],"nextCursor":"page-2"}}'
+        IFS= read -r second
+        case "$second" in *'"cursor":"page-2"'*) ;; *) exit 9 ;; esac
+        printf '%s\\n' '{"id":3,"result":{"data":[{"model":"gpt-5.6-terra","displayName":"Terra","supportedReasoningEfforts":["low","high"]},{"model":"internal","displayName":"Internal","hidden":true}],"nextCursor":null}}'
+        """, to: script)
+
+        let models = try #require(await CodexModelReader.read(
+            at: script.path, searchPath: "/usr/bin:/bin"))
+
+        #expect(models.compactMap(\.id) == ["gpt-5.6-astra", "gpt-5.6-terra"])
+        #expect(models[0].title == "Astra")
+        #expect(models[0].detail == "Fast account model.")
+        #expect(models[0].supportedEfforts == ["low", "ultra"])
+        #expect(models[0].isDefault)
+        #expect(models[1].supportedEfforts == ["low", "high"])
+    }
+
+    @Test func codexModelReaderRejectsAnIncompleteExchange() async throws {
+        let script = scratch.path("codex-model-error")
+        try FixtureCLI.write("""
+        IFS= read -r initialize
+        printf '%s\\n' '{"id":1,"result":{}}'
+        IFS= read -r models
+        printf '%s\\n' '{"id":2,"error":{"code":-32601,"message":"unsupported"}}'
+        """, to: script)
+
+        let models = await CodexModelReader.read(at: script.path,
+                                                 searchPath: "/usr/bin:/bin")
+
+        #expect(models == nil)
+    }
+
+    @MainActor
+    @Test func aFailedModelRefreshKeepsTheLastCatalog() async throws {
+        let script = scratch.path("codex-model-refresh-error")
+        try FixtureCLI.write("""
+        IFS= read -r initialize
+        printf '%s\\n' '{"id":1,"result":{}}'
+        IFS= read -r models
+        printf '%s\\n' '{"id":2,"error":{"code":-32601,"message":"unsupported"}}'
+        """, to: script)
+        let existing = [ModelChoice.Option(id: "gpt-5.6-astra", title: "Astra",
+                                           detail: "Fast.")]
+        let runner = SessionRunner(paths: [.codex: script.path], codexModels: existing)
+
+        await runner.refreshCodexModels()
+
+        #expect(runner.codexModels == existing)
+    }
+
     private func backgroundChildArguments(pidFile: URL,
                                           keepLeaderRunning: Bool = false) -> [String] {
         let finish = keepLeaderRunning ? "sleep 30" : "exit 0"

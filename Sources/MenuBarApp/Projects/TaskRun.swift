@@ -37,8 +37,8 @@ enum TaskRun {
                     agentAvatarName: String?) -> Result<ChatSession, PersistenceFailure> {
         let spec = task.task
         let agent = spec?.agent ?? runner.agent
-        let model = ModelChoice.valid(spec?.model, for: agent)
-            ?? runner.defaults(for: agent).model
+        let model = runner.validModel(spec?.model, for: agent)
+            ?? runner.validModel(runner.defaults(for: agent).model, for: agent)
         if var spec, !values.isEmpty {
             spec.lastValues = values
             store.setTaskSpec(spec, for: task.id)
@@ -49,7 +49,7 @@ enum TaskRun {
                         agentAvatarName: spec?.agentAvatarName ?? agentAvatarName))
         if case .success(let created) = session {
             var settings = created.settings ?? SessionSettings()
-            settings.effort = EffortChoice.valid(spec?.effort, for: agent)
+            settings.effort = runner.validEffort(spec?.effort, for: agent, model: model)
             settings.permissionMode = spec?.permissionMode
             settings.codexSandboxMode = spec?.codexSandboxMode
             store.setSettings(settings, for: created.id)

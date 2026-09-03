@@ -37,15 +37,15 @@ struct SessionRunSettingsControls: View {
     @ViewBuilder private func modelControl(_ session: ChatSession, lastRan: String?) -> some View {
         let settings = sessionSettings
         let agent = session.agent
-        let model = ModelChoice.valid(settings.model, for: agent)
-        let label = model.map { ModelChoice.title(of: $0) }
+        let model = runner.validModel(settings.model, for: agent)
+        let label = model.map { runner.modelTitle($0) }
             ?? lastRan.map { ModelChoice.shortName(of: $0) }
             ?? "Default model"
         settingMenu(label,
                     overridden: model != nil,
                     help: "The model this session will use for its next turn.",
                     defaultTitle: "Use \(agent.title) default",
-                    options: ModelChoice.options(for: agent).compactMap { choice in
+                    options: runner.modelOptions(for: agent).compactMap { choice in
                         choice.id.map { (id: $0, title: choice.title) }
                     },
                     selection: Binding(get: { model },
@@ -54,17 +54,17 @@ struct SessionRunSettingsControls: View {
     }
 
     private func chooseModel(_ model: String?, for session: ChatSession, lastRan: String?) {
-        let current = ModelChoice.valid(sessionSettings.model, for: session.agent)
+        let current = runner.validModel(sessionSettings.model, for: session.agent)
         guard model != current else { return }
         guard session.hasAgentConversation else {
-            changeSettings { $0.model = model }
+            setModel(model, for: session.agent)
             return
         }
 
-        let currentTitle = current.map { ModelChoice.title(of: $0) }
+        let currentTitle = current.map { runner.modelTitle($0) }
             ?? lastRan.map { ModelChoice.shortName(of: $0) }
             ?? "the \(session.agent.title) default"
-        let nextTitle = model.map { ModelChoice.title(of: $0) }
+        let nextTitle = model.map { runner.modelTitle($0) }
             ?? "the \(session.agent.title) default"
         dialogs.show(.confirm(
             "Change from \(currentTitle) to \(nextTitle)?",
@@ -73,23 +73,35 @@ struct SessionRunSettingsControls: View {
                 + "model, cached context may not carry over, so processing the existing "
                 + "context can use more input tokens.",
             action: "Change model", kind: .primary) {
-                changeSettings { $0.model = model }
+                setModel(model, for: session.agent)
             })
+    }
+
+    private func setModel(_ model: String?, for agent: AgentKind) {
+        changeSettings {
+            $0.model = model
+            if let effort = $0.effort,
+               runner.validEffort(effort, for: agent, model: model) == nil {
+                $0.effort = nil
+            }
+        }
     }
 
     private func effortMenu(agent: AgentKind) -> some View {
         let settings = sessionSettings
-        let override = EffortChoice.valid(settings.effort, for: agent)
-        let appDefault = EffortChoice.valid(runner.defaults(for: agent).effort, for: agent)
+        let model = runner.validModel(settings.model, for: agent)
+        let override = runner.validEffort(settings.effort, for: agent, model: model)
+        let appDefault = runner.validEffort(runner.defaults(for: agent).effort,
+                                            for: agent, model: model)
         let chosen = override ?? appDefault
         return settingMenu(
-            chosen.map { "\(EffortChoice.summary(of: $0, agent: agent)) effort" }
+            chosen.map { "\(runner.effortTitle($0, for: agent, model: model)) effort" }
                 ?? "Default effort",
             overridden: override != nil,
             help: "How long the model thinks before it answers.",
             defaultTitle: defaultTitle(
-                appDefault.map { EffortChoice.summary(of: $0, agent: agent) }),
-            options: EffortChoice.all(for: agent).compactMap { choice in
+                appDefault.map { runner.effortTitle($0, for: agent, model: model) }),
+            options: runner.effortOptions(for: agent, model: model).compactMap { choice in
                 choice.id.map { (id: $0, title: choice.title) }
             },
             selection: Binding(get: { override },

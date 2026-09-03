@@ -21,6 +21,10 @@ final class SessionRunner {
     // settings between turns. Each agent has its own because their choices do not overlap.
     private var defaultsByAgent: [AgentKind: SessionSettings]
 
+    // Nil means discovery has not succeeded yet, so callers use the bundled fallback.
+    // A failed refresh leaves the last successful catalog in place.
+    private(set) var codexModels: [ModelChoice.Option]?
+
     var defaults: SessionSettings {
         get { defaults(for: agent) }
         set { setDefaults(newValue, for: agent) }
@@ -99,6 +103,7 @@ final class SessionRunner {
     @ObservationIgnored private let discoversPaths: Bool
     @ObservationIgnored private let configs: ConfigStore?
     @ObservationIgnored private let codexContextReader = CodexContextReader()
+    @ObservationIgnored private var codexModelRefreshID = UUID()
     @ObservationIgnored private var codexContextRefreshes:
         [UUID: (id: UUID, task: Task<Void, Never>)] = [:]
     @ObservationIgnored private let stalledAfter: TimeInterval
@@ -112,12 +117,14 @@ final class SessionRunner {
     """
 
     init(configs: ConfigStore? = nil, paths: [AgentKind: String]? = nil,
+         codexModels: [ModelChoice.Option]? = nil,
          stalledAfter: TimeInterval = 5 * 60,
          stallCheckInterval: Duration = .seconds(5),
          automaticRecapsEnabled: @escaping () -> Bool = {
              Preferences.sessionRecapsEnabled()
          }) {
         self.configs = configs
+        self.codexModels = codexModels
         self.stalledAfter = stalledAfter
         self.stallCheckInterval = stallCheckInterval
         self.automaticRecapsEnabled = automaticRecapsEnabled
@@ -153,6 +160,42 @@ final class SessionRunner {
         for kind in AgentKind.allCases {
             paths[kind] = ProcessManager.resolve(kind.command)
         }
+    }
+
+    func refreshCodexModels() async {
+        guard let path = paths[.codex] else { return }
+        let id = UUID()
+        codexModelRefreshID = id
+        let models = await CodexModelReader.read(at: path, searchPath: ProcessManager.searchPath)
+        guard codexModelRefreshID == id, let models else { return }
+        codexModels = models
+    }
+
+    func modelOptions(for agent: AgentKind) -> [ModelChoice.Option] {
+        ModelChoice.options(for: agent, codexModels: codexModels)
+    }
+
+    func validModel(_ id: String?, for agent: AgentKind) -> String? {
+        ModelChoice.valid(id, for: agent, codexModels: agent == .codex ? codexModels : nil)
+    }
+
+    func modelTitle(_ id: String?) -> String {
+        ModelChoice.title(of: id, codexModels: codexModels)
+    }
+
+    func effortOptions(for agent: AgentKind, model: String?) -> [EffortChoice.Option] {
+        EffortChoice.all(for: agent, model: model,
+                         codexModels: agent == .codex ? codexModels : nil)
+    }
+
+    func validEffort(_ id: String?, for agent: AgentKind, model: String?) -> String? {
+        EffortChoice.valid(id, for: agent, model: model,
+                           codexModels: agent == .codex ? codexModels : nil)
+    }
+
+    func effortTitle(_ id: String?, for agent: AgentKind, model: String?) -> String {
+        EffortChoice.summary(of: id, agent: agent, model: model,
+                             codexModels: agent == .codex ? codexModels : nil)
     }
 
     var availableAgents: [AgentKind] {
@@ -1021,11 +1064,13 @@ final class SessionRunner {
                                       addDirectories: [String] = [], writableRoots: [String] = [],
                                       resume: String? = nil,
                                       mcpConfigPath: String? = nil,
-                                      additionalSystemPrompt: String? = nil) -> [String] {
+                                      additionalSystemPrompt: String? = nil,
+                                      codexModels: [ModelChoice.Option]? = nil) -> [String] {
         // The model belongs to the session and can be changed explicitly between turns.
         // Falling back to the current app default would change it without the user asking.
-        let model = ModelChoice.valid(settings.model, for: agent)
-        let effort = EffortChoice.valid(settings.effort ?? defaults.effort, for: agent)
+        let model = ModelChoice.valid(settings.model, for: agent, codexModels: codexModels)
+        let effort = EffortChoice.valid(settings.effort ?? defaults.effort, for: agent,
+                                        model: model, codexModels: codexModels)
         let codexSandbox = CodexSandboxMode.resolved(settings.codexSandboxMode
             ?? defaults.codexSandboxMode)
 
@@ -1400,7 +1445,8 @@ final class SessionRunner {
             additionalSystemPrompt: designArtifact.map {
                 Self.designSystemPrompt(artifactURL: $0,
                                         canvasWidth: canvasWidths[session.id])
-            } ?? implementationReference.map(Self.implementationSystemPrompt))
+            } ?? implementationReference.map(Self.implementationSystemPrompt),
+            codexModels: agent == .codex ? codexModels : nil)
         return TurnPlan(agent: agent, arguments: arguments, prompt: promptForAgent,
                         resumed: resume != nil)
     }
