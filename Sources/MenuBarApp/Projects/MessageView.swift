@@ -6,9 +6,9 @@ import SwiftUI
 struct MessageView: View, Equatable {
     let message: ChatMessage
     let projectPath: String
-    let isLatestMessage: Bool
     let textScale: CGFloat
-    let openChanges: () -> Void
+    var openChange: (String) -> Void = { _ in }
+    var openTerminal: () -> Void = {}
     var availableWidth: CGFloat?
     // The right-click menu on the user's own prompt. Its entries are built when the
     // menu opens, so what it offers reflects the session as it is then.
@@ -21,8 +21,7 @@ struct MessageView: View, Equatable {
     // compared.
     nonisolated static func == (a: MessageView, b: MessageView) -> Bool {
         a.message == b.message && a.projectPath == b.projectPath
-            && a.isLatestMessage == b.isLatestMessage && a.textScale == b.textScale
-            && a.availableWidth == b.availableWidth
+            && a.textScale == b.textScale && a.availableWidth == b.availableWidth
     }
 
     var body: some View {
@@ -114,29 +113,17 @@ struct MessageView: View, Equatable {
         return max(0, userBubbleWidth - horizontalPadding)
     }
 
-    // The last tool block stays open until anything follows it. This spans message
-    // boundaries, so sending the next prompt also folds the work above it.
-    private var currentToolBlockID: Int? {
-        Self.currentToolBlockID(in: message.blocks, messageIsCurrent: isLatestMessage)
-    }
-
-    nonisolated static func currentToolBlockID(in blocks: [MessageBlock],
-                                               messageIsCurrent: Bool) -> Int? {
-        guard messageIsCurrent, case .tools(let id, _) = blocks.last else { return nil }
-        return id
-    }
-
     // The turn reads down the page in the order it happened, so a call the model made
     // after saying something sits under those words rather than above them.
     private var assistantBody: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 16) {
             ForEach(message.blocks) { block in
                 switch block {
-                case .tools(let id, let nodes):
+                case .tools(_, let nodes):
                     ActivitySpine(nodes: nodes,
                                   projectPath: projectPath,
-                                  openChanges: openChanges,
-                                  isCurrent: id == currentToolBlockID)
+                                  openChange: openChange,
+                                  openTerminal: openTerminal)
                         .transition(.fadeIn)
                 case .prose(_, let text):
                     // The shared block keeps file previews and transcripts visually

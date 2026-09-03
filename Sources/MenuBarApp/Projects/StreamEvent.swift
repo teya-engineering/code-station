@@ -14,7 +14,7 @@ enum StreamEvent: Sendable {
     // is only worth the one line that says the agent is still going.
     case agentText(parentID: String, text: String)
     case toolUse(ToolUse)
-    case toolResult(id: String, output: String, isError: Bool)
+    case toolResult(id: String, output: String, isError: Bool, exitCode: Int?)
     // The agent asking something back. The turn is parked until it is answered.
     case permissionRequest(PermissionRequest)
     case permissionWithdrawn(id: String)
@@ -106,8 +106,9 @@ extension StreamEvent {
             "agent text parent=\(parentID) bytes=\(text.utf8.count)"
         case .toolUse(let tool):
             "tool use name=\(tool.name) id=\(tool.id)"
-        case .toolResult(let id, let output, let isError):
-            "tool result id=\(id) bytes=\(output.utf8.count) error=\(isError)"
+        case .toolResult(let id, let output, let isError, let exitCode):
+            "tool result id=\(id) bytes=\(output.utf8.count) error=\(isError) "
+                + "exit=\(exitCode.map(String.init) ?? "unknown")"
         case .permissionRequest(let request):
             "permission request tool=\(request.toolName) id=\(request.id)"
         case .permissionWithdrawn(let id):
@@ -352,7 +353,8 @@ extension StreamEvent {
               let id = block["tool_use_id"] as? String else { return nil }
         return .toolResult(id: id,
                            output: truncated(flatten(block["content"])),
-                           isError: block["is_error"] as? Bool ?? false)
+                           isError: block["is_error"] as? Bool ?? false,
+                           exitCode: nil)
     }
 
     // A tool result is usually one string, but the API also allows an array of blocks,

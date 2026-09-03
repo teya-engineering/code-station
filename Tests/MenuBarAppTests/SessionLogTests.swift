@@ -37,8 +37,9 @@ struct SessionLogTests {
         let reconnect = "Reconnecting to \(secret)"
 
         #expect(StreamEvent.text(secret).logSummary == "text bytes=\(secret.utf8.count)")
-        #expect(StreamEvent.toolResult(id: "tool-1", output: secret, isError: false)
-            .logSummary == "tool result id=tool-1 bytes=\(secret.utf8.count) error=false")
+        #expect(StreamEvent.toolResult(id: "tool-1", output: secret, isError: false,
+                                       exitCode: 0)
+            .logSummary == "tool result id=tool-1 bytes=\(secret.utf8.count) error=false exit=0")
         #expect(StreamEvent.streamError(reconnect).logSummary
             == "stream error category=reconnecting messageBytes=\(reconnect.utf8.count)")
         #expect(!StreamEvent.text(secret).logSummary.contains(secret))

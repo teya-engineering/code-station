@@ -284,13 +284,14 @@ struct CodexTests {
         {"type":"item.completed","item":{"id":"item_1","item_type":"command_execution",\
         "command":"ls -la","aggregated_output":"README.md","exit_code":0,"status":"completed"}}
         """)
-        guard case .toolResult(let id, let output, let isError)? = completed.first else {
+        guard case .toolResult(let id, let output, let isError, let exitCode)? = completed.first else {
             Issue.record("expected a tool result, got \(completed)")
             return
         }
         #expect(id == "item_1")
         #expect(output == "README.md")
         #expect(!isError)
+        #expect(exitCode == 0)
     }
 
     @Test func aFailingCommandIsAnError() {
@@ -298,11 +299,12 @@ struct CodexTests {
         {"type":"item.completed","item":{"id":"item_2","item_type":"command_execution",\
         "command":"false","aggregated_output":"","exit_code":1,"status":"failed"}}
         """)
-        guard case .toolResult(_, _, let isError)? = events.first else {
+        guard case .toolResult(_, _, let isError, let exitCode)? = events.first else {
             Issue.record("expected a tool result, got \(events)")
             return
         }
         #expect(isError)
+        #expect(exitCode == 1)
     }
 
     // The completed message carries the whole text, so only it speaks; acting on the
@@ -350,7 +352,7 @@ struct CodexTests {
         #expect(write.id == "item_4#1")
         #expect(write.name == "Write")
 
-        if case .toolResult(let id, _, let isError)? = events.last {
+        if case .toolResult(let id, _, let isError, _)? = events.last {
             #expect(id == "item_4#1")
             #expect(!isError)
         } else {
@@ -817,7 +819,7 @@ struct CodexTests {
         {"type":"item.completed","item":{"id":"item_7","item_type":"collab_tool_call",\
         "tool":"wait","agents_states":{},"status":"completed"}}
         """)
-        guard case .toolResult(let id, _, let isError)? = events.first else {
+        guard case .toolResult(let id, _, let isError, _)? = events.first else {
             Issue.record("expected a tool result, got \(events)")
             return
         }

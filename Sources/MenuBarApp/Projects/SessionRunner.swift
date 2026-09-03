@@ -1764,7 +1764,7 @@ final class SessionRunner {
                     message.tools.append(placed)
                 }
 
-            case .toolResult(let id, let output, let isError):
+            case .toolResult(let id, let output, let isError, let exitCode):
                 records[sessionID]?.runningTools.removeAll { $0.id == id }
                 var command = ""
                 var toolName = ""
@@ -1773,6 +1773,7 @@ final class SessionRunner {
                     toolName = message.tools[i].name
                     message.tools[i].result = output
                     message.tools[i].isError = isError
+                    message.tools[i].exitCode = exitCode
                     message.tools[i].finishedAt = Date()
                     // An agent that has reported back is no longer partway through
                     // anything, and its last words are in the result.

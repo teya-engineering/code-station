@@ -764,7 +764,7 @@ struct MarkdownBlockView: View, Equatable {
     }
 
     private func paragraphText(_ text: String) -> some View {
-        InlineMarkdownText(text, size: 13)
+        InlineMarkdownText(text, size: 13.5)
             .textSelection(.enabled)
             .multilineTextAlignment(.leading)
             .fixedSize(horizontal: false, vertical: true)

@@ -78,33 +78,6 @@ struct MessageBlockTests {
         #expect(toolIDs(blocks[1]) == ["a"])
     }
 
-    @Test func keepsTheLatestToolBlockOpenWhenNothingFollowsIt() {
-        let message = ChatMessage(role: .assistant,
-                                  text: "On it.",
-                                  tools: [tool("a", at: 6)])
-
-        #expect(MessageView.currentToolBlockID(in: message.blocks,
-                                               messageIsCurrent: true) == 1)
-    }
-
-    @Test func foldsTheToolBlockWhenTheTurnSaysSomethingAfterIt() {
-        let message = ChatMessage(role: .assistant,
-                                  text: "On it. Done.",
-                                  tools: [tool("a", at: 6)])
-
-        #expect(MessageView.currentToolBlockID(in: message.blocks,
-                                               messageIsCurrent: true) == nil)
-    }
-
-    @Test func foldsTheToolBlockWhenANewerMessageExists() {
-        let message = ChatMessage(role: .assistant,
-                                  text: "On it.",
-                                  tools: [tool("a", at: 6)])
-
-        #expect(MessageView.currentToolBlockID(in: message.blocks,
-                                               messageIsCurrent: false) == nil)
-    }
-
     @Test func readsAConversationSavedWithoutOffsetsTheWayItAlwaysLooked() {
         let message = ChatMessage(role: .assistant,
                                   text: "All done.",

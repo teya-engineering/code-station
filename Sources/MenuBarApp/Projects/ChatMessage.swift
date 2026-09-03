@@ -12,6 +12,9 @@ struct ToolUse: Identifiable, Codable, Equatable, Sendable {
     var input: String
     var result: String?
     var isError: Bool = false
+    // Shell calls carry the process result when the agent reports one. Other failures
+    // still use `isError`, since not every tool has an exit status.
+    var exitCode: Int?
     // How much of the turn's text had been written when this call started. It is the
     // only record of where the call belongs, since text and calls are kept apart.
     // Optional so conversations written before the app tracked it still decode; those

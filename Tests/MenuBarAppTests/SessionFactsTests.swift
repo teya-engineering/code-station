@@ -2,18 +2,17 @@ import Foundation
 import Testing
 @testable import MenuBarApp
 
-// The chip is the only thing left of these facts while it is shut, so what it says has to
-// be the one reading that is worth watching rather than looking up.
+// The chip stays one stable target while the facts inside it change.
 @MainActor
 struct SessionFactsTests {
-    @Test func readsOutTheWindow() {
+    @Test func keepsTheDetailsLabelWhileTheWindowChanges() {
         let facts = SessionFacts(branch: "lantern/billing-split",
                                  pullRequest: PullRequest(number: 482,
                                                           url: "https://github.com/a/b/pull/482"),
                                  model: "Opus",
                                  context: 0.38)
 
-        #expect(facts.summary == "38%")
+        #expect(facts.summary == "Details")
     }
 
     // A session that has not taken a turn yet has no window to read, so the chip offers

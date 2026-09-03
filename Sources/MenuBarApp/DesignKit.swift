@@ -97,7 +97,8 @@ struct PulsingDot: View {
         Circle()
             .fill(colour)
             .frame(width: size, height: size)
-            .opacity(dim ? 0.35 : 1)
+            .scaleEffect(dim ? 0.8 : 1)
+            .opacity(dim ? 0.45 : 1)
             .animation(reduceMotion
                        ? nil
                        : .easeInOut(duration: 0.8).repeatForever(autoreverses: true),

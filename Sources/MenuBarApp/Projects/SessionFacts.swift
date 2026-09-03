@@ -16,13 +16,10 @@ struct SessionFacts: Equatable {
     var context: Double?
     var agent: AgentKind = .claudeCode
 
-    // What the chip says while it is shut. How full the window is, since that is the one
-    // fact behind the chip that moves every turn and the only one worth a glance rather
-    // than a lookup - the branch and the rest are asked for once and then known. Before
-    // the first turn there is no window to read, so the chip says what it is instead of
-    // what it holds.
+    // The status line stays stable while the values inside the card change. Context still
+    // runs along the strip's lower edge, where it can be watched without renaming this
+    // control every turn.
     var summary: String? {
-        if let context { return Self.percent(context) }
         return isEmpty ? nil : "Details"
     }
 
@@ -87,9 +84,7 @@ struct SessionFactsChip: View {
             } label: { chip(summary) }
                 .buttonStyle(.plain)
                 .onHover { pointerOnChip = $0; pointerMoved() }
-                .accessibilityLabel(facts.context == nil
-                    ? "Session details"
-                    : "Session details, \(facts.agent == .codex ? "window" : "context") \(summary) full")
+                .accessibilityLabel(accessibilityLabel)
                 .overlay(alignment: .topTrailing) {
                     if isOpen { hoverCard }
                 }
@@ -115,32 +110,25 @@ struct SessionFactsChip: View {
         }
     }
 
-    // A window that is filling is the one thing on this strip worth being pulled towards,
-    // so on the chip it wears the colour it has on the card. Below that it stays as quiet
-    // as everything else on the line.
-    private var summaryTint: Color {
-        guard let context = facts.context else { return .secondary }
-        let colour = SessionFacts.contextColour(context, agent: facts.agent)
-        return colour == Theme.dotOn ? .secondary : colour
+    private var accessibilityLabel: String {
+        guard let context = facts.context else { return "Session details" }
+        let window = facts.agent == .codex ? "window" : "context"
+        return "Session details, \(window) \(SessionFacts.percent(context)) full"
     }
 
     private func chip(_ summary: String) -> some View {
         HStack(spacing: 6) {
             Text(summary)
-                .font(.mono(10.5, .semibold))
-                .foregroundStyle(summaryTint)
+                .font(.mono(10.5))
+                .foregroundStyle(.tertiary)
                 .lineLimit(1)
                 .truncationMode(.middle)
             Image(systemName: "chevron.down")
                 .font(.system(size: 7, weight: .semibold))
                 .foregroundStyle(.tertiary)
         }
-        .padding(.horizontal, 9)
         .frame(height: Self.chipHeight)
-        .background(RoundedRectangle(cornerRadius: 7).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 7)
-            .stroke(isOpen ? Theme.accent.opacity(0.5) : Theme.border))
-        .contentShape(RoundedRectangle(cornerRadius: 7))
+        .contentShape(Rectangle())
         .fixedSize()
     }
 

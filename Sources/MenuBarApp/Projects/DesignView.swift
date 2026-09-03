@@ -134,9 +134,7 @@ struct DesignView: View {
                     ForEach(session.messages) { message in
                         MessageView(message: message,
                                     projectPath: projectPath,
-                                    isLatestMessage: message.id == session.messages.last?.id,
                                     textScale: textScale,
-                                    openChanges: {},
                                     availableWidth: width - 32)
                             .equatable()
                             .environment(\.runningAgents, runner.runningAgents(sessionID))

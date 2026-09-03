@@ -4,32 +4,27 @@ import Testing
 
 struct ActivitySpineTests {
 
-    @Test func staysOpenWhileItIsTheCurrentBlock() {
-        #expect(ActivitySpine.rowsAreVisible(isFoldable: true,
-                                             userChoice: nil,
-                                             isCurrent: true,
-                                             hasExpandedRows: false))
+    @Test func flattensAgentCallsIntoPermanentReceiptsInEventOrder() {
+        let child = ToolNode(tool: ToolUse(id: "child", name: "Read", input: "{}"),
+                             order: 1)
+        let agent = ToolNode(tool: ToolUse(id: "agent", name: "Agent", input: "{}"),
+                             children: [child], order: 0)
+        let edit = ToolNode(tool: ToolUse(id: "edit", name: "Edit", input: "{}"),
+                            order: 2)
+
+        #expect(ActivitySpine.flattened([agent, edit]).map(\.id)
+                == ["agent", "child", "edit"])
     }
 
-    @Test func foldsOnceNewActivityFollowsIt() {
-        #expect(!ActivitySpine.rowsAreVisible(isFoldable: true,
-                                              userChoice: nil,
-                                              isCurrent: false,
-                                              hasExpandedRows: false))
-    }
+    @Test func summarizesTheCallsAndTheirUniqueVerbs() {
+        let calls = [
+            ToolNode(tool: ToolUse(id: "1", name: "Bash", input: "{}")),
+            ToolNode(tool: ToolUse(id: "2", name: "Read", input: "{}")),
+            ToolNode(tool: ToolUse(id: "3", name: "Bash", input: "{}")),
+            ToolNode(tool: ToolUse(id: "4", name: "Edit", input: "{}"))
+        ]
 
-    @Test func staysOpenWhileTheReaderHasARowExpanded() {
-        #expect(ActivitySpine.rowsAreVisible(isFoldable: true,
-                                             userChoice: nil,
-                                             isCurrent: false,
-                                             hasExpandedRows: true))
-    }
-
-    @Test func keepsAReadersChoiceAfterNewActivity() {
-        #expect(ActivitySpine.rowsAreVisible(isFoldable: true,
-                                             userChoice: true,
-                                             isCurrent: false,
-                                             hasExpandedRows: false))
+        #expect(ActivitySpine.summary(calls) == "4 CALLS · BASH, READ, EDIT")
     }
 }
 

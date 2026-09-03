@@ -348,7 +348,7 @@ struct SessionView: View {
     private func header(session: ChatSession, project: Project) -> some View {
         let workspace = session.workspaceID.flatMap(store.workspace)
         let container = workspace?.name ?? project.name
-        return HStack(spacing: 14) {
+        return HStack(spacing: 8) {
             HStack(spacing: 7) {
                 if let workspace {
                     SidebarIdentityTile(
@@ -637,7 +637,11 @@ struct SessionView: View {
         default: session.lastActivity
         }
         return HStack(spacing: 7) {
-            StateLight(tone: tone, size: 6)
+            if tone == .running {
+                PulsingDot(size: 7)
+            } else {
+                StateLight(tone: tone, size: 7)
+            }
             StatusCaps(text: tone.word, tint: tone.colour)
             if let since {
                 StatusDot()
@@ -1068,8 +1072,8 @@ struct SessionView: View {
                         proxy.scrollTo(firstVisibleID, anchor: .top)
                     }
                 }
-                    .padding(.horizontal, 24)
-                    .padding(.vertical, 20)
+                    .padding(.horizontal, 26)
+                    .padding(.vertical, 22)
                     // Capped so prose keeps a readable line length, and centered so a
                     // wide window pads both sides instead of piling space on the right.
                     // Wider than a chat app's usual measure: diffs and tool output make
@@ -1180,12 +1184,15 @@ struct SessionView: View {
             }
 
             ForEach(messages) { message in
-                let isLastMessage = message.id == session.messages.last?.id
                 MessageView(message: message,
                             projectPath: projectPath,
-                            isLatestMessage: isLastMessage,
                             textScale: appSettings.textSize.scale,
-                            openChanges: { openChanges() },
+                            openChange: { path in
+                                openChange(path, root: projectPath)
+                            },
+                            openTerminal: {
+                                openTerminal(directory: projectPath)
+                            },
                             promptMenu: promptMenu(for: message))
                     // Every message is on screen now, and a streaming turn rewrites
                     // the last one many times a second. Without this, each of those
@@ -1294,6 +1301,35 @@ struct SessionView: View {
     private func openChanges() {
         requestedChange = nil
         tab = .changes
+    }
+
+    private func openChange(_ path: String, root: String) {
+        var target = RequestedChange(root: root, path: path)
+        if path.hasPrefix("/"), let session = store.session(sessionID) {
+            let containingDirectory = store.workingDirectories(for: session)
+                .compactMap { directory -> RequestedChange? in
+                    guard let relative = path.pathRelative(to: directory) else { return nil }
+                    return RequestedChange(root: directory, path: relative)
+                }
+                .max { $0.root.count < $1.root.count }
+            if let containingDirectory { target = containingDirectory }
+
+            if let checkout = store.checkoutProjects(for: session).first(where: { checkout in
+                let directory = checkout.worktreePath ?? store.project(checkout.projectID)?.path
+                return directory == target.root
+            }) {
+                selectedProjectID = checkout.projectID
+            }
+        }
+        requestedChange = target
+        tab = .changes
+    }
+
+    private func openTerminal(directory: String) {
+        if !terminals.isOpen(terminalScope) {
+            terminals.setOpen(true, for: terminalScope, directory: directory)
+        }
+        terminalFocused = true
     }
 
     // The right-click menu on one of the user's own prompts. Only prompts that recorded

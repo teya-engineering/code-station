@@ -129,7 +129,8 @@ extension StreamEvent {
             let isError = (item["exit_code"] as? Int).map { $0 != 0 } ?? failed
             return [.toolResult(id: id,
                                 output: truncated(item["aggregated_output"] as? String ?? ""),
-                                isError: isError)]
+                                isError: isError,
+                                exitCode: item["exit_code"] as? Int)]
 
         case "file_change":
             // Codex reports every file it touched in one item, so the item becomes one
@@ -148,7 +149,8 @@ extension StreamEvent {
                 let callID = index == 0 ? id : "\(id)#\(index)"
                 let tool = ToolUse(id: callID, name: editVerb(change["kind"] as? String),
                                    input: json(fields))
-                return [.toolUse(tool), .toolResult(id: callID, output: "", isError: failed)]
+                return [.toolUse(tool),
+                        .toolResult(id: callID, output: "", isError: failed, exitCode: nil)]
             }
 
         case "mcp_tool_call":
@@ -157,14 +159,16 @@ extension StreamEvent {
             guard completed else {
                 return [.toolUse(ToolUse(id: id, name: "MCP", input: name))]
             }
-            return [.toolResult(id: id, output: "", isError: failed)]
+            return [.toolResult(id: id, output: "", isError: failed, exitCode: nil)]
 
         case "collab_tool_call":
             // Codex's own fan-out. It spawns agents on threads of their own and waits on
             // them, and sends the state of the whole team alongside every one of those
             // calls. An ordinary turn that spawned nothing still sends one with an empty
             // team, and a row for that would say nothing at all.
-            guard !completed else { return [.toolResult(id: id, output: "", isError: failed)] }
+            guard !completed else {
+                return [.toolResult(id: id, output: "", isError: failed, exitCode: nil)]
+            }
             let agents = collabAgents(item)
             guard !agents.isEmpty else { return [] }
             return [.toolUse(ToolUse(id: id, name: "Agent",
@@ -175,7 +179,7 @@ extension StreamEvent {
             guard completed else { return [] }
             return [.toolUse(ToolUse(id: id, name: "WebSearch",
                                      input: item["query"] as? String ?? "")),
-                    .toolResult(id: id, output: "", isError: false)]
+                    .toolResult(id: id, output: "", isError: false, exitCode: nil)]
 
         default:
             // Todo lists and whatever Codex adds next are not worth a row.
