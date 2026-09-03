@@ -602,16 +602,6 @@ struct ProjectDetailView: View {
     }
 
     private func confirmPruneOrphans(_ project: Project) {
-        let count = orphanedWorktrees.count
-        guard count > 0 else { return }
-        dialogs.show(.confirm(
-            "Prune \(counted(count, "orphaned worktree"))?",
-            message: "These checkouts have no session. Any uncommitted changes in them will be lost. Branches are kept when they have unmerged commits.",
-            action: "Prune all") { pruneOrphans(project) })
-    }
-
-    private func pruneOrphans(_ project: Project) {
-        guard !orphanedWorktreeMonitor.isPruning else { return }
         let orphans = orphanedWorktrees.map {
             OrphanedWorktree(projectID: project.id,
                              projectName: project.name,
@@ -620,6 +610,14 @@ struct ProjectDetailView: View {
                              branch: $0.branch,
                              allocatedBytes: $0.allocatedBytes)
         }
+        guard !orphans.isEmpty else { return }
+        dialogs.show(OrphanedWorktreePruning.confirmation(for: orphans) {
+            pruneOrphans(orphans, for: project)
+        })
+    }
+
+    private func pruneOrphans(_ orphans: [OrphanedWorktree], for project: Project) {
+        guard !orphanedWorktreeMonitor.isPruning else { return }
         pruningOrphans = true
         Task {
             let result = await orphanedWorktreeMonitor.prune(orphans)

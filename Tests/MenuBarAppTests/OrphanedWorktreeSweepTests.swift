@@ -120,4 +120,15 @@ struct OrphanedWorktreeSweepTests {
         #expect(result.failures.map(\.message) == ["still in use"])
         #expect(monitor.worktrees == [kept])
     }
+
+    @Test func pruningConfirmationIncludesWorktreeDetails() throws {
+        let dialog = OrphanedWorktreePruning.confirmation(
+            for: [worktree("one"), worktree("two")]) {}
+
+        #expect(dialog.title == "Prune 2 orphaned worktrees?")
+        #expect(dialog.message?.contains("uncommitted changes") == true)
+        #expect(dialog.content != nil)
+        #expect(dialog.width == 520)
+        #expect(dialog.actions.map(\.label) == ["Prune all", "Cancel"])
+    }
 }

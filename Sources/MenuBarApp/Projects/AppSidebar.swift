@@ -1312,14 +1312,10 @@ struct AppSidebar: View {
     }
 
     private func confirmPruneOrphanedWorktrees(_ worktrees: [OrphanedWorktree]) {
-        let count = worktrees.count
-        guard count > 0 else { return }
-        dialogs.show(.confirm(
-            "Prune \(counted(count, "orphaned worktree"))?",
-            message: "These checkouts have no session. Any uncommitted changes in them will be lost. Branches are kept when they have unmerged commits.",
-            action: "Prune all") {
-                Task { await pruneOrphanedWorktrees(worktrees) }
-            })
+        guard !worktrees.isEmpty else { return }
+        dialogs.show(OrphanedWorktreePruning.confirmation(for: worktrees) {
+            Task { await pruneOrphanedWorktrees(worktrees) }
+        })
     }
 
     private func pruneOrphanedWorktrees(_ worktrees: [OrphanedWorktree]) async {
