@@ -235,6 +235,29 @@ struct CodexTests {
         #expect(arguments.contains("model_reasoning_effort=\"high\""))
     }
 
+    @Test func codexUsesDiscoveredModelsAndTheirEffortLevels() {
+        let models = [
+            ModelChoice.Option(id: "gpt-5.6-astra", title: "Astra", detail: "Fast.",
+                               supportedEfforts: ["low", "high", "ultra"],
+                               isDefault: true),
+        ]
+        let arguments = SessionRunner.arguments(
+            agent: .codex,
+            settings: SessionSettings(model: "gpt-5.6-astra", effort: "ultra"),
+            defaults: SessionSettings(),
+            codexModels: models)
+
+        #expect(pair(arguments, after: "--model") == "gpt-5.6-astra")
+        #expect(arguments.contains("model_reasoning_effort=\"ultra\""))
+
+        let unsupported = SessionRunner.arguments(
+            agent: .codex,
+            settings: SessionSettings(model: "gpt-5.6-astra", effort: "max"),
+            defaults: SessionSettings(),
+            codexModels: models)
+        #expect(!unsupported.contains { $0.hasPrefix("model_reasoning_effort=") })
+    }
+
     // A model picked while the other agent was active would only be refused, so it is
     // left off entirely and the agent's own default decides.
     @Test func aForeignModelReadsAsUnchosen() {
@@ -848,6 +871,26 @@ struct CodexTests {
         #expect(EffortChoice.valid("max", for: .codex) == "max")
         #expect(EffortChoice.valid("high", for: .codex) == "high")
         #expect(EffortChoice.valid("high", for: .claudeCode) == "high")
+    }
+
+    @Test func discoveredChoicesAreAuthoritativeAndModelSpecific() {
+        let models = [
+            ModelChoice.Option(id: "gpt-5.6-astra", title: "Astra", detail: "Fast.",
+                               supportedEfforts: ["low", "ultra"], isDefault: true),
+            ModelChoice.Option(id: "gpt-5.6-luna", title: "Luna", detail: "Small.",
+                               supportedEfforts: ["low", "medium", "high"]),
+        ]
+
+        #expect(ModelChoice.valid("gpt-5.6-astra", for: .codex,
+                                  codexModels: models) == "gpt-5.6-astra")
+        #expect(ModelChoice.valid("gpt-5.6-terra", for: .codex,
+                                  codexModels: models) == nil)
+        #expect(ModelChoice.title(of: "gpt-5.6-astra", codexModels: models) == "Astra")
+        #expect(EffortChoice.all(for: .codex, model: "gpt-5.6-astra",
+                                 codexModels: models).compactMap(\.id) == ["low", "ultra"])
+        #expect(EffortChoice.valid("ultra", for: .codex, model: "gpt-5.6-luna",
+                                   codexModels: models) == nil)
+        #expect(ModelChoice.valid("gpt-5.8-future", for: .codex) == "gpt-5.8-future")
     }
 
     // MARK: - Reading the sign-in file

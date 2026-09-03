@@ -359,36 +359,48 @@ struct TaskDetailView: View {
 
     private func modelChoice(_ task: Project) -> RunChoice {
         let agent = runAgent(task)
-        let override = ModelChoice.valid(spec(task).model, for: agent)
-        let appDefault = ModelChoice.valid(runner.defaults(for: agent).model, for: agent)
+        let override = runner.validModel(spec(task).model, for: agent)
+        let appDefault = runner.validModel(runner.defaults(for: agent).model, for: agent)
         return RunChoice(
             badge: "MODEL",
-            label: override.map { ModelChoice.title(of: $0) } ?? "Default model",
+            label: override.map { runner.modelTitle($0) } ?? "Default model",
             overridden: override != nil,
             help: "The model each run starts on.",
-            defaultTitle: defaultTitle(appDefault.map { ModelChoice.title(of: $0) }),
-            options: ModelChoice.options(for: agent).compactMap { choice in
+            defaultTitle: defaultTitle(appDefault.map { runner.modelTitle($0) }),
+            options: runner.modelOptions(for: agent).compactMap { choice in
                 choice.id.map { (id: $0, title: choice.title) }
             },
             selection: Binding(get: { override },
-                               set: { id in changeSpec(task) { $0.model = id } }))
+                               set: { id in
+                                   changeSpec(task) {
+                                       $0.model = id
+                                       if let effort = $0.effort,
+                                          runner.validEffort(effort, for: agent,
+                                                             model: id ?? appDefault) == nil {
+                                           $0.effort = nil
+                                       }
+                                   }
+                               }))
     }
 
     private func effortChoice(_ task: Project) -> RunChoice {
         let agent = runAgent(task)
-        let override = EffortChoice.valid(spec(task).effort, for: agent)
-        let appDefault = EffortChoice.valid(runner.defaults(for: agent).effort, for: agent)
+        let model = runner.validModel(spec(task).model, for: agent)
+            ?? runner.validModel(runner.defaults(for: agent).model, for: agent)
+        let override = runner.validEffort(spec(task).effort, for: agent, model: model)
+        let appDefault = runner.validEffort(runner.defaults(for: agent).effort,
+                                            for: agent, model: model)
         let chosen = override ?? appDefault
         return RunChoice(
             badge: "EFFORT",
-            label: chosen.map { "\(EffortChoice.summary(of: $0, agent: agent)) effort" }
+            label: chosen.map { "\(runner.effortTitle($0, for: agent, model: model)) effort" }
                 ?? "Default effort",
             overridden: override != nil,
             help: "How long the model thinks before it answers.",
             defaultTitle: defaultTitle(appDefault.map {
-                EffortChoice.summary(of: $0, agent: agent)
+                runner.effortTitle($0, for: agent, model: model)
             }),
-            options: EffortChoice.all(for: agent).compactMap { choice in
+            options: runner.effortOptions(for: agent, model: model).compactMap { choice in
                 choice.id.map { (id: $0, title: choice.title) }
             },
             selection: Binding(get: { override },

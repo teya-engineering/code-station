@@ -266,8 +266,7 @@ struct ChatSession: Identifiable, Codable, Equatable, Sendable {
     private static func inferredAgent(claudeSessionID: String?, codexSessionID: String?,
                                       settings: SessionSettings?, usage: SessionUsage?) -> AgentKind {
         if let latest = usage?.latestAgent { return latest }
-        if ModelChoice.valid(settings?.model, for: .codex) != nil { return .codex }
-        if ModelChoice.valid(settings?.model, for: .claudeCode) != nil { return .claudeCode }
+        if let inferred = ModelChoice.inferredAgent(of: settings?.model) { return inferred }
         if codexSessionID != nil, claudeSessionID == nil { return .codex }
         return .claudeCode
     }

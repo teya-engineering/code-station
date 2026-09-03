@@ -215,6 +215,7 @@ struct AgentSettingsView: View {
         runner.refreshAvailableAgents()
         claude.refresh()
         codex.refresh()
+        Task { await runner.refreshCodexModels() }
     }
 
     // MARK: - Agent tabs
@@ -331,7 +332,10 @@ struct AgentSettingsView: View {
                 usageNote: "Read directly from your Codex account when this page opens or refreshes.",
                 fileTitle: "Codex config",
                 configFile: ".codex/config.toml",
-                refresh: { codex.refresh() })
+                refresh: {
+                    codex.refresh()
+                    Task { await runner.refreshCodexModels() }
+                })
         }
     }
 
@@ -386,14 +390,21 @@ struct AgentSettingsView: View {
     private func model(for agent: AgentKind) -> some View {
         ChoiceBlock("MODEL", note: "Applies from each session's next turn on.") {
             SettingsCard {
-                let choices = ModelChoice.options(for: agent)
+                let choices = runner.modelOptions(for: agent)
                 ForEach(choices.indices, id: \.self) { index in
                     let choice = choices[index]
                     OptionRow(
                         title: choice.title,
                         detail: choice.detail,
-                        selected: ModelChoice.valid(defaults.model, for: agent) == choice.id) {
-                            change { $0.model = choice.id }
+                        selected: runner.validModel(defaults.model, for: agent) == choice.id) {
+                            change {
+                                $0.model = choice.id
+                                if let effort = $0.effort,
+                                   runner.validEffort(effort, for: agent,
+                                                      model: choice.id) == nil {
+                                    $0.effort = nil
+                                }
+                            }
                     }
                     if index < choices.count - 1 { SettingsRowDivider() }
                 }
@@ -405,10 +416,12 @@ struct AgentSettingsView: View {
         ChoiceBlock("EFFORT", note: "How long the model thinks before it answers. More effort costs more tokens and more time, so it is the first thing to turn down when a limit is close.") {
             SettingsCard {
                 HStack(spacing: 4) {
-                    ForEach(EffortChoice.all(for: agent), id: \.title) { choice in
+                    ForEach(runner.effortOptions(for: agent, model: defaults.model),
+                            id: \.title) { choice in
                         ChoicePill(
                             title: choice.title,
-                            selected: EffortChoice.valid(defaults.effort, for: agent) == choice.id) {
+                            selected: runner.validEffort(defaults.effort, for: agent,
+                                                         model: defaults.model) == choice.id) {
                                 change { $0.effort = choice.id }
                         }
                         .frame(maxWidth: .infinity)

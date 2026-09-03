@@ -592,7 +592,7 @@ struct SessionView: View {
                 ?? session.worktreeBranch
                 ?? session.sessionProjects?.compactMap(\.worktreeBranch).first,
             pullRequest: session.pullRequest,
-            model: session.usage?.model(for: session.agent).map { ModelChoice.shortName(of: $0) },
+            model: session.usage?.model(for: session.agent).map { runner.modelTitle($0) },
             cost: appSettings.showsCost(for: session.agent) && cost > 0 ? cost : nil,
             context: session.usage?.contextFraction(for: session.agent),
             agent: session.agent)
