@@ -99,10 +99,13 @@ struct NewSessionFooter: View {
             .opacity(canCreate ? 1 : 0.4)
             .disabled(!canCreate)
 
-            Text(sessionType == .troubleshoot ? "Add the problem and evidence next." : agentNote)
-                .font(.system(size: 10.5))
-                .foregroundStyle(sessionType != .troubleshoot && chosenAgent == nil
-                                 ? Theme.deletion : .secondary)
+            // Only the agent line goes here. Anything wider than the button pushes it
+            // away from Cancel, since this column is as wide as its widest row.
+            if sessionType != .troubleshoot {
+                Text(agentNote)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(chosenAgent == nil ? Theme.deletion : .secondary)
+            }
         }
     }
 

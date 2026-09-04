@@ -220,7 +220,7 @@ struct NewWorkspaceSessionView: View {
 
     private var footerNote: String {
         sessionType == .troubleshoot
-            ? "Troubleshoot uses the project folders and opens diagnosis setup next."
+            ? "Troubleshoot uses the project folders. Add the problem and evidence next."
             : "Deleting the session removes all of its worktrees together."
     }
 

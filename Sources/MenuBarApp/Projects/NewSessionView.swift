@@ -136,7 +136,7 @@ struct NewSessionView: View {
 
     private var footerNote: String {
         if sessionType == .troubleshoot {
-            return "Troubleshoot uses the project folder and opens diagnosis setup next."
+            return "Troubleshoot uses the project folder. Add the problem and evidence next."
         }
         return project.isGitRepository && useWorktree
             ? "A worktree is removed when its session is deleted."
