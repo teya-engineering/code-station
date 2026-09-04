@@ -1,7 +1,30 @@
 import AppKit
 import Foundation
+import SwiftUI
 import Testing
 @testable import MenuBarApp
+
+// Reports what a view asks for when it is offered a width, which is how a picture that
+// cannot be made narrower gives itself away.
+private struct WidthProbe: Layout {
+    let report: (CGFloat) -> Void
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let size = subviews[0].sizeThatFits(proposal)
+        report(size.width)
+        return size
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews,
+                       cache: inout ()) {
+        subviews[0].place(at: bounds.origin, anchor: .topLeading, proposal: proposal)
+    }
+}
+
+@MainActor
+private final class MeasuredWidth {
+    var value: CGFloat = 0
+}
 
 // Attachments are the one part of a prompt the user cannot see before it is sent: what
 // reaches the CLI is a path, and a wrong one fails silently as a file the agent cannot
@@ -153,6 +176,44 @@ struct AttachmentTests {
 
         #expect(SessionRunner.directoriesOutside(["/work/api", "/work/web"],
                                                  for: attachments).isEmpty)
+    }
+
+    // The transcript shares its column with the working set, which docks beside it. An
+    // image that held itself at the width it was drawn for would push that sidebar off
+    // the edge of the window, so a narrow column has to make the picture narrow too.
+    @MainActor
+    @Test func aWideImageIsCappedByTheRoomItHasRatherThanHoldingItOpen() async throws {
+        let file = root.appendingPathComponent("wide.png")
+        try widePNG().write(to: file)
+
+        let measured = MeasuredWidth()
+        let host = NSHostingView(rootView: WidthProbe(report: { measured.value = $0 }) {
+            InlineImageView(url: file, maximumWidth: 543)
+                .environment(DialogPresenter())
+                .environment(TooltipPresenter())
+        })
+
+        host.frame = NSRect(x: 0, y: 0, width: 900, height: 400)
+        host.layoutSubtreeIfNeeded()
+        // The picture is read off disk in the background, so its real size only arrives
+        // a beat after the view does.
+        try await Task.sleep(for: .milliseconds(500))
+        host.layoutSubtreeIfNeeded()
+        #expect(measured.value == 543)
+
+        host.frame = NSRect(x: 0, y: 0, width: 300, height: 400)
+        host.layoutSubtreeIfNeeded()
+        #expect(measured.value <= 300)
+    }
+
+    private func widePNG() throws -> Data {
+        let image = NSImage(size: NSSize(width: 1884, height: 248))
+        image.lockFocus()
+        NSColor.red.drawSwatch(in: NSRect(x: 0, y: 0, width: 1884, height: 248))
+        image.unlockFocus()
+        let tiff = try #require(image.tiffRepresentation)
+        let bitmap = try #require(NSBitmapImageRep(data: tiff))
+        return try #require(bitmap.representation(using: .png, properties: [:]))
     }
 
     @Test func rootMakesEveryAttachmentReachable() {

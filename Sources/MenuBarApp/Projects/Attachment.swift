@@ -295,10 +295,13 @@ struct InlineImageView: View {
                 Button {
                     AttachmentImagePreview.show(url, aspectRatio: thumbnail.aspectRatio, in: dialogs)
                 } label: {
+                    // The size it fits into is a cap, not a demand: an image that could
+                    // not be made narrower would hold the whole column open and push
+                    // whatever is docked beside it off the edge of the window.
                     Image(decorative: thumbnail.image, scale: 1)
                         .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(width: size.width, height: size.height)
+                        .aspectRatio(thumbnail.aspectRatio, contentMode: .fit)
+                        .frame(maxWidth: size.width, maxHeight: size.height)
                         .clipShape(RoundedRectangle(cornerRadius: 8))
                         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
                         .contentShape(RoundedRectangle(cornerRadius: 8))
