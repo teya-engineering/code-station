@@ -843,7 +843,7 @@ struct TroubleshootView: View {
         Task {
             let managedServers = configs.servers
             let selectedServers = managedServers.filter { chosenEnvironment.includes($0) }
-            var disabledServers: [String] = []
+            var disabledServers: [DisabledMCPServer] = []
             if chosenAgent == .codex, !enableMCPServers || !managedServers.isEmpty {
                 do {
                     disabledServers = try await codexServersToDisable(
@@ -880,7 +880,8 @@ struct TroubleshootView: View {
             settings.allowedMCPServerNames = enableMCPServers && !managedServers.isEmpty
                 ? selectedServers.map(\.name)
                 : nil
-            settings.disabledMCPServerNames = disabledServers.isEmpty ? nil : disabledServers
+            settings.disabledMCPServers = disabledServers.isEmpty ? nil : disabledServers
+            settings.disabledMCPServerNames = nil
             store.setSettings(settings, for: session.id)
 
             let request = TroubleshootRequest(
@@ -901,11 +902,11 @@ struct TroubleshootView: View {
     // The servers Codex has switched on that the diagnosis must not see: all of them
     // while MCP is off, otherwise the ones outside the chosen environment.
     private func codexServersToDisable(in directory: String, keeping selected: [Server],
-                                       mcpEnabled: Bool) async throws -> [String] {
-        let enabled = try await codex.enabledServerNames(in: directory)
+                                       mcpEnabled: Bool) async throws -> [DisabledMCPServer] {
+        let enabled = try await codex.enabledServers(in: directory)
         guard mcpEnabled else { return enabled }
         let selectedNames = Set(selected.map(\.name))
-        return enabled.filter { !selectedNames.contains($0) }
+        return enabled.filter { !selectedNames.contains($0.name) }
     }
 
     private func abandonStart(_ title: String, message: String) {

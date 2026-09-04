@@ -90,14 +90,29 @@ struct TroubleshootTests {
     @Test func codexDisablesEveryServerInTheDiagnosisSnapshot() {
         let settings = SessionSettings(
             mcpServersEnabled: false,
-            disabledMCPServerNames: ["grafana-platform-dev", "node_repl"])
+            disabledMCPServers: [
+                DisabledMCPServer(name: "grafana-platform-dev", transport: .stdio),
+                DisabledMCPServer(name: "remote", transport: .streamableHTTP),
+            ])
         let arguments = SessionRunner.arguments(
             agent: .codex,
             settings: settings,
             defaults: SessionSettings())
 
-        #expect(arguments.contains("mcp_servers.grafana-platform-dev.enabled=false"))
-        #expect(arguments.contains("mcp_servers.node_repl.enabled=false"))
+        #expect(arguments.contains(
+            #"mcp_servers={"grafana-platform-dev"={enabled=false,command="/usr/bin/false"},"remote"={enabled=false,url="https://disabled.invalid"}}"#))
+    }
+
+    @Test func codexDoesNotCreateInvalidOverridesFromLegacyNames() {
+        let settings = SessionSettings(
+            mcpServersEnabled: false,
+            disabledMCPServerNames: ["cua_repl"])
+        let arguments = SessionRunner.arguments(
+            agent: .codex,
+            settings: settings,
+            defaults: SessionSettings())
+
+        #expect(!arguments.contains { $0.contains("mcp_servers") })
     }
 
     @Test func anEnvironmentOffersOnlyTheServersTaggedForIt() {
@@ -183,11 +198,14 @@ struct TroubleshootTests {
             settings: SessionSettings(
                 mcpServersEnabled: true,
                 allowedMCPServerNames: ["grafana-platform-dev", "grafana-shared-shared"],
-                disabledMCPServerNames: ["grafana-platform-prd"]),
+                disabledMCPServers: [
+                    DisabledMCPServer(name: "grafana-platform-prd", transport: .stdio),
+                ]),
             defaults: SessionSettings())
 
-        #expect(arguments.contains("mcp_servers.grafana-platform-prd.enabled=false"))
-        #expect(!arguments.contains("mcp_servers.grafana-platform-dev.enabled=false"))
+        let override = #"mcp_servers={"grafana-platform-prd"={enabled=false,command="/usr/bin/false"}}"#
+        #expect(arguments.contains(override))
+        #expect(!arguments.contains { $0.contains("grafana-platform-dev") })
     }
 
     @Test func managedServersMustBeEnabledInTheSelectedClient() {

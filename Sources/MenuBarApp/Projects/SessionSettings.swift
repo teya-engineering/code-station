@@ -51,7 +51,22 @@ struct SessionSettings: Codable, Equatable, Sendable {
     // An allowlist of managed servers for sessions that need a filtered MCP config.
     // Nil keeps using the agent's own configuration without filtering it.
     var allowedMCPServerNames: [String]?
+    var disabledMCPServers: [DisabledMCPServer]?
+    // Kept so sessions written before disabled servers carried a transport still decode.
+    // A name alone cannot form a valid Codex MCP override, so new sessions do not set it.
     var disabledMCPServerNames: [String]?
+}
+
+// Codex validates an MCP server's transport before it looks at whether the server is
+// enabled. The transport kind is therefore part of a diagnosis's disabled-server snapshot.
+struct DisabledMCPServer: Codable, Equatable, Sendable {
+    enum Transport: String, Codable, Sendable {
+        case stdio
+        case streamableHTTP
+    }
+
+    let name: String
+    let transport: Transport
 }
 
 // Codex `exec` has no way to send a permission question back through the JSONL stream,

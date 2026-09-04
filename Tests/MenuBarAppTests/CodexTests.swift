@@ -104,6 +104,33 @@ struct CodexTests {
         #expect(CodexCodeManager.serverNames(in: Data("{}".utf8)) == nil)
     }
 
+    @Test func readsTransportKindsFromTheCodexInventory() throws {
+        let data = Data("""
+            [
+              {
+                "name": "local",
+                "enabled": true,
+                "transport": { "type": "stdio", "command": "local-mcp" }
+              },
+              {
+                "name": "remote",
+                "enabled": true,
+                "transport": { "type": "streamable_http", "url": "https://mcp.example" }
+              },
+              {
+                "name": "off",
+                "enabled": false,
+                "transport": { "type": "stdio", "command": "off-mcp" }
+              }
+            ]
+            """.utf8)
+
+        #expect(CodexCodeManager.enabledServers(in: data) == [
+            DisabledMCPServer(name: "local", transport: .stdio),
+            DisabledMCPServer(name: "remote", transport: .streamableHTTP),
+        ])
+    }
+
     // MARK: - Arguments
 
     @Test func codexRunsExecWithASandboxAndStdinPrompt() {

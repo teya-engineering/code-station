@@ -1146,8 +1146,8 @@ final class SessionRunner {
             }
             if let model { arguments += ["--model", model] }
             if let effort { arguments += ["-c", "model_reasoning_effort=\"\(effort)\""] }
-            for name in settings.disabledMCPServerNames ?? [] where !name.isEmpty {
-                arguments += ["-c", "mcp_servers.\(name).enabled=false"]
+            if let override = disabledMCPServersOverride(settings.disabledMCPServers ?? []) {
+                arguments += ["-c", override]
             }
             // The resume subcommand does not accept --add-dir. Resumed turns receive
             // the same paths through writable_roots above and keep the directory map
@@ -1170,6 +1170,29 @@ final class SessionRunner {
             .replacingOccurrences(of: "\r", with: "\\r")
             .replacingOccurrences(of: "\t", with: "\\t")
         return "\"\(escaped)\""
+    }
+
+    // A plugin-provided server may appear in `codex mcp list` without existing in
+    // config.toml. Supplying only `enabled=false` creates a transport-less table that
+    // Codex rejects before startup. One inline table preserves every disabled entry and
+    // gives it an inert transport, which also prevents a plugin from adding it back.
+    private nonisolated static func disabledMCPServersOverride(
+        _ servers: [DisabledMCPServer]
+    ) -> String? {
+        let entries = servers
+            .filter { !$0.name.isEmpty }
+            .sorted { $0.name < $1.name }
+            .map { server in
+                let transport = switch server.transport {
+                case .stdio:
+                    "command=\"/usr/bin/false\""
+                case .streamableHTTP:
+                    "url=\"https://disabled.invalid\""
+                }
+                return "\(tomlQuoted(server.name))={enabled=false,\(transport)}"
+            }
+        guard !entries.isEmpty else { return nil }
+        return "mcp_servers={\(entries.joined(separator: ","))}"
     }
 
     // Claude Code takes one block of text, so a file goes over as its path and the agent

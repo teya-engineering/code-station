@@ -18,8 +18,24 @@ final class CodexCodeManager {
     }
 
     private struct ListedServer: Decodable {
+        struct Transport: Decodable {
+            let command: String?
+            let url: String?
+        }
+
         let name: String
         let enabled: Bool
+        let transport: Transport?
+
+        var disabledSnapshot: DisabledMCPServer? {
+            if transport?.command != nil {
+                return DisabledMCPServer(name: name, transport: .stdio)
+            }
+            if transport?.url != nil {
+                return DisabledMCPServer(name: name, transport: .streamableHTTP)
+            }
+            return nil
+        }
     }
 
     private struct DiscoveryFailure: LocalizedError, Sendable {
@@ -142,9 +158,9 @@ final class CodexCodeManager {
     }
 
     // Codex has no single flag that suppresses every configured MCP server. A diagnosis
-    // that turns MCP off snapshots the enabled names and passes one config override per
-    // server, using the CLI as the source of truth instead of parsing its TOML file.
-    func enabledServerNames(in directory: String) async throws -> [String] {
+    // that turns MCP off snapshots the enabled servers and their transport kinds, using
+    // the CLI as the source of truth instead of parsing its TOML file.
+    func enabledServers(in directory: String) async throws -> [DisabledMCPServer] {
         guard let codexPath = ProcessManager.resolve("codex") else {
             throw DiscoveryFailure(message: "Codex CLI not found on PATH.")
         }
@@ -164,11 +180,10 @@ final class CodexCodeManager {
                 ? "Codex could not list its MCP servers."
                 : message)
         }
-        guard let servers = try? JSONDecoder().decode([ListedServer].self,
-                                                      from: Data(result.output.utf8)) else {
-            throw DiscoveryFailure(message: "Codex returned an unreadable MCP server list.")
+        guard let snapshots = Self.enabledServers(in: Data(result.output.utf8)) else {
+            throw DiscoveryFailure(message: "Codex returned an MCP server without a usable transport.")
         }
-        return servers.filter(\.enabled).map(\.name)
+        return snapshots
     }
 
     // Kept separate from process handling so the supported Codex CLI forms stay easy
@@ -194,6 +209,16 @@ final class CodexCodeManager {
             return nil
         }
         return servers.map(\.name).sorted()
+    }
+
+    nonisolated static func enabledServers(in data: Data) -> [DisabledMCPServer]? {
+        guard let servers = try? JSONDecoder().decode([ListedServer].self, from: data) else {
+            return nil
+        }
+        let enabled = servers.filter(\.enabled)
+        let snapshots = enabled.compactMap(\.disabledSnapshot)
+        guard snapshots.count == enabled.count else { return nil }
+        return snapshots.sorted { $0.name < $1.name }
     }
 
     // What one `codex mcp` read printed, or nil when the CLI could not be run or said no.
