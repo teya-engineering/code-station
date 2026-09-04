@@ -196,6 +196,7 @@ final class RunnerHarness {
         try GitRepo.run(["init", "-q", "-b", "main"], in: projectURL)
         try GitRepo.run(["config", "user.email", "test@example.com"], in: projectURL)
         try GitRepo.run(["config", "user.name", "Test"], in: projectURL)
+        try GitRepo.run(["config", "commit.gpgsign", "false"], in: projectURL)
         try GitRepo.run(["commit", "-q", "--allow-empty", "-m", "start"], in: projectURL)
     }
 

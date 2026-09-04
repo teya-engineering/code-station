@@ -32,9 +32,9 @@ struct ToolUse: Identifiable, Codable, Equatable, Sendable {
     // call wrote. Nil when the file could not be read or the call was not an edit, which
     // is what leaves a diff without a line gutter.
     var editStartLine: Int?
-    // What the call left behind on disk, for a call whose own input does not say. Filled
-    // in once the snapshot behind it comes back, which is a beat after the result. Nil for
-    // an edit, which describes its own change, and for a call that changed nothing.
+    // What the call left behind on disk when its input did not say. Filled in once the
+    // snapshot behind it comes back, which is a beat after the result. Nil when the input
+    // describes the change and when the call changed nothing.
     var written: WrittenChange?
     // When the call reached the app. Neither CLI sends a time, so it is stamped as the
     // call arrives. Optional so conversations written before the app kept it still
@@ -70,9 +70,22 @@ struct ToolUse: Identifiable, Codable, Equatable, Sendable {
         return id.isEmpty ? nil : String(id)
     }
 
-    // Calls that arrive carrying the change they are about to make. Everything else has to
-    // be measured against the working tree to know what it did.
+    // Calls that may arrive carrying the change they made. Codex can send only the paths,
+    // so the name alone does not say whether the payload is enough to draw the change.
     static let editTools: Set<String> = ["Edit", "Write", "Delete"]
+
+    var describesOwnChange: Bool {
+        guard Self.editTools.contains(name),
+              let object = try? JSONSerialization.jsonObject(with: Data(input.utf8)),
+              let fields = object as? [String: Any]
+        else { return false }
+        if let diff = fields["diff"] as? String, !diff.isEmpty { return true }
+        return switch name {
+        case "Edit": fields["old_string"] is String && fields["new_string"] is String
+        case "Write": fields["content"] is String
+        default: false
+        }
+    }
 }
 
 // A change git saw a call make, worked out by comparing the working tree before and after

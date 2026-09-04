@@ -103,6 +103,20 @@ struct ToolPresentationTests {
         #expect(presentation.changes.isEmpty)
     }
 
+    @Test func doesNotClaimAPathOnlyEditChangedZeroLines() throws {
+        let input = try JSONSerialization.data(withJSONObject: [
+            "file_path": "/tmp/project/Sources/App.swift"
+        ])
+        let tool = ToolUse(id: "path-only-edit", name: "Edit",
+                           input: String(decoding: input, as: UTF8.self))
+
+        let presentation = ToolPresentation(tool: tool, projectPath: "/tmp/project")
+
+        #expect(presentation.added == nil)
+        #expect(presentation.removed == nil)
+        #expect(presentation.changes.isEmpty)
+    }
+
     @Test func keepsAHomeDirectorySiblingAbsolute() throws {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         let file = "\(home)-archive/source.swift"
@@ -192,6 +206,41 @@ struct ToolPresentationTests {
         #expect(presentation.changes[1].added == 2)
         // The command is still what the row opens: the diff was measured off the tree
         // rather than sent with the call.
+        #expect(!presentation.diffIsTheInput)
+    }
+
+    @Test func selectsAPathOnlyEditsFileFromAMeasuredMultiFileChange() throws {
+        let patch = """
+        diff --git a/Sources/App.swift b/Sources/App.swift
+        index 1111111..2222222 100644
+        --- a/Sources/App.swift
+        +++ b/Sources/App.swift
+        @@ -1 +1,2 @@
+         first
+        +second
+        diff --git a/README.md b/README.md
+        index 3333333..4444444 100644
+        --- a/README.md
+        +++ b/README.md
+        @@ -1,2 +1 @@
+         title
+        -old
+
+        """
+        let input = try JSONSerialization.data(withJSONObject: [
+            "file_path": "/tmp/project/README.md"
+        ])
+        var tool = ToolUse(id: "measured-edit", name: "Edit",
+                           input: String(decoding: input, as: UTF8.self))
+        tool.written = WrittenChange(files: 2, added: 1, removed: 1, patch: patch)
+
+        let presentation = ToolPresentation(tool: tool, projectPath: "/tmp/project")
+
+        #expect(presentation.added == 0)
+        #expect(presentation.removed == 1)
+        #expect(presentation.changedFiles == 1)
+        #expect(presentation.changes.map(\.name) == ["README.md"])
+        #expect(presentation.changes[0].lines.map(\.text) == ["title", "old"])
         #expect(!presentation.diffIsTheInput)
     }
 

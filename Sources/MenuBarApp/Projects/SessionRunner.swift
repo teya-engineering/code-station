@@ -1722,30 +1722,58 @@ final class SessionRunner {
     // shell, so the only witness to that is the working tree, and the only moment it can
     // be read is now: the next call will write over it.
     //
-    // The answer lands a beat later, after the row is already on screen. An edit is
-    // measured too, and its answer thrown away - without that, the next call would inherit
-    // the edit's changes as its own.
+    // The answer lands a beat later, after the row is already on screen. An edit that
+    // carries its own diff is measured too, and its answer thrown away - without that,
+    // the next call would inherit the edit's changes as its own. Codex can report several
+    // paths without diffs in one finished item. They share one snapshot, then each row
+    // selects its own file from that measured patch.
     //
     // Nothing here asks whether the turn is still running. A turn's last act is very often
     // to write, and it ends the moment the writing call reports in, so a change that had to
     // wait for the turn would be the one change most worth having. What the answer belongs
     // to is a call inside a message, and both of those outlive the turn that made them.
-    private func noteWhatWasWritten(by toolID: String, named name: String, turn: Turn,
+    private func noteWhatWasWritten(by toolID: String, named name: String,
+                                    describesOwnChange: Bool,
+                                    fallbackEditIDs: [String] = [], turn: Turn,
                                     sessionID: UUID, store: ProjectStore) {
         guard TreeSnapshots.measures(name), let git = GitInspector.tool() else { return }
-        let describesItself = ToolUse.editTools.contains(name)
         let messageID = turn.messageID
         TreeSnapshots.shared.change(at: turn.workingDirectory, using: git) { change in
-            guard let change, !describesItself else { return }
+            guard let change else { return }
             store.updateMessage(messageID, in: sessionID) { message in
-                guard let i = message.tools.firstIndex(where: { $0.id == toolID }) else { return }
-                message.tools[i].written = change
+                if !fallbackEditIDs.isEmpty {
+                    // Without a patch there is no way to divide the total between rows.
+                    // Keep the group total on its first row rather than repeat it on all
+                    // of them as though each file made the whole change.
+                    let recipients = change.patch == nil
+                        ? Array(fallbackEditIDs.prefix(1)) : fallbackEditIDs
+                    let ids = Set(recipients)
+                    for i in message.tools.indices where ids.contains(message.tools[i].id) {
+                        message.tools[i].written = change
+                    }
+                } else if !describesOwnChange,
+                          let i = message.tools.firstIndex(where: { $0.id == toolID }) {
+                    message.tools[i].written = change
+                }
             }
         }
     }
 
     private func apply(_ events: [StreamEvent], sessionID: UUID, token: UUID, store: ProjectStore) {
         guard let turn = turn(sessionID, token) else { return }
+        let completedToolIDs = Set(events.compactMap { event -> String? in
+            guard case .toolResult(let id, _, _, _) = event else { return nil }
+            return id
+        })
+        let instantEdits = events.compactMap { event -> ToolUse? in
+            guard case .toolUse(let tool) = event, completedToolIDs.contains(tool.id),
+                  ToolUse.editTools.contains(tool.name)
+            else { return nil }
+            return tool
+        }
+        let instantEditIDs = Set(instantEdits.map(\.id))
+        let firstInstantEditID = instantEdits.first?.id
+        let fallbackEditIDs = instantEdits.filter { !$0.describesOwnChange }.map(\.id)
         turn.lastActivity = Date()
         if case .stalled = state(sessionID) {
             setState(.streaming, for: sessionID)
@@ -1814,9 +1842,11 @@ final class SessionRunner {
                 records[sessionID]?.runningTools.removeAll { $0.id == id }
                 var command = ""
                 var toolName = ""
+                var describesOwnChange = false
                 store.updateMessage(turn.messageID, in: sessionID) { message in
                     guard let i = message.tools.firstIndex(where: { $0.id == id }) else { return }
                     toolName = message.tools[i].name
+                    describesOwnChange = message.tools[i].describesOwnChange
                     message.tools[i].result = output
                     message.tools[i].isError = isError
                     message.tools[i].exitCode = exitCode
@@ -1832,8 +1862,12 @@ final class SessionRunner {
                             name: message.tools[i].name, input: command)
                     }
                 }
-                noteWhatWasWritten(by: id, named: toolName, turn: turn,
-                                   sessionID: sessionID, store: store)
+                if !instantEditIDs.contains(id) || id == firstInstantEditID {
+                    noteWhatWasWritten(
+                        by: id, named: toolName, describesOwnChange: describesOwnChange,
+                        fallbackEditIDs: instantEditIDs.contains(id) ? fallbackEditIDs : [],
+                        turn: turn, sessionID: sessionID, store: store)
+                }
                 // The only moment a pull request announces itself is in the output of the
                 // command that opened it.
                 if let opened = PullRequestScanner.opened(command: command, output: output) {

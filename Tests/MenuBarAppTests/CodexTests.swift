@@ -782,6 +782,39 @@ struct CodexTests {
         #expect(presentation.changes[0].lines.map(\.text) == ["first", "second"])
     }
 
+    @MainActor @Test func measuresEachCodexFileChangeWhenTheProtocolOmitsDiffs() async throws {
+        let fixture = try RunnerHarness(agent: .codex, script: """
+        input=$(cat)
+        printf '%s\\n' '{"type":"thread.started","thread_id":"thread-1"}'
+        wait_for "$folder/go"
+        printf 'one\\n' > one.txt
+        printf 'two\\nthree\\n' > two.txt
+        printf '{"type":"item.completed","item":{"id":"edit-1","item_type":"file_change","status":"completed","changes":[{"path":"%s/one.txt","kind":"add"},{"path":"%s/two.txt","kind":"add"}]}}\\n' "$PWD" "$PWD"
+        printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":2}}'
+        """)
+        defer { fixture.tearDown() }
+        try fixture.makeProjectARepository()
+
+        fixture.runner.send("write both files", sessionID: fixture.session.id, store: fixture.store)
+        await fixture.waitForBaseline()
+        try Data().write(to: fixture.scratch.path("go"))
+
+        #expect(await waitUntil {
+            let edits = fixture.store.transcript(of: fixture.session.id)
+                .flatMap(\.tools).filter { ToolUse.editTools.contains($0.name) }
+            return edits.count == 2 && edits.allSatisfy { $0.written != nil }
+        })
+        let edits = fixture.store.transcript(of: fixture.session.id)
+            .flatMap(\.tools).filter { ToolUse.editTools.contains($0.name) }
+        let presentations = edits.map {
+            ToolPresentation(tool: $0, projectPath: fixture.projectURL.path)
+        }
+        #expect(presentations.map(\.argument) == ["one.txt", "two.txt"])
+        #expect(presentations.map(\.added) == [1, 2])
+        #expect(presentations.map(\.removed) == [0, 0])
+        #expect(presentations.map { $0.changes.map(\.name) } == [["one.txt"], ["two.txt"]])
+    }
+
     @Test func aCompletedReasoningItemBecomesThinking() {
         let events = StreamEvent.parseCodex("""
         {"type":"item.completed","item":{"id":"item_5","item_type":"reasoning","text":"weighing options"}}

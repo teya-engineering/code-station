@@ -84,18 +84,20 @@ struct ToolPresentation: Sendable {
         case "Read":
             notesResultLineCount = true
         case "Edit", "Write", "Delete":
-            let change = Self.change(tool: tool, input: input)
-            added = change.added
-            removed = change.removed
-            diffIsTheInput = true
             // Codex used to name its edits as a line of prose rather than as arguments,
             // and conversations written then are still read back.
             if fileName == nil { argument = Self.singleLine(tool.input) }
-            if !change.lines.isEmpty {
-                changes = [FileChange(id: 0, name: fileName ?? argument,
-                                      lines: change.lines,
-                                      added: change.added, removed: change.removed)]
-                changedFiles = 1
+            if tool.describesOwnChange {
+                let change = Self.change(tool: tool, input: input)
+                added = change.added
+                removed = change.removed
+                diffIsTheInput = true
+                if !change.lines.isEmpty {
+                    changes = [FileChange(id: 0, name: fileName ?? argument,
+                                          lines: change.lines,
+                                          added: change.added, removed: change.removed)]
+                    changedFiles = 1
+                }
             }
         case "Bash":
             argument = Self.singleLine(Self.shellCommand(in: tool.input) ?? tool.input)
@@ -132,10 +134,25 @@ struct ToolPresentation: Sendable {
         // instead. The counts stand even when the change was too large to keep the patch
         // for, which is what tells a reader that a call did a great deal.
         if let change = tool.written {
-            added = change.added
-            removed = change.removed
-            changedFiles = change.files
-            changes = change.patch.map(Self.files(inPatch:)) ?? []
+            let measured = change.patch.map(Self.files(inPatch:)) ?? []
+            if ToolUse.editTools.contains(tool.name),
+               let own = measured.first(where: { Self.samePath($0.name, argument) }) {
+                added = own.added
+                removed = own.removed
+                changedFiles = 1
+                changes = [own]
+            } else if ToolUse.editTools.contains(tool.name), change.patch != nil {
+                added = nil
+                removed = nil
+                changedFiles = 0
+                changes = []
+            } else {
+                added = change.added
+                removed = change.removed
+                changedFiles = change.files
+                changes = measured
+            }
+            diffIsTheInput = false
             notesResultLineCount = false
         }
     }
@@ -307,6 +324,12 @@ struct ToolPresentation: Sendable {
         }
         close()
         return files
+    }
+
+    private static func samePath(_ path: String, _ argument: String) -> Bool {
+        let path = path.hasPrefix("./") ? String(path.dropFirst(2)) : path
+        let argument = argument.hasPrefix("./") ? String(argument.dropFirst(2)) : argument
+        return argument == path || argument.hasSuffix("/\(path)")
     }
 
     // The line each side of a hunk starts on, out of "@@ -12,7 +12,9 @@".
