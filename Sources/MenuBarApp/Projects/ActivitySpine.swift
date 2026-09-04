@@ -9,17 +9,9 @@ struct ActivitySpine: View {
     var openChange: ((String) -> Void)? = nil
     var openTerminal: (() -> Void)? = nil
 
-    @Environment(\.runningAgents) private var runningAgents
-
     @State private var expanded: Set<String> = []
 
     private var calls: [ToolNode] { Self.flattened(nodes) }
-
-    // A group can have several concurrent calls, but one live tail is enough to follow
-    // the stream. The newest running command owns the fixed slot until another starts.
-    private var liveTailID: String? {
-        calls.last { $0.tool.name == "Bash" && $0.isWorking(agents: runningAgents) }?.id
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -30,7 +22,6 @@ struct ActivitySpine: View {
                     presentation: ToolPresentationCache.presentation(
                         for: node.tool, projectPath: projectPath),
                     isExpanded: expanded.contains(node.id),
-                    showsLiveTail: liveTailID == node.id,
                     onToggle: {
                         if expanded.contains(node.id) {
                             expanded.remove(node.id)
@@ -103,13 +94,40 @@ struct ToolCallExpandedDetail: View {
     let isRunning: Bool
 
     var body: some View {
-        CallDetail(
-            node: ToolNode(tool: tool),
-            presentation: ToolPresentationCache.presentation(
-                for: tool, projectPath: projectPath),
-            isWorking: isRunning,
-            openChange: nil,
-            openTerminal: nil)
+        if isRunning {
+            RunningToolIndicator(tool: tool)
+        } else {
+            CallDetail(
+                node: ToolNode(tool: tool),
+                presentation: ToolPresentationCache.presentation(
+                    for: tool, projectPath: projectPath),
+                openChange: nil,
+                openTerminal: nil)
+        }
+    }
+}
+
+private struct RunningToolIndicator: View {
+    @Environment(\.textScale) private var textScale
+
+    let tool: ToolUse
+
+    var body: some View {
+        HStack(spacing: 8) {
+            PulsingDot(size: 7)
+            Text("RUNNING")
+                .scaledMono(10, .bold)
+                .kerning(1)
+                .foregroundStyle(Theme.accent)
+            Spacer(minLength: 8)
+            if let startedAt = tool.startedAt {
+                ElapsedTime(since: startedAt, size: 11, scaled: true)
+                    .foregroundStyle(Theme.accent)
+            }
+        }
+        .frame(height: 26 * textScale)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Running \(tool.name)")
     }
 }
 
@@ -143,7 +161,6 @@ private struct CallReceipt: View {
     let node: ToolNode
     let presentation: ToolPresentation
     let isExpanded: Bool
-    let showsLiveTail: Bool
     let onToggle: () -> Void
     let openChange: ((String) -> Void)?
     let openTerminal: (() -> Void)?
@@ -169,20 +186,12 @@ private struct CallReceipt: View {
                 CallDetail(
                     node: node,
                     presentation: presentation,
-                    isWorking: false,
                     openChange: openChange,
                     openTerminal: openTerminal)
                     .padding(.leading, 17)
                     .padding(.top, 4)
                     .padding(.bottom, 10)
                     .transition(.fold)
-            }
-            if showsLiveTail && isWorking {
-                LiveOutputTail(tool: tool, openTerminal: openTerminal)
-                    .padding(.leading, 17)
-                    .padding(.top, 4)
-                    .padding(.bottom, 4)
-                    .transition(.fadeIn)
             }
         }
     }
@@ -322,7 +331,6 @@ private struct CallReceipt: View {
 private struct CallDetail: View {
     let node: ToolNode
     let presentation: ToolPresentation
-    let isWorking: Bool
     let openChange: ((String) -> Void)?
     let openTerminal: (() -> Void)?
 
@@ -334,35 +342,31 @@ private struct CallDetail: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if isWorking && isCommand {
-                LiveOutputTail(tool: tool, openTerminal: openTerminal)
-            } else {
-                if isCommand {
-                    ToolOutputCard(label: "OUTPUT",
-                                   text: tool.result ?? "",
-                                   isFailure: tool.isError,
-                                   openTerminal: openTerminal)
+            if isCommand {
+                ToolOutputCard(label: "OUTPUT",
+                               text: tool.result ?? "",
+                               isFailure: tool.isError,
+                               openTerminal: openTerminal)
+            }
+            if hasDiff {
+                ForEach(presentation.changes) { change in
+                    EditDiffCard(
+                        change: change,
+                        targetPath: presentation.diffIsTheInput
+                            ? presentation.filePath ?? presentation.argument
+                            : change.name,
+                        openChange: openChange)
                 }
-                if hasDiff {
-                    ForEach(presentation.changes) { change in
-                        EditDiffCard(
-                            change: change,
-                            targetPath: presentation.diffIsTheInput
-                                ? presentation.filePath ?? presentation.argument
-                                : change.name,
-                            openChange: openChange)
-                    }
-                } else if !isCommand, let result = tool.result {
-                    ToolOutputCard(label: tool.startsAgents ? "AGENT REPORT" : "OUTPUT",
-                                   text: result,
-                                   isFailure: tool.isError,
-                                   openTerminal: nil)
-                } else if !isCommand, let status = tool.status, !status.isEmpty {
-                    ToolOutputCard(label: "STATUS",
-                                   text: status,
-                                   isFailure: tool.isError,
-                                   openTerminal: nil)
-                }
+            } else if !isCommand, let result = tool.result {
+                ToolOutputCard(label: tool.startsAgents ? "AGENT REPORT" : "OUTPUT",
+                               text: result,
+                               isFailure: tool.isError,
+                               openTerminal: nil)
+            } else if !isCommand, let status = tool.status, !status.isEmpty {
+                ToolOutputCard(label: "STATUS",
+                               text: status,
+                               isFailure: tool.isError,
+                               openTerminal: nil)
             }
         }
     }
@@ -419,55 +423,6 @@ private struct ToolOutputCard: View {
     }
 }
 
-private struct LiveOutputTail: View {
-    @Environment(\.textScale) private var textScale
-
-    let tool: ToolUse
-    let openTerminal: (() -> Void)?
-
-    private var lines: [String] {
-        let output = tool.result ?? tool.status ?? ""
-        guard !output.isEmpty else { return [] }
-        return Array(output.components(separatedBy: "\n").suffix(3))
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 8) {
-                Text("LIVE OUTPUT")
-                    .scaledMono(9, .semibold)
-                    .kerning(1)
-                    .foregroundStyle(.tertiary)
-                Spacer(minLength: 8)
-                if let openTerminal {
-                    ActivityLink(title: "open in Terminal ↗", size: 10,
-                                 action: openTerminal)
-                }
-            }
-            if lines.isEmpty {
-                BlinkingCursor()
-            } else {
-                ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
-                    HStack(alignment: .center, spacing: 5) {
-                        Text(line)
-                            .scaledMono(11)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                        if index == lines.count - 1 { BlinkingCursor() }
-                    }
-                }
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .frame(height: 88 * textScale, alignment: .top)
-        .surface(Theme.sunken, cornerRadius: 8,
-                 border: Theme.dotOn.opacity(0.28))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-    }
-}
-
 private struct ActivityLink: View {
     let title: String
     var size: CGFloat = 10.5
@@ -481,25 +436,6 @@ private struct ActivityLink: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-    }
-}
-
-private struct BlinkingCursor: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.textScale) private var textScale
-    @State private var hidden = false
-
-    var body: some View {
-        RoundedRectangle(cornerRadius: 1)
-            .fill(Theme.dotOn)
-            .frame(width: 7 * textScale, height: 12 * textScale)
-            .opacity(hidden ? 0 : 1)
-            .animation(reduceMotion
-                       ? nil
-                       : .linear(duration: 0.5).repeatForever(autoreverses: true),
-                       value: hidden)
-            .onAppear { hidden = !reduceMotion }
-            .accessibilityHidden(true)
     }
 }
 
