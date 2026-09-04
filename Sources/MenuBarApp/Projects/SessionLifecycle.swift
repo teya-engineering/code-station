@@ -67,11 +67,24 @@ enum SessionLifecycle {
                 message: "The project is no longer in the app."))
         }
 
+        let planned = GitWorktree.plan(projectName: project.name, sessionID: sessionID)
+        var reservations = [planned.path]
+        store.reserveWorktree(at: planned.path, for: project.id)
+        defer {
+            for path in reservations {
+                store.releaseWorktreeReservation(at: path, for: project.id)
+            }
+        }
+
         switch await worktrees.addProject(project.path, project.name, sessionID, base) {
         case .failure(let failure):
             return .failure(Failure(title: "Could not create a worktree",
                                     message: failure.message))
         case .success(let created):
+            if !reservations.contains(created.path) {
+                reservations.append(created.path)
+                store.reserveWorktree(at: created.path, for: project.id)
+            }
             let worktree = CreatedWorktree(path: created.path, projectPath: project.path,
                                            branch: created.branch)
             guard store.project(project.id) != nil else {
@@ -101,6 +114,13 @@ enum SessionLifecycle {
         -> Result<ChatSession, Failure> {
         var checkouts: [SessionProject] = []
         var created: [CreatedWorktree] = []
+        var reservations: [(projectID: UUID, path: String)] = []
+        defer {
+            for reservation in reservations {
+                store.releaseWorktreeReservation(at: reservation.path,
+                                                 for: reservation.projectID)
+            }
+        }
 
         for selected in choice.projects {
             guard let project = store.project(selected.projectID) else {
@@ -116,9 +136,17 @@ enum SessionLifecycle {
                 continue
             }
 
+            let planned = GitWorktree.plan(projectName: project.name, projectID: project.id,
+                                           sessionID: choice.sessionID)
+            store.reserveWorktree(at: planned.path, for: project.id)
+            reservations.append((project.id, planned.path))
             switch await worktrees.addWorkspaceProject(
                 project.path, project.name, project.id, choice.sessionID, selected.base) {
             case .success(let worktree):
+                if worktree.path != planned.path {
+                    store.reserveWorktree(at: worktree.path, for: project.id)
+                    reservations.append((project.id, worktree.path))
+                }
                 checkouts.append(SessionProject(projectID: project.id,
                                                 worktreePath: worktree.path,
                                                 worktreeBranch: worktree.branch))

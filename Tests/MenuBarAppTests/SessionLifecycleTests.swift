@@ -49,6 +49,34 @@ struct SessionLifecycleTests {
         #expect(store.session(sessionID)?.worktreeBranch == "code-station/test")
     }
 
+    @Test func protectsAWorktreeWhileItsSessionIsBeingCreated() async throws {
+        let project = try TestStore.project(in: store, named: "project")
+        let sessionID = UUID()
+        let planned = GitWorktree.plan(projectName: project.name, sessionID: sessionID)
+        let worktrees = WorktreeOperations(
+            addProject: { _, _, _, _ in
+                let isProtected = await MainActor.run {
+                    store.protectsWorktree(at: planned.path)
+                }
+                #expect(isProtected)
+                return .success(planned)
+            },
+            addWorkspaceProject: { _, _, _, _, _ in
+                .failure(GitWorktree.Failure(message: "Unexpected workspace operation"))
+            },
+            remove: { _, _, _ in
+                .failure(GitWorktree.Failure(message: "Unexpected removal"))
+            })
+
+        let result = await SessionLifecycle.createWorktreeSession(
+            in: project, id: sessionID, base: nil, store: store, worktrees: worktrees)
+
+        let session = try result.get()
+        #expect(session.worktreePath == planned.path)
+        #expect(store.creatingWorktreePaths.isEmpty)
+        #expect(store.protectsWorktree(at: planned.path))
+    }
+
     @Test func rollsBackWorkspaceWorktreesWhenCreationFails() async throws {
         let first = try project(named: "first")
         let second = try project(named: "second")
@@ -69,6 +97,10 @@ struct SessionLifecycleTests {
             },
             addWorkspaceProject: { _, name, _, _, _ in
                 guard name == "first" else {
+                    let firstIsProtected = await MainActor.run {
+                        store.protectsWorktree(at: "/worktrees/first")
+                    }
+                    #expect(firstIsProtected)
                     return .failure(GitWorktree.Failure(message: "Second checkout failed"))
                 }
                 return .success(GitWorktree.Created(path: "/worktrees/first",
@@ -89,6 +121,7 @@ struct SessionLifecycleTests {
         #expect(failure.title == "Could not create a worktree for second")
         #expect(failure.message == "Second checkout failed")
         #expect(store.sessions.isEmpty)
+        #expect(store.creatingWorktreePaths.isEmpty)
         #expect(await recorder.recordedPaths() == ["/worktrees/first"])
     }
 
@@ -157,6 +190,7 @@ struct SessionLifecycleTests {
         }
         #expect(failure.title == "Could not save the session")
         #expect(store.sessions.isEmpty)
+        #expect(store.creatingWorktreePaths.isEmpty)
         #expect(await recorder.recordedPaths() == ["/worktrees/project"])
     }
 

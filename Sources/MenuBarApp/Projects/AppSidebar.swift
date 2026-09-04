@@ -1319,7 +1319,7 @@ struct AppSidebar: View {
     }
 
     private func pruneOrphanedWorktrees(_ worktrees: [OrphanedWorktree]) async {
-        let result = await orphanedWorktrees.prune(worktrees)
+        let result = await orphanedWorktrees.prune(worktrees, in: store)
         guard !result.failures.isEmpty else { return }
         dialogs.show(.notice("Could not prune some worktrees",
                              message: result.failures.map(\.message).joined(separator: "\n")))

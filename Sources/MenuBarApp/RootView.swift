@@ -294,7 +294,7 @@ struct RootView: View {
             if automaticallyPrunes {
                 let due = orphanedWorktrees.automaticPruningCandidates(now: now)
                 if !due.isEmpty {
-                    let result = await orphanedWorktrees.prune(due, now: now)
+                    let result = await orphanedWorktrees.prune(due, in: store, now: now)
                     orphanCleanupError = result.failures.isEmpty
                         ? nil
                         : result.failures.map(\.message).joined(separator: "\n")

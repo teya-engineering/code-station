@@ -95,7 +95,26 @@ struct OrphanedWorktreeSweepTests {
             now: now.addingTimeInterval(OrphanedWorktreeSweep.gracePeriod)).isEmpty)
     }
 
+    @Test func dropsAWorktreeClaimedWhileDiscoveryIsRunning() async throws {
+        let (store, scratch) = TestStore.make()
+        _ = scratch
+        let project = try TestStore.project(in: store)
+        let path = "/worktrees/claimed"
+
+        let found = await OrphanedWorktreeDiscovery.find(in: store) { _, protectedPaths in
+            #expect(!protectedPaths.contains(path))
+            store.newSession(in: project.id, worktreePath: path)
+            return [GitWorktree.Orphaned(path: path,
+                                         branch: "code-station/claimed",
+                                         allocatedBytes: 1_024)]
+        }
+
+        #expect(found.isEmpty)
+    }
+
     @Test func removesSuccessfulCheckoutsAndKeepsFailuresVisible() async {
+        let (store, scratch) = TestStore.make()
+        _ = scratch
         let removed = worktree("removed")
         let kept = worktree("kept")
         let monitor = OrphanedWorktreeMonitor()
@@ -110,7 +129,7 @@ struct OrphanedWorktreeSweepTests {
                         name: removed.projectName,
                         path: removed.projectPath))
 
-        let result = await monitor.prune([removed, kept]) { worktree in
+        let result = await monitor.prune([removed, kept], in: store) { worktree in
             worktree == removed
                 ? .success(())
                 : .failure(GitWorktree.Failure(message: "still in use"))
@@ -119,6 +138,33 @@ struct OrphanedWorktreeSweepTests {
         #expect(result.removed == [removed])
         #expect(result.failures.map(\.message) == ["still in use"])
         #expect(monitor.worktrees == [kept])
+    }
+
+    @Test func refusesToPruneAWorktreeNowOwnedByASession() async throws {
+        let (store, scratch) = TestStore.make()
+        _ = scratch
+        let project = try TestStore.project(in: store)
+        let claimed = worktree("claimed")
+        store.newSession(in: project.id, worktreePath: claimed.path)
+        let recorder = OrphanRemovalRecorder()
+        let monitor = OrphanedWorktreeMonitor()
+        monitor.replace([
+            GitWorktree.Orphaned(path: claimed.path,
+                                 branch: claimed.branch,
+                                 allocatedBytes: claimed.allocatedBytes)
+        ], for: Project(id: claimed.projectID,
+                        name: claimed.projectName,
+                        path: claimed.projectPath))
+
+        let result = await monitor.prune([claimed], in: store) { worktree in
+            await recorder.record(worktree.path)
+            return .success(())
+        }
+
+        #expect(result.removed.isEmpty)
+        #expect(result.failures.isEmpty)
+        #expect(monitor.worktrees.isEmpty)
+        #expect(await recorder.recordedPaths().isEmpty)
     }
 
     @Test func pruningConfirmationIncludesWorktreeDetails() throws {
@@ -131,4 +177,11 @@ struct OrphanedWorktreeSweepTests {
         #expect(dialog.width == 520)
         #expect(dialog.actions.map(\.label) == ["Prune all", "Cancel"])
     }
+}
+
+private actor OrphanRemovalRecorder {
+    private var paths: [String] = []
+
+    func record(_ path: String) { paths.append(path) }
+    func recordedPaths() -> [String] { paths }
 }

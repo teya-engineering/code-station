@@ -501,21 +501,20 @@ struct ProjectDetailView: View {
     }
 
     private func orphanRefreshID(_ project: Project) -> [String] {
-        let active = activeWorktreePaths(for: project)
-        let pending = store.pendingSessionRemovals.flatMap(\.worktrees)
-            .filter { $0.projectPath == project.path }
-            .map { "pending:" + $0.path }
-        return (Array(active) + pending).sorted()
+        Array(store.protectedWorktreePaths(for: project)).sorted()
     }
 
     private func refreshWorktrees(for project: Project) async {
         let active = activeWorktreePaths(for: project)
         workingTrees.refresh(active.union([project.path]))
-        let pending = Set(store.pendingSessionRemovals.flatMap(\.worktrees).map(\.path))
+        let protectedPaths = store.protectedWorktreePaths(for: project)
         let found = await GitWorktree.orphaned(
-            projectPath: project.path, excluding: active.union(pending))
-        orphanedWorktrees = found
-        orphanedWorktreeMonitor.replace(found, for: project)
+            projectPath: project.path, excluding: protectedPaths)
+        guard !Task.isCancelled else { return }
+        let protectedNow = store.protectedWorktreePaths(for: project)
+        let unclaimed = found.filter { !protectedNow.contains($0.path) }
+        orphanedWorktrees = unclaimed
+        orphanedWorktreeMonitor.replace(unclaimed, for: project)
     }
 
     // MARK: - Terminal
@@ -620,7 +619,7 @@ struct ProjectDetailView: View {
         guard !orphanedWorktreeMonitor.isPruning else { return }
         pruningOrphans = true
         Task {
-            let result = await orphanedWorktreeMonitor.prune(orphans)
+            let result = await orphanedWorktreeMonitor.prune(orphans, in: store)
             var messages = result.failures.map(\.message)
             messages += await SessionLifecycle.resumePendingRemovals(in: store).map(\.message)
             await refreshWorktrees(for: project)

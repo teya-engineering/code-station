@@ -19,24 +19,23 @@ struct OrphanedWorktree: Identifiable, Equatable, Sendable {
 // cleanup is already saved and retried at launch, so a second cleanup path must not race it.
 @MainActor
 enum OrphanedWorktreeDiscovery {
-    static func find(in store: ProjectStore) async -> [OrphanedWorktree] {
-        let pendingPaths = Set(store.pendingSessionRemovals.flatMap(\.worktrees).map(\.path))
-        var activePaths: [UUID: Set<String>] = [:]
-        for session in store.sessions {
-            for checkout in store.checkoutProjects(for: session) {
-                if let path = checkout.worktreePath {
-                    activePaths[checkout.projectID, default: []].insert(path)
-                }
-            }
-        }
+    typealias Discover = @MainActor (String, Set<String>) async -> [GitWorktree.Orphaned]
 
+    static func find(in store: ProjectStore,
+                     discover: Discover = { projectPath, protectedPaths in
+                         await GitWorktree.orphaned(projectPath: projectPath,
+                                                    excluding: protectedPaths)
+                     }) async -> [OrphanedWorktree] {
         var found: [OrphanedWorktree] = []
         for project in store.projects {
             guard !Task.isCancelled else { return [] }
-            let excluded = activePaths[project.id, default: []].union(pendingPaths)
-            let worktrees = await GitWorktree.orphaned(projectPath: project.path,
-                                                       excluding: excluded)
-            found += worktrees.map {
+            let protectedPaths = store.protectedWorktreePaths(for: project)
+            let worktrees = await discover(project.path, protectedPaths)
+            guard !Task.isCancelled else { return [] }
+            let protectedNow = store.protectedWorktreePaths(for: project)
+            found += worktrees.filter {
+                !protectedNow.contains(URL(fileURLWithPath: $0.path).standardizedFileURL.path)
+            }.map {
                 OrphanedWorktree(projectID: project.id,
                                  projectName: project.name,
                                  projectPath: project.path,
@@ -45,7 +44,7 @@ enum OrphanedWorktreeDiscovery {
                                  allocatedBytes: $0.allocatedBytes)
             }
         }
-        return found.sorted {
+        return found.filter { !store.protectsWorktree(at: $0.path) }.sorted {
             let projects = $0.projectName.localizedStandardCompare($1.projectName)
             return projects == .orderedSame
                 ? $0.path.localizedStandardCompare($1.path) == .orderedAscending
@@ -162,7 +161,8 @@ final class OrphanedWorktreeMonitor {
         return candidates
     }
 
-    func prune(_ candidates: [OrphanedWorktree], now: Date = Date(),
+    func prune(_ candidates: [OrphanedWorktree], in store: ProjectStore,
+               now: Date = Date(),
                remove: Remove? = nil) async -> PruneResult {
         guard !isPruning else { return PruneResult(removed: [], failures: []) }
         isPruning = true
@@ -178,6 +178,11 @@ final class OrphanedWorktreeMonitor {
         var failedIDs: [String] = []
         for worktree in candidates {
             guard !Task.isCancelled else { break }
+            if store.protectsWorktree(at: worktree.path) {
+                worktrees.removeAll { $0.id == worktree.id }
+                eligibilityBuffer.remove(worktree.id)
+                continue
+            }
             switch await operation(worktree) {
             case .success:
                 removed.append(worktree)

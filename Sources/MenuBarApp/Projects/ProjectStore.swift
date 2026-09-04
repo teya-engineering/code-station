@@ -104,6 +104,9 @@ final class ProjectStore {
     private(set) var saveError: String?
     private(set) var transcriptLoadErrors: [UUID: String] = [:]
     private(set) var pendingSessionRemovals: [PendingSessionRemoval] = []
+    // A checkout exists before its session can be saved. Keeping that short gap visible
+    // prevents an orphan scan from offering the checkout for deletion while it is claimed.
+    private(set) var creatingWorktreePaths: [UUID: Set<String>] = [:]
     private var indexLoadError: String?
     private var removalJournalLoadError: String?
 
@@ -163,6 +166,45 @@ final class ProjectStore {
     func project(_ id: UUID) -> Project? { projects.first { $0.id == id } }
     func workspace(_ id: UUID) -> ProjectWorkspace? { workspaces.first { $0.id == id } }
     func session(_ id: UUID) -> ChatSession? { sessions.first { $0.id == id } }
+
+    var protectedWorktreePaths: Set<String> {
+        var paths = Set(pendingSessionRemovals.flatMap(\.worktrees).map(\.path))
+        for reserved in creatingWorktreePaths.values { paths.formUnion(reserved) }
+        for session in sessions {
+            paths.formUnion(checkoutProjects(for: session).compactMap(\.worktreePath))
+        }
+        return Set(paths.map(Self.standardizedPath))
+    }
+
+    func protectedWorktreePaths(for project: Project) -> Set<String> {
+        var paths = Set(pendingSessionRemovals.flatMap(\.worktrees).map(\.path))
+        paths.formUnion(creatingWorktreePaths[project.id, default: []])
+        for session in sessions {
+            paths.formUnion(checkoutProjects(for: session).compactMap { checkout in
+                checkout.projectID == project.id ? checkout.worktreePath : nil
+            })
+        }
+        return Set(paths.map(Self.standardizedPath))
+    }
+
+    func protectsWorktree(at path: String) -> Bool {
+        protectedWorktreePaths.contains(Self.standardizedPath(path))
+    }
+
+    func reserveWorktree(at path: String, for projectID: UUID) {
+        creatingWorktreePaths[projectID, default: []].insert(Self.standardizedPath(path))
+    }
+
+    func releaseWorktreeReservation(at path: String, for projectID: UUID) {
+        creatingWorktreePaths[projectID]?.remove(Self.standardizedPath(path))
+        if creatingWorktreePaths[projectID]?.isEmpty == true {
+            creatingWorktreePaths[projectID] = nil
+        }
+    }
+
+    private static func standardizedPath(_ path: String) -> String {
+        URL(fileURLWithPath: path).standardizedFileURL.path
+    }
 
     // Companion Design conversations are reached through their source session rather
     // than appearing as duplicate sessions everywhere the app lists conversations.
