@@ -652,16 +652,32 @@ struct DesignReferenceView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .background(Color.white)
                 } else {
-                    PaneMessage(icon: "paintbrush.pointed",
-                                title: "The Design reference is unavailable",
-                                detail: "Return to the source Design and create another handoff.")
+                    unavailable(session)
                 }
             }
             .task(id: directory.path) { await canvas.watch(directory) }
         } else {
-            PaneMessage(icon: "paintbrush.pointed",
-                        title: "The Design reference is unavailable",
-                        detail: "Return to the source Design and create another handoff.")
+            unavailable(store.session(sessionID))
+        }
+    }
+
+    // Whether there is a way out of this depends on the Design the session was handed:
+    // one that is still around can be opened and handed off again, while a deleted one
+    // leaves nothing to point at, so saying otherwise would send the reader hunting.
+    @ViewBuilder private func unavailable(_ session: ChatSession?) -> some View {
+        let title = "The Design reference is unavailable"
+        if let sourceID = session?.sourceDesignSessionID, store.session(sourceID) != nil {
+            PaneMessage(icon: "paintbrush.pointed", title: title,
+                        detail: "Return to the source Design and create another handoff.") {
+                ActionButton(title: "Open Design", tone: .outlined, icon: "arrow.up.right") {
+                    store.selectSession(sourceID)
+                }
+                .padding(.top, 4)
+            }
+        } else {
+            PaneMessage(
+                icon: "paintbrush.pointed", title: title,
+                detail: "The Design session it came from has been deleted, so there is nothing left to show here. The work in this session is unaffected.")
         }
     }
 
