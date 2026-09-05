@@ -212,13 +212,16 @@ private struct CallReceipt: View {
     private var row: some View {
         HStack(spacing: 10) {
             statusDot
+            // An MCP verb can be longer than the row, so the name gives way like the
+            // subject does. Held at its natural width it would draw over the subject.
             Text(tool.name.uppercased())
                 .kerning(1)
                 .scaledMono(10, .bold)
                 .foregroundStyle(verbColour)
                 .lineLimit(1)
-                .fixedSize()
+                .truncationMode(.middle)
                 .frame(minWidth: 40 * textScale, alignment: .leading)
+                .layoutPriority(1)
             Text(subject)
                 .scaledMono(11.5)
                 .foregroundStyle(isWorking ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
