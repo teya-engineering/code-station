@@ -729,6 +729,41 @@ final class ProjectStore {
         return !entries.isEmpty
     }
 
+    func startDesign(for sourceSessionID: UUID) -> Result<ChatSession, PersistenceFailure> {
+        guard let source = session(sourceSessionID), !source.isDesignSession else {
+            return .failure(PersistenceFailure(message: "The session is no longer available."))
+        }
+        if source.isActivelyDesigning { return .success(source) }
+        if let existing = designSession(for: sourceSessionID) { return .success(existing) }
+        guard source.sourceDesignSessionID == nil else {
+            return .failure(PersistenceFailure(
+                message: "This session already has a Design reference."))
+        }
+
+        var design = ChatSession(projectID: source.projectID, agent: source.agent)
+        design.title = "Design"
+        design.mode = .design
+        design.designPhase = .designing
+        design.designSourceSessionID = source.id
+        design.worktreePath = source.worktreePath
+        design.worktreeBranch = source.worktreeBranch
+        design.workspaceID = source.workspaceID
+        design.sessionProjects = source.sessionProjects
+        design.grantedDirectories = source.grantedDirectories
+        design.settings = source.settings
+        design.agentAvatarName = source.agentAvatarName
+        design.transcriptLoaded = true
+
+        sessions.append(design)
+        publishSidebarSessions()
+        markIndexDirty()
+        return saveOrRollBack(design, failure: "The Design session could not be saved.") {
+            sessions.removeAll { $0.id == design.id }
+            clearSessionMemory(design.id)
+            publishSidebarSessions()
+        }
+    }
+
     // Everything a new session starts with that does not depend on where it runs. The
     // place - one project folder, a worktree of it, or a workspace's several checkouts -
     // is the argument beside this rather than a field in it, because it is the one thing
@@ -942,10 +977,15 @@ final class ProjectStore {
     }
 
     func beginImplementation(_ sessionID: UUID, revisionID: UUID)
-        -> Result<Void, PersistenceFailure> {
+        -> Result<UUID, PersistenceFailure> {
         guard let i = index(sessionID), sessions[i].ownsDesign,
               let revision = sessions[i].designRevisions.first(where: { $0.id == revisionID }) else {
             return .failure(PersistenceFailure(message: "The approved Design is no longer available."))
+        }
+
+        if let sourceID = sessions[i].designSourceSessionID, session(sourceID) != nil {
+            return linkImplementation(sourceID, to: sessionID, revisionID: revisionID)
+                .map { sourceID }
         }
 
         // The visible session becomes Build while Design moves behind its tab. Keeping two
@@ -1006,7 +1046,7 @@ final class ProjectStore {
         transcriptRevisions[design.id, default: 0] &+= 1
         publishSidebarSessions()
         markIndexDirty()
-        return saveOrRollBack((),
+        return saveOrRollBack(implementation.id,
                               failure: "The implementation handoff could not be saved.") {
             sessions[i] = original
             sessions.removeAll { $0.id == design.id }

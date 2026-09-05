@@ -42,6 +42,46 @@ struct DesignSessionTests {
         #expect(restored.designConversation(for: design.id)?.id == design.id)
     }
 
+    @Test func chatCanStartASeparateDesignInItsCheckout() throws {
+        let chat = store.newSession(
+            in: project.id,
+            worktreePath: "/tmp/code-station-chat-worktree",
+            worktreeBranch: "code-station/chat-test",
+            seed: .init(agent: .codex, model: "gpt-5.6-terra",
+                        agentAvatarName: "agent-avatar-2.png"))
+        store.grantDirectory("/tmp/shared-reference", to: chat.id)
+        store.append(ChatMessage(role: .user, text: "Build a checkout flow"), to: chat.id)
+        store.setAgentSessionID("chat-context", agent: .codex, for: chat.id)
+
+        let design = try store.startDesign(for: chat.id).get()
+        let unchangedChat = try #require(store.session(chat.id))
+
+        #expect(!unchangedChat.isImplementingDesign)
+        #expect(unchangedChat.codexSessionID == "chat-context")
+        #expect(unchangedChat.messages.last?.text == "Build a checkout flow")
+        #expect(design.mode == .design)
+        #expect(design.designPhase == .designing)
+        #expect(design.designSourceSessionID == chat.id)
+        #expect(design.agent == chat.agent)
+        #expect(design.settings == chat.settings)
+        #expect(design.agentAvatarName == chat.agentAvatarName)
+        #expect(design.worktreePath == chat.worktreePath)
+        #expect(design.worktreeBranch == chat.worktreeBranch)
+        #expect(design.grantedDirectories == ["/tmp/shared-reference"])
+        #expect(design.codexSessionID == nil)
+        #expect(design.messages.isEmpty)
+        #expect(store.designSession(for: chat.id)?.id == design.id)
+        #expect(store.userSessions.map(\.id) == [chat.id])
+        #expect(store.sessionsShareDesignWorkflow(chat.id, design.id))
+        #expect(try store.startDesign(for: chat.id).get().id == design.id)
+        #expect(store.sessions.count == 2)
+
+        let restored = ProjectStore(storeURL: store.storeURL)
+        #expect(restored.designSession(for: chat.id)?.id == design.id)
+        #expect(restored.workingDirectories(for: try #require(restored.session(design.id)))
+            == ["/tmp/code-station-chat-worktree"])
+    }
+
     @Test func workspaceDesignKeepsEveryCheckout() throws {
         let attached = try TestStore.project(in: store, named: "attached")
         let workspace = try #require(store.addWorkspace(
@@ -136,7 +176,7 @@ struct DesignSessionTests {
         let revision = try store.approveDesign(
             design.id, screenshot: nil, sourceRevisions: [:]).get()
 
-        try store.beginImplementation(design.id, revisionID: revision.id).get()
+        _ = try store.beginImplementation(design.id, revisionID: revision.id).get()
         let implementing = try #require(store.session(design.id))
         let editableDesign = try #require(store.designSession(for: implementing.id))
 
@@ -175,6 +215,67 @@ struct DesignSessionTests {
         #expect(restored.designFilesURL(for: restoredImplementation) != nil)
     }
 
+    @Test func attachedDesignHandsOffIntoTheExistingChat() throws {
+        let chat = store.newSession(in: project.id, seed: .init(agent: .codex))
+        store.append(ChatMessage(role: .user, text: "Keep this coding context"), to: chat.id)
+        store.setAgentSessionID("chat-context", agent: .codex, for: chat.id)
+        let design = try store.startDesign(for: chat.id).get()
+        _ = try writeDesign(for: design, in: store, html: "<html>Approved</html>")
+        store.append(ChatMessage(role: .user, text: "Design the next state"), to: design.id)
+        store.setAgentSessionID("design-context", agent: .codex, for: design.id)
+        let revision = try store.approveDesign(
+            design.id, screenshot: nil, sourceRevisions: [:]).get()
+
+        let implementationID = try store.beginImplementation(
+            design.id, revisionID: revision.id).get()
+        let implementation = try #require(store.session(chat.id))
+        let editableDesign = try #require(store.designSession(for: chat.id))
+
+        #expect(implementationID == chat.id)
+        #expect(implementation.isImplementingDesign)
+        #expect(implementation.sourceDesignSessionID == design.id)
+        #expect(implementation.handedOffDesignRevisionID == revision.id)
+        #expect(implementation.codexSessionID == "chat-context")
+        #expect(implementation.messages.last?.text == "Keep this coding context")
+        #expect(editableDesign.id == design.id)
+        #expect(editableDesign.designSourceSessionID == chat.id)
+        #expect(editableDesign.codexSessionID == "design-context")
+        #expect(editableDesign.messages.last?.text == "Design the next state")
+        #expect(store.userSessions.map(\.id) == [chat.id])
+        #expect(store.implementationSessions(for: design.id).map(\.id) == [chat.id])
+
+        let reference = try #require(store.implementationDesignDirectory(for: implementation))
+        #expect(try String(contentsOf: reference.appendingPathComponent("index.html"),
+                           encoding: .utf8) == "<html>Approved</html>")
+
+        let restored = ProjectStore(storeURL: store.storeURL)
+        #expect(restored.session(chat.id)?.sourceDesignSessionID == design.id)
+        #expect(restored.designSession(for: chat.id)?.id == design.id)
+        #expect(restored.userSessions.map(\.id) == [chat.id])
+    }
+
+    @Test func attachedDesignLifecycleSendsImplementationToTheExistingChat() throws {
+        let chat = store.newSession(in: project.id, seed: .init(agent: .codex))
+        let design = try store.startDesign(for: chat.id).get()
+        _ = try writeDesign(for: design, in: store, html: "<html>Approved</html>")
+        let revision = try store.approveDesign(
+            design.id, screenshot: nil, sourceRevisions: [:]).get()
+        let runner = SessionRunner(paths: [:])
+
+        let result = DesignHandoffLifecycle.startImplementation(
+            design.id, revision: revision, additionalContext: "Keep the current header.",
+            store: store, runner: runner)
+
+        if case .failure(let failure) = result {
+            Issue.record("Expected the handoff to succeed: \(failure.message)")
+        }
+        #expect(store.session(chat.id)?.sourceDesignSessionID == design.id)
+        #expect(store.transcript(of: chat.id).last?.text.contains(
+            "Additional context:\nKeep the current header.") == true)
+        #expect(store.transcript(of: design.id).isEmpty)
+        #expect(store.selection == .session(chat.id))
+    }
+
     @Test func implementationPromptIncludesOptionalUserContext() {
         let revision = DesignRevision(
             id: UUID(), number: 3, createdAt: Date(), sourceRevisions: [:], screens: [])
@@ -208,7 +309,7 @@ struct DesignSessionTests {
                             html: "<html>Version one</html>")
         let first = try store.approveDesign(
             original.id, screenshot: nil, sourceRevisions: [:]).get()
-        try store.beginImplementation(original.id, revisionID: first.id).get()
+        _ = try store.beginImplementation(original.id, revisionID: first.id).get()
         let build = try #require(store.session(original.id))
         let design = try #require(store.designSession(for: build.id))
         let live = try #require(store.designArtifactURL(for: design))
@@ -231,7 +332,7 @@ struct DesignSessionTests {
         _ = try writeDesign(for: original, in: store, html: "<html>Design</html>")
         let revision = try store.approveDesign(
             original.id, screenshot: nil, sourceRevisions: [:]).get()
-        try store.beginImplementation(original.id, revisionID: revision.id).get()
+        _ = try store.beginImplementation(original.id, revisionID: revision.id).get()
         let build = try #require(store.session(original.id))
         let design = try #require(store.designSession(for: build.id))
         let buildFiles = store.designDirectory(for: build)
@@ -264,7 +365,7 @@ struct DesignSessionTests {
         _ = try writeDesign(for: original, in: store, html: "<html>Design</html>")
         let revision = try store.approveDesign(
             original.id, screenshot: nil, sourceRevisions: [:]).get()
-        try store.beginImplementation(original.id, revisionID: revision.id).get()
+        _ = try store.beginImplementation(original.id, revisionID: revision.id).get()
         let build = try #require(store.session(original.id))
         let design = try #require(store.designSession(for: build.id))
         let runner = SessionRunner(paths: [.codex: executable.path])

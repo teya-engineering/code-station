@@ -978,7 +978,7 @@ struct SettingsView: View {
             SettingsCard {
                 SettingsToggleRow(
                     "Design",
-                    detail: "Offers Design mode when creating a session for visual ideas and prototypes.",
+                    detail: "Adds a Design workspace to sessions for visual ideas and prototypes.",
                     isOn: $settings.designEnabled)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 13)

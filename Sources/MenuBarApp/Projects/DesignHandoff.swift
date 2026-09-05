@@ -25,12 +25,14 @@ enum DesignHandoffLifecycle {
                                     store: ProjectStore, runner: SessionRunner)
         -> Result<Void, Failure> {
         let title = "Could not start implementation"
-        if case .failure(let failure) = store.beginImplementation(designSessionID,
-                                                                  revisionID: revision.id) {
+        let implementationID: UUID
+        switch store.beginImplementation(designSessionID, revisionID: revision.id) {
+        case .success(let sessionID):
+            implementationID = sessionID
+        case .failure(let failure):
             return .failure(Failure(title: title, message: failure.message))
         }
-        // The session keeps its id through the handoff and becomes the implementation.
-        guard let implementation = store.session(designSessionID) else {
+        guard let implementation = store.session(implementationID) else {
             return .failure(Failure(title: title,
                                     message: "The implementation session is no longer available."))
         }
@@ -39,13 +41,13 @@ enum DesignHandoffLifecycle {
         if let context, !context.isEmpty {
             notice += "\n\nAdditional context:\n\(context)"
         }
-        store.append(ChatMessage(role: .system, text: notice), to: designSessionID)
+        store.append(ChatMessage(role: .system, text: notice), to: implementationID)
         runner.sendAppCommand(
             implementationPrompt(revision, additionalContext: context),
             attachments: store.implementationReferenceAttachments(for: implementation),
-            sessionID: designSessionID,
+            sessionID: implementationID,
             store: store)
-        store.selectSession(designSessionID)
+        store.selectSession(implementationID)
         return .success(())
     }
 

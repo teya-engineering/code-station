@@ -540,7 +540,7 @@ struct DesignView: View {
                     sessionID, revision: revision, additionalContext: additionalContext,
                     store: store, runner: runner) {
                 case .success:
-                    break
+                    onOpenImplementation?()
                 case .failure(let failure):
                     dialogs.show(.notice(failure.title, message: failure.message))
                 }
@@ -605,6 +605,30 @@ private struct DesignImplementationContextEditor: View {
                 .frame(height: 96)
         }
         .padding(.top, 6)
+    }
+}
+
+struct DesignStartView: View {
+    @Environment(ProjectStore.self) private var store
+    @Environment(DialogPresenter.self) private var dialogs
+
+    let sessionID: UUID
+
+    var body: some View {
+        PaneMessage(
+            icon: "paintbrush.pointed",
+            title: "Start a Design",
+            detail: "Create a visual canvas beside a separate Design conversation. It uses this session's checkout and leaves the Chat unchanged until you choose to implement it.") {
+                ActionButton(title: "Start Design", tone: .green,
+                             icon: "paintbrush.pointed.fill", action: start)
+                    .padding(.top, 4)
+            }
+    }
+
+    private func start() {
+        if case .failure(let failure) = store.startDesign(for: sessionID) {
+            dialogs.show(.notice("Could not start the Design", message: failure.message))
+        }
     }
 }
 

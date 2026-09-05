@@ -225,18 +225,18 @@ struct SessionView: View {
                 }
                 switch tab {
                 case .conversation:
-                    // A Build session keeps its Design behind the Design tab.
-                    if !session.isImplementingDesign,
-                       let design = store.designConversation(for: session.id) {
-                        DesignView(sessionID: design.id)
+                    if session.isActivelyDesigning {
+                        DesignView(sessionID: session.id)
                     } else {
                         conversation(session: session, project: project)
                     }
                 case .design:
                     if let design = store.designSession(for: session.id) {
                         DesignView(sessionID: design.id) { tab = .conversation }
-                    } else {
+                    } else if session.sourceDesignSessionID != nil {
                         DesignReferenceView(sessionID: session.id)
+                    } else {
+                        DesignStartView(sessionID: session.id)
                     }
                 case .changes:
                     ChangesView(root: requestedChange?.root ?? projectDirectory,
@@ -433,11 +433,11 @@ struct SessionView: View {
     }
 
     private func headerTabs(for session: ChatSession) -> [(label: String, value: Tab)] {
-        var tabs: [(label: String, value: Tab)] = session.isImplementingDesign
-            ? [("Build", .conversation)]
-            : [(store.designConversation(for: session.id) == nil ? "Chat" : "Design",
-                .conversation)]
-        if session.isImplementingDesign {
+        var tabs: [(label: String, value: Tab)] = session.isActivelyDesigning
+            ? [("Design", .conversation)]
+            : [(session.isImplementingDesign ? "Build" : "Chat", .conversation)]
+        if !session.isActivelyDesigning,
+           appSettings.designEnabled || store.isDesignMode(session) {
             tabs.append(("Design", .design))
         }
         tabs.append((store.isDesignMode(session) ? "Project Changes" : "Changes", .changes))
@@ -450,7 +450,7 @@ struct SessionView: View {
         case .design:
             true
         case .conversation:
-            !session.isImplementingDesign && store.designConversation(for: session.id) != nil
+            session.isActivelyDesigning
         case .changes, .explorer:
             false
         }
@@ -867,10 +867,7 @@ struct SessionView: View {
     // The turn Escape stops. A Design conversation runs in a session of its own, so what
     // is on screen is not always this session's own turn.
     private var visibleConversationID: UUID {
-        guard let session = store.session(sessionID) else { return sessionID }
         switch tab {
-        case .conversation where !session.isImplementingDesign:
-            return store.designConversation(for: sessionID)?.id ?? sessionID
         case .design:
             return store.designSession(for: sessionID)?.id ?? sessionID
         default:

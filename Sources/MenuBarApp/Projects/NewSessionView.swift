@@ -1,8 +1,7 @@
 import SwiftUI
 
-// Where a new session will do its work and which kind of conversation it starts. These
-// choices cannot change after creation. A plain folder still shows this screen so the
-// conversation mode, agent and bot remain explicit choices.
+// Where a new session will do its work and which conversation it opens first. A plain
+// folder still shows this screen so the starting mode, agent and bot remain explicit.
 struct NewSessionView: View {
     let project: Project
     let onCreate: (NewSessionChoice) -> Void
