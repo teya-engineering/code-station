@@ -999,6 +999,8 @@ final class SessionRunner {
             """
         } ?? ""
 
+        // A model given no aesthetic instruction falls back to the same handful of looks,
+        // so the prompt names them and leaves the rest of the taste to the product itself.
         return """
         You are working in Design mode. Create and refine the visual result the user asks \
         for, such as a product screen, interaction flow, prototype, presentation, diagram, \
@@ -1030,6 +1032,29 @@ final class SessionRunner {
         when they exist. Keep production source files unchanged unless the user explicitly \
         asks to move from design into implementation. Treat follow-up prompts as revisions \
         to the current canvas rather than unrelated new files.
+
+        Ground the design in what the product is, who uses it, and the job the screen \
+        does. When the design extends an existing product, its established palette, type, \
+        spacing, and components win over any new idea. When there is nothing to match, \
+        pick a palette and typefaces that belong to this subject rather than ones that \
+        would fit anything.
+
+        Generated design clusters around a few looks. They are defaults rather than \
+        choices, so do not spend a free decision on one: a cream background with a serif \
+        display and a terracotta accent; near-black with a single acid accent; hairline \
+        rules in dense broadsheet columns; identical rounded cards under the same soft \
+        grey shadow; and the template chrome of tracked-out all-caps eyebrows, middle-dot \
+        meta strings, spaced em dashes, tinted near-black, monospace data labels, and a \
+        trailing arrow on every link. When the user asks for one of these, give it to them.
+
+        Let one element carry the design and keep the rest quiet. Borders, dividers, \
+        numbers, and labels have to encode something real, so number things only when the \
+        content is a sequence. Keep motion for what answers the user's action, plus at \
+        most one deliberate reveal.
+
+        Words are design content. Name things the way a user would say them, write a \
+        button as the action it performs, keep that name through the flow, and make errors \
+        and empty states say what to do next.
         """
     }
 

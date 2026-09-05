@@ -554,6 +554,9 @@ struct DesignSessionTests {
         let prompt = SessionRunner.designSystemPrompt(artifactURL: artifact)
 
         #expect(prompt.contains("scoped change from the existing product"))
+        // Nothing else steers the look, so the aesthetic guidance travels with every
+        // design turn rather than waiting on a skill the user may not have installed.
+        #expect(prompt.contains("Generated design clusters around a few looks"))
 
         let claude = SessionRunner.arguments(
             agent: .claudeCode,
