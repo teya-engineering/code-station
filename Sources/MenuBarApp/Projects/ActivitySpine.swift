@@ -4,17 +4,30 @@ import SwiftUI
 // transcript, so finishing work never takes history away or moves the prose around it.
 // Detail belongs to the reader: a click opens it and another click closes it.
 struct ActivitySpine: View {
-    let nodes: [ToolNode]
     let projectPath: String
     var openChange: ((String) -> Void)? = nil
     var openTerminal: (() -> Void)? = nil
 
     @State private var expanded: Set<String> = []
 
-    private var calls: [ToolNode] { Self.flattened(nodes) }
+    // Flattening sorts, and the spine reads the result three times in a pass: once for
+    // the rows, once for the caption, once to count failures. A turn can carry a
+    // thousand calls, so the order is settled once here rather than on every read.
+    private let calls: [ToolNode]
+
+    init(nodes: [ToolNode], projectPath: String,
+         openChange: ((String) -> Void)? = nil,
+         openTerminal: (() -> Void)? = nil) {
+        self.calls = Self.flattened(nodes)
+        self.projectPath = projectPath
+        self.openChange = openChange
+        self.openTerminal = openTerminal
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        // A turn's calls are drawn lazily: a long turn would otherwise build every
+        // receipt, and its diff, before a reader has scrolled anywhere near them.
+        LazyVStack(alignment: .leading, spacing: 0) {
             caption
             ForEach(calls, id: \.id) { node in
                 CallReceipt(
