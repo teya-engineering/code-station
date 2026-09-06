@@ -145,7 +145,6 @@ struct TroubleshootView: View {
     @State private var selectedSkills = Preferences.troubleshootSkills()
     @State private var mcpServersEnabled = true
     @State private var agent: AgentKind?
-    @State private var dropTargeted = false
     @State private var isStarting = false
     @State private var showingSkills = false
     @State private var showingNewWorkspace = false
@@ -236,224 +235,20 @@ struct TroubleshootView: View {
         .surface(Theme.deletion.opacity(0.09), cornerRadius: 10, border: Theme.deletion.opacity(0.18))
     }
 
-    // The skills the diagnosis is told to use, as a row of pills above everything else:
-    // what the agent is told to read is the first thing decided and the first thing seen.
-    // The + adds one from what the chosen agent has installed, and a right-click on a
-    // pill takes it off. With nothing picked the bar turns amber, since an agent left to
-    // guess at Grafana or Postgres is rarely what was wanted.
     private var skillsBar: some View {
-        HStack(spacing: 9) {
-            Image(systemName: needsSkill ? "exclamationmark.triangle.fill" : "sparkles")
-                .font(.system(size: needsSkill ? 11 : 10.5, weight: .semibold))
-                .foregroundStyle(needsSkill ? AnyShapeStyle(Theme.attentionText)
-                                            : AnyShapeStyle(.tertiary))
-                .accessibilityLabel("Skills")
-
-            if chosenSkills.isEmpty {
-                Text(emptySkillsMessage)
-                    .font(.system(size: 11.5, weight: needsSkill ? .medium : .regular))
-                    .foregroundStyle(needsSkill ? AnyShapeStyle(Theme.attentionText)
-                                                : AnyShapeStyle(.secondary))
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 8)
-                addSkillButton
-            } else {
-                ScrollView(.horizontal) {
-                    HStack(spacing: 7) {
-                        ForEach(chosenSkills, id: \.self) { name in
-                            skillPill(name)
-                        }
-                        addSkillButton
-                    }
-                    .padding(.vertical, 1)
-                }
-                .scrollIndicators(.hidden)
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
-        .surface(needsSkill ? Theme.attention.opacity(0.10) : Theme.field, cornerRadius: 10,
-                 border: needsSkill ? Theme.attention.opacity(0.45) : Theme.border)
+        TroubleshootSkillsBar(skills: skills, agent: selectedAgent,
+                              selected: $selectedSkills, showingSkills: $showingSkills)
     }
 
-    private func skillPill(_ name: String) -> some View {
-        Text(name)
-            .font(.system(size: 12, weight: .semibold))
-            .lineLimit(1)
-            .padding(.horizontal, 9)
-            .frame(height: 22)
-            .cardSurface(cornerRadius: 7)
-            .contentShape(RoundedRectangle(cornerRadius: 7))
-            .appContextMenu {
-                [
-                    .item("Remove", kind: .destructive) { selectedSkills.remove(name) },
-                    .separator,
-                    .item("Manage skills…") { showingSkills = true },
-                ]
-            }
-            .appTooltip { Tooltip(title: name, subtitle: description(of: name)) }
-    }
-
-    // Dashed rather than filled, so the control that adds a skill does not read as a
-    // skill of its own. The whole pill opens the menu, not just the sign.
-    private var addSkillButton: some View {
-        HStack(spacing: 5) {
-            Image(systemName: "plus")
-                .font(.system(size: 9, weight: .bold))
-            Text("Add")
-                .font(.system(size: 12, weight: .semibold))
-        }
-        .foregroundStyle(.secondary)
-        .padding(.horizontal, 9)
-        .frame(height: 22)
-        .overlay(RoundedRectangle(cornerRadius: 7)
-            .strokeBorder(Theme.border, style: StrokeStyle(lineWidth: 1, dash: [3, 3])))
-        .contentShape(RoundedRectangle(cornerRadius: 7))
-        .appMenu { skillMenu }
-        .appTooltip("Add a skill to the diagnosis")
-        .accessibilityLabel("Add skill")
-    }
-
-    private var skillMenu: [MenuEntry] {
-        var entries: [MenuEntry] = []
-        let items = availableSkills.map { plugin in
-            MenuItem(label: plugin.name,
-                     checked: selectedSkills.contains(plugin.name),
-                     subtitle: plugin.description,
-                     handler: { toggleSkill(plugin.name) })
-        }
-        if items.count > 6 {
-            entries.append(.searchable(items,
-                                       prompt: "Filter skills by name",
-                                       noResults: "No skill matches this filter."))
-        } else {
-            entries.append(contentsOf: items.map { MenuEntry.item($0) })
-        }
-        if !entries.isEmpty { entries.append(.separator) }
-        entries.append(.item("Manage skills…", icon: "sparkles") { showingSkills = true })
-        return entries
-    }
-
-    // Amber is for something to put right: no skill is installed, or none of the ones
-    // that are has been picked. While the installed set is still being read there is
-    // nothing to put right yet.
-    private var needsSkill: Bool {
-        chosenSkills.isEmpty && skills.hasLoaded && !skills.isRefreshing
-    }
-
-    private var emptySkillsMessage: String {
-        guard skills.hasLoaded, !skills.isRefreshing else {
-            return "Reading the skills \(selectedAgent.title) has installed…"
-        }
-        if skills.hostFailure(skillHost) != nil {
-            return "The \(selectedAgent.title) plugin status could not be read, so no skill can be offered."
-        }
-        if availableSkills.isEmpty {
-            return "No skill is installed for \(selectedAgent.title). The diagnosis runs without one."
-        }
-        return "No skill picked. The agent diagnoses without any of them."
-    }
-
-    private var skillHost: SkillHost {
-        switch selectedAgent {
-        case .claudeCode: .claude
-        case .codex: .codex
-        }
-    }
-
-    private var availableSkills: [SkillMarketplace.Plugin] {
-        skills.plugins.filter { skills.installation(of: $0, on: skillHost)?.enabled == true }
-    }
-
-    // A skill picked for one agent stays picked while the other is selected, so switching
-    // agents and back keeps the choice. Only what this agent can load is sent to it.
     private var chosenSkills: [String] {
-        availableSkills.map(\.name).filter { selectedSkills.contains($0) }
-    }
-
-    private func description(of skill: String) -> String? {
-        availableSkills.first { $0.name == skill }?.description
-    }
-
-    private func toggleSkill(_ name: String) {
-        if selectedSkills.contains(name) {
-            selectedSkills.remove(name)
-        } else {
-            selectedSkills.insert(name)
-        }
+        TroubleshootSkills.chosen(skills, for: selectedAgent, selected: selectedSkills)
     }
 
     private var problemSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             SectionLabel("PROBLEM AND EVIDENCE")
-            VStack(alignment: .leading, spacing: 0) {
-                ZStack(alignment: .topLeading) {
-                    TextEditor(text: $problem)
-                        .font(.system(size: 13))
-                        .scrollContentBackground(.hidden)
-                        .padding(10)
-                        .frame(height: 120)
-                        .focused($problemFocused)
-                    if problem.isEmpty {
-                        Text("Describe what is failing, what you expected, and anything you already checked.")
-                            .font(.system(size: 13))
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 15)
-                            .padding(.vertical, 18)
-                            .allowsHitTesting(false)
-                    }
-                }
-
-                Divider().overlay(Theme.hairline)
-
-                HStack(spacing: 10) {
-                    if attachments.isEmpty {
-                        Image(systemName: "arrow.down.doc")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(.secondary)
-                        Text(dropTargeted ? "Drop files here" : "Drag or paste files here, or add them from Finder")
-                            .font(.system(size: 11.5))
-                            .foregroundStyle(.secondary)
-                    } else {
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 6) {
-                                ForEach(attachments) { attachment in
-                                    AttachmentChip(url: attachment.url) {
-                                        attachments.removeAll { $0.id == attachment.id }
-                                    }
-                                }
-                            }
-                            .padding(.vertical, 1)
-                        }
-                    }
-                    Spacer(minLength: 8)
-                    Button(action: chooseFiles) {
-                        HStack(spacing: 5) {
-                            Image(systemName: "paperclip")
-                            Text("Add files")
-                        }
-                        .font(.system(size: 11.5, weight: .semibold))
-                        .foregroundStyle(Theme.accent)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .fieldSurface(cornerRadius: 7)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                }
-                .padding(10)
-            }
-            .background(RoundedRectangle(cornerRadius: 11).fill(Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: 11)
-                .stroke(dropTargeted ? Theme.accent : Theme.border,
-                        lineWidth: dropTargeted ? 2 : 1))
-            .dropDestination(for: URL.self) { urls, _ in
-                attach(Attachments.fromDrop(urls))
-                return true
-            } isTargeted: { dropTargeted = $0 }
-            // Only while the description has the cursor: the filter box below is a plain
-            // text field, and a file path pasted into it was meant as text.
-            .pasteAttachments(enabled: problemFocused) { attach($0) }
+            TroubleshootProblemEditor(problem: $problem, attachments: $attachments,
+                                      focused: $problemFocused)
         }
     }
 
@@ -461,51 +256,18 @@ struct TroubleshootView: View {
         HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 8) {
                 SectionLabel("ENVIRONMENT")
-                HStack(spacing: 6) {
-                    ForEach(TroubleshootEnvironment.all()) { option in
-                        ChoicePill(title: option.title, selected: environment == option) {
-                            environment = option
-                        }
-                    }
-                }
+                TroubleshootEnvironmentPills(environment: $environment)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
             VStack(alignment: .leading, spacing: 8) {
                 SectionLabel("MCP SERVERS")
-                Toggle(isOn: $mcpServersEnabled) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Enable MCP servers")
-                            .font(.system(size: 13, weight: .medium))
-                        Text(configs.servers.isEmpty
-                             ? "Use any servers configured for the selected agent."
-                             : "\(counted(environmentMCPServers.count, "managed server")) available for \(environment.title).")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .toggleStyle(.appSwitch)
-
-                switch mcpConfigurationState {
-                case .ready:
-                    EmptyView()
-                case .checking:
-                    HStack(spacing: 6) {
-                        ProgressView().controlSize(.small)
-                        Text("Checking \(selectedAgent.title) MCP configuration...")
-                    }
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                case let .unavailable(configuration):
-                    HStack(alignment: .top, spacing: 6) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .padding(.top, 1)
-                        Text(mcpConfigurationError(configuration))
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Theme.deletion)
-                }
+                TroubleshootMCPOptions(agent: selectedAgent,
+                                       environment: environment,
+                                       managedServers: configs.servers,
+                                       environmentServers: environmentMCPServers,
+                                       state: mcpConfigurationState,
+                                       enabled: $mcpServersEnabled)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -608,28 +370,11 @@ struct TroubleshootView: View {
         configs.servers.filter { environment.includes($0) }
     }
 
-    private var mcpConfigurationState: MCPConfigurationState {
-        guard mcpServersEnabled, !environmentMCPServers.isEmpty else { return .ready }
-        guard hasStartedMCPConfigurationCheck else { return .checking }
-        if selectedAgent == .codex, codex.isRefreshing { return .checking }
-
-        let registeredNames: Set<String>
-        let disabledNames: Set<String>
-        switch selectedAgent {
-        case .claudeCode:
-            registeredNames = Set(claude.entries.keys)
-            disabledNames = []
-        case .codex:
-            registeredNames = Set(codex.entries.keys)
-            disabledNames = Set(codex.entries.compactMap { $0.value.enabled ? nil : $0.key })
-        }
-        let configuration = TroubleshootMCPConfiguration(
-            requiredNames: environmentMCPServers.map(\.name),
-            registeredNames: registeredNames,
-            disabledNames: disabledNames)
-        return configuration.isAvailable
-            ? .ready
-            : .unavailable(configuration)
+    private var mcpConfigurationState: TroubleshootMCPState {
+        .resolve(agent: selectedAgent, enabled: mcpServersEnabled,
+                 servers: environmentMCPServers,
+                 hasStartedCheck: hasStartedMCPConfigurationCheck,
+                 claude: claude, codex: codex)
     }
 
     static func projects(_ projects: [Project], matching filter: String) -> [Project] {
@@ -751,35 +496,10 @@ struct TroubleshootView: View {
                 })
     }
 
-    private func chooseFiles() {
-        let urls = FilePicker.chooseFiles(prompt: "Attach",
-                                          message: "Choose files that help explain the problem.")
-        attach(urls.map(Attachment.init(url:)))
-    }
-
-    private func attach(_ found: [Attachment]) {
-        for item in found where !attachments.contains(where: { $0.url == item.url }) {
-            attachments.append(item)
-        }
-        problemFocused = true
-    }
-
     private func refreshMCPConfiguration() {
         claude.refresh()
         codex.refresh(configs.servers)
         hasStartedMCPConfigurationCheck = true
-    }
-
-    private func mcpConfigurationError(_ configuration: TroubleshootMCPConfiguration) -> String {
-        var messages: [String] = []
-        if !configuration.missing.isEmpty {
-            messages.append("Not configured for \(selectedAgent.title): \(configuration.missing.joined(separator: ", ")).")
-        }
-        if !configuration.disabled.isEmpty {
-            messages.append("Disabled in \(selectedAgent.title): \(configuration.disabled.joined(separator: ", ")).")
-        }
-        messages.append("Sync the listed servers in MCP Servers before diagnosing.")
-        return messages.joined(separator: " ")
     }
 
     private func diagnose() {
@@ -919,11 +639,5 @@ struct TroubleshootView: View {
         guard let current = store.selectedProjectID,
               let lead = selected.first(where: { $0.id == current }) else { return selected }
         return [lead] + selected.filter { $0.id != current }
-    }
-
-    private enum MCPConfigurationState: Equatable {
-        case ready
-        case checking
-        case unavailable(TroubleshootMCPConfiguration)
     }
 }

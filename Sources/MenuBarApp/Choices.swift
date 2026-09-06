@@ -172,22 +172,35 @@ struct ChoicePill: View {
     let title: String
     let selected: Bool
     var enabled = true
+    // A choice that carries a consequence leads with a dot in the colour of that
+    // consequence, so the warning is on the option itself rather than only in the
+    // notice a click away.
+    var dot: Color? = nil
     let choose: () -> Void
 
     var body: some View {
         Button(action: choose) {
-            Text(title)
-                .font(.system(size: 12, weight: .semibold))
-                // A squeezed pill must never fold its title onto two lines.
-                .lineLimit(1)
-                .fixedSize()
-                .foregroundStyle(selected ? Color.white : Color.secondary)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .surface(selected ? Theme.accentFill : Theme.card, cornerRadius: 8,
-                         border: selected ? .clear : Theme.border)
-                .contentShape(Rectangle())
-                .opacity(enabled ? 1 : 0.45)
+            HStack(spacing: 7) {
+                if let dot {
+                    // The accent fill swallows an amber dot, so a picked pill carries the
+                    // brand mark instead and the warning stays visible on it.
+                    Circle()
+                        .fill(selected ? Theme.brand : dot)
+                        .frame(width: 6, height: 6)
+                }
+                Text(title)
+                    .font(.system(size: 12, weight: .semibold))
+                    // A squeezed pill must never fold its title onto two lines.
+                    .lineLimit(1)
+                    .fixedSize()
+            }
+            .foregroundStyle(selected ? Color.white : Color.secondary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .surface(selected ? Theme.accentFill : Theme.card, cornerRadius: 8,
+                     border: selected ? .clear : Theme.border)
+            .contentShape(Rectangle())
+            .opacity(enabled ? 1 : 0.45)
         }
         .buttonStyle(.plain)
         .disabled(!enabled)

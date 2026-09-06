@@ -310,3 +310,169 @@ struct CopyButton: View {
         .animation(.easeOut(duration: 0.12), value: copied)
     }
 }
+
+// MARK: - Clustered navigation
+
+// One place a header can send you, or one panel it can open. A destination is chosen and
+// stays chosen; a toggle is switched on and off and leaves whatever is on screen where it
+// is, which is why the two are drawn apart: the chosen destination takes a raised card,
+// the live toggle takes the accent.
+struct HeaderTab: Identifiable {
+    enum Kind: Equatable {
+        case destination(selected: Bool)
+        case toggle(on: Bool)
+    }
+
+    let label: String
+    let icon: String
+    let kind: Kind
+    // An unread mark that has to survive the label collapsing, since an icon on its own
+    // cannot say the working tree moved.
+    var badge = false
+    var tooltip: Tooltip? = nil
+    // A right-click menu rather than a menu button: the click itself belongs to the
+    // destination or the toggle, so anything else the tab can do hangs off the secondary
+    // click.
+    var menu: (() -> [MenuEntry])? = nil
+    let activate: () -> Void
+
+    var id: String { label }
+
+    var isLit: Bool {
+        switch kind {
+        case .destination(let selected): selected
+        case .toggle(let on): on
+        }
+    }
+}
+
+// The header's navigation, grouped. Six word-tabs plus a dropdown do not fit beside a
+// session title, so only the tab you are on keeps its word and the rest sit as icons.
+// Reaching for a group opens every label in it at once, which is what keeps the icons
+// from being a guess: the labels arrive before the click, together, rather than one
+// tooltip at a time.
+//
+// The groups themselves carry the meaning a divider or a second colour would otherwise
+// have to: what the agent is being set to do, and what it did.
+struct HeaderTabClusters: View {
+    let clusters: [[HeaderTab]]
+
+    var body: some View {
+        HStack(spacing: 10) {
+            ForEach(clusters.indices, id: \.self) { index in
+                HeaderTabCluster(tabs: clusters[index])
+            }
+        }
+        .fixedSize(horizontal: true, vertical: false)
+    }
+}
+
+private struct HeaderTabCluster: View {
+    let tabs: [HeaderTab]
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var hovering = false
+    @FocusState private var focused: String?
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(tabs) { tab in
+                button(tab)
+            }
+        }
+        .padding(3)
+        .background(RoundedRectangle(cornerRadius: 11).fill(Theme.field))
+        .onHover { hovering = $0 }
+        // The only movement in the header, so it is worth the full quarter second: a
+        // group opening is meant to be read, not glimpsed.
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.22), value: opened)
+    }
+
+    // Labels open for the pointer and for the keyboard alike, so tabbing through the
+    // header names its destinations the same way hovering does.
+    private var opened: Bool { hovering || focused != nil }
+
+    @ViewBuilder private func button(_ tab: HeaderTab) -> some View {
+        if let menu = tab.menu {
+            shape(tab).appContextMenu(menu)
+        } else {
+            shape(tab)
+        }
+    }
+
+    private func shape(_ tab: HeaderTab) -> some View {
+        Button(action: tab.activate) {
+            HStack(spacing: 0) {
+                Image(systemName: tab.icon)
+                    .font(.system(size: 13, weight: .semibold))
+                    .frame(width: 17, height: 17)
+                HeaderTabLabel(text: tab.label, expanded: opened || tab.isLit)
+                if tab.badge {
+                    Circle()
+                        .fill(Theme.attention)
+                        .frame(width: 5, height: 5)
+                        .padding(.leading, 6)
+                }
+            }
+            .foregroundStyle(colour(tab))
+            .padding(.horizontal, 9)
+            .frame(height: 34)
+            .background {
+                if case .destination(true) = tab.kind {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Theme.card)
+                        .shadow(color: .black.opacity(0.08), radius: 1, y: 0.5)
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
+                }
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+        .focused($focused, equals: tab.id)
+        .appTooltip { tab.tooltip ?? Tooltip(title: tab.label) }
+        .accessibilityLabel(tab.label)
+        .accessibilityAddTraits(tab.isLit ? [.isSelected] : [])
+    }
+
+    private func colour(_ tab: HeaderTab) -> Color {
+        switch tab.kind {
+        case .destination(let selected): selected ? .primary : .secondary
+        case .toggle(let on): on ? Theme.accent : .secondary
+        }
+    }
+}
+
+// A tab's word, which is there or is not. Collapsing to a zero width rather than being
+// taken out of the row is what lets the group grow and shrink as one movement instead of
+// six labels popping in beside each other.
+private struct HeaderTabLabel: View {
+    let text: String
+    let expanded: Bool
+
+    @State private var width: CGFloat = 0
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 12.5, weight: .semibold))
+            .lineLimit(1)
+            .fixedSize()
+            .background(GeometryReader { proxy in
+                Color.clear.preference(key: HeaderTabLabelWidthKey.self,
+                                       value: proxy.size.width)
+            })
+            .onPreferenceChange(HeaderTabLabelWidthKey.self) { width = $0 }
+            .frame(width: expanded ? width : 0, alignment: .leading)
+            .opacity(expanded ? 1 : 0)
+            .clipped()
+            .padding(.leading, expanded ? 7 : 0)
+            .accessibilityHidden(true)
+    }
+}
+
+private struct HeaderTabLabelWidthKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}

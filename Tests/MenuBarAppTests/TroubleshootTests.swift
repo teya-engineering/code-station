@@ -228,6 +228,49 @@ struct TroubleshootTests {
         #expect(!configuration.isAvailable)
     }
 
+    // Nothing to check means nothing to wait for: a diagnosis that is not using managed
+    // servers must not sit behind a registry read it does not need.
+    @Test func nothingToCheckIsReadyAtOnce() {
+        #expect(TroubleshootMCPState.resolve(
+            enabled: false, servers: [server("grafana-platform-dev")],
+            hasStartedCheck: false, isRefreshing: false,
+            registeredNames: [], disabledNames: []) == .ready)
+        #expect(TroubleshootMCPState.resolve(
+            enabled: true, servers: [], hasStartedCheck: false, isRefreshing: false,
+            registeredNames: [], disabledNames: []) == .ready)
+    }
+
+    // An unasked question and an unfinished one both read as still running, so a start
+    // cannot slip through the gap before the first answer.
+    @Test func theCheckHoldsUntilTheRegistryHasBeenRead() {
+        let servers = [server("grafana-platform-dev")]
+
+        #expect(TroubleshootMCPState.resolve(
+            enabled: true, servers: servers, hasStartedCheck: false, isRefreshing: false,
+            registeredNames: ["grafana-platform-dev"], disabledNames: []) == .checking)
+        #expect(TroubleshootMCPState.resolve(
+            enabled: true, servers: servers, hasStartedCheck: true, isRefreshing: true,
+            registeredNames: ["grafana-platform-dev"], disabledNames: []) == .checking)
+        #expect(TroubleshootMCPState.resolve(
+            enabled: true, servers: servers, hasStartedCheck: true, isRefreshing: false,
+            registeredNames: ["grafana-platform-dev"], disabledNames: []) == .ready)
+    }
+
+    @Test func anUnreachableServerNamesBothWhatIsMissingAndWhatIsOff() {
+        let state = TroubleshootMCPState.resolve(
+            enabled: true,
+            servers: [server("grafana-platform-dev"), server("node_repl")],
+            hasStartedCheck: true, isRefreshing: false,
+            registeredNames: ["grafana-platform-dev"],
+            disabledNames: ["grafana-platform-dev"])
+
+        let message = state.message(for: .codex) ?? ""
+        #expect(message.contains("Not configured for Codex: node_repl."))
+        #expect(message.contains("Disabled in Codex: grafana-platform-dev."))
+        #expect(message.contains("Sync the listed servers in MCP Servers"))
+        #expect(TroubleshootMCPState.ready.message(for: .codex) == nil)
+    }
+
     private func server(_ name: String, tag: String = "") -> Server {
         Server(name: name, environmentTag: tag, command: "mcp", args: [], url: nil,
                type: nil, env: [], headers: [], disabled: false)
@@ -299,6 +342,25 @@ struct TroubleshootProjectTests {
             workspace, selectedProjectIDs: [firstID]) == nil)
         #expect(TroubleshootView.workspaceSessionTarget(
             nil, selectedProjectIDs: [firstID, secondID]) == nil)
+    }
+
+    // The Troubleshoot tab is on every session, so a session only becomes a diagnosis
+    // once a brief is actually sent from it. The sidebar filter and the header chip both
+    // read the marker, so it has to survive the turn that set it.
+    @Test func sendingABriefFromTheTabMarksTheSession() throws {
+        let (store, scratch) = TestStore.make()
+        defer { withExtendedLifetime(scratch) {} }
+        let project = try TestStore.project(in: store, named: "payments-api")
+        let session = store.newSession(in: project.id)
+
+        #expect(store.session(session.id)?.isTroubleshooting == false)
+
+        store.markTroubleshooting(session.id)
+        #expect(store.session(session.id)?.isTroubleshooting == true)
+
+        // Running it again appends to the same conversation rather than re-marking it.
+        store.markTroubleshooting(session.id)
+        #expect(store.session(session.id)?.isTroubleshooting == true)
     }
 
     @Test func multiProjectDiagnosisStartsInANewWorkspace() throws {

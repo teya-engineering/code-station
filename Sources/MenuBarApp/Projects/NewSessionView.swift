@@ -1,7 +1,8 @@
 import SwiftUI
 
-// Where a new session will do its work and which conversation it opens first. A plain
-// folder still shows this screen so the starting mode, agent and bot remain explicit.
+// Where a new session will do its work. Every session starts as a conversation; Design
+// and Troubleshoot are tabs inside it, on a session that already has its projects and
+// agent. A plain folder still shows this screen so the agent and bot remain explicit.
 struct NewSessionView: View {
     let project: Project
     let onCreate: (NewSessionChoice) -> Void
@@ -10,14 +11,11 @@ struct NewSessionView: View {
     @Environment(DialogPresenter.self) private var dialogs
     @Environment(SessionRunner.self) private var runner
     @Environment(AppSettings.self) private var appSettings
-    @Environment(SkillsManager.self) private var skills
 
     // Picked up front so the branch and folder shown here are the ones the session is
     // created with, rather than a guess at what they will look like.
     @State private var sessionID = UUID()
     @State private var useWorktree: Bool
-    @State private var sessionType: NewSessionType = .code
-    @State private var showingTroubleshoot = false
     // How the checkout relates to the default branch and its remote. It arrives in two
     // passes: what the local refs already say, then the same read again after a fetch,
     // so the sheet is honest immediately and accurate a moment later.
@@ -49,14 +47,6 @@ struct NewSessionView: View {
     }
 
     var body: some View {
-        if showingTroubleshoot {
-            TroubleshootView(skills: skills, initialProjectIDs: [project.id])
-        } else {
-            sessionSetup
-        }
-    }
-
-    private var sessionSetup: some View {
         VStack(spacing: 0) {
             header
             VStack(spacing: 10) {
@@ -80,15 +70,11 @@ struct NewSessionView: View {
                     }
                     .transition(.fadeIn)
                 }
-
-                NewSessionTypeOption(selection: $sessionType,
-                                     designEnabled: appSettings.designEnabled)
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 20)
 
-            NewSessionFooter(sessionType: sessionType,
-                             sessionID: sessionID,
+            NewSessionFooter(sessionID: sessionID,
                              note: footerNote,
                              fetching: fetching,
                              updating: pulling ? (freshness?.defaultBranch ?? "the checkout") : nil,
@@ -134,10 +120,7 @@ struct NewSessionView: View {
     }
 
     private var footerNote: String {
-        if sessionType == .troubleshoot {
-            return "Troubleshoot uses the project folder. Add the problem and evidence next."
-        }
-        return project.isGitRepository && useWorktree
+        project.isGitRepository && useWorktree
             ? "A worktree is removed when its session is deleted."
             : "Changes land straight in your project folder."
     }
@@ -166,10 +149,6 @@ struct NewSessionView: View {
     // still going, or free to be started again. On failure the sheet stays for another
     // try or a cancel.
     private func create() {
-        guard sessionType != .troubleshoot else {
-            showingTroubleshoot = true
-            return
-        }
         // Checked while the option was on screen, and still safe to apply now.
         guard startPoint == .updateCheckout, let report = freshness, report.canUpdateCheckout,
               let branch = report.defaultBranch else {
@@ -195,12 +174,11 @@ struct NewSessionView: View {
         guard let agent = chosenAgent else { return }
         let base = startPoint == .remote ? freshness?.remoteRef : nil
         let model = runner.defaults(for: agent).model
-        let mode = sessionType.sessionMode
         onCreate(useWorktree
                  ? .worktree(sessionID, base: base, agent: agent, model: model,
-                             agentAvatarName: selectedAvatarName, mode: mode)
+                             agentAvatarName: selectedAvatarName, mode: .chat)
                  : .folder(sessionID, agent: agent, model: model,
-                           agentAvatarName: selectedAvatarName, mode: mode))
+                           agentAvatarName: selectedAvatarName, mode: .chat))
         dismiss()
     }
 }
@@ -220,41 +198,6 @@ enum NewSessionChoice: Equatable {
                   agentAvatarName: String?, mode: SessionMode)
     case folder(UUID, agent: AgentKind, model: String?, agentAvatarName: String?,
                 mode: SessionMode)
-}
-
-enum NewSessionType: Equatable {
-    case code
-    case design
-    case troubleshoot
-
-    var sessionMode: SessionMode {
-        self == .design ? .design : .chat
-    }
-}
-
-struct NewSessionTypeOption: View {
-    @Binding var selection: NewSessionType
-    let designEnabled: Bool
-
-    var body: some View {
-        HStack(spacing: 7) {
-            ChoicePill(title: "Code", selected: selection == .code) {
-                selection = .code
-            }
-            .appTooltip("Start a coding conversation.")
-            if designEnabled {
-                ChoicePill(title: "Design", selected: selection == .design) {
-                    selection = .design
-                }
-                .appTooltip("Start with a live visual canvas beside the conversation.")
-            }
-            ChoicePill(title: "Troubleshoot", selected: selection == .troubleshoot) {
-                selection = .troubleshoot
-            }
-            .appTooltip("Open diagnosis setup for the selected project.")
-        }
-        .frame(maxWidth: .infinity, alignment: .trailing)
-    }
 }
 
 // Says when the checkout a session would fork from is not the default branch at its

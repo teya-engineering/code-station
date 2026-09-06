@@ -6,10 +6,8 @@ import SwiftUI
 // on its left half and picks the coding agent on its right, with the agent it will use
 // written underneath.
 struct NewSessionFooter: View {
-    let sessionType: NewSessionType
     let sessionID: UUID
-    // What creating will do. Shown once nothing is running; Troubleshoot never waits on
-    // git, so its line shows regardless.
+    // What creating will do. Shown once nothing is running.
     let note: String
     // The fetch pass is still running. Creating waits for it, so a session cannot start
     // from an answer that was about to change, and so the warning a fetch turns up is
@@ -50,11 +48,9 @@ struct NewSessionFooter: View {
                 Spacer(minLength: 12)
                 ActionButton(title: "Cancel", size: 13, keyboardShortcut: .cancelAction,
                              action: dismiss)
-                if sessionType != .troubleshoot {
-                    SessionBotPicker(avatars: appSettings.agentAvatars,
-                                     selectedName: $selectedAvatarName,
-                                     sessionID: sessionID)
-                }
+                SessionBotPicker(avatars: appSettings.agentAvatars,
+                                 selectedName: $selectedAvatarName,
+                                 sessionID: sessionID)
                 createButton
             }
             .padding(.horizontal, 20)
@@ -71,7 +67,7 @@ struct NewSessionFooter: View {
         VStack(alignment: .trailing, spacing: 3) {
             HStack(spacing: 0) {
                 Button(action: create) {
-                    Text(sessionType == .troubleshoot ? "Continue" : "Create session")
+                    Text("Create session")
                         .font(.system(size: 13, weight: .semibold))
                         .padding(.horizontal, 18)
                         .frame(height: 32)
@@ -80,7 +76,7 @@ struct NewSessionFooter: View {
                 .buttonStyle(.plain)
                 .keyboardShortcut(.defaultAction)
 
-                if sessionType != .troubleshoot, runner.availableAgents.count > 1 {
+                if runner.availableAgents.count > 1 {
                     Rectangle()
                         .fill(.white.opacity(0.35))
                         .frame(width: 1, height: 16)
@@ -101,19 +97,15 @@ struct NewSessionFooter: View {
 
             // Only the agent line goes here. Anything wider than the button pushes it
             // away from Cancel, since this column is as wide as its widest row.
-            if sessionType != .troubleshoot {
-                Text(agentNote)
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(chosenAgent == nil ? Theme.deletion : .secondary)
-            }
+            Text(agentNote)
+                .font(.system(size: 10.5))
+                .foregroundStyle(chosenAgent == nil ? Theme.deletion : .secondary)
         }
     }
 
     // What git still has in hand. A pull outranks a fetch, since it is moving the very
-    // checkout the fetch was reading. Troubleshoot uses the folder as it is, so nothing
-    // stands in its way.
+    // checkout the fetch was reading.
     private var waitingOn: String? {
-        guard sessionType != .troubleshoot else { return nil }
         if let updating { return "Updating \(updating) from origin…" }
         if fetching && !gaveUpWaiting { return "Fetching branch information…" }
         return nil
@@ -124,7 +116,7 @@ struct NewSessionFooter: View {
     }
 
     private var canCreate: Bool {
-        ready && (sessionType == .troubleshoot || (waitingOn == nil && chosenAgent != nil))
+        ready && waitingOn == nil && chosenAgent != nil
     }
 
     private var agentNote: String {

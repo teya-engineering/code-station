@@ -14,15 +14,12 @@ struct NewWorkspaceSessionView: View {
     @Environment(ProjectStore.self) private var store
     @Environment(SessionRunner.self) private var runner
     @Environment(AppSettings.self) private var appSettings
-    @Environment(SkillsManager.self) private var skills
 
     @State private var sessionID = UUID()
     @State private var projectIDs: [UUID]
     @State private var worktrees: Set<UUID>
     @State private var selectedAgent: AgentKind?
     @State private var selectedAvatarName = AgentAvatarSelection.defaultName
-    @State private var sessionType: NewSessionType = .code
-    @State private var showingTroubleshoot = false
     // One report per repository, arriving in two passes: what the local refs already
     // say, then the same read again after a fetch, so the cards are honest immediately
     // and accurate a moment later.
@@ -45,16 +42,6 @@ struct NewWorkspaceSessionView: View {
     }
 
     var body: some View {
-        if showingTroubleshoot {
-            TroubleshootView(skills: skills,
-                             initialProjectIDs: projectIDs,
-                             initialWorkspaceID: workspace.id)
-        } else {
-            sessionSetup
-        }
-    }
-
-    private var sessionSetup: some View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("New session in \(workspace.name)")
@@ -96,17 +83,13 @@ struct NewWorkspaceSessionView: View {
                         .contentShape(Rectangle())
                         .appMenu { attachMenu }
                     }
-
-                    NewSessionTypeOption(selection: $sessionType,
-                                         designEnabled: appSettings.designEnabled)
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 20)
             }
             .frame(maxHeight: 470)
 
-            NewSessionFooter(sessionType: sessionType,
-                             sessionID: sessionID,
+            NewSessionFooter(sessionID: sessionID,
                              note: footerNote,
                              fetching: activeFetches > 0,
                              updating: pulling ? "checkouts" : nil,
@@ -219,15 +202,12 @@ struct NewWorkspaceSessionView: View {
     }
 
     private var footerNote: String {
-        sessionType == .troubleshoot
-            ? "Troubleshoot uses the project folders. Add the problem and evidence next."
-            : "Deleting the session removes all of its worktrees together."
+        "Deleting the session removes all of its worktrees together."
     }
 
-    // A workspace session is a conversation across projects, so it needs at least two;
-    // a troubleshoot only needs somewhere to look.
+    // A workspace session is a conversation across projects, so it needs at least two.
     private var hasEnoughProjects: Bool {
-        sessionType == .troubleshoot ? !projectIDs.isEmpty : projectIDs.count >= 2
+        projectIDs.count >= 2
     }
 
     private var attachableProjects: [Project] {
@@ -261,10 +241,6 @@ struct NewWorkspaceSessionView: View {
     // after another. On failure the session is not created, so the sheet stays for
     // another try or a cancel.
     private func create() {
-        guard sessionType != .troubleshoot else {
-            showingTroubleshoot = true
-            return
-        }
         let updates = projectIDs.compactMap { id -> (project: Project, branch: String,
                                                       report: GitFreshness.Report)? in
             guard startPoints[id] == .updateCheckout, let report = freshness[id],
@@ -307,7 +283,7 @@ struct NewWorkspaceSessionView: View {
                                         agent: agent,
                                         model: runner.defaults(for: agent).model,
                                         agentAvatarName: selectedAvatarName,
-                                        mode: sessionType.sessionMode))
+                                        mode: .chat))
         dismiss()
     }
 }

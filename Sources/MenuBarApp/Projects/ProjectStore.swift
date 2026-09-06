@@ -917,6 +917,16 @@ final class ProjectStore {
         saveIndex()
     }
 
+    // A session becomes a diagnosis the moment a brief is sent from its Troubleshoot tab.
+    // The marker is what the sidebar filter and the header chip read, so it has to outlive
+    // the turn that set it.
+    func markTroubleshooting(_ sessionID: UUID) {
+        guard let i = index(sessionID), !sessions[i].isTroubleshooting else { return }
+        sessions[i].isTroubleshooting = true
+        publishSidebarSessions()
+        saveIndex()
+    }
+
     // What the next turn in this session runs with. The agent stays fixed on the session,
     // while the model and other run controls can change between turns.
     func setSettings(_ settings: SessionSettings, for sessionID: UUID) {

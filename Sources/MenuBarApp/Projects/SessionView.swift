@@ -136,7 +136,7 @@ struct SessionView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let sessionID: UUID
 
-    private enum Tab: Hashable { case conversation, design, changes, explorer }
+    private enum Tab: Hashable { case conversation, design, troubleshoot, changes, explorer }
 
     @State private var tab: Tab = .conversation
     @State private var terminalFocused = false
@@ -238,6 +238,9 @@ struct SessionView: View {
                     } else {
                         DesignStartView(sessionID: session.id)
                     }
+                case .troubleshoot:
+                    TroubleshootTabView(sessionID: session.id) { tab = .conversation }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 case .changes:
                     ChangesView(root: requestedChange?.root ?? projectDirectory,
                                 initiallySelectedPath: requestedChange?.path)
@@ -278,6 +281,7 @@ struct SessionView: View {
                 .appOverlays()
             }
             .background(terminalShortcut(directory: workingDirectory))
+            .background(tabShortcuts(headerTabs(for: session, project: project)))
             .background(recapShortcut)
             .background(stopShortcut)
             .onChange(of: terminalFocused) { _, focused in
@@ -394,11 +398,7 @@ struct SessionView: View {
                     MobileAccessButton(scope: .session(sessionID))
                 }
                 workingSetToggle
-                HeaderTabToggle(selection: $tab, options: headerTabs(for: session))
-                TerminalToggle(isOpen: terminals.isOpen(terminalScope),
-                               directory: session.worktreePath ?? project.path) {
-                    toggleTerminal(directory: session.worktreePath ?? project.path)
-                }
+                HeaderTabClusters(clusters: headerTabs(for: session, project: project))
             }
             .fixedSize(horizontal: true, vertical: false)
             .layoutPriority(1)
@@ -432,17 +432,71 @@ struct SessionView: View {
         .accessibilityValue(isOpen ? "open" : "closed")
     }
 
-    private func headerTabs(for session: ChatSession) -> [(label: String, value: Tab)] {
-        var tabs: [(label: String, value: Tab)] = session.isActivelyDesigning
-            ? [("Design", .conversation)]
-            : [(session.isImplementingDesign ? "Build" : "Chat", .conversation)]
+    // Two groups, in the order they are reached by ⌘1 through ⌘6. The first is what the
+    // agent is being set to do, the second is what it did to the working tree.
+    private func headerTabs(for session: ChatSession,
+                            project: Project) -> [[HeaderTab]] {
+        let terminalDirectory = session.worktreePath ?? project.path
+        var work: [HeaderTab] = [
+            destination(session.isActivelyDesigning
+                            ? "Design"
+                            : (session.isImplementingDesign ? "Build" : "Chat"),
+                        icon: "bubble.left.and.bubble.right",
+                        value: .conversation)
+        ]
         if !session.isActivelyDesigning,
            appSettings.designEnabled || store.isDesignMode(session) {
-            tabs.append(("Design", .design))
+            work.append(destination("Design", icon: "paintbrush.pointed", value: .design))
         }
-        tabs.append((store.isDesignMode(session) ? "Project Changes" : "Changes", .changes))
-        tabs.append(("Explorer", .explorer))
-        return tabs
+        work.append(destination("Troubleshoot", icon: "stethoscope", value: .troubleshoot))
+
+        var read: [HeaderTab] = [changesTab(session)]
+        read.append(destination("Explorer", icon: "folder", value: .explorer))
+        read.append(terminalTab(directory: terminalDirectory))
+        return [work, read]
+    }
+
+    private func destination(_ label: String, icon: String, value: Tab) -> HeaderTab {
+        HeaderTab(label: label, icon: icon, kind: .destination(selected: tab == value)) {
+            tab = value
+        }
+    }
+
+    // The dot survives the label collapsing, since an icon on its own cannot say the
+    // working tree moved. It is paired with the count in the tooltip, so the mark is
+    // never the only way the number is offered.
+    private func changesTab(_ session: ChatSession) -> HeaderTab {
+        let label = store.isDesignMode(session) ? "Project Changes" : "Changes"
+        let files = store.workingDirectories(for: session)
+            .compactMap { gitStats.snapshot(at: $0) }
+            .reduce(0) { $0 + $1.files.count }
+        var changes = destination(label, icon: "plusminus", value: .changes)
+        changes.badge = files > 0 && tab != .changes
+        changes.tooltip = Tooltip(title: label,
+                                  subtitle: files > 0
+                                      ? "\(counted(files, "changed file"))"
+                                      : "No uncommitted changes.")
+        return changes
+    }
+
+    // The shell shares the screen with whatever pane is up rather than replacing it, so
+    // its tab is a switch rather than a destination. Opening one in the system terminal
+    // is the same wish reached a different way, so it stays on the tab's own menu.
+    private func terminalTab(directory: String) -> HeaderTab {
+        let isOpen = terminals.isOpen(terminalScope)
+        return HeaderTab(
+            label: "Terminal",
+            icon: "terminal",
+            kind: .toggle(on: isOpen),
+            tooltip: Tooltip(title: isOpen ? "Hide terminal" : "Open a shell in this folder",
+                             note: "^`"),
+            menu: {
+                [.item("Open in \(SystemTerminal.appName)") { SystemTerminal.open(directory) },
+                 .item(isOpen ? "Hide terminal here" : "Open terminal here",
+                       detail: "^`") { toggleTerminal(directory: directory) }]
+            }) {
+            toggleTerminal(directory: directory)
+        }
     }
 
     private func isDesignTabSelected(for session: ChatSession) -> Bool {
@@ -451,7 +505,7 @@ struct SessionView: View {
             true
         case .conversation:
             session.isActivelyDesigning
-        case .changes, .explorer:
+        case .troubleshoot, .changes, .explorer:
             false
         }
     }
@@ -642,7 +696,11 @@ struct SessionView: View {
             } else {
                 StateLight(tone: tone, size: 7)
             }
-            StatusCaps(text: tone.word, tint: tone.colour)
+            // A diagnosis runs like any other turn, but naming it is what tells the reader
+            // the brief landed and the agent is working through it.
+            StatusCaps(text: session.isTroubleshooting && tone == .running
+                           ? "DIAGNOSING" : tone.word,
+                       tint: tone.colour)
             if let since {
                 StatusDot()
                 // A live turn has to keep counting when nothing arrives to redraw it,
@@ -661,7 +719,7 @@ struct SessionView: View {
 
     private func showsDirectoryBar(for session: ChatSession, designFilesURL: URL?) -> Bool {
         switch tab {
-        case .conversation, .design: false
+        case .conversation, .design, .troubleshoot: false
         case .changes: store.checkoutProjects(for: session).count > 1
         case .explorer:
             designFilesURL != nil || store.checkoutProjects(for: session).count > 1
@@ -819,6 +877,21 @@ struct SessionView: View {
                 }
             }
         }
+    }
+
+    // Command-1 through command-6 in tab order. They are numbered by position rather than
+    // by destination, so a session without the Design tab still has its six in a row with
+    // no gap in the middle.
+    private func tabShortcuts(_ clusters: [[HeaderTab]]) -> some View {
+        let tabs = Array(clusters.flatMap { $0 }.prefix(9).enumerated())
+        return ZStack {
+            ForEach(tabs, id: \.offset) { position, tab in
+                Button("") { tab.activate() }
+                    .keyboardShortcut(KeyEquivalent(Character("\(position + 1)")),
+                                      modifiers: .command)
+            }
+        }
+        .opacity(0)
     }
 
     // Control-backtick reaches the terminal from the keyboard: it opens the drawer if
