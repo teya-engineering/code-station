@@ -3,6 +3,47 @@ import SwiftUI
 // The desktop side of mobile access: the button that hands out a code, the badge that
 // says how many are out, and the sheet that shows one.
 
+// The dialog behind the QR button, kept apart from it so a header that folds its actions
+// into a menu opens the same thing without drawing the button.
+@MainActor
+enum MobilePairing {
+    static func open(scope: MobileScope, dialogs: DialogPresenter, store: ProjectStore) {
+        dialogs.show(Dialog(
+            title: title(scope, store: store),
+            message: """
+            \(reach(scope, store: store))
+
+            No phone can connect until you start sharing below. Sharing continues after this dialog closes. Reopen it to cancel or stop sharing.
+            """,
+            content: AnyView(MobilePairingView(scope: scope)),
+            actions: [.init(label: "Done", kind: .primary)],
+            width: 390))
+    }
+
+    static var menuLabel: String { "Pair phone - QR code" }
+
+    private static func title(_ scope: MobileScope, store: ProjectStore) -> String {
+        switch scope {
+        case .session: "Open this session on your phone"
+        case .project(let id): "Open \(store.project(id)?.name ?? "this project") on your phone"
+        case .everything: "Open Code Station on your phone"
+        }
+    }
+
+    // What the code lets the phone do, said plainly, because it is the whole difference
+    // between the three codes.
+    private static func reach(_ scope: MobileScope, store: ProjectStore) -> String {
+        switch scope {
+        case .session:
+            "A phone on the same trusted Wi-Fi can read this one session, send prompts, stop turns and answer requests. It can reach nothing else."
+        case .project(let id):
+            "A phone on the same trusted Wi-Fi can read any session in \(store.project(id)?.name ?? "this project"), start new ones there, send prompts, stop turns and answer requests."
+        case .everything:
+            "A phone on the same trusted Wi-Fi can read any session in any project, start new ones anywhere, send prompts, stop turns and answer requests."
+        }
+    }
+}
+
 // The QR button as a header wears it. The same control sits on a session, on a project and
 // on Home; what changes is how far the code it makes can reach.
 struct MobileAccessButton: View {
@@ -10,6 +51,9 @@ struct MobileAccessButton: View {
     // Smaller where it shares a line with the session's own facts rather than sitting in
     // a header of its own.
     var side: CGFloat = 30
+    // On the session header the button joins a rail of icon buttons and takes their
+    // shape, rather than the glyph square it wears when it stands on its own.
+    var onRail = false
 
     @Environment(MobileAccessController.self) private var mobileAccess
     @Environment(DialogPresenter.self) private var dialogs
@@ -25,9 +69,16 @@ struct MobileAccessButton: View {
         } else {
             Color.secondary
         }
-        return GlyphButton(icon: "qrcode", side: side, tint: tint, action: open)
-            .appTooltip(tooltip(shared: share != nil, connected: connected))
-            .accessibilityLabel(tooltip(shared: share != nil, connected: connected))
+        let label = tooltip(shared: share != nil, connected: connected)
+        return Group {
+            if onRail {
+                HeaderRailButton(icon: "qrcode", tint: tint, label: label, action: open)
+            } else {
+                GlyphButton(icon: "qrcode", side: side, tint: tint, action: open)
+                    .appTooltip(label)
+                    .accessibilityLabel(label)
+            }
+        }
     }
 
     private func tooltip(shared: Bool, connected: Bool) -> String {
@@ -41,37 +92,7 @@ struct MobileAccessButton: View {
     }
 
     private func open() {
-        dialogs.show(Dialog(
-            title: title,
-            message: """
-            \(reach)
-
-            No phone can connect until you start sharing below. Sharing continues after this dialog closes. Reopen it to cancel or stop sharing.
-            """,
-            content: AnyView(MobilePairingView(scope: scope)),
-            actions: [.init(label: "Done", kind: .primary)],
-            width: 390))
-    }
-
-    private var title: String {
-        switch scope {
-        case .session: "Open this session on your phone"
-        case .project(let id): "Open \(store.project(id)?.name ?? "this project") on your phone"
-        case .everything: "Open Code Station on your phone"
-        }
-    }
-
-    // What the code lets the phone do, said plainly, because it is the whole difference
-    // between the three codes.
-    private var reach: String {
-        switch scope {
-        case .session:
-            "A phone on the same trusted Wi-Fi can read this one session, send prompts, stop turns and answer requests. It can reach nothing else."
-        case .project(let id):
-            "A phone on the same trusted Wi-Fi can read any session in \(store.project(id)?.name ?? "this project"), start new ones there, send prompts, stop turns and answer requests."
-        case .everything:
-            "A phone on the same trusted Wi-Fi can read any session in any project, start new ones anywhere, send prompts, stop turns and answer requests."
-        }
+        MobilePairing.open(scope: scope, dialogs: dialogs, store: store)
     }
 }
 

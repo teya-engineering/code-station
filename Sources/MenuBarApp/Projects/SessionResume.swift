@@ -46,8 +46,9 @@ struct SessionRecap: Codable, Equatable, Sendable {
     }
 }
 
-// The compact control sits on the status strip and owns the card that opens under it. The
-// card is an overlay so catching up never moves the transcript away from where it was.
+// The trigger on the header rail. The card it opens is hung off the rail itself rather
+// than off this button, so catching up never moves the transcript away from where it was
+// and the card still lands under the rail when the button folds into the overflow.
 struct SessionRecapControl: View {
     let recap: SessionRecap?
     let regenerating: Bool
@@ -55,75 +56,22 @@ struct SessionRecapControl: View {
     let isOpen: Bool
     let needsAttention: Bool
     let toggle: () -> Void
-    let regenerate: () -> Void
-    let close: () -> Void
-
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    private static let triggerHeight: CGFloat = 24
-    private static let cardWidth: CGFloat = 430
-    private static let gap: CGFloat = 7
 
     private var isGeneratingInitialRecap: Bool { regenerating && recap == nil }
 
     var body: some View {
-        ActionButton(
-            title: isGeneratingInitialRecap ? "Recapping" : "Recap",
-            tone: needsAttention ? .attentionOutlined : .outlined,
-            height: Self.triggerHeight,
-            size: 10.5,
-            icon: "sparkles",
+        // Nothing to open until the first one lands, so the button says it is working
+        // rather than offering a card that is not there yet.
+        HeaderRailButton(
+            icon: isGeneratingInitialRecap ? "hourglass" : "doc.text",
+            active: isOpen,
+            tint: isGeneratingInitialRecap ? Theme.accent : nil,
+            badge: needsAttention,
+            label: tooltip,
             action: isGeneratingInitialRecap ? nil : toggle)
             // An existing recap can still be closed while its replacement is running.
             .disabled(recap == nil && !regenerating && !canRegenerate)
-            .symbolEffect(
-                .variableColor.iterative.reversing,
-                options: .repeating.speed(0.8),
-                isActive: isGeneratingInitialRecap && !reduceMotion)
-            .background {
-                if isGeneratingInitialRecap {
-                    RoundedRectangle(cornerRadius: Self.triggerHeight * 0.25)
-                        .fill(Theme.accent.opacity(0.08))
-                }
-            }
-            .overlay {
-                if isGeneratingInitialRecap {
-                    RoundedRectangle(cornerRadius: Self.triggerHeight * 0.25)
-                        .stroke(Theme.accent.opacity(0.5), lineWidth: 1)
-                        .allowsHitTesting(false)
-                }
-            }
-            .appTooltip(tooltip)
-            .accessibilityLabel("Session recap")
             .accessibilityValue(accessibilityValue)
-            .overlay(alignment: .topTrailing) {
-                if needsAttention {
-                    Circle()
-                        .fill(Theme.attention)
-                        .frame(width: 6, height: 6)
-                        .overlay(Circle().stroke(Theme.statusBand, lineWidth: 2))
-                        .offset(x: 2, y: -2)
-                        .accessibilityHidden(true)
-                }
-            }
-            .overlay(alignment: .topTrailing) {
-                if let recap, isOpen {
-                    VStack(spacing: 0) {
-                        Color.clear.frame(height: Self.gap)
-                        SessionRecapView(
-                            recap: recap,
-                            regenerating: regenerating,
-                            regenerate: regenerate,
-                            close: close)
-                    }
-                    .frame(width: Self.cardWidth)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .offset(y: Self.triggerHeight)
-                    .transition(.fadeIn)
-                    .zIndex(1)
-                }
-            }
-            .animation(reduceMotion ? nil : .easeOut(duration: 0.14), value: isOpen)
     }
 
     private var tooltip: String {

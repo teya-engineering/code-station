@@ -210,11 +210,12 @@ struct SessionView: View {
                 ? designFilesURL?.path ?? projectDirectory
                 : projectDirectory
             VStack(spacing: 0) {
-                header(session: session, project: project)
-                // Cards anchored to the strip hang over whatever is under it. A VStack
-                // draws its children in order, so without this the transcript would cover
-                // them.
-                statusStrip(session, project: project, recap: recap)
+                // Cards anchored to a band hang over whatever is under it. A VStack draws
+                // its children in order, so without these the transcript would cover them,
+                // and the recap card opening from the header would go under the strip.
+                header(session: session, project: project, recap: recap)
+                    .zIndex(2)
+                statusStrip(session)
                     .zIndex(1)
                 warningStrip(session: session, project: project)
                 if store.designHasUpdated(for: session) {
@@ -345,11 +346,29 @@ struct SessionView: View {
 
     // MARK: - Header
 
-    // Where you are and what you are looking at, and nothing else: container icon and name,
-    // title, then the view switcher right-aligned. Everything that describes the state of
-    // the session - what it is doing, what it has changed, and the facts behind the chip -
-    // reads on the strip under this one.
-    private func header(session: ChatSession, project: Project) -> some View {
+    // Where you are, what you are looking at, and everything you can do about it: the
+    // container's icon and name, the title, then one rail of actions right-aligned.
+    // Everything that describes the state of the session - what it is doing, what it has
+    // changed, and the facts behind the chip - reads on the strip under this one, which
+    // holds no controls at all.
+    private func header(session: ChatSession, project: Project,
+                        recap: SessionRecap?) -> some View {
+        // How wide the pane is says nothing about the rail, so reading it here cannot
+        // feed back into what the rail then asks for.
+        GeometryReader { proxy in
+            headerRow(session: session, project: project, recap: recap,
+                      folded: proxy.size.width < Self.foldsUtilitiesBelow)
+        }
+        .frame(height: Theme.headerHeight)
+    }
+
+    // The width at which the utilities fold. The rail never wraps, so the title is what
+    // gives way as the window narrows; below this there is too little of it left to read,
+    // and the last group folds rather than the title losing any more.
+    private static let foldsUtilitiesBelow: CGFloat = 700
+
+    private func headerRow(session: ChatSession, project: Project, recap: SessionRecap?,
+                           folded: Bool) -> some View {
         let workspace = session.workspaceID.flatMap(store.workspace)
         let container = workspace?.name ?? project.name
         return HStack(spacing: 8) {
@@ -393,15 +412,36 @@ struct SessionView: View {
             // A row splits its width between the children rather than handing each one what
             // it asks for, so the controls can be offered less than their labels need and the
             // words wrap. Holding them at their natural width makes the title give way first.
-            HStack(spacing: 6) {
-                HeaderTabBar(tabs: headerTabs(for: session))
-                panelToggles(session: session, project: project)
-            }
-            .fixedSize(horizontal: true, vertical: false)
-            .layoutPriority(1)
+            rail(session: session, project: project, recap: recap, folded: folded)
+                .layoutPriority(1)
         }
         .padding(.horizontal, 20)
         .headerBand()
+        .overlay(alignment: .topTrailing) {
+            recapCard(recap)
+        }
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.14), value: recapOpen)
+    }
+
+    // Every action the session has, on one line, in the order they are reached for: where
+    // to be, what to open beside it, then what the session itself offers. A hairline
+    // closes each group, so the rail reads as three things rather than as eight icons.
+    private func rail(session: ChatSession, project: Project, recap: SessionRecap?,
+                      folded: Bool) -> some View {
+        HStack(spacing: 9) {
+            HeaderTabBar(tabs: headerTabs(for: session))
+            HeaderRailDivider()
+            panelToggles(session: session, project: project)
+            if hasUtilities(session: session) {
+                HeaderRailDivider()
+                if folded {
+                    utilitiesOverflow(session: session, project: project)
+                } else {
+                    utilities(session: session, project: project, recap: recap)
+                }
+            }
+        }
+        .fixedSize(horizontal: true, vertical: false)
     }
 
     // Neither of these sends you anywhere: they open a panel beside the pane and leave
@@ -415,9 +455,9 @@ struct SessionView: View {
         return HStack(spacing: 2) {
             // Opening one in the system terminal is the same wish reached a different
             // way, so it stays on the toggle's own menu.
-            panelToggle(icon: "terminal",
-                        on: terminalOpen,
-                        label: terminalOpen ? "Hide terminal here" : "Open terminal here") {
+            HeaderRailButton(icon: "terminal",
+                             active: terminalOpen,
+                             label: terminalOpen ? "Hide terminal here" : "Open terminal here") {
                 toggleTerminal(directory: directory)
             }
             .appContextMenu {
@@ -431,9 +471,9 @@ struct SessionView: View {
 
     private var workingSetToggle: some View {
         let isOpen = tab == .conversation && workingSetVisible
-        return panelToggle(icon: "sidebar.right",
-                           on: isOpen,
-                           label: isOpen ? "Close working set" : "Open working set") {
+        return HeaderRailButton(icon: "sidebar.right",
+                                active: isOpen,
+                                label: isOpen ? "Close working set" : "Open working set") {
             if isOpen {
                 setWorkingSetVisible(false)
             } else {
@@ -444,18 +484,90 @@ struct SessionView: View {
         .accessibilityValue(isOpen ? "open" : "closed")
     }
 
-    private func panelToggle(icon: String, on: Bool, label: String,
-                             action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: icon)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(on ? Theme.accent : Color.secondary)
-                .frame(width: 30, height: 34)
-                .contentShape(Rectangle())
+    // What the session offers rather than where to look inside it: the recap of what has
+    // happened, the code that puts it on a phone, and the Design materials where there
+    // are any. All three are about this session as a whole, which is what keeps them
+    // together at the end of the rail.
+    private func utilities(session: ChatSession, project: Project,
+                           recap: SessionRecap?) -> some View {
+        HStack(spacing: 2) {
+            if showsDesignMaterialExport(session) {
+                designMaterialExportButton(session: session, project: project)
+            }
+            if showsRecap {
+                let recapping = runner.isRecapping(visibleConversationID)
+                SessionRecapControl(
+                    recap: recap,
+                    regenerating: recapping,
+                    canRegenerate: runner.canRecap(visibleConversationID, store: store),
+                    isOpen: recapOpen,
+                    needsAttention: recapNeedsAttention,
+                    toggle: toggleRecap)
+            }
+            if appSettings.mobileAccessEnabled {
+                MobileAccessButton(scope: .session(sessionID), onRail: true)
+            }
         }
-        .buttonStyle(.plain)
-        .appTooltip(label)
-        .accessibilityLabel(label)
+    }
+
+    // The same three behind one button, for a window too narrow to hold the rail. The
+    // utilities fold before the toggles and the tab bar do: they are the group you reach
+    // for least often, and the only one whose words survive being put in a menu.
+    private func utilitiesOverflow(session: ChatSession, project: Project) -> some View {
+        HeaderRailButton(icon: "ellipsis",
+                         badge: recapNeedsAttention,
+                         label: "More session actions")
+            .appMenu { utilityEntries(session: session, project: project) }
+    }
+
+    private func utilityEntries(session: ChatSession, project: Project) -> [MenuEntry] {
+        var entries: [MenuEntry] = []
+        if showsDesignMaterialExport(session) {
+            entries.append(.item("Export Design materials", icon: "doc.zipper") {
+                exportDesignMaterials(session: session, project: project)
+            })
+        }
+        if showsRecap {
+            entries.append(.item("Session recap", icon: "doc.text",
+                                 showsUpdate: recapNeedsAttention, action: toggleRecap))
+        }
+        if appSettings.mobileAccessEnabled {
+            entries.append(.item(MobilePairing.menuLabel, icon: "qrcode") {
+                MobilePairing.open(scope: .session(sessionID), dialogs: dialogs, store: store)
+            })
+        }
+        return entries
+    }
+
+    private func hasUtilities(session: ChatSession) -> Bool {
+        showsDesignMaterialExport(session) || showsRecap || appSettings.mobileAccessEnabled
+    }
+
+    // A design session is recapped through the conversation it belongs to, so what the
+    // rail offers follows the transcript on screen rather than the session it was opened
+    // from.
+    private var showsRecap: Bool {
+        store.session(visibleConversationID)?.hasAgentConversation == true
+    }
+
+    private func showsDesignMaterialExport(_ session: ChatSession) -> Bool {
+        isDesignTabSelected(for: session) && store.hasDesignArtifacts(for: session)
+    }
+
+    // The card hangs off the rail rather than off the button that opens it: it is wider
+    // than any of them, and the button it belongs to may have folded into the overflow.
+    @ViewBuilder
+    private func recapCard(_ recap: SessionRecap?) -> some View {
+        if let recap, recapOpen {
+            SessionRecapView(
+                recap: recap,
+                regenerating: runner.isRecapping(visibleConversationID),
+                regenerate: generateRecap,
+                close: closeRecap)
+                .padding(.trailing, 20)
+                .offset(y: Theme.headerHeight + 7)
+                .transition(.fadeIn)
+        }
     }
 
     // The bar in the order it is reached by ⌘1 through ⌘5: first what the agent is being
@@ -538,13 +650,12 @@ struct SessionView: View {
         let label = exportingDesignMaterials
             ? "Exporting Design materials"
             : "Export Design materials as a ZIP file"
-        return ActionButton(title: "Export", tone: .outlined, height: 24, size: 10.5,
-                            icon: exportingDesignMaterials ? "hourglass" : "doc.zipper") {
-            exportDesignMaterials(session: session, project: project)
-        }
-        .disabled(exportingDesignMaterials)
-        .appTooltip(label)
-        .accessibilityLabel(label)
+        return HeaderRailButton(
+            icon: exportingDesignMaterials ? "hourglass" : "doc.zipper",
+            label: label,
+            action: exportingDesignMaterials
+                ? nil
+                : { exportDesignMaterials(session: session, project: project) })
     }
 
     private func exportDesignMaterials(session: ChatSession, project: Project) {
@@ -578,16 +689,19 @@ struct SessionView: View {
     // MARK: - Status strip
 
     // Everything that describes the session rather than names it, on one thin line: what
-    // it is doing, actions about that state, what it has changed, where that work went,
-    // and one chip for the facts it is looked up by. Reading it is a glance along a line
-    // rather than a hunt across a header and a footer.
+    // it is doing, what it has changed, where that work went, and one chip for the facts
+    // it is looked up by. Reading it is a glance along a line rather than a hunt across a
+    // header and a footer.
+    //
+    // It is a set of readings, not a place to act: every action the session has lives on
+    // the header rail above, which is what keeps the line worth glancing at. The pull
+    // request is the exception, and it is a destination rather than a command.
     //
     // How full the window is runs along the bottom edge as a hairline. It is the reading
     // that moves every turn, so it stays in sight, but it is a line rather than words: a
     // window filling up needs nothing done about it until it is nearly full, and then the
     // composer says so in words.
-    private func statusStrip(_ session: ChatSession, project: Project,
-                             recap: SessionRecap?) -> some View {
+    private func statusStrip(_ session: ChatSession) -> some View {
         // The lead checkout is the one this line speaks for, the same root the stats
         // refresh puts first. The cache only ever holds snapshots of a readable
         // repository, so having one is the same as the repository being ready.
@@ -595,31 +709,12 @@ struct SessionView: View {
             .flatMap { gitStats.snapshot(at: $0) }
         let facts = facts(session, repository: repository)
         let tone = SessionTone(sessionID, store: store, runner: runner)
-        let recapTarget = visibleConversationID
         return HStack(spacing: 14) {
             state(session, tone: tone)
             diffStats(session)
             Spacer(minLength: 12)
-            if isDesignTabSelected(for: session), store.hasDesignArtifacts(for: session) {
-                designMaterialExportButton(session: session, project: project)
-            }
-            if store.session(recapTarget)?.hasAgentConversation == true {
-                let recapping = runner.isRecapping(recapTarget)
-                SessionRecapControl(
-                    recap: recap,
-                    regenerating: recapping,
-                    canRegenerate: runner.canRecap(recapTarget, store: store),
-                    isOpen: recapOpen,
-                    needsAttention: recapNeedsAttention,
-                    toggle: toggleRecap,
-                    regenerate: generateRecap,
-                    close: closeRecap)
-            }
             if let pullRequest = session.pullRequest {
                 pullRequestLink(pullRequest)
-            }
-            if appSettings.mobileAccessEnabled {
-                MobileAccessButton(scope: .session(sessionID), side: 22)
             }
             SessionFactsChip(facts: facts,
                              openChanges: openChanges,

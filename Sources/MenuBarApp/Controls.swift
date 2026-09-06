@@ -429,3 +429,68 @@ private struct HeaderTabLabelWidthKey: PreferenceKey {
         value = max(value, nextValue())
     }
 }
+
+// MARK: - Header rail
+
+// The header's actions sit in one rail to the right of the title: the tab bar, then the
+// panel toggles, then the session's utilities, each group closed off by one of these.
+struct HeaderRailDivider: View {
+    var body: some View {
+        Rectangle()
+            .fill(Theme.border)
+            .frame(width: 1, height: 18)
+    }
+}
+
+// An icon-only button on that rail. It stands the same height as a tab so the whole rail
+// reads as one row, and it always carries a word: with no label beside the glyph, the
+// tooltip is the only thing that says what the button opens. Left without an action it
+// draws as a label, for the overflow that hangs a menu under itself.
+struct HeaderRailButton: View {
+    let icon: String
+    var active = false
+    var tint: Color? = nil
+    // Says there is something new behind the button, which a glyph on its own cannot.
+    var badge = false
+    let label: String
+    var action: (() -> Void)? = nil
+
+    @State private var hovering = false
+
+    var body: some View {
+        Group {
+            if let action {
+                Button(action: action) { shape }
+                    .buttonStyle(.plain)
+            } else {
+                shape
+            }
+        }
+        .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.12), value: hovering)
+        .appTooltip(label)
+        .accessibilityLabel(label)
+    }
+
+    private var shape: some View {
+        Image(systemName: icon)
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(tint ?? (active ? Theme.accent : Color.secondary))
+            .frame(width: 30, height: 34)
+            .background {
+                if hovering {
+                    RoundedRectangle(cornerRadius: 8).fill(Theme.field)
+                }
+            }
+            .overlay(alignment: .topTrailing) {
+                if badge {
+                    Circle()
+                        .fill(Theme.attention)
+                        .frame(width: 5, height: 5)
+                        .offset(x: -3, y: 5)
+                        .accessibilityHidden(true)
+                }
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 8))
+    }
+}
