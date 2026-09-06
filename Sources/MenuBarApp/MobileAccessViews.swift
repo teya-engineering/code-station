@@ -7,6 +7,9 @@ import SwiftUI
 // on Home; what changes is how far the code it makes can reach.
 struct MobileAccessButton: View {
     let scope: MobileScope
+    // Smaller where it shares a line with the session's own facts rather than sitting in
+    // a header of its own.
+    var side: CGFloat = 30
 
     @Environment(MobileAccessController.self) private var mobileAccess
     @Environment(DialogPresenter.self) private var dialogs
@@ -22,7 +25,7 @@ struct MobileAccessButton: View {
         } else {
             Color.secondary
         }
-        return GlyphButton(icon: "qrcode", tint: tint, action: open)
+        return GlyphButton(icon: "qrcode", side: side, tint: tint, action: open)
             .appTooltip(tooltip(shared: share != nil, connected: connected))
             .accessibilityLabel(tooltip(shared: share != nil, connected: connected))
     }

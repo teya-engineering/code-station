@@ -281,7 +281,7 @@ struct SessionView: View {
                 .appOverlays()
             }
             .background(terminalShortcut(directory: workingDirectory))
-            .background(tabShortcuts(headerTabs(for: session, project: project)))
+            .background(tabShortcuts(headerTabs(for: session)))
             .background(recapShortcut)
             .background(stopShortcut)
             .onChange(of: terminalFocused) { _, focused in
@@ -393,12 +393,9 @@ struct SessionView: View {
             // A row splits its width between the children rather than handing each one what
             // it asks for, so the controls can be offered less than their labels need and the
             // words wrap. Holding them at their natural width makes the title give way first.
-            HStack(spacing: 8) {
-                if appSettings.mobileAccessEnabled {
-                    MobileAccessButton(scope: .session(sessionID))
-                }
-                workingSetToggle
-                HeaderTabClusters(clusters: headerTabs(for: session, project: project))
+            HStack(spacing: 6) {
+                HeaderTabBar(tabs: headerTabs(for: session))
+                panelToggles(session: session, project: project)
             }
             .fixedSize(horizontal: true, vertical: false)
             .layoutPriority(1)
@@ -407,37 +404,64 @@ struct SessionView: View {
         .headerBand()
     }
 
+    // Neither of these sends you anywhere: they open a panel beside the pane and leave
+    // what you were reading where it was. Keeping them outside the tab bar is what gives
+    // the bar's edge its meaning - inside it you choose where to be, outside it you open
+    // something next to where you already are. Without a word beside them they carry a
+    // tooltip, which the tabs inside the bar do not need.
+    private func panelToggles(session: ChatSession, project: Project) -> some View {
+        let directory = session.worktreePath ?? project.path
+        let terminalOpen = terminals.isOpen(terminalScope)
+        return HStack(spacing: 2) {
+            // Opening one in the system terminal is the same wish reached a different
+            // way, so it stays on the toggle's own menu.
+            panelToggle(icon: "terminal",
+                        on: terminalOpen,
+                        label: terminalOpen ? "Hide terminal here" : "Open terminal here") {
+                toggleTerminal(directory: directory)
+            }
+            .appContextMenu {
+                [.item("Open in \(SystemTerminal.appName)") { SystemTerminal.open(directory) },
+                 .item(terminalOpen ? "Hide terminal here" : "Open terminal here",
+                       detail: "^`") { toggleTerminal(directory: directory) }]
+            }
+            workingSetToggle
+        }
+    }
+
     private var workingSetToggle: some View {
         let isOpen = tab == .conversation && workingSetVisible
-        return Button {
+        return panelToggle(icon: "sidebar.right",
+                           on: isOpen,
+                           label: isOpen ? "Close working set" : "Open working set") {
             if isOpen {
                 setWorkingSetVisible(false)
             } else {
                 tab = .conversation
                 setWorkingSetVisible(true)
             }
-        } label: {
-            Image(systemName: "sidebar.right")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(isOpen ? Theme.accent : Color.secondary)
-                .frame(width: 34, height: 34)
-                .surface(isOpen ? Theme.accent.opacity(0.08) : Theme.card,
-                         cornerRadius: 9,
-                         border: isOpen ? Theme.accent.opacity(0.25) : Theme.border)
-                .contentShape(RoundedRectangle(cornerRadius: 9))
         }
-        .buttonStyle(.plain)
-        .appTooltip(isOpen ? "Close working set" : "Open working set")
-        .accessibilityLabel(isOpen ? "Close working set" : "Open working set")
         .accessibilityValue(isOpen ? "open" : "closed")
     }
 
-    // Two groups, in the order they are reached by ⌘1 through ⌘6. The first is what the
-    // agent is being set to do, the second is what it did to the working tree.
-    private func headerTabs(for session: ChatSession,
-                            project: Project) -> [[HeaderTab]] {
-        let terminalDirectory = session.worktreePath ?? project.path
-        var work: [HeaderTab] = [
+    private func panelToggle(icon: String, on: Bool, label: String,
+                             action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(on ? Theme.accent : Color.secondary)
+                .frame(width: 30, height: 34)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .appTooltip(label)
+        .accessibilityLabel(label)
+    }
+
+    // The bar in the order it is reached by ⌘1 through ⌘5: first what the agent is being
+    // set to do, then what it did to the working tree.
+    private func headerTabs(for session: ChatSession) -> [HeaderTab] {
+        var tabs: [HeaderTab] = [
             destination(session.isActivelyDesigning
                             ? "Design"
                             : (session.isImplementingDesign ? "Build" : "Chat"),
@@ -446,18 +470,16 @@ struct SessionView: View {
         ]
         if !session.isActivelyDesigning,
            appSettings.designEnabled || store.isDesignMode(session) {
-            work.append(destination("Design", icon: "paintbrush.pointed", value: .design))
+            tabs.append(destination("Design", icon: "paintbrush.pointed", value: .design))
         }
-        work.append(destination("Troubleshoot", icon: "stethoscope", value: .troubleshoot))
-
-        var read: [HeaderTab] = [changesTab(session)]
-        read.append(destination("Explorer", icon: "folder", value: .explorer))
-        read.append(terminalTab(directory: terminalDirectory))
-        return [work, read]
+        tabs.append(destination("Troubleshoot", icon: "stethoscope", value: .troubleshoot))
+        tabs.append(changesTab(session))
+        tabs.append(destination("Explorer", icon: "folder", value: .explorer))
+        return tabs
     }
 
     private func destination(_ label: String, icon: String, value: Tab) -> HeaderTab {
-        HeaderTab(label: label, icon: icon, kind: .destination(selected: tab == value)) {
+        HeaderTab(label: label, icon: icon, selected: tab == value) {
             tab = value
         }
     }
@@ -473,24 +495,6 @@ struct SessionView: View {
         var changes = destination(label, icon: "plusminus", value: .changes)
         changes.badge = files > 0 && tab != .changes
         return changes
-    }
-
-    // The shell shares the screen with whatever pane is up rather than replacing it, so
-    // its tab is a switch rather than a destination. Opening one in the system terminal
-    // is the same wish reached a different way, so it stays on the tab's own menu.
-    private func terminalTab(directory: String) -> HeaderTab {
-        let isOpen = terminals.isOpen(terminalScope)
-        return HeaderTab(
-            label: "Terminal",
-            icon: "terminal",
-            kind: .toggle(on: isOpen),
-            menu: {
-                [.item("Open in \(SystemTerminal.appName)") { SystemTerminal.open(directory) },
-                 .item(isOpen ? "Hide terminal here" : "Open terminal here",
-                       detail: "^`") { toggleTerminal(directory: directory) }]
-            }) {
-            toggleTerminal(directory: directory)
-        }
     }
 
     private func isDesignTabSelected(for session: ChatSession) -> Bool {
@@ -613,6 +617,9 @@ struct SessionView: View {
             }
             if let pullRequest = session.pullRequest {
                 pullRequestLink(pullRequest)
+            }
+            if appSettings.mobileAccessEnabled {
+                MobileAccessButton(scope: .session(sessionID), side: 22)
             }
             SessionFactsChip(facts: facts,
                              openChanges: openChanges,
@@ -873,13 +880,13 @@ struct SessionView: View {
         }
     }
 
-    // Command-1 through command-6 in tab order. They are numbered by position rather than
-    // by destination, so a session without the Design tab still has its six in a row with
+    // Command-1 onwards in bar order. They are numbered by position rather than by
+    // destination, so a session without the Design tab still has its tabs in a row with
     // no gap in the middle.
-    private func tabShortcuts(_ clusters: [[HeaderTab]]) -> some View {
-        let tabs = Array(clusters.flatMap { $0 }.prefix(9).enumerated())
+    private func tabShortcuts(_ tabs: [HeaderTab]) -> some View {
+        let numbered = Array(tabs.prefix(9).enumerated())
         return ZStack {
-            ForEach(tabs, id: \.offset) { position, tab in
+            ForEach(numbered, id: \.offset) { position, tab in
                 Button("") { tab.activate() }
                     .keyboardShortcut(KeyEquivalent(Character("\(position + 1)")),
                                       modifiers: .command)
