@@ -429,7 +429,10 @@ private struct HeaderTabCluster: View {
         }
         .buttonStyle(.plain)
         .focused($focused, equals: tab.id)
-        .appTooltip { tab.tooltip ?? Tooltip(title: tab.label) }
+        // Hovering the group already opens every label, so a hint that only repeats the
+        // word would arrive under a tab that is spelling itself out. Only a tab with
+        // something more to say than its own name carries one.
+        .appTooltip { tab.tooltip ?? Tooltip(title: "") }
         .accessibilityLabel(tab.label)
         .accessibilityAddTraits(tab.isLit ? [.isSelected] : [])
     }
