@@ -343,55 +343,81 @@ struct HeaderTabBar: View {
     @FocusState private var focused: String?
 
     var body: some View {
-        HStack(spacing: 2) {
-            ForEach(tabs) { tab in
-                shape(tab)
+        // The bar holds the room every label needs whether the labels are open or not,
+        // and opens leftwards into it. Taking only the width it shows would shift the
+        // rest of the rail sideways each time the pointer crossed the bar, and buttons
+        // that walk away from the pointer are worse than a little unused width here.
+        widestRow
+            .hidden()
+            .accessibilityHidden(true)
+            .overlay(alignment: .trailing) {
+                bar
+                    .onHover { hovering = $0 }
+                    // The only movement in the header, so it is worth the full quarter
+                    // second: the bar opening is meant to be read, not glimpsed.
+                    .animation(reduceMotion ? nil : .easeOut(duration: 0.22), value: opened)
             }
-        }
-        .padding(3)
-        .background(RoundedRectangle(cornerRadius: 11).fill(Theme.field))
-        .fixedSize(horizontal: true, vertical: false)
-        .onHover { hovering = $0 }
-        // The only movement in the header, so it is worth the full quarter second: the
-        // bar opening is meant to be read, not glimpsed.
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.22), value: opened)
     }
 
     // Labels open for the pointer and for the keyboard alike, so tabbing through the
     // header names its destinations the same way hovering does.
     private var opened: Bool { hovering || focused != nil }
 
-    private func shape(_ tab: HeaderTab) -> some View {
-        Button(action: tab.activate) {
-            HStack(spacing: 0) {
-                Image(systemName: tab.icon)
-                    .font(.system(size: 13, weight: .semibold))
-                    .frame(width: 17, height: 17)
-                HeaderTabLabel(text: tab.label, expanded: opened || tab.selected)
-                if tab.badge {
-                    Circle()
-                        .fill(Theme.attention)
-                        .frame(width: 5, height: 5)
-                        .padding(.leading, 6)
+    private var bar: some View {
+        HStack(spacing: 2) {
+            ForEach(tabs) { tab in
+                Button(action: tab.activate) {
+                    label(tab, opened: opened)
                 }
+                .buttonStyle(.plain)
+                .focused($focused, equals: tab.id)
+                .accessibilityLabel(tab.label)
+                .accessibilityAddTraits(tab.selected ? [.isSelected] : [])
             }
-            .foregroundStyle(tab.selected ? Color.primary : Color.secondary)
-            .padding(.horizontal, 9)
-            .frame(height: 34)
-            .background {
-                if tab.selected {
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(Theme.card)
-                        .shadow(color: .black.opacity(0.08), radius: 1, y: 0.5)
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
-                }
-            }
-            .contentShape(RoundedRectangle(cornerRadius: 8))
         }
-        .buttonStyle(.plain)
-        .focused($focused, equals: tab.id)
-        .accessibilityLabel(tab.label)
-        .accessibilityAddTraits(tab.selected ? [.isSelected] : [])
+        .padding(3)
+        .background(RoundedRectangle(cornerRadius: 11).fill(Theme.field))
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    // The bar as it stands with every label open, which is the width it is held at. It
+    // is built from the same pieces as the bar itself so the two cannot drift apart,
+    // minus the buttons: a second set would take hits and focus from the real ones.
+    private var widestRow: some View {
+        HStack(spacing: 2) {
+            ForEach(tabs) { tab in
+                label(tab, opened: true)
+            }
+        }
+        .padding(3)
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private func label(_ tab: HeaderTab, opened: Bool) -> some View {
+        HStack(spacing: 0) {
+            Image(systemName: tab.icon)
+                .font(.system(size: 13, weight: .semibold))
+                .frame(width: 17, height: 17)
+            HeaderTabLabel(text: tab.label, expanded: opened || tab.selected)
+            if tab.badge {
+                Circle()
+                    .fill(Theme.attention)
+                    .frame(width: 5, height: 5)
+                    .padding(.leading, 6)
+            }
+        }
+        .foregroundStyle(tab.selected ? Color.primary : Color.secondary)
+        .padding(.horizontal, 9)
+        .frame(height: 34)
+        .background {
+            if tab.selected {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Theme.card)
+                    .shadow(color: .black.opacity(0.08), radius: 1, y: 0.5)
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
+            }
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 8))
     }
 }
 
