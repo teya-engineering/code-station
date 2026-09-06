@@ -329,7 +329,6 @@ struct HeaderTab: Identifiable {
     // An unread mark that has to survive the label collapsing, since an icon on its own
     // cannot say the working tree moved.
     var badge = false
-    var tooltip: Tooltip? = nil
     // A right-click menu rather than a menu button: the click itself belongs to the
     // destination or the toggle, so anything else the tab can do hangs off the secondary
     // click.
@@ -429,10 +428,6 @@ private struct HeaderTabCluster: View {
         }
         .buttonStyle(.plain)
         .focused($focused, equals: tab.id)
-        // Hovering the group already opens every label, so a hint that only repeats the
-        // word would arrive under a tab that is spelling itself out. Only a tab with
-        // something more to say than its own name carries one.
-        .appTooltip { tab.tooltip ?? Tooltip(title: "") }
         .accessibilityLabel(tab.label)
         .accessibilityAddTraits(tab.isLit ? [.isSelected] : [])
     }

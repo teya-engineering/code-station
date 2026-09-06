@@ -463,8 +463,8 @@ struct SessionView: View {
     }
 
     // The dot survives the label collapsing, since an icon on its own cannot say the
-    // working tree moved. It is paired with the count in the tooltip, so the mark is
-    // never the only way the number is offered.
+    // working tree moved. It only says that there is something to see; the pane itself
+    // is where the files and their numbers are.
     private func changesTab(_ session: ChatSession) -> HeaderTab {
         let label = store.isDesignMode(session) ? "Project Changes" : "Changes"
         let files = store.workingDirectories(for: session)
@@ -472,10 +472,6 @@ struct SessionView: View {
             .reduce(0) { $0 + $1.files.count }
         var changes = destination(label, icon: "plusminus", value: .changes)
         changes.badge = files > 0 && tab != .changes
-        changes.tooltip = Tooltip(title: label,
-                                  subtitle: files > 0
-                                      ? "\(counted(files, "changed file"))"
-                                      : "No uncommitted changes.")
         return changes
     }
 
@@ -488,8 +484,6 @@ struct SessionView: View {
             label: "Terminal",
             icon: "terminal",
             kind: .toggle(on: isOpen),
-            tooltip: Tooltip(title: isOpen ? "Hide terminal" : "Open a shell in this folder",
-                             note: "^`"),
             menu: {
                 [.item("Open in \(SystemTerminal.appName)") { SystemTerminal.open(directory) },
                  .item(isOpen ? "Hide terminal here" : "Open terminal here",
