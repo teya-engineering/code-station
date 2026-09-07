@@ -488,14 +488,46 @@ struct HeaderRailDivider: View {
     }
 }
 
+// What a rail button is saying about itself. A state is a tinted glyph on a seat of the
+// same colour, so it carries as a shape as well as a hue: at 13pt the accent and the
+// resting grey are close enough in value that colour alone is easy to miss, and unreadable
+// for anyone who cannot separate the two.
+enum HeaderRailState {
+    // Nothing is happening behind the button, so it does not ask for the eye.
+    case rest
+    // A panel this button opened is on screen right now.
+    case open
+    // Something outside the app is attached, which is why it is not the colour of `open`.
+    case live
+    // A job this button started is running. It passes, so it takes the colour on its own
+    // rather than a seat that would come and go under the glyph.
+    case working
+
+    var tint: Color {
+        switch self {
+        case .rest: Color.secondary
+        case .open, .working: Theme.accent
+        case .live: Theme.addition
+        }
+    }
+
+    // The fill the button already draws on hover, in the state's own colour.
+    var seat: Color? {
+        switch self {
+        case .rest, .working: nil
+        case .open: Theme.accent.opacity(0.12)
+        case .live: Theme.addition.opacity(0.14)
+        }
+    }
+}
+
 // An icon-only button on that rail. It stands the same height as a tab so the whole rail
 // reads as one row, and it always carries a word: with no label beside the glyph, the
 // tooltip is the only thing that says what the button opens. Left without an action it
 // draws as a label, for the overflow that hangs a menu under itself.
 struct HeaderRailButton: View {
     let icon: String
-    var active = false
-    var tint: Color? = nil
+    var state: HeaderRailState = .rest
     // Says there is something new behind the button, which a glyph on its own cannot.
     var badge = false
     let label: String
@@ -514,6 +546,7 @@ struct HeaderRailButton: View {
         }
         .onHover { hovering = $0 }
         .animation(.easeOut(duration: 0.12), value: hovering)
+        .animation(.easeOut(duration: 0.12), value: state)
         .appTooltip(label)
         .accessibilityLabel(label)
     }
@@ -521,10 +554,14 @@ struct HeaderRailButton: View {
     private var shape: some View {
         Image(systemName: icon)
             .font(.system(size: 13, weight: .semibold))
-            .foregroundStyle(tint ?? (active ? Theme.accent : Color.secondary))
+            .foregroundStyle(state.tint)
             .frame(width: 30, height: 34)
             .background {
-                if hovering {
+                // The seat stands in for the hover fill rather than sitting under it, so a
+                // button already saying something does not change colour when pointed at.
+                if let seat = state.seat {
+                    RoundedRectangle(cornerRadius: 8).fill(seat)
+                } else if hovering {
                     RoundedRectangle(cornerRadius: 8).fill(Theme.field)
                 }
             }

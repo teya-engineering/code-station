@@ -64,8 +64,7 @@ struct SessionRecapControl: View {
         // rather than offering a card that is not there yet.
         HeaderRailButton(
             icon: isGeneratingInitialRecap ? "hourglass" : "doc.text",
-            active: isOpen,
-            tint: isGeneratingInitialRecap ? Theme.accent : nil,
+            state: isGeneratingInitialRecap ? .working : (isOpen ? .open : .rest),
             badge: needsAttention,
             label: tooltip,
             action: isGeneratingInitialRecap ? nil : toggle)

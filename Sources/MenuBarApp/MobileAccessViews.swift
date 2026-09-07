@@ -62,23 +62,35 @@ struct MobileAccessButton: View {
     var body: some View {
         let share = mobileAccess.share(for: scope)
         let connected = mobileAccess.isLive(scope)
-        let tint = if connected {
-            Theme.addition
-        } else if share != nil {
-            Theme.accent
-        } else {
-            Color.secondary
-        }
         let label = tooltip(shared: share != nil, connected: connected)
+        let rail = Self.rail(shared: share != nil, connected: connected)
         return Group {
             if onRail {
-                HeaderRailButton(icon: "qrcode", tint: tint, label: label, action: open)
+                HeaderRailButton(icon: "qrcode",
+                                 state: rail.state,
+                                 badge: rail.dot,
+                                 label: label,
+                                 action: open)
             } else {
+                let tint = if connected {
+                    Theme.addition
+                } else if share != nil {
+                    Theme.accent
+                } else {
+                    Color.secondary
+                }
                 GlyphButton(icon: "qrcode", side: side, tint: tint, action: open)
                     .appTooltip(label)
                     .accessibilityLabel(label)
             }
         }
+    }
+
+    // What the button says on the rail. A code that is out but that no phone has picked it
+    // up is news rather than a live link, so it stays grey with a dot: on the rail green is
+    // kept for a phone actually being on the other end, which no other button can say.
+    static func rail(shared: Bool, connected: Bool) -> (state: HeaderRailState, dot: Bool) {
+        (connected ? .live : .rest, shared && !connected)
     }
 
     private func tooltip(shared: Bool, connected: Bool) -> String {

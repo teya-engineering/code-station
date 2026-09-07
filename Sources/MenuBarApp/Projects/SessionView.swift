@@ -459,7 +459,7 @@ struct SessionView: View {
             // Opening one in the system terminal is the same wish reached a different
             // way, so it stays on the toggle's own menu.
             HeaderRailButton(icon: "terminal",
-                             active: terminalOpen,
+                             state: terminalOpen ? .open : .rest,
                              label: terminalOpen ? "Hide terminal here" : "Open terminal here") {
                 toggleTerminal(directory: directory)
             }
@@ -475,7 +475,7 @@ struct SessionView: View {
     private var workingSetToggle: some View {
         let isOpen = tab == .conversation && workingSetVisible
         return HeaderRailButton(icon: "sidebar.right",
-                                active: isOpen,
+                                state: isOpen ? .open : .rest,
                                 label: isOpen ? "Close working set" : "Open working set") {
             if isOpen {
                 setWorkingSetVisible(false)
@@ -655,6 +655,7 @@ struct SessionView: View {
             : "Export Design materials as a ZIP file"
         return HeaderRailButton(
             icon: exportingDesignMaterials ? "hourglass" : "doc.zipper",
+            state: exportingDesignMaterials ? .working : .rest,
             label: label,
             action: exportingDesignMaterials
                 ? nil
