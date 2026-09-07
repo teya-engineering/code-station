@@ -186,6 +186,9 @@ struct SessionView: View {
         case .conversation:
             _tab = State(initialValue: .conversation)
             _requestedChange = State(initialValue: nil)
+        case .design:
+            _tab = State(initialValue: .design)
+            _requestedChange = State(initialValue: nil)
         case .changes:
             _tab = State(initialValue: .changes)
             _requestedChange = State(initialValue: nil)
@@ -709,8 +712,11 @@ struct SessionView: View {
             .flatMap { gitStats.snapshot(at: $0) }
         let facts = facts(session, repository: repository)
         let tone = SessionTone(sessionID, store: store, runner: runner)
+        // The line stands for both of a session's conversations, so a Design turn is what
+        // it counts while Design is the side running.
+        let live = LiveConversation.of(sessionID, store: store, runner: runner) ?? session
         return HStack(spacing: 14) {
-            state(session, tone: tone)
+            state(tone: tone, conversation: live, isTroubleshooting: session.isTroubleshooting)
             diffStats(session)
             Spacer(minLength: 12)
             if let pullRequest = session.pullRequest {
@@ -780,11 +786,12 @@ struct SessionView: View {
     // last activity, which is what makes it the age of the work in flight. A waiting one
     // counts from where the work stopped, so the number is the length of the wait rather
     // than of the turn that is still holding it.
-    private func state(_ session: ChatSession, tone: SessionTone) -> some View {
+    private func state(tone: SessionTone, conversation: ChatSession,
+                       isTroubleshooting: Bool) -> some View {
         let since: Date? = switch tone {
-        case .running: runner.turnStarted(sessionID)
-        case .waiting: runner.waitingSince(sessionID) ?? session.lastActivity
-        default: session.lastActivity
+        case .running: runner.turnStarted(conversation.id)
+        case .waiting: runner.waitingSince(conversation.id) ?? conversation.lastActivity
+        default: conversation.lastActivity
         }
         return HStack(spacing: 7) {
             if tone == .running {
@@ -794,7 +801,7 @@ struct SessionView: View {
             }
             // A diagnosis runs like any other turn, but naming it is what tells the reader
             // the brief landed and the agent is working through it.
-            StatusCaps(text: session.isTroubleshooting && tone == .running
+            StatusCaps(text: isTroubleshooting && tone == .running
                            ? "DIAGNOSING" : tone.word,
                        tint: tone.colour)
             if let since {

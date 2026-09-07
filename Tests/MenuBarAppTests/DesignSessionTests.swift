@@ -608,6 +608,41 @@ struct DesignSessionTests {
         #expect(prompt.contains("Keep the reference files unchanged"))
     }
 
+    @Test func theCardOfADesignCompanionSaysWhatTheCompanionIsDoing() throws {
+        let chat = store.newSession(in: project.id)
+        let design = try store.startDesign(for: chat.id).get()
+        let runner = SessionRunner(paths: [:])
+
+        store.append(ChatMessage(role: .user, text: "Draw a landing page"), to: design.id)
+
+        // The companion has no row, so the first thing asked of it names the session it
+        // sits behind and the card takes its time.
+        let card = try #require(store.sidebarSession(chat.id))
+        #expect(card.title == "Draw a landing page")
+        #expect(store.session(design.id)?.title == "Design")
+        #expect(card.lastActivity == store.session(design.id)?.lastActivity)
+        #expect(store.designCompanions[chat.id]?.id == design.id)
+        #expect(LiveConversation.id(of: chat.id, store: store, runner: runner) == design.id)
+
+        store.append(ChatMessage(role: .user, text: "Now build it"), to: chat.id)
+
+        // Once the visible conversation speaks, the card is its own again.
+        #expect(LiveConversation.id(of: chat.id, store: store, runner: runner) == chat.id)
+        #expect(store.sidebarSession(chat.id)?.lastActivity
+            == store.session(chat.id)?.lastActivity)
+    }
+
+    @Test func aSessionWithoutADesignCompanionSpeaksForItself() throws {
+        let chat = store.newSession(in: project.id)
+        let runner = SessionRunner(paths: [:])
+
+        store.append(ChatMessage(role: .user, text: "Add a login page"), to: chat.id)
+
+        #expect(store.designCompanions.isEmpty)
+        #expect(LiveConversation.of(chat.id, store: store, runner: runner) == nil)
+        #expect(store.sidebarSession(chat.id)?.title == "Add a login page")
+    }
+
     private func writeDesign(for session: ChatSession, in store: ProjectStore,
                              html: String) throws -> URL {
         let artifact = try #require(store.designArtifactURL(for: session))

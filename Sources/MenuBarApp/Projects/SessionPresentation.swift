@@ -1,5 +1,46 @@
 import Foundation
 
+// Which of a session's two conversations a screen is talking about. A Design companion
+// lives behind the tab of the session that opened it and has no row anywhere, so that
+// session's row is the only place its work can show.
+enum LiveConversation {
+    // The companion, when it is the side to describe, and nil when the session speaks for
+    // itself. Callers that only need an id use `id(of:store:runner:)`.
+    @MainActor
+    static func of(_ sessionID: UUID, store: ProjectStore,
+                   runner: SessionRunner) -> ChatSession? {
+        guard let companion = store.designCompanions[sessionID] else { return nil }
+        // A turn in the visible conversation is the one being read, so it keeps the row
+        // even if the companion is running too.
+        if runner.state(sessionID).isBusy || runner.question(sessionID) != nil { return nil }
+        if runner.state(companion.id).isBusy || runner.question(companion.id) != nil {
+            return companion
+        }
+        // Neither is running, so the row belongs to whichever spoke last. The card already
+        // carries the newer of the two times, which is what makes this a comparison rather
+        // than another lookup.
+        guard let card = store.sidebarSession(sessionID) else { return companion }
+        return companion.lastActivity >= card.lastActivity ? companion : nil
+    }
+
+    @MainActor
+    static func id(of sessionID: UUID, store: ProjectStore, runner: SessionRunner) -> UUID {
+        of(sessionID, store: store, runner: runner)?.id ?? sessionID
+    }
+}
+
+extension SessionRunner {
+    // Whether anything is running for a session, its own turn or the one its Design
+    // companion is taking. Counts, sweeps and anything that treats a session as free to
+    // clear away have to ask this rather than the session's own state.
+    @MainActor
+    func isBusy(_ sessionID: UUID, store: ProjectStore) -> Bool {
+        if state(sessionID).isBusy { return true }
+        guard let companion = store.designCompanions[sessionID] else { return false }
+        return state(companion.id).isBusy
+    }
+}
+
 // How a session reads on a screen. Home, a project and a workspace all describe the same
 // session, so the state light and the line under the title are worked out here once rather
 // than restated on each screen with slightly different wording.
@@ -31,13 +72,14 @@ enum SessionActivity {
     @MainActor
     static func line(for session: ChatSession, store: ProjectStore,
                      runner: SessionRunner) -> String {
-        let busy = runner.state(session.id).isBusy
-        return line(permission: runner.question(session.id),
-                    runningTool: busy ? runner.runningTool(session.id) : nil,
+        let live = LiveConversation.of(session.id, store: store, runner: runner) ?? session
+        let busy = runner.state(live.id).isBusy
+        return line(permission: runner.question(live.id),
+                    runningTool: busy ? runner.runningTool(live.id) : nil,
                     root: store.workingDirectory(for: session) ?? "",
-                    lastTool: session.summary.lastTool,
+                    lastTool: live.summary.lastTool,
                     finished: store.hasFinished(session.id),
-                    backgroundTasks: runner.backgroundTasks(session.id))
+                    backgroundTasks: runner.backgroundTasks(live.id))
     }
 }
 
@@ -46,10 +88,11 @@ extension SessionTone {
     // instead of being written out again on each one.
     @MainActor
     init(_ sessionID: UUID, store: ProjectStore, runner: SessionRunner) {
-        self.init(busy: runner.state(sessionID).isBusy,
-                  needsInput: runner.question(sessionID) != nil,
+        let live = LiveConversation.id(of: sessionID, store: store, runner: runner)
+        self.init(busy: runner.state(live).isBusy,
+                  needsInput: runner.question(live) != nil,
                   finished: store.hasFinished(sessionID),
-                  waiting: runner.state(sessionID) == .waiting)
+                  waiting: runner.state(live) == .waiting)
     }
 }
 

@@ -21,6 +21,9 @@ struct PendingSessionRemoval: Identifiable, Codable, Equatable {
 
 enum SessionDestination: Hashable {
     case conversation
+    // The Design board behind the session's tab, which is where a session whose Design
+    // companion is the live conversation belongs.
+    case design
     case changes
     case change(root: String, path: String)
 }
@@ -53,6 +56,10 @@ final class ProjectStore {
     // conversation while something holds it - see `hold(_:for:)`.
     private(set) var sessions: [ChatSession] = []
     @ObservationIgnored private var sidebarSessionCache: [ChatSession] = []
+    // The Design conversation behind a session, keyed by the session it belongs to. A
+    // companion has no row of its own, so this is published beside the cards: it is what
+    // lets a row say what Design is doing and open on the board instead of the chat.
+    private(set) var designCompanions: [UUID: ChatSession] = [:]
     // Told when a project, workspace or session leaves the app for good, so whatever else
     // is keyed to it can go at the same time. A running terminal is the reason this
     // exists: the store owns none of that and should not have to know it is there.
@@ -329,8 +336,13 @@ final class ProjectStore {
     func selectSession(_ id: UUID, destination: SessionDestination = .conversation) {
         let visibleID = userFacingSessionID(for: id)
         guard let session = session(visibleID) else { return }
+        // Asking for a Design conversation means asking for the board it draws on. It has
+        // no row of its own, so it is reached through the tab of the session that owns it.
+        let landing: SessionDestination = destination == .conversation && id != visibleID
+            ? .design
+            : destination
         selectedProjectID = session.projectID
-        sessionOpenRequest = SessionOpenRequest(sessionID: visibleID, destination: destination)
+        sessionOpenRequest = SessionOpenRequest(sessionID: visibleID, destination: landing)
         selection = .session(visibleID)
         persistSelection()
     }
@@ -1552,7 +1564,15 @@ final class ProjectStore {
         loadTranscript(i)
         sessions[i].messages.append(message)
         sessions[i].summary.lastMessageAt = message.date
-        if message.role == .user { sessions[i].retitleIfNeeded(from: message.text) }
+        if message.role == .user {
+            sessions[i].retitleIfNeeded(from: message.text)
+            // A Design companion is named "Design" and has no row. The first thing asked
+            // of it is what names the session it sits behind, which is the row the user
+            // reads.
+            if let sourceID = sessions[i].designSourceSessionID, let source = index(sourceID) {
+                sessions[source].retitleIfNeeded(from: message.text)
+            }
+        }
         // The sidebar has its own lightweight copy, so activity must be published here
         // rather than waiting for the deferred transcript summary write.
         publishSidebarSessions()
@@ -2079,12 +2099,29 @@ final class ProjectStore {
     }
 
     private func publishSidebarSessions() {
-        sidebarSessionCache = userSessions.map { session in
+        var cards: [ChatSession] = []
+        var companions: [UUID: ChatSession] = [:]
+        for session in sessions {
             var card = session
             card.messages = []
             card.transcriptLoaded = false
-            return card
+            if let sourceID = session.designSourceSessionID {
+                companions[sourceID] = card
+            } else {
+                cards.append(card)
+            }
         }
+        // A companion's turns are the session's own work. The card takes the newer of the
+        // two, so a row does not read as untouched while Design is the side running.
+        for i in cards.indices {
+            guard let companion = companions[cards[i].id],
+                  let spoke = companion.summary.lastMessageAt,
+                  spoke > cards[i].summary.lastMessageAt ?? .distantPast else { continue }
+            cards[i].summary.lastMessageAt = spoke
+            cards[i].summary.lastTool = companion.summary.lastTool
+        }
+        sidebarSessionCache = cards
+        if companions != designCompanions { designCompanions = companions }
         sidebarSessionRevision &+= 1
     }
 

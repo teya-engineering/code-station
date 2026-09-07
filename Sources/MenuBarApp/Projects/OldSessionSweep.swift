@@ -74,7 +74,7 @@ enum OldSessionSweep {
         guard policy.deletesAutomatically else { return 0 }
         var deleted = 0
         let eligible = due(days: days, in: store.sidebarSessions, now: now,
-                           isBusy: { runner.state($0).isBusy },
+                           isBusy: { runner.isBusy($0, store: store) },
                            isOpen: { store.selection == .session($0) })
         let due = buffer.ready(eligible, now: now)
         // Reading git takes time, and the app keeps running while it does: a session that
@@ -83,7 +83,7 @@ enum OldSessionSweep {
         let stillStale = { (session: ChatSession) in
             store.session(session.id)?.isPinned == false
                 && store.selection != .session(session.id)
-                && !runner.state(session.id).isBusy
+                && !runner.isBusy(session.id, store: store)
         }
 
         for session in due {

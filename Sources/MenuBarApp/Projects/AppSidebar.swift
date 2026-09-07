@@ -351,9 +351,10 @@ struct AppSidebar: View {
     private var sessionNotices: [NoticedSession] {
         store.sidebarSessions.compactMap { session in
             guard let project = store.project(session.projectID) else { return nil }
-            let question = runner.question(session.id)
+            let live = LiveConversation.id(of: session.id, store: store, runner: runner)
+            let question = runner.question(live)
             guard let notice = SessionNotice(
-                isBusy: runner.state(session.id).isBusy,
+                isBusy: runner.state(live).isBusy,
                 needsInput: question != nil,
                 finishedUnseen: store.hasFinished(session.id)) else { return nil }
             return NoticedSession(session: session, project: project, notice: notice,
@@ -406,8 +407,17 @@ struct AppSidebar: View {
         filterText = ""
         setExpanded(true, for: containerID)
         sessionVisibility.pin(session.id, in: containerID)
-        store.selectSession(session.id)
+        store.selectSession(session.id, destination: destination(for: session))
         sessionToReveal = session.id
+    }
+
+    // Where opening a card lands. The Design conversation is behind a tab rather than on
+    // a row of its own, so a card standing for one has to open on the board: the chat it
+    // would otherwise show is not the conversation the card was describing.
+    private func destination(for session: ChatSession) -> SessionDestination {
+        LiveConversation.of(session.id, store: store, runner: runner) == nil
+            ? .conversation
+            : .design
     }
 
     // MARK: - Projects
@@ -561,7 +571,7 @@ struct AppSidebar: View {
                                   sessions: [ChatSession]) -> some View {
         let expanded = isExpanded(workspace)
         let visible = visibleSessions(sessions, in: workspace.id)
-        let running = sessions.count { runner.state($0.id).isBusy }
+        let running = sessions.count { runner.isBusy($0.id, store: store) }
         let projects = workspace.projectIDs.compactMap(store.project)
 
         return VStack(alignment: .leading, spacing: 0) {
@@ -631,7 +641,7 @@ struct AppSidebar: View {
     private func projectSection(_ project: Project, sessions: [ChatSession]) -> some View {
         let expanded = isExpanded(project)
         let visible = visibleSessions(sessions, in: project.id)
-        let running = sessions.count { runner.state($0.id).isBusy }
+        let running = sessions.count { runner.isBusy($0.id, store: store) }
 
         // The row and its sessions are one stack so the gap between them belongs to the
         // block that changes size. An outer spacing would remain after the block leaves,
@@ -700,14 +710,18 @@ struct AppSidebar: View {
         SidebarRail(colour: tint.colour) {
             ForEach(visible) { session in
                 let selected = isSelected(session)
+                // Design has no card of its own, so while it is the side working, this
+                // card is what says so: its light, its line and its time come from there.
+                let live = LiveConversation.of(session.id, store: store, runner: runner)
+                    ?? session
                 SidebarRailRow(colour: tint.colour, selectedColour: tint.ink, selected: selected) {
                     SessionCard(session: session,
                                 selected: selected,
-                                busy: runner.state(session.id).isBusy,
-                                waiting: runner.state(session.id) == .waiting,
-                                needsInput: runner.question(session.id) != nil,
+                                busy: runner.state(live.id).isBusy,
+                                waiting: runner.state(live.id) == .waiting,
+                                needsInput: runner.question(live.id) != nil,
                                 finished: store.hasFinished(session.id),
-                                activity: activity(session),
+                                activity: activity(live),
                                 branch: branch(session),
                                 uncommitted: uncommitted(session),
                                 connected: mobileAccess.isConnected(session: session.id),
@@ -720,7 +734,9 @@ struct AppSidebar: View {
                                 onCancelRename: { renamingID = nil })
                 }
                 .contentShape(Rectangle())
-                .onTapGesture { store.selectSession(session.id) }
+                .onTapGesture {
+                    store.selectSession(session.id, destination: destination(for: session))
+                }
                 .appContextMenu {
                     [.item(session.isPinned ? "Unpin" : "Pin",
                            icon: session.isPinned ? "pin.slash" : "pin") {
@@ -988,7 +1004,7 @@ struct AppSidebar: View {
     }
 
     private func idleSessions(in project: Project) -> [ChatSession] {
-        store.standaloneSessions(for: project.id).filter { !runner.state($0.id).isBusy }
+        store.standaloneSessions(for: project.id).filter { !runner.isBusy($0.id, store: store) }
     }
 
     private func confirmRemoveProject(_ project: Project) {
@@ -1195,7 +1211,7 @@ struct AppSidebar: View {
             oldSessions: OldSessions.olderThan(oldSessionDays, in: sessions).map {
                 OldSessionRefreshRule.Session(
                     id: $0.id,
-                    isBusy: runner.state($0.id).isBusy,
+                    isBusy: runner.isBusy($0.id, store: store),
                     isPinned: $0.isPinned)
             },
             nextOldAt: OldSessions.nextOldAt(oldSessionDays, in: sessions))
@@ -1203,7 +1219,7 @@ struct AppSidebar: View {
 
     private func refreshOldSessions() async {
         let sessions = OldSessions.olderThan(oldSessionDays, in: store.sidebarSessions)
-            .filter { !runner.state($0.id).isBusy }
+            .filter { !runner.isBusy($0.id, store: store) }
         var losesWork = 0
         var losesNothing = 0
         var unpinnedSessions = 0

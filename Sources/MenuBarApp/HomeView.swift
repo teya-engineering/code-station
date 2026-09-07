@@ -141,8 +141,11 @@ struct HomeView: View {
                                  offersManualRecap: !appSettings.sessionRecapsEnabled,
                                  onRecap: { _ = runner.recap(recapTarget, store: store) },
                                  onOpen: { destination in
-                                     store.selectSession(live.session.id,
-                                                         destination: destination)
+                                     store.selectSession(
+                                         live.session.id,
+                                         destination: destination == .conversation
+                                             ? live.destination
+                                             : destination)
                                  })
                 }
             }
@@ -172,7 +175,9 @@ struct HomeView: View {
             SectionRule("RUNNING NOW", pulses: true, tint: Theme.addition)
             VStack(spacing: 8) {
                 ForEach(running) { live in
-                    RunningRow(live: live) { store.selectSession(live.session.id) }
+                    RunningRow(live: live) {
+                        store.selectSession(live.session.id, destination: live.destination)
+                    }
                 }
             }
         }
@@ -184,7 +189,9 @@ struct HomeView: View {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4),
                       spacing: 10) {
                 ForEach(resumable.prefix(8)) { live in
-                    ResumeCard(live: live) { store.selectSession(live.session.id) }
+                    ResumeCard(live: live) {
+                        store.selectSession(live.session.id, destination: live.destination)
+                    }
                 }
             }
         }
@@ -208,7 +215,7 @@ struct HomeView: View {
 
     private var oldSessions: [ChatSession] {
         OldSessions.olderThan(appSettings.oldSessionDays, in: store.sidebarSessions)
-            .filter { !runner.state($0.id).isBusy }
+            .filter { !runner.isBusy($0.id, store: store) }
     }
 
     private var standing: Standing {
@@ -216,17 +223,21 @@ struct HomeView: View {
         let calendar = Calendar.current
 
         for session in store.sidebarSessions.sorted(by: { $0.lastActivity > $1.lastActivity }) {
-            let busy = runner.state(session.id).isBusy
-            let permission = runner.question(session.id)
+            // A Design conversation has no row of its own, so while it is the side
+            // working, the session that opened it is what Home has to describe.
+            let live = LiveConversation.of(session.id, store: store, runner: runner) ?? session
+            let busy = runner.state(live.id).isBusy
+            let permission = runner.question(live.id)
             let finished = store.hasFinished(session.id)
-            let live = describe(session, busy: busy, permission: permission, finished: finished)
+            let card = describe(session, live: live, busy: busy,
+                                permission: permission, finished: finished)
 
             if permission != nil || finished {
-                standing.waiting.append(live)
+                standing.waiting.append(card)
             } else if busy {
-                standing.running.append(live)
-            } else if session.hasStarted {
-                standing.resumable.append(live)
+                standing.running.append(card)
+            } else if session.hasStarted || live.hasStarted {
+                standing.resumable.append(card)
             }
 
             if calendar.isDateInToday(session.lastActivity) {
@@ -242,9 +253,9 @@ struct HomeView: View {
         return standing
     }
 
-    private func describe(_ session: ChatSession, busy: Bool,
+    private func describe(_ session: ChatSession, live: ChatSession, busy: Bool,
                           permission: PermissionRequest?, finished: Bool) -> HomeLive {
-        let waiting = runner.state(session.id) == .waiting
+        let waiting = runner.state(live.id) == .waiting
         let workspace = session.workspaceID.flatMap(store.workspace)
         let project = store.project(session.projectID)
         let name = workspace?.name ?? project?.name ?? "Unknown project"
@@ -273,18 +284,19 @@ struct HomeView: View {
                               waiting: waiting),
             activity: SessionActivity.line(
                 permission: permission,
-                runningTool: busy ? runner.runningTool(session.id) : nil,
+                runningTool: busy ? runner.runningTool(live.id) : nil,
                 root: store.workingDirectory(for: session) ?? "",
-                lastTool: session.summary.lastTool,
+                lastTool: live.summary.lastTool,
                 finished: finished,
-                backgroundTasks: runner.backgroundTasks(session.id)),
+                backgroundTasks: runner.backgroundTasks(live.id)),
             location: location(session, checkouts: checkouts),
+            destination: live.id == session.id ? .conversation : .design,
             // Nothing reports how far through a turn is, so how full the context window
             // has become is the honest stand-in: it is the one number that only ever grows
             // while a turn runs. A turn parked on a task is not filling it any more, and a
             // bar creeping along would be claiming work that has stopped.
             progress: busy && !waiting
-                ? (session.usage?.contextFraction(for: session.agent) ?? 0.05) : nil,
+                ? (live.usage?.contextFraction(for: live.agent) ?? 0.05) : nil,
             permission: permission)
     }
 
@@ -305,6 +317,9 @@ private struct HomeLive: Identifiable {
     let tone: SessionTone
     let activity: String
     let location: String
+    // Where opening this row lands. A session whose Design conversation is the one
+    // working opens on the board, since the chat is not what the row was describing.
+    let destination: SessionDestination
     // Only a running session has one, since a progress bar on an idle row would be
     // claiming something is still happening.
     let progress: Double?
