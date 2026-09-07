@@ -331,7 +331,9 @@ struct HeaderTab: Identifiable {
 // The header's navigation. Five word-tabs do not fit beside a session title, so only the
 // tab you are on keeps its word and the rest sit as icons. Reaching for the bar opens
 // every label at once, which is what keeps the icons from being a guess: the labels
-// arrive before the click, together, rather than one tooltip at a time.
+// arrive before the click, together, rather than one tooltip at a time. They also hold
+// open for a moment after the pointer leaves, so the words can be read at a glance
+// rather than chased.
 //
 // The bar holds destinations and nothing else, so its edge is the line between swapping
 // the pane and opening something next to it.
@@ -340,7 +342,13 @@ struct HeaderTabBar: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var hovering = false
+    @State private var closing: Task<Void, Never>?
     @FocusState private var focused: String?
+
+    // How long the labels stay open after the pointer leaves. Crossing the bar on the way
+    // somewhere else should not shut it in your face, and a word half read is worse than
+    // no word at all, so the bar waits long enough to finish reading before it closes.
+    private static let lingerSeconds: Double = 1
 
     var body: some View {
         // The bar holds the room every label needs whether the labels are open or not,
@@ -352,7 +360,19 @@ struct HeaderTabBar: View {
             .accessibilityHidden(true)
             .overlay(alignment: .trailing) {
                 bar
-                    .onHover { hovering = $0 }
+                    .onHover { inside in
+                        closing?.cancel()
+                        closing = nil
+                        if inside {
+                            hovering = true
+                        } else {
+                            closing = Task { @MainActor in
+                                try? await Task.sleep(for: .seconds(Self.lingerSeconds))
+                                guard !Task.isCancelled else { return }
+                                hovering = false
+                            }
+                        }
+                    }
                     // The only movement in the header, so it is worth the full quarter
                     // second: the bar opening is meant to be read, not glimpsed.
                     .animation(reduceMotion ? nil : .easeOut(duration: 0.22), value: opened)
