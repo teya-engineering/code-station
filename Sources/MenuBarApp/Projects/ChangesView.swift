@@ -59,6 +59,17 @@ struct ChangeFileSelection: Equatable {
     }
 }
 
+// Where an arrow key lands in a list of rows. With nothing open it starts at the end the
+// key points away from, and at either end it stays where it is rather than wrapping.
+enum RowStep {
+    static func destination(from current: Int?, step: Int, count: Int) -> Int? {
+        guard count > 0 else { return nil }
+        guard let current else { return step > 0 ? 0 : count - 1 }
+        let next = current + step
+        return (0..<count).contains(next) ? next : nil
+    }
+}
+
 // The uncommitted changes in a session's folder: the project directory itself, or the
 // session's worktree. Sessions edit the real files there, so this screen is how you
 // see what the agent did before you keep it. The diffs themselves never touch the tree;
@@ -80,6 +91,7 @@ struct ChangesView: View {
     @State private var committing = false
     @State private var commitMessage = ""
     @FocusState private var commitFocused: Bool
+    @FocusState private var listFocused: Bool
     // Files the next commit leaves out. Tracking the exclusions rather than the picks
     // means a file that appears between refreshes starts selected, like everything else.
     @State private var excluded: Set<GitChange.ID> = []
@@ -383,7 +395,8 @@ struct ChangesView: View {
                 PaneMessage(icon: "checkmark.seal", title: "No uncommitted changes",
                             detail: "The working tree matches the last commit.")
             } else {
-                list(files, isOpen: selected != nil, row: row)
+                list(files, isOpen: selected != nil,
+                     activeID: fileSelection.activeID, row: row)
                 if let file = selected {
                     Divider().overlay(Theme.hairline)
                     diffPane(truncationHint: "Open the file to see the rest.",
@@ -416,24 +429,39 @@ struct ChangesView: View {
     }
 
     // The rows above a diff, for files and for commits alike. The list fills the pane
-    // until something is open, then gives the diff the room.
+    // until something is open, then gives the diff the room. It takes focus so the arrow
+    // keys can walk it, and follows the open row down as they do.
     private func list<Item: Identifiable, Row: View>(
-        _ items: [Item], isOpen: Bool, @ViewBuilder row: @escaping (Item) -> Row) -> some View {
-        ScrollView {
-            LazyVStack(spacing: 2) {
-                ForEach(items) { item in
-                    row(item)
+        _ items: [Item], isOpen: Bool, activeID: Item.ID?,
+        @ViewBuilder row: @escaping (Item) -> Row) -> some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: 2) {
+                    ForEach(items) { item in
+                        row(item).id(item.id)
+                    }
                 }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
+            .onChange(of: activeID) { _, id in
+                guard let id else { return }
+                withAnimation(.easeOut(duration: 0.12)) { proxy.scrollTo(id, anchor: .center) }
+            }
         }
         .frame(maxHeight: isOpen ? 260 : .infinity)
+        .contentShape(Rectangle())
+        .focusable()
+        .focused($listFocused)
+        .focusEffectDisabled()
+        .onMoveCommand(perform: moveSelection)
+        .task { listFocused = true }
     }
 
     private func row(_ file: GitChange) -> some View {
         let isSelected = fileSelection.ids.contains(file.id)
         return Button {
+            listFocused = true
             select(file)
         } label: {
             HStack(spacing: 10) {
@@ -583,7 +611,8 @@ struct ChangesView: View {
                 PaneMessage(icon: "clock", title: "No commits yet",
                             detail: "This branch has no history to show.")
             } else {
-                list(commits, isOpen: selectedCommit != nil, row: commitRow)
+                list(commits, isOpen: selectedCommit != nil,
+                     activeID: selectedCommit?.id, row: commitRow)
                 if let commit = selectedCommit {
                     Divider().overlay(Theme.hairline)
                     diffPane(truncationHint: "Run git show in a terminal to see the rest.") {
@@ -606,6 +635,7 @@ struct ChangesView: View {
     private func commitRow(_ commit: GitCommitSummary) -> some View {
         let isSelected = commit.id == selectedCommit?.id
         return Button {
+            listFocused = true
             select(commit)
         } label: {
             HStack(spacing: 10) {
@@ -918,6 +948,32 @@ struct ChangesView: View {
             } else {
                 closeDiff()
             }
+        }
+    }
+
+    // The arrow keys walk the list the way a click would, so a review can go through the
+    // files one at a time without reaching for the mouse. While nothing is open, the first
+    // press opens the end of the list the key points away from.
+    private func moveSelection(_ direction: MoveCommandDirection) {
+        guard dialogs.current == nil else { return }
+        let step: Int
+        switch direction {
+        case .up: step = -1
+        case .down: step = 1
+        default: return
+        }
+
+        if mode == .history {
+            guard let commits,
+                  let next = RowStep.destination(from: commits.firstIndex { $0.id == selectedCommit?.id },
+                                                 step: step, count: commits.count)
+            else { return }
+            select(commits[next])
+        } else {
+            guard let next = RowStep.destination(from: files.firstIndex { $0.id == fileSelection.activeID },
+                                                 step: step, count: files.count)
+            else { return }
+            select(files[next])
         }
     }
 

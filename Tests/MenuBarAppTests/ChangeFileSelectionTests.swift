@@ -59,3 +59,24 @@ struct ChangeFileSelectionTests {
         #expect(selection.activeID == "two")
     }
 }
+
+struct RowStepTests {
+    @Test func firstPressOpensTheEndTheKeyPointsAwayFrom() {
+        #expect(RowStep.destination(from: nil, step: 1, count: 5) == 0)
+        #expect(RowStep.destination(from: nil, step: -1, count: 5) == 4)
+    }
+
+    @Test func arrowsMoveOneRowAtATime() {
+        #expect(RowStep.destination(from: 2, step: 1, count: 5) == 3)
+        #expect(RowStep.destination(from: 2, step: -1, count: 5) == 1)
+    }
+
+    @Test func theEndsOfTheListStayPut() {
+        #expect(RowStep.destination(from: 4, step: 1, count: 5) == nil)
+        #expect(RowStep.destination(from: 0, step: -1, count: 5) == nil)
+    }
+
+    @Test func anEmptyListHasNowhereToGo() {
+        #expect(RowStep.destination(from: nil, step: 1, count: 0) == nil)
+    }
+}
