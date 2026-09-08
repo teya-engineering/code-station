@@ -322,8 +322,8 @@ struct InlineImageView: View {
                             .font(.system(size: 18, weight: .light))
                             .foregroundStyle(.secondary)
                     }
-                    .frame(width: min(220, maximumWidth),
-                           height: min(140, maximumWidth / 220 * 140))
+                    .aspectRatio(220.0 / 140, contentMode: .fit)
+                    .frame(maxWidth: min(220, maximumWidth))
             }
         }
         .task(id: url) {

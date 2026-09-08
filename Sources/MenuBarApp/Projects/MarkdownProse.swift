@@ -168,13 +168,13 @@ struct MarkdownBlock: Identifiable, Equatable {
     }
 }
 
-// Images in prose: ![alt](path). Only a paragraph can hold one, and only a local file
-// renders, so the parser keeps every piece verbatim - an image that does not resolve
-// goes back into the text exactly as it was written.
+// Local image links and Markdown images share the same preview. Keep their source
+// text so an unresolved file still renders with its original link or image syntax.
 extension MarkdownBlock {
     enum ParagraphPart: Equatable {
         case text(String)
         case image(alt: String, source: String)
+        case link(label: String, source: String)
     }
 
     static func paragraphParts(_ text: String) -> [ParagraphPart] {
@@ -182,46 +182,80 @@ extension MarkdownBlock {
         var plain = ""
         var index = text.startIndex
 
-        // Reads up to the terminator on the same line; an image never spans lines.
-        func take(until terminator: Character,
-                  from start: String.Index) -> (String, String.Index)? {
+        func closingDelimiter(_ delimiter: Character, from start: String.Index,
+                              opening: Character? = nil) -> String.Index? {
+            var depth = 0
             var i = start
             while i < text.endIndex, !text[i].isNewline {
-                if text[i] == terminator { return (String(text[start..<i]), i) }
+                if text[i] == "\\" {
+                    i = text.index(after: i)
+                    if i < text.endIndex { i = text.index(after: i) }
+                    continue
+                }
+                if text[i] == delimiter {
+                    if depth == 0 { return i }
+                    depth -= 1
+                } else if text[i] == opening {
+                    depth += 1
+                }
                 i = text.index(after: i)
             }
             return nil
         }
 
-        while let bang = text.range(of: "![", range: index..<text.endIndex) {
-            var parsed: (alt: String, source: String, end: String.Index)?
-            // An opener inside the alt means this "![" was stray text and the real
-            // image starts further in, so the candidate is abandoned in its favour.
-            if let (alt, closeBracket) = take(until: "]", from: bang.upperBound),
-               !alt.contains("![") {
+        while index < text.endIndex {
+            if text[index] == "\\" {
+                let next = text.index(after: index)
+                let end = next < text.endIndex ? text.index(after: next) : next
+                plain += text[index..<end]
+                index = end
+                continue
+            }
+            // Code examples may contain valid link syntax, but must remain code.
+            if text[index] == "`" {
+                let ticks = text[index...].prefix(while: { $0 == "`" })
+                let afterTicks = text.index(index, offsetBy: ticks.count)
+                var end = afterTicks
+                var search = afterTicks
+                while let match = text.range(of: ticks, range: search..<text.endIndex) {
+                    let run = text[match.lowerBound...].prefix(while: { $0 == "`" })
+                    search = text.index(match.lowerBound, offsetBy: run.count)
+                    if run.count == ticks.count {
+                        end = search
+                        break
+                    }
+                }
+                plain += text[index..<end]
+                index = end
+                continue
+            }
+
+            let isImage = text[index...].hasPrefix("![")
+            let bracket = isImage ? text.index(after: index) : index
+            if text[bracket] == "[",
+               let closeBracket = closingDelimiter("]", from: text.index(after: bracket)) {
+                let label = String(text[text.index(after: bracket)..<closeBracket])
                 let openParen = text.index(after: closeBracket)
-                if openParen < text.endIndex, text[openParen] == "(",
-                   let (source, closeParen) = take(until: ")",
-                                                   from: text.index(after: openParen)),
-                   !source.trimmingCharacters(in: .whitespaces).isEmpty {
-                    parsed = (alt, source, text.index(after: closeParen))
+                if !label.contains("["),
+                   openParen < text.endIndex, text[openParen] == "(",
+                   let closeParen = closingDelimiter(")", from: text.index(after: openParen),
+                                                     opening: "(") {
+                    let source = String(text[text.index(after: openParen)..<closeParen])
+                    if !source.trimmingCharacters(in: .whitespaces).isEmpty {
+                        if !plain.isEmpty {
+                            parts.append(.text(plain))
+                            plain = ""
+                        }
+                        parts.append(isImage ? .image(alt: label, source: source)
+                                             : .link(label: label, source: source))
+                        index = text.index(after: closeParen)
+                        continue
+                    }
                 }
             }
-            if let parsed {
-                plain += text[index..<bang.lowerBound]
-                if !plain.isEmpty {
-                    parts.append(.text(plain))
-                    plain = ""
-                }
-                parts.append(.image(alt: parsed.alt, source: parsed.source))
-                index = parsed.end
-            } else {
-                // Not an image after all; the "![" is ordinary text.
-                plain += text[index..<bang.upperBound]
-                index = bang.upperBound
-            }
+            plain.append(text[index])
+            index = text.index(after: index)
         }
-        plain += text[index...]
         if !plain.isEmpty { parts.append(.text(plain)) }
         return parts
     }
@@ -250,6 +284,15 @@ extension MarkdownBlock {
             switch part {
             case .text(let piece):
                 appendText(piece)
+            case .link(let label, let source):
+                let markdown = "[\(label)](\(source))"
+                if let link = AttributedString.inlineMarkdown(markdown).runs.compactMap(\.link).first,
+                   let url = resolve(link.absoluteString) {
+                    let caption = String(AttributedString.inlineMarkdown(label).characters)
+                    resolved.append(.image(alt: caption, url: url))
+                } else {
+                    appendText(markdown)
+                }
             case .image(let alt, let source):
                 if let url = resolve(source) {
                     resolved.append(.image(alt: alt, url: url))
@@ -262,16 +305,26 @@ extension MarkdownBlock {
     }
 }
 
-// Where a prose image may come from: an existing local image file, named by an absolute
-// path or one relative to the project. Anything else - a web URL, a missing file, a
-// non-image - stays as text, and nothing is ever fetched over the network.
+// Only local image files render here. Web links stay links without fetching them.
 enum TranscriptImage {
     static func resolve(_ source: String, projectPath: String) -> URL? {
-        let trimmed = source.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty, !trimmed.contains("://") else { return nil }
-        let url = trimmed.hasPrefix("/")
-            ? URL(fileURLWithPath: trimmed)
-            : URL(fileURLWithPath: projectPath).appendingPathComponent(trimmed)
+        var path = source.trimmingCharacters(in: .whitespaces)
+        if path.hasPrefix("<"), path.hasSuffix(">") {
+            path = String(path.dropFirst().dropLast())
+        }
+        guard !path.isEmpty, let parsed = URL(string: path),
+              parsed.host?.isEmpty != false || (parsed.isFileURL && parsed.host == "localhost"),
+              parsed.scheme == nil || parsed.isFileURL else { return nil }
+
+        let url: URL
+        if parsed.isFileURL {
+            url = parsed
+        } else {
+            path = ((path.removingPercentEncoding ?? path) as NSString).expandingTildeInPath
+            url = path.hasPrefix("/")
+                ? URL(fileURLWithPath: path)
+                : URL(fileURLWithPath: projectPath).appendingPathComponent(path)
+        }
         let file = url.standardizedFileURL
         guard let type = UTType(filenameExtension: file.pathExtension),
               type.conforms(to: .image) else { return nil }
@@ -710,11 +763,8 @@ struct MarkdownBlockView: View, Equatable {
                     HStack(alignment: .firstTextBaseline, spacing: 9) {
                         marker(item)
                             .frame(minWidth: 14, alignment: .trailing)
-                        InlineMarkdownText(item.text, size: 13.5)
+                        paragraph(item.text)
                             .lineSpacing(2)
-                            .textSelection(.enabled)
-                            .multilineTextAlignment(.leading)
-                            .fixedSize(horizontal: false, vertical: true)
                     }
                     .padding(.leading, CGFloat(item.depth) * 16 * textScale)
                 }
@@ -746,21 +796,51 @@ struct MarkdownBlockView: View, Equatable {
             TranscriptImage.resolve($0, projectPath: projectPath)
         }
         if parts.contains(where: { if case .image = $0 { true } else { false } }) {
-            VStack(alignment: .leading, spacing: 8) {
-                ForEach(Array(parts.enumerated()), id: \.offset) { _, part in
-                    switch part {
-                    case .text(let piece):
-                        let trimmed = piece.trimmed
-                        if !trimmed.isEmpty { paragraphText(trimmed) }
-                    case .image(let alt, let url):
-                        InlineImageView(url: url, label: alt.isEmpty ? nil : alt)
+            if parts.allSatisfy({ part in
+                guard case .text(let text) = part else { return true }
+                return text.allSatisfy { $0.isWhitespace || "·|".contains($0) }
+            }) {
+                let previews = ForEach(Array(parts.enumerated()), id: \.offset) { _, part in
+                    if case .image(let alt, let url) = part {
+                        imagePreview(url: url, label: alt)
                     }
                 }
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .top, spacing: 12) { previews }
+                        .fixedSize()
+                    VStack(alignment: .leading, spacing: 12) { previews }
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(Array(parts.enumerated()), id: \.offset) { _, part in
+                        switch part {
+                        case .text(let piece):
+                            let trimmed = piece.trimmed
+                            if !trimmed.isEmpty { paragraphText(trimmed) }
+                        case .image(let alt, let url):
+                            imagePreview(url: url, label: alt)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
         } else {
             paragraphText(text)
         }
+    }
+
+    private func imagePreview(url: URL, label: String) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            InlineImageView(url: url, label: label.isEmpty ? nil : label)
+            if !label.isEmpty {
+                Text(label)
+                    .scaledText(11)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     private func paragraphText(_ text: String) -> some View {

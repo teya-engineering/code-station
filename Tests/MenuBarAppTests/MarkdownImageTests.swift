@@ -88,6 +88,72 @@ struct MarkdownImageTests {
         ])
     }
 
+    @Test func rendersTheLinkedDesktopAndMobilePreviews() throws {
+        let desktop = root.appendingPathComponent("desktop.png")
+        let mobile = root.appendingPathComponent("mobile.jpg")
+        try Data().write(to: desktop)
+        try Data().write(to: mobile)
+
+        let parts = MarkdownBlock.resolvedParts(
+            "[Desktop preview](\(desktop.path)) · [Mobile preview](mobile.jpg)") {
+                TranscriptImage.resolve($0, projectPath: root.path)
+            }
+        #expect(parts == [
+            .image(alt: "Desktop preview", url: desktop),
+            .text(" · "),
+            .image(alt: "Mobile preview", url: mobile),
+        ])
+    }
+
+    @Test(arguments: ["png", "jpg", "jpeg", "gif", "webp", "heic", "tiff", "bmp", "PNG"])
+    func rendersLinksToImageFormats(_ extensionName: String) throws {
+        let file = root.appendingPathComponent("preview.\(extensionName)")
+        try Data().write(to: file)
+
+        let parts = MarkdownBlock.resolvedParts("[Preview](\(file.absoluteString))") {
+            TranscriptImage.resolve($0, projectPath: root.path)
+        }
+        #expect(parts == [.image(alt: "Preview", url: file)])
+    }
+
+    @Test func handlesSpacesParenthesesAndLinkTitles() throws {
+        let file = root.appendingPathComponent("desktop preview (wide).png")
+        try Data().write(to: file)
+
+        for source in ["<\(file.path)> \"Desktop\"", file.absoluteString,
+                       "desktop%20preview%20(wide).png"] {
+            let parts = MarkdownBlock.resolvedParts("[**Desktop** preview](\(source))") {
+                TranscriptImage.resolve($0, projectPath: root.path)
+            }
+            #expect(parts == [.image(alt: "Desktop preview", url: file)])
+        }
+    }
+
+    @Test func keepsOtherLinksAndSurroundingFormatting() throws {
+        try Data().write(to: root.appendingPathComponent("notes.txt"))
+        let text = "**Files:** [Notes](notes.txt), [Missing](gone.png), "
+            + "[Web](https://example.com/shot.png) and `code`."
+
+        #expect(MarkdownBlock.resolvedParts(text) {
+            TranscriptImage.resolve($0, projectPath: root.path)
+        } == [.text(text)])
+    }
+
+    @Test(arguments: ["`[Preview](shot.png)`", "`` `[Preview](shot.png)` ``",
+                      "`![Preview](shot.png)`", #"\[Preview](shot.png)"#,
+                      "[Preview](unclosed.png", "[Preview]", "[Preview]()"])
+    func leavesCodeEscapesAndIncompleteLinksAlone(_ text: String) {
+        #expect(MarkdownBlock.paragraphParts(text) == [.text(text)])
+    }
+
+    @Test func rendersALinkAfterInlineCode() {
+        let url = URL(fileURLWithPath: "/tmp/shot.png")
+        #expect(MarkdownBlock.resolvedParts("`[Example](shot.png)` [Preview](shot.png)") { _ in url } == [
+            .text("`[Example](shot.png)` "),
+            .image(alt: "Preview", url: url),
+        ])
+    }
+
     // MARK: - Path resolution
 
     @Test func resolvesAnAbsolutePath() throws {
@@ -105,6 +171,30 @@ struct MarkdownImageTests {
 
         let resolved = TranscriptImage.resolve("docs/shot.jpeg", projectPath: root.path)
         #expect(resolved?.path == folder.appendingPathComponent("shot.jpeg").path)
+    }
+
+    @Test func resolvesFileURLsAndEncodedPaths() throws {
+        let file = root.appendingPathComponent("a preview.png")
+        try Data().write(to: file)
+
+        for source in [file.absoluteString, "a%20preview.png", "<\(file.path)>"] {
+            #expect(TranscriptImage.resolve(source, projectPath: root.path)?.path == file.path)
+        }
+    }
+
+    @Test func preservesSpecialCharactersInImagePaths() throws {
+        let file = root.appendingPathComponent("preview #1?.png")
+        try Data().write(to: file)
+
+        #expect(TranscriptImage.resolve(file.path, projectPath: root.path)?.path == file.path)
+        #expect(TranscriptImage.resolve(file.absoluteString, projectPath: root.path)?.path == file.path)
+    }
+
+    @Test func rejectsNonLocalSchemesAndHosts() {
+        for source in ["//example.com/shot.png", "file://example.com/shot.png",
+                       "data:image/png;base64,abc", "ftp://example.com/shot.png"] {
+            #expect(TranscriptImage.resolve(source, projectPath: root.path) == nil)
+        }
     }
 
     @Test func rejectsAMissingFile() throws {
