@@ -74,17 +74,14 @@ struct SessionFactsChip: View {
     // hands it less, and a name too long for either cuts from the tail: the end of a
     // branch name is the part that repeats across a project.
     var maxWidth: CGFloat = 210
-    // The drop from the bottom of the chip to the top of the card. A chip on a tall band
-    // hangs its card off the band's edge rather than off itself, so the card clears what
-    // it sits beside instead of landing on it.
-    var cardGap: CGFloat = 7
     let openChanges: () -> Void
     let contextActions: () -> [MenuEntry]
     let usageTooltip: () -> Tooltip
 
     // The card hangs off the chip rather than being placed by a presenter: it belongs to
     // this corner of the band, and nothing above the band can clip it.
-    static let chipHeight: CGFloat = 24
+    private static let chipHeight: CGFloat = 24
+    private static let cardGap: CGFloat = 7
     private static let cardWidth: CGFloat = 292
     private static let labelWidth: CGFloat = 62
     private static let radius: CGFloat = 12
@@ -175,7 +172,7 @@ struct SessionFactsChip: View {
             // The gap belongs to the hover area rather than sitting between two of them,
             // so moving down into the card does not cross a strip of nothing and take
             // the card away on the way.
-            Color.clear.frame(width: Self.cardWidth, height: cardGap)
+            Color.clear.frame(width: Self.cardWidth, height: Self.cardGap)
             card
         }
         .fixedSize()

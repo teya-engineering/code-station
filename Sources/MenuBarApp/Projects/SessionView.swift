@@ -380,8 +380,8 @@ struct SessionView: View {
     private static let foldedBranchRoom: CGFloat = 130
 
     // The first deck names the session and says what it is doing: the container's icon
-    // and name, the title it was given, then the state, where the work went, and the
-    // branch it is on. Nothing on it navigates. Where to go is the deck under it, which
+    // and name, the title it was given, then the state and the branch it is on.
+    // Nothing on it navigates. Where to go is the deck under it, which
     // holds every destination and every panel this pane can open.
     private func identityDeck(session: ChatSession, project: Project) -> some View {
         // The pane draws the first of these that fits. What the readings ask for is
@@ -451,8 +451,7 @@ struct SessionView: View {
         .headerBand(height: Self.identityDeckHeight)
     }
 
-    // What the session is doing, where its work went, and what it is on. Four items at
-    // most on this side, and none of them navigates inside the pane.
+    // The session's state and branch, with the other details behind the branch chip.
     private func readings(session: ChatSession, fit: HeaderFit) -> some View {
         // The lead checkout is the one the branch speaks for, the same root the stats
         // refresh puts first. The cache only ever holds snapshots of a readable
@@ -467,16 +466,9 @@ struct SessionView: View {
         return HStack(spacing: 9) {
             stateSeat(tone: tone, conversation: live,
                       isTroubleshooting: session.isTroubleshooting)
-            if let pullRequest = session.pullRequest {
-                pullRequestLink(pullRequest)
-            }
             SessionFactsChip(
                 facts: facts,
                 maxWidth: fit == .whole ? Self.branchRoom : Self.foldedBranchRoom,
-                // The chip is centred on a deck taller than itself, and its card belongs
-                // to the deck's edge rather than to the chip's, so it clears the branch
-                // name instead of landing across it.
-                cardGap: (Self.identityDeckHeight - SessionFactsChip.chipHeight) / 2 + 7,
                 openChanges: openChanges,
                 contextActions: contextActions,
                 usageTooltip: {
@@ -849,34 +841,6 @@ struct SessionView: View {
             files: files,
             added: snapshots.reduce(0) { $0 + $1.totalAdded },
             removed: snapshots.reduce(0) { $0 + $1.totalRemoved })
-    }
-
-    // The destination of the work stays on the deck after the command finishes instead of
-    // being hidden behind the chip: the point of showing it is that it survives the turn
-    // that created it. It is the only item on this band that leaves the app.
-    private func pullRequestLink(_ pullRequest: PullRequest) -> some View {
-        Button {
-            guard let url = URL(string: pullRequest.url) else { return }
-            NSWorkspace.shared.open(url)
-        } label: {
-            HStack(spacing: 5) {
-                // Verbatim keeps large PR numbers free of locale grouping separators.
-                Text(verbatim: "PR #\(pullRequest.number)")
-                    .font(.mono(10.5, .semibold))
-                Image(systemName: "arrow.up.right")
-                    .font(.system(size: 8, weight: .semibold))
-            }
-            .foregroundStyle(Theme.accent)
-            .frame(height: 22)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .appTooltip {
-            Tooltip(title: "Pull request #\(pullRequest.number)",
-                    subtitle: pullRequest.url,
-                    note: "Opens in the browser.")
-        }
-        .accessibilityLabel("Open pull request #\(pullRequest.number)")
     }
 
     // "RUNNING · 4m", "WAITING · 12m", "IDLE · 2h": the state and how long it has been
