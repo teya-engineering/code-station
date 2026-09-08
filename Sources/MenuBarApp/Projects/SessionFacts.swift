@@ -1,13 +1,13 @@
 import AppKit
 import SwiftUI
 
-// What a session is besides its name: the branch it is on, the pull request it opened,
-// what it runs on and how full its window is. Most stay in one chip so they do not crowd
-// out the two readings that are watched - what the session is doing and what it has
-// changed. The pull request also has a direct shortcut because it is an action rather
-// than just a reading.
+// What a session is besides its name: the branch it is on, what it has changed, the pull
+// request it opened, what it runs on and how full its window is. The branch is the fact
+// reached for before a diff is read, so it is the one the chip says out loud; the rest
+// stay behind it, in the card it opens.
 struct SessionFacts: Equatable {
     var branch: String?
+    var changes: Changes?
     var pullRequest: PullRequest?
     var model: String?
     // Left out when the agent reports no cost. Codex reports none, and a $0.00 there reads
@@ -16,24 +16,42 @@ struct SessionFacts: Equatable {
     var context: Double?
     var agent: AgentKind = .claudeCode
 
-    // The status line stays stable while the values inside the card change. Context still
-    // runs along the strip's lower edge, where it can be watched without renaming this
-    // control every turn.
+    // What the working tree has done. The file count is missing until git has answered
+    // for the tree, so it is the one part of this that can be zero and still mean
+    // something changed.
+    struct Changes: Equatable {
+        var files: Int
+        var added: Int
+        var removed: Int
+    }
+
+    // What the chip reads as on the bar. A chip that names the branch is a chip whose
+    // summary is the fact you were reaching for, which the word `Details` never was; with
+    // no repository behind the session there is no branch to name, and the chip stands
+    // for the card instead.
     var summary: String? {
-        return isEmpty ? nil : "Details"
+        if isEmpty { return nil }
+        return namedBranch ?? "Details"
+    }
+
+    // The branch when there is one to draw, which is also what tells the chip whether to
+    // wear the fork glyph and the card whether to head itself with a name.
+    var namedBranch: String? {
+        guard let branch, !branch.isEmpty else { return nil }
+        return branch
     }
 
     // Nothing to open the card for.
     var isEmpty: Bool {
-        (branch ?? "").isEmpty && pullRequest == nil && model == nil && cost == nil
-            && context == nil
+        namedBranch == nil && changes == nil && pullRequest == nil && model == nil
+            && cost == nil && context == nil
     }
 
     static func percent(_ fraction: Double) -> String {
         "\(Int((fraction * 100).rounded()))%"
     }
 
-    // The tint the window reading wears, and with it the hairline under the strip. Codex
+    // The tint the window reading wears, and with it the hairline under the deck. Codex
     // makes its own room as the window fills, so a full one there is worth noticing
     // rather than a failure waiting to happen.
     static func contextColour(_ fraction: Double, agent: AgentKind) -> Color {
@@ -47,16 +65,26 @@ struct SessionFacts: Equatable {
 
 // MARK: - The chip
 
+// The branch, and behind it every other fact the session is looked up by. It keeps one
+// shape and one place on the deck while the values inside it change, so it is a target
+// that can be learned rather than a label that moves.
 struct SessionFactsChip: View {
     let facts: SessionFacts
+    // How wide the chip is allowed to grow before the branch truncates. A narrow pane
+    // hands it less, and a name too long for either cuts from the tail: the end of a
+    // branch name is the part that repeats across a project.
+    var maxWidth: CGFloat = 210
+    // The drop from the bottom of the chip to the top of the card. A chip on a tall band
+    // hangs its card off the band's edge rather than off itself, so the card clears what
+    // it sits beside instead of landing on it.
+    var cardGap: CGFloat = 7
     let openChanges: () -> Void
     let contextActions: () -> [MenuEntry]
     let usageTooltip: () -> Tooltip
 
     // The card hangs off the chip rather than being placed by a presenter: it belongs to
-    // this corner of the strip, and nothing above the strip can clip it.
-    private static let chipHeight: CGFloat = 22
-    private static let gap: CGFloat = 7
+    // this corner of the band, and nothing above the band can clip it.
+    static let chipHeight: CGFloat = 24
     private static let cardWidth: CGFloat = 292
     private static let labelWidth: CGFloat = 62
     private static let radius: CGFloat = 12
@@ -111,25 +139,35 @@ struct SessionFactsChip: View {
     }
 
     private var accessibilityLabel: String {
-        guard let context = facts.context else { return "Session details" }
+        let opens = facts.namedBranch.map { "Branch \($0), session details" }
+            ?? "Session details"
+        guard let context = facts.context else { return opens }
         let window = facts.agent == .codex ? "window" : "context"
-        return "Session details, \(window) \(SessionFacts.percent(context)) full"
+        return "\(opens), \(window) \(SessionFacts.percent(context)) full"
     }
 
     private func chip(_ summary: String) -> some View {
         HStack(spacing: 6) {
+            if facts.namedBranch != nil {
+                Image(systemName: "arrow.triangle.branch")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+            }
             Text(summary)
                 .font(.mono(10.5))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(isOpen ? .primary : .secondary)
                 .lineLimit(1)
-                .truncationMode(.middle)
+                .truncationMode(.tail)
             Image(systemName: "chevron.down")
                 .font(.system(size: 7, weight: .semibold))
                 .foregroundStyle(.tertiary)
+                .rotationEffect(.degrees(isOpen ? 180 : 0))
         }
+        .padding(.horizontal, 9)
         .frame(height: Self.chipHeight)
+        .frame(maxWidth: maxWidth)
+        .surface(isOpen ? Theme.field : Theme.sunken, cornerRadius: 11)
         .contentShape(Rectangle())
-        .fixedSize()
     }
 
     private var hoverCard: some View {
@@ -137,7 +175,7 @@ struct SessionFactsChip: View {
             // The gap belongs to the hover area rather than sitting between two of them,
             // so moving down into the card does not cross a strip of nothing and take
             // the card away on the way.
-            Color.clear.frame(width: Self.cardWidth, height: Self.gap)
+            Color.clear.frame(width: Self.cardWidth, height: cardGap)
             card
         }
         .fixedSize()
@@ -147,26 +185,82 @@ struct SessionFactsChip: View {
     }
 
     private var card: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            if let branch = facts.branch, !branch.isEmpty { branchRow(branch) }
-            if let pullRequest = facts.pullRequest { pullRequestRow(pullRequest) }
-            if facts.model != nil || facts.cost != nil { modelRow }
-            if let context = facts.context { contextRow(context) }
+        VStack(spacing: 0) {
+            if let branch = facts.namedBranch { head(branch) }
+            let rows = self.rows
+            ForEach(Array(rows.enumerated()), id: \.element) { position, fact in
+                row(fact)
+                    .overlay(alignment: .bottom) {
+                        if position < rows.count - 1 { rule }
+                    }
+            }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
         .frame(width: Self.cardWidth, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: Self.radius).fill(Theme.card))
         .overlay(RoundedRectangle(cornerRadius: Self.radius).stroke(Theme.border))
+        .clipShape(RoundedRectangle(cornerRadius: Self.radius))
         .shadow(color: .black.opacity(0.18), radius: 20, y: 8)
+    }
+
+    // The card's head repeats the name the chip truncated, at a size that can be read,
+    // with the one action that takes it out of the app beside it.
+    private func head(_ branch: String) -> some View {
+        HStack(spacing: 7) {
+            Image(systemName: "arrow.triangle.branch")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(.tertiary)
+            Text(branch)
+                .font(.mono(11.5, .semibold))
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: 6)
+            CopyButton(size: 10) { branch }
+                .appTooltip("Copy the branch name.")
+        }
+        .padding(.horizontal, 13)
+        .padding(.vertical, 11)
+        .background(Theme.sunken)
+        .overlay(alignment: .bottom) { rule }
+    }
+
+    private var rule: some View {
+        Rectangle().fill(Theme.hairline).frame(height: 1)
     }
 
     // MARK: - Rows
 
+    // Everything that came off the bar, in the order it is asked about: what changed,
+    // where the change went, what did it, and what the work is costing in room and money.
+    private enum Fact: Hashable { case changes, pullRequest, model, context, cost }
+
+    private var rows: [Fact] {
+        var rows: [Fact] = []
+        if facts.changes != nil { rows.append(.changes) }
+        if facts.pullRequest != nil { rows.append(.pullRequest) }
+        if facts.model != nil { rows.append(.model) }
+        if facts.context != nil { rows.append(.context) }
+        if facts.cost != nil { rows.append(.cost) }
+        return rows
+    }
+
+    @ViewBuilder private func row(_ fact: Fact) -> some View {
+        switch fact {
+        case .changes:
+            if let changes = facts.changes { changesRow(changes) }
+        case .pullRequest:
+            if let pullRequest = facts.pullRequest { pullRequestRow(pullRequest) }
+        case .model:
+            if let model = facts.model { modelRow(model) }
+        case .context:
+            if let context = facts.context { contextRow(context) }
+        case .cost:
+            if let cost = facts.cost { costRow(cost) }
+        }
+    }
+
     private func row<Content: View>(_ label: String,
-                                    alignment: VerticalAlignment = .firstTextBaseline,
                                     @ViewBuilder content: () -> Content) -> some View {
-        HStack(alignment: alignment, spacing: 12) {
+        HStack(alignment: .center, spacing: 12) {
             Text(label)
                 .font(.mono(9.5, .semibold))
                 .kerning(1.2)
@@ -175,16 +269,22 @@ struct SessionFactsChip: View {
             content()
             Spacer(minLength: 0)
         }
+        .padding(.horizontal, 13)
+        .frame(height: 34)
     }
 
-    private func branchRow(_ branch: String) -> some View {
-        row("BRANCH") {
+    private func changesRow(_ changes: SessionFacts.Changes) -> some View {
+        row("CHANGES") {
             Button(action: acting(openChanges)) {
-                Text(branch)
-                    .font(.mono(11.5))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .contentShape(Rectangle())
+                HStack(spacing: 7) {
+                    if changes.files > 0 {
+                        Text(counted(changes.files, "file"))
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                    DiffPair(added: changes.added, removed: changes.removed, size: 10.5)
+                }
+                .lineLimit(1)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .appTooltip("Opens Changes.")
@@ -193,7 +293,7 @@ struct SessionFactsChip: View {
 
     // The one thing here that leads out of the app, so it opens in the browser.
     private func pullRequestRow(_ pullRequest: PullRequest) -> some View {
-        row("PR") {
+        row("PULL REQ") {
             Button(action: acting {
                 guard let url = URL(string: pullRequest.url) else { return }
                 NSWorkspace.shared.open(url)
@@ -218,21 +318,19 @@ struct SessionFactsChip: View {
         }
     }
 
-    private var modelRow: some View {
+    private func modelRow(_ model: String) -> some View {
         row("MODEL") {
-            HStack(spacing: 6) {
-                if let model = facts.model {
-                    Text(model).font(.system(size: 12, weight: .medium))
-                }
-                if let cost = facts.cost {
-                    if facts.model != nil { StatusDot() }
-                    Text(Money.short(cost))
-                        .font(.mono(11))
-                        .foregroundStyle(.secondary)
-                        .appTooltip("What this session has spent.")
-                }
-            }
-            .lineLimit(1)
+            Text(model)
+                .font(.system(size: 12, weight: .medium))
+                .lineLimit(1)
+        }
+    }
+
+    private func costRow(_ cost: Double) -> some View {
+        row("COST") {
+            Text(Money.short(cost))
+                .font(.mono(11.5))
+                .appTooltip("What this session has spent.")
         }
     }
 
@@ -241,7 +339,7 @@ struct SessionFactsChip: View {
     // conversation to work on and nothing running that still holds it.
     @ViewBuilder private func contextRow(_ fraction: Double) -> some View {
         let actions = contextActions()
-        row(facts.agent == .codex ? "WINDOW" : "CONTEXT", alignment: .center) {
+        row(facts.agent == .codex ? "WINDOW" : "CONTEXT") {
             if actions.isEmpty {
                 contextReading(fraction, clearable: false)
                     .appTooltip(usageTooltip)
@@ -262,7 +360,7 @@ struct SessionFactsChip: View {
         let colour = SessionFacts.contextColour(fraction, agent: facts.agent)
         return HStack(spacing: 10) {
             Meter(fraction: fraction, colour: colour, height: 5)
-                .frame(width: 128)
+                .frame(width: 110)
             HStack(spacing: 4) {
                 Text(SessionFacts.percent(fraction))
                     .font(.mono(11, .semibold))
@@ -298,7 +396,7 @@ struct SessionFactsChip: View {
 
 // MARK: - The hairline
 
-// How full the window is, read along the bottom edge of the status strip rather than as
+// How full the window is, read along the bottom edge of the destination deck rather than as
 // words on it. The line always runs from green to red, so its length remains the reading
 // and its colour is decoration rather than a second warning scale. Near the end, its tip
 // burns like a fuse to make a window that needs attention hard to miss.

@@ -315,187 +315,124 @@ struct CopyButton: View {
 // MARK: - Header navigation
 
 // One place a header can send you. A destination is chosen and stays chosen, and the
-// chosen one takes a raised card; anything that opens beside the pane rather than
-// replacing it is not a tab and does not belong in the bar.
+// chosen one is underlined; anything that opens beside the pane rather than replacing it
+// is not a tab and does not belong in the deck.
 struct HeaderTab: Identifiable {
     let label: String
     let icon: String
     let selected: Bool
-    // An unread mark that has to survive the label collapsing, since an icon on its own
-    // cannot say the working tree moved.
-    var badge = false
+    // Counts the destination carries for itself. They sit on the tab that opens them,
+    // where they say what has changed rather than only that something has.
+    var diff: Diff?
     let activate: () -> Void
 
     var id: String { label }
+
+    struct Diff: Equatable {
+        let added: Int
+        let removed: Int
+    }
 }
 
-// The header's navigation. Five word-tabs do not fit beside a session title, so only the
-// tab you are on keeps its word and the rest sit as icons. Reaching for the bar opens
-// every label at once, which is what keeps the icons from being a guess: the labels
-// arrive before the click, together, rather than one tooltip at a time. They also hold
-// open for a moment after the pointer leaves, so the words can be read at a glance
-// rather than chased.
+// The header's destinations, each with its word beside its icon and a line under the one
+// you are on. Every word is drawn all the time: a destination that only names itself when
+// pointed at cannot be read by someone who is not pointing, and the deck is the one place
+// in the pane where knowing where you are going is the whole job.
 //
-// The bar holds destinations and nothing else, so its edge is the line between swapping
+// The deck holds destinations and nothing else, so its edge is the line between swapping
 // the pane and opening something next to it.
-struct HeaderTabBar: View {
+struct HeaderTabDeck: View {
     let tabs: [HeaderTab]
-    // Whether the bar keeps the width its open labels need. A header with no width to
-    // spare turns this off: the bar then stands in the space it shows and its labels open
-    // over what is beside it, which is worth more than a rail run off the edge.
-    var holdsOpenRoom = true
-
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var hovering = false
-    @State private var closing: Task<Void, Never>?
-    @FocusState private var focused: String?
-
-    // How long the labels stay open after the pointer leaves. Crossing the bar on the way
-    // somewhere else should not shut it in your face, and a word half read is worse than
-    // no word at all, so the bar waits long enough to finish reading before it closes.
-    private static let lingerSeconds: Double = 1
+    // The deck stands the full height of the band it is on, so the underline of the
+    // chosen tab lands on the band's own bottom edge rather than floating above it.
+    var height: CGFloat = 40
 
     var body: some View {
-        // The bar holds the room every label needs whether the labels are open or not,
-        // and opens leftwards into it. Taking only the width it shows would shift the
-        // rest of the rail sideways each time the pointer crossed the bar, and buttons
-        // that walk away from the pointer are worse than a little unused width here.
-        // Where the header has no width to spare the bar opens over the title instead,
-        // which costs nothing while it is closed.
-        room
-            .hidden()
-            .accessibilityHidden(true)
-            .overlay(alignment: .trailing) {
-                bar
-                    .onHover { inside in
-                        closing?.cancel()
-                        closing = nil
-                        if inside {
-                            hovering = true
-                        } else {
-                            closing = Task { @MainActor in
-                                try? await Task.sleep(for: .seconds(Self.lingerSeconds))
-                                guard !Task.isCancelled else { return }
-                                hovering = false
-                            }
-                        }
-                    }
-                    // The only movement in the header, so it is worth the full quarter
-                    // second: the bar opening is meant to be read, not glimpsed.
-                    .animation(reduceMotion ? nil : .easeOut(duration: 0.22), value: opened)
-            }
-    }
-
-    // Labels open for the pointer and for the keyboard alike, so tabbing through the
-    // header names its destinations the same way hovering does.
-    private var opened: Bool { hovering || focused != nil }
-
-    private var bar: some View {
         HStack(spacing: 2) {
             ForEach(tabs) { tab in
-                Button(action: tab.activate) {
-                    label(tab, opened: opened)
-                }
-                .buttonStyle(.plain)
-                .focused($focused, equals: tab.id)
-                .accessibilityLabel(tab.label)
-                .accessibilityAddTraits(tab.selected ? [.isSelected] : [])
+                HeaderTabDeckItem(tab: tab, height: height)
             }
-        }
-        .padding(3)
-        .background {
-            RoundedRectangle(cornerRadius: 11)
-                .fill(Theme.field)
-                .background {
-                    // A bar with no room of its own opens over the title beside it, so it
-                    // carries the header's own fill to cover what it lands on. Under a bar
-                    // that has its room this is the colour already there.
-                    if !holdsOpenRoom {
-                        RoundedRectangle(cornerRadius: 11).fill(Theme.card)
-                    }
-                }
         }
         .fixedSize(horizontal: true, vertical: false)
-    }
-
-    // The width the bar is held at: every label open, or only the one the chosen tab
-    // keeps where there is no room for the rest. It is built from the same pieces as the
-    // bar itself so the two cannot drift apart, minus the buttons: a second set would
-    // take hits and focus from the real ones.
-    private var room: some View {
-        HStack(spacing: 2) {
-            ForEach(tabs) { tab in
-                label(tab, opened: holdsOpenRoom)
-            }
-        }
-        .padding(3)
-        .fixedSize(horizontal: true, vertical: false)
-    }
-
-    private func label(_ tab: HeaderTab, opened: Bool) -> some View {
-        HStack(spacing: 0) {
-            Image(systemName: tab.icon)
-                .font(.system(size: 13, weight: .semibold))
-                .frame(width: 17, height: 17)
-            HeaderTabLabel(text: tab.label, expanded: opened || tab.selected)
-            if tab.badge {
-                Circle()
-                    .fill(Theme.attention)
-                    .frame(width: 5, height: 5)
-                    .padding(.leading, 6)
-            }
-        }
-        .foregroundStyle(tab.selected ? Color.primary : Color.secondary)
-        .padding(.horizontal, 9)
-        .frame(height: 34)
-        .background {
-            if tab.selected {
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Theme.card)
-                    .shadow(color: .black.opacity(0.08), radius: 1, y: 0.5)
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
-            }
-        }
-        .contentShape(RoundedRectangle(cornerRadius: 8))
     }
 }
 
-// A tab's word, which is there or is not. Collapsing to a zero width rather than being
-// taken out of the row is what lets the bar grow and shrink as one movement instead of
-// five labels popping in beside each other.
-private struct HeaderTabLabel: View {
-    let text: String
-    let expanded: Bool
+private struct HeaderTabDeckItem: View {
+    let tab: HeaderTab
+    let height: CGFloat
+
+    @State private var hovering = false
 
     var body: some View {
-        Text(text)
-            .font(.system(size: Self.size, weight: .semibold))
-            .lineLimit(1)
-            .fixedSize()
-            .frame(width: expanded ? Self.width(of: text) : 0, alignment: .leading)
-            .opacity(expanded ? 1 : 0)
-            .clipped()
-            .padding(.leading, expanded ? 7 : 0)
-            .accessibilityHidden(true)
+        Button(action: tab.activate) {
+            HStack(spacing: 7) {
+                Image(systemName: tab.icon)
+                    .font(.system(size: 13, weight: .semibold))
+                    .frame(width: 17, height: 17)
+                Text(tab.label)
+                    .font(.system(size: Self.wordSize, weight: .semibold))
+                    .fixedSize()
+                    .frame(width: Self.width(of: tab.label), alignment: .leading)
+                if let diff = tab.diff {
+                    DiffPair(added: diff.added, removed: diff.removed,
+                             size: Self.countSize, spacing: Self.countSpacing)
+                        .frame(width: Self.width(of: diff), alignment: .leading)
+                }
+            }
+            .foregroundStyle(tab.selected || hovering ? Color.primary : Color.secondary)
+            .padding(.horizontal, 11)
+            .frame(height: height)
+            .overlay(alignment: .bottom) {
+                // Drawn under every tab and inked only under the chosen one, so choosing
+                // moves the line rather than changing what the deck asks for in width.
+                RoundedRectangle(cornerRadius: 1)
+                    .fill(tab.selected ? Theme.accent : Color.clear)
+                    .frame(height: 2)
+                    .padding(.horizontal, 2)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.12), value: hovering)
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityAddTraits(tab.selected ? [.isSelected] : [])
     }
 
-    private static let size: CGFloat = 12.5
+    // The counts are read out with the destination rather than left as two numbers beside
+    // it, so the tab says the same thing whether it is seen or heard.
+    private var accessibilityLabel: String {
+        guard let diff = tab.diff else { return tab.label }
+        return "\(tab.label), \(diff.added) added, \(diff.removed) removed"
+    }
 
-    // The word's width read from the type rather than from the word once it is on screen.
-    // A width that only arrives after the label has been drawn gives the bar two widths,
-    // one before that pass and a wider one after, and everything that lays out around the
-    // bar has to choose between them: the header would fit itself to the narrow one, be
-    // handed the wide one, fit itself again, and never come to rest.
+    private static let wordSize: CGFloat = 12.5
+    private static let countSize: CGFloat = 10.5
+    private static let countSpacing: CGFloat = 5
+
+    // The word's width read from the type and rounded to a whole point, rather than taken
+    // from the word once it is on screen. A width that only settles after the label has
+    // been drawn gives the deck two widths half a point apart, and the band fitting itself
+    // around the deck has to choose between them: it would fit itself to one, be handed
+    // the other, fit itself again, and never come to rest.
     static func width(of text: String) -> CGFloat {
-        let font = NSFont.systemFont(ofSize: size, weight: .semibold)
+        let font = NSFont.systemFont(ofSize: wordSize, weight: .semibold)
         return ceil(NSAttributedString(string: text, attributes: [.font: font]).size().width)
+    }
+
+    // The counts, measured the same way and for the same reason as the word beside them.
+    static func width(of diff: HeaderTab.Diff) -> CGFloat {
+        let font = NSFont.monospacedSystemFont(ofSize: countSize, weight: .semibold)
+        let counts = "+\(diff.added)−\(diff.removed)"
+        let width = NSAttributedString(string: counts, attributes: [.font: font]).size().width
+        return ceil(width + countSpacing)
     }
 }
 
 // MARK: - Header rail
 
-// The header's actions sit in one rail to the right of the title: the tab bar, then the
-// panel toggles, then the session's utilities, each group closed off by one of these.
+// The header's actions sit in one rail at the trailing end of the band: the panel
+// toggles, then the session's utilities, each group closed off by one of these.
 struct HeaderRailDivider: View {
     var body: some View {
         Rectangle()

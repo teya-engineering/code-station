@@ -286,8 +286,10 @@ struct DiffPair: View {
 
     var body: some View {
         HStack(spacing: spacing) {
-            Text("+\(added)").foregroundStyle(Theme.addition)
-            Text("−\(removed)").foregroundStyle(Theme.deletion)
+            // Verbatim, or a four-figure count is read as a localised number and comes
+            // out grouped: +1,234 beside −86.
+            Text(verbatim: "+\(added)").foregroundStyle(Theme.addition)
+            Text(verbatim: "−\(removed)").foregroundStyle(Theme.deletion)
         }
         .font(.mono(size, weight))
     }

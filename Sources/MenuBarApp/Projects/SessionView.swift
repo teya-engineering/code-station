@@ -215,10 +215,10 @@ struct SessionView: View {
             VStack(spacing: 0) {
                 // Cards anchored to a band hang over whatever is under it. A VStack draws
                 // its children in order, so without these the transcript would cover them,
-                // and the recap card opening from the header would go under the strip.
-                header(session: session, project: project, recap: recap)
+                // and the facts card opening off the first deck would go under the second.
+                identityDeck(session: session, project: project)
                     .zIndex(2)
-                statusStrip(session)
+                destinationDeck(session: session, project: project, recap: recap)
                     .zIndex(1)
                 warningStrip(session: session, project: project)
                 if store.designHasUpdated(for: session) {
@@ -349,50 +349,57 @@ struct SessionView: View {
         }
     }
 
-    // MARK: - Header
+    // MARK: - The two decks
 
-    // Where you are, what you are looking at, and everything you can do about it: the
-    // container's icon and name, the title, then one rail of actions right-aligned.
-    // Everything that describes the state of the session - what it is doing, what it has
-    // changed, and the facts behind the chip - reads on the strip under this one, which
-    // holds no controls at all.
-    private func header(session: ChatSession, project: Project,
-                        recap: SessionRecap?) -> some View {
-        // The pane draws the first of these that fits. What the rail asks for is measured
-        // rather than guessed at a width chosen in advance, so a rail that grows - another
-        // tab, a longer word inside one - gives something up on its own instead of running
-        // off the right edge of the pane.
+    // What each deck gives up to fit the pane, in the order it is worth giving up.
+    // Nothing here drops an action: the rail is where every one of them lives, so it is
+    // a rail that is always whole and reachable, however narrow the window is pulled.
+    private enum HeaderFit {
+        // Every group on the rail, and the branch chip at the width a name deserves.
+        case whole
+        // The utilities behind one button, and the branch cut back to a stub. They are
+        // the parts reached for least often, and the utilities are the only group whose
+        // words survive being put in a menu.
+        case folded
+    }
+
+    // The first deck stands taller than the second: it carries the identity tile and the
+    // state seat, and it is the band a reader lands on first.
+    private static let identityDeckHeight: CGFloat = 58
+    // A 34pt tab needs more room than the thin strip of state this replaces. The eight
+    // points buy destinations that are readable without being pointed at.
+    private static let destinationDeckHeight: CGFloat = 40
+
+    // How much of the session title the row is fitted around. The title truncates by
+    // design, so its full length says nothing about whether the rest fits; this is the
+    // stub worth keeping, and the readings give way rather than cut into it.
+    private static let titleRoom: CGFloat = 110
+
+    // How wide the branch is allowed to grow on each fit.
+    private static let branchRoom: CGFloat = 210
+    private static let foldedBranchRoom: CGFloat = 130
+
+    // The first deck names the session and says what it is doing: the container's icon
+    // and name, the title it was given, then the state, where the work went, and the
+    // branch it is on. Nothing on it navigates. Where to go is the deck under it, which
+    // holds every destination and every panel this pane can open.
+    private func identityDeck(session: ChatSession, project: Project) -> some View {
+        // The pane draws the first of these that fits. What the readings ask for is
+        // measured rather than guessed at a width chosen in advance, so a longer branch
+        // or a longer project name gives something up on its own instead of running off
+        // the right edge of the pane.
         ViewThatFits(in: .horizontal) {
-            headerRow(session: session, project: project, recap: recap, fit: .whole)
-            headerRow(session: session, project: project, recap: recap, fit: .folded)
-            headerRow(session: session, project: project, recap: recap, fit: .tight)
+            identityRow(session: session, project: project, fit: .whole)
+            identityRow(session: session, project: project, fit: .folded)
         }
     }
 
-    // What the row gives up to fit the pane, in the order it is worth giving up. Nothing
-    // here drops an action: the rail is where every one of them lives, so it is a rail
-    // that is always whole and reachable, however narrow the window is pulled.
-    private enum HeaderFit {
-        // Every group on the rail, and the tab bar holding the width its labels need.
-        case whole
-        // The utilities behind one button. They are reached for least often, and are the
-        // only group whose words survive being put in a menu.
-        case folded
-        // The tab bar standing in the width it shows, its labels opening over the title.
-        case tight
-    }
-
-    // How much of the session title the row is fitted around. The title truncates by
-    // design, so its full length says nothing about whether the rail fits; this is the
-    // stub worth keeping, and the rail gives way rather than cut into it.
-    private static let titleRoom: CGFloat = 110
-
-    private func headerRow(session: ChatSession, project: Project, recap: SessionRecap?,
-                           fit: HeaderFit) -> some View {
+    private func identityRow(session: ChatSession, project: Project,
+                             fit: HeaderFit) -> some View {
         let workspace = session.workspaceID.flatMap(store.workspace)
         let container = workspace?.name ?? project.name
         return HStack(spacing: 8) {
-            HStack(spacing: 7) {
+            HStack(spacing: 9) {
                 if let workspace {
                     SidebarIdentityTile(
                         avatar: workspace.sidebarAvatar,
@@ -406,13 +413,11 @@ struct SessionView: View {
                         tint: Theme.projectTint(for: project.name),
                         dashed: project.kind == .adHoc)
                 }
-                // The place the session lives holds its width while there is any title
-                // left to give up, and is only cut short once the title is gone. A rail
-                // button cut in half is worse than either name being shortened.
+                // The durable name reads as the heading, in the same family as everything
+                // else on the deck. It holds its width while there is any title left to
+                // give up, and is only cut short once the title is gone.
                 Text(container)
-                    .font(.mono(11))
-                    .kerning(0.5)
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 13.5, weight: .semibold))
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .layoutPriority(1)
@@ -422,8 +427,12 @@ struct SessionView: View {
                 if session.isTroubleshooting {
                     MonoChip(text: "TROUBLESHOOT", size: 9, tint: Theme.secret)
                 }
+                // A prompt cut to a line is a label rather than a heading, so it is drawn
+                // as one: the same family, a step down in size, and a step back in
+                // contrast from the name it qualifies.
                 Text(session.title)
-                    .font(.serif(17, .semibold))
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .frame(idealWidth: Self.titleRoom, alignment: .leading)
@@ -432,28 +441,100 @@ struct SessionView: View {
 
             Spacer(minLength: 12)
 
-            // A row splits its width between the children rather than handing each one what
-            // it asks for, so the controls can be offered less than their labels need and the
-            // words wrap. Holding them at their natural width makes the title give way first.
-            rail(session: session, project: project, recap: recap, fit: fit)
+            // A row splits its width between the children rather than handing each one
+            // what it asks for, so the readings could be offered less than they need and
+            // truncate. Holding them at their natural width makes the title give way.
+            readings(session: session, fit: fit)
                 .layoutPriority(1)
         }
         .padding(.horizontal, 20)
-        .headerBand()
+        .headerBand(height: Self.identityDeckHeight)
+    }
+
+    // What the session is doing, where its work went, and what it is on. Four items at
+    // most on this side, and none of them navigates inside the pane.
+    private func readings(session: ChatSession, fit: HeaderFit) -> some View {
+        // The lead checkout is the one the branch speaks for, the same root the stats
+        // refresh puts first. The cache only ever holds snapshots of a readable
+        // repository, so having one is the same as the repository being ready.
+        let repository = store.workingDirectories(for: session).first
+            .flatMap { gitStats.snapshot(at: $0) }
+        let facts = facts(session, repository: repository)
+        let tone = SessionTone(sessionID, store: store, runner: runner)
+        // The deck stands for both of a session's conversations, so a Design turn is what
+        // it counts while Design is the side running.
+        let live = LiveConversation.of(sessionID, store: store, runner: runner) ?? session
+        return HStack(spacing: 9) {
+            stateSeat(tone: tone, conversation: live,
+                      isTroubleshooting: session.isTroubleshooting)
+            if let pullRequest = session.pullRequest {
+                pullRequestLink(pullRequest)
+            }
+            SessionFactsChip(
+                facts: facts,
+                maxWidth: fit == .whole ? Self.branchRoom : Self.foldedBranchRoom,
+                // The chip is centred on a deck taller than itself, and its card belongs
+                // to the deck's edge rather than to the chip's, so it clears the branch
+                // name instead of landing across it.
+                cardGap: (Self.identityDeckHeight - SessionFactsChip.chipHeight) / 2 + 7,
+                openChanges: openChanges,
+                contextActions: contextActions,
+                usageTooltip: {
+                    guard let usage = session.usage else { return Tooltip(title: "") }
+                    return usageTooltip(usage, agent: session.agent,
+                                        clearable: !contextActions().isEmpty)
+                })
+        }
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    // The second deck: where to go on the left, what to open beside where you already are
+    // on the right. The gap between the two is the line the tab bar's edge used to carry.
+    //
+    // How full the window is runs along the bottom edge as a hairline. It is the reading
+    // that moves every turn, so it stays in sight, but it is a line rather than words: a
+    // window filling up needs nothing done about it until it is nearly full, and then the
+    // composer says so in words.
+    private func destinationDeck(session: ChatSession, project: Project,
+                                 recap: SessionRecap?) -> some View {
+        let context = session.usage?.contextFraction(for: session.agent)
+        let tone = SessionTone(sessionID, store: store, runner: runner)
+        return ViewThatFits(in: .horizontal) {
+            destinationRow(session: session, project: project, recap: recap, fit: .whole)
+            destinationRow(session: session, project: project, recap: recap, fit: .folded)
+        }
+        .overlay(alignment: .bottom) {
+            if let context {
+                ContextHairline(fraction: context, animated: tone == .running)
+            }
+        }
         .overlay(alignment: .topTrailing) {
             recapCard(recap)
         }
         .animation(reduceMotion ? nil : .easeOut(duration: 0.14), value: recapOpen)
     }
 
-    // Every action the session has, on one line, in the order they are reached for: where
-    // to be, what to open beside it, then what the session itself offers. A hairline
-    // closes each group, so the rail reads as three things rather than as eight icons.
+    private func destinationRow(session: ChatSession, project: Project,
+                                recap: SessionRecap?, fit: HeaderFit) -> some View {
+        HStack(spacing: 8) {
+            HeaderTabDeck(tabs: headerTabs(for: session),
+                          height: Self.destinationDeckHeight)
+            Spacer(minLength: 12)
+            rail(session: session, project: project, recap: recap, fit: fit)
+        }
+        // The deck's own tabs carry the inset that lines their words up with the name on
+        // the band above; the rail's buttons carry theirs inside the glyph's seat.
+        .padding(.leading, 9)
+        .padding(.trailing, 14)
+        .headerBand(Theme.statusBand, height: Self.destinationDeckHeight)
+    }
+
+    // What the pane can open beside where you already are: the panel toggles, then what
+    // the session itself offers. A hairline closes each group, so the rail reads as two
+    // things rather than as five icons.
     private func rail(session: ChatSession, project: Project, recap: SessionRecap?,
                       fit: HeaderFit) -> some View {
         HStack(spacing: 9) {
-            HeaderTabBar(tabs: headerTabs(for: session), holdsOpenRoom: fit != .tight)
-            HeaderRailDivider()
             panelToggles(session: session, project: project)
             if hasUtilities(session: session) {
                 HeaderRailDivider()
@@ -468,10 +549,10 @@ struct SessionView: View {
     }
 
     // Neither of these sends you anywhere: they open a panel beside the pane and leave
-    // what you were reading where it was. Keeping them outside the tab bar is what gives
-    // the bar's edge its meaning - inside it you choose where to be, outside it you open
-    // something next to where you already are. Without a word beside them they carry a
-    // tooltip, which the tabs inside the bar do not need.
+    // what you were reading where it was. Keeping them off the tab deck is what gives the
+    // gap between the two its meaning - inside the deck you choose where to be, outside
+    // it you open something next to where you already are. Without a word beside them
+    // they carry a tooltip, which the worded tabs do not need.
     private func panelToggles(session: ChatSession, project: Project) -> some View {
         let directory = session.worktreePath ?? project.path
         let terminalOpen = terminals.isOpen(terminalScope)
@@ -534,7 +615,7 @@ struct SessionView: View {
     }
 
     // The same three behind one button, for a window too narrow to hold the rail. The
-    // utilities fold before the toggles and the tab bar do: they are the group you reach
+    // utilities fold before the toggles and the tab deck do: they are the group you reach
     // for least often, and the only one whose words survive being put in a menu.
     private func utilitiesOverflow(session: ChatSession, project: Project) -> some View {
         HeaderRailButton(icon: "ellipsis",
@@ -588,12 +669,12 @@ struct SessionView: View {
                 regenerate: generateRecap,
                 close: closeRecap)
                 .padding(.trailing, 20)
-                .offset(y: Theme.headerHeight + 7)
+                .offset(y: Self.destinationDeckHeight + 7)
                 .transition(.fadeIn)
         }
     }
 
-    // The bar in the order it is reached by ⌘1 through ⌘5: first what the agent is being
+    // The deck in the order it is reached by ⌘1 through ⌘5: first what the agent is being
     // set to do, then what it did to the working tree.
     private func headerTabs(for session: ChatSession) -> [HeaderTab] {
         var tabs: [HeaderTab] = [
@@ -639,16 +720,15 @@ struct SessionView: View {
         }
     }
 
-    // The dot survives the label collapsing, since an icon on its own cannot say the
-    // working tree moved. It only says that there is something to see; the pane itself
-    // is where the files and their numbers are.
+    // The counts ride on the tab that opens them. A mark beside the word could only say
+    // that the working tree had moved; the numbers say how far, and they say it in the
+    // one place someone would click to go and look.
     private func changesTab(_ session: ChatSession) -> HeaderTab {
         let label = store.isDesignMode(session) ? "Project Changes" : "Changes"
-        let files = store.workingDirectories(for: session)
-            .compactMap { gitStats.snapshot(at: $0) }
-            .reduce(0) { $0 + $1.files.count }
         var changes = destination(label, icon: "plusminus", value: .changes)
-        changes.badge = files > 0 && tab != .changes
+        changes.diff = workingTreeChanges(session).map {
+            HeaderTab.Diff(added: $0.added, removed: $0.removed)
+        }
         return changes
     }
 
@@ -730,55 +810,7 @@ struct SessionView: View {
         }
     }
 
-    // MARK: - Status strip
-
-    // Everything that describes the session rather than names it, on one thin line: what
-    // it is doing, what it has changed, where that work went, and one chip for the facts
-    // it is looked up by. Reading it is a glance along a line rather than a hunt across a
-    // header and a footer.
-    //
-    // It is a set of readings, not a place to act: every action the session has lives on
-    // the header rail above, which is what keeps the line worth glancing at. The pull
-    // request is the exception, and it is a destination rather than a command.
-    //
-    // How full the window is runs along the bottom edge as a hairline. It is the reading
-    // that moves every turn, so it stays in sight, but it is a line rather than words: a
-    // window filling up needs nothing done about it until it is nearly full, and then the
-    // composer says so in words.
-    private func statusStrip(_ session: ChatSession) -> some View {
-        // The lead checkout is the one this line speaks for, the same root the stats
-        // refresh puts first. The cache only ever holds snapshots of a readable
-        // repository, so having one is the same as the repository being ready.
-        let repository = store.workingDirectories(for: session).first
-            .flatMap { gitStats.snapshot(at: $0) }
-        let facts = facts(session, repository: repository)
-        let tone = SessionTone(sessionID, store: store, runner: runner)
-        // The line stands for both of a session's conversations, so a Design turn is what
-        // it counts while Design is the side running.
-        let live = LiveConversation.of(sessionID, store: store, runner: runner) ?? session
-        return HStack(spacing: 14) {
-            state(tone: tone, conversation: live, isTroubleshooting: session.isTroubleshooting)
-            diffStats(session)
-            Spacer(minLength: 12)
-            if let pullRequest = session.pullRequest {
-                pullRequestLink(pullRequest)
-            }
-            SessionFactsChip(facts: facts,
-                             openChanges: openChanges,
-                             contextActions: contextActions,
-                             usageTooltip: {
-                                 guard let usage = session.usage else { return Tooltip(title: "") }
-                                 return usageTooltip(usage, agent: session.agent,
-                                                     clearable: !contextActions().isEmpty)
-                             })
-        }
-        .statusBand(padding: 20)
-        .overlay(alignment: .bottom) {
-            if let fraction = facts.context {
-                ContextHairline(fraction: fraction, animated: tone == .running)
-            }
-        }
-    }
+    // MARK: - The readings
 
     // A worktree session knows its branch from creation, so the branch can draw on the
     // first frame instead of waiting for git and shifting the chip.
@@ -788,6 +820,7 @@ struct SessionView: View {
             branch: repository?.branch
                 ?? session.worktreeBranch
                 ?? session.sessionProjects?.compactMap(\.worktreeBranch).first,
+            changes: workingTreeChanges(session),
             pullRequest: session.pullRequest,
             model: session.usage?.model(for: session.agent).map { runner.modelTitle($0) },
             cost: appSettings.showsCost(for: session.agent) && cost > 0 ? cost : nil,
@@ -795,8 +828,32 @@ struct SessionView: View {
             agent: session.agent)
     }
 
-    // The destination of the work stays visible after the command finishes instead of
-    // being hidden in Details. It is the only item on this line that leaves the app.
+    // How far the working tree has moved, for the Changes tab and for the card behind the
+    // branch. Until git has answered for this tree, the transcript's own running total
+    // stands in - the same numbers the session's sidebar row shows - so the counts arrive
+    // with the deck instead of a few seconds later. That total has no file count and can
+    // disagree with the tree (it keeps counting across commits and repeat edits), so it
+    // is only a stand-in until the first snapshot lands and corrects it.
+    private func workingTreeChanges(_ session: ChatSession) -> SessionFacts.Changes? {
+        let snapshots = store.workingDirectories(for: session)
+            .compactMap { gitStats.snapshot(at: $0) }
+        guard !snapshots.isEmpty else {
+            guard session.summary.added > 0 || session.summary.removed > 0 else { return nil }
+            return SessionFacts.Changes(files: 0,
+                                        added: session.summary.added,
+                                        removed: session.summary.removed)
+        }
+        let files = snapshots.reduce(0) { $0 + $1.files.count }
+        guard files > 0 else { return nil }
+        return SessionFacts.Changes(
+            files: files,
+            added: snapshots.reduce(0) { $0 + $1.totalAdded },
+            removed: snapshots.reduce(0) { $0 + $1.totalRemoved })
+    }
+
+    // The destination of the work stays on the deck after the command finishes instead of
+    // being hidden behind the chip: the point of showing it is that it survives the turn
+    // that created it. It is the only item on this band that leaves the app.
     private func pullRequestLink(_ pullRequest: PullRequest) -> some View {
         Button {
             guard let url = URL(string: pullRequest.url) else { return }
@@ -827,14 +884,18 @@ struct SessionView: View {
     // last activity, which is what makes it the age of the work in flight. A waiting one
     // counts from where the work stopped, so the number is the length of the wait rather
     // than of the turn that is still holding it.
-    private func state(tone: SessionTone, conversation: ChatSession,
-                       isTroubleshooting: Bool) -> some View {
+    //
+    // The seat under it is a tint of the state's own colour, which is what lets the
+    // reading hold the end of the deck without being drawn any larger. The word is always
+    // there beside the light, so nothing here is said in colour alone.
+    private func stateSeat(tone: SessionTone, conversation: ChatSession,
+                           isTroubleshooting: Bool) -> some View {
         let since: Date? = switch tone {
         case .running: runner.turnStarted(conversation.id)
         case .waiting: runner.waitingSince(conversation.id) ?? conversation.lastActivity
         default: conversation.lastActivity
         }
-        return HStack(spacing: 7) {
+        return HStack(spacing: 6) {
             if tone == .running {
                 PulsingDot(size: 7)
             } else {
@@ -859,6 +920,9 @@ struct SessionView: View {
             }
         }
         .fixedSize()
+        .padding(.horizontal, 9)
+        .frame(height: 24)
+        .background(RoundedRectangle(cornerRadius: 7).fill(tone.colour.opacity(0.12)))
     }
 
     private func showsDirectoryBar(for session: ChatSession, designFilesURL: URL?) -> Bool {
@@ -939,47 +1003,6 @@ struct SessionView: View {
         .scrollIndicators(.hidden)
         .background(Theme.card)
         .overlay(alignment: .bottom) { Divider().overlay(Theme.hairline) }
-    }
-
-    // What the working tree looks like right now: the answer to "what has this session
-    // actually done". Clicking it opens the full diff.
-    //
-    // Until git has answered for this tree, the line wears the transcript's own running
-    // total - the same numbers the session's sidebar row shows - so the strip arrives
-    // whole instead of growing an item a few seconds in. That total has no file count and
-    // can disagree with the tree (it keeps counting across commits and repeat edits),
-    // so it is only a stand-in until the first snapshot lands and corrects it.
-    @ViewBuilder private func diffStats(_ session: ChatSession) -> some View {
-        let snapshots = store.workingDirectories(for: session).compactMap { gitStats.snapshot(at: $0) }
-        if snapshots.isEmpty {
-            if session.summary.added > 0 || session.summary.removed > 0 {
-                statsButton {
-                    DiffPair(added: session.summary.added, removed: session.summary.removed,
-                             size: 11)
-                }
-            }
-        } else {
-            let files = snapshots.reduce(0) { $0 + $1.files.count }
-            if files > 0 {
-                statsButton {
-                    DiffPair(added: snapshots.reduce(0) { $0 + $1.totalAdded },
-                             removed: snapshots.reduce(0) { $0 + $1.totalRemoved },
-                             size: 11)
-                    StatusDot()
-                    StatusValue(text: counted(files, "file"))
-                }
-            }
-        }
-    }
-
-    private func statsButton(@ViewBuilder content: () -> some View) -> some View {
-        Button { tab = .changes } label: {
-            HStack(spacing: 6, content: content)
-                .fixedSize()
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .appTooltip("Open Changes")
     }
 
     // Completed tool calls in the turn that is streaming right now. Each one may have
