@@ -136,18 +136,21 @@ final class TooltipPresenter {
 extension View {
     // The hint is built when it is about to be shown, so it can read state that has
     // moved on since the view was laid out.
-    func appTooltip(_ tooltip: @escaping () -> Tooltip) -> some View {
-        modifier(AppTooltip(tooltip: tooltip))
+    func appTooltip(delay: Duration = TooltipPresenter.hoverDelay,
+                    _ tooltip: @escaping () -> Tooltip) -> some View {
+        modifier(AppTooltip(delay: delay, tooltip: tooltip))
     }
 
     // The one-line form, for a control whose icon does not say what it does.
-    func appTooltip(_ text: String) -> some View {
-        modifier(AppTooltip(tooltip: { Tooltip(title: text) }))
+    func appTooltip(_ text: String,
+                    delay: Duration = TooltipPresenter.hoverDelay) -> some View {
+        modifier(AppTooltip(delay: delay, tooltip: { Tooltip(title: text) }))
     }
 }
 
 private struct AppTooltip: ViewModifier {
     @Environment(TooltipPresenter.self) private var presenter
+    let delay: Duration
     let tooltip: () -> Tooltip
 
     @State private var id = UUID()
@@ -166,18 +169,27 @@ private struct AppTooltip: ViewModifier {
                     return
                 }
                 guard !presenter.sourceEntered(owner: id) else { return }
+                if delay == .zero {
+                    showTooltip()
+                    return
+                }
                 pending = Task {
-                    try? await Task.sleep(for: TooltipPresenter.hoverDelay)
-                    guard !Task.isCancelled, let frame = anchor.frame() else { return }
-                    let tooltip = tooltip()
-                    guard !tooltip.isEmpty else { return }
-                    presenter.show(tooltip, from: frame, owner: id)
+                    try? await Task.sleep(for: delay)
+                    guard !Task.isCancelled else { return }
+                    showTooltip()
                 }
             }
             .onDisappear {
                 pending?.cancel()
                 presenter.hide(owner: id)
             }
+    }
+
+    private func showTooltip() {
+        guard let frame = anchor.frame() else { return }
+        let tooltip = tooltip()
+        guard !tooltip.isEmpty else { return }
+        presenter.show(tooltip, from: frame, owner: id)
     }
 }
 
@@ -309,4 +321,3 @@ struct TooltipHost: View {
         max(Self.margin, min(presenter.anchor.minY, bounds.height - size.height - Self.margin))
     }
 }
-

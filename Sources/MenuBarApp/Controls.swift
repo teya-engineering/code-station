@@ -563,7 +563,7 @@ struct HeaderRailButton: View {
         .onHover { hovering = $0 }
         .animation(.easeOut(duration: 0.12), value: hovering)
         .animation(.easeOut(duration: 0.12), value: state)
-        .appTooltip(label)
+        .appTooltip(label, delay: .zero)
         .accessibilityLabel(label)
     }
 
