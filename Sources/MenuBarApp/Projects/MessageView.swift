@@ -78,7 +78,6 @@ struct MessageView: View, Equatable {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            .frame(maxWidth: userBubbleContentWidth, alignment: .leading)
             .padding(.leading, 15)
             .padding(.trailing, message.text.isEmpty ? 15 : 42)
             .padding(.vertical, 11)
