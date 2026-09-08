@@ -69,6 +69,9 @@ struct ToolPresentation: Sendable {
     // output is the point of making them: a finished row with no note at all reads as a
     // call that did nothing, when it may only be one nobody has expanded.
     var notesResultLineCount = false
+    // Codex reports that a web search finished but leaves its results out of the JSONL
+    // stream. The row still names the query and explains why there is nothing to inspect.
+    var resultUnavailable = false
 
     init(tool: ToolUse, projectPath: String) {
         verb = tool.name
@@ -109,8 +112,15 @@ struct ToolPresentation: Sendable {
             argument = input["url"] as? String ?? ""
             notesResultLineCount = true
         case "WebSearch":
-            argument = input["query"] as? String ?? ""
-            notesResultLineCount = true
+            if let query = input["query"] as? String {
+                argument = query
+                notesResultLineCount = true
+            } else {
+                // Claude sends a JSON object and returns its results. Codex sends the
+                // query as plain text because its public stream does not include results.
+                argument = Self.singleLine(tool.input)
+                resultUnavailable = true
+            }
         case "Task", "Agent":
             // Who was sent and what they were sent to do. A fan-out puts several agents
             // on the same kind of work, and several kinds of agent on the same file, so

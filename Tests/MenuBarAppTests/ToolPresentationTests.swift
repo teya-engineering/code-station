@@ -139,6 +139,30 @@ struct ToolPresentationTests {
         #expect(presentation.label == "Bash · swift test --filter ToolPresentationTests")
     }
 
+    @Test func presentsAPlainCodexWebSearchQueryAsUnavailable() {
+        let tool = ToolUse(id: "codex-search", name: "WebSearch",
+                           input: "Swift Observation", result: "")
+
+        let presentation = ToolPresentation(tool: tool, projectPath: "/tmp/project")
+
+        #expect(presentation.argument == "Swift Observation")
+        #expect(presentation.label == "WebSearch · Swift Observation")
+        #expect(presentation.resultUnavailable)
+        #expect(!presentation.notesResultLineCount)
+    }
+
+    @Test func presentsAClaudeWebSearchResultNormally() {
+        let tool = ToolUse(id: "claude-search", name: "WebSearch",
+                           input: #"{"query":"Swift Observation"}"#,
+                           result: "Search result")
+
+        let presentation = ToolPresentation(tool: tool, projectPath: "/tmp/project")
+
+        #expect(presentation.argument == "Swift Observation")
+        #expect(!presentation.resultUnavailable)
+        #expect(presentation.notesResultLineCount)
+    }
+
     @Test func foldsAMultilineCodexShellCommandOntoOneLine() {
         let tool = ToolUse(id: "codex-script", name: "Bash",
                            input: "swift build\n  swift test")

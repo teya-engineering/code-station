@@ -327,6 +327,7 @@ private struct CallReceipt: View {
     private var outcomeNote: String? {
         if tool.isError { return tool.exitCode.map { "exit \($0)" } ?? "failed" }
         if node.callCount > 0 { return counted(node.callCount, "call") }
+        if presentation.resultUnavailable { return "results unavailable" }
         guard presentation.notesResultLineCount, let result = tool.result else { return nil }
         return counted(Self.lineCount(result), "line")
     }
@@ -373,6 +374,12 @@ private struct CallDetail: View {
                             : change.name,
                         openChange: openChange)
                 }
+            } else if presentation.resultUnavailable {
+                ToolOutputCard(
+                    label: "RESULTS",
+                    text: "Codex completed the search, but its command stream does not include the results.",
+                    isFailure: false,
+                    openTerminal: nil)
             } else if !isCommand, let result = tool.result {
                 ToolOutputCard(label: tool.startsAgents ? "AGENT REPORT" : "OUTPUT",
                                text: result,
@@ -390,6 +397,7 @@ private struct CallDetail: View {
     nonisolated static func hasContent(node: ToolNode,
                                         presentation: ToolPresentation) -> Bool {
         if !presentation.changes.isEmpty && !node.tool.isError { return true }
+        if presentation.resultUnavailable { return true }
         if node.tool.name == "Bash" { return node.tool.result != nil }
         if node.tool.result != nil { return true }
         return node.tool.status?.isEmpty == false
