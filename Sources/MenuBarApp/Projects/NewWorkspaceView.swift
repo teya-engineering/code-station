@@ -9,6 +9,7 @@ struct NewWorkspaceView: View {
     @Environment(ProjectStore.self) private var store
 
     @State private var name = ""
+    @State private var projectFilter = ""
     @State private var selected: [UUID] = []
     @State private var leadProjectID: UUID?
 
@@ -43,9 +44,21 @@ struct NewWorkspaceView: View {
             }
             .padding(20)
 
+            projectFilterField
+                .padding(.horizontal, 20)
+                .padding(.bottom, 12)
+
             ScrollView {
                 VStack(spacing: 9) {
-                    ForEach(store.regularProjects) { project in
+                    if filteredProjects.isEmpty && !projectFilter.isBlank {
+                        Text("No project matches this filter.")
+                            .font(.system(size: 13))
+                            .foregroundStyle(.secondary)
+                            .padding(14)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+
+                    ForEach(filteredProjects) { project in
                         projectRow(project)
                     }
 
@@ -66,6 +79,42 @@ struct NewWorkspaceView: View {
         }
         .frame(width: 650)
         .background(Theme.background)
+    }
+
+    private var projectFilterField: some View {
+        HStack(spacing: 7) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.tertiary)
+            TextField("Filter projects by name or path", text: $projectFilter)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12.5))
+            if !projectFilter.isEmpty {
+                Button { projectFilter = "" } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
+                        .frame(width: 20, height: 20)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear project filter")
+                .appTooltip("Clear filter")
+            }
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 36)
+        .fieldSurface(cornerRadius: 8)
+    }
+
+    private var filteredProjects: [Project] {
+        let query = projectFilter.trimmed
+        guard !query.isEmpty else { return store.regularProjects }
+        return store.regularProjects.filter {
+            $0.name.localizedCaseInsensitiveContains(query)
+                || $0.path.localizedCaseInsensitiveContains(query)
+                || $0.collapsedPath.localizedCaseInsensitiveContains(query)
+        }
     }
 
     private func projectRow(_ project: Project) -> some View {
