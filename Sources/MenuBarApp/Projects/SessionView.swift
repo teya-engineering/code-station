@@ -356,22 +356,37 @@ struct SessionView: View {
     // holds no controls at all.
     private func header(session: ChatSession, project: Project,
                         recap: SessionRecap?) -> some View {
-        // How wide the pane is says nothing about the rail, so reading it here cannot
-        // feed back into what the rail then asks for.
-        GeometryReader { proxy in
-            headerRow(session: session, project: project, recap: recap,
-                      folded: proxy.size.width < Self.foldsUtilitiesBelow)
+        // The pane draws the first of these that fits. What the rail asks for is measured
+        // rather than guessed at a width chosen in advance, so a rail that grows - another
+        // tab, a longer word inside one - gives something up on its own instead of running
+        // off the right edge of the pane.
+        ViewThatFits(in: .horizontal) {
+            headerRow(session: session, project: project, recap: recap, fit: .whole)
+            headerRow(session: session, project: project, recap: recap, fit: .folded)
+            headerRow(session: session, project: project, recap: recap, fit: .tight)
         }
-        .frame(height: Theme.headerHeight)
     }
 
-    // The width at which the utilities fold. The rail never wraps, so the title is what
-    // gives way as the window narrows; below this there is too little of it left to read,
-    // and the last group folds rather than the title losing any more.
-    private static let foldsUtilitiesBelow: CGFloat = 700
+    // What the row gives up to fit the pane, in the order it is worth giving up. Nothing
+    // here drops an action: the rail is where every one of them lives, so it is a rail
+    // that is always whole and reachable, however narrow the window is pulled.
+    private enum HeaderFit {
+        // Every group on the rail, and the tab bar holding the width its labels need.
+        case whole
+        // The utilities behind one button. They are reached for least often, and are the
+        // only group whose words survive being put in a menu.
+        case folded
+        // The tab bar standing in the width it shows, its labels opening over the title.
+        case tight
+    }
+
+    // How much of the session title the row is fitted around. The title truncates by
+    // design, so its full length says nothing about whether the rail fits; this is the
+    // stub worth keeping, and the rail gives way rather than cut into it.
+    private static let titleRoom: CGFloat = 110
 
     private func headerRow(session: ChatSession, project: Project, recap: SessionRecap?,
-                           folded: Bool) -> some View {
+                           fit: HeaderFit) -> some View {
         let workspace = session.workspaceID.flatMap(store.workspace)
         let container = workspace?.name ?? project.name
         return HStack(spacing: 8) {
@@ -389,14 +404,16 @@ struct SessionView: View {
                         tint: Theme.projectTint(for: project.name),
                         dashed: project.kind == .adHoc)
                 }
-                // The place the session lives is never cut short: when the row runs out
-                // of room, the session title is what gives way.
+                // The place the session lives holds its width while there is any title
+                // left to give up, and is only cut short once the title is gone. A rail
+                // button cut in half is worse than either name being shortened.
                 Text(container)
                     .font(.mono(11))
                     .kerning(0.5)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-                    .fixedSize()
+                    .truncationMode(.tail)
+                    .layoutPriority(1)
                 Text("/")
                     .font(.mono(11))
                     .foregroundStyle(.tertiary)
@@ -407,6 +424,7 @@ struct SessionView: View {
                     .font(.serif(17, .semibold))
                     .lineLimit(1)
                     .truncationMode(.tail)
+                    .frame(idealWidth: Self.titleRoom, alignment: .leading)
                     .changingName(session.title)
             }
 
@@ -415,7 +433,7 @@ struct SessionView: View {
             // A row splits its width between the children rather than handing each one what
             // it asks for, so the controls can be offered less than their labels need and the
             // words wrap. Holding them at their natural width makes the title give way first.
-            rail(session: session, project: project, recap: recap, folded: folded)
+            rail(session: session, project: project, recap: recap, fit: fit)
                 .layoutPriority(1)
         }
         .padding(.horizontal, 20)
@@ -430,17 +448,17 @@ struct SessionView: View {
     // to be, what to open beside it, then what the session itself offers. A hairline
     // closes each group, so the rail reads as three things rather than as eight icons.
     private func rail(session: ChatSession, project: Project, recap: SessionRecap?,
-                      folded: Bool) -> some View {
+                      fit: HeaderFit) -> some View {
         HStack(spacing: 9) {
-            HeaderTabBar(tabs: headerTabs(for: session))
+            HeaderTabBar(tabs: headerTabs(for: session), holdsOpenRoom: fit != .tight)
             HeaderRailDivider()
             panelToggles(session: session, project: project)
             if hasUtilities(session: session) {
                 HeaderRailDivider()
-                if folded {
-                    utilitiesOverflow(session: session, project: project)
-                } else {
+                if fit == .whole {
                     utilities(session: session, project: project, recap: recap)
+                } else {
+                    utilitiesOverflow(session: session, project: project)
                 }
             }
         }

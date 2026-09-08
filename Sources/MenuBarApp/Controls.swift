@@ -339,6 +339,10 @@ struct HeaderTab: Identifiable {
 // the pane and opening something next to it.
 struct HeaderTabBar: View {
     let tabs: [HeaderTab]
+    // Whether the bar keeps the width its open labels need. A header with no width to
+    // spare turns this off: the bar then stands in the space it shows and its labels open
+    // over what is beside it, which is worth more than a rail run off the edge.
+    var holdsOpenRoom = true
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var hovering = false
@@ -355,7 +359,9 @@ struct HeaderTabBar: View {
         // and opens leftwards into it. Taking only the width it shows would shift the
         // rest of the rail sideways each time the pointer crossed the bar, and buttons
         // that walk away from the pointer are worse than a little unused width here.
-        widestRow
+        // Where the header has no width to spare the bar opens over the title instead,
+        // which costs nothing while it is closed.
+        room
             .hidden()
             .accessibilityHidden(true)
             .overlay(alignment: .trailing) {
@@ -396,17 +402,29 @@ struct HeaderTabBar: View {
             }
         }
         .padding(3)
-        .background(RoundedRectangle(cornerRadius: 11).fill(Theme.field))
+        .background {
+            RoundedRectangle(cornerRadius: 11)
+                .fill(Theme.field)
+                .background {
+                    // A bar with no room of its own opens over the title beside it, so it
+                    // carries the header's own fill to cover what it lands on. Under a bar
+                    // that has its room this is the colour already there.
+                    if !holdsOpenRoom {
+                        RoundedRectangle(cornerRadius: 11).fill(Theme.card)
+                    }
+                }
+        }
         .fixedSize(horizontal: true, vertical: false)
     }
 
-    // The bar as it stands with every label open, which is the width it is held at. It
-    // is built from the same pieces as the bar itself so the two cannot drift apart,
-    // minus the buttons: a second set would take hits and focus from the real ones.
-    private var widestRow: some View {
+    // The width the bar is held at: every label open, or only the one the chosen tab
+    // keeps where there is no room for the rest. It is built from the same pieces as the
+    // bar itself so the two cannot drift apart, minus the buttons: a second set would
+    // take hits and focus from the real ones.
+    private var room: some View {
         HStack(spacing: 2) {
             ForEach(tabs) { tab in
-                label(tab, opened: true)
+                label(tab, opened: holdsOpenRoom)
             }
         }
         .padding(3)
