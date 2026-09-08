@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 // Segmented choices used in pane headers. Keeping the control shared means project and
@@ -466,31 +467,28 @@ private struct HeaderTabLabel: View {
     let text: String
     let expanded: Bool
 
-    @State private var width: CGFloat = 0
-
     var body: some View {
         Text(text)
-            .font(.system(size: 12.5, weight: .semibold))
+            .font(.system(size: Self.size, weight: .semibold))
             .lineLimit(1)
             .fixedSize()
-            .background(GeometryReader { proxy in
-                Color.clear.preference(key: HeaderTabLabelWidthKey.self,
-                                       value: proxy.size.width)
-            })
-            .onPreferenceChange(HeaderTabLabelWidthKey.self) { width = $0 }
-            .frame(width: expanded ? width : 0, alignment: .leading)
+            .frame(width: expanded ? Self.width(of: text) : 0, alignment: .leading)
             .opacity(expanded ? 1 : 0)
             .clipped()
             .padding(.leading, expanded ? 7 : 0)
             .accessibilityHidden(true)
     }
-}
 
-private struct HeaderTabLabelWidthKey: PreferenceKey {
-    static let defaultValue: CGFloat = 0
+    private static let size: CGFloat = 12.5
 
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = max(value, nextValue())
+    // The word's width read from the type rather than from the word once it is on screen.
+    // A width that only arrives after the label has been drawn gives the bar two widths,
+    // one before that pass and a wider one after, and everything that lays out around the
+    // bar has to choose between them: the header would fit itself to the narrow one, be
+    // handed the wide one, fit itself again, and never come to rest.
+    static func width(of text: String) -> CGFloat {
+        let font = NSFont.systemFont(ofSize: size, weight: .semibold)
+        return ceil(NSAttributedString(string: text, attributes: [.font: font]).size().width)
     }
 }
 
