@@ -240,7 +240,9 @@ struct SessionView: View {
                     } else if session.sourceDesignSessionID != nil {
                         DesignReferenceView(sessionID: session.id)
                     } else {
-                        DesignStartView(sessionID: session.id)
+                        Color.clear
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .task { openDesign(for: session) }
                     }
                 case .troubleshoot:
                     TroubleshootTabView(sessionID: session.id) { tab = .conversation }
@@ -603,7 +605,11 @@ struct SessionView: View {
         ]
         if !session.isActivelyDesigning,
            appSettings.designEnabled || store.isDesignMode(session) {
-            tabs.append(destination("Design", icon: "paintbrush.pointed", value: .design))
+            tabs.append(HeaderTab(
+                label: "Design",
+                icon: "paintbrush.pointed",
+                selected: tab == .design,
+                activate: { openDesign(for: session) }))
         }
         tabs.append(destination("Troubleshoot", icon: "stethoscope", value: .troubleshoot))
         tabs.append(changesTab(session))
@@ -614,6 +620,22 @@ struct SessionView: View {
     private func destination(_ label: String, icon: String, value: Tab) -> HeaderTab {
         HeaderTab(label: label, icon: icon, selected: tab == value) {
             tab = value
+        }
+    }
+
+    private func openDesign(for session: ChatSession) {
+        guard store.designSession(for: session.id) == nil,
+              session.sourceDesignSessionID == nil else {
+            tab = .design
+            return
+        }
+
+        switch store.startDesign(for: session.id) {
+        case .success:
+            tab = .design
+        case .failure(let failure):
+            tab = .conversation
+            dialogs.show(.notice("Could not start the Design", message: failure.message))
         }
     }
 
