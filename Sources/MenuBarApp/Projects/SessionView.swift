@@ -494,6 +494,9 @@ struct SessionView: View {
         return ViewThatFits(in: .horizontal) {
             destinationRow(session: session, project: project, recap: recap, fit: .whole)
             destinationRow(session: session, project: project, recap: recap, fit: .folded)
+            // Even the folded rail can leave too little room for every tab label.
+            destinationRow(session: session, project: project, recap: recap, fit: .folded,
+                           scrollsTabs: true)
         }
         .overlay(alignment: .bottom) {
             if let context {
@@ -507,10 +510,12 @@ struct SessionView: View {
     }
 
     private func destinationRow(session: ChatSession, project: Project,
-                                recap: SessionRecap?, fit: HeaderFit) -> some View {
+                                recap: SessionRecap?, fit: HeaderFit,
+                                scrollsTabs: Bool = false) -> some View {
         HStack(spacing: 8) {
             HeaderTabDeck(tabs: headerTabs(for: session),
-                          height: Self.destinationDeckHeight)
+                          height: Self.destinationDeckHeight,
+                          scrollable: scrollsTabs)
             Spacer(minLength: 12)
             rail(session: session, project: project, recap: recap, fit: fit)
         }

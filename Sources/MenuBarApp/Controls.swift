@@ -346,13 +346,43 @@ struct HeaderTabDeck: View {
     // The deck stands the full height of the band it is on, so the underline of the
     // chosen tab lands on the band's own bottom edge rather than floating above it.
     var height: CGFloat = 40
+    var scrollable = false
+    @State private var scrolledTabID: HeaderTab.ID?
 
     var body: some View {
+        if scrollable {
+            ScrollView(.horizontal, showsIndicators: false) {
+                items
+            }
+            .scrollPosition(id: $scrolledTabID, anchor: .center)
+            .frame(height: height)
+            .background {
+                GeometryReader { geometry in
+                    Color.clear.task(id: geometry.size.width) {
+                        // An unchanged target can keep its old offset after a resize.
+                        // Reapply it once the viewport has its new width.
+                        scrolledTabID = nil
+                        await Task.yield()
+                        scrolledTabID = tabs.first(where: \.selected)?.id
+                    }
+                }
+            }
+            .onChange(of: tabs.first(where: \.selected)?.id, initial: true) { _, selected in
+                scrolledTabID = selected
+            }
+        } else {
+            items
+        }
+    }
+
+    private var items: some View {
         HStack(spacing: 2) {
             ForEach(tabs) { tab in
                 HeaderTabDeckItem(tab: tab, height: height)
+                    .id(tab.id)
             }
         }
+        .scrollTargetLayout(isEnabled: scrollable)
         .fixedSize(horizontal: true, vertical: false)
     }
 }

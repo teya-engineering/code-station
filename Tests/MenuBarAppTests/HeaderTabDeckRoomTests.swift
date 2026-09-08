@@ -64,4 +64,39 @@ struct HeaderTabDeckRoomTests {
             view.layoutSubtreeIfNeeded()
         }
     }
+
+    @Test func scrollingKeepsTheSelectedTabVisibleWhenResizedOrChanged() async throws {
+        let hosting = NSHostingController(rootView: HeaderTabDeck(
+            tabs: tabs(selecting: "Explorer"), scrollable: true))
+        hosting.sizingOptions = []
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 40),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentViewController = hosting
+
+        for width: CGFloat in [400, 250, 450] {
+            window.setContentSize(NSSize(width: width, height: 40))
+            await settle(hosting.view)
+            let scroll = try #require(scrollView(in: hosting.view))
+            let document = try #require(scroll.documentView)
+            #expect(abs(scroll.contentView.bounds.width - width) < 1)
+            #expect(abs(scroll.documentVisibleRect.maxX - document.bounds.maxX) < 1)
+        }
+
+        hosting.rootView = HeaderTabDeck(tabs: tabs(selecting: "Chat"), scrollable: true)
+        await settle(hosting.view)
+        let scroll = try #require(scrollView(in: hosting.view))
+        #expect(abs(scroll.documentVisibleRect.minX) < 1)
+    }
+
+    private func settle(_ view: NSView) async {
+        for _ in 0..<4 {
+            try? await Task.sleep(for: .milliseconds(20))
+            view.layoutSubtreeIfNeeded()
+        }
+    }
+
+    private func scrollView(in view: NSView) -> NSScrollView? {
+        if let scroll = view as? NSScrollView { return scroll }
+        return view.subviews.lazy.compactMap { scrollView(in: $0) }.first
+    }
 }
