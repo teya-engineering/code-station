@@ -20,7 +20,8 @@ struct CodeEditorTests {
         private var stored: String
 
         init(_ text: String, language: CodeLanguage? = .swift,
-             matches: [NSRange] = [], currentMatch: Int? = nil) {
+             matches: [NSRange] = [], currentMatch: Int? = nil,
+             findQuery: String = "", onFind: (() -> Void)? = nil) {
             stored = text
             let coordinator = CodeEditorView.Coordinator(
                 CodeEditorView(documentID: "pane.swift", text: .constant(text),
@@ -33,16 +34,19 @@ struct CodeEditorTests {
                               backing: .buffered, defer: false)
             window.contentView?.addSubview(view)
             view.layoutSubtreeIfNeeded()
-            apply(text: text, language: language, matches: matches, currentMatch: currentMatch)
+            apply(text: text, language: language, matches: matches, currentMatch: currentMatch,
+                  findQuery: findQuery, onFind: onFind)
         }
 
         func apply(text: String, language: CodeLanguage? = .swift,
-                   matches: [NSRange] = [], currentMatch: Int? = nil) {
+                   matches: [NSRange] = [], currentMatch: Int? = nil,
+                   findQuery: String = "", onFind: (() -> Void)? = nil) {
             stored = text
             coordinator.apply(CodeEditorView(
                 documentID: "pane.swift",
                 text: Binding(get: { self.stored }, set: { self.stored = $0 }),
-                language: language, matches: matches, currentMatch: currentMatch))
+                language: language, matches: matches, currentMatch: currentMatch,
+                findQuery: findQuery, onFind: onFind))
         }
 
         var textView: NSTextView { scrollView.documentView as! NSTextView }
@@ -163,6 +167,59 @@ struct CodeEditorTests {
         pane.apply(text: text)
 
         #expect(pane.background(of: "alpha") == nil)
+    }
+
+    @Test(arguments: [NSEvent.ModifierFlags.control, [.control, .capsLock]])
+    func controlFInTheEditorOpensFindWithoutMovingTheCaret(modifiers: NSEvent.ModifierFlags) throws {
+        var opened = false
+        let pane = Pane("alpha beta", onFind: { opened = true })
+        pane.window.makeFirstResponder(pane.textView)
+        pane.textView.selectedRange = NSRange(location: 2, length: 0)
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: modifiers,
+            timestamp: 0, windowNumber: pane.window.windowNumber, context: nil,
+            characters: "\u{6}", charactersIgnoringModifiers: "f", isARepeat: false, keyCode: 3))
+
+        pane.window.sendEvent(event)
+
+        #expect(opened)
+        #expect(pane.textView.selectedRange == NSRange(location: 2, length: 0))
+        #expect(pane.boundText == "alpha beta")
+    }
+
+    @Test func typingFStillEditsTheFile() throws {
+        var opened = false
+        let pane = Pane("alpha", onFind: { opened = true })
+        pane.window.makeFirstResponder(pane.textView)
+        pane.textView.selectedRange = NSRange(location: 0, length: 0)
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [],
+            timestamp: 0, windowNumber: pane.window.windowNumber, context: nil,
+            characters: "f", charactersIgnoringModifiers: "f", isARepeat: false, keyCode: 3))
+
+        pane.window.sendEvent(event)
+
+        #expect(!opened)
+        #expect(pane.boundText == "falpha")
+    }
+
+    @Test func changingTheQueryScrollsToItsFirstMatch() throws {
+        let text = "alpha\n" + String(repeating: "line\n", count: 300) + "beta\n"
+        let pane = Pane(text, matches: FileFind.search("alpha", in: text).matches,
+                        currentMatch: 0, findQuery: "alpha")
+        let initialOffset = pane.scrollView.contentView.bounds.minY
+        let matches = FileFind.search("beta", in: text).matches
+
+        pane.apply(text: text, matches: matches, currentMatch: 0, findQuery: "beta")
+
+        #expect(pane.scrollView.contentView.bounds.minY > initialOffset)
+        let layoutManager = try #require(pane.textView.layoutManager)
+        let container = try #require(pane.textView.textContainer)
+        let glyphs = layoutManager.glyphRange(forCharacterRange: matches[0], actualCharacterRange: nil)
+        let matchRect = layoutManager.boundingRect(forGlyphRange: glyphs, in: container)
+            .offsetBy(dx: pane.textView.textContainerInset.width,
+                      dy: pane.textView.textContainerInset.height)
+        #expect(pane.textView.visibleRect.intersects(matchRect))
     }
 
     // Typing has to reach the pane's own text, or Save would write back what was loaded.

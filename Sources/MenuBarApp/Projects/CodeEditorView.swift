@@ -61,6 +61,8 @@ struct CodeEditorView: NSViewRepresentable {
     let language: CodeLanguage?
     let matches: [NSRange]
     let currentMatch: Int?
+    var findQuery = ""
+    var onFind: (() -> Void)?
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -91,6 +93,7 @@ struct CodeEditorView: NSViewRepresentable {
         // instead would drag the pane back to it on every keystroke before it, since
         // typing above a match moves it.
         private var revealed: Int?
+        private var revealedQuery = ""
 
         // The state each line starts in, read as far down the file as the highlighter has
         // got. An edit drops everything from that line on, so the tail is read again only
@@ -196,6 +199,7 @@ struct CodeEditorView: NSViewRepresentable {
         func apply(_ parent: CodeEditorView) {
             self.parent = parent
             guard let textView else { return }
+            textView.onFind = parent.onFind
 
             if documentID != parent.documentID {
                 documentID = parent.documentID
@@ -213,8 +217,9 @@ struct CodeEditorView: NSViewRepresentable {
 
             matches = parent.matches
             currentMatch = parent.currentMatch
-            if currentMatch != revealed {
+            if currentMatch != revealed || parent.findQuery != revealedQuery {
                 revealed = currentMatch
+                revealedQuery = parent.findQuery
                 if let index = currentMatch, matches.indices.contains(index) {
                     textView.scrollRangeToVisible(matches[index])
                 }
@@ -425,6 +430,18 @@ enum CodeEditorStyle {
 // line and the caret has somewhere to sit.
 final class CodeDocumentView: NSTextView {
     private var contentWidth: CGFloat = 0
+    var onFind: (() -> Void)?
+
+    override func keyDown(with event: NSEvent) {
+        // AppKit binds Ctrl+F to moving the caret, which can bypass SwiftUI shortcuts.
+        let modifiers = event.modifierFlags.intersection([.command, .control, .option, .shift])
+        if modifiers == .control, event.charactersIgnoringModifiers?.lowercased() == "f",
+           let onFind {
+            onFind()
+            return
+        }
+        super.keyDown(with: event)
+    }
 
     // Horizontal scrolling changes which columns are visible, not which lines are on
     // screen. TextKit's lazy layout must cover the full width or it can discard every

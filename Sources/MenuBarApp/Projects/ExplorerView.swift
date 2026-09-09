@@ -54,7 +54,6 @@ struct ExplorerView: View {
             }
         }
         .background(Theme.background)
-        .background(findShortcut)
         .background(ExplorerSearchShortcut { showFileSearch() })
         .background(ExplorerFileShortcuts(
             enabled: treeFocused && dialogs.current == nil && !pastingFiles,
@@ -250,6 +249,11 @@ struct ExplorerView: View {
                     Spacer()
                     if loadingPreview || saving { ProgressView().controlSize(.small) }
                     if dirty { saveButtons(node) }
+                    if isEditable && !renderingMarkdown {
+                        InlineLink(title: "Find", action: showFind)
+                            .keyboardShortcut("f", modifiers: .control)
+                            .appTooltip("Find in file (Ctrl+F)")
+                    }
                     if node.supportsMarkdownPreview {
                         InlineLink(title: renderingMarkdown ? "Edit" : "Preview") {
                             resetFind()
@@ -308,7 +312,9 @@ struct ExplorerView: View {
                                text: $draft,
                                language: language,
                                matches: findPresented ? findResult.matches : [],
-                               currentMatch: findPresented ? currentFindMatch : nil)
+                               currentMatch: findPresented ? currentFindMatch : nil,
+                               findQuery: findQuery,
+                               onFind: showFind)
             }
         case .image(let data):
             if let image = NSImage(data: data) {
@@ -363,15 +369,6 @@ struct ExplorerView: View {
 
     private var currentFindMatch: Int? {
         findResult.matches.indices.contains(findSelection) ? findSelection : nil
-    }
-
-    private var findShortcut: some View {
-        Button("") { showFind() }
-            .buttonStyle(.plain)
-            .keyboardShortcut("f", modifiers: .control)
-            .opacity(0)
-            .disabled(!isEditable || renderingMarkdown)
-            .accessibilityHidden(true)
     }
 
     private var findBar: some View {
@@ -440,6 +437,7 @@ struct ExplorerView: View {
     }
 
     private func showFind() {
+        guard isEditable, !renderingMarkdown, dialogs.current == nil else { return }
         findPresented = true
         refreshFind()
         findFocused = true
