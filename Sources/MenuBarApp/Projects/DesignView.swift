@@ -1,6 +1,5 @@
 import AppKit
 import SwiftUI
-import WebKit
 
 // A Design conversation keeps the agent loop on the left and turns its durable HTML
 // artifact into a live canvas on the right.
@@ -452,6 +451,7 @@ struct DesignView: View {
                                onViewport: ((Double) -> Void)? = nil) -> some View {
         DesignWebView(url: url,
                       readAccessURL: directory,
+                      screen: canvas.selectedScreen,
                       revision: revision,
                       reloadGeneration: canvas.reloadGeneration,
                       selectionEnabled: selectionEnabled,
@@ -677,6 +677,7 @@ struct DesignReferenceView: View {
                     DesignWebView(
                         url: url,
                         readAccessURL: directory,
+                        screen: canvas.selectedScreen,
                         revision: revision,
                         reloadGeneration: canvas.reloadGeneration,
                         selectionEnabled: false,
@@ -856,215 +857,4 @@ struct DesignSnapshotRequest: Equatable {
     let purpose: Purpose
     var rect: CGRect?
     var additionalContext: String?
-}
-
-struct DesignWebView: NSViewRepresentable {
-    let url: URL
-    let readAccessURL: URL
-    let revision: DesignArtifactRevision
-    let reloadGeneration: Int
-    let selectionEnabled: Bool
-    let snapshotRequest: DesignSnapshotRequest?
-    let onSelection: (DesignElementSelection) -> Void
-    let onSnapshot: (NSImage?, DesignSnapshotRequest) -> Void
-    // The page reports its own width rather than the view reporting its frame.
-    // `window.innerWidth` is the number the design's CSS is resolved against, so it stays
-    // right whatever sits between the view's bounds and the layout viewport.
-    var onViewport: ((Double) -> Void)? = nil
-
-    func makeCoordinator() -> Coordinator { Coordinator() }
-
-    func makeNSView(context: Context) -> WKWebView {
-        let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = .nonPersistent()
-        configuration.defaultWebpagePreferences.allowsContentJavaScript = true
-        configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
-        configuration.userContentController.addUserScript(WKUserScript(
-            source: Self.selectionScript,
-            injectionTime: .atDocumentEnd,
-            forMainFrameOnly: true))
-        configuration.userContentController.add(
-            context.coordinator, name: Coordinator.messageName)
-
-        let webView = WKWebView(frame: .zero, configuration: configuration)
-        webView.navigationDelegate = context.coordinator
-        webView.allowsMagnification = true
-        webView.underPageBackgroundColor = .white
-        webView.isInspectable = true
-        return webView
-    }
-
-    func updateNSView(_ webView: WKWebView, context: Context) {
-        context.coordinator.onSelection = onSelection
-        context.coordinator.onSnapshot = onSnapshot
-        context.coordinator.onViewport = onViewport
-        context.coordinator.setSelection(selectionEnabled, in: webView)
-
-        if let snapshotRequest,
-           context.coordinator.snapshotID != snapshotRequest.id {
-            context.coordinator.snapshotID = snapshotRequest.id
-            context.coordinator.takeSnapshot(snapshotRequest, of: webView)
-        }
-
-        let fileKey = revision.files.map {
-            "\($0.path):\($0.modified.timeIntervalSinceReferenceDate):\($0.size)"
-        }.joined(separator: "|")
-        let key = "\(url.path):\(fileKey):\(reloadGeneration)"
-        guard context.coordinator.loadedKey != key else { return }
-        context.coordinator.loadedKey = key
-        webView.loadFileURL(url, allowingReadAccessTo: readAccessURL)
-    }
-
-    static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {
-        webView.configuration.userContentController.removeScriptMessageHandler(
-            forName: Coordinator.messageName)
-    }
-
-    final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
-        static let messageName = "codeStationDesignSelection"
-
-        var loadedKey: String?
-        var snapshotID: UUID?
-        var selectionEnabled = false
-        var onSelection: ((DesignElementSelection) -> Void)?
-        var onSnapshot: ((NSImage?, DesignSnapshotRequest) -> Void)?
-        var onViewport: ((Double) -> Void)?
-
-        func setSelection(_ enabled: Bool, in webView: WKWebView) {
-            guard selectionEnabled != enabled else { return }
-            selectionEnabled = enabled
-            webView.evaluateJavaScript("window.__codeStationSetSelection?.(\(enabled));")
-        }
-
-        func takeSnapshot(_ request: DesignSnapshotRequest, of webView: WKWebView) {
-            let configuration = WKSnapshotConfiguration()
-            if let rect = request.rect {
-                let clipped = rect.intersection(webView.bounds)
-                if !clipped.isNull, clipped.width > 1, clipped.height > 1 {
-                    configuration.rect = clipped
-                }
-            }
-            webView.takeSnapshot(with: configuration) { [weak self] image, _ in
-                self?.onSnapshot?(image, request)
-            }
-        }
-
-        func userContentController(_ userContentController: WKUserContentController,
-                                   didReceive message: WKScriptMessage) {
-            guard message.name == Self.messageName,
-                  let body = message.body as? [String: Any] else { return }
-
-            if body["kind"] as? String == "viewport" {
-                if let width = body["width"] as? Double { onViewport?(width) }
-                return
-            }
-
-            guard let selector = body["selector"] as? String,
-                  let tag = body["tag"] as? String,
-                  let rect = body["rect"] as? [String: Any],
-                  let x = rect["x"] as? Double,
-                  let y = rect["y"] as? Double,
-                  let width = rect["width"] as? Double,
-                  let height = rect["height"] as? Double else { return }
-            onSelection?(DesignElementSelection(
-                selector: selector,
-                tag: tag,
-                text: (body["text"] as? String ?? "").trimmed,
-                rect: CGRect(x: x, y: y, width: width, height: height)))
-        }
-
-        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            webView.evaluateJavaScript(
-                "window.__codeStationSetSelection?.(\(selectionEnabled));")
-        }
-
-        func webView(_ webView: WKWebView,
-                     decidePolicyFor navigationAction: WKNavigationAction,
-                     decisionHandler: @escaping @MainActor @Sendable
-                        (WKNavigationActionPolicy) -> Void) {
-            let scheme = navigationAction.request.url?.scheme?.lowercased()
-            decisionHandler(["file", "about", "data", "blob"].contains(scheme ?? "")
-                ? .allow : .cancel)
-        }
-    }
-
-    private static let selectionScript = #"""
-    (() => {
-      var enabled = false;
-      var highlighted = null;
-      var previousOutline = "";
-      var previousCursor = "";
-
-      function clearHighlight() {
-        if (!highlighted) return;
-        highlighted.style.outline = previousOutline;
-        highlighted.style.cursor = previousCursor;
-        highlighted = null;
-      }
-
-      function highlight(element) {
-        if (highlighted === element) return;
-        clearHighlight();
-        highlighted = element;
-        previousOutline = element.style.outline;
-        previousCursor = element.style.cursor;
-        element.style.outline = "2px solid #00a86b";
-        element.style.cursor = "crosshair";
-      }
-
-      function selectorFor(element) {
-        if (element.id) return `#${CSS.escape(element.id)}`;
-        const parts = [];
-        let current = element;
-        while (current && current.nodeType === Node.ELEMENT_NODE && current !== document.body) {
-          let part = current.tagName.toLowerCase();
-          const classes = Array.from(current.classList).filter(Boolean).slice(0, 2);
-          if (classes.length) part += classes.map(value => `.${CSS.escape(value)}`).join("");
-          const siblings = current.parentElement
-            ? Array.from(current.parentElement.children).filter(item => item.tagName === current.tagName)
-            : [];
-          if (siblings.length > 1) part += `:nth-of-type(${siblings.indexOf(current) + 1})`;
-          parts.unshift(part);
-          current = current.parentElement;
-        }
-        return parts.join(" > ");
-      }
-
-      var reportedWidth = 0;
-      function reportViewport() {
-        const width = window.innerWidth;
-        if (width === reportedWidth || !width) return;
-        reportedWidth = width;
-        window.webkit.messageHandlers.codeStationDesignSelection.postMessage({
-          kind: "viewport", width: width
-        });
-      }
-      reportViewport();
-      window.addEventListener("resize", reportViewport);
-
-      window.__codeStationSetSelection = value => {
-        enabled = Boolean(value);
-        document.documentElement.style.cursor = enabled ? "crosshair" : "";
-        if (!enabled) clearHighlight();
-      };
-
-      document.addEventListener("mouseover", event => {
-        if (enabled) highlight(event.target);
-      }, true);
-
-      document.addEventListener("click", event => {
-        if (!enabled) return;
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        const element = event.target;
-        const rect = element.getBoundingClientRect();
-        window.webkit.messageHandlers.codeStationDesignSelection.postMessage({
-          selector: selectorFor(element),
-          tag: element.tagName.toLowerCase(),
-          text: (element.innerText || element.getAttribute("aria-label") || "").trim().slice(0, 160),
-          rect: {x: rect.x, y: rect.y, width: rect.width, height: rect.height}
-        });
-      }, true);
-    })();
-    """#
 }

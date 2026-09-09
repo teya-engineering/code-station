@@ -116,6 +116,7 @@ struct DesignFullScreenView: View {
             if let revision = canvas.revision, let url = canvas.screenURL(in: directory) {
                 DesignWebView(url: url,
                               readAccessURL: directory,
+                              screen: canvas.selectedScreen,
                               revision: revision,
                               reloadGeneration: canvas.reloadGeneration,
                               selectionEnabled: false,

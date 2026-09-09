@@ -989,10 +989,12 @@ final class SessionRunner {
             """
 
 
-            The canvas viewport is \(Int(width))px wide right now, and the user can drag it \
-            narrower or wider at any time, down to \(Int(DesignSplitLayout.minimumCanvasWidth))px. \
-            Design for that width rather than for a full browser window, and check the layout \
-            still fits before replying. Fixed-width children of a row have to sum to less than \
+            The design's layout is \(Int(width))px wide right now. Canvas zoom does not change \
+            the layout width. Without an explicit screen width in design.json, the layout \
+            follows the pane as the user resizes it, down to \
+            \(Int(DesignSplitLayout.minimumCanvasWidth))px. Check the layout fits its declared \
+            size, or the available pane width for a responsive design, before replying. \
+            Fixed-width children of a row have to sum to less than \
             the row they sit in, counting gaps and padding, and anything that can be squeezed \
             needs its own min-width and overflow rule so its contents cannot spill across a \
             neighbour.
@@ -1020,6 +1022,9 @@ final class SessionRunner {
         screen and write `design.json` in the artifact directory with this shape:
         {"screens":[{"id":"home","title":"Home","path":"index.html","width":1440,"height":900}]}
         `index.html` remains the default screen. Keep ids and paths stable across revisions.
+        Declare width and height for fixed-size artboards, including single-screen designs. \
+        The canvas renders at that size and scales the whole artboard to fit. Omit dimensions \
+        for responsive pages that should follow the available pane size.
 
         Also maintain `handoff.md` in the artifact directory. Keep it concise and current. \
         Record the goal, the scoped change from the existing product when there is one, screens \
