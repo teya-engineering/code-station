@@ -22,6 +22,7 @@ struct DesignView: View {
     @State private var selectionEnabled = false
     @State private var snapshotRequest: DesignSnapshotRequest?
     @State private var preparingHandoff = false
+    @State private var fullScreen = DesignFullScreenWindow()
 
     var body: some View {
         if let session = store.session(sessionID),
@@ -56,6 +57,7 @@ struct DesignView: View {
             .onDisappear {
                 store.release(sessionID, for: .open)
                 runner.forgetCanvasWidth(sessionID)
+                fullScreen.close()
             }
             .task(id: sessionID) { await store.transcriptReady(sessionID) }
             .task(id: displayedDirectory.path) { await canvas.watch(displayedDirectory) }
@@ -348,6 +350,14 @@ struct DesignView: View {
                             .disabled(preparingHandoff || runner.state(sessionID).isBusy)
                         }
                     }
+
+                    GlyphButton(icon: "arrow.up.left.and.arrow.down.right", side: 28,
+                                active: fullScreen.isOpen, tint: Theme.accent) {
+                        toggleFullScreen(session, directory: directory)
+                    }
+                    .appTooltip(fullScreen.isOpen
+                        ? "Close the full screen design"
+                        : "Open the design full screen")
                 }
             }
 
@@ -377,6 +387,19 @@ struct DesignView: View {
                             detail: "Describe the first direction in the Design conversation.")
                     .background(Theme.sunken)
             }
+        }
+    }
+
+    private func toggleFullScreen(_ session: ChatSession, directory: URL) {
+        if fullScreen.isOpen {
+            fullScreen.close()
+        } else {
+            fullScreen.show(
+                title: session.title,
+                content: DesignFullScreenView(canvas: canvas,
+                                              directory: directory,
+                                              label: displayedRevision?.title ?? "Canvas",
+                                              onClose: { fullScreen.close() }))
         }
     }
 
@@ -614,6 +637,7 @@ struct DesignReferenceView: View {
     let sessionID: UUID
 
     @State private var canvas = DesignCanvas()
+    @State private var fullScreen = DesignFullScreenWindow()
 
     var body: some View {
         if let session = store.session(sessionID),
@@ -637,6 +661,16 @@ struct DesignReferenceView: View {
                             store.selectSession(sourceID)
                         }
                     }
+
+                    if canvas.revision != nil {
+                        GlyphButton(icon: "arrow.up.left.and.arrow.down.right", side: 28,
+                                    active: fullScreen.isOpen, tint: Theme.accent) {
+                            toggleFullScreen(session, directory: directory)
+                        }
+                        .appTooltip(fullScreen.isOpen
+                            ? "Close the full screen design"
+                            : "Open the design full screen")
+                    }
                 }
 
                 if let revision = canvas.revision, let url = canvas.screenURL(in: directory) {
@@ -656,8 +690,22 @@ struct DesignReferenceView: View {
                 }
             }
             .task(id: directory.path) { await canvas.watch(directory) }
+            .onDisappear { fullScreen.close() }
         } else {
             unavailable(store.session(sessionID))
+        }
+    }
+
+    private func toggleFullScreen(_ session: ChatSession, directory: URL) {
+        if fullScreen.isOpen {
+            fullScreen.close()
+        } else {
+            fullScreen.show(
+                title: session.title,
+                content: DesignFullScreenView(canvas: canvas,
+                                              directory: directory,
+                                              label: revisionTitle(session) ?? "Approved design",
+                                              onClose: { fullScreen.close() }))
         }
     }
 
@@ -810,7 +858,7 @@ struct DesignSnapshotRequest: Equatable {
     var additionalContext: String?
 }
 
-private struct DesignWebView: NSViewRepresentable {
+struct DesignWebView: NSViewRepresentable {
     let url: URL
     let readAccessURL: URL
     let revision: DesignArtifactRevision
