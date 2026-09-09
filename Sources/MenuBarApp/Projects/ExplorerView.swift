@@ -25,6 +25,8 @@ struct ExplorerView: View {
     @State private var showHidden = true
     @State private var language: CodeLanguage?
     @State private var pastingFiles = false
+    @State private var treeWidth = ExplorerSplitLayout.defaultTreeWidth
+    @State private var dragStartTreeWidth: CGFloat?
     @FocusState private var treeFocused: Bool
 
     // The text as loaded sits next to the draft, so "anything to save" and "anything to
@@ -47,10 +49,26 @@ struct ExplorerView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            HStack(spacing: 0) {
-                tree
-                Divider().overlay(Theme.hairline)
-                detail
+            GeometryReader { geometry in
+                let width = ExplorerSplitLayout.treeWidth(
+                    treeWidth, availableWidth: geometry.size.width)
+
+                HStack(spacing: 0) {
+                    tree
+                        .frame(width: width)
+                        .clipped()
+                    Rectangle().fill(Theme.hairline)
+                        .frame(width: ExplorerSplitLayout.dividerWidth)
+                    detail
+                        .frame(width: max(0, geometry.size.width - width
+                                          - ExplorerSplitLayout.dividerWidth))
+                        .clipped()
+                }
+                .overlay(alignment: .leading) {
+                    splitHandle(treeWidth: width, availableWidth: geometry.size.width)
+                        .offset(x: width + (ExplorerSplitLayout.dividerWidth
+                                           - ExplorerSplitLayout.handleWidth) / 2)
+                }
             }
         }
         .background(Theme.background)
@@ -67,6 +85,35 @@ struct ExplorerView: View {
         // text as it stands now.
         .onChange(of: draft) { if findPresented { refreshFind() } }
         .task(id: root) { await openRoot() }
+    }
+
+    private func splitHandle(treeWidth: CGFloat, availableWidth: CGFloat) -> some View {
+        Color.clear
+            .frame(width: ExplorerSplitLayout.handleWidth)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0, coordinateSpace: .global)
+                    .onChanged { value in
+                        let start = dragStartTreeWidth ?? treeWidth
+                        dragStartTreeWidth = start
+                        self.treeWidth = ExplorerSplitLayout.treeWidth(
+                            start + value.translation.width, availableWidth: availableWidth)
+                    }
+                    .onEnded { _ in dragStartTreeWidth = nil })
+            .cursorOnHover(.resizeLeftRight)
+            .appTooltip("Drag to resize")
+            .accessibilityElement()
+            .accessibilityLabel("Resize file explorer")
+            .accessibilityValue("\(Int(treeWidth)) points wide")
+            .accessibilityAdjustableAction { direction in
+                let change: CGFloat = switch direction {
+                case .increment: 32
+                case .decrement: -32
+                @unknown default: 0
+                }
+                self.treeWidth = ExplorerSplitLayout.treeWidth(
+                    treeWidth + change, availableWidth: availableWidth)
+            }
     }
 
     // MARK: - Header
@@ -155,7 +202,6 @@ struct ExplorerView: View {
                 }
             }
         }
-        .frame(width: 300)
         .contentShape(Rectangle())
         .focusable()
         .focused($treeFocused)
@@ -719,6 +765,22 @@ struct ExplorerView: View {
                 original = text
             }
         }
+    }
+}
+
+enum ExplorerSplitLayout {
+    static let defaultTreeWidth: CGFloat = 300
+    static let minimumTreeWidth: CGFloat = 220
+    static let minimumDetailWidth: CGFloat = 320
+    static let dividerWidth: CGFloat = 1
+    static let handleWidth: CGFloat = 9
+
+    static func treeWidth(_ proposedWidth: CGFloat, availableWidth: CGFloat) -> CGFloat {
+        let paneWidth = max(0, availableWidth - dividerWidth)
+        let halfWidth = paneWidth / 2
+        let minimum = min(minimumTreeWidth, halfWidth)
+        let maximum = max(minimum, paneWidth - min(minimumDetailWidth, halfWidth))
+        return min(max(proposedWidth, minimum), maximum)
     }
 }
 
