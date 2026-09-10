@@ -1,13 +1,10 @@
 import AppKit
 import SwiftUI
 
-// A design pane is only ever a slice of the main window, so seeing a whole screen of a
-// design means giving the canvas a window of its own that goes straight into macOS full
-// screen. The canvas it is handed is the one the pane behind it keeps watching, so the
-// agent's edits still land here while it is open.
+// Sharing the pane's canvas keeps the detached window current as the agent edits it.
 @MainActor
 @Observable
-final class DesignFullScreenWindow {
+final class DesignWindow {
     private(set) var isOpen = false
 
     @ObservationIgnored private var window: NSWindow?
@@ -18,6 +15,7 @@ final class DesignFullScreenWindow {
 
     func show(title: String, content: some View) {
         if let window {
+            window.deminiaturize(nil)
             window.makeKeyAndOrderFront(nil)
             return
         }
@@ -27,21 +25,22 @@ final class DesignFullScreenWindow {
         hosting.sizingOptions = []
         let win = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1280, height: 860),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered, defer: false)
         win.contentViewController = hosting
+        win.setContentSize(NSSize(width: 1280, height: 860))
         win.title = title
         win.titleVisibility = .hidden
         win.titlebarAppearsTransparent = true
         win.backgroundColor = Theme.backgroundNSColor
         win.isReleasedWhenClosed = false
+        win.contentMinSize = NSSize(width: 640, height: 420)
         win.collectionBehavior.insert(.fullScreenPrimary)
         win.center()
         window = win
         isOpen = true
         watch(win)
         win.makeKeyAndOrderFront(nil)
-        win.toggleFullScreen(nil)
     }
 
     // Closing a window that is still in full screen leaves its empty space behind on the
@@ -83,9 +82,7 @@ final class DesignFullScreenWindow {
     }
 }
 
-// What the full screen window shows: the canvas and the few controls that still make
-// sense away from the conversation - the screen picker, a reload, and the way back.
-struct DesignFullScreenView: View {
+struct DesignWindowView: View {
     let canvas: DesignCanvas
     let directory: URL
     let label: String
@@ -108,9 +105,9 @@ struct DesignFullScreenView: View {
                         .foregroundStyle(.secondary)
                 }
             } tools: {
-                GlyphButton(icon: "arrow.down.right.and.arrow.up.left", side: 28,
+                GlyphButton(icon: "xmark", side: 28,
                             tint: Theme.accent, action: onClose)
-                    .appTooltip("Leave full screen")
+                    .appTooltip("Close design window")
             }
 
             if let revision = canvas.revision, let url = canvas.screenURL(in: directory) {
@@ -133,12 +130,6 @@ struct DesignFullScreenView: View {
             }
         }
         .background(Theme.background)
-        .background(
-            Button("", action: onClose)
-                .buttonStyle(.plain)
-                .opacity(0)
-                .keyboardShortcut(.escape, modifiers: [])
-        )
         .appOverlays()
     }
 }

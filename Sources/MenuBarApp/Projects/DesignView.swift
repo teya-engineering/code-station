@@ -21,7 +21,7 @@ struct DesignView: View {
     @State private var selectionEnabled = false
     @State private var snapshotRequest: DesignSnapshotRequest?
     @State private var preparingHandoff = false
-    @State private var fullScreen = DesignFullScreenWindow()
+    @State private var designWindow = DesignWindow()
 
     var body: some View {
         if let session = store.session(sessionID),
@@ -56,7 +56,7 @@ struct DesignView: View {
             .onDisappear {
                 store.release(sessionID, for: .open)
                 runner.forgetCanvasWidth(sessionID)
-                fullScreen.close()
+                designWindow.close()
             }
             .task(id: sessionID) { await store.transcriptReady(sessionID) }
             .task(id: displayedDirectory.path) { await canvas.watch(displayedDirectory) }
@@ -350,13 +350,13 @@ struct DesignView: View {
                         }
                     }
 
-                    GlyphButton(icon: "arrow.up.left.and.arrow.down.right", side: 28,
-                                active: fullScreen.isOpen, tint: Theme.accent) {
-                        toggleFullScreen(session, directory: directory)
+                    GlyphButton(icon: "macwindow", side: 28,
+                                active: designWindow.isOpen, tint: Theme.accent) {
+                        openDesignWindow(session, directory: directory)
                     }
-                    .appTooltip(fullScreen.isOpen
-                        ? "Close the full screen design"
-                        : "Open the design full screen")
+                    .appTooltip(designWindow.isOpen
+                        ? "Bring design window to front"
+                        : "Open design in a separate window")
                 }
             }
 
@@ -389,17 +389,13 @@ struct DesignView: View {
         }
     }
 
-    private func toggleFullScreen(_ session: ChatSession, directory: URL) {
-        if fullScreen.isOpen {
-            fullScreen.close()
-        } else {
-            fullScreen.show(
-                title: session.title,
-                content: DesignFullScreenView(canvas: canvas,
-                                              directory: directory,
-                                              label: displayedRevision?.title ?? "Canvas",
-                                              onClose: { fullScreen.close() }))
-        }
+    private func openDesignWindow(_ session: ChatSession, directory: URL) {
+        designWindow.show(
+            title: session.title,
+            content: DesignWindowView(canvas: canvas,
+                                      directory: directory,
+                                      label: displayedRevision?.title ?? "Canvas",
+                                      onClose: { designWindow.close() }))
     }
 
     private var displayedRevision: DesignRevision? {
@@ -637,7 +633,7 @@ struct DesignReferenceView: View {
     let sessionID: UUID
 
     @State private var canvas = DesignCanvas()
-    @State private var fullScreen = DesignFullScreenWindow()
+    @State private var designWindow = DesignWindow()
 
     var body: some View {
         if let session = store.session(sessionID),
@@ -663,13 +659,13 @@ struct DesignReferenceView: View {
                     }
 
                     if canvas.revision != nil {
-                        GlyphButton(icon: "arrow.up.left.and.arrow.down.right", side: 28,
-                                    active: fullScreen.isOpen, tint: Theme.accent) {
-                            toggleFullScreen(session, directory: directory)
+                        GlyphButton(icon: "macwindow", side: 28,
+                                    active: designWindow.isOpen, tint: Theme.accent) {
+                            openDesignWindow(session, directory: directory)
                         }
-                        .appTooltip(fullScreen.isOpen
-                            ? "Close the full screen design"
-                            : "Open the design full screen")
+                        .appTooltip(designWindow.isOpen
+                            ? "Bring design window to front"
+                            : "Open design in a separate window")
                     }
                 }
 
@@ -691,23 +687,19 @@ struct DesignReferenceView: View {
                 }
             }
             .task(id: directory.path) { await canvas.watch(directory) }
-            .onDisappear { fullScreen.close() }
+            .onDisappear { designWindow.close() }
         } else {
             unavailable(store.session(sessionID))
         }
     }
 
-    private func toggleFullScreen(_ session: ChatSession, directory: URL) {
-        if fullScreen.isOpen {
-            fullScreen.close()
-        } else {
-            fullScreen.show(
-                title: session.title,
-                content: DesignFullScreenView(canvas: canvas,
-                                              directory: directory,
-                                              label: revisionTitle(session) ?? "Approved design",
-                                              onClose: { fullScreen.close() }))
-        }
+    private func openDesignWindow(_ session: ChatSession, directory: URL) {
+        designWindow.show(
+            title: session.title,
+            content: DesignWindowView(canvas: canvas,
+                                      directory: directory,
+                                      label: revisionTitle(session) ?? "Approved design",
+                                      onClose: { designWindow.close() }))
     }
 
     // Whether there is a way out of this depends on the Design the session was handed:
