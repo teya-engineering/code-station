@@ -135,7 +135,8 @@ struct DesignWebViewportTests {
         defer { pane.close() }
         try await pane.load(html)
         #expect(pane.view.viewport.scale == 0.5)
-        #expect(pane.webView.frame == CGRect(x: 0, y: 75, width: 720, height: 450))
+        #expect(pane.view.convert(pane.webView.bounds, from: pane.webView)
+                == CGRect(x: 0, y: 75, width: 720, height: 450))
         #expect(try await pane.webView.evaluateJavaScript("window.innerWidth") as? Int == 1440)
 
         pane.view.zoom(by: 2, at: CGPoint(x: 400, y: 300))
@@ -160,7 +161,8 @@ struct DesignWebViewportTests {
         try await pane.settle()
         #expect(pane.view.viewport.contentSize == CGSize(width: 1440, height: 900))
         #expect(pane.view.viewport.scale == 0.5)
-        #expect(pane.webView.frame == CGRect(x: 0, y: 75, width: 720, height: 450))
+        #expect(pane.view.convert(pane.webView.bounds, from: pane.webView)
+                == CGRect(x: 0, y: 75, width: 720, height: 450))
 
         let smaller = html.replacingOccurrences(of: "1440px", with: "1000px")
             .replacingOccurrences(of: "900px", with: "700px")
@@ -170,6 +172,43 @@ struct DesignWebViewportTests {
         try await pane.settle()
         #expect(pane.view.viewport.contentSize == CGSize(width: 1000, height: 700))
         #expect(pane.view.viewport.isFitted)
+    }
+
+    @Test func zoomingOutPreservesTextSizeAndWrappingWithinTheArtboard() async throws {
+        let pane = Pane()
+        defer { pane.close() }
+        try await pane.load("""
+            <!doctype html><style>
+            html, body { margin: 0; width: 1440px; height: 900px; overflow: hidden; }
+            body { font: 13.5px/1.5 -apple-system, sans-serif; }
+            p { width: 600px; margin: 0; }
+            </style><p id="copy">Change the export conversation to generate a PDF instead
+            of the Markdown file. Keep the same file naming, and make sure code blocks
+            do not break across pages.</p>
+            """)
+        pane.view.zoom(by: 2, at: CGPoint(x: 360, y: 300))
+        try await pane.settle()
+        let metrics = """
+            (() => {
+              const copy = document.getElementById('copy');
+              return {width: window.innerWidth, height: window.innerHeight,
+                textHeight: copy.getBoundingClientRect().height,
+                fontSize: parseFloat(getComputedStyle(copy).fontSize)};
+            })()
+            """
+        let original = try #require(try await pane.webView.evaluateJavaScript(metrics) as? [String: Double])
+        for scale: CGFloat in [0.65, 0.17, 0.1, 4, 1] {
+            pane.view.zoom(by: scale / pane.view.viewport.scale, at: CGPoint(x: 360, y: 300))
+            try await pane.settle()
+            let displayed = pane.view.convert(pane.webView.bounds, from: pane.webView)
+            #expect(abs(displayed.width - 1440 * scale) < 0.001)
+            #expect(abs(displayed.height - 900 * scale) < 0.001)
+            let zoomed = try #require(try await pane.webView.evaluateJavaScript(metrics) as? [String: Double])
+            for (key, value) in original {
+                let actual = try #require(zoomed[key])
+                #expect(abs(actual - value) < 2, "\(key) changed at \(scale) zoom: \(original) -> \(zoomed)")
+            }
+        }
     }
 
     @Test func responsivePageFollowsThePaneWhileZoomPreservesItsLayout() async throws {
@@ -208,25 +247,47 @@ struct DesignWebViewportTests {
         #expect(try await pane.webView.evaluateJavaScript("window.clicks") as? Int == 1)
     }
 
-    @Test func selectingAnElementUsesScaledSnapshotCoordinatesAndDoesNotPan() async throws {
+    @Test(arguments: [0.5, 0.17, 2.0])
+    func selectingAnElementUsesArtboardSnapshotCoordinatesAndDoesNotPan(scale: Double) async throws {
         let pane = Pane()
         defer { pane.close() }
         var selection: DesignElementSelection?
         pane.coordinator.onSelection = { selection = $0 }
         try await pane.load(html)
+        pane.view.zoom(by: scale / pane.view.viewport.scale, at: CGPoint(x: 360, y: 300))
+        try await pane.settle()
+        let viewport = pane.view.viewport
         pane.coordinator.setSelection(true, in: pane.webView)
         _ = try await pane.webView.evaluateJavaScript("""
             (() => {
               const target = document.getElementById('target');
+              target.style.appearance = 'none';
+              target.style.background = '#ff0000';
+              target.style.color = '#ff0000';
               target.dispatchEvent(new MouseEvent('mousedown', {bubbles: true, buttons: 1, screenX: 100}));
               target.dispatchEvent(new MouseEvent('mousemove', {bubbles: true, buttons: 1, screenX: 200}));
               target.click();
             })();
             """)
         try await pane.settle()
-        #expect(pane.view.viewport.isFitted)
+        #expect(pane.view.viewport == viewport)
         #expect(selection?.selector == "#target")
-        #expect(selection?.rect == CGRect(x: 550, y: 325, width: 100, height: 40))
+        #expect(selection?.rect == CGRect(x: 1100, y: 650, width: 200, height: 80))
         #expect(try await pane.webView.evaluateJavaScript("window.clicks") as? Int == 0)
+
+        let request = DesignSnapshotRequest(purpose: .selection, rect: try #require(selection).rect)
+        let snapshot: NSImage? = await withCheckedContinuation { continuation in
+            pane.coordinator.onSnapshot = { image, _ in continuation.resume(returning: image) }
+            pane.coordinator.takeSnapshot(request, of: pane.webView)
+        }
+        let image = try #require(snapshot)
+        #expect(image.size == CGSize(width: 200, height: 80))
+        let tiff = try #require(image.tiffRepresentation)
+        let bitmap = try #require(NSBitmapImageRep(data: tiff))
+        let center = try #require(bitmap.colorAt(x: bitmap.pixelsWide / 2, y: bitmap.pixelsHigh / 2)?
+            .usingColorSpace(.sRGB))
+        #expect(center.redComponent > 0.9)
+        #expect(center.greenComponent < 0.25)
+        #expect(center.blueComponent < 0.25)
     }
 }

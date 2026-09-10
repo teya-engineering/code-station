@@ -77,6 +77,7 @@ struct DesignViewport: Equatable {
 @MainActor
 final class DesignCanvasViewport: NSView {
     let webView: WKWebView
+    private let artboard = ArtboardView()
     private(set) var viewport = DesignViewport()
     var onScale: ((CGFloat) -> Void)?
     private var screen: DesignScreen?
@@ -93,7 +94,8 @@ final class DesignCanvasViewport: NSView {
         wantsLayer = true
         clipsToBounds = true
         layer?.backgroundColor = NSColor(Theme.sunken).cgColor
-        addSubview(webView)
+        addSubview(artboard)
+        artboard.addSubview(webView)
     }
 
     required init?(coder: NSCoder) { nil }
@@ -148,11 +150,17 @@ final class DesignCanvasViewport: NSView {
 
     private func applyViewport() {
         guard viewport.size.width > 0, viewport.size.height > 0 else { return }
-        // Scale the view and its page together so CSS keeps the artboard's layout
-        // width. Browser magnification alone cannot zoom out to fit a clipped page.
-        if webView.pageZoom != viewport.scale { webView.pageZoom = viewport.scale }
-        if webView.frame != viewport.contentFrame { webView.frame = viewport.contentFrame }
+        // Browser zoom enforces a minimum text size, which changes wrapping at low
+        // scales. Scale the artboard's coordinate system to keep its layout intact.
+        if artboard.frame != viewport.contentFrame { artboard.frame = viewport.contentFrame }
+        let contentBounds = CGRect(origin: .zero, size: viewport.contentSize)
+        if artboard.bounds != contentBounds { artboard.bounds = contentBounds }
+        if webView.frame != contentBounds { webView.frame = contentBounds }
         onScale?(viewport.scale)
+    }
+
+    private final class ArtboardView: NSView {
+        override var isFlipped: Bool { true }
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {

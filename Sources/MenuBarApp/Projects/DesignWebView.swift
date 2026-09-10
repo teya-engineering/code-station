@@ -219,13 +219,11 @@ struct DesignWebContent: NSViewRepresentable {
                   let y = rect["y"] as? Double,
                   let width = rect["width"] as? Double,
                   let height = rect["height"] as? Double else { return }
-            let scale = viewport?.viewport.scale ?? 1
             onSelection?(DesignElementSelection(
                 selector: selector,
                 tag: tag,
                 text: (body["text"] as? String ?? "").trimmed,
-                rect: CGRect(x: x * scale, y: y * scale,
-                             width: width * scale, height: height * scale)))
+                rect: CGRect(x: x, y: y, width: width, height: height)))
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
