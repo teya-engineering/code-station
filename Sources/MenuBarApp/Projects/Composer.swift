@@ -22,6 +22,7 @@ struct Composer<Above: View, Accessory: View>: View {
     let onOversizedPaste: (String) -> Void
     var onRecallUp: (() -> Bool)? = nil
     var onRecallDown: (() -> Bool)? = nil
+    var onSend: (() -> Void)? = nil
     @ViewBuilder let above: Above
     @ViewBuilder let accessory: Accessory
 
@@ -142,7 +143,8 @@ struct Composer<Above: View, Accessory: View>: View {
 
     private func send() {
         let draft = runner.draft(sessionID)
-        guard !draft.isEmpty else { return }
+        guard !blocked, !draft.isEmpty else { return }
+        onSend?()
         runner.send(draft.text.trimmed,
                     attachments: draft.attachments,
                     customInstructions: draft.customInstructions,

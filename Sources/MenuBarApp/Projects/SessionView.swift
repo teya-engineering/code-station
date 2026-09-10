@@ -116,7 +116,8 @@ private final class TranscriptScrollObserverView: NSView {
         let distance = documentView.isFlipped
             ? document.maxY - visible.maxY
             : visible.minY - document.minY
-        onPositionChange?(distance <= 1)
+        // A small gap at the end should not stop following the conversation.
+        onPositionChange?(distance <= 24)
     }
 }
 
@@ -148,6 +149,7 @@ struct SessionView: View {
     @State private var exportingDesignMaterials = false
     @State private var transcriptWindow = TranscriptWindow()
     @State private var transcriptPinnedToBottom = true
+    @State private var transcriptScrollRequest = 0
     @State private var recapOpen = false
     @State private var recapNeedsAttention = false
     @State private var workingSetVisible: Bool
@@ -1286,6 +1288,8 @@ struct SessionView: View {
                     // better use of the room than paragraphs do.
                     .frame(maxWidth: 960, alignment: .leading)
                     .frame(maxWidth: .infinity)
+                    // Include the padding so the scroll target is the actual bottom.
+                    .id(bottomAnchor)
                     .background {
                         TranscriptScrollObserver { isAtBottom in
                             transcriptPinnedToBottom = isAtBottom
@@ -1342,6 +1346,13 @@ struct SessionView: View {
             .onChange(of: shape) { old, new in
                 if new.state != old.state, new.state != .waiting { waitNoticeDismissed = false }
                 scrollToBottom(proxy, animated: old.settled != new.settled)
+            }
+            .task(id: transcriptScrollRequest) {
+                guard transcriptScrollRequest > 0 else { return }
+                // The prompt and composer must finish updating before the scroll lands.
+                await Task.yield()
+                guard !Task.isCancelled else { return }
+                scrollToBottom(proxy, animated: true)
             }
         }
     }
@@ -1479,8 +1490,6 @@ struct SessionView: View {
             }
 
             TurnEndActions(sessionID: sessionID, state: state)
-
-            Color.clear.frame(height: 1).id(bottomAnchor)
         }
     }
 
@@ -1612,7 +1621,13 @@ struct SessionView: View {
         // Animating every streamed token makes the transcript jitter, so only whole
         // arrivals - a message, a tool row, a finished line - are worth animating.
         if animated, !reduceMotion {
-            withAnimation(.easeOut(duration: 0.18)) { proxy.scrollTo(bottomAnchor, anchor: .bottom) }
+            withAnimation(.easeOut(duration: 0.18), completionCriteria: .removed) {
+                proxy.scrollTo(bottomAnchor, anchor: .bottom)
+            } completion: {
+                // The composer and rows can change size while the scroll is moving.
+                guard transcriptPinnedToBottom else { return }
+                proxy.scrollTo(bottomAnchor, anchor: .bottom)
+            }
         } else {
             proxy.scrollTo(bottomAnchor, anchor: .bottom)
         }
@@ -1679,6 +1694,10 @@ struct SessionView: View {
                         onOversizedPaste: offerTextFile,
                         onRecallUp: { runner.recallEarlier(sessionID, store: store) },
                         onRecallDown: { runner.recallLater(sessionID, store: store) },
+                        onSend: {
+                            transcriptPinnedToBottom = true
+                            transcriptScrollRequest += 1
+                        },
                         above: {
                             runChoices(session, project: project)
                             contextNudge(session)
