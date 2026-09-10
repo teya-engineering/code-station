@@ -21,6 +21,36 @@ enum SessionLog {
     private static let queue = DispatchQueue(label: "\(AppPaths.bundleID).log", qos: .utility)
     private static let writer = Writer()
 
+    // A stalled UI must not stop the measurements that explain its memory growth.
+    @MainActor private static let memoryMonitor: DispatchSourceTimer = {
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now(), repeating: .seconds(60), leeway: .seconds(5))
+        timer.setEventHandler { @Sendable in noteMemoryUsage() }
+        timer.resume()
+        return timer
+    }()
+
+    @MainActor static func startMemoryMonitoring() {
+        _ = memoryMonitor
+    }
+
+    private static func noteMemoryUsage() {
+        var info = task_vm_info_data_t()
+        let capacity = MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<integer_t>.size
+        var count = mach_msg_type_number_t(capacity)
+        let result = withUnsafeMutablePointer(to: &info) { pointer in
+            pointer.withMemoryRebound(to: integer_t.self, capacity: capacity) {
+                task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
+            }
+        }
+        guard result == KERN_SUCCESS else { return }
+        let mebibyte: UInt64 = 1 << 20
+        note("memory footprintMiB=\(info.phys_footprint / mebibyte) "
+            + "peakMiB=\(info.ledger_phys_footprint_peak / Int64(mebibyte)) "
+            + "residentMiB=\(info.resident_size / mebibyte) "
+            + "compressedMiB=\(info.compressed / mebibyte)")
+    }
+
     private static let clock: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "HH:mm:ss.SSS"

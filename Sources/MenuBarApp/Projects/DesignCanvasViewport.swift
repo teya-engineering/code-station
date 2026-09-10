@@ -109,8 +109,9 @@ final class DesignCanvasViewport: NSView {
     }
 
     func measureContent(width: CGFloat, height: CGFloat) {
-        // Only overflow is intrinsic. A responsive page's scroll size also includes
-        // its current viewport, which must not turn into a fixed artboard size.
+        // Expanding the browser changes vw/vh and percentage-based layouts. Measure
+        // overflow once per document so our resize cannot feed another expansion.
+        guard overflowWidth == nil, overflowHeight == nil else { return }
         var changed = false
         if (screen?.width ?? 0) <= 0, width.isFinite, width > viewport.contentSize.width + 2 {
             overflowWidth = width
@@ -129,8 +130,21 @@ final class DesignCanvasViewport: NSView {
             ?? max(bounds.width, overflowWidth ?? 0)
         let height = screen?.height.flatMap { $0 > 0 ? CGFloat($0) : nil }
             ?? max(bounds.height, overflowHeight ?? 0)
-        viewport.resize(to: bounds.size, contentSize: CGSize(width: width, height: height))
+        viewport.resize(to: bounds.size,
+                        contentSize: Self.boundedContentSize(CGSize(width: width, height: height)))
         applyViewport()
+    }
+
+    // Page measurements and manifests can request arbitrarily large browser surfaces.
+    // Bound both dimensions and area before WebKit allocates their backing stores.
+    static func boundedContentSize(_ size: CGSize) -> CGSize {
+        guard size.width.isFinite, size.height.isFinite,
+              size.width > 0, size.height > 0 else { return .zero }
+        let dimensionScale = min(1, 8192 / size.width, 8192 / size.height)
+        let width = size.width * dimensionScale
+        let height = size.height * dimensionScale
+        let areaScale = min(1, sqrt(16_777_216 / (width * height)))
+        return CGSize(width: width * areaScale, height: height * areaScale)
     }
 
     func fit() {

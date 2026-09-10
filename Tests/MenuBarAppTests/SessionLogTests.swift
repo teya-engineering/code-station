@@ -6,6 +6,16 @@ import Testing
 // is pinned here is that a note actually lands in the file the Settings sheet reveals.
 struct SessionLogTests {
 
+    @MainActor @Test func memoryMonitoringWritesFromItsBackgroundQueue() async {
+        SessionLog.startMemoryMonitoring()
+        #expect(await waitUntil {
+            let text = SessionLog.tail()
+            return text.contains("memory footprintMiB=")
+                && text.contains(" peakMiB=")
+                && text.contains(" compressedMiB=")
+        })
+    }
+
     @Test func writesWhatItIsToldToTheFileSettingsReveals() throws {
         let marker = "test marker \(UUID().uuidString)"
         let session = UUID()

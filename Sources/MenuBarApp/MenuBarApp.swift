@@ -78,6 +78,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // A turn that was mid-flight when the app died leaves no other trace, so the log
         // needs somewhere to show that the run it belonged to ended here.
         SessionLog.note("app launched")
+        SessionLog.startMemoryMonitoring()
         closeShellsLeftBehind()
         // A deleted project or session leaves no way back to its terminals, so they are
         // closed with it rather than kept alive by a store nothing can reach.

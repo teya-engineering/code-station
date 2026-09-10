@@ -224,6 +224,45 @@ struct DesignWebViewportTests {
         #expect(try await pane.webView.evaluateJavaScript("window.innerWidth") as? Int == 480)
     }
 
+    @Test func viewportRelativeOverflowDoesNotKeepEnlargingTheBrowser() async throws {
+        let pane = Pane(screen: nil)
+        defer { pane.close() }
+        try await pane.load("""
+            <!doctype html><style>
+            body { margin: 0; width: calc(100vw + 20px); height: calc(100vh + 20px); }
+            p { margin: 0; }
+            </style><p>Viewport-dependent overflow</p>
+            """)
+        try await pane.settle()
+        let measured = pane.view.viewport.contentSize
+        try await pane.settle()
+        #expect(pane.view.viewport.contentSize == measured)
+        #expect(measured.width <= 740)
+        #expect(measured.height <= 620)
+    }
+
+    @Test func browserSurfaceLimitsPreserveNormalArtboardsAndBoundExtremeSizes() {
+        let normal = CGSize(width: 1440, height: 900)
+        #expect(DesignCanvasViewport.boundedContentSize(normal) == normal)
+        for size in [CGSize(width: 100_000, height: 100_000),
+                     CGSize(width: 1_000_000, height: 100),
+                     CGSize(width: 100, height: 1_000_000),
+                     CGSize(width: CGFloat.greatestFiniteMagnitude,
+                            height: CGFloat.greatestFiniteMagnitude)] {
+            let bounded = DesignCanvasViewport.boundedContentSize(size)
+            #expect(bounded.width.isFinite && bounded.height.isFinite)
+            #expect(bounded.width > 0 && bounded.width <= 8192)
+            #expect(bounded.height > 0 && bounded.height <= 8192)
+            #expect(bounded.width * bounded.height <= 16_777_216)
+            #expect(abs(bounded.width / bounded.height - size.width / size.height) < 0.001)
+        }
+        for size in [CGSize(width: CGFloat.infinity, height: 900),
+                     CGSize(width: 1440, height: CGFloat.nan),
+                     CGSize(width: -1, height: 900), .zero] {
+            #expect(DesignCanvasViewport.boundedContentSize(size) == .zero)
+        }
+    }
+
     @Test func dragPansWithoutClickingAndARegularClickStillWorks() async throws {
         let pane = Pane()
         defer { pane.close() }

@@ -34,6 +34,19 @@ struct TerminalSessionTests {
         })
     }
 
+    @Test func drainsOutputLargerThanTheBufferWithoutLosingTheEnd() async {
+        let session = makeSession()
+        session.start()
+        defer { session.stop() }
+        session.send("""
+            /usr/bin/awk 'BEGIN { for (i=0; i<20000; i++) print "abcdefghijklmnopqrstuvwxyz0123456789"; print "buffer-" "drained" }'\r
+            """)
+        #expect(await waitUntil(timeout: .seconds(15)) {
+            session.screenText().contains("buffer-drained")
+        })
+        #expect(session.isRunning)
+    }
+
     // This is what puts the green dot on a tab. It failed the first time round: the
     // property was never published because the poll returned early.
     @Test func reportsWhenACommandIsRunning() async {

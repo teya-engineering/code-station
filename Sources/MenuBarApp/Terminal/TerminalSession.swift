@@ -26,8 +26,7 @@ final class TerminalSession: Identifiable {
     // survive tab switches and the drawer being put away.
     @ObservationIgnored let surface: TerminalSurface
     @ObservationIgnored private var pty: PTY?
-    @ObservationIgnored private var incoming = Data()
-    @ObservationIgnored private var flushScheduled = false
+    @ObservationIgnored private var output: TerminalOutputBuffer?
     @ObservationIgnored private var busyPoll: Task<Void, Never>?
     @ObservationIgnored private var busyMonitoringEnabled = true
     @ObservationIgnored private let registry: ShellRegistry
@@ -56,14 +55,23 @@ final class TerminalSession: Identifiable {
     func start() {
         guard pty == nil else { return }
 
-        let session = self
+        let output = TerminalOutputBuffer()
+        self.output = output
         let terminal = PTY(
             registry: registry,
-            onOutput: { data in
-                Task { @MainActor in session.receive(data) }
+            onOutput: { [weak self] data in
+                guard output.append(data) else { return }
+                Task { @MainActor [weak self] in
+                    try? await Task.sleep(for: .milliseconds(16))
+                    guard let self else {
+                        output.close()
+                        return
+                    }
+                    self.flush(output)
+                }
             },
-            onExit: { _ in
-                Task { @MainActor in session.shellExited() }
+            onExit: { [weak self] _ in
+                Task { @MainActor in self?.shellExited(output) }
             })
         pty = terminal
 
@@ -83,6 +91,8 @@ final class TerminalSession: Identifiable {
             failure = nil
             if busyMonitoringEnabled { watchForCommands() }
         } catch {
+            output.close()
+            self.output = nil
             pty = nil
             failure = error.localizedDescription
         }
@@ -91,6 +101,8 @@ final class TerminalSession: Identifiable {
     func stop() {
         busyPoll?.cancel()
         busyPoll = nil
+        output?.close()
+        output = nil
         pty?.stop()
         pty = nil
         isRunning = false
@@ -150,35 +162,68 @@ final class TerminalSession: Identifiable {
 
     // MARK: - Output
     //
-    // A build can print faster than the screen can be redrawn, so chunks are gathered
-    // and fed once per frame instead of once per read.
-
-    private func receive(_ data: Data) {
-        incoming.append(data)
-        guard !flushScheduled else { return }
-        flushScheduled = true
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(16))
-            self.flush()
-        }
-    }
-
-    private func flush() {
-        flushScheduled = false
-        guard !incoming.isEmpty else { return }
-        let data = incoming
-        incoming = Data()
+    // Only one bounded batch waits for the main actor. A busy shell waits for the
+    // screen to catch up instead of creating a task and retaining bytes on every read.
+    private func flush(_ output: TerminalOutputBuffer) {
+        guard self.output === output else { return }
+        let data = output.drain()
+        guard !data.isEmpty else { return }
         surface.feed(byteArray: ArraySlice([UInt8](data)))
     }
 
-    private func shellExited() {
-        flush()
+    private func shellExited(_ output: TerminalOutputBuffer) {
+        guard self.output === output else { return }
+        flush(output)
+        output.close()
+        self.output = nil
         busyPoll?.cancel()
         busyPoll = nil
         isRunning = false
         isBusy = false
         pty = nil
         onExit?(self)
+    }
+}
+
+final class TerminalOutputBuffer: @unchecked Sendable {
+    private let condition = NSCondition()
+    private let capacity: Int
+    private var pending = Data()
+    private var closed = false
+
+    init(capacity: Int = 256 * 1024) {
+        precondition(capacity > 0)
+        self.capacity = capacity
+    }
+
+    // Called only from the PTY's read queue. Blocking here lets the kernel's terminal
+    // buffer slow the writer without blocking the UI or discarding escape sequences.
+    func append(_ data: Data) -> Bool {
+        precondition(data.count <= capacity)
+        condition.lock()
+        defer { condition.unlock() }
+        while !closed, pending.count + data.count > capacity { condition.wait() }
+        guard !closed, !data.isEmpty else { return false }
+        let needsFlush = pending.isEmpty
+        pending.append(data)
+        return needsFlush
+    }
+
+    func drain() -> Data {
+        condition.lock()
+        defer { condition.unlock() }
+        let data = pending
+        pending = Data()
+        condition.broadcast()
+        return data
+    }
+
+    func close() {
+        condition.lock()
+        defer { condition.unlock() }
+        closed = true
+        pending = Data()
+        condition.broadcast()
     }
 }
 

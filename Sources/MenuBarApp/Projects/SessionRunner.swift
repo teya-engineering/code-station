@@ -108,6 +108,7 @@ final class SessionRunner {
         [UUID: (id: UUID, task: Task<Void, Never>)] = [:]
     @ObservationIgnored private let stalledAfter: TimeInterval
     @ObservationIgnored private let stallCheckInterval: Duration
+    @ObservationIgnored private let memoryLimit: UInt64
     @ObservationIgnored private let automaticRecapsEnabled: () -> Bool
 
     // How Claude Code says it no longer holds the conversation we asked to resume.
@@ -120,6 +121,7 @@ final class SessionRunner {
          codexModels: [ModelChoice.Option]? = nil,
          stalledAfter: TimeInterval = 5 * 60,
          stallCheckInterval: Duration = .seconds(5),
+         memoryLimit: UInt64 = SessionMemoryGuard.limit(),
          automaticRecapsEnabled: @escaping () -> Bool = {
              Preferences.sessionRecapsEnabled()
          }) {
@@ -127,6 +129,7 @@ final class SessionRunner {
         self.codexModels = codexModels
         self.stalledAfter = stalledAfter
         self.stallCheckInterval = stallCheckInterval
+        self.memoryLimit = memoryLimit
         self.automaticRecapsEnabled = automaticRecapsEnabled
         defaultsByAgent = Dictionary(uniqueKeysWithValues: AgentKind.allCases.map {
             ($0, Preferences.sessionDefaults(for: $0))
@@ -1623,6 +1626,21 @@ final class SessionRunner {
             }
         }
 
+        turn.memoryGuard = SessionMemoryGuard(processGroup: processGroup, limit: memoryLimit) {
+            violation in
+            SessionLog.note(
+                "memory limit exceeded bytes=\(violation.bytes) limit=\(violation.limit) "
+                    + "largestPID=\(violation.largestPID) largestBytes=\(violation.largestBytes)",
+                session: sessionID)
+            Task { @MainActor in
+                runner.memoryLimitExceeded(sessionID, token: token, violation: violation)
+            }
+        }
+        if turn.memoryGuard == nil {
+            SessionLog.note("memory guard could not attach to process \(processGroup)",
+                            session: sessionID)
+        }
+
         let exitMonitor = DispatchSource.makeProcessSource(
             identifier: processGroup, eventMask: .exit,
             queue: DispatchQueue.global(qos: .userInitiated))
@@ -2243,6 +2261,9 @@ final class SessionRunner {
 
     private func processExited(_ sessionID: UUID, token: UUID, status: Int32, store: ProjectStore) {
         guard let turn = turn(sessionID, token) else { return }
+        if let violation = turn.memoryGuard?.violation {
+            memoryLimitExceeded(sessionID, token: token, violation: violation)
+        }
         turn.exitStatus = status
         if turn.stopRequested {
             // A stopped turn does not need to wait for delayed pipe EOF callbacks once
@@ -2251,6 +2272,17 @@ final class SessionRunner {
             turn.stderrOpen = false
         }
         finishIfDone(sessionID, store: store)
+    }
+
+    private func memoryLimitExceeded(_ sessionID: UUID, token: UUID,
+                                     violation: SessionMemoryGuard.Violation) {
+        guard let turn = turn(sessionID, token) else { return }
+        turn.stopRequested = true
+        turn.stopFailure = violation.message
+        turn.restartAfterStop = false
+        records[sessionID]?.asked = []
+        setState(.stopping, for: sessionID)
+        turn.closeInput()
     }
 
     private func processGroupDidNotStop(_ sessionID: UUID, token: UUID) {
@@ -2279,6 +2311,30 @@ final class SessionRunner {
         // The process that parked them is gone, so nothing is listening for an answer.
         records[sessionID]?.asked = []
         cleanUp(turn)
+
+        // Even a recap must stay stopped after exceeding the limit. Starting queued
+        // work or a fallback summary here can immediately repeat the memory spike.
+        if let violation = turn.memoryGuard?.violation {
+            removeReplyIfEmpty(turn, sessionID: sessionID, store: store)
+            if let noticeID = records[sessionID]?.compactNoticeID {
+                records[sessionID]?.compactNoticeID = nil
+                store.removeMessage(noticeID, from: sessionID)
+            }
+            if turn.compacted { store.recordCompaction(for: sessionID) }
+            store.append(ChatMessage(role: .system, text: violation.message), to: sessionID)
+            setState(.failed(violation.message), for: sessionID)
+            if store.session(sessionID)?.hasAgentConversation == true {
+                records[sessionID]?.continuable = .failedTurn
+            }
+            _ = store.noteTurnEnded(for: sessionID)
+            store.release(sessionID, for: .running)
+            if let session = store.session(sessionID) {
+                AppNotifier.shared.turnEnded(
+                    sessionID: store.userFacingSessionID(for: sessionID),
+                    sessionTitle: session.title, failure: violation.message)
+            }
+            return
+        }
 
         if let recap = turn.recap {
             finishRecap(turn, attempt: recap, status: status,
@@ -2463,6 +2519,7 @@ final class SessionRunner {
     }
 
     private func cleanUp(_ turn: Turn) {
+        turn.memoryGuard?.stop()
         turn.stallWatchdog?.cancel()
         turn.stallWatchdog = nil
         turn.output.fileHandleForReading.readabilityHandler = nil
@@ -2487,6 +2544,7 @@ final class SessionRunner {
         let output: Pipe
         let errorOutput: Pipe
         var exitMonitor: DispatchSourceProcess?
+        var memoryGuard: SessionMemoryGuard?
         private var inputOpen = true
         let prompt: String
         // The folder the agent was started in, which is the checkout a call's writes land

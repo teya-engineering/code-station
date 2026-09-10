@@ -175,6 +175,7 @@ final class RunnerHarness {
     init(agent: AgentKind, script: String,
          stalledAfter: TimeInterval = 5 * 60,
          stallCheckInterval: Duration = .seconds(5),
+         memoryLimit: UInt64 = SessionMemoryGuard.limit(),
          automaticRecapsEnabled: @escaping () -> Bool = { false }) throws {
         scratch = ScratchDirectory(prefix: "runner-\(agent.rawValue)")
         executable = scratch.path("\(agent.rawValue)-fixture")
@@ -187,6 +188,7 @@ final class RunnerHarness {
         runner = SessionRunner(paths: [agent: executable.path],
                                stalledAfter: stalledAfter,
                                stallCheckInterval: stallCheckInterval,
+                               memoryLimit: memoryLimit,
                                automaticRecapsEnabled: automaticRecapsEnabled)
     }
 
