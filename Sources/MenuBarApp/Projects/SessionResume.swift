@@ -63,7 +63,7 @@ struct SessionRecapControl: View {
         // Nothing to open until the first one lands, so the button says it is working
         // rather than offering a card that is not there yet.
         HeaderRailButton(
-            icon: isGeneratingInitialRecap ? "hourglass" : "doc.text",
+            icon: isGeneratingInitialRecap ? "hourglass" : "lightbulb",
             state: isGeneratingInitialRecap ? .working : (isOpen ? .open : .rest),
             badge: needsAttention,
             label: tooltip,

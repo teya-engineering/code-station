@@ -631,7 +631,7 @@ struct SessionView: View {
             })
         }
         if showsRecap {
-            entries.append(.item("Session recap", icon: "doc.text",
+            entries.append(.item("Session recap", icon: "lightbulb",
                                  showsUpdate: recapNeedsAttention, action: toggleRecap))
         }
         if appSettings.mobileAccessEnabled {
