@@ -282,6 +282,7 @@ struct SettingsView: View {
     @State private var searchResultID: String?
     @State private var searchedAgent: AgentKind?
     @State private var botDraft = BotDraft()
+    @State private var hoveredBot: AgentAvatar.ID?
     @FocusState private var searchFocused: Bool
 
     var body: some View {
@@ -1103,8 +1104,8 @@ struct SettingsView: View {
     }
 
     // Clicking a chip makes that bot the default, so the roster and the dropdown are one
-    // selection. What is left - the bot's personality, removing it - hangs off the chip's
-    // own menu, which keeps the narrower card down to two control rows.
+    // selection. What is left - the bot's personality - hangs off the chip's own menu,
+    // which keeps the narrower card down to two control rows.
     @ViewBuilder private func botRosterChip(_ avatar: AgentAvatar) -> some View {
         let selected = avatar.id == defaultBot.id
         let name = avatar.url.lastPathComponent
@@ -1124,13 +1125,43 @@ struct SettingsView: View {
         .accessibilityLabel("Default bot: \(avatar.personality.title)")
         .accessibilityValue(selected ? "Selected" : "Not selected")
 
-        // The built-in bot is not the user's to rename or remove, so it carries no menu.
+        // The built-in bot is not the user's to rename or remove, so it carries neither
+        // the remove button nor the menu.
         if name == AgentAvatarSelection.defaultName {
             chip.appTooltip(avatar.personality.title)
         } else {
             chip
-                .appTooltip("\(avatar.personality.title) - right-click to change or remove")
+                .overlay(alignment: .topTrailing) { removeBotBadge(avatar) }
+                .onHover { hovering in
+                    if hovering {
+                        hoveredBot = avatar.id
+                    } else if hoveredBot == avatar.id {
+                        hoveredBot = nil
+                    }
+                }
+                .appTooltip("\(avatar.personality.title) - right-click to change its personality")
                 .appContextMenu { botChipMenu(for: avatar) }
+        }
+    }
+
+    // Removing a bot is the one thing about the roster worth doing often, so it is a
+    // button on the chip the pointer is already on rather than a menu to go looking for.
+    // It stays inside the chip's own bounds, or moving onto it would end the hover that
+    // put it there.
+    @ViewBuilder private func removeBotBadge(_ avatar: AgentAvatar) -> some View {
+        if hoveredBot == avatar.id {
+            Button { confirmRemoveBot(avatar) } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 7, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 14, height: 14)
+                    .background(Circle().fill(Theme.deletion))
+                    .overlay(Circle().stroke(Theme.background, lineWidth: 1.5))
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .appTooltip("Remove bot")
+            .accessibilityLabel("Remove \(avatar.personality.title)")
         }
     }
 
@@ -1138,9 +1169,20 @@ struct SettingsView: View {
         personalityMenu(for: avatar) + [
             .separator,
             .item("Remove bot", kind: .destructive, icon: "trash") {
-                removeBotImage(avatar)
+                confirmRemoveBot(avatar)
             }
         ]
+    }
+
+    // A chip is small and the remove button sits on top of it, so a missed click would
+    // otherwise throw away a photo the user picked.
+    private func confirmRemoveBot(_ avatar: AgentAvatar) {
+        dialogs.show(.confirm(
+            "Remove \(avatar.personality.title)?",
+            message: "The bot and its photo are deleted. Sessions using it go back to the built-in bot.",
+            action: "Remove bot") {
+                removeBotImage(avatar)
+            })
     }
 
     // The empty slot at the end of the roster is where a new bot goes, so adding one costs
@@ -1610,7 +1652,7 @@ enum SettingsSearchIndex {
         result("Sidebar icons", .appearance, .appearanceSidebarIcons,
                "appearance style monogram dicebear motion still animated"),
         result("Default bot", .appearance, .appearanceDefaultBot,
-               "appearance avatar image personality photo add"),
+               "appearance avatar image personality photo add remove delete"),
         result("Default agent", .agents, .agentDefault,
                "claude code codex new sessions"),
         result("Configure agent", .agents, .agentConfigure,
