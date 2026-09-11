@@ -1615,19 +1615,6 @@ private struct SidebarRenderedSessionsKey: PreferenceKey {
     }
 }
 
-private struct CurrentContainerBadge: View {
-    var body: some View {
-        Text("Current")
-            .font(.system(size: 10, weight: .semibold))
-            .foregroundStyle(Theme.accent)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 3)
-            .background(RoundedRectangle(cornerRadius: 4).fill(Theme.accent.opacity(0.09)))
-            .fixedSize()
-            .accessibilityHidden(true)
-    }
-}
-
 private struct SidebarDisclosure: View {
     let name: String
     let expanded: Bool
@@ -1842,8 +1829,6 @@ private struct WorkspaceHeaderRow: View {
                     : "")
                 .accessibilityAddTraits(selected && activeSessionTitle == nil ? [.isSelected] : [])
 
-                if selected { CurrentContainerBadge() }
-
                 if !selected || hovering || runningCount > 0 {
                     ZStack(alignment: .trailing) {
                         HStack(spacing: 6) {
@@ -2015,8 +2000,6 @@ private struct ProjectHeaderRow: View {
                     ? "Current project" + (!isExpanded ? activeSessionTitle.map { ". Viewing \($0)" } ?? "" : "")
                     : "")
                 .accessibilityAddTraits(selected && activeSessionTitle == nil ? [.isSelected] : [])
-
-                if selected { CurrentContainerBadge() }
 
                 // The running light gives way under the pointer to the things you come to
                 // a project row to do. The name gives way while the pointer is here for
