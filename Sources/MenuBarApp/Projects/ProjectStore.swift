@@ -33,6 +33,11 @@ struct SessionOpenRequest: Hashable {
     let destination: SessionDestination
 }
 
+struct SidebarDestination: Equatable {
+    let containerID: UUID
+    var sessionID: UUID? = nil
+}
+
 // Something that has left the app for good, named by what it was so whatever else is
 // keyed to it can be matched without guessing which kind of id this is.
 enum RemovedOwner: Hashable {
@@ -87,11 +92,10 @@ final class ProjectStore {
     // words on the button.
     private(set) var sessionOpenRequest: SessionOpenRequest?
 
-    // A project opened from somewhere other than the rail, and not brought into view
-    // there yet. The rail scrolls to it and clears this, so asking for the same project
-    // again still moves the list. A row clicked in the rail is already under the pointer,
-    // so it never sets this.
+    // The rail consumes reveal requests so opening the same destination again can bring
+    // it back into view. Conversation updates never issue these requests.
     var projectToReveal: UUID?
+    var sessionToReveal: UUID?
 
     // Sessions that ended a turn while the user was not reading them on either screen.
     // This is about live attention rather than the conversation, so it is not saved: a
@@ -303,6 +307,21 @@ final class ProjectStore {
         return session(id)
     }
 
+    var sidebarDestination: SidebarDestination? {
+        switch selection {
+        case .session(let id):
+            guard let session = sidebarSession(id) else { return nil }
+            return SidebarDestination(containerID: session.workspaceID ?? session.projectID,
+                                      sessionID: session.id)
+        case .workspace(let id):
+            return workspace(id).map { SidebarDestination(containerID: $0.id) }
+        case nil:
+            return selectedProjectID.flatMap(project).map { SidebarDestination(containerID: $0.id) }
+        case .home:
+            return nil
+        }
+    }
+
     var selectedProject: Project? {
         switch selection {
         case .session(let id): return session(id).flatMap { project($0.projectID) }
@@ -344,6 +363,7 @@ final class ProjectStore {
         selectedProjectID = session.projectID
         sessionOpenRequest = SessionOpenRequest(sessionID: visibleID, destination: landing)
         selection = .session(visibleID)
+        sessionToReveal = visibleID
         persistSelection()
     }
 

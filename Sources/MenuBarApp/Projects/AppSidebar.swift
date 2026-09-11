@@ -9,6 +9,7 @@ struct AppSidebar: View {
     let oldSessionDeletionAt: Date?
     let onReviewOldSessions: () -> Void
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(ProjectStore.self) private var store
     @Environment(SessionRunner.self) private var runner
     @Environment(ShortcutStore.self) private var shortcuts
@@ -20,8 +21,8 @@ struct AppSidebar: View {
     @Environment(MobileAccessController.self) private var mobileAccess
     @Environment(GlobalCommandPaletteController.self) private var commandPalette
 
-    // A project is expanded by default while it is the selected one. Explicit choices
-    // win over that default and are restored when the app opens again.
+    // Explicit expansion choices persist. Session navigation opens its parent again;
+    // changes to the conversation itself leave those choices alone.
     @State private var expansion = Preferences.sidebarExpansion()
     @State private var collapsedGroups = Preferences.collapsedSidebarGroups()
     @State private var renamingID: UUID?
@@ -30,13 +31,12 @@ struct AppSidebar: View {
     @State private var showingNewWorkspace = false
     @State private var showingNewTask = false
     @State private var askingTask: Project?
-    // A session opened away from its sidebar card and not brought into view yet. A card
-    // clicked in the sidebar is already under the pointer, so it does not need this.
-    @State private var sessionToReveal: UUID?
     @State private var sessionVisibility = SidebarSessionVisibility()
+    @State private var renderedSessionIDs: Set<UUID> = []
     @State private var filterText = ""
     @State private var sidebarFilterOpen = false
     @State private var revealedFilterContainerID: UUID?
+    @State private var clearedFilterForDisclosure = false
     @State private var oldSessionSummary = OldSessionSummary()
     @State private var hoveringOldSessions = false
     @State private var hoveringOrphanedWorktrees = false
@@ -44,6 +44,16 @@ struct AppSidebar: View {
     @FocusState private var filterFocused: Bool
 
     private static let oldSessionRefreshInterval: TimeInterval = 3_600
+
+    private struct SessionRevealTarget: Equatable {
+        let id: UUID?
+        let isRendered: Bool
+    }
+
+    private var sessionRevealTarget: SessionRevealTarget {
+        SessionRevealTarget(id: store.sessionToReveal,
+                            isRendered: store.sessionToReveal.map(renderedSessionIDs.contains) ?? false)
+    }
 
     private struct OldSessionSummary: Equatable {
         var sessions = 0
@@ -75,6 +85,34 @@ struct AppSidebar: View {
         .frame(width: 318)
         .background(Theme.sidebar)
         .background(keyboardShortcuts)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Projects and sessions")
+        .onChange(of: store.sidebarDestination, initial: true) { old, destination in
+            if destination?.sessionID == nil { store.sessionToReveal = nil }
+            guard let destination else { return }
+            setExpanded(true, for: destination.containerID)
+            if let sessionID = destination.sessionID {
+                filterText = ""
+                store.sessionToReveal = sessionID
+            }
+            if old != destination { announceSelection() }
+        }
+        .onChange(of: filterQuery) { old, query in
+            if !old.isEmpty, query.isEmpty {
+                if !clearedFilterForDisclosure { revealCurrentContainer() }
+                clearedFilterForDisclosure = false
+            }
+        }
+        .onChange(of: store.sessionToReveal) { _, id in
+            guard let id, let session = store.sidebarSession(id) else { return }
+            filterText = ""
+            setExpanded(true, for: containerID(of: session))
+        }
+        .onChange(of: store.projectToReveal) { _, id in
+            guard let id else { return }
+            if !orderedItems.contains(where: { $0.id == id }) { filterText = "" }
+            setExpanded(true, for: id)
+        }
         .task { await watchWorkingTrees() }
         .task(id: oldSessionRefreshRule) { await refreshOldSessionsHourly() }
         .onChange(of: commandPalette.newSessionRequest) { _, _ in
@@ -408,7 +446,7 @@ struct AppSidebar: View {
         setExpanded(true, for: containerID)
         sessionVisibility.pin(session.id, in: containerID)
         store.selectSession(session.id, destination: destination(for: session))
-        sessionToReveal = session.id
+        store.sessionToReveal = session.id
     }
 
     // Where opening a card lands. The Design conversation is behind a tab rather than on
@@ -424,6 +462,29 @@ struct AppSidebar: View {
 
     private var projectList: some View {
         VStack(alignment: .leading, spacing: 0) {
+            if let current = currentItem, isFiltering,
+               !orderedItems.contains(where: { $0.id == current.id }) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Current \(store.sidebarDestination?.sessionID != nil ? "session" : current.group == .workspaces ? "workspace" : "project") is outside this filter.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                    Button {
+                        filterText = ""
+                    } label: {
+                        Text("Show \(current.name) in sidebar")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(Theme.accent)
+                            .lineLimit(1)
+                            .padding(.vertical, 4)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .sidebarFocusRing()
+                    .appTooltip("Clear filter and reveal \(current.name)")
+                }
+                .padding(.horizontal, 18)
+                .padding(.bottom, 10)
+            }
             if store.projects.isEmpty && store.workspaces.isEmpty {
                 Text("No projects yet. Add a folder and Claude Code will run right inside it.")
                     .font(.system(size: 13))
@@ -454,7 +515,7 @@ struct AppSidebar: View {
                                 if let group = section.group {
                                     SectionHeading(title: group.title,
                                                    count: section.items.count,
-                                                   collapsed: collapsedGroups.contains(group)) {
+                                                   collapsed: isCollapsed(section)) {
                                         toggleCollapsed(group)
                                     }
                                 }
@@ -482,18 +543,20 @@ struct AppSidebar: View {
                         // project row, or the first session arriving under an open one.
                         // Easing out rather than a spring: the block must not overshoot its
                         // own height, or it opens onto a gap under the last card.
-                        .animation(.easeOut(duration: 0.26),
+                        .animation(reduceMotion ? nil : .easeOut(duration: 0.26),
                                    value: visibilityKey(grouped, workspaceGroups: workspaceGroups))
-                        .animation(.easeOut(duration: 0.22), value: itemOrderKey)
-                        .animation(.easeOut(duration: 0.22),
+                        .animation(reduceMotion ? nil : .easeOut(duration: 0.22), value: itemOrderKey)
+                        .animation(reduceMotion ? nil : .easeOut(duration: 0.22),
                                    value: sessionOrderKey(grouped,
                                                           workspaceGroups: workspaceGroups))
-                        .animation(.easeOut(duration: 0.22), value: appSettings.projectSort)
-                        .animation(.easeOut(duration: 0.22), value: appSettings.projectGrouping)
-                        .animation(.easeOut(duration: 0.22), value: collapsedGroups)
-                        .animation(.easeOut(duration: 0.22), value: filterText)
+                        .animation(reduceMotion ? nil : .easeOut(duration: 0.22), value: appSettings.projectSort)
+                        .animation(reduceMotion ? nil : .easeOut(duration: 0.22), value: appSettings.projectGrouping)
+                        .animation(reduceMotion ? nil : .easeOut(duration: 0.22), value: collapsedGroups)
+                        .animation(reduceMotion ? nil : .easeOut(duration: 0.22), value: filterText)
                     }
-                    .task(id: sessionToReveal) { await reveal(with: scroller) }
+                    .onPreferenceChange(SidebarRenderedSessionsKey.self) { renderedSessionIDs = $0 }
+                    .onDisappear { renderedSessionIDs = [] }
+                    .task(id: sessionRevealTarget) { await reveal(with: scroller) }
                     .task(id: store.projectToReveal) { await revealProject(with: scroller) }
                 }
             }
@@ -529,6 +592,63 @@ struct AppSidebar: View {
 
     private func containerID(of session: ChatSession) -> UUID {
         session.workspaceID ?? session.projectID
+    }
+
+    private var currentItem: SidebarItem? {
+        guard let id = store.sidebarDestination?.containerID else { return nil }
+        return store.workspace(id).map(SidebarItem.workspace)
+            ?? store.project(id).map(SidebarItem.project)
+    }
+
+    private func activeSessionTitle(in containerID: UUID) -> String? {
+        guard let destination = store.sidebarDestination,
+              destination.containerID == containerID,
+              let id = destination.sessionID else { return nil }
+        return store.sidebarSession(id)?.title
+    }
+
+    private func openProject(_ project: Project) {
+        store.selectProject(project.id)
+        setExpanded(true, for: project.id)
+        if isFiltering { revealedFilterContainerID = project.id }
+    }
+
+    private func openWorkspace(_ workspace: ProjectWorkspace) {
+        store.selectWorkspace(workspace.id)
+        setExpanded(true, for: workspace.id)
+        if isFiltering { revealedFilterContainerID = workspace.id }
+    }
+
+    private func toggleExpanded(_ id: UUID, expanded: Bool) {
+        if isFiltering {
+            clearedFilterForDisclosure = true
+            filterText = ""
+        }
+        store.sessionToReveal = nil
+        setExpanded(!expanded, for: id)
+        if expanded { sessionVisibility.reset(id) }
+    }
+
+    private func revealCurrentContainer() {
+        guard let destination = store.sidebarDestination else { return }
+        setExpanded(true, for: destination.containerID)
+        if let sessionID = destination.sessionID {
+            store.sessionToReveal = sessionID
+        } else {
+            store.projectToReveal = destination.containerID
+        }
+    }
+
+    private func announceSelection() {
+        guard let current = currentItem, let window = NSApp.keyWindow else { return }
+        let message = if let title = activeSessionTitle(in: current.id) {
+            "Viewing \(title) in \(current.name)."
+        } else {
+            "\(current.name), current \(current.group == .workspaces ? "workspace" : "project")."
+        }
+        NSAccessibility.post(element: window, notification: .announcementRequested,
+                             userInfo: [.announcement: message,
+                                        .priority: NSAccessibilityPriorityLevel.low.rawValue])
     }
 
     private var orderedItems: [SidebarItem] {
@@ -578,12 +698,15 @@ struct AppSidebar: View {
             WorkspaceHeaderRow(
                 workspace: workspace,
                 projects: projects,
-                selected: store.selection == .workspace(workspace.id),
+                selected: store.sidebarDestination?.containerID == workspace.id,
+                activeSessionTitle: activeSessionTitle(in: workspace.id),
                 isExpanded: expanded && !visible.isEmpty,
                 sessionCount: sessions.count,
                 runningCount: running,
                 finishedCount: store.finishedCount(inWorkspace: workspace.id),
                 isRenaming: renamingID == workspace.id,
+                onOpen: { openWorkspace(workspace) },
+                onToggle: { toggleExpanded(workspace.id, expanded: expanded) },
                 onNewSession: { choosingWorkspaceSession = workspace },
                 onRename: { name in
                     store.renameWorkspace(workspace.id, to: name)
@@ -591,16 +714,6 @@ struct AppSidebar: View {
                 },
                 onCancelRename: { renamingID = nil }
             )
-            .contentShape(Rectangle())
-            .onTapGesture {
-                store.selectWorkspace(workspace.id)
-                if isFiltering {
-                    revealedFilterContainerID = workspace.id
-                } else {
-                    setExpanded(!expanded, for: workspace.id)
-                    if expanded { sessionVisibility.reset(workspace.id) }
-                }
-            }
             .appContextMenu {
                 [.item(workspace.isPinned ? "Unpin" : "Pin",
                        icon: workspace.isPinned ? "pin.slash" : "pin") {
@@ -649,7 +762,8 @@ struct AppSidebar: View {
         return VStack(alignment: .leading, spacing: 0) {
             ProjectHeaderRow(
                 project: project,
-                selected: store.selection == nil && store.selectedProjectID == project.id,
+                selected: store.sidebarDestination?.containerID == project.id,
+                activeSessionTitle: activeSessionTitle(in: project.id),
                 isExpanded: expanded && !visible.isEmpty,
                 isMissing: store.isMissing(project),
                 sessionCount: sessions.count,
@@ -664,6 +778,8 @@ struct AppSidebar: View {
                 clearableCount: sessions.count - running,
                 canRunTask: running == 0,
                 isRenaming: renamingID == project.id,
+                onOpen: { openProject(project) },
+                onToggle: { toggleExpanded(project.id, expanded: expanded) },
                 onNewSession: { requestNewSession(in: project) },
                 onRunTask: { runTask(project) },
                 onClearSessions: { confirmClearSessions(in: project) },
@@ -673,18 +789,6 @@ struct AppSidebar: View {
                 },
                 onCancelRename: { renamingID = nil }
             )
-            .contentShape(Rectangle())
-            .onTapGesture {
-                store.selectProject(project.id)
-                if isFiltering {
-                    revealedFilterContainerID = project.id
-                } else {
-                    setExpanded(!expanded, for: project.id)
-                    // Closing a project puts its list away, and putting it away includes the
-                    // tail the user had unfolded: the next open starts back at the cap.
-                    if expanded { sessionVisibility.reset(project.id) }
-                }
-            }
             .appContextMenu { headerMenu(project) }
 
             // An expanded project with nothing under it draws no block at all: an empty one
@@ -714,7 +818,7 @@ struct AppSidebar: View {
                 // card is what says so: its light, its line and its time come from there.
                 let live = LiveConversation.of(session.id, store: store, runner: runner)
                     ?? session
-                SidebarRailRow(colour: tint.colour, selectedColour: tint.ink, selected: selected) {
+                SidebarRailRow(colour: tint.colour, selectedColour: Theme.accent, selected: selected) {
                     SessionCard(session: session,
                                 selected: selected,
                                 busy: runner.state(live.id).isBusy,
@@ -726,6 +830,9 @@ struct AppSidebar: View {
                                 uncommitted: uncommitted(session),
                                 connected: mobileAccess.isConnected(session: session.id),
                                 isRenaming: renamingID == session.id,
+                                onOpen: {
+                                    store.selectSession(session.id, destination: destination(for: session))
+                                },
                                 onDelete: { confirmRemoveSession(session) },
                                 onRename: { name in
                                     store.renameSession(session.id, to: name)
@@ -733,9 +840,14 @@ struct AppSidebar: View {
                                 },
                                 onCancelRename: { renamingID = nil })
                 }
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    store.selectSession(session.id, destination: destination(for: session))
+                .id(session.id)
+                .background {
+                    if selected {
+                        GeometryReader { _ in
+                            Color.clear.preference(key: SidebarRenderedSessionsKey.self,
+                                                   value: [session.id])
+                        }
+                    }
                 }
                 .appContextMenu {
                     [.item(session.isPinned ? "Unpin" : "Pin",
@@ -809,12 +921,7 @@ struct AppSidebar: View {
     // closed row would hide the very sessions the filter kept.
     private func isExpanded(_ project: Project) -> Bool {
         guard !isFiltering else { return true }
-        let selectedProjectID: UUID? = switch store.selection {
-        case .session(let id): store.sidebarSession(id)?.projectID
-        case .home, .workspace: nil
-        case nil: store.selectedProjectID
-        }
-        return expansion[project.id] ?? (project.id == selectedProjectID)
+        return expansion[project.id] ?? (project.id == store.sidebarDestination?.containerID)
     }
 
     private func isExpanded(_ workspace: ProjectWorkspace) -> Bool {
@@ -858,12 +965,16 @@ struct AppSidebar: View {
     // clicked so the result can be explored without clearing the filter.
     private func visibleSessions(_ sessions: [ChatSession], in containerID: UUID) -> [ChatSession] {
         let filter = self.filter
+        let destination = store.sidebarDestination
+        let selectedSessionID = destination?.containerID == containerID ? destination?.sessionID : nil
         guard filter.isActive else {
             return sessionVisibility.visible(
-                sessions, in: containerID, limit: appSettings.sidebarSessionLimit)
+                sessions, in: containerID, limit: appSettings.sidebarSessionLimit,
+                selectedSessionID: selectedSessionID)
         }
         return filter.sessions(from: sessions,
-                               revealingAll: revealedFilterContainerID == containerID)
+                               revealingAll: revealedFilterContainerID == containerID,
+                               selectedSessionID: selectedSessionID)
     }
 
     // Keyed on the cards that are drawn rather than the sessions that exist, so the
@@ -887,30 +998,40 @@ struct AppSidebar: View {
             + store.projects.flatMap { grouped[$0.id, default: []].map(\.id) }
     }
 
-    // Brings a session opened away from the rail into view. It scrolls to the project or
-    // workspace rather than to the card, so the session stays visible in its full context.
-    // Creating a session can also reorder the list under the recent sort, which may move
-    // its project off screen.
+    // Start at the parent to keep the session in context, then expose the selected card
+    // if the rail is taller than the viewport. Navigation can also reorder the list.
     private func reveal(with scroller: ScrollViewProxy) async {
-        guard let id = sessionToReveal, let session = store.session(id) else { return }
+        guard let id = store.sessionToReveal, store.sidebarDestination?.sessionID == id,
+              let session = store.sidebarSession(id) else { return }
+        let containerID = containerID(of: session)
         // The card is created by the same change that asked for this, so the list has to be
         // laid out again before there is anything to scroll to.
         await Task.yield()
-        withAnimation(.easeOut(duration: 0.26)) {
-            scroller.scrollTo(session.workspaceID ?? session.projectID, anchor: .top)
+        guard !Task.isCancelled, expansion[containerID] != false else { return }
+        guard renderedSessionIDs.contains(id) else {
+            // Lazy rows report their cards after layout. Keep the request until that
+            // happens, or a scroll can stop at a parent whose card does not exist yet.
+            scroller.scrollTo(containerID, anchor: .top)
+            return
         }
-        sessionToReveal = nil
+        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.26)) {
+            // The parent stays in view when both fit; a long rail still exposes the card.
+            scroller.scrollTo(id, anchor: .bottom)
+        }
+        store.sessionToReveal = nil
     }
 
     // Brings a project opened away from the rail into view. The row has to be drawn
     // before it can be scrolled to, so a filter narrow enough to hide it is dropped and
     // a folded section is unfolded first.
     private func revealProject(with scroller: ScrollViewProxy) async {
-        guard let id = store.projectToReveal, store.project(id) != nil else { return }
+        guard let id = store.projectToReveal,
+              store.project(id) != nil || store.workspace(id) != nil else { return }
         if !orderedItems.contains(where: { $0.id == id }) { filterText = "" }
         showGroup(containing: id)
         await Task.yield()
-        withAnimation(.easeOut(duration: 0.26)) {
+        guard !Task.isCancelled else { return }
+        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.26)) {
             scroller.scrollTo(id, anchor: .top)
         }
         store.projectToReveal = nil
@@ -939,7 +1060,7 @@ struct AppSidebar: View {
                 seed: .init(id: sessionID, agent: agent, model: model,
                             agentAvatarName: agentAvatarName, mode: mode)) {
             case .success(let session):
-                sessionToReveal = session.id
+                store.sessionToReveal = session.id
             case .failure(let failure):
                 dialogs.show(.notice("Could not create the session", message: failure.message))
             }
@@ -955,7 +1076,7 @@ struct AppSidebar: View {
             switch await SessionLifecycle.createWorkspaceSession(
                 choice, in: workspace, store: store) {
             case .success:
-                sessionToReveal = choice.sessionID
+                store.sessionToReveal = choice.sessionID
             case .failure(let failure):
                 dialogs.show(.notice(failure.title, message: failure.message))
             }
@@ -1027,7 +1148,7 @@ struct AppSidebar: View {
                 agent: agent, model: model,
                 agentAvatarName: agentAvatarName, mode: mode, store: store) {
             case .success:
-                sessionToReveal = sessionID
+                store.sessionToReveal = sessionID
             case .failure(let failure):
                 dialogs.show(.notice(failure.title, message: failure.message))
             }
@@ -1189,7 +1310,7 @@ struct AppSidebar: View {
             .contentShape(RoundedRectangle(cornerRadius: 9))
         }
         .buttonStyle(.plain)
-        .animation(.easeOut(duration: 0.12), value: hoveringOldSessions)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: hoveringOldSessions)
         .onHover { hoveringOldSessions = $0 }
         .accessibilityLabel("Review old sessions")
     }
@@ -1322,7 +1443,7 @@ struct AppSidebar: View {
         .buttonStyle(.plain)
         .disabled(orphanedWorktrees.isPruning)
         .opacity(orphanedWorktrees.isPruning ? 0.55 : 1)
-        .animation(.easeOut(duration: 0.12), value: hoveringOrphanedWorktrees)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: hoveringOrphanedWorktrees)
         .onHover { hoveringOrphanedWorktrees = $0 }
         .accessibilityLabel("Prune orphaned worktrees")
     }
@@ -1473,7 +1594,7 @@ struct AppSidebar: View {
         switch TaskRun.run(project, values: values, note: note, store: store, runner: runner,
                            agentAvatarName: appSettings.defaultAgentAvatarName) {
         case .success(let session):
-            sessionToReveal = session.id
+            store.sessionToReveal = session.id
         case .failure(let failure):
             dialogs.show(.notice("Could not run the task", message: failure.message))
         }
@@ -1485,6 +1606,67 @@ struct AppSidebar: View {
 }
 
 // MARK: - Rows
+
+private struct SidebarRenderedSessionsKey: PreferenceKey {
+    static let defaultValue: Set<UUID> = []
+
+    static func reduce(value: inout Set<UUID>, nextValue: () -> Set<UUID>) {
+        value.formUnion(nextValue())
+    }
+}
+
+private struct CurrentContainerBadge: View {
+    var body: some View {
+        Text("Current")
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(Theme.accent)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(RoundedRectangle(cornerRadius: 4).fill(Theme.accent.opacity(0.09)))
+            .fixedSize()
+            .accessibilityHidden(true)
+    }
+}
+
+private struct SidebarDisclosure: View {
+    let name: String
+    let expanded: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "chevron.right")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .rotationEffect(.degrees(expanded ? 90 : 0))
+                .frame(width: 22, height: 28)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .sidebarFocusRing()
+        .accessibilityLabel("\(expanded ? "Collapse" : "Expand") \(name) sessions")
+        .accessibilityValue(expanded ? "Expanded" : "Collapsed")
+        .appTooltip("\(expanded ? "Collapse" : "Expand") \(name) sessions")
+    }
+}
+
+private struct SidebarFocusRing: ViewModifier {
+    @FocusState private var focused: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .focused($focused)
+            .focusEffectDisabled()
+            .overlay(RoundedRectangle(cornerRadius: 6)
+                .stroke(focused ? Theme.accent : .clear, lineWidth: 2)
+                .padding(-2)
+                .allowsHitTesting(false))
+    }
+}
+
+private extension View {
+    func sidebarFocusRing() -> some View { modifier(SidebarFocusRing()) }
+}
 
 // The square that closes the footer row. Everything the app can be set up with lives
 // behind it, so the rail beside it belongs entirely to the projects.
@@ -1539,6 +1721,7 @@ private struct ArrangementChip: View {
 // only comes out under the pointer, and the count only while the run is folded, since a
 // folded heading is the only thing left saying what is in there.
 private struct SectionHeading: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let title: String
     let count: Int
     let collapsed: Bool
@@ -1575,7 +1758,10 @@ private struct SectionHeading: View {
         }
         .buttonStyle(.plain)
         .onPointerHover { hovering = $0 }
-        .animation(.easeOut(duration: 0.15), value: hovering)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: hovering)
+        .sidebarFocusRing()
+        .accessibilityLabel("\(collapsed ? "Expand" : "Collapse") \(title)")
+        .accessibilityValue(collapsed ? "Collapsed" : "Expanded")
         .appTooltip(collapsed ? "Show \(title.lowercased())" : "Hide \(title.lowercased())")
     }
 }
@@ -1586,11 +1772,14 @@ private struct WorkspaceHeaderRow: View {
     let workspace: ProjectWorkspace
     let projects: [Project]
     let selected: Bool
+    let activeSessionTitle: String?
     let isExpanded: Bool
     let sessionCount: Int
     let runningCount: Int
     let finishedCount: Int
     let isRenaming: Bool
+    let onOpen: () -> Void
+    let onToggle: () -> Void
     let onNewSession: () -> Void
     let onRename: (String) -> Void
     let onCancelRename: () -> Void
@@ -1601,45 +1790,82 @@ private struct WorkspaceHeaderRow: View {
 
     var body: some View {
         TreeRow(selected: selected, isExpanded: isExpanded, hovering: hovering) {
-            SidebarIdentityTile(
-                avatar: workspace.sidebarAvatar,
-                name: workspace.name,
-                tint: Theme.workspaceTint,
-                stacked: true)
-
             if isRenaming {
+                SidebarIdentityTile(
+                    avatar: workspace.sidebarAvatar,
+                    name: workspace.name,
+                    tint: Theme.workspaceTint,
+                    stacked: true)
                 TextField("Name", text: $draft)
                     .textFieldStyle(.plain)
+                    .padding(4)
+                    .fieldSurface(cornerRadius: 5)
                     .font(.system(size: 13.5, weight: .semibold))
                     .focused($focused)
                     .onSubmit { onRename(draft) }
                     .onExitCommand(perform: onCancelRename)
             } else {
-                HStack(spacing: 5) {
-                    Text(workspace.name)
-                        .font(.system(size: 13.5, weight: .semibold))
-                        .lineLimit(1)
-                    if workspace.isPinned { PinnedMark() }
-                    if finishedCount > 0 { FinishedDot() }
-                }
-
-                Spacer(minLength: 6)
-
-                ZStack(alignment: .trailing) {
-                    HStack(spacing: 6) {
-                        if runningCount > 0 { RunningDot() }
-                        Text("\(projects.count) projects")
-                            .font(.mono(10))
-                            .foregroundStyle(.secondary)
+                Button(action: onOpen) {
+                    HStack(spacing: 9) {
+                        SidebarIdentityTile(
+                            avatar: workspace.sidebarAvatar,
+                            name: workspace.name,
+                            tint: Theme.workspaceTint,
+                            stacked: true)
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 5) {
+                                Text(workspace.name)
+                                    .font(.system(size: 13.5, weight: .semibold))
+                                    .lineLimit(1)
+                                if workspace.isPinned { PinnedMark() }
+                                if finishedCount > 0 { FinishedDot() }
+                            }
+                            if selected, !isExpanded, let activeSessionTitle {
+                                Text(activeSessionTitle)
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(Theme.accent)
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                                    .appTooltip(activeSessionTitle)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .opacity(hovering ? 0 : 1)
-
-                    if hovering {
-                        RowAction(icon: "plus", title: "New", action: onNewSession)
-                            .appTooltip("New multi-project session")
-                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
                 }
-                .frame(minWidth: 62, alignment: .trailing)
+                .buttonStyle(.plain)
+                .sidebarFocusRing()
+                .accessibilityLabel("Open \(workspace.name)")
+                .accessibilityValue(selected
+                    ? "Current workspace" + (!isExpanded ? activeSessionTitle.map { ". Viewing \($0)" } ?? "" : "")
+                    : "")
+                .accessibilityAddTraits(selected && activeSessionTitle == nil ? [.isSelected] : [])
+
+                if selected { CurrentContainerBadge() }
+
+                if !selected || hovering || runningCount > 0 {
+                    ZStack(alignment: .trailing) {
+                        HStack(spacing: 6) {
+                            if runningCount > 0 { RunningDot() }
+                            if !selected {
+                                Text("\(projects.count) projects")
+                                    .font(.mono(10))
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .opacity(hovering ? 0 : 1)
+
+                        if hovering {
+                            RowAction(icon: "plus", title: "New", compact: selected, action: onNewSession)
+                                .appTooltip("New multi-project session")
+                        }
+                    }
+                    .frame(minWidth: selected ? 0 : 62, alignment: .trailing)
+                }
+                if sessionCount > 0 {
+                    SidebarDisclosure(name: workspace.name, expanded: isExpanded, action: onToggle)
+                }
             }
         }
         .appTooltip {
@@ -1658,8 +1884,7 @@ private struct WorkspaceHeaderRow: View {
     }
 }
 
-// The shape both container rows wear. Selection is white with a ring; being merely open
-// is the quieter fill, so an expanded project does not compete with the selected one.
+// The current container keeps its navigation marker even when its sessions are folded.
 // Open means a block is drawn below, not that the flag is set: a row with nothing under
 // it wears the plain fill, or the tint reads as a state the row does not have.
 private struct TreeRow<Content: View>: View {
@@ -1674,11 +1899,19 @@ private struct TreeRow<Content: View>: View {
             .padding(.vertical, 6)
             .background(RoundedRectangle(cornerRadius: 9).fill(fill))
             .overlay(RoundedRectangle(cornerRadius: 9)
-                .stroke(selected ? Color.primary.opacity(0.28) : .clear, lineWidth: 1.3))
+                .stroke(selected ? Theme.accent.opacity(0.14) : .clear, lineWidth: 1))
+            .overlay(alignment: .leading) {
+                if selected {
+                    Capsule().fill(Theme.accent)
+                        .frame(width: 3)
+                        .padding(.vertical, 7)
+                        .accessibilityHidden(true)
+                }
+            }
     }
 
     private var fill: Color {
-        if selected { return Theme.card }
+        if selected { return Theme.accent.opacity(0.085) }
         if isExpanded { return Theme.field }
         return hovering ? Theme.sunken : .clear
     }
@@ -1690,6 +1923,7 @@ private struct TreeRow<Content: View>: View {
 private struct ProjectHeaderRow: View {
     let project: Project
     let selected: Bool
+    let activeSessionTitle: String?
     let isExpanded: Bool
     let isMissing: Bool
     let sessionCount: Int
@@ -1699,6 +1933,8 @@ private struct ProjectHeaderRow: View {
     let clearableCount: Int
     let canRunTask: Bool
     let isRenaming: Bool
+    let onOpen: () -> Void
+    let onToggle: () -> Void
     let onNewSession: () -> Void
     let onRunTask: () -> Void
     let onClearSessions: () -> Void
@@ -1713,79 +1949,115 @@ private struct ProjectHeaderRow: View {
 
     var body: some View {
         TreeRow(selected: selected, isExpanded: isExpanded, hovering: hovering) {
-            SidebarIdentityTile(
-                avatar: project.sidebarAvatar,
-                name: project.name,
-                tint: Theme.projectTint(for: project.name),
-                dashed: project.kind == .adHoc)
-
             if isRenaming {
+                SidebarIdentityTile(
+                    avatar: project.sidebarAvatar,
+                    name: project.name,
+                    tint: Theme.projectTint(for: project.name),
+                    dashed: project.kind == .adHoc)
                 TextField("Name", text: $draft)
                     .textFieldStyle(.plain)
+                    .padding(4)
+                    .fieldSurface(cornerRadius: 5)
                     .font(.system(size: 13.5, weight: .semibold))
                     .focused($focused)
                     .onSubmit { onRename(draft) }
                     .onExitCommand(perform: onCancelRename)
             } else {
-                HStack(spacing: 5) {
-                    if isMissing {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.system(size: 10))
-                            .foregroundStyle(.secondary)
+                Button(action: onOpen) {
+                    HStack(spacing: 9) {
+                        SidebarIdentityTile(
+                            avatar: project.sidebarAvatar,
+                            name: project.name,
+                            tint: Theme.projectTint(for: project.name),
+                            dashed: project.kind == .adHoc)
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 5) {
+                                if isMissing {
+                                    Image(systemName: "exclamationmark.triangle.fill")
+                                        .font(.system(size: 10))
+                                        .foregroundStyle(.secondary)
+                                }
+                                Text(project.name)
+                                    .font(.system(size: 13.5, weight: .semibold))
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                                if project.isPinned { PinnedMark() }
+                                if let schedule = project.task?.schedule, schedule.isActive {
+                                    Image(systemName: "clock.fill")
+                                        .font(.system(size: 9.5, weight: .semibold))
+                                        .foregroundStyle(schedule.isWaitingForConfirmation
+                                                         ? Theme.attentionText : Theme.accent)
+                                        .appTooltip(schedule.isWaitingForConfirmation
+                                            ? "Timer waiting for confirmation"
+                                            : schedule.summary)
+                                }
+                                if finishedCount > 0 { FinishedDot() }
+                            }
+                            if selected, !isExpanded, let activeSessionTitle {
+                                Text(activeSessionTitle)
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(Theme.accent)
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                                    .appTooltip(activeSessionTitle)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    Text(project.name)
-                        .font(.system(size: 13.5, weight: .semibold))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                    if project.isPinned { PinnedMark() }
-                    if let schedule = project.task?.schedule, schedule.isActive {
-                        Image(systemName: "clock.fill")
-                            .font(.system(size: 9.5, weight: .semibold))
-                            .foregroundStyle(schedule.isWaitingForConfirmation
-                                             ? Theme.attentionText : Theme.accent)
-                            .appTooltip(schedule.isWaitingForConfirmation
-                                ? "Timer waiting for confirmation"
-                                : schedule.summary)
-                    }
-                    if finishedCount > 0 { FinishedDot() }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
                 }
-                Spacer(minLength: 6)
+                .buttonStyle(.plain)
+                .sidebarFocusRing()
+                .accessibilityLabel("Open \(project.name)")
+                .accessibilityValue(selected
+                    ? "Current project" + (!isExpanded ? activeSessionTitle.map { ". Viewing \($0)" } ?? "" : "")
+                    : "")
+                .accessibilityAddTraits(selected && activeSessionTitle == nil ? [.isSelected] : [])
+
+                if selected { CurrentContainerBadge() }
 
                 // The running light gives way under the pointer to the things you come to
                 // a project row to do. The name gives way while the pointer is here for
                 // those actions, so the wider labels do not make the row grow.
-                ZStack(alignment: .trailing) {
-                    if runningCount > 0 {
-                        RunningDot()
-                            .opacity(hovering ? 0 : 1)
-                    }
-
-                    if hovering {
-                        HStack(spacing: 10) {
-                            // A running session is doing work nobody asked to throw away,
-                            // so the bin is only offered once there is something idle to
-                            // clear.
-                            if clearableCount > 0 {
-                                RowAction(icon: "trash", title: "Delete", action: onClearSessions)
-                                    .appTooltip("Clear \(counted(clearableCount, "idle session"))")
-                            }
-                            // A task is run with its saved prompt rather than opened
-                            // empty. The button waits while a run is still working in
-                            // the task's folder.
-                            if isTask {
-                                if canRunTask {
-                                    RowAction(icon: "play.fill", title: "Run", action: onRunTask)
-                                        .appTooltip("Run the task's saved prompt in a fresh session")
-                                }
-                            } else {
-                                RowAction(icon: "plus", title: "New", action: onNewSession)
-                                    .appTooltip("New session")
-                            }
+                if !selected || hovering || runningCount > 0 {
+                    ZStack(alignment: .trailing) {
+                        if runningCount > 0 {
+                            RunningDot()
+                                .opacity(hovering ? 0 : 1)
                         }
-                        .fixedSize()
+
+                        if hovering {
+                            HStack(spacing: selected ? 2 : 10) {
+                                // A running session is doing work nobody asked to throw away,
+                                // so the bin is only offered once there is something idle to
+                                // clear.
+                                if clearableCount > 0 {
+                                    RowAction(icon: "trash", title: "Delete", compact: selected, action: onClearSessions)
+                                        .appTooltip("Clear \(counted(clearableCount, "idle session"))")
+                                }
+                                // A task is run with its saved prompt rather than opened
+                                // empty. The button waits while a run is still working in
+                                // the task's folder.
+                                if isTask {
+                                    if canRunTask {
+                                        RowAction(icon: "play.fill", title: "Run", compact: selected, action: onRunTask)
+                                            .appTooltip("Run the task's saved prompt in a fresh session")
+                                    }
+                                } else {
+                                    RowAction(icon: "plus", title: "New", compact: selected, action: onNewSession)
+                                        .appTooltip("New session")
+                                }
+                            }
+                            .fixedSize()
+                        }
                     }
+                    .frame(minWidth: selected ? 0 : 30, alignment: .trailing)
                 }
-                .frame(minWidth: 30, alignment: .trailing)
+                if sessionCount > 0 {
+                    SidebarDisclosure(name: project.name, expanded: isExpanded, action: onToggle)
+                }
             }
         }
         .appTooltip { tooltip }
@@ -1840,8 +2112,10 @@ private struct ProjectHeaderRow: View {
 // A hover action on the project row: the glyph with its word beside it, so what the
 // button does is read rather than guessed.
 private struct RowAction: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let icon: String
     let title: String
+    var compact = false
     let action: () -> Void
 
     @State private var hovering = false
@@ -1851,17 +2125,21 @@ private struct RowAction: View {
             HStack(spacing: 3) {
                 Image(systemName: icon)
                     .font(.system(size: 10, weight: .semibold))
-                Text(title)
-                    .font(.system(size: 11, weight: .semibold))
+                if !compact {
+                    Text(title)
+                        .font(.system(size: 11, weight: .semibold))
+                }
             }
             .foregroundStyle(.secondary)
-            .padding(.horizontal, 7)
+            .padding(.horizontal, compact ? 4 : 7)
             .padding(.vertical, 4)
             .overlay(Capsule().stroke(hovering ? Theme.border : .clear))
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .animation(.easeOut(duration: 0.12), value: hovering)
+        .accessibilityLabel(title)
+        .sidebarFocusRing()
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: hovering)
         .onHover { hovering = $0 }
     }
 }
@@ -1910,6 +2188,7 @@ struct PinnedMark: View {
 // A session as a compact card. It carries the same state, title and activity the session
 // shows on its project and on Home, so it reads the same wherever it is met.
 private struct SessionCard: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let session: ChatSession
     let selected: Bool
     let busy: Bool
@@ -1921,6 +2200,7 @@ private struct SessionCard: View {
     let uncommitted: Bool
     let connected: Bool
     let isRenaming: Bool
+    let onOpen: () -> Void
     let onDelete: () -> Void
     let onRename: (String) -> Void
     let onCancelRename: () -> Void
@@ -1936,6 +2216,60 @@ private struct SessionCard: View {
     }
 
     var body: some View {
+        Group {
+            if isRenaming {
+                cardContent
+            } else {
+                Button(action: onOpen) { cardContent }
+                    .buttonStyle(.plain)
+                    .sidebarFocusRing()
+                    .accessibilityLabel(session.title)
+                    .accessibilityValue(accessibilityStatus)
+                    .accessibilityAddTraits(selected ? [.isSelected] : [])
+            }
+        }
+        .overlay(alignment: .topTrailing) {
+            if hovering, !isRenaming {
+                Button(action: onDelete) {
+                    HStack(spacing: 3) {
+                        Image(systemName: "trash")
+                            .font(.system(size: 11))
+                        if !selected {
+                            Text("Delete")
+                                .font(.system(size: 11, weight: .medium))
+                        }
+                    }
+                    .foregroundStyle(.secondary)
+                    .padding(3)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .sidebarFocusRing()
+                .accessibilityLabel("Delete session")
+                .appTooltip("Delete session")
+                .padding(.top, selected ? 6 : 5)
+                .padding(.trailing, 7)
+            }
+        }
+        .appTooltip { tooltip }
+        .onPointerHover { hovering = $0 }
+        .onChange(of: isRenaming, initial: true) { _, renaming in
+            guard renaming else { return }
+            draft = session.title
+            focused = true
+        }
+    }
+
+    private var accessibilityStatus: String {
+        var labels = [tone.word.capitalized]
+        if selected { labels.append("Currently viewing") }
+        if session.isPinned { labels.append("Pinned") }
+        if uncommitted { labels.append("Uncommitted changes") }
+        if connected { labels.append("Phone connected") }
+        return labels.joined(separator: ", ")
+    }
+
+    private var cardContent: some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 6) {
                 StateLight(tone: tone)
@@ -1952,32 +2286,22 @@ private struct SessionCard: View {
                 if uncommitted { UncommittedMark() }
                 if connected { MobileConnectionMark() }
                 Spacer(minLength: 4)
-                // The trailing details hide in place rather than being taken out, and the
-                // button that replaces them is an overlay, so the card is one size whether
-                // or not the pointer is on it.
-                HStack(spacing: 6) {
+                if selected {
+                    HStack(spacing: 4) {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 10, weight: .semibold))
+                        Text("Viewing")
+                            .font(.system(size: 10, weight: .semibold))
+                    }
+                    .foregroundStyle(Theme.accent)
+                    .fixedSize()
+                    .padding(.trailing, 20)
+                } else {
                     Text(RelativeTime.short(session.lastActivity))
                         .font(.mono(9.5))
                         .foregroundStyle(.tertiary)
+                        .opacity(hovering ? 0 : 1)
                 }
-                    .opacity(hovering ? 0 : 1)
-                    .overlay(alignment: .trailing) {
-                        if hovering {
-                            Button(action: onDelete) {
-                                HStack(spacing: 3) {
-                                    Image(systemName: "trash")
-                                        .font(.system(size: 11))
-                                    Text("Delete")
-                                        .font(.system(size: 11, weight: .medium))
-                                }
-                                .foregroundStyle(.secondary)
-                                .fixedSize()
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .appTooltip("Delete session")
-                        }
-                    }
             }
 
             HStack(spacing: 6) {
@@ -1987,6 +2311,8 @@ private struct SessionCard: View {
                 if isRenaming {
                     TextField("Name", text: $draft)
                         .textFieldStyle(.plain)
+                        .padding(4)
+                        .fieldSurface(cornerRadius: 5)
                         .font(.system(size: 12.5, weight: .semibold))
                         .focused($focused)
                         .onSubmit { onRename(draft) }
@@ -1994,7 +2320,8 @@ private struct SessionCard: View {
                 } else {
                     Text(session.title)
                         .font(.system(size: 12.5, weight: .semibold))
-                        .lineLimit(1)
+                        .lineLimit(selected ? 2 : 1)
+                        .fixedSize(horizontal: false, vertical: true)
                         .truncationMode(.tail)
                         .changingName(session.title)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -2004,19 +2331,13 @@ private struct SessionCard: View {
             ActivityLine(activity: activity)
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 8)
+        .padding(.vertical, selected ? 9 : 8)
         .background(RoundedRectangle(cornerRadius: 9).fill(cardFill))
         .overlay(RoundedRectangle(cornerRadius: 9)
             .stroke(cardStroke, lineWidth: selected ? 1.4 : 1.2))
-        .animation(.easeOut(duration: 0.25), value: [busy, finished])
-        .animation(.easeOut(duration: 0.15), value: selected)
-        .appTooltip { tooltip }
-        .onPointerHover { hovering = $0 }
-        .onChange(of: isRenaming, initial: true) { _, renaming in
-            guard renaming else { return }
-            draft = session.title
-            focused = true
-        }
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.25), value: [busy, finished])
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: selected)
+        .contentShape(RoundedRectangle(cornerRadius: 9))
     }
 
     // The hint carries the branch and full path because the compact card leaves both out.
@@ -2061,7 +2382,7 @@ private struct SessionCard: View {
     }
 
     private var cardStroke: Color {
-        if selected { return Color.primary.opacity(0.3) }
+        if selected { return Theme.accent.opacity(0.64) }
         return tone == .idle ? .clear : tone.ring
     }
 }
@@ -2097,6 +2418,7 @@ private struct SeeMoreCard: View {
 // few milliseconds, so the line holds for a moment before it gives way: long enough
 // to read, and only ever replaced by the next call rather than by an empty gap.
 private struct ActivityLine: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let activity: String?
 
     private static let minimumDwell: TimeInterval = 1
@@ -2117,7 +2439,7 @@ private struct ActivityLine: View {
                     .transition(.fadeIn)
             }
         }
-        .animation(.easeOut(duration: 0.3), value: shown)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.3), value: shown)
         // A newer value cancels the wait for the older one, which is what keeps the
         // hold from delaying anything the user would rather see.
         .task(id: activity) { await settle(on: activity) }

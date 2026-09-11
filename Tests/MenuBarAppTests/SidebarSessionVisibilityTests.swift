@@ -92,4 +92,45 @@ struct SidebarSessionVisibilityTests {
 
         #expect(visibility.visible(all, in: projectID).count == 4)
     }
+
+    @Test func theSelectedSessionSurvivesCollapsingAndReopeningItsContainer() {
+        var visibility = SidebarSessionVisibility()
+        let all = sessions(15)
+        visibility.showAll(projectID)
+        visibility.reset(projectID)
+
+        #expect(visibility.visible(all, in: projectID, selectedSessionID: all[12].id).map(\.id)
+                == all.prefix(4).map(\.id) + [all[12].id])
+    }
+
+    @Test func selectionTakesPrecedenceOverAnEarlierRevealWithoutOpeningTheHistory() {
+        var visibility = SidebarSessionVisibility()
+        let all = sessions(15)
+        visibility.pin(all[8].id, in: projectID)
+
+        #expect(visibility.visible(all, in: projectID, limit: 2,
+                                   selectedSessionID: all[12].id).map(\.id)
+                == all.prefix(2).map(\.id) + [all[12].id])
+    }
+
+    @Test func selectionRemainsVisibleAfterTheSessionOrderChanges() {
+        let visibility = SidebarSessionVisibility()
+        let all = sessions(15)
+        let reversed = Array(all.reversed())
+
+        #expect(visibility.visible(reversed, in: projectID,
+                                   selectedSessionID: all[0].id).map(\.id)
+                == reversed.prefix(4).map(\.id) + [all[0].id])
+        #expect(visibility.visible(all, in: projectID,
+                                   selectedSessionID: all[0].id).map(\.id)
+                == all.prefix(4).map(\.id))
+    }
+
+    @Test func selectionInAnotherContainerDoesNotChangeThisList() {
+        let visibility = SidebarSessionVisibility()
+        let all = sessions(15)
+
+        #expect(visibility.visible(all, in: projectID, selectedSessionID: UUID()).map(\.id)
+                == all.prefix(4).map(\.id))
+    }
 }

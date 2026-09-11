@@ -27,9 +27,10 @@ struct SidebarFilter {
             && SidebarFilter.troubleshootLabel.localizedCaseInsensitiveContains(query)
     }
 
-    func sessions(from sessions: [ChatSession], revealingAll: Bool = false) -> [ChatSession] {
+    func sessions(from sessions: [ChatSession], revealingAll: Bool = false,
+                  selectedSessionID: UUID? = nil) -> [ChatSession] {
         guard isActive, !revealingAll else { return sessions }
-        return sessions.filter(matches)
+        return sessions.filter { matches($0) || $0.id == selectedSessionID }
     }
 
     // The word the card shows in place of a kind, matched as it is read rather than as it

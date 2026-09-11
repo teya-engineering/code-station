@@ -12,11 +12,12 @@ struct SidebarSessionVisibility {
     // list behind it, so the tail stays under see-more.
     func visible<Session: Identifiable>(_ sessions: [Session],
                                         in containerID: UUID,
-                                        limit: Int = Self.defaultLimit) -> [Session]
+                                        limit: Int = Self.defaultLimit,
+                                        selectedSessionID: UUID? = nil) -> [Session]
     where Session.ID == UUID {
         guard !showingAll.contains(containerID) else { return sessions }
         let head = sessions.prefix(Self.resolvedLimit(limit))
-        guard let pinnedID = pinned[containerID],
+        guard let pinnedID = selectedSessionID ?? pinned[containerID],
               !head.contains(where: { $0.id == pinnedID }),
               let session = sessions.first(where: { $0.id == pinnedID }) else {
             return Array(head)

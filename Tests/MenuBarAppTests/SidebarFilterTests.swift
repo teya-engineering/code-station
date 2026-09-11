@@ -62,6 +62,19 @@ struct SidebarFilterTests {
                 .map(\.id) == sessions.map(\.id))
     }
 
+    @Test func aVisibleContainerKeepsItsSelectedSessionBesideTheMatches() {
+        let selected = session("update dependencies")
+        let matching = session("fix orders timeout")
+        let sessions = [selected, matching, session("write release notes")]
+
+        #expect(SidebarFilter("orders").sessions(from: sessions,
+                                                selectedSessionID: selected.id).map(\.id)
+                == [selected.id, matching.id])
+        #expect(SidebarFilter("orders").sessions(from: sessions,
+                                                selectedSessionID: matching.id).map(\.id)
+                == [matching.id])
+    }
+
     @Test func findsTroubleshootSessionsByTheirLabel() {
         #expect(SidebarFilter("troubleshoot").matches(session("hello", troubleshooting: true)))
         #expect(SidebarFilter("TROUBLE").matches(session("hello", troubleshooting: true)))

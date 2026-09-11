@@ -21,7 +21,10 @@ struct SelectionPersistenceTests {
         let indexWrites = writes.count(for: index)
 
         store.selectSession(session.id)
-        #expect(ProjectStore(storeURL: index).selection == .session(session.id))
+        let restoredSession = ProjectStore(storeURL: index)
+        #expect(restoredSession.selection == .session(session.id))
+        #expect(restoredSession.sidebarDestination == SidebarDestination(containerID: first.id,
+                                                                        sessionID: session.id))
         #expect(writes.count(for: index) == indexWrites)
 
         store.selectWorkspace(workspace.id)
