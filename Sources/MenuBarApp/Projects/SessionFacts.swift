@@ -393,7 +393,7 @@ struct SessionFactsChip: View {
 
 // MARK: - The hairline
 
-// How full the window is, read along the bottom edge of the destination deck rather than as
+// How full the window is, read above the destination deck rather than as
 // words on it. The line always runs from green to red, so its length remains the reading
 // and its colour is decoration rather than a second warning scale. Near the end, its tip
 // burns like a fuse to make a window that needs attention hard to miss.

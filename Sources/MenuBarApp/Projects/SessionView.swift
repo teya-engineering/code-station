@@ -386,13 +386,20 @@ struct SessionView: View {
     // Nothing on it navigates. Where to go is the deck under it, which
     // holds every destination and every panel this pane can open.
     private func identityDeck(session: ChatSession, project: Project) -> some View {
+        let context = session.usage?.contextFraction(for: session.agent)
+        let tone = SessionTone(sessionID, store: store, runner: runner)
         // The pane draws the first of these that fits. What the readings ask for is
         // measured rather than guessed at a width chosen in advance, so a longer branch
         // or a longer project name gives something up on its own instead of running off
         // the right edge of the pane.
-        ViewThatFits(in: .horizontal) {
+        return ViewThatFits(in: .horizontal) {
             identityRow(session: session, project: project, fit: .whole)
             identityRow(session: session, project: project, fit: .folded)
+        }
+        .overlay(alignment: .bottom) {
+            if let context {
+                ContextHairline(fraction: context, animated: tone == .running)
+            }
         }
     }
 
@@ -484,26 +491,14 @@ struct SessionView: View {
 
     // The second deck: where to go on the left, what to open beside where you already are
     // on the right. The gap between the two is the line the tab bar's edge used to carry.
-    //
-    // How full the window is runs along the bottom edge as a hairline. It is the reading
-    // that moves every turn, so it stays in sight, but it is a line rather than words: a
-    // window filling up needs nothing done about it until it is nearly full, and then the
-    // composer says so in words.
     private func destinationDeck(session: ChatSession, project: Project,
                                  recap: SessionRecap?) -> some View {
-        let context = session.usage?.contextFraction(for: session.agent)
-        let tone = SessionTone(sessionID, store: store, runner: runner)
-        return ViewThatFits(in: .horizontal) {
+        ViewThatFits(in: .horizontal) {
             destinationRow(session: session, project: project, recap: recap, fit: .whole)
             destinationRow(session: session, project: project, recap: recap, fit: .folded)
             // Even the folded rail can leave too little room for every tab label.
             destinationRow(session: session, project: project, recap: recap, fit: .folded,
                            scrollsTabs: true)
-        }
-        .overlay(alignment: .bottom) {
-            if let context {
-                ContextHairline(fraction: context, animated: tone == .running)
-            }
         }
         .overlay(alignment: .topTrailing) {
             recapCard(recap)

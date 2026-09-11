@@ -38,7 +38,7 @@ struct SessionFactsTests {
     }
 
     // The window turns from a reading into a warning at the same points wherever it is
-    // drawn - the card, and the hairline under the destination deck.
+    // drawn - the card, and the hairline above the destination deck.
     @Test func warnsAsTheWindowFills() {
         #expect(SessionFacts.contextColour(0.4, agent: .claudeCode) == Theme.dotOn)
         #expect(SessionFacts.contextColour(0.72, agent: .claudeCode) == Theme.attention)
