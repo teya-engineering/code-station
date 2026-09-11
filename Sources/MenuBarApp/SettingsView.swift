@@ -61,6 +61,10 @@ final class AppSettings {
         }
     }
 
+    var sessionMemoryLimit: SessionMemoryLimit {
+        didSet { Preferences.setSessionMemoryLimit(sessionMemoryLimit, in: preferences) }
+    }
+
     var autoPruneOrphanedWorktrees: Bool {
         didSet {
             Preferences.setAutoPruneOrphanedWorktrees(autoPruneOrphanedWorktrees,
@@ -147,6 +151,7 @@ final class AppSettings {
         oldSessionDays = Preferences.oldSessionDays(in: preferences)
         oldSessionCleanupPolicy = Preferences.oldSessionCleanupPolicy(in: preferences)
         autoPruneOrphanedWorktrees = Preferences.autoPruneOrphanedWorktrees(in: preferences)
+        sessionMemoryLimit = Preferences.sessionMemoryLimit(in: preferences)
         sidebarSessionLimit = Preferences.sidebarSessionLimit(in: preferences)
         skillsRefreshInterval = Preferences.skillsRefreshInterval(in: preferences)
         projectSort = Preferences.projectSort(in: preferences)
@@ -483,6 +488,7 @@ struct SettingsView: View {
                 recaps.id(SettingsSearchTarget.generalRecaps.id)
                 oldSessions.id(SettingsSearchTarget.generalOldSessions.id)
                 orphanedWorktrees.id(SettingsSearchTarget.generalOrphanedWorktrees.id)
+                sessionMemory.id(SettingsSearchTarget.generalSessionMemory.id)
                 skillRefresh.id(SettingsSearchTarget.generalSkills.id)
                 system.id(SettingsSearchTarget.generalSystem.id)
             }
@@ -624,6 +630,33 @@ struct SettingsView: View {
                     isOn: $settings.autoPruneOrphanedWorktrees)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 13)
+            }
+        }
+    }
+
+    private var sessionMemory: some View {
+        let limit = settings.sessionMemoryLimit
+        return ChoiceBlock("SESSION MEMORY") {
+            SettingsCard {
+                HStack(alignment: .top, spacing: 12) {
+                    settingCopy(
+                        title: "Stop a turn after it uses",
+                        detail: limit.detail().map {
+                            "Counted across the agent and everything it starts. Automatic is a quarter of this Mac's memory, currently \($0)."
+                        } ?? "Counted across the agent and everything it starts. Raise this for work that needs a large build, lower it to keep more of the Mac free.")
+                    Spacer(minLength: 0)
+                    OptionMenu(value: limit.title) {
+                        SessionMemoryLimit.choices().map { choice in
+                            .item(choice.title, checked: limit == choice) {
+                                settings.sessionMemoryLimit = choice
+                            }
+                        }
+                    }
+                    .fixedSize(horizontal: true, vertical: false)
+                    .accessibilityLabel("Session memory limit: \(limit.title)")
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 13)
             }
         }
     }
@@ -1591,6 +1624,7 @@ enum SettingsSearchTarget: String, Hashable {
     case generalRecaps
     case generalOldSessions
     case generalOrphanedWorktrees
+    case generalSessionMemory
     case generalSkills
     case generalSystem
     case appearanceTheme
@@ -1635,6 +1669,8 @@ enum SettingsSearchIndex {
                "count old after days delete automatically review clear stale design saved work uncommitted"),
         result("Orphaned worktrees", .general, .generalOrphanedWorktrees,
                "git checkout prune automatically no session disk cleanup uncommitted branch"),
+        result("Session memory", .general, .generalSessionMemory,
+               "limit ram gigabytes gb stop turn protect mac build automatic out of memory"),
         result("Skills refresh", .general, .generalSkills,
                "skills marketplace refresh versions interval daily"),
         result("Terminal", .general, .generalSystem,

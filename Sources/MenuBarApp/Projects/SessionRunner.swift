@@ -108,7 +108,7 @@ final class SessionRunner {
         [UUID: (id: UUID, task: Task<Void, Never>)] = [:]
     @ObservationIgnored private let stalledAfter: TimeInterval
     @ObservationIgnored private let stallCheckInterval: Duration
-    @ObservationIgnored private let memoryLimit: UInt64
+    @ObservationIgnored private let memoryLimit: () -> UInt64
     @ObservationIgnored private let automaticRecapsEnabled: () -> Bool
 
     // How Claude Code says it no longer holds the conversation we asked to resume.
@@ -121,7 +121,9 @@ final class SessionRunner {
          codexModels: [ModelChoice.Option]? = nil,
          stalledAfter: TimeInterval = 5 * 60,
          stallCheckInterval: Duration = .seconds(5),
-         memoryLimit: UInt64 = SessionMemoryGuard.limit(),
+         memoryLimit: @escaping () -> UInt64 = {
+             Preferences.sessionMemoryLimit().bytes()
+         },
          automaticRecapsEnabled: @escaping () -> Bool = {
              Preferences.sessionRecapsEnabled()
          }) {
@@ -1638,7 +1640,8 @@ final class SessionRunner {
             }
         }
 
-        turn.memoryGuard = SessionMemoryGuard(processGroup: processGroup, limit: memoryLimit) {
+        turn.memoryGuard = SessionMemoryGuard(processGroup: processGroup,
+                                              limit: memoryLimit()) {
             violation in
             SessionLog.note(
                 "memory limit exceeded bytes=\(violation.bytes) limit=\(violation.limit) "

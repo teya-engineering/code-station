@@ -35,11 +35,26 @@ struct SessionMemoryGuardTests {
         #expect(tree.members(in: [replacementRoot, replacementChild]).isEmpty)
     }
 
-    @Test func budgetLeavesRoomForTheRestOfTheMachine() {
+    @Test func automaticBudgetLeavesRoomForTheRestOfTheMachine() {
         let gib: UInt64 = 1_024 * 1_024 * 1_024
-        #expect(SessionMemoryGuard.limit(physicalMemory: 8 * gib) == 2 * gib)
-        #expect(SessionMemoryGuard.limit(physicalMemory: 16 * gib) == 4 * gib)
-        #expect(SessionMemoryGuard.limit(physicalMemory: 128 * gib) == 8 * gib)
+        #expect(SessionMemoryLimit.automatic.bytes(physicalMemory: 8 * gib) == 2 * gib)
+        #expect(SessionMemoryLimit.automatic.bytes(physicalMemory: 16 * gib) == 4 * gib)
+        #expect(SessionMemoryLimit.automatic.bytes(physicalMemory: 128 * gib) == 8 * gib)
+    }
+
+    @Test func chosenBudgetIsTheWholeGigabytes() {
+        let gib: UInt64 = 1_024 * 1_024 * 1_024
+        #expect(SessionMemoryLimit.twelveGB.bytes(physicalMemory: 8 * gib) == 12 * gib)
+        #expect(SessionMemoryLimit.resolved(12) == .twelveGB)
+        #expect(SessionMemoryLimit.resolved(7) == .automatic)
+    }
+
+    @Test func choicesStopAtTheMemoryTheMachineHas() {
+        let gib: UInt64 = 1_024 * 1_024 * 1_024
+        #expect(SessionMemoryLimit.choices(physicalMemory: 16 * gib)
+            == [.automatic, .twoGB, .fourGB, .eightGB, .twelveGB, .sixteenGB])
+        #expect(SessionMemoryLimit.choices(physicalMemory: 8 * gib)
+            == [.automatic, .twoGB, .fourGB, .eightGB])
     }
 
     @Test func footprintRequiresTheSameProcessIdentity() throws {

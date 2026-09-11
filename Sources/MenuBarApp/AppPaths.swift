@@ -309,6 +309,20 @@ enum Preferences {
         store.removeObject(forKey: "autoDeleteOldSessions")
     }
 
+    // How much memory a single turn may hold before the app stops it to keep the Mac
+    // usable. Stored as whole gigabytes, with zero meaning the automatic share.
+    static func sessionMemoryLimit(in store: UserDefaults = .standard) -> SessionMemoryLimit {
+        guard store.object(forKey: "sessionMemoryLimit") != nil else {
+            return SessionMemoryLimit.fallback
+        }
+        return SessionMemoryLimit.resolved(store.integer(forKey: "sessionMemoryLimit"))
+    }
+
+    static func setSessionMemoryLimit(_ limit: SessionMemoryLimit,
+                                      in store: UserDefaults = .standard) {
+        store.set(limit.rawValue, forKey: "sessionMemoryLimit")
+    }
+
     static func autoPruneOrphanedWorktrees(in store: UserDefaults = .standard) -> Bool {
         store.bool(forKey: "autoPruneOrphanedWorktrees")
     }

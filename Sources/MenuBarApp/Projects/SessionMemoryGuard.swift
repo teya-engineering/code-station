@@ -1,13 +1,56 @@
 import Darwin
 import Foundation
 
+// How much memory one turn's processes may hold together before the app stops it. The
+// automatic choice leaves most of the machine to everything else, which is right for a
+// turn that runs away; a fixed choice suits work that genuinely needs a large build.
+enum SessionMemoryLimit: Int, CaseIterable, Identifiable, Sendable {
+    case automatic = 0
+    case twoGB = 2
+    case fourGB = 4
+    case eightGB = 8
+    case twelveGB = 12
+    case sixteenGB = 16
+    case twentyFourGB = 24
+    case thirtyTwoGB = 32
+    case sixtyFourGB = 64
+
+    static let fallback = SessionMemoryLimit.automatic
+
+    // A limit the machine could never reach would never stop anything, so it is not
+    // offered. Automatic is always there because it is a share of whatever RAM exists.
+    static func choices(physicalMemory: UInt64 = ProcessInfo.processInfo.physicalMemory)
+        -> [SessionMemoryLimit] {
+        allCases.filter { $0 == .automatic || $0.bytes(physicalMemory: physicalMemory) <= physicalMemory }
+    }
+
+    static func resolved(_ rawValue: Int) -> SessionMemoryLimit {
+        SessionMemoryLimit(rawValue: rawValue) ?? fallback
+    }
+
+    var id: Int { rawValue }
+
+    var title: String {
+        self == .automatic ? "Automatic" : "\(rawValue) GB"
+    }
+
+    func bytes(physicalMemory: UInt64 = ProcessInfo.processInfo.physicalMemory) -> UInt64 {
+        guard self != .automatic else {
+            return min(8 * 1_024 * 1_024 * 1_024, physicalMemory / 4)
+        }
+        return UInt64(rawValue) * 1_024 * 1_024 * 1_024
+    }
+
+    func detail(physicalMemory: UInt64 = ProcessInfo.processInfo.physicalMemory) -> String? {
+        guard self == .automatic else { return nil }
+        let bytes = Int64(bytes(physicalMemory: physicalMemory))
+        return ByteCountFormatter.string(fromByteCount: bytes, countStyle: .memory)
+    }
+}
+
 // The CLI can start builds in other process groups. Remember their identities while
 // they belong to the turn so that changing groups or losing a parent does not hide them.
 final class SessionMemoryGuard: @unchecked Sendable {
-    static func limit(physicalMemory: UInt64 = ProcessInfo.processInfo.physicalMemory) -> UInt64 {
-        min(8 * 1_024 * 1_024 * 1_024, physicalMemory / 4)
-    }
-
     struct Violation: Sendable {
         let bytes: UInt64
         let limit: UInt64
