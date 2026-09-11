@@ -1799,22 +1799,12 @@ private struct WorkspaceHeaderRow: View {
                             name: workspace.name,
                             tint: Theme.workspaceTint,
                             stacked: true)
-                        VStack(alignment: .leading, spacing: 2) {
-                            HStack(spacing: 5) {
-                                Text(workspace.name)
-                                    .font(.system(size: 13.5, weight: .semibold))
-                                    .lineLimit(1)
-                                if workspace.isPinned { PinnedMark() }
-                                if finishedCount > 0 { FinishedDot() }
-                            }
-                            if selected, !isExpanded, let activeSessionTitle {
-                                Text(activeSessionTitle)
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(Theme.accent)
-                                    .lineLimit(1)
-                                    .truncationMode(.tail)
-                                    .appTooltip(activeSessionTitle)
-                            }
+                        HStack(spacing: 5) {
+                            Text(workspace.name)
+                                .font(.system(size: 13.5, weight: .semibold))
+                                .lineLimit(1)
+                            if workspace.isPinned { PinnedMark() }
+                            if finishedCount > 0 { FinishedDot() }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
@@ -1956,37 +1946,27 @@ private struct ProjectHeaderRow: View {
                             name: project.name,
                             tint: Theme.projectTint(for: project.name),
                             dashed: project.kind == .adHoc)
-                        VStack(alignment: .leading, spacing: 2) {
-                            HStack(spacing: 5) {
-                                if isMissing {
-                                    Image(systemName: "exclamationmark.triangle.fill")
-                                        .font(.system(size: 10))
-                                        .foregroundStyle(.secondary)
-                                }
-                                Text(project.name)
-                                    .font(.system(size: 13.5, weight: .semibold))
-                                    .lineLimit(1)
-                                    .truncationMode(.tail)
-                                if project.isPinned { PinnedMark() }
-                                if let schedule = project.task?.schedule, schedule.isActive {
-                                    Image(systemName: "clock.fill")
-                                        .font(.system(size: 9.5, weight: .semibold))
-                                        .foregroundStyle(schedule.isWaitingForConfirmation
-                                                         ? Theme.attentionText : Theme.accent)
-                                        .appTooltip(schedule.isWaitingForConfirmation
-                                            ? "Timer waiting for confirmation"
-                                            : schedule.summary)
-                                }
-                                if finishedCount > 0 { FinishedDot() }
+                        HStack(spacing: 5) {
+                            if isMissing {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.secondary)
                             }
-                            if selected, !isExpanded, let activeSessionTitle {
-                                Text(activeSessionTitle)
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(Theme.accent)
-                                    .lineLimit(1)
-                                    .truncationMode(.tail)
-                                    .appTooltip(activeSessionTitle)
+                            Text(project.name)
+                                .font(.system(size: 13.5, weight: .semibold))
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                            if project.isPinned { PinnedMark() }
+                            if let schedule = project.task?.schedule, schedule.isActive {
+                                Image(systemName: "clock.fill")
+                                    .font(.system(size: 9.5, weight: .semibold))
+                                    .foregroundStyle(schedule.isWaitingForConfirmation
+                                                     ? Theme.attentionText : Theme.accent)
+                                    .appTooltip(schedule.isWaitingForConfirmation
+                                        ? "Timer waiting for confirmation"
+                                        : schedule.summary)
                             }
+                            if finishedCount > 0 { FinishedDot() }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
