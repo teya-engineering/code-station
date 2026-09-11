@@ -3,6 +3,12 @@ import Testing
 
 struct ChangeFileSelectionTests {
     private let files = ["one", "two", "three", "four", "five"]
+    private var changes: [GitChange] {
+        files.map {
+            GitChange(path: $0, kind: .modified, isStaged: false, isUnstaged: true,
+                      isBinary: false)
+        }
+    }
 
     @Test func plainClickReplacesTheSelection() {
         var selection = ChangeFileSelection()
@@ -57,6 +63,40 @@ struct ChangeFileSelectionTests {
         #expect(selection.ids == ["two", "three"])
         #expect(selection.anchorID == "two")
         #expect(selection.activeID == "two")
+    }
+
+    @Test func contextMenuUsesTheWholeRangeOnAnySelectedRow() {
+        var selection = ChangeFileSelection()
+        selection.select("two", in: files, extendingRange: false, toggling: false)
+        selection.select("four", in: files, extendingRange: true, toggling: false)
+
+        for file in changes[1...3] {
+            #expect(selection.contextMenuFiles(for: file, in: changes).map(\.id)
+                == ["two", "three", "four"])
+        }
+    }
+
+    @Test func contextMenuUsesDisjointSelectionsInDisplayOrder() {
+        var selection = ChangeFileSelection()
+        selection.select("four", in: files, extendingRange: false, toggling: false)
+        selection.select("two", in: files, extendingRange: false, toggling: true)
+
+        #expect(selection.contextMenuFiles(for: changes[3], in: changes).map(\.id)
+            == ["two", "four"])
+    }
+
+    @Test func contextMenuOnAnUnselectedRowTargetsOnlyThatFile() {
+        var selection = ChangeFileSelection()
+        selection.select("two", in: files, extendingRange: false, toggling: false)
+        selection.select("four", in: files, extendingRange: true, toggling: false)
+
+        #expect(selection.contextMenuFiles(for: changes[0], in: changes) == [changes[0]])
+    }
+
+    @Test func contextMenuWorksWithoutASelection() {
+        let selection = ChangeFileSelection()
+
+        #expect(selection.contextMenuFiles(for: changes[2], in: changes) == [changes[2]])
     }
 }
 

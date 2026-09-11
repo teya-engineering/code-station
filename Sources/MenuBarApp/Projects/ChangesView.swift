@@ -57,6 +57,10 @@ struct ChangeFileSelection: Equatable {
         anchorID = nil
         activeID = nil
     }
+
+    func contextMenuFiles(for file: GitChange, in files: [GitChange]) -> [GitChange] {
+        ids.contains(file.id) ? files.filter { ids.contains($0.id) } : [file]
+    }
 }
 
 // Where an arrow key lands in a list of rows. With nothing open it starts at the end the
@@ -511,19 +515,23 @@ struct ChangesView: View {
         .buttonStyle(.plain)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .appContextMenu {
-            [.item("Commit This File…") { beginCommit(with: file) },
+            let targets = fileSelection.contextMenuFiles(for: file, in: files)
+            let multiple = targets.count > 1
+            return [.item(multiple ? "Commit \(targets.count) Files…" : "Commit This File…") {
+                beginCommit(with: targets)
+             },
              .separator,
              .item("Reveal in Finder") { reveal(file) },
              .item("Copy Path") { Pasteboard.copy(fileURL(file).path) },
              .separator,
-             .item("Discard Changes", kind: .destructive) { confirmDiscard(file) }]
+             .item(multiple ? "Discard Changes in \(targets.count) Files…" : "Discard Changes",
+                   kind: .destructive) { confirmDiscard(targets) }]
         }
     }
 
-    private func beginCommit(with file: GitChange? = nil) {
-        if let file {
-            excluded = Set(files.lazy.map(\.id))
-            excluded.remove(file.id)
+    private func beginCommit(with chosen: [GitChange]? = nil) {
+        if let chosen {
+            excluded = Set(files.map(\.id)).subtracting(chosen.map(\.id))
         }
         committing = true
         commitFocused = true
@@ -714,21 +722,48 @@ struct ChangesView: View {
 
     // Discarding is the one action here that destroys work rather than moving it around,
     // and nothing on this screen can undo it, so it always asks first and says in plain
-    // words what the file will be left as.
-    private func confirmDiscard(_ file: GitChange) {
+    // words what the files will be left as.
+    private func confirmDiscard(_ files: [GitChange]) {
+        guard !busy, let file = files.first else { return }
         let root = repoRoot
-        let untracked = file.isUntracked
-        dialogs.show(Dialog(
-            title: untracked ? "Delete this file?" : "Discard changes?",
-            message: untracked
+        let untrackedCount = files.filter(\.isUntracked).count
+        let allUntracked = untrackedCount == files.count
+        let multiple = files.count > 1
+        let message: String
+        if !multiple {
+            message = file.isUntracked
                 ? "\(file.path) is not in git yet, so there is no committed version to go back "
                     + "to. It will be moved to the Trash."
                 : "\(file.path) goes back to the way the last commit has it. The changes in it "
-                    + "are lost.",
+                    + "are lost."
+        } else if allUntracked {
+            message = "These files are not in git yet. They will be moved to the Trash."
+        } else {
+            message = "Tracked files go back to the way the last commit has them. "
+                + "Their uncommitted changes are lost."
+                + (untrackedCount > 0 ? " Untracked files will be moved to the Trash." : "")
+        }
+        dialogs.show(Dialog(
+            title: multiple ? "Discard changes in \(files.count) files?"
+                : (allUntracked ? "Delete this file?" : "Discard changes?"),
+            message: message,
+            content: multiple ? AnyView(
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(files) { file in
+                            Text(file.path)
+                                .font(.mono(11))
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                }
+                .frame(maxHeight: 160)
+            ) : nil,
             actions: [
-                .init(label: untracked ? "Move to Trash" : "Discard", kind: .destructive) {
+                .init(label: allUntracked ? "Move to Trash" : "Discard", kind: .destructive) {
                     perform("Discarding…", failure: "Could not discard changes") {
-                        await GitActions.discard(file, at: root)
+                        await GitActions.discard(files, at: root)
                     }
                 },
                 .init(label: "Cancel", kind: .cancel)

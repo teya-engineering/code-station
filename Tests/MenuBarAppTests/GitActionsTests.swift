@@ -24,7 +24,7 @@ struct GitActionsTests {
         try repo.write("README.md", "changed")
 
         let file = try #require(await GitInspector.snapshot(at: repo.path).files.first)
-        #expect(await GitActions.discard(file, at: repo.path) == nil)
+        #expect(await GitActions.discard([file], at: repo.path) == nil)
 
         #expect(repo.read("README.md") == "hello")
         #expect(await GitInspector.snapshot(at: repo.path).files.isEmpty)
@@ -40,7 +40,7 @@ struct GitActionsTests {
 
         let file = try #require(await GitInspector.snapshot(at: repo.path).files.first)
         #expect(file.isStaged && file.isUnstaged)
-        #expect(await GitActions.discard(file, at: repo.path) == nil)
+        #expect(await GitActions.discard([file], at: repo.path) == nil)
 
         #expect(repo.read("README.md") == "hello")
         #expect(await GitInspector.snapshot(at: repo.path).files.isEmpty)
@@ -54,7 +54,7 @@ struct GitActionsTests {
 
         let file = try #require(await GitInspector.snapshot(at: repo.path).files.first)
         #expect(file.originalPath == "README.md")
-        #expect(await GitActions.discard(file, at: repo.path) == nil)
+        #expect(await GitActions.discard([file], at: repo.path) == nil)
 
         #expect(repo.read("README.md") == "hello")
         #expect(await GitInspector.snapshot(at: repo.path).files.isEmpty)
@@ -65,7 +65,7 @@ struct GitActionsTests {
         try FileManager.default.removeItem(at: repo.url.appendingPathComponent("README.md"))
 
         let file = try #require(await GitInspector.snapshot(at: repo.path).files.first)
-        #expect(await GitActions.discard(file, at: repo.path) == nil)
+        #expect(await GitActions.discard([file], at: repo.path) == nil)
 
         #expect(repo.read("README.md") == "hello")
     }
@@ -77,10 +77,98 @@ struct GitActionsTests {
 
         let file = try #require(await GitInspector.snapshot(at: repo.path).files.first)
         #expect(file.isUntracked)
-        #expect(await GitActions.discard(file, at: repo.path) == nil)
+        #expect(await GitActions.discard([file], at: repo.path) == nil)
 
         #expect(repo.read("scratch.txt") == nil)
         #expect(await GitInspector.snapshot(at: repo.path).files.isEmpty)
+    }
+
+    @Test func discardRestoresSelectedFilesAndLeavesOtherChangesAlone() async throws {
+        let repo = try GitRepo()
+        try repo.write("rename.txt", "rename me")
+        try repo.write("delete.txt", "keep me")
+        try repo.write("keep.txt", "original")
+        try repo.commit("More files")
+        try repo.write("README.md", "staged")
+        try repo.git("add", "README.md")
+        try repo.write("README.md", "unstaged too")
+        try repo.git("mv", "rename.txt", "renamed.txt")
+        try repo.git("rm", "delete.txt")
+        try repo.write("keep.txt", "keep these staged changes")
+        try repo.git("add", "keep.txt")
+        try repo.write("keep.txt", "keep these unstaged changes too")
+
+        let before = await GitInspector.snapshot(at: repo.path)
+        let chosen = before.files.filter { $0.path != "keep.txt" }
+        #expect(chosen.count == 3)
+        #expect(await GitActions.discard(chosen, at: repo.path) == nil)
+
+        #expect(repo.read("README.md") == "hello")
+        #expect(repo.read("rename.txt") == "rename me")
+        #expect(repo.read("renamed.txt") == nil)
+        #expect(repo.read("delete.txt") == "keep me")
+        #expect(repo.read("keep.txt") == "keep these unstaged changes too")
+        #expect(try repo.git("show", ":keep.txt") == "keep these staged changes")
+        #expect(await GitInspector.snapshot(at: repo.path).files.map(\.path) == ["keep.txt"])
+    }
+
+    @Test(arguments: [false, true])
+    func discardTrashesSelectedUntrackedFiles(includeTracked: Bool) async throws {
+        let repo = try GitRepo()
+        try repo.write("one.txt", "first untracked file")
+        try repo.write("two.txt", "second untracked file")
+        try repo.write("keep.txt", "leave this untracked file alone")
+        if includeTracked { try repo.write("README.md", "changed") }
+
+        let chosen = await GitInspector.snapshot(at: repo.path).files.filter { $0.path != "keep.txt" }
+        #expect(chosen.count == (includeTracked ? 3 : 2))
+        #expect(await GitActions.discard(chosen, at: repo.path) == nil)
+
+        #expect(repo.read("one.txt") == nil)
+        #expect(repo.read("two.txt") == nil)
+        #expect(repo.read("README.md") == "hello")
+        #expect(repo.read("keep.txt") == "leave this untracked file alone")
+        #expect(await GitInspector.snapshot(at: repo.path).files.map(\.path) == ["keep.txt"])
+    }
+
+    @Test func discardTreatsSelectedPathsLiterally() async throws {
+        let repo = try GitRepo()
+        try repo.write("[ab].txt", "literal name")
+        try repo.write("a.txt", "other file")
+        try repo.commit("Files with similar names")
+        try repo.write("[ab].txt", "discard this")
+        try repo.write("a.txt", "keep this")
+        try repo.write("README.md", "discard this too")
+
+        let chosen = await GitInspector.snapshot(at: repo.path).files.filter { $0.path != "a.txt" }
+        #expect(await GitActions.discard(chosen, at: repo.path) == nil)
+
+        #expect(repo.read("[ab].txt") == "literal name")
+        #expect(repo.read("README.md") == "hello")
+        #expect(repo.read("a.txt") == "keep this")
+        #expect(await GitInspector.snapshot(at: repo.path).files.map(\.path) == ["a.txt"])
+    }
+
+    @Test func discardWithNoSelectionLeavesAllChangesAlone() async throws {
+        let repo = try GitRepo()
+        try repo.write("README.md", "keep this")
+
+        #expect(await GitActions.discard([], at: repo.path) == "No files are selected.")
+        #expect(repo.read("README.md") == "keep this")
+    }
+
+    @Test func discardReportsRestoreFailureBeforeTrashingUntrackedFiles() async throws {
+        let repo = try GitRepo(initialCommit: false)
+        try repo.write("staged.txt", "no committed version")
+        try repo.git("add", "staged.txt")
+        try repo.write("untracked.txt", "keep this")
+
+        let chosen = await GitInspector.snapshot(at: repo.path).files
+        let error = await GitActions.discard(chosen, at: repo.path)
+
+        #expect(error?.isEmpty == false)
+        #expect(repo.read("staged.txt") == "no committed version")
+        #expect(repo.read("untracked.txt") == "keep this")
     }
 
     @Test func switchesBetweenBranches() async throws {

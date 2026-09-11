@@ -74,28 +74,33 @@ enum GitActions {
         }
     }
 
-    // Throws away the uncommitted work in one file. A tracked file goes back to the way the
-    // last commit has it, in the index and the working tree at once, so a change that was
+    // Throws away the uncommitted work in the chosen files. A tracked file goes back to
+    // the last commit, in the index and the working tree at once, so a change that was
     // only half staged goes with the rest. A rename is one row on the screen but two paths
     // in git: the new name has to go and the old one has to come back. A file git has never
     // seen has no committed version to restore, so it is moved to the trash, which at least
     // leaves a way back.
-    static func discard(_ file: GitChange, at root: String) async -> String? {
+    static func discard(_ files: [GitChange], at root: String) async -> String? {
+        guard !files.isEmpty else { return "No files are selected." }
+        let paths = pathspec(for: files.filter { !$0.isUntracked })
+        if !paths.isEmpty {
+            let error = await perform(at: root) { tool, url in
+                GitInspector.run(
+                    tool, ["restore", "--staged", "--worktree", "--source=HEAD", "--"] + paths,
+                    in: url)
+            }
+            if let error { return error }
+        }
         let url = URL(fileURLWithPath: root)
-        guard !file.isUntracked else {
+        for file in files where file.isUntracked {
             do {
                 try FileManager.default.trashItem(
                     at: url.appendingPathComponent(file.path), resultingItemURL: nil)
-                return nil
             } catch {
-                return error.localizedDescription
+                return "\(file.path): \(error.localizedDescription)"
             }
         }
-        let paths = [file.path] + (file.originalPath.map { [$0] } ?? [])
-        return await perform(at: root) { tool, url in
-            GitInspector.run(
-                tool, ["restore", "--staged", "--worktree", "--source=HEAD", "--"] + paths, in: url)
-        }
+        return nil
     }
 
     // Commits just the chosen files and leaves the rest of the tree alone, index
