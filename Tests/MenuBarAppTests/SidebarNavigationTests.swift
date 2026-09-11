@@ -162,6 +162,7 @@ private final class SidebarHarness {
             .environment(ConfigStore(configURL: scratch.path("config.json")))
             .environment(DockerService())
             .environment(DispatchAuthStore(storeURL: scratch.path("dispatch-auth.json"),
+                                           keychain: KeychainClient(read: { [:] }, write: { _ in }),
                                            siteDefaults: SiteDefaults()))
             .transaction { $0.disablesAnimations = true }
             .appOverlays()
