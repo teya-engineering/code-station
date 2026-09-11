@@ -2198,10 +2198,8 @@ private struct SessionCard: View {
                     HStack(spacing: 3) {
                         Image(systemName: "trash")
                             .font(.system(size: 11))
-                        if !selected {
-                            Text("Delete")
-                                .font(.system(size: 11, weight: .medium))
-                        }
+                        Text("Delete")
+                            .font(.system(size: 11, weight: .medium))
                     }
                     .foregroundStyle(.secondary)
                     .padding(3)
@@ -2250,22 +2248,10 @@ private struct SessionCard: View {
                 if uncommitted { UncommittedMark() }
                 if connected { MobileConnectionMark() }
                 Spacer(minLength: 4)
-                if selected {
-                    HStack(spacing: 4) {
-                        Image(systemName: "checkmark")
-                            .font(.system(size: 10, weight: .semibold))
-                        Text("Viewing")
-                            .font(.system(size: 10, weight: .semibold))
-                    }
-                    .foregroundStyle(Theme.accent)
-                    .fixedSize()
-                    .padding(.trailing, 20)
-                } else {
-                    Text(RelativeTime.short(session.lastActivity))
-                        .font(.mono(9.5))
-                        .foregroundStyle(.tertiary)
-                        .opacity(hovering ? 0 : 1)
-                }
+                Text(RelativeTime.short(session.lastActivity))
+                    .font(.mono(9.5))
+                    .foregroundStyle(.tertiary)
+                    .opacity(hovering ? 0 : 1)
             }
 
             HStack(spacing: 6) {
