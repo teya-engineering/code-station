@@ -782,7 +782,8 @@ struct ChangesView: View {
             switch preview {
             case .commits(let commits):
                 dialogs.show(pushDialog(commits: commits, upstream: upstream,
-                                        hasUpstream: hasUpstream, root: root))
+                                        branch: snapshot.branch, hasUpstream: hasUpstream,
+                                        root: root))
             case .behindUpstream(let behind, let commits):
                 dialogs.show(behindDialog(behind: behind, commits: commits, upstream: upstream,
                                           hasUpstream: hasUpstream, root: root))
@@ -792,17 +793,26 @@ struct ChangesView: View {
         }
     }
 
-    private func pushDialog(commits: [GitRemoteCommit], upstream: String?,
+    private func pushDialog(commits: [GitRemoteCommit], upstream: String?, branch: String,
                             hasUpstream: Bool, root: String) -> Dialog {
         let count = commits.count
         let title = count == 0
             ? (hasUpstream ? "Push branch?" : "Publish branch?")
             : "Push \(counted(count, "commit"))?"
-        let message = upstream.map {
-            count == 0
-                ? "No commits are ahead of \($0)."
-                : "These commits will be pushed to \($0)."
-        } ?? "This branch will be published to origin and start tracking it."
+        let message: String
+        if let upstream {
+            message = count == 0
+                ? "No commits are ahead of \(upstream)."
+                : "These commits will be pushed to \(upstream)."
+        } else {
+            // A first push takes the branch's own name on origin, so the dialog can say
+            // where the commits land even though no upstream exists to read it from.
+            let target = branch.isEmpty ? "origin" : "origin/\(branch)"
+            message = count == 0
+                ? "This branch will be published to \(target) and start tracking it."
+                : "These commits will be pushed to \(target), and this branch will start "
+                    + "tracking it."
+        }
         return Dialog(
             title: title,
             message: message,
