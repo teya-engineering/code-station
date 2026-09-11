@@ -130,6 +130,7 @@ struct MessageView: View, Equatable {
                     // already supports text selection.
                     MarkdownProse(text: text, projectPath: projectPath, textScale: textScale) { segment in
                         MarkdownCodeBlock(segment: segment)
+                            .equatable()
                             .transcriptCopyButton(for: segment.text, tooltip: "Copy code", inset: 6)
                     }
                     .padding(.trailing, 32)
@@ -306,7 +307,7 @@ private extension View {
 
 // A run of prose or a fenced code block. Splitting on ``` is enough for what Claude
 // Code emits and keeps the app free of a Markdown dependency.
-struct MessageSegment: Identifiable {
+struct MessageSegment: Identifiable, Equatable {
     let id: Int
     let text: String
     let isCode: Bool

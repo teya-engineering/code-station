@@ -186,6 +186,31 @@ struct PersistenceSafetyTests {
         #expect(keychain.value(for: .dispatchClientSecret(for: "staging")) == "secret")
     }
 
+    // Clearing a token has to outlive the launch that follows it. The fixed-pair account
+    // is read as a fallback, so one left in the Keychain would answer for the token that
+    // was just cleared and sign the environment back in.
+    @Test func clearingATokenDropsTheFixedPairAccountBehindIt() throws {
+        let file = scratch.path("dispatch-auth.json")
+        let token = OAuthToken(accessToken: "legacy-access", tokenType: "Bearer",
+                               obtainedAt: Date())
+        let encoded = String(decoding: try PersistentFile.makeEncoder().encode(token),
+                             as: UTF8.self)
+        let keychain = KeychainStub(values: [.stagingToken: encoded])
+
+        let store = DispatchAuthStore(storeURL: file, keychain: keychain.client,
+                                      siteDefaults: SiteDefaults())
+        let staging = try #require(store.environments.first { $0.name == "staging" })
+        #expect(store.isAuthenticated(for: staging))
+
+        store.clearToken(for: staging)
+        #expect(keychain.value(for: .stagingToken) == nil)
+        #expect(keychain.value(for: .dispatchToken(for: "staging")) == nil)
+
+        let reopened = DispatchAuthStore(storeURL: file, keychain: keychain.client,
+                                         siteDefaults: SiteDefaults())
+        #expect(!reopened.isAuthenticated(for: staging))
+    }
+
     @Test func readsTheCombinedKeychainItemOnce() throws {
         let keychain = KeychainStub(values: [
             .stagingClientSecret: "staging-secret",

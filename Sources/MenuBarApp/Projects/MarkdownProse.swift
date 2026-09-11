@@ -935,12 +935,16 @@ struct MarkdownDocumentView: View, Equatable {
     var body: some View {
         MarkdownProse(text: text, projectPath: basePath, textScale: textScale, lazy: true) {
             MarkdownCodeBlock(segment: $0)
+                .equatable()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
-struct MarkdownCodeBlock: View {
+// Highlighting walks the whole block and builds an attributed string from it, so the
+// segment is compared for the same reason a prose block is: a settled code block in an
+// answer that is still streaming is rebuilt many times a second otherwise.
+struct MarkdownCodeBlock: View, Equatable {
     let segment: MessageSegment
 
     var body: some View {

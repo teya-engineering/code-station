@@ -64,9 +64,16 @@ final class ProcessManager {
 
         let id = server.id
         let manager = self
+        // A read off a pipe can land in the middle of a multi-byte character, and
+        // decoding that half on its own answers nothing, which would drop the whole
+        // chunk. Framing on newlines first holds the partial tail back until the rest
+        // of it arrives, so no output is lost.
+        let lines = LineBuffer()
         pipe.fileHandleForReading.readabilityHandler = { handle in
             let data = handle.availableData
-            guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
+            let complete = data.isEmpty ? lines.flush() : lines.lines(from: data)
+            guard !complete.isEmpty else { return }
+            let text = complete.map { $0 + "\n" }.joined()
             Task { @MainActor in manager.appendLog(id, text) }
         }
         process.terminationHandler = { finished in

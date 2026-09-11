@@ -1265,19 +1265,31 @@ final class SessionRunner {
 
     private func busySession(sharingDirectoryWith session: ChatSession,
                              store: ProjectStore) -> ChatSession? {
-        let directories = Set(store.workingDirectories(for: session).map {
-            URL(fileURLWithPath: $0).resolvingSymlinksInPath().path
-        })
+        let directories = resolvedWorkingDirectories(of: session, store: store)
         guard !directories.isEmpty else { return nil }
         return records
             .filter { $0.key != session.id && $0.value.turn != nil }
             .compactMap { store.session($0.key) }
             .first { other in
-                let otherDirectories = Set(store.workingDirectories(for: other).map {
-                    URL(fileURLWithPath: $0).resolvingSymlinksInPath().path
-                })
-                return !directories.isDisjoint(with: otherDirectories)
+                let otherDirectories = resolvedWorkingDirectories(of: other, store: store)
+                return directories.contains { directory in
+                    otherDirectories.contains { Self.overlaps(directory, $0) }
+                }
             }
+    }
+
+    private func resolvedWorkingDirectories(of session: ChatSession,
+                                            store: ProjectStore) -> [String] {
+        store.workingDirectories(for: session).map {
+            URL(fileURLWithPath: $0).resolvingSymlinksInPath().path
+        }
+    }
+
+    // Two roots are the same working tree to an agent whenever either sits inside the
+    // other, not only when they name the same folder. A repository added as one project
+    // and a package inside it added as another are still two agents editing one tree.
+    nonisolated static func overlaps(_ first: String, _ second: String) -> Bool {
+        first.pathRelative(to: second) != nil || second.pathRelative(to: first) != nil
     }
 
     // Leaves whatever has streamed in so far in place.

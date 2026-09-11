@@ -15,6 +15,15 @@ enum Keychain {
         static let productionClientSecret = Account(name: "dispatch.production.client-secret")
         static let productionToken = Account(name: "dispatch.production.token")
 
+        // The four accounts from when the environments were a fixed pair. A load still
+        // reads them, so an upgrade keeps the sign-in it arrived with, and a save drops
+        // them once their value has been written under the environment's own name.
+        // Leaving one behind would let it answer for a token or secret that has since
+        // been cleared, and the next launch would read the cleared value back.
+        static let fixedPair: Set<Account> = [
+            stagingClientSecret, stagingToken, productionClientSecret, productionToken
+        ]
+
         private static let environmentPrefix = "dispatch.environment."
         private static let requestPrefix = "dispatch.request."
         private static let passwordSuffix = ".basic-password"

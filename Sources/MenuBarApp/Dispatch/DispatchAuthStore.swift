@@ -549,7 +549,11 @@ final class DispatchAuthStore {
 
         // The passwords are rebuilt rather than edited in place, so one that has been
         // cleared is dropped from the Keychain instead of lingering under its old name.
-        var keychainValues = storedKeychainValues.filter { $0.key.basicPasswordRequestID == nil }
+        // The fixed-pair accounts go for the same reason: every environment writes its
+        // own below, and one left behind would outlive the value it stands for.
+        var keychainValues = storedKeychainValues.filter {
+            $0.key.basicPasswordRequestID == nil && !Keychain.Account.fixedPair.contains($0.key)
+        }
         for (requestID, password) in basicPasswords where !password.isEmpty {
             keychainValues[.basicPassword(for: requestID)] = password
         }

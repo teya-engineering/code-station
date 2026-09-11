@@ -691,6 +691,10 @@ enum GitInspector {
         environment["GIT_TERMINAL_PROMPT"] = "0"
         environment["GIT_OPTIONAL_LOCKS"] = "0"
         environment["GIT_PAGER"] = "cat"
+        // A few answers are only available as the sentence git prints for a person, and
+        // git translates those. Pinning the locale keeps them in the words the readers
+        // below match against, whatever language the Mac is set to.
+        environment["LC_ALL"] = "C"
         // Only TreeSnapshots sends anything, and what it sends is GIT_INDEX_FILE: an index
         // of its own to record into, so that recording cannot disturb the one the reader's
         // own staged work lives in.

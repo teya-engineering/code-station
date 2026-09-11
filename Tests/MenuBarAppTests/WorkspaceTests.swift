@@ -46,6 +46,37 @@ struct WorkspaceTests {
         #expect(!store.isTranscriptLoaded(session.id))
     }
 
+    // Removing a project dissolves the workspaces it leaves too small to stand. An index
+    // can still arrive holding a workspace that is already short of two members, and that
+    // is not this removal's doing: only a workspace the project belongs to goes with it.
+    @Test func removingAProjectLeavesAWorkspaceItDoesNotBelongToAlone() throws {
+        let first = try TestStore.project(in: store, named: "api")
+        let second = try TestStore.project(in: store, named: "web")
+        let outsider = try TestStore.project(in: store, named: "docs")
+        let workspace = try #require(store.addWorkspace(name: "Checkout",
+                                                        projectIDs: [first.id, second.id],
+                                                        leadProjectID: first.id))
+        let session = try #require(store.newSession(
+            in: workspace.id,
+            projects: [SessionProject(projectID: first.id),
+                       SessionProject(projectID: second.id)]))
+        #expect(store.save())
+
+        let index = try String(contentsOf: store.storeURL, encoding: .utf8)
+            .replacingOccurrences(
+                of: "\"\(first.id.uuidString)\",\n        \"\(second.id.uuidString)\"",
+                with: "\"\(first.id.uuidString)\"")
+        try index.write(to: store.storeURL, atomically: true, encoding: .utf8)
+
+        let reopened = ProjectStore(storeURL: store.storeURL)
+        #expect(reopened.workspace(workspace.id)?.projectIDs == [first.id])
+
+        reopened.removeProject(outsider.id)
+
+        #expect(reopened.workspace(workspace.id) != nil)
+        #expect(reopened.session(session.id) != nil)
+    }
+
     @Test func updatesWorkspaceDefaultsAndMembership() throws {
         let first = try TestStore.project(in: store, named: "api")
         let second = try TestStore.project(in: store, named: "web")

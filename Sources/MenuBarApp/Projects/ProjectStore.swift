@@ -530,9 +530,12 @@ final class ProjectStore {
 
     func removeProject(_ id: UUID) {
         // A workspace groups at least two folders, so losing one can dissolve it, and
-        // its sessions cannot exist outside it any more than the project's own can.
+        // its sessions cannot exist outside it any more than the project's own can. Only
+        // a workspace this project belongs to is counted: one that is already short of
+        // two members is not this removal's doing and must not go with it.
         let dissolved = Set(workspaces.filter { workspace in
-            workspace.projectIDs.filter { $0 != id }.count < 2
+            workspace.projectIDs.contains(id)
+                && workspace.projectIDs.filter { $0 != id }.count < 2
         }.map(\.id))
         let affected = Set(sessions.filter { session in
             session.projectID == id

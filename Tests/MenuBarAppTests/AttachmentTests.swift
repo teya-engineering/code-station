@@ -220,6 +220,17 @@ struct AttachmentTests {
                                                  for: attachments).isEmpty)
     }
 
+    // Two sessions are told apart by the trees they write in, and a project added at a
+    // repository overlaps one added at a package inside it however the two are named.
+    @Test func nestedProjectRootsCountAsTheSameWorkingTree() {
+        #expect(SessionRunner.overlaps("/work/api", "/work/api/packages/app"))
+        #expect(SessionRunner.overlaps("/work/api/packages/app", "/work/api"))
+        #expect(SessionRunner.overlaps("/work/api", "/work/api"))
+        #expect(!SessionRunner.overlaps("/work/api", "/work/web"))
+        // A shared prefix is not containment: these are siblings.
+        #expect(!SessionRunner.overlaps("/work/api", "/work/api-tools"))
+    }
+
     // The transcript shares its column with the working set, which docks beside it. An
     // image that held itself at the width it was drawn for would push that sidebar off
     // the edge of the window, so a narrow column has to make the picture narrow too.
