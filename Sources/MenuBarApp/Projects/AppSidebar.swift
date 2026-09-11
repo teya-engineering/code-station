@@ -1832,7 +1832,8 @@ private struct WorkspaceHeaderRow: View {
                         .opacity(hovering ? 0 : 1)
 
                         if hovering {
-                            RowAction(icon: "plus", title: "New", compact: selected, action: onNewSession)
+                            RowAction(icon: "plus", title: "New", action: onNewSession)
+                                .fixedSize()
                                 .appTooltip("New multi-project session")
                         }
                     }
@@ -2009,7 +2010,7 @@ private struct ProjectHeaderRow: View {
                                             .appTooltip("Run the task's saved prompt in a fresh session")
                                     }
                                 } else {
-                                    RowAction(icon: "plus", title: "New", compact: selected, action: onNewSession)
+                                    RowAction(icon: "plus", title: "New", action: onNewSession)
                                         .appTooltip("New session")
                                 }
                             }
