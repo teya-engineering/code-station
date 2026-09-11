@@ -136,6 +136,12 @@ final class AppSettings {
         }
     }
 
+    var sessionFinishedSound: SessionSound {
+        didSet {
+            Preferences.setSessionFinishedSound(sessionFinishedSound, in: preferences)
+        }
+    }
+
     // Whether the money a session has spent is on screen, one answer per agent. The
     // choice sits with the agent because only some CLIs report a cost at all.
     private var costShown: [AgentKind: Bool]
@@ -165,6 +171,7 @@ final class AppSettings {
         designEnabled = Preferences.designEnabled(in: preferences)
         mobileAccessEnabled = Preferences.mobileAccessEnabled(in: preferences)
         sessionRecapsEnabled = Preferences.sessionRecapsEnabled(in: preferences)
+        sessionFinishedSound = Preferences.sessionFinishedSound(in: preferences)
         hasCompletedOnboarding = Preferences.hasCompletedOnboarding(in: preferences)
         costShown = Dictionary(uniqueKeysWithValues: AgentKind.allCases.map {
             ($0, Preferences.showCost(for: $0, in: preferences))
@@ -486,6 +493,7 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 20) {
                 sidebar.id(SettingsSearchTarget.generalSidebar.id)
                 recaps.id(SettingsSearchTarget.generalRecaps.id)
+                finishedSound.id(SettingsSearchTarget.generalSound.id)
                 oldSessions.id(SettingsSearchTarget.generalOldSessions.id)
                 orphanedWorktrees.id(SettingsSearchTarget.generalOrphanedWorktrees.id)
                 sessionMemory.id(SettingsSearchTarget.generalSessionMemory.id)
@@ -549,6 +557,34 @@ struct SettingsView: View {
                     isOn: $settings.sessionRecapsEnabled)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 13)
+            }
+        }
+    }
+
+    // Picking a sound plays it, so the list can be walked until one is right without a
+    // separate preview button next to it.
+    private var finishedSound: some View {
+        ChoiceBlock("SOUND") {
+            SettingsCard {
+                HStack(alignment: .top, spacing: 12) {
+                    settingCopy(
+                        title: "When a session finishes",
+                        detail: "Plays once a turn ends, whether or not you are looking at that session.")
+                    Spacer(minLength: 0)
+                    OptionMenu(value: settings.sessionFinishedSound.title) {
+                        SessionSound.allCases.map { sound in
+                            .item(sound.title,
+                                  checked: settings.sessionFinishedSound == sound) {
+                                settings.sessionFinishedSound = sound
+                                sound.play()
+                            }
+                        }
+                    }
+                    .fixedSize(horizontal: true, vertical: false)
+                    .accessibilityLabel("Sound when a session finishes: \(settings.sessionFinishedSound.title)")
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 13)
             }
         }
     }
@@ -1622,6 +1658,7 @@ private struct DayField: View {
 enum SettingsSearchTarget: String, Hashable {
     case generalSidebar
     case generalRecaps
+    case generalSound
     case generalOldSessions
     case generalOrphanedWorktrees
     case generalSessionMemory
@@ -1665,6 +1702,8 @@ enum SettingsSearchIndex {
                "sidebar recent project workspace see more limit"),
         result("Automatic session recaps", .general, .generalRecaps,
                "recap catch up return summary conversation finish away manual toggle"),
+        result("Session finished sound", .general, .generalSound,
+               "sound alert audio chime beep play finish turn ends notification silent off"),
         result("Old sessions", .general, .generalOldSessions,
                "count old after days delete automatically review clear stale design saved work uncommitted"),
         result("Orphaned worktrees", .general, .generalOrphanedWorktrees,

@@ -540,6 +540,21 @@ enum Preferences {
         store.set(enabled, forKey: "sessionRecapsEnabled")
     }
 
+    // What a finished session plays. An unset key reads as the standard sound: a turn
+    // ending while the person is elsewhere is the moment they most want to hear about,
+    // so it is on until they say otherwise.
+    static func sessionFinishedSound(in store: UserDefaults = .standard) -> SessionSound {
+        guard let raw = store.string(forKey: "sessionFinishedSound") else {
+            return .standard
+        }
+        return SessionSound(rawValue: raw) ?? .standard
+    }
+
+    static func setSessionFinishedSound(_ sound: SessionSound,
+                                        in store: UserDefaults = .standard) {
+        store.set(sound.rawValue, forKey: "sessionFinishedSound")
+    }
+
     // Mobile access exposes live session control to another device, so it stays off until
     // someone deliberately opts into the experimental surface.
     static func mobileAccessEnabled(in store: UserDefaults = .standard) -> Bool {

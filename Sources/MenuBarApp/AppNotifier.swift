@@ -1,10 +1,11 @@
 import AppKit
 import UserNotifications
 
-// System notifications for sessions that finish a turn or stop to ask something while
-// the app is in the background. The window already shows both, so nothing is posted
-// while the app is active - this is for the person who went to another app while their
-// agents worked, and would otherwise never hear that one of them is waiting.
+// How a session reaches someone who is not watching it: a sound when a turn ends, and a
+// system notification for a turn that ended or a question that is waiting while the app
+// is in the background. The window already shows both, so nothing is posted while the
+// app is active - this is for the person who went to another app while their agents
+// worked, and would otherwise never hear that one of them is waiting.
 @MainActor
 final class AppNotifier: NSObject {
     static let shared = AppNotifier()
@@ -12,11 +13,12 @@ final class AppNotifier: NSObject {
     // How a clicked notification opens its session, handed in by the app delegate.
     var openSession: ((UUID) -> Void)?
 
-    // The notification centre only exists for a real app bundle. A bare `swift run`
-    // binary or a test runner has none worth posting to, and asking for the centre
-    // there can bring the process down.
-    private let center: UNUserNotificationCenter? =
-        Bundle.main.bundlePath.hasSuffix(".app") ? .current() : nil
+    // Only a real app bundle has a notification centre worth posting to, and asking for
+    // the centre from a bare `swift run` binary or a test runner can bring the process
+    // down. The same test runner is also the last place that should start making noise,
+    // so the sound follows the bundle too.
+    private let isBundled = Bundle.main.bundlePath.hasSuffix(".app")
+    private lazy var center: UNUserNotificationCenter? = isBundled ? .current() : nil
 
     private enum Authorization { case unasked, asking, granted, denied }
     private var authorization: Authorization = .unasked
@@ -30,11 +32,16 @@ final class AppNotifier: NSObject {
     }
 
     func turnEnded(sessionID: UUID, sessionTitle: String, failure: String?) {
+        // Played from here rather than left to the notification, so a turn finishing is
+        // heard while the window is open on another session too, and so the chosen sound
+        // is the only one: a notification carrying its own would double up on it.
+        if isBundled { Preferences.sessionFinishedSound().play() }
         post(identifier: "finished-\(sessionID.uuidString)",
              sessionID: sessionID,
              title: sessionTitle,
              body: failure.map { "The turn failed: \(Self.firstLine($0))" }
-                ?? "Finished and waiting for you.")
+                ?? "Finished and waiting for you.",
+             sound: nil)
     }
 
     func needsInput(sessionID: UUID, sessionTitle: String, request: PermissionRequest) {
@@ -56,13 +63,14 @@ final class AppNotifier: NSObject {
         pending.removeAll { identifiers.contains($0.identifier) }
     }
 
-    private func post(identifier: String, sessionID: UUID, title: String, body: String) {
+    private func post(identifier: String, sessionID: UUID, title: String, body: String,
+                      sound: UNNotificationSound? = .default) {
         // The window says all of this better while it is being looked at.
         guard let center, !NSApp.isActive else { return }
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
-        content.sound = .default
+        content.sound = sound
         content.userInfo = ["sessionID": sessionID.uuidString]
         let request = UNNotificationRequest(identifier: identifier, content: content,
                                             trigger: nil)
