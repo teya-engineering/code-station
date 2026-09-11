@@ -260,6 +260,7 @@ enum AgentAvatarArt {
         .british: 5,
         .manager: 10,
         .frenchManager: 22,
+        .navySeal: 12,
     ]
 
     private static let sessionPictures: [Int: Data] = Dictionary(

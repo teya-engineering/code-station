@@ -6,6 +6,7 @@ enum AgentPersonality: String, CaseIterable, Codable, Sendable {
     case british
     case manager
     case frenchManager = "french-manager"
+    case navySeal = "navy-seal"
 
     var title: String {
         switch self {
@@ -16,6 +17,7 @@ enum AgentPersonality: String, CaseIterable, Codable, Sendable {
         case .british: "British"
         case .manager: "Manager"
         case .frenchManager: "French Manager"
+        case .navySeal: "US Navy SEAL"
         }
     }
 
@@ -28,6 +30,7 @@ enum AgentPersonality: String, CaseIterable, Codable, Sendable {
         case .british: "Puts the kettle on before anything else."
         case .manager: "Files a ticket before every keystroke."
         case .frenchManager: "Calls a point de suivi."
+        case .navySeal: "Mission focused. No bug left behind."
         }
     }
 
@@ -159,6 +162,26 @@ enum AgentPersonality: String, CaseIterable, Codable, Sendable {
                 "Checking the gouvernance, just in case it exists",
                 "Validating the prochaines étapes, pending more validation",
                 "Keeping it très high-level to avoid a real decision"
+            ]
+        case .navySeal:
+            [
+                "No bug left behind", "Going tactical on this stack trace",
+                "Checking the mission brief", "Running recon on the codebase",
+                "Securing the perimeter", "Moving out, one commit at a time",
+                "Staying frosty", "Checking gear before the deploy",
+                "Taking point on this bug", "Embracing the suck",
+                "Adapting and overcoming", "Keeping comms clear",
+                "Holding position while tests run", "Leaving no teammate behind",
+                "Swimming through the logs", "Earning the trident, one fix at a time",
+                "Staying calm under compiler fire", "Checking every exit route",
+                "Running a buddy check", "Getting eyes on the objective",
+                "Slow is smooth, and smooth is fast",
+                "Treating this build like Hell Week", "Doing push-ups between builds",
+                "Taking the hard path on purpose", "Keeping the team in the loop",
+                "Double-checking the extraction plan", "Making every keystroke count",
+                "Clearing one function at a time", "Taking ownership of the outcome",
+                "Packing a backup plan", "Staying sharp at zero dark thirty",
+                "Saving the victory lap for after the tests", "Getting it done, hooyah"
             ]
         }
     }
