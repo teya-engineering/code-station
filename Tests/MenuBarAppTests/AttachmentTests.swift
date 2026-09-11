@@ -109,6 +109,48 @@ struct AttachmentTests {
         #expect(Attachments.fromClipboard(pasteboard).isEmpty)
     }
 
+    // MARK: - What the clipboard is given
+
+    @Test func copiesAnImageAsBothPixelsAndAFile() throws {
+        let file = root.appendingPathComponent("shot.png")
+        let bytes = try pngData()
+        try bytes.write(to: file)
+
+        let pasteboard = NSPasteboard.withUniqueName()
+        Pasteboard.copy(imageAt: file, to: pasteboard)
+
+        #expect(pasteboard.data(forType: .png) == bytes)
+        #expect(Pasteboard.fileURLs(from: pasteboard) == [file])
+    }
+
+    // An app taking a picture off the clipboard asks for PNG, so a file saved as
+    // anything else still has to arrive as one.
+    @Test func reEncodesAnImageThatIsNotAlreadyPNG() throws {
+        let file = root.appendingPathComponent("shot.jpg")
+        let bitmap = try #require(NSBitmapImageRep(data: try pngData()))
+        let jpeg = try #require(bitmap.representation(using: .jpeg, properties: [:]))
+        try jpeg.write(to: file)
+
+        let pasteboard = NSPasteboard.withUniqueName()
+        Pasteboard.copy(imageAt: file, to: pasteboard)
+
+        let copied = try #require(pasteboard.data(forType: .png))
+        #expect(NSImage(data: copied)?.size == NSSize(width: 4, height: 4))
+        #expect(Pasteboard.fileURLs(from: pasteboard) == [file])
+    }
+
+    // Copying an image and pasting it straight back should attach the file it came
+    // from, not write a second copy of the same picture.
+    @Test func pastingACopiedImageBackAttachesTheOriginalFile() throws {
+        let file = root.appendingPathComponent("shot.png")
+        try pngData().write(to: file)
+
+        let pasteboard = NSPasteboard.withUniqueName()
+        Pasteboard.copy(imageAt: file, to: pasteboard)
+
+        #expect(Attachments.fromClipboard(pasteboard).map(\.url) == [file])
+    }
+
     @Test func ignoresDroppedWebAddresses() {
         let dropped = [URL(string: "https://example.com")!, URL(fileURLWithPath: "/tmp/a.png")]
         #expect(Attachments.fromDrop(dropped).map(\.name) == ["a.png"])
@@ -191,6 +233,7 @@ struct AttachmentTests {
             InlineImageView(url: file, maximumWidth: 543)
                 .environment(DialogPresenter())
                 .environment(TooltipPresenter())
+                .environment(MenuPresenter())
         })
 
         host.frame = NSRect(x: 0, y: 0, width: 900, height: 400)

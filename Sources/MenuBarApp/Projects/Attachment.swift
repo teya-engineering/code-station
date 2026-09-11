@@ -181,6 +181,24 @@ extension View {
     }
 }
 
+// MARK: - Copying one
+
+extension View {
+    // The menu behind every drawn image, so a picture can be taken out of the app
+    // wherever it is shown - a composer chip, a message, the full preview.
+    func imageContextMenu(_ url: URL) -> some View {
+        appContextMenu {
+            [.item("Copy Image") { Pasteboard.copy(imageAt: url) },
+             .item("Copy Path") { Pasteboard.copy(url.path) },
+             .separator,
+             .item("Reveal in Finder") {
+                 NSWorkspace.shared.activateFileViewerSelecting([url])
+             },
+             .item("Open with default app") { NSWorkspace.shared.open(url) }]
+        }
+    }
+}
+
 // MARK: - Showing one
 
 // A small decoded copy of an image file. Screenshots are large, so anything that
@@ -228,6 +246,7 @@ struct AttachmentChip: View {
                 .buttonStyle(.plain)
                 .appTooltip("View full image")
                 .accessibilityLabel("View \(url.lastPathComponent)")
+                .imageContextMenu(url)
             } else {
                 Image(systemName: missing ? "questionmark.square.dashed" : "doc")
                     .font(.system(size: 12))
@@ -309,6 +328,7 @@ struct InlineImageView: View {
                 .buttonStyle(.plain)
                 .appTooltip { Tooltip(title: label ?? url.lastPathComponent, subtitle: url.path) }
                 .accessibilityLabel("View \(label ?? url.lastPathComponent)")
+                .imageContextMenu(url)
             } else if failed {
                 AttachmentChip(url: url)
             } else {
@@ -388,6 +408,7 @@ private struct AttachmentImagePreview: View {
         .frame(height: previewHeight)
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
+        .imageContextMenu(url)
         .task(id: url) {
             // The popup is at most 720 points wide. A 1,440-pixel copy remains sharp on
             // a Retina display without decoding a large screenshot at its full size.

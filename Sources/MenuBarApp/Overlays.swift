@@ -25,9 +25,11 @@ private struct AppOverlays: ViewModifier {
     func body(content: Content) -> some View {
         content
             .overlay { ToolCallDetailHost() }
-            .overlay { ContextMenuHost() }
             .overlay { TooltipHost() }
             .overlay { DialogHost() }
+            // Last, so a menu opened from inside a dialog is not drawn behind it. It
+            // draws nothing at all while closed, so nothing else moves under it.
+            .overlay { ContextMenuHost() }
             .environment(dialogs)
             .environment(menus)
             .environment(tooltips)
