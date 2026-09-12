@@ -99,8 +99,9 @@ struct ChatSession: Identifiable, Codable, Equatable, Sendable {
     // The bot selected for this session. Custom bot filenames stay stable across launches,
     // while the built-in Default bot has a reserved name.
     var agentAvatarName: String?
-    // Set when the agent opens a pull request from this session.
-    var pullRequest: PullRequest?
+    // Every pull request the agent opened from this session, oldest first. A session
+    // that spans several checkouts opens one in each.
+    var pullRequests: [PullRequest] = []
     // What this run of a task was given for the holes in its prompt. The prompt itself is
     // in the transcript; this is kept so the run list can say what each run was about
     // without opening it.
@@ -172,7 +173,9 @@ struct ChatSession: Identifiable, Codable, Equatable, Sendable {
         case claudeSessionID, codexSessionID, createdAt
         case worktreePath, worktreeBranch
         case workspaceID, sessionProjects, settings, usage, agentAvatarName
-        case pullRequest, taskValues, recap, summary, messages
+        // `pullRequest` is only read: a file written when a session could hold one
+        // pull request keeps it under that key.
+        case pullRequest, pullRequests, taskValues, recap, summary, messages
     }
 
     init(id: UUID = UUID(), projectID: UUID, agent: AgentKind = .claudeCode) {
@@ -213,7 +216,9 @@ struct ChatSession: Identifiable, Codable, Equatable, Sendable {
         settings = try container.decodeIfPresent(SessionSettings.self, forKey: .settings)
         usage = try container.decodeIfPresent(SessionUsage.self, forKey: .usage)
         agentAvatarName = try container.decodeIfPresent(String.self, forKey: .agentAvatarName)
-        pullRequest = try container.decodeIfPresent(PullRequest.self, forKey: .pullRequest)
+        pullRequests = try container.decodeIfPresent([PullRequest].self, forKey: .pullRequests)
+            ?? (try container.decodeIfPresent(PullRequest.self, forKey: .pullRequest)).map { [$0] }
+            ?? []
         taskValues = try container.decodeIfPresent([String: String].self, forKey: .taskValues)
         recap = try container.decodeIfPresent(SessionRecap.self, forKey: .recap)
         summary = try container.decodeIfPresent(SessionSummary.self, forKey: .summary) ?? SessionSummary()
@@ -255,7 +260,9 @@ struct ChatSession: Identifiable, Codable, Equatable, Sendable {
         try container.encodeIfPresent(settings, forKey: .settings)
         try container.encodeIfPresent(usage, forKey: .usage)
         try container.encodeIfPresent(agentAvatarName, forKey: .agentAvatarName)
-        try container.encodeIfPresent(pullRequest, forKey: .pullRequest)
+        if !pullRequests.isEmpty {
+            try container.encode(pullRequests, forKey: .pullRequests)
+        }
         try container.encodeIfPresent(taskValues, forKey: .taskValues)
         try container.encodeIfPresent(recap, forKey: .recap)
         try container.encode(summary, forKey: .summary)

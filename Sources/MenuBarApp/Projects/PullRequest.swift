@@ -1,11 +1,21 @@
 import Foundation
 
-// The pull request a session opened. Nothing in the stream announces one: the agent opens
+// A pull request a session opened. Nothing in the stream announces one: the agent opens
 // it by running `gh pr create`, which prints the URL of what it made, so that line is the
 // only place this can come from.
 struct PullRequest: Codable, Equatable, Sendable {
     var number: Int
     var url: String
+
+    // The repository the pull request is in, which is what tells two of them apart when a
+    // session works across checkouts and both land on the same number. It is the path
+    // segment before `/pull/<number>`, read from the end so a host with a prefix in front
+    // of the owner still gives the same answer.
+    var repository: String? {
+        let parts = url.split(separator: "/")
+        guard parts.count >= 3 else { return nil }
+        return String(parts[parts.count - 3])
+    }
 }
 
 enum PullRequestScanner {
@@ -30,14 +40,26 @@ enum PullRequestScanner {
         return PullRequest(number: number, url: String(match.0))
     }
 
-    // A session that opened a pull request before the app watched for them still has the
-    // line that says so in its transcript. The newest wins: a session can open more than
-    // one, and the last is the one the work ended up in.
-    static func find(in session: ChatSession) -> PullRequest? {
-        for tool in session.messages.flatMap(\.tools).reversed() {
+    // A session that opened pull requests before the app watched for them still has the
+    // lines that say so in its transcript. One session can open several - one per
+    // checkout of a workspace, or one per round of work - and they are all its work, so
+    // they are all kept, in the order they were opened.
+    static func find(in session: ChatSession) -> [PullRequest] {
+        var found: [PullRequest] = []
+        for tool in session.messages.flatMap(\.tools) {
             guard tool.input.contains(opening), let result = tool.result else { continue }
-            if let found = scan(result) { return found }
+            guard let pullRequest = scan(result) else { continue }
+            found.append(pullRequest)
         }
-        return nil
+        return found.deduplicatedByURL()
+    }
+}
+
+extension [PullRequest] {
+    // The same pull request announces itself again every time the agent retries the
+    // command that opened it, or runs it once more for a branch that already has one.
+    func deduplicatedByURL() -> [PullRequest] {
+        var seen: Set<String> = []
+        return filter { seen.insert($0.url).inserted }
     }
 }

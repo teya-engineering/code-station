@@ -7,8 +7,8 @@ import Testing
 struct SessionFactsTests {
     @Test func namesTheBranchOnTheChip() {
         let facts = SessionFacts(branch: "lantern/billing-split",
-                                 pullRequest: PullRequest(number: 482,
-                                                          url: "https://github.com/a/b/pull/482"),
+                                 pullRequests: [PullRequest(number: 482,
+                                                            url: "https://github.com/a/b/pull/482")],
                                  model: "Opus",
                                  context: 0.38)
 

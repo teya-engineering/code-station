@@ -2,13 +2,13 @@ import AppKit
 import SwiftUI
 
 // What a session is besides its name: the branch it is on, what it has changed, the pull
-// request it opened, what it runs on and how full its window is. The branch is the fact
+// requests it opened, what it runs on and how full its window is. The branch is the fact
 // reached for before a diff is read, so it is the one the chip says out loud; the rest
 // stay behind it, in the card it opens.
 struct SessionFacts: Equatable {
     var branch: String?
     var changes: Changes?
-    var pullRequest: PullRequest?
+    var pullRequests: [PullRequest] = []
     var model: String?
     // Left out when the agent reports no cost. Codex reports none, and a $0.00 there reads
     // as free rather than as unknown.
@@ -43,7 +43,7 @@ struct SessionFacts: Equatable {
 
     // Nothing to open the card for.
     var isEmpty: Bool {
-        namedBranch == nil && changes == nil && pullRequest == nil && model == nil
+        namedBranch == nil && changes == nil && pullRequests.isEmpty && model == nil
             && cost == nil && context == nil
     }
 
@@ -228,12 +228,14 @@ struct SessionFactsChip: View {
 
     // Everything that came off the bar, in the order it is asked about: what changed,
     // where the change went, what did it, and what the work is costing in room and money.
-    private enum Fact: Hashable { case changes, pullRequest, model, context, cost }
+    // A session opens as many pull requests as it has checkouts to open them in, so that
+    // fact is a row each rather than one row, and carries which of them it stands for.
+    private enum Fact: Hashable { case changes, pullRequest(Int), model, context, cost }
 
     private var rows: [Fact] {
         var rows: [Fact] = []
         if facts.changes != nil { rows.append(.changes) }
-        if facts.pullRequest != nil { rows.append(.pullRequest) }
+        rows.append(contentsOf: facts.pullRequests.indices.map(Fact.pullRequest))
         if facts.model != nil { rows.append(.model) }
         if facts.context != nil { rows.append(.context) }
         if facts.cost != nil { rows.append(.cost) }
@@ -244,8 +246,10 @@ struct SessionFactsChip: View {
         switch fact {
         case .changes:
             if let changes = facts.changes { changesRow(changes) }
-        case .pullRequest:
-            if let pullRequest = facts.pullRequest { pullRequestRow(pullRequest) }
+        case .pullRequest(let position):
+            if facts.pullRequests.indices.contains(position) {
+                pullRequestRow(facts.pullRequests[position], first: position == 0)
+            }
         case .model:
             if let model = facts.model { modelRow(model) }
         case .context:
@@ -288,14 +292,22 @@ struct SessionFactsChip: View {
         }
     }
 
-    // The one thing here that leads out of the app, so it opens in the browser.
-    private func pullRequestRow(_ pullRequest: PullRequest) -> some View {
-        row("PULL REQ") {
+    // Pull requests are stacked one to a row and share the label, which is what keeps a
+    // list of them reading as one fact about the session.
+    private func pullRequestRow(_ pullRequest: PullRequest, first: Bool) -> some View {
+        row(first ? "PULL REQ" : "") {
             Button(action: acting {
                 guard let url = URL(string: pullRequest.url) else { return }
                 NSWorkspace.shared.open(url)
             }) {
-                HStack(spacing: 5) {
+                HStack(spacing: 6) {
+                    if namesRepositories, let repository = pullRequest.repository {
+                        Text(repository)
+                            .font(.system(size: 11.5))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
                     // Verbatim, or the interpolated number is read as a localised one
                     // and comes out grouped: PR #2,395.
                     Text(verbatim: "#\(pullRequest.number)")
@@ -313,6 +325,12 @@ struct SessionFactsChip: View {
                         note: "Opens in the browser.")
             }
         }
+    }
+
+    // Numbers count up per repository, so two of them in one session can both be #3. The
+    // repository is named only when it is what tells them apart.
+    private var namesRepositories: Bool {
+        Set(facts.pullRequests.compactMap(\.repository)).count > 1
     }
 
     private func modelRow(_ model: String) -> some View {

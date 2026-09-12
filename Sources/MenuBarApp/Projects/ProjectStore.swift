@@ -1284,20 +1284,24 @@ final class ProjectStore {
     }
 
     func notePullRequest(_ pullRequest: PullRequest, for sessionID: UUID) {
-        guard let i = index(sessionID), sessions[i].pullRequest != pullRequest else { return }
-        sessions[i].pullRequest = pullRequest
+        guard let i = index(sessionID),
+              !sessions[i].pullRequests.contains(where: { $0.url == pullRequest.url })
+        else { return }
+        sessions[i].pullRequests.append(pullRequest)
         saveIndex()
     }
 
-    // Sessions that opened a pull request before the app watched for them, and sessions
+    // Sessions that opened pull requests before the app watched for them, and sessions
     // resumed from a transcript the app did not see arrive. Run when a session is opened,
-    // so the strip is right whatever the conversation has been through. Reads what is in
+    // so the card is right whatever the conversation has been through. Reads what is in
     // memory rather than fetching it: the caller waits for the conversation it opened.
-    func findPullRequest(in sessionID: UUID) {
-        guard let i = index(sessionID), sessions[i].pullRequest == nil,
-              sessions[i].transcriptLoaded else { return }
-        guard let found = PullRequestScanner.find(in: sessions[i]) else { return }
-        sessions[i].pullRequest = found
+    // The transcript holds every one that was opened, so it replaces what is on the
+    // record rather than adding to it.
+    func findPullRequests(in sessionID: UUID) {
+        guard let i = index(sessionID), sessions[i].transcriptLoaded else { return }
+        let found = PullRequestScanner.find(in: sessions[i])
+        guard !found.isEmpty, found != sessions[i].pullRequests else { return }
+        sessions[i].pullRequests = found
         saveIndex()
     }
 

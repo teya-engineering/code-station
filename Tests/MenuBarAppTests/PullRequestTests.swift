@@ -51,16 +51,28 @@ struct PullRequestTests {
                                           output: "pull request create failed: no commits") == nil)
     }
 
-    // The newest one wins: a session can open more than one, and the last is where the
-    // work ended up.
-    @Test func picksTheLastPullRequestTheSessionOpened() {
+    // A session that works across checkouts opens one in each, and all of them are its
+    // work, oldest first.
+    @Test func keepsEveryPullRequestTheSessionOpened() {
+        var session = ChatSession(projectID: UUID())
+        session.messages = [
+            message(command: "gh pr create --fill", result: "https://github.com/example/depart-uk/pull/8"),
+            message(command: "gh pr view 8", result: "https://github.com/example/depart-uk/pull/8"),
+            message(command: "gh pr create --fill", result: "https://github.com/example/depart-uk-ios/pull/3")
+        ]
+        #expect(PullRequestScanner.find(in: session).map(\.number) == [8, 3])
+    }
+
+    // Running the command again for a branch that already has one prints the same link,
+    // which is the same pull request rather than a second.
+    @Test func listsAPullRequestAnnouncedTwiceOnce() {
         var session = ChatSession(projectID: UUID())
         session.messages = [
             message(command: "gh pr create --fill", result: "https://github.com/example/code-station/pull/1"),
-            message(command: "gh pr view 1", result: "https://github.com/example/code-station/pull/1"),
-            message(command: "gh pr create --fill", result: "https://github.com/example/code-station/pull/2")
+            message(command: "gh pr create --fill",
+                    result: "a pull request for branch \"session-4\" already exists:\nhttps://github.com/example/code-station/pull/1")
         ]
-        #expect(PullRequestScanner.find(in: session)?.number == 2)
+        #expect(PullRequestScanner.find(in: session).count == 1)
     }
 
     // A call still in flight has no output to read, and must not be mistaken for one that
@@ -68,7 +80,15 @@ struct PullRequestTests {
     @Test func ignoresACallThatHasNotFinished() {
         var session = ChatSession(projectID: UUID())
         session.messages = [message(command: "gh pr create --fill", result: nil)]
-        #expect(PullRequestScanner.find(in: session) == nil)
+        #expect(PullRequestScanner.find(in: session).isEmpty)
+    }
+
+    // What the card names two pull requests by when their numbers do not tell them apart.
+    @Test func readsTheRepositoryOutOfTheLink() {
+        #expect(PullRequest(number: 8, url: "https://github.com/codfishworks/depart-uk/pull/8")
+            .repository == "depart-uk")
+        #expect(PullRequest(number: 7, url: "https://git.example.com/gh/platform/api/pull/7")
+            .repository == "api")
     }
 
     private func message(command: String, result: String?) -> ChatMessage {

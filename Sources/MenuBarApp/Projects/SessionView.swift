@@ -310,7 +310,7 @@ struct SessionView: View {
                 // Scanning a conversation means having it, and it is still being read in.
                 await store.transcriptReady(sessionID)
                 store.clearFinished(sessionID)
-                store.findPullRequest(in: sessionID)
+                store.findPullRequests(in: sessionID)
             }
             // These folders only go missing while another program has the keyboard, so
             // coming back to this one is when the answer can have changed.
@@ -815,7 +815,7 @@ struct SessionView: View {
                 ?? session.worktreeBranch
                 ?? session.sessionProjects?.compactMap(\.worktreeBranch).first,
             changes: workingTreeChanges(session),
-            pullRequest: session.pullRequest,
+            pullRequests: session.pullRequests,
             model: session.usage?.model(for: session.agent).map { runner.modelTitle($0) },
             cost: appSettings.showsCost(for: session.agent) && cost > 0 ? cost : nil,
             context: session.usage?.contextFraction(for: session.agent),
