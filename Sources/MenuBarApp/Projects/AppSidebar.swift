@@ -820,6 +820,7 @@ struct AppSidebar: View {
                     ?? session
                 SidebarRailRow(colour: tint.colour, selectedColour: Theme.accent, selected: selected) {
                     SessionCard(session: session,
+                                worktrees: store.worktreeCoverage(for: session),
                                 selected: selected,
                                 busy: runner.state(live.id).isBusy,
                                 waiting: runner.state(live.id) == .waiting,
@@ -1094,8 +1095,9 @@ struct AppSidebar: View {
     private func confirmClearSessions(in project: Project) {
         let idle = idleSessions(in: project)
         guard !idle.isEmpty else { return }
-        let worktrees = idle.count { $0.worktreePath != nil }
-        let dirty = idle.count { $0.worktreePath.map(workingTrees.isDirty) ?? false }
+        let worktreePaths = idle.map { store.checkoutProjects(for: $0).compactMap(\.worktreePath) }
+        let worktrees = worktreePaths.count { !$0.isEmpty }
+        let dirty = worktreePaths.count { $0.contains(where: workingTrees.isDirty) }
         let designs = idle.count { store.hasDesignArtifacts(for: $0) }
         let kept = store.standaloneSessions(for: project.id).count - idle.count
         var message = "Their conversation history is removed from the app."
@@ -2154,6 +2156,7 @@ struct PinnedMark: View {
 private struct SessionCard: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let session: ChatSession
+    let worktrees: WorktreeCoverage
     let selected: Bool
     let busy: Bool
     let waiting: Bool
@@ -2228,6 +2231,8 @@ private struct SessionCard: View {
         if session.isPinned { labels.append("Pinned") }
         if uncommitted { labels.append("Uncommitted changes") }
         if connected { labels.append("Phone connected") }
+        if worktrees.isComplete { labels.append("In a worktree") }
+        if worktrees.isPartial { labels.append("Partly in a worktree") }
         return labels.joined(separator: ", ")
     }
 
@@ -2242,8 +2247,14 @@ private struct SessionCard: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
                 if session.isPinned { PinnedMark() }
-                if session.worktreePath != nil {
+                // WT means every checkout is a worktree. A session that is only partly
+                // in worktrees still shares a folder, so it wears a count in the amber
+                // of something that needs a look rather than the plain chip.
+                if worktrees.isComplete {
                     MonoChip(text: "WT", size: 8.5)
+                } else if worktrees.isPartial {
+                    MonoChip(text: "WT \(worktrees.isolated.count)/\(worktrees.isolated.count + worktrees.shared.count)",
+                             size: 8.5, tint: Theme.attentionText)
                 }
                 if uncommitted { UncommittedMark() }
                 if connected { MobileConnectionMark() }
@@ -2313,14 +2324,19 @@ private struct SessionCard: View {
     }
 
     // What is worth knowing before deleting this session outranks where it runs, and a
-    // worktree session says both at once: the folder that would go is its own.
+    // worktree session says both at once: the folder that would go is its own. A session
+    // that is only partly in worktrees names the projects it still shares, since the
+    // chip has no room for them.
     private var note: String? {
         if uncommitted {
             return session.worktreePath == nil
                 ? "Uncommitted changes in the project folder."
                 : "Uncommitted changes in this worktree. Deleting the session loses them."
         }
-        return session.worktreePath == nil ? nil : "Runs in its own git worktree."
+        if worktrees.isPartial {
+            return "Runs in a worktree for \(worktrees.isolated.formatted(.list(type: .and))). Shares the project folder of \(worktrees.shared.formatted(.list(type: .and)))."
+        }
+        return worktrees.isComplete ? "Runs in its own git worktree." : nil
     }
 
     // White is what being open looks like, so only the selected card gets it - two white

@@ -937,14 +937,14 @@ final class SessionRunner {
 
         // Two agents sharing any direct project folder would edit the same files under
         // each other. Workspace sessions therefore conflict when any root overlaps.
-        if let other = busySession(sharingDirectoryWith: session, store: store) {
-            if store.sessionsShareDesignWorkflow(sessionID, other.id) {
+        if let conflict = busySession(sharingDirectoryWith: session, store: store) {
+            if store.sessionsShareDesignWorkflow(sessionID, conflict.session.id) {
                 records[sessionID]?.waitsForDesignWorkflowDirectory = true
                 setState(.idle, for: sessionID)
                 return
             }
             setState(.failed(
-                "\"\(other.title)\" is already running in one of these folders. Sessions that share a directory cannot run at the same time - stop that one first, or use worktrees to run in parallel."),
+                "\"\(conflict.session.title)\" is already running in \(conflict.directory.abbreviatedPath). Sessions that share a folder cannot run at the same time - stop that one first, or use worktrees to run in parallel."),
                 for: sessionID)
             return
         }
@@ -1265,26 +1265,31 @@ final class SessionRunner {
         return directories
     }
 
-    private func busySession(sharingDirectoryWith session: ChatSession,
-                             store: ProjectStore) -> ChatSession? {
-        let directories = resolvedWorkingDirectories(of: session, store: store)
+    // The folder handed back is this session's own root as the person knows it, not the
+    // symlink-resolved path the comparison ran on, so the message can name what they see.
+    private func busySession(sharingDirectoryWith session: ChatSession, store: ProjectStore)
+        -> (session: ChatSession, directory: String)? {
+        let directories = store.workingDirectories(for: session)
         guard !directories.isEmpty else { return nil }
-        return records
-            .filter { $0.key != session.id && $0.value.turn != nil }
-            .compactMap { store.session($0.key) }
-            .first { other in
-                let otherDirectories = resolvedWorkingDirectories(of: other, store: store)
-                return directories.contains { directory in
-                    otherDirectories.contains { Self.overlaps(directory, $0) }
-                }
+        for other in records.filter({ $0.key != session.id && $0.value.turn != nil })
+            .compactMap({ store.session($0.key) }) {
+            let otherDirectories = resolvedWorkingDirectories(of: other, store: store)
+            let shared = directories.first { directory in
+                let resolved = Self.resolved(directory)
+                return otherDirectories.contains { Self.overlaps(resolved, $0) }
             }
+            if let shared { return (other, shared) }
+        }
+        return nil
     }
 
     private func resolvedWorkingDirectories(of session: ChatSession,
                                             store: ProjectStore) -> [String] {
-        store.workingDirectories(for: session).map {
-            URL(fileURLWithPath: $0).resolvingSymlinksInPath().path
-        }
+        store.workingDirectories(for: session).map(Self.resolved)
+    }
+
+    private nonisolated static func resolved(_ path: String) -> String {
+        URL(fileURLWithPath: path).resolvingSymlinksInPath().path
     }
 
     // Two roots are the same working tree to an agent whenever either sits inside the

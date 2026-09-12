@@ -923,6 +923,22 @@ final class ProjectStore {
                                worktreeBranch: session.worktreeBranch)]
     }
 
+    // A session with several projects can be in a worktree for some and on the project
+    // folder for others. Only the whole picture says whether it can run beside another
+    // session, so the lead checkout alone is never enough.
+    func worktreeCoverage(for session: ChatSession) -> WorktreeCoverage {
+        var coverage = WorktreeCoverage()
+        for checkout in checkoutProjects(for: session) {
+            let name = project(checkout.projectID)?.name ?? "Unknown project"
+            if checkout.worktreePath == nil {
+                coverage.shared.append(name)
+            } else {
+                coverage.isolated.append(name)
+            }
+        }
+        return coverage
+    }
+
     // A Git worktree keeps its writable metadata in the source repository. Codex needs
     // each of these roots explicitly because they sit outside all checkout directories.
     func gitMetadataDirectories(for session: ChatSession) -> [String] {

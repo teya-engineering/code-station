@@ -59,3 +59,19 @@ struct SessionProject: Identifiable, Codable, Equatable, Sendable {
 
     var id: UUID { projectID }
 }
+
+// Which of a session's projects are walled off in a worktree, and which still share
+// the project folder with every other session. It carries names rather than counts so
+// the sidebar can say which half is shared.
+struct WorktreeCoverage: Equatable {
+    var isolated: [String] = []
+    var shared: [String] = []
+
+    // Every checkout is a worktree, so nothing this session does can collide with
+    // another session.
+    var isComplete: Bool { shared.isEmpty && !isolated.isEmpty }
+
+    // Some checkouts are worktrees and some are project folders. The session looks
+    // isolated and is not, which is the case worth pointing out.
+    var isPartial: Bool { !shared.isEmpty && !isolated.isEmpty }
+}
