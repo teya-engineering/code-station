@@ -1,0 +1,79 @@
+:root {
+  color-scheme: light dark;
+  --background: light-dark(#f5f3ed, #151513);
+  --foreground: light-dark(#292a27, #e9e7df);
+  --card: light-dark(#fffdf6, #201f1d);
+  --card-foreground: var(--foreground);
+  --popover: var(--card);
+  --popover-foreground: var(--foreground);
+  --muted: light-dark(#eeede6, #292923);
+  --muted-foreground: light-dark(#74746c, #aaa89f);
+  --primary: light-dark(#2f4a33, #94c299);
+  --primary-foreground: light-dark(#fffdf6, #151513);
+  --secondary: var(--muted);
+  --secondary-foreground: var(--foreground);
+  --accent: var(--muted);
+  --accent-foreground: var(--foreground);
+  --border: light-dark(#dcdcd1, #414138);
+  --input: var(--border);
+  --ring: var(--primary);
+  --destructive: light-dark(#9c3832, #efaaa2);
+  --blue: light-dark(#306dc9, #86b5fb);
+  --orange: light-dark(#b96820, #efb878);
+  --green: var(--primary);
+  --red: var(--destructive);
+  --purple: light-dark(#8351b7, #c8a0f0);
+  --yellow: light-dark(#997600, #e4cb58);
+  --viz-series-1: var(--primary);
+  --viz-series-2: var(--orange);
+  --viz-series-3: var(--blue);
+  --viz-series-4: var(--purple);
+  --viz-series-5: var(--red);
+  --viz-series-6: var(--yellow);
+  --font-size-base: 14px;
+  font: var(--font-size-base)/1.5 -apple-system, BlinkMacSystemFont, sans-serif;
+  color: var(--foreground);
+  background: var(--background);
+}
+* { box-sizing: border-box; }
+body { margin: 0; padding: 12px; display: flow-root; }
+[hidden] { display: none !important; }
+button, input, select, textarea { font: inherit; accent-color: var(--primary); }
+button, a { -webkit-tap-highlight-color: transparent; }
+a { color: var(--primary); }
+img, video, canvas { max-width: 100%; }
+button { cursor: pointer; }
+button:disabled { cursor: default; opacity: .5; }
+.card { padding: 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--card); color: var(--card-foreground); }
+.viz-row, .viz-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.viz-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); gap: 12px; }
+.btn, .nav-link { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 6px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: var(--foreground); text-decoration: none; }
+.btn-primary, .btn[aria-pressed="true"], .nav-link.active { background: var(--primary); color: var(--primary-foreground); }
+.btn-ghost { border-color: transparent; background: transparent; }
+.btn-block { width: 100%; }
+.nav { display: flex; flex-wrap: wrap; gap: 6px; }
+.nav-justified > * { flex: 1; }
+.form-label { display: grid; gap: 6px; }
+.form-control, .form-select { padding: 7px 10px; min-width: 0; border: 1px solid var(--border); border-radius: 6px; color: var(--foreground); background: var(--card); }
+.form-check { display: inline-flex; align-items: center; gap: 6px; }
+.form-range { width: 100%; }
+.table { width: 100%; border-collapse: collapse; }
+.table th, .table td { padding: 8px 12px; border-bottom: 1px solid var(--border); text-align: start; }
+.table-sm th, .table-sm td { padding: 4px 8px; }
+.table-responsive { overflow-x: auto; }
+.text-small { font-size: 12px; }
+.text-muted { color: var(--muted-foreground); }
+.text-destructive { color: var(--destructive); }
+.text-end { text-align: end !important; }
+.text-center { text-align: center !important; }
+.text-nowrap { white-space: nowrap; }
+.tabular-nums, .viz-stat-value { font-variant-numeric: tabular-nums; }
+.viz-stat-value { font-size: 28px; font-weight: 500; }
+.viz-badge { display: inline-block; padding: 2px 6px; border-radius: 6px; background: var(--muted); }
+.progress { height: 6px; overflow: hidden; border-radius: 4px; background: var(--muted); }
+.progress-bar { height: 100%; background: var(--primary); }
+hr { border: 0; border-top: 1px solid var(--border); }
+pre { overflow-x: auto; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+[data-lucide], svg.lucide { width: 16px; height: 16px; vertical-align: middle; flex-shrink: 0; }
+@media (pointer: coarse) { .btn, .nav-link, .form-control, .form-select { min-height: 44px; } }

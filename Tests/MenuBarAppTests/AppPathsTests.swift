@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 import Testing
 @testable import MenuBarApp
 
@@ -275,6 +275,7 @@ struct AppPathsTests {
     }
 
     @Test @MainActor func appSettingsKeepsInjectedPreferenceStoresIsolated() throws {
+        _ = NSApplication.shared
         let firstSuite = "code-station-app-settings-first-\(UUID().uuidString)"
         let secondSuite = "code-station-app-settings-second-\(UUID().uuidString)"
         let firstDefaults = try #require(UserDefaults(suiteName: firstSuite))
