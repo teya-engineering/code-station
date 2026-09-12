@@ -69,7 +69,14 @@ struct ComposerField<TrailingAccessory: View>: View {
             .padding(.leading, 12)
             .padding(.trailing, 48)
             .padding(.vertical, 10)
-            .background(RoundedRectangle(cornerRadius: 10).fill(isFocused ? Theme.card : Theme.field))
+            // The text view only covers the text itself, so the padding around it would
+            // swallow a click and leave the box unfocused. The background sits behind the
+            // text view and takes only the clicks it does not want, which is the padding.
+            .background {
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(isFocused ? Theme.card : Theme.field)
+                    .onTapGesture { if isEnabled { isFocused = true } }
+            }
             .overlay(RoundedRectangle(cornerRadius: 10)
                 .stroke(isFocused ? Theme.accent : Theme.border, lineWidth: isFocused ? 1.5 : 1))
             .overlay(alignment: .trailing) {
