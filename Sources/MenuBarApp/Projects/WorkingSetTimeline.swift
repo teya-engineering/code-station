@@ -31,6 +31,8 @@ struct WorkingSetActivity: Identifiable, Equatable {
     // When the agent was sent. Nil for work read back from a conversation written before
     // the app kept times, which is what leaves a row without a clock.
     var startedAt: Date?
+    var sourceTool: ToolUse?
+    var messageID: UUID?
 }
 
 struct WorkingSetToolCall: Identifiable, Equatable {
@@ -39,6 +41,7 @@ struct WorkingSetToolCall: Identifiable, Equatable {
         case completed
         case failed
         case interrupted
+        case finished
 
         var label: String {
             switch self {
@@ -46,6 +49,7 @@ struct WorkingSetToolCall: Identifiable, Equatable {
             case .completed: "completed"
             case .failed: "failed"
             case .interrupted: "interrupted"
+            case .finished: "finished"
             }
         }
 
@@ -55,6 +59,7 @@ struct WorkingSetToolCall: Identifiable, Equatable {
             case .completed: "checkmark"
             case .failed: "xmark"
             case .interrupted: "exclamationmark"
+            case .finished: "minus"
             }
         }
     }
@@ -192,6 +197,7 @@ enum WorkingSetSummary {
                          backgroundTasks: [BackgroundTask], runningAgentIDs: Set<String>,
                          projectPath: String) -> [WorkingSetTimelineEntry] {
         let occurrences = presentedOccurrences(in: messages, activeTools: activeTools,
+                                                runningAgentIDs: runningAgentIDs,
                                                 projectPath: projectPath)
         let spans = activities(in: messages, activeTools: activeTools,
                                backgroundTasks: backgroundTasks,
@@ -303,6 +309,7 @@ enum WorkingSetSummary {
                            backgroundTasks: [BackgroundTask], runningAgentIDs: Set<String>,
                            projectPath: String) -> [WorkingSetActivity] {
         let occurrences = presentedOccurrences(in: messages, activeTools: activeTools,
+                                                runningAgentIDs: runningAgentIDs,
                                                 projectPath: projectPath)
         let agents = occurrences.filter { $0.call.tool.startsAgents }
         var activities: [WorkingSetActivity] = []
@@ -330,13 +337,15 @@ enum WorkingSetSummary {
                             kind: .agent,
                             state: mergedAgentState(existing.state, state),
                             actions: existing.actions + ownedActions,
-                            startedAt: existing.startedAt)
+                            startedAt: existing.startedAt,
+                            sourceTool: agent.call.tool, messageID: agent.messageID)
                     } else {
                         collaborationPositions[id] = activities.count
                         activities.append(WorkingSetActivity(
                             id: id, title: name, kind: .agent,
                             state: state, actions: ownedActions,
-                            startedAt: agent.call.startedAt))
+                            startedAt: agent.call.startedAt,
+                            sourceTool: agent.call.tool, messageID: agent.messageID))
                     }
                 }
                 continue
@@ -346,19 +355,20 @@ enum WorkingSetSummary {
                 for: agent.call.tool, projectPath: projectPath)
             activities.append(WorkingSetActivity(
                 id: agent.call.id,
-                title: presentation.argument.isEmpty ? presentation.verb : presentation.argument,
+                title: agent.call.tool.agentTask?.task.label
+                    ?? (presentation.argument.isEmpty ? presentation.verb : presentation.argument),
                 kind: .agent,
                 state: state,
                 actions: actions,
-                startedAt: agent.call.startedAt))
+                startedAt: agent.call.tool.agentTask?.task.startedAt ?? agent.call.startedAt,
+                sourceTool: agent.call.tool, messageID: agent.messageID))
         }
 
         let representedBackgroundIDs = Set(agents.flatMap { agent in
             [agent.call.tool.id, agent.call.tool.backgroundAgentID].compactMap { $0 }
         })
         activities += backgroundTasks.compactMap { task in
-            let isAgent = task.agentName?.isBlank == false
-                || task.kind == "local_agent" || task.kind == "local_workflow"
+            let isAgent = task.isAgent
             guard !isAgent || !representedBackgroundIDs.contains(task.id) else { return nil }
             return WorkingSetActivity(id: "background:\(task.id)", title: task.label,
                                       kind: isAgent ? .agent : .backgroundTask,
@@ -369,7 +379,8 @@ enum WorkingSetSummary {
     }
 
     private static func presentedOccurrences(in messages: [ChatMessage],
-                                             activeTools: [ToolUse], projectPath: String)
+                                             activeTools: [ToolUse], runningAgentIDs: Set<String>,
+                                             projectPath: String)
         -> [PresentedOccurrence] {
         let occurrences: [(id: String, messageID: UUID, date: Date, tool: ToolUse)] =
             messages.flatMap { message in
@@ -394,7 +405,16 @@ enum WorkingSetSummary {
         return occurrences.map { occurrence in
             let presentation = ToolPresentationCache.presentation(
                 for: occurrence.tool, projectPath: projectPath)
-            let state: WorkingSetToolCall.State = if !occurrence.tool.isRunning {
+            let state: WorkingSetToolCall.State = if let task = occurrence.tool.agentTask {
+                switch task.state {
+                case .running:
+                    runningAgentIDs.contains(task.task.id) ? .running : .interrupted
+                case .finished: .finished
+                case .completed: .completed
+                case .failed: .failed
+                case .interrupted: .interrupted
+                }
+            } else if !occurrence.tool.isRunning {
                 occurrence.tool.isError ? .failed : .completed
             } else if activeOccurrences.contains(occurrence.id) {
                 .running
@@ -446,6 +466,7 @@ enum WorkingSetSummary {
     private static func agentState(_ agent: WorkingSetToolCall,
                                    actions: [WorkingSetToolCall],
                                    runningAgentIDs: Set<String>) -> WorkingSetToolCall.State {
+        if agent.tool.agentTask != nil { return agent.state }
         if agent.state == .running
             || actions.contains(where: { $0.state == .running })
             || agent.tool.backgroundAgentID.map(runningAgentIDs.contains) == true {
@@ -466,8 +487,9 @@ enum WorkingSetSummary {
     // Codex reports one collaboration call for a whole team. Its synthetic tool input
     // carries the names as a comma-separated field, so repeated updates can be folded
     // into one durable row per agent.
-    private static func collaboratingAgentNames(in tool: ToolUse) -> [String]? {
-        guard tool.name == "Agent", let data = tool.input.data(using: .utf8),
+    static func collaboratingAgentNames(in tool: ToolUse) -> [String]? {
+        guard tool.name == "Agent", tool.agentTask == nil,
+              let data = tool.input.data(using: .utf8),
               let input = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let action = input["description"] as? String,
               ["spawned", "resumed", "sent more work", "closed", "waiting"].contains(action),

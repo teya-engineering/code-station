@@ -47,12 +47,12 @@ struct BackgroundTaskTests {
         {"type":"system","subtype":"task_started","task_id":"abc123","description":"read the log",\
         "subagent_type":"general-purpose","task_type":"local_agent"}
         """
-        guard case .taskAgent(let id, let name)? = StreamEvent.parse(line).first else {
+        guard case .agentTaskStarted(let task)? = StreamEvent.parse(line).first else {
             Issue.record("expected a task agent, got \(StreamEvent.parse(line))")
             return
         }
-        #expect(id == "abc123")
-        #expect(name == "general-purpose")
+        #expect(task.id == "abc123")
+        #expect(task.agentName == "general-purpose")
     }
 
     // A workflow names itself rather than a subagent type, and the row still has to say
@@ -62,11 +62,11 @@ struct BackgroundTaskTests {
         {"type":"system","subtype":"task_started","task_id":"w1","description":"review",\
         "workflow_name":"review-changes","task_type":"local_workflow"}
         """
-        guard case .taskAgent(_, let name)? = StreamEvent.parse(line).first else {
+        guard case .agentTaskStarted(let task)? = StreamEvent.parse(line).first else {
             Issue.record("expected a task agent")
             return
         }
-        #expect(name == "review-changes")
+        #expect(task.agentName == "review-changes")
     }
 
     // A shell command in the background has no agent behind it, and the event that starts
@@ -169,6 +169,104 @@ struct BackgroundTaskTests {
     }
 
     // MARK: - Holding the turn open, and letting it go
+
+    @MainActor @Test(arguments: [false, true])
+    func distinguishesAnAgentReportFromABackgroundLaunchReceipt(background: Bool) async throws {
+        let fixture = try turn(script: """
+        printf '%s\\n' '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"launch","name":"Agent","input":{"name":"reviewer","description":"Review","run_in_background":\(background)}}]}}'
+        printf '%s\\n' '{"type":"system","subtype":"task_started","task_id":"abc123","tool_use_id":"launch","description":"Review","subagent_type":"general-purpose","task_type":"local_agent"}'
+        printf '%s\\n' '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"launch","content":"Agent response. agentId: abc123"}]}}'
+        wait_for "$folder/continue"
+        printf '%s\\n' '{"type":"system","subtype":"task_notification","task_id":"abc123","status":"completed","summary":"Review complete."}'
+        printf '%s\\n' '{"type":"result","subtype":"success","is_error":false,"result":"done"}'
+        """)
+        defer { fixture.tearDown() }
+        #expect(await waitUntil {
+            fixture.store.transcript(of: fixture.session.id).flatMap(\.tools)
+                .first { $0.id == "launch" }?.result != nil
+        })
+        let tools = fixture.store.transcript(of: fixture.session.id).flatMap(\.tools)
+        #expect(tools.count == 1)
+        #expect(tools.first?.agentTask?.state == (background ? .running : .completed))
+        #expect(tools.first?.agentTask?.task.agentName == "reviewer")
+        try Data().write(to: fixture.scratch.path("continue"))
+        #expect(await waitUntil { fixture.runner.state(fixture.session.id) == .idle })
+        #expect(fixture.store.transcript(of: fixture.session.id).flatMap(\.tools)
+            .first?.agentTask?.report == "Review complete.")
+    }
+
+    @MainActor @Test func anAgentStartDoesNotHoldTheTurnOpenWithoutABackgroundList() async throws {
+        let fixture = try turn(script: """
+        printf '%s\\n' '{"type":"system","subtype":"task_started","task_id":"agent-1","description":"Review","subagent_type":"reviewer","task_type":"local_agent"}'
+        printf '%s\\n' '{"type":"result","subtype":"success","is_error":false,"result":"done"}'
+        cat > /dev/null
+        """)
+        defer { fixture.tearDown() }
+        #expect(await waitUntil { fixture.runner.state(fixture.session.id) == .idle })
+        #expect(fixture.store.transcript(of: fixture.session.id).flatMap(\.tools)
+            .first?.agentTask?.state == .interrupted)
+    }
+
+    @MainActor @Test func aBackgroundListDoesNotFinishAForegroundAgent() async throws {
+        let fixture = try turn(script: """
+        printf '%s\\n' '{"type":"system","subtype":"task_started","task_id":"agent-1","description":"Review","subagent_type":"reviewer","task_type":"local_agent"}'
+        printf '%s\\n' '{"type":"system","subtype":"background_tasks_changed","tasks":[]}'
+        printf '%s\\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"Reviewing."}]}}'
+        wait_for "$folder/continue"
+        printf '%s\\n' '{"type":"system","subtype":"task_notification","task_id":"agent-1","status":"completed","summary":"Review complete."}'
+        printf '%s\\n' '{"type":"result","subtype":"success","is_error":false,"result":"done"}'
+        """)
+        defer { fixture.tearDown() }
+        #expect(await waitUntil {
+            fixture.store.transcript(of: fixture.session.id).contains { $0.text == "Reviewing." }
+        })
+        #expect(fixture.runner.runningAgents(fixture.session.id).contains("agent-1"))
+        #expect(fixture.store.transcript(of: fixture.session.id).flatMap(\.tools)
+            .first?.agentTask?.state == .running)
+        try Data().write(to: fixture.scratch.path("continue"))
+        #expect(await waitUntil { fixture.runner.state(fixture.session.id) == .idle })
+    }
+
+    @MainActor @Test func backgroundAgentsKeepTheirReportsAcrossFollowUpMessages() async throws {
+        let fixture = try turn(script: """
+        printf '%s\\n' '{"type":"system","subtype":"task_started","task_id":"agent-1","description":"Review the diff","subagent_type":"reviewer","task_type":"local_agent"}'
+        printf '%s\\n' '{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"agent-1","task_type":"local_agent","description":"Review the diff"}]}'
+        printf '%s\\n' '{"type":"result","subtype":"success","is_error":false,"result":"The review is running."}'
+        wait_for "$folder/continue"
+        printf '%s\\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"Checking the review."}]}}'
+        printf '%s\\n' '{"type":"system","subtype":"task_notification","task_id":"agent-1","status":"failed","summary":"The diff could not be read."}'
+        printf '%s\\n' '{"type":"result","subtype":"success","is_error":false,"result":"Review ended."}'
+        """)
+        defer { fixture.tearDown() }
+        #expect(await waitUntil { fixture.runner.state(fixture.session.id) == .waiting })
+        let original = try #require(fixture.store.transcript(of: fixture.session.id)
+            .first { $0.tools.contains { $0.agentTask?.task.id == "agent-1" } })
+        #expect(original.tools.first?.agentTask?.state == .running)
+        try Data().write(to: fixture.scratch.path("continue"))
+        #expect(await waitUntil { fixture.runner.state(fixture.session.id) == .idle })
+        let messages = fixture.store.transcript(of: fixture.session.id)
+        let recorded = try #require(messages.first { $0.id == original.id }?.tools.first?.agentTask)
+        #expect(recorded.state == .failed)
+        #expect(recorded.report == "The diff could not be read.")
+        #expect(messages.flatMap(\.tools).filter { $0.agentTask != nil }.count == 1)
+        #expect(fixture.runner.runningAgents(fixture.session.id).isEmpty)
+    }
+
+    @MainActor @Test func anAgentReportedOnlyInTheLiveListSurvivesItsRemoval() async throws {
+        let fixture = try turn(script: """
+        printf '%s\\n' '{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"agent-1","task_type":"local_agent","description":"Review the diff"}]}'
+        wait_for "$folder/continue"
+        printf '%s\\n' '{"type":"system","subtype":"background_tasks_changed","tasks":[]}'
+        printf '%s\\n' '{"type":"result","subtype":"success","is_error":false,"result":"done"}'
+        """)
+        defer { fixture.tearDown() }
+        #expect(await waitUntil { fixture.runner.runningAgents(fixture.session.id).contains("agent-1") })
+        try Data().write(to: fixture.scratch.path("continue"))
+        #expect(await waitUntil { fixture.runner.state(fixture.session.id) == .idle })
+        let tools = fixture.store.transcript(of: fixture.session.id).flatMap(\.tools)
+        #expect(tools.count == 1)
+        #expect(tools.first?.agentTask?.state == .finished)
+    }
 
     // A task can run alongside the main turn before that turn parks on it. The working
     // set needs the live list during both phases, while wait-specific UI stays empty here.

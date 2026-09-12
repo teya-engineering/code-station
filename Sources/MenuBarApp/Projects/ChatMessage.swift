@@ -43,6 +43,7 @@ struct ToolUse: Identifiable, Codable, Equatable, Sendable {
     // When the call's result reached the app, stamped the same way. Nil while the call
     // runs, and for a call interrupted mid-turn, which never reports in.
     var finishedAt: Date?
+    var agentTask: AgentTaskRecord?
 
     var isRunning: Bool { result == nil }
 
@@ -64,6 +65,7 @@ struct ToolUse: Identifiable, Codable, Equatable, Sendable {
     // call's own result says nothing about whether the agent is still working. This is
     // what ties the call to the list of agents the CLI says are still going.
     var backgroundAgentID: String? {
+        if let agentTask { return agentTask.task.id }
         guard startsAgents, let result,
               let marker = result.range(of: "agentId: ") else { return nil }
         let id = result[marker.upperBound...].prefix { $0.isHexDigit }
@@ -86,6 +88,17 @@ struct ToolUse: Identifiable, Codable, Equatable, Sendable {
         default: false
         }
     }
+}
+
+struct AgentTaskRecord: Codable, Equatable, Sendable {
+    enum State: String, Codable, Sendable {
+        case running, finished, completed, failed, interrupted
+    }
+
+    var task: BackgroundTask
+    var state: State = .running
+    var report: String?
+    var finishedAt: Date?
 }
 
 // A change git saw a call make, worked out by comparing the working tree before and after
@@ -197,6 +210,33 @@ struct ChatMessage: Identifiable, Codable, Equatable, Sendable {
     // carry one; a prompt sent into a turn already running does not mark a point the
     // conversation could go back to.
     var checkpoint: ConversationCheckpoint?
+
+    mutating func recordAgentTask(_ record: AgentTaskRecord) {
+        var record = record
+        let syntheticID = "background:\(record.task.id)"
+        let real = tools.firstIndex {
+            $0.startsAgents && $0.id != syntheticID
+                && ($0.id == record.task.toolUseID || $0.backgroundAgentID == record.task.id)
+        }
+        if let index = real ?? tools.firstIndex(where: { $0.id == syntheticID }) {
+            if real != nil {
+                let fields = (try? JSONSerialization.jsonObject(with: Data(tools[index].input.utf8))) as? [String: Any]
+                if let name = fields?["name"] as? String, !name.isBlank {
+                    record.task.agentName = name
+                }
+                record.task.toolUseID = tools[index].id
+            }
+            tools[index].agentTask = record
+            if real != nil { tools.removeAll { $0.id == syntheticID } }
+        } else {
+            let fields = ["name": record.task.agentName ?? "",
+                          "description": record.task.description ?? "Background agent"]
+            let input = (try? JSONEncoder().encode(fields)).map { String(decoding: $0, as: UTF8.self) } ?? "{}"
+            tools.append(ToolUse(id: syntheticID, name: "Agent", input: input,
+                                 textOffset: text.count, startedAt: record.task.startedAt,
+                                 agentTask: record))
+        }
+    }
 
     var isEmpty: Bool {
         text.isBlank

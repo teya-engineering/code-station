@@ -27,7 +27,7 @@ enum Appearance: String, CaseIterable, Identifiable {
     // we create ourselves at different times.
     @MainActor
     func apply() {
-        NSApp.appearance = nsAppearance
+        NSApplication.shared.appearance = nsAppearance
     }
 }
 

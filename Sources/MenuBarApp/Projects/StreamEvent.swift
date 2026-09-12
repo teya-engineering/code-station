@@ -36,10 +36,9 @@ enum StreamEvent: Sendable {
     // changes. A turn that ends while this is not empty is not really over: the CLI runs
     // a follow-up turn when a task finishes, but only if its process is still alive.
     case backgroundTasks([BackgroundTask])
-    // What kind of agent is running behind a background task. Only the event that starts
-    // a task says it, while the list of live tasks that follows names them by their work
-    // alone, so it arrives on its own and is merged back onto the list.
-    case taskAgent(id: String, name: String)
+    // Starts carry the agent's identity; later live lists may only carry its task id.
+    case agentTaskStarted(BackgroundTask)
+    case agentTaskFinished(id: String, state: AgentTaskRecord.State, report: String?)
     // The transport dropped but the CLI is still running and may reconnect on its own.
     // This is status, not the result of the turn.
     case streamError(String)
@@ -49,7 +48,7 @@ enum StreamEvent: Sendable {
 // A command or agent the CLI started and left running behind the turn. The description is
 // the CLI's own words for it, and it is the only thing that tells a build that will end
 // apart from a server that never will, so it is carried rather than counted.
-struct BackgroundTask: Identifiable, Equatable, Sendable {
+struct BackgroundTask: Identifiable, Codable, Equatable, Sendable {
     let id: String
     // What the CLI calls the kind of task: "local_bash" for a shell command, "local_agent"
     // for an agent it spawned. New kinds appear over time, so it is kept as it arrived.
@@ -62,6 +61,11 @@ struct BackgroundTask: Identifiable, Equatable, Sendable {
     // When the task was first reported. The CLI only ever sends the list of what is
     // running, so this is the only thing a row counting the task up can count from.
     var startedAt = Date()
+    var toolUseID: String?
+
+    var isAgent: Bool {
+        agentName?.isBlank == false || kind == "local_agent" || kind == "local_workflow"
+    }
 
     var label: String {
         let named = [agentName, description].compactMap { $0 }.filter { !$0.isEmpty }
@@ -127,8 +131,10 @@ extension StreamEvent {
             // The descriptions are the CLI's own words about what it is running and can
             // name files or commands, so only how many there are goes in the log.
             "background tasks count=\(tasks.count)"
-        case .taskAgent(let id, let name):
-            "task agent id=\(id) name=\(name)"
+        case .agentTaskStarted(let task):
+            "agent task started id=\(task.id)"
+        case .agentTaskFinished(let id, let state, _):
+            "agent task finished id=\(id) state=\(state.rawValue)"
         case .streamError(let message):
             "stream error category=\(Self.streamErrorCategory(message)) "
                 + "messageBytes=\(message.utf8.count)"
@@ -205,16 +211,34 @@ extension StreamEvent {
                     (task["task_id"] as? String).map {
                         BackgroundTask(id: $0,
                                        kind: task["task_type"] as? String,
-                                       description: task["description"] as? String)
+                                       description: task["description"] as? String,
+                                       agentName: task["agent_name"] as? String,
+                                       toolUseID: task["tool_use_id"] as? String)
                     }
                 })]
             case "task_started":
+                guard let id = object["task_id"] as? String, !id.isEmpty else { return [] }
+                let name = object["agent_name"] as? String ?? object["subagent_type"] as? String
+                    ?? object["workflow_name"] as? String
+                let task = BackgroundTask(id: id, kind: object["task_type"] as? String,
+                                          description: object["description"] as? String,
+                                          agentName: name,
+                                          toolUseID: object["tool_use_id"] as? String)
+                guard task.isAgent else { return [] }
+                return [.agentTaskStarted(task)]
+            case "task_notification":
                 guard let id = object["task_id"] as? String, !id.isEmpty,
-                      let name = (object["subagent_type"] as? String
-                                  ?? object["workflow_name"] as? String),
-                      !name.isEmpty
-                else { return [] }
-                return [.taskAgent(id: id, name: name)]
+                      let status = object["status"] as? String else { return [] }
+                let state: AgentTaskRecord.State
+                switch status {
+                case "completed": state = .completed
+                case "failed": state = .failed
+                case "stopped": state = .interrupted
+                default: return []
+                }
+                return [.agentTaskFinished(id: id, state: state,
+                                           report: (object["summary"] as? String)
+                                            .map { String($0.prefix(Self.maxToolOutput)) })]
             case "compact_boundary":
                 // The stream spells these with underscores and the CLI's own history file
                 // spells the same fields in camel case, so both are accepted rather than

@@ -139,6 +139,7 @@ struct DesignView: View {
                                     availableWidth: width - 32)
                             .equatable()
                             .environment(\.runningAgents, runner.runningAgents(sessionID))
+                            .environment(\.activeTranscriptTools, runner.runningTools(sessionID))
                     }
 
                     if let request = runner.question(sessionID) {

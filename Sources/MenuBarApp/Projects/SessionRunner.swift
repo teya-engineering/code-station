@@ -1927,6 +1927,9 @@ final class SessionRunner {
                     placed.textOffset = message.text.count
                     placed.startedAt = Date()
                     message.tools.append(placed)
+                    if let record = turn.agentTasks.values.first(where: { $0.task.toolUseID == tool.id }) {
+                        message.recordAgentTask(record)
+                    }
                 }
 
             case .toolResult(let id, let output, let isError, let exitCode):
@@ -1934,6 +1937,7 @@ final class SessionRunner {
                 var command = ""
                 var toolName = ""
                 var describesOwnChange = false
+                var completedAgent: AgentTaskRecord?
                 store.updateMessage(turn.messageID, in: sessionID) { message in
                     guard let i = message.tools.firstIndex(where: { $0.id == id }) else { return }
                     toolName = message.tools[i].name
@@ -1952,6 +1956,25 @@ final class SessionRunner {
                         message.tools[i].editStartLine = EditLocation.startLine(
                             name: message.tools[i].name, input: command)
                     }
+                    if let taskID = message.tools[i].backgroundAgentID,
+                       var record = turn.agentTasks[taskID] {
+                        let fields = (try? JSONSerialization.jsonObject(with: Data(command.utf8))) as? [String: Any]
+                        let background = fields?["run_in_background"] as? Bool == true
+                            || turn.pendingTasks.contains { $0.id == taskID }
+                        if record.state == .running, isError || !background {
+                            record.state = isError ? .failed : .completed
+                            record.report = output
+                            record.finishedAt = Date()
+                            completedAgent = record
+                        }
+                        message.recordAgentTask(record)
+                    }
+                }
+                if let completedAgent {
+                    recordAgentTask(completedAgent, turn: turn, sessionID: sessionID, store: store)
+                    turn.pendingTasks.removeAll { $0.id == completedAgent.task.id }
+                    records[sessionID]?.agentsAtWork.remove(completedAgent.task.id)
+                    if turn.waitingOnTasks { records[sessionID]?.wait?.tasks = turn.pendingTasks }
                 }
                 if !instantEditIDs.contains(id) || id == firstInstantEditID {
                     noteWhatWasWritten(
@@ -2029,23 +2052,60 @@ final class SessionRunner {
                     }
                 }
 
-            case .taskAgent(let id, let name):
-                turn.taskAgents[id] = name
+            case .agentTaskStarted(let task):
+                var record = turn.agentTasks[task.id] ?? AgentTaskRecord(task: task)
+                let startedAt = record.task.startedAt
+                record.task = task
+                record.task.startedAt = startedAt
+                recordAgentTask(record, turn: turn, sessionID: sessionID, store: store)
+                if let index = turn.pendingTasks.firstIndex(where: { $0.id == task.id }) {
+                    turn.pendingTasks[index] = record.task
+                }
+                if record.state == .running { records[sessionID]?.agentsAtWork.insert(task.id) }
+                if turn.waitingOnTasks { records[sessionID]?.wait?.tasks = turn.pendingTasks }
+
+            case .agentTaskFinished(let id, let state, let report):
+                guard var record = turn.agentTasks[id] else { continue }
+                record.state = state
+                record.report = report
+                record.finishedAt = Date()
+                recordAgentTask(record, turn: turn, sessionID: sessionID, store: store)
+                turn.pendingTasks.removeAll { $0.id == id }
+                records[sessionID]?.agentsAtWork.remove(id)
+                if turn.waitingOnTasks { records[sessionID]?.wait?.tasks = turn.pendingTasks }
 
             case .backgroundTasks(let tasks):
                 let started = Dictionary(turn.pendingTasks.map { ($0.id, $0.startedAt) },
                                          uniquingKeysWith: { first, _ in first })
                 let named = tasks.map { task in
                     var task = task
-                    task.agentName = turn.taskAgents[task.id]
+                    let known = turn.agentTasks[task.id]?.task
+                    task.agentName = known?.agentName ?? task.agentName
+                    task.toolUseID = known?.toolUseID ?? task.toolUseID
                     // The CLI resends the whole list every time any of it changes, so a
                     // task keeps the moment it was first seen rather than restarting the
                     // clock beside it on every report.
-                    task.startedAt = started[task.id] ?? task.startedAt
+                    task.startedAt = started[task.id] ?? known?.startedAt ?? task.startedAt
                     return task
                 }
+                let liveIDs = Set(named.map(\.id))
+                for var record in Array(turn.agentTasks.values)
+                    where record.state == .running && started[record.task.id] != nil
+                        && !liveIDs.contains(record.task.id) {
+                    // Leaving the live list says the work ended, but only its report
+                    // can tell us whether it succeeded.
+                    record.state = .finished
+                    record.finishedAt = Date()
+                    recordAgentTask(record, turn: turn, sessionID: sessionID, store: store)
+                }
+                for task in named where task.isAgent {
+                    var record = turn.agentTasks[task.id] ?? AgentTaskRecord(task: task)
+                    record.task = task
+                    recordAgentTask(record, turn: turn, sessionID: sessionID, store: store)
+                }
                 turn.pendingTasks = named
-                records[sessionID]?.agentsAtWork = Set(named.map(\.id))
+                records[sessionID]?.agentsAtWork = Set(named.map(\.id)).union(
+                    turn.agentTasks.values.filter { $0.state == .running }.map { $0.task.id })
                 // A wait can outlast the task that started it: one of several ending is
                 // not the end of the wait, and the row has to say what is left.
                 if turn.waitingOnTasks { records[sessionID]?.wait?.tasks = named }
@@ -2120,6 +2180,15 @@ final class SessionRunner {
                 self.markStalledIfNeeded(sessionID, token: token)
             }
         }
+    }
+
+    private func recordAgentTask(_ record: AgentTaskRecord, turn: Turn,
+                                 sessionID: UUID, store: ProjectStore) {
+        guard turn.recap == nil else { return }
+        let messageID = turn.agentTaskMessages[record.task.id] ?? turn.messageID
+        turn.agentTasks[record.task.id] = record
+        turn.agentTaskMessages[record.task.id] = messageID
+        store.updateMessage(messageID, in: sessionID) { $0.recordAgentTask(record) }
     }
 
     private func markStalledIfNeeded(_ sessionID: UUID, token: UUID) {
@@ -2324,6 +2393,11 @@ final class SessionRunner {
     private func finishIfDone(_ sessionID: UUID, store: ProjectStore) {
         guard let turn = records[sessionID]?.turn, !turn.stdoutOpen, !turn.stderrOpen,
               let status = turn.exitStatus else { return }
+        for var record in Array(turn.agentTasks.values) where record.state == .running {
+            record.state = .interrupted
+            record.finishedAt = Date()
+            recordAgentTask(record, turn: turn, sessionID: sessionID, store: store)
+        }
         records[sessionID]?.turn = nil
         records[sessionID]?.runningTools = []
         records[sessionID]?.agentsAtWork = []
@@ -2596,9 +2670,8 @@ final class SessionRunner {
         var exitStatus: Int32?
         // The background tasks the CLI says are still running, in the order it sent them.
         var pendingTasks: [BackgroundTask] = []
-        // Which agent is behind each task, keyed by task id. The CLI names the agent once,
-        // when the task starts, and never again on the lists of live tasks that follow.
-        var taskAgents: [String: String] = [:]
+        var agentTasks: [String: AgentTaskRecord] = [:]
+        var agentTaskMessages: [String: UUID] = [:]
         // True from a result that left tasks running until the CLI moves again or a
         // prompt is sent into the open pipe. This is what holds the input open.
         var waitingOnTasks = false

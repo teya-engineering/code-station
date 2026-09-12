@@ -5,6 +5,27 @@ import Testing
 
 @MainActor
 struct SessionScrollTests {
+    @Test func theAgentIndicatorRevealsDelegationOutsideTheLoadedMessages() async throws {
+        let pane = try Pane(includesAgent: true)
+        defer {
+            pane.window.orderOut(nil)
+            pane.harness.tearDown()
+        }
+        pane.window.setFrameOrigin(NSPoint(x: -10_000, y: -10_000))
+        pane.window.orderFront(nil)
+        let scroll = try await pane.transcript()
+        let point = NSPoint(x: pane.view.bounds.maxX - 85, y: pane.view.bounds.maxY - 30)
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            let event = try #require(NSEvent.mouseEvent(
+                with: type, location: point, modifierFlags: [], timestamp: 0,
+                windowNumber: pane.window.windowNumber, context: nil, eventNumber: 0,
+                clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0))
+            pane.window.sendEvent(event)
+        }
+        await pane.settle()
+        #expect(pane.distanceFromBottom(scroll) > 1000)
+    }
+
     @Test(arguments: [false, true])
     func submittingAndQueuingPromptsResumeFollowingALongTranscript(multiline: Bool) async throws {
         let pane = try Pane()
@@ -66,13 +87,20 @@ struct SessionScrollTests {
         let window: NSWindow
         let view: NSView
 
-        init() throws {
+        init(includesAgent: Bool = false) throws {
             harness = try RunnerHarness(agent: .claudeCode, script: """
             IFS= read -r input
             printf '%s\n' '{"type":"system","subtype":"init","session_id":"scroll-fixture"}'
             wait_for "$folder/finish"
             """)
             harness.store.selection = .session(harness.session.id)
+            if includesAgent {
+                harness.store.append(ChatMessage(role: .assistant, tools: [
+                    ToolUse(id: "reviewer", name: "Agent",
+                            input: #"{"name":"reviewer","description":"Review the diff"}"#,
+                            result: "Could not read the diff.", isError: true)
+                ]), to: harness.session.id)
+            }
             for index in 0..<40 {
                 harness.store.append(ChatMessage(role: .assistant, text:
                     "Message \(index)\n\n" + String(repeating:
@@ -97,6 +125,8 @@ struct SessionScrollTests {
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 700),
                               styleMask: [.borderless], backing: .buffered, defer: false)
             window.contentViewController = hosting
+            window.setContentSize(NSSize(width: 1000, height: 700))
+            hosting.view.frame = NSRect(x: 0, y: 0, width: 1000, height: 700)
             view = hosting.view
         }
 

@@ -5,21 +5,25 @@ import SwiftUI
 // Detail belongs to the reader: a click opens it and another click closes it.
 struct ActivitySpine: View {
     let projectPath: String
+    var messageID: UUID?
     var openChange: ((String) -> Void)? = nil
     var openTerminal: (() -> Void)? = nil
 
     @State private var expanded: Set<String> = []
 
-    // Flattening sorts, and the spine reads the result three times in a pass: once for
-    // the rows, once for the caption, once to count failures. A turn can carry a
-    // thousand calls, so the order is settled once here rather than on every read.
     private let calls: [ToolNode]
+    private let entries: [TranscriptActivityEntry]
 
-    init(nodes: [ToolNode], projectPath: String,
+    init(nodes: [ToolNode], projectPath: String, messageID: UUID? = nil,
          openChange: ((String) -> Void)? = nil,
          openTerminal: (() -> Void)? = nil) {
-        self.calls = Self.flattened(nodes)
+        self.entries = TranscriptActivityEntry.grouped(nodes)
+        self.calls = entries.compactMap { entry in
+            if case .call(let node) = entry { return node }
+            return nil
+        }
         self.projectPath = projectPath
+        self.messageID = messageID
         self.openChange = openChange
         self.openTerminal = openTerminal
     }
@@ -28,23 +32,31 @@ struct ActivitySpine: View {
         // A turn's calls are drawn lazily: a long turn would otherwise build every
         // receipt, and its diff, before a reader has scrolled anywhere near them.
         LazyVStack(alignment: .leading, spacing: 0) {
-            caption
-            ForEach(calls, id: \.id) { node in
-                CallReceipt(
-                    node: node,
-                    presentation: ToolPresentationCache.presentation(
-                        for: node.tool, projectPath: projectPath),
-                    isExpanded: expanded.contains(node.id),
-                    onToggle: {
-                        if expanded.contains(node.id) {
-                            expanded.remove(node.id)
-                        } else {
-                            expanded.insert(node.id)
-                        }
-                    },
-                    openChange: openChange,
-                    openTerminal: openTerminal)
-                    .transition(.fadeIn)
+            if !calls.isEmpty { caption }
+            ForEach(entries) { entry in
+                switch entry {
+                case .agents(let nodes):
+                    TranscriptAgentGroup(nodes: nodes, messageID: messageID,
+                                         projectPath: projectPath, openChange: openChange,
+                                         openTerminal: openTerminal)
+                        .padding(.vertical, 6)
+                case .call(let node):
+                    CallReceipt(
+                        node: node,
+                        presentation: ToolPresentationCache.presentation(
+                            for: node.tool, projectPath: projectPath),
+                        isExpanded: expanded.contains(node.id),
+                        onToggle: {
+                            if expanded.contains(node.id) {
+                                expanded.remove(node.id)
+                            } else {
+                                expanded.insert(node.id)
+                            }
+                        },
+                        openChange: openChange,
+                        openTerminal: openTerminal)
+                        .transition(.fadeIn)
+                }
             }
         }
         .padding(.leading, 20)
@@ -100,6 +112,39 @@ struct ActivitySpine: View {
     }
 }
 
+enum TranscriptActivityEntry: Identifiable {
+    case call(ToolNode)
+    case agents([ToolNode])
+
+    var id: String {
+        switch self {
+        case .call(let node): "call:\(node.id)"
+        case .agents(let nodes): "agents:\(nodes[0].id)"
+        }
+    }
+
+    static func grouped(_ nodes: [ToolNode]) -> [Self] {
+        func walk(_ node: ToolNode) -> [ToolNode] {
+            node.tool.startsAgents ? [node] : [node] + node.children.flatMap(walk)
+        }
+        let roots = nodes.flatMap(walk).sorted { $0.order < $1.order }
+        var entries: [Self] = []
+        for node in roots {
+            if node.tool.startsAgents {
+                if case .agents(var agents)? = entries.last {
+                    agents.append(node)
+                    entries[entries.count - 1] = .agents(agents)
+                } else {
+                    entries.append(.agents([node]))
+                }
+            } else {
+                entries.append(.call(node))
+            }
+        }
+        return entries
+    }
+}
+
 // The Working Set uses the same light detail surface when its compact row is clicked.
 struct ToolCallExpandedDetail: View {
     let tool: ToolUse
@@ -145,7 +190,7 @@ private struct RunningToolIndicator: View {
 }
 
 enum SpineCardState: Equatable {
-    case running, done, failed
+    case running, done, failed, interrupted
 
     init(isWorking: Bool, isError: Bool) {
         self = isWorking ? .running : isError ? .failed : .done
@@ -156,6 +201,7 @@ enum SpineCardState: Equatable {
         case .running: "RUNNING"
         case .done: "DONE"
         case .failed: "FAILED"
+        case .interrupted: "INTERRUPTED"
         }
     }
 
@@ -163,6 +209,7 @@ enum SpineCardState: Equatable {
         switch self {
         case .running, .done: Theme.dotOn
         case .failed: Theme.deletion
+        case .interrupted: Theme.secret
         }
     }
 }
@@ -170,6 +217,7 @@ enum SpineCardState: Equatable {
 private struct CallReceipt: View {
     @Environment(\.textScale) private var textScale
     @Environment(\.runningAgents) private var runningAgents
+    @Environment(\.activeTranscriptTools) private var activeTools
 
     let node: ToolNode
     let presentation: ToolPresentation
@@ -179,9 +227,13 @@ private struct CallReceipt: View {
     let openTerminal: (() -> Void)?
 
     private var tool: ToolUse { node.tool }
-    private var isWorking: Bool { node.isWorking(agents: runningAgents) }
+    private var isWorking: Bool {
+        activeTools.contains { $0.id == tool.id }
+            || tool.backgroundAgentID.map(runningAgents.contains) == true
+    }
     private var state: SpineCardState {
-        SpineCardState(isWorking: isWorking, isError: tool.isError)
+        tool.isRunning && !isWorking ? .interrupted
+            : SpineCardState(isWorking: isWorking, isError: tool.isError)
     }
     private var canExpand: Bool {
         !isWorking && CallDetail.hasContent(node: node, presentation: presentation)
@@ -260,6 +312,7 @@ private struct CallReceipt: View {
         switch state {
         case .running: AnyShapeStyle(Theme.accent)
         case .failed: AnyShapeStyle(Theme.deletion)
+        case .interrupted: AnyShapeStyle(Theme.secret)
         case .done: AnyShapeStyle(.primary)
         }
     }
@@ -270,7 +323,9 @@ private struct CallReceipt: View {
     }
 
     @ViewBuilder private var outcome: some View {
-        if isWorking {
+        if state == .interrupted {
+            Text("interrupted").scaledMono(11).foregroundStyle(Theme.secret)
+        } else if isWorking {
             HStack(spacing: 5) {
                 Text("running")
                 if let startedAt = tool.startedAt {
@@ -588,6 +643,8 @@ private struct RunningAgentsKey: EnvironmentKey {
 }
 
 extension EnvironmentValues {
+    @Entry var activeTranscriptTools: [ToolUse] = []
+    @Entry var agentTranscriptFocus: AgentTranscriptFocus? = nil
     var runningAgents: Set<String> {
         get { self[RunningAgentsKey.self] }
         set { self[RunningAgentsKey.self] = newValue }

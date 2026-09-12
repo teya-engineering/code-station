@@ -121,6 +121,7 @@ struct MessageView: View, Equatable {
                 case .tools(_, let nodes):
                     ActivitySpine(nodes: nodes,
                                   projectPath: projectPath,
+                                  messageID: message.id,
                                   openChange: openChange,
                                   openTerminal: openTerminal)
                         .transition(.fadeIn)

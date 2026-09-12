@@ -560,6 +560,7 @@ extension WorkingSetToolCall.State {
     var colour: Color {
         switch self {
         case .running, .completed: Theme.dotOn
+        case .finished: .secondary
         case .failed: Theme.deletion
         case .interrupted: Theme.secret
         }

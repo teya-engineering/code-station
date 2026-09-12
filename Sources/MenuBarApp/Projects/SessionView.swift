@@ -34,6 +34,11 @@ struct TranscriptWindow: Equatable {
         visibleCount = min(totalCount, visibleCount + step)
     }
 
+    mutating func reveal(_ messageID: UUID, in messages: [ChatMessage]) {
+        guard let index = messages.firstIndex(where: { $0.id == messageID }) else { return }
+        visibleCount = max(visibleCount, messages.count - index)
+    }
+
     mutating func reset() {
         visibleCount = openingPage
     }
@@ -150,6 +155,7 @@ struct SessionView: View {
     @State private var transcriptWindow = TranscriptWindow()
     @State private var transcriptPinnedToBottom = true
     @State private var transcriptScrollRequest = 0
+    @State private var agentFocus: AgentTranscriptFocus?
     @State private var recapOpen = false
     @State private var recapNeedsAttention = false
     @State private var workingSetVisible: Bool
@@ -475,6 +481,12 @@ struct SessionView: View {
         return HStack(spacing: 9) {
             stateSeat(tone: tone, conversation: live,
                       isTroubleshooting: session.isTroubleshooting)
+            SessionAgentIndicator(session: session) { target in
+                tab = .conversation
+                transcriptWindow.reveal(target.messageID, in: session.messages)
+                transcriptPinnedToBottom = false
+                agentFocus = target
+            }
             SessionFactsChip(
                 facts: facts,
                 maxWidth: fit == .whole ? Self.branchRoom : Self.foldedBranchRoom,
@@ -1295,7 +1307,7 @@ struct SessionView: View {
                     // its real end, then respect manual scrolling once it is visible.
                     .background(GeometryReader { geometry in
                         Color.clear.onChange(of: geometry.size.height, initial: true) {
-                            guard !opened || transcriptPinnedToBottom else { return }
+                            guard (!opened && agentFocus == nil) || transcriptPinnedToBottom else { return }
                             Task { proxy.scrollTo(bottomAnchor, anchor: .bottom) }
                         }
                     })
@@ -1323,16 +1335,30 @@ struct SessionView: View {
             .opacity(opened ? 1 : 0)
             .accessibilityHidden(!opened)
             .task(id: sessionID) {
-                transcriptWindow.reset()
-                transcriptPinnedToBottom = true
+                if agentFocus == nil {
+                    transcriptWindow.reset()
+                    transcriptPinnedToBottom = true
+                }
                 // The conversation is read off the main actor, so the pane is on screen
                 // before the messages are. Waiting here is what keeps that off screen:
                 // it fades in once, already full and already at its end, rather than
                 // arriving empty and filling in.
                 await store.transcriptReady(sessionID)
                 await Task.yield()
-                proxy.scrollTo(bottomAnchor, anchor: .bottom)
+                if let agentFocus {
+                    transcriptWindow.reveal(agentFocus.messageID, in: session.messages)
+                    await Task.yield()
+                    proxy.scrollTo(agentFocus.anchor, anchor: .top)
+                } else {
+                    proxy.scrollTo(bottomAnchor, anchor: .bottom)
+                }
                 withAnimation(reduceMotion ? nil : .easeOut(duration: 0.16)) { opened = true }
+            }
+            .task(id: agentFocus?.requestID) {
+                guard opened, let agentFocus else { return }
+                await Task.yield()
+                guard !Task.isCancelled else { return }
+                proxy.scrollTo(agentFocus.anchor, anchor: .top)
             }
             // Anything new sends a pinned transcript to its end. A whole arrival - a row,
             // a finished line, a change of state - is worth a glide. A long line still
@@ -1412,6 +1438,8 @@ struct SessionView: View {
                     // again on the way.
                     .equatable()
                     .environment(\.runningAgents, runner.runningAgents(sessionID))
+                    .environment(\.activeTranscriptTools, runner.runningTools(sessionID))
+                    .environment(\.agentTranscriptFocus, agentFocus)
                     .transition(.fadeIn)
             }
 
