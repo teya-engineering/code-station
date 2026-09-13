@@ -583,10 +583,55 @@ private struct InlineMarkdownText: View {
 // NSTextView keeps the pointing-hand cursor over link ranges and the I-beam elsewhere,
 // which SwiftUI's Text cannot do, since it exposes no per-run hover geometry.
 private final class LinkTextView: NSTextView {
+    var openLink: ((URL) -> Void)?
     var linkHoverChanged: ((TranscriptLink.Hovered?) -> Void)?
 
     private var linkTrackingArea: NSTrackingArea?
     private var hoveredLink: TranscriptLink.Hovered?
+    private var pressedLink: URL?
+    private var linkMouseDown: NSEvent?
+
+    override func mouseDown(with event: NSEvent) {
+        pressedLink = nil
+        linkMouseDown = nil
+        let point = convert(event.locationInWindow, from: nil)
+        guard event.clickCount == 1,
+              event.modifierFlags.intersection([.shift, .control, .option]).isEmpty,
+              let link = TranscriptLink.hoveredLink(in: self, at: point) else {
+            super.mouseDown(with: event)
+            return
+        }
+        pressedLink = link.url
+        linkMouseDown = event
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        guard let pressedLink else {
+            super.mouseUp(with: event)
+            return
+        }
+        self.pressedLink = nil
+        linkMouseDown = nil
+        let point = convert(event.locationInWindow, from: nil)
+        guard TranscriptLink.hoveredLink(in: self, at: point)?.url == pressedLink else { return }
+        openLink?(pressedLink)
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let down = linkMouseDown else {
+            super.mouseDragged(with: event)
+            return
+        }
+        let distance = hypot(event.locationInWindow.x - down.locationInWindow.x,
+                             event.locationInWindow.y - down.locationInWindow.y)
+        guard distance >= 4 else { return }
+        pressedLink = nil
+        linkMouseDown = nil
+        // Replay the press and drag together so NSTextView can select from the
+        // original character without treating the drag as a link click.
+        NSApp.postEvent(event, atStart: true)
+        super.mouseDown(with: down)
+    }
 
     // The text container reflows when its width changes, so SwiftUI must measure its
     // new height before laying out the next block.
@@ -680,12 +725,14 @@ private struct LinkAwareText: NSViewRepresentable {
             .underlineStyle: NSUnderlineStyle.single.rawValue,
             .cursor: NSCursor.pointingHand,
         ]
+        view.openLink = openLink
         view.linkHoverChanged = linkHoverChanged
         return view
     }
 
     func updateNSView(_ view: NSTextView, context: Context) {
         context.coordinator.openLink = openLink
+        (view as? LinkTextView)?.openLink = openLink
         (view as? LinkTextView)?.linkHoverChanged = linkHoverChanged
         view.textStorage?.setAttributedString(makeNSAttributedString())
         view.invalidateIntrinsicContentSize()

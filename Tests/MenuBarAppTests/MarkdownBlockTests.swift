@@ -213,7 +213,7 @@ struct MarkdownBlockTests {
         #expect(!attributed.hasLocalFileLink)
     }
 
-    @Test(arguments: ["/tmp/report.txt", "/tmp/output/"], [false, true])
+    @Test(.serialized, arguments: ["/tmp/report.txt", "/tmp/output/"], [false, true])
     @MainActor func fileLinksShareTheCustomTooltipAndClickAction(
         path: String, viaTooltip: Bool
     ) async throws {
@@ -223,18 +223,23 @@ struct MarkdownBlockTests {
             block: MarkdownBlock(id: 0, kind: .paragraph("Open [result](\(path)).")),
             projectPath: "/tmp",
             textScale: 1)
+            .overlay { TooltipHost() }
             .environment(tooltips)
             .environment(\.openURL, OpenURLAction { url in
                 opened.append(url)
                 return .handled
             })
         let host = NSHostingView(rootView: view)
+        host.sizingOptions = []
         host.frame = CGRect(x: 0, y: 0, width: 400, height: 100)
         let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.contentView = host
+        window.setFrameOrigin(CGPoint(x: -10_000, y: -10_000))
+        window.orderFront(nil)
         defer {
             tooltips.hideAll()
+            window.orderOut(nil)
             window.contentView = nil
         }
         host.layoutSubtreeIfNeeded()
@@ -267,7 +272,37 @@ struct MarkdownBlockTests {
         if viaTooltip {
             action()
         } else {
-            textView.clicked(onLink: url, at: linkRange.location)
+            host.layoutSubtreeIfNeeded()
+            let clickPoint = textView.convert(
+                CGPoint(x: frame.midX + textView.textContainerOrigin.x,
+                        y: frame.midY + textView.textContainerOrigin.y), to: nil)
+            #expect(window.contentView?.hitTest(clickPoint) === textView)
+            let down = try #require(NSEvent.mouseEvent(
+                with: .leftMouseDown, location: clickPoint, modifierFlags: [], timestamp: 1,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 1,
+                clickCount: 1, pressure: 1))
+            let up = try #require(NSEvent.mouseEvent(
+                with: .leftMouseUp, location: clickPoint, modifierFlags: [], timestamp: 1.1,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 2,
+                clickCount: 1, pressure: 0))
+            let slightMovement = try #require(NSEvent.mouseEvent(
+                with: .leftMouseDragged,
+                location: CGPoint(x: clickPoint.x + 1, y: clickPoint.y),
+                modifierFlags: [], timestamp: 1.05, windowNumber: window.windowNumber,
+                context: nil, eventNumber: 3, clickCount: 1, pressure: 1))
+            window.sendEvent(down)
+            #expect(opened.isEmpty)
+            window.sendEvent(slightMovement)
+            window.sendEvent(up)
+            #expect(await waitUntil(timeout: .seconds(2)) { !opened.isEmpty })
+
+            let releaseOutside = try #require(NSEvent.mouseEvent(
+                with: .leftMouseUp,
+                location: textView.convert(CGPoint(x: textView.bounds.maxX - 1, y: frame.midY), to: nil),
+                modifierFlags: [], timestamp: 2.1, windowNumber: window.windowNumber,
+                context: nil, eventNumber: 4, clickCount: 1, pressure: 0))
+            window.sendEvent(down)
+            window.sendEvent(releaseOutside)
         }
         #expect(opened == [url])
         #expect(tooltips.current == nil)
