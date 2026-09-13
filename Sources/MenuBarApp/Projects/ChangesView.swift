@@ -586,7 +586,9 @@ struct ChangesView: View {
     // The rendered diff below a pane header, so a file and a commit truncate and report
     // notes the same way.
     @ViewBuilder private func diffBody(truncationHint: String) -> some View {
-        if let note = diff?.note {
+        if let images = diff?.images {
+            ImageDiffView(images: images)
+        } else if let note = diff?.note {
             Text(note)
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
@@ -1098,6 +1100,53 @@ struct ChangesView: View {
         } else {
             NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: url.deletingLastPathComponent().path)
         }
+    }
+}
+
+// A changed picture side by side with its last committed version. A file with only one
+// side, new or deleted, gets that side on its own.
+private struct ImageDiffView: View {
+    let before: Data?
+    let after: Data?
+
+    init(images: DiffImages) {
+        before = images.before
+        after = images.after
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 16) {
+            if let before {
+                side(before, title: before == after ? "UNCHANGED" : "BEFORE")
+            }
+            if let after, after != before {
+                side(after, title: before == nil ? "NEW" : "AFTER")
+            }
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func side(_ data: Data, title: String) -> some View {
+        VStack(spacing: 10) {
+            Text(title)
+                .font(.mono(11, .medium))
+                .foregroundStyle(.secondary)
+            if let image = NSImage(data: data) {
+                Image(nsImage: image)
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFit()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                Text("\(Int(image.size.width)) × \(Int(image.size.height)) · \(data.count.formatted(.byteCount(style: .file)))")
+                    .font(.mono(11))
+                    .foregroundStyle(.secondary)
+            } else {
+                PaneMessage(icon: "photo", title: "Cannot draw this image",
+                            detail: data.count.formatted(.byteCount(style: .file)))
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 

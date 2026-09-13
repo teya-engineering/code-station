@@ -77,6 +77,13 @@ final class GitRepo: @unchecked Sendable {
         try contents.write(to: file, atomically: true, encoding: .utf8)
     }
 
+    func write(_ name: String, bytes: Data) throws {
+        let file = url.appendingPathComponent(name)
+        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        try bytes.write(to: file, options: .atomic)
+    }
+
     func read(_ name: String) -> String? {
         try? String(contentsOf: url.appendingPathComponent(name), encoding: .utf8)
     }

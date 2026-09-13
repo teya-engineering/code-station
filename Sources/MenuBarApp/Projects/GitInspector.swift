@@ -89,12 +89,21 @@ struct DiffLine: Identifiable, Sendable, Equatable {
     var text: String
 }
 
+// Both sides of a changed picture. A side is nil when that version does not exist: a
+// new image has no before, a deleted one has no after.
+struct DiffImages: Sendable, Equatable {
+    var before: Data?
+    var after: Data?
+}
+
 struct FileDiff: Sendable, Equatable {
     var lines: [DiffLine] = []
     // True when we stopped rendering early so a huge diff cannot stall the UI.
     var truncated: Bool = false
     var totalLines: Int = 0
     var note: String?
+    // Set instead of lines when the file is a picture, which has nothing to show as text.
+    var images: DiffImages?
 }
 
 // One commit in the recent history list.
@@ -357,6 +366,10 @@ enum GitInspector {
             return FileDiff(note: "The project folder is no longer there.")
         }
 
+        if FileTree.imageKinds.contains((change.path as NSString).pathExtension.lowercased()) {
+            return imageDiff(tool: tool, change: change, root: rootURL)
+        }
+
         if change.isUntracked {
             return untrackedDiff(at: rootURL.appendingPathComponent(change.path), limit: limit)
         }
@@ -408,6 +421,41 @@ enum GitInspector {
         // Section headers are inserted between parsed blocks, so ids only settle at the end.
         for i in diff.lines.indices { diff.lines[i].id = i }
         return diff
+    }
+
+    // A picture is compared by eye, so the pane gets the bytes of each side rather than
+    // a text diff: the last committed version from git and the current one from disk.
+    private static func imageDiff(tool: GitTool, change: GitChange, root: URL) -> FileDiff {
+        var images = DiffImages()
+        if change.kind != .untracked && change.kind != .added {
+            images.before = committedBytes(tool: tool, path: change.originalPath ?? change.path, in: root)
+        }
+        if change.kind != .deleted {
+            images.after = readLimited(root.appendingPathComponent(change.path))
+        }
+        guard images.before != nil || images.after != nil else {
+            return FileDiff(note: "Binary file. Line by line changes are not shown.")
+        }
+        return FileDiff(images: images)
+    }
+
+    // The shared runner keeps output as text, which would mangle a picture, so the raw
+    // chunks are gathered as they arrive. The "./" makes git read the path from the
+    // folder it runs in rather than from the top of the repository.
+    private static func committedBytes(tool: GitTool, path: String, in root: URL) -> Data? {
+        let collected = ByteCollector()
+        let output = run(tool, ["--no-pager", "show", "HEAD:./" + path], in: root,
+                         captureByteLimit: untrackedByteLimit) { collected.append($0) }
+        guard output.ok, !output.truncated else { return nil }
+        return collected.data
+    }
+
+    private final class ByteCollector: @unchecked Sendable {
+        private let lock = NSLock()
+        private var storage = Data()
+
+        var data: Data { lock.withLock { storage } }
+        func append(_ chunk: Data) { lock.withLock { storage.append(chunk) } }
     }
 
     private static func untrackedDiff(at url: URL, limit: Int) -> FileDiff {
@@ -684,7 +732,8 @@ enum GitInspector {
     static func run(_ tool: GitTool, _ arguments: [String], in directory: URL? = nil,
                     timeout: TimeInterval? = nil,
                     captureByteLimit: Int = GitInspector.outputByteLimit,
-                    environment extra: [String: String] = [:]) -> CommandOutput {
+                    environment extra: [String: String] = [:],
+                    outputChunkHandler: (@Sendable (Data) -> Void)? = nil) -> CommandOutput {
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = tool.searchPath
         // No tty here, so make sure git can never sit waiting for a password or an editor.
@@ -707,6 +756,7 @@ enum GitInspector {
                 arguments: arguments,
                 currentDirectory: directory,
                 environment: environment,
+                outputChunkHandler: outputChunkHandler,
                 timeout: timeout.map { .seconds($0) },
                 outputByteLimit: captureByteLimit
             )
