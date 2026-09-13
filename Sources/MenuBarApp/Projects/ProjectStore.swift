@@ -1071,6 +1071,7 @@ final class ProjectStore {
         implementation.designSourceSessionID = nil
         implementation.claudeSessionID = nil
         implementation.codexSessionID = nil
+        implementation.copilotSessionID = nil
         implementation.usage = nil
         implementation.summary = SessionSummary()
         implementation.messages = []
@@ -1683,6 +1684,7 @@ final class ProjectStore {
         switch agent {
         case .claudeCode: sessions[i].claudeSessionID = agentID
         case .codex: sessions[i].codexSessionID = agentID
+        case .copilot: sessions[i].copilotSessionID = agentID
         }
         scheduleIndexSave()
     }
@@ -1695,18 +1697,19 @@ final class ProjectStore {
         switch agent {
         case .claudeCode: sessions[i].claudeSessionID = nil
         case .codex: sessions[i].codexSessionID = nil
+        case .copilot: sessions[i].copilotSessionID = nil
         }
         scheduleIndexSave()
     }
 
     // Which prompts the conversation can be wound back to. A checkpoint freezes Claude
-    // Code's conversation but not Codex's one shared thread, so a Codex turn seals
-    // itself and everything before it.
+    // Code's conversation but not the one shared conversation Codex and Copilot keep, so
+    // a turn on either of those seals itself and everything before it.
     func rewindableMessageIDs(in sessionID: UUID) -> Set<UUID> {
         var ids: Set<UUID> = []
         for message in transcript(of: sessionID).reversed() {
             guard message.role == .user, let checkpoint = message.checkpoint else { continue }
-            guard checkpoint.agent != .codex else { break }
+            guard !checkpoint.agent.reusesConversationID else { break }
             ids.insert(message.id)
         }
         return ids
@@ -1725,14 +1728,16 @@ final class ProjectStore {
         transcriptChanged(i)
     }
 
-    // Puts both resume ids back the way a checkpoint recorded them. Unlike
+    // Puts every resume id back the way a checkpoint recorded them. Unlike
     // setAgentSessionID this can also clear one, and it does not care which agent the
-    // session is on now: the checkpoint speaks for both.
+    // session is on now: the checkpoint speaks for all of them.
     func restoreAgentSessionIDs(claudeSessionID: String?, codexSessionID: String?,
+                                copilotSessionID: String? = nil,
                                 for sessionID: UUID) {
         guard let i = index(sessionID) else { return }
         sessions[i].claudeSessionID = claudeSessionID
         sessions[i].codexSessionID = codexSessionID
+        sessions[i].copilotSessionID = copilotSessionID
         scheduleIndexSave()
     }
 
@@ -1740,15 +1745,15 @@ final class ProjectStore {
 
     // Whether a new session could pick this conversation up from just before this
     // prompt. Only Claude Code can share a conversation between sessions - resuming
-    // forks a fresh id, so the two never write over each other - while a Codex thread
-    // is one shared rollout. A worktree or workspace session is tied to a checkout of
-    // its own that a fork would not have, so those stay whole.
+    // forks a fresh id, so the two never write over each other - while Codex and Copilot
+    // keep one shared conversation. A worktree or workspace session is tied to a checkout
+    // of its own that a fork would not have, so those stay whole.
     func canForkSession(_ sessionID: UUID, before messageID: UUID) -> Bool {
         guard let source = session(sessionID),
               source.worktreePath == nil, source.workspaceID == nil else { return false }
         guard let message = transcript(of: sessionID).first(where: { $0.id == messageID }),
               message.role == .user, let checkpoint = message.checkpoint else { return false }
-        return checkpoint.codexSessionID == nil
+        return checkpoint.codexSessionID == nil && checkpoint.copilotSessionID == nil
     }
 
     // A new session in the same project holding the conversation up to just before this

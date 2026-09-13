@@ -48,6 +48,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let processes = ProcessManager()
     private let claude = ClaudeCodeManager()
     private let codex = CodexCodeManager()
+    private let copilot = CopilotCodeManager()
     private let projects = ProjectStore()
     private lazy var runner = SessionRunner(configs: store)
     private lazy var mobileAccess = MobileAccessController(store: projects, runner: runner,
@@ -128,6 +129,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     .environment(processes)
                     .environment(claude)
                     .environment(codex)
+                    .environment(copilot)
                     .environment(projects)
                     .environment(runner)
                     .environment(workingTrees)

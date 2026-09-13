@@ -7,6 +7,7 @@ struct AgentConfiguredServer: Identifiable, Equatable {
     enum Source: String, Identifiable {
         case claudeCode
         case codex
+        case copilot
 
         var id: Self { self }
 
@@ -14,6 +15,7 @@ struct AgentConfiguredServer: Identifiable, Equatable {
             switch self {
             case .claudeCode: "Claude Code"
             case .codex: "Codex"
+            case .copilot: "Copilot"
             }
         }
 
@@ -21,6 +23,7 @@ struct AgentConfiguredServer: Identifiable, Equatable {
             switch self {
             case .claudeCode: "Claude"
             case .codex: "Codex"
+            case .copilot: "Copilot"
             }
         }
     }
@@ -71,11 +74,13 @@ struct AgentConfiguredServer: Identifiable, Equatable {
     static func outsideCodeStation(
         managedServers: [Server],
         claudeEntries: [String: ClaudeCodeManager.Entry],
-        codexEntries: [String: CodexCodeManager.Entry]
+        codexEntries: [String: CodexCodeManager.Entry],
+        copilotEntries: [String: CopilotCodeManager.Entry] = [:]
     ) -> [Self] {
         let managedNames = Set(managedServers.map(\.name))
         let discoveredNames = Set(claudeEntries.keys)
             .union(codexEntries.keys)
+            .union(copilotEntries.keys)
             .subtracting(managedNames)
 
         return discoveredNames.sorted().map { name in
@@ -100,6 +105,17 @@ struct AgentConfiguredServer: Identifiable, Equatable {
                     url: entry.url,
                     type: entry.type,
                     headers: [:],
+                    enabled: entry.enabled))
+            }
+            if let entry = copilotEntries[name] {
+                registrations.append(Registration(
+                    source: .copilot,
+                    command: entry.command,
+                    args: entry.args,
+                    env: entry.env,
+                    url: entry.url,
+                    type: entry.type,
+                    headers: entry.headers,
                     enabled: entry.enabled))
             }
             return Self(name: name, registrations: registrations)

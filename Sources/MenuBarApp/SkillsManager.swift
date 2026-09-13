@@ -38,9 +38,12 @@ struct SkillMarketplaceConfiguration: Codable, Equatable, Sendable {
     }
 }
 
+// The CLIs that install plugins from the marketplace. All three read the same
+// marketplace format, so one catalogue serves every host; only the commands differ.
 enum SkillHost: String, CaseIterable, Identifiable, Sendable {
     case claude
     case codex
+    case copilot
 
     var id: String { rawValue }
 
@@ -48,27 +51,38 @@ enum SkillHost: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .claude: "Claude Code"
         case .codex: "Codex"
+        case .copilot: "Copilot"
         }
     }
 
     var command: String { rawValue }
 
-    var listArguments: [String] { ["plugin", "list", "--json"] }
+    // Copilot's `plugin list` has no JSON form; its `plugins` command lists everything it
+    // has configured, plugins included, and does.
+    var listArguments: [String] {
+        switch self {
+        case .claude, .codex: ["plugin", "list", "--json"]
+        case .copilot: ["plugins", "list", "--json"]
+        }
+    }
 
     var marketplaceListArguments: [String] {
-        ["plugin", "marketplace", "list", "--json"]
+        switch self {
+        case .claude, .codex: ["plugin", "marketplace", "list", "--json"]
+        case .copilot: ["plugin", "marketplace", "list"]
+        }
     }
 
     func marketplaceAddArguments(source: String) -> [String] {
         return switch self {
-        case .claude: ["plugin", "marketplace", "add", source]
+        case .claude, .copilot: ["plugin", "marketplace", "add", source]
         case .codex: ["plugin", "marketplace", "add", source, "--json"]
         }
     }
 
     func marketplaceRefreshArguments(name: String) -> [String] {
         return switch self {
-        case .claude: ["plugin", "marketplace", "update", name]
+        case .claude, .copilot: ["plugin", "marketplace", "update", name]
         case .codex: ["plugin", "marketplace", "upgrade", name, "--json"]
         }
     }
@@ -78,6 +92,7 @@ enum SkillHost: String, CaseIterable, Identifiable, Sendable {
         return switch self {
         case .claude: ["plugin", "install", selector, "--scope", "user"]
         case .codex: ["plugin", "add", selector, "--json"]
+        case .copilot: ["plugin", "install", selector]
         }
     }
 
@@ -86,6 +101,7 @@ enum SkillHost: String, CaseIterable, Identifiable, Sendable {
         return switch self {
         case .claude: ["plugin", "uninstall", selector, "--scope", "user"]
         case .codex: ["plugin", "remove", selector, "--json"]
+        case .copilot: ["plugin", "uninstall", selector]
         }
     }
 
@@ -96,6 +112,7 @@ enum SkillHost: String, CaseIterable, Identifiable, Sendable {
         // Adding an installed Codex plugin reconciles its cached version with the
         // refreshed marketplace snapshot.
         case .codex: ["plugin", "add", selector, "--json"]
+        case .copilot: ["plugin", "update", selector]
         }
     }
 }
@@ -312,24 +329,23 @@ final class SkillsManager {
         }
     }
 
-    // The tail every load shares. Both hosts are asked what they have installed while
-    // the catalogue is still arriving, and the catalogue, its notice and the
-    // installations are published together so the list never shows one without the
-    // others.
+    // The tail every load shares. Every host is asked what it has installed while the
+    // catalogue is still arriving, and the catalogue, its notice and the installations
+    // are published together so the list never shows one without the others.
     private func finishLoad(marketplace: String,
                             catalogue: () async -> CatalogueLoad) async {
-        async let claudeLoad = Self.loadInstallations(for: .claude, marketplace: marketplace)
-        async let codexLoad = Self.loadInstallations(for: .codex, marketplace: marketplace)
+        async let hostLoads = Self.loadInstallations(marketplace: marketplace)
         let load = await catalogue()
-        let (claude, codex) = await (claudeLoad, codexLoad)
+        let loads = await hostLoads
 
         setMarketplace(load.marketplace)
         catalogueNotice = load.notice
         if load.didRefresh {
             Preferences.setSkillsLastRefresh(Date(), in: preferences)
         }
-        apply(claude, to: .claude)
-        apply(codex, to: .codex)
+        for host in SkillHost.allCases {
+            apply(loads[host] ?? InstallationLoad(installations: [:], failure: nil), to: host)
+        }
         isRefreshing = false
         hasLoaded = true
     }
@@ -619,16 +635,25 @@ final class SkillsManager {
         } else if let object = root as? [String: Any],
                   let installed = object["installed"] as? [[String: Any]] {
             rows = installed
+        } else if let object = root as? [String: Any],
+                  let configured = object["plugins"] as? [[String: Any]] {
+            rows = configured
         } else {
             return [:]
         }
 
         var result: [String: SkillInstallation] = [:]
         for row in rows {
+            // Copilot lists every kind of thing it has configured in one array; only the
+            // plugins are the marketplace's, and each names its marketplace as a source.
+            if host == .copilot, row["kind"] as? String != "plugin" { continue }
             let identifier = row["pluginId"] as? String ?? row["id"] as? String ?? ""
             let pieces = identifier.split(separator: "@", maxSplits: 1).map(String.init)
             let name = row["name"] as? String ?? pieces.first ?? ""
             let marketplaceName = row["marketplaceName"] as? String
+                ?? (row["source"] as? String).flatMap { source in
+                    source.hasPrefix("marketplace:") ? String(source.dropFirst("marketplace:".count)) : nil
+                }
                 ?? (pieces.count == 2 ? pieces[1] : "")
             guard !name.isEmpty, marketplaceName == marketplace else { continue }
             if host == .claude, let scope = row["scope"] as? String, scope != "user" { continue }
@@ -641,8 +666,20 @@ final class SkillsManager {
         return result
     }
 
+    // Copilot prints its marketplaces as a bulleted list rather than as JSON, one per
+    // line with the name before the source in brackets.
     nonisolated static func marketplaceNames(from output: String) -> Set<String> {
-        guard let root = jsonObject(from: output) else { return [] }
+        guard let root = jsonObject(from: output) else {
+            let names = output.split(whereSeparator: \.isNewline).compactMap { line -> String? in
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                guard let first = trimmed.first, "•◆*-".contains(first) else { return nil }
+                let rest = trimmed.dropFirst().trimmingCharacters(in: .whitespaces)
+                guard let open = rest.firstIndex(of: "(") else { return nil }
+                let name = rest[..<open].trimmingCharacters(in: .whitespaces)
+                return name.isEmpty ? nil : name
+            }
+            return Set(names)
+        }
         let rows: [[String: Any]]
         if let array = root as? [[String: Any]] {
             rows = array
@@ -653,6 +690,18 @@ final class SkillsManager {
             return []
         }
         return Set(rows.compactMap { $0["name"] as? String })
+    }
+
+    private nonisolated static func loadInstallations(marketplace: String) async
+        -> [SkillHost: InstallationLoad] {
+        await withTaskGroup(of: (SkillHost, InstallationLoad).self) { group in
+            for host in SkillHost.allCases {
+                group.addTask { (host, await loadInstallations(for: host, marketplace: marketplace)) }
+            }
+            var loads: [SkillHost: InstallationLoad] = [:]
+            for await (host, load) in group { loads[host] = load }
+            return loads
+        }
     }
 
     private nonisolated static func loadInstallations(for host: SkillHost,

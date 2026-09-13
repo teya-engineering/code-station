@@ -8,6 +8,7 @@ struct ServerDetailView: View {
     @Environment(ProcessManager.self) private var processes
     @Environment(ClaudeCodeManager.self) private var claude
     @Environment(CodexCodeManager.self) private var codex
+    @Environment(CopilotCodeManager.self) private var copilot
     @Environment(DialogPresenter.self) private var dialogs
     let serverID: Server.ID
 
@@ -156,15 +157,17 @@ struct ServerDetailView: View {
             HStack {
                 SectionLabel("REGISTERED WITH")
                 Spacer()
-                if claudeNeedsSync(server) && codexNeedsSync(server) {
-                    InlineLink(title: "Sync both", size: 13) {
-                        syncBoth(server)
+                if [claudeNeedsSync(server), codexNeedsSync(server), copilotNeedsSync(server)]
+                    .filter({ $0 }).count > 1 {
+                    InlineLink(title: "Sync all", size: 13) {
+                        syncAll(server)
                     }
                 }
             }
             HStack(alignment: .top, spacing: 12) {
                 AgentCard(standing: claudeStanding(server))
                 AgentCard(standing: codexStanding(server))
+                AgentCard(standing: copilotStanding(server))
             }
             .fixedSize(horizontal: false, vertical: true)
         }
@@ -179,13 +182,25 @@ struct ServerDetailView: View {
             && (!codex.isRegistered(server.name) || codex.isOutOfSync(server))
     }
 
-    private func syncBoth(_ server: Server) {
-        claude.isRegistered(server.name) ? claude.reregister(server) : claude.add(server)
-        codex.isRegistered(server.name) ? codex.reregister(server) : codex.add(server)
+    private func copilotNeedsSync(_ server: Server) -> Bool {
+        copilot.available && copilot.supports(server)
+            && (!copilot.isRegistered(server.name) || copilot.isOutOfSync(server))
     }
 
-    // The two managers answer the same questions but share no type, so each is read
-    // into the one shape the card draws from.
+    private func syncAll(_ server: Server) {
+        if claudeNeedsSync(server) {
+            claude.isRegistered(server.name) ? claude.reregister(server) : claude.add(server)
+        }
+        if codexNeedsSync(server) {
+            codex.isRegistered(server.name) ? codex.reregister(server) : codex.add(server)
+        }
+        if copilotNeedsSync(server) {
+            copilot.isRegistered(server.name) ? copilot.reregister(server) : copilot.add(server)
+        }
+    }
+
+    // The managers answer the same questions but share no type, so each is read into
+    // the one shape the card draws from.
     private func claudeStanding(_ server: Server) -> AgentStanding {
         AgentStanding(
             title: "Claude Code",
@@ -216,6 +231,29 @@ struct ServerDetailView: View {
             toggle: { codex.isRegistered(server.name) ? codex.remove(server.name) : codex.add(server) },
             update: { codex.reregister(server) },
             command: { codex.addCommand(for: server) })
+    }
+
+    private func copilotStanding(_ server: Server) -> AgentStanding {
+        AgentStanding(
+            title: "Copilot",
+            available: copilot.available,
+            registered: copilot.isRegistered(server.name),
+            outOfSync: copilot.isOutOfSync(server),
+            busy: copilot.isBusy(server.name),
+            error: copilot.errors[server.name],
+            unsupported: copilot.supports(server) ? nil : copilotSupportCaption(server),
+            registeredCaption: "Registered in Copilot's user MCP configuration.",
+            reloadNote: "The next Copilot turn loads the change.",
+            toggle: { copilot.isRegistered(server.name) ? copilot.remove(server.name) : copilot.add(server) },
+            update: { copilot.reregister(server) },
+            command: { copilot.addCommand(for: server) })
+    }
+
+    private func copilotSupportCaption(_ server: Server) -> String {
+        if server.isRemote, !["http", "sse"].contains(server.transport) {
+            return "Copilot supports streamable HTTP and SSE, not \(server.transport.uppercased())."
+        }
+        return "A command or URL is needed before Copilot can register this server."
     }
 
     private func codexSupportCaption(_ server: Server) -> String {

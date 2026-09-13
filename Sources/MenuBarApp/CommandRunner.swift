@@ -48,6 +48,9 @@ enum CommandRunner {
         environment: [String: String]? = nil,
         input: Data? = nil,
         outputLineHandler: (@Sendable (String) -> OutputLineAction)? = nil,
+        // For output that is not framed by newlines: sees every chunk as it arrives and
+        // can answer or stop the process the way the line handler can.
+        outputChunkAction: (@Sendable (Data) -> OutputLineAction)? = nil,
         outputChunkHandler: (@Sendable (Data) -> Void)? = nil,
         errorOutputChunkHandler: (@Sendable (Data) -> Void)? = nil,
         timeout: Duration?,
@@ -68,6 +71,7 @@ enum CommandRunner {
                             environment: environment,
                             input: input,
                             outputLineHandler: outputLineHandler,
+                            outputChunkAction: outputChunkAction,
                             outputChunkHandler: outputChunkHandler,
                             errorOutputChunkHandler: errorOutputChunkHandler,
                             timeout: timeout,
@@ -106,6 +110,7 @@ enum CommandRunner {
             environment: environment,
             input: input,
             outputLineHandler: outputLineHandler,
+            outputChunkAction: nil,
             outputChunkHandler: outputChunkHandler,
             errorOutputChunkHandler: errorOutputChunkHandler,
             timeout: timeout,
@@ -121,6 +126,7 @@ enum CommandRunner {
         environment: [String: String]?,
         input: Data?,
         outputLineHandler: (@Sendable (String) -> OutputLineAction)?,
+        outputChunkAction: (@Sendable (Data) -> OutputLineAction)?,
         outputChunkHandler: (@Sendable (Data) -> Void)?,
         errorOutputChunkHandler: (@Sendable (Data) -> Void)?,
         timeout: Duration?,
@@ -143,8 +149,9 @@ enum CommandRunner {
             }
         }
 
+        let answersOutput = outputLineHandler != nil || outputChunkAction != nil
         let inputPipe: Pipe?
-        if input != nil || outputLineHandler != nil {
+        if input != nil || answersOutput {
             let pipe = Pipe()
             closeOnExec(pipe)
             _ = fcntl(pipe.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
@@ -198,6 +205,7 @@ enum CommandRunner {
                 outputPipe.fileHandleForReading,
                 limit: outputByteLimit,
                 lineHandler: outputLineHandler,
+                chunkAction: outputChunkAction,
                 chunkHandler: outputChunkHandler,
                 inputHandle: inputPipe?.fileHandleForWriting,
                 controller: controller
@@ -216,7 +224,7 @@ enum CommandRunner {
         if let inputPipe {
             do {
                 if let input { try inputPipe.fileHandleForWriting.write(contentsOf: input) }
-                if outputLineHandler == nil { try inputPipe.fileHandleForWriting.close() }
+                if !answersOutput { try inputPipe.fileHandleForWriting.close() }
             } catch {
                 controller.stop(because: .write(error.localizedDescription))
             }
@@ -424,6 +432,7 @@ enum CommandRunner {
         _ handle: FileHandle,
         limit: Int,
         lineHandler: (@Sendable (String) -> OutputLineAction)? = nil,
+        chunkAction: (@Sendable (Data) -> OutputLineAction)? = nil,
         chunkHandler: (@Sendable (Data) -> Void)? = nil,
         inputHandle: FileHandle? = nil,
         controller: ProcessController? = nil
@@ -462,29 +471,38 @@ enum CommandRunner {
             if remaining > 0 { data.append(chunk.prefix(remaining)) }
             if chunk.count > remaining { truncated = true }
 
+            // What a handler asked for once it has read the output so far.
+            func act(on action: OutputLineAction, through inputHandle: FileHandle) {
+                switch action {
+                case .none:
+                    break
+                case .write(let response):
+                    guard inputIsOpen else { break }
+                    do {
+                        try inputHandle.write(contentsOf: response)
+                    } catch {
+                        inputIsOpen = false
+                        controller?.stop(because: .write(error.localizedDescription))
+                    }
+                case .finishProcess:
+                    if inputIsOpen {
+                        inputIsOpen = false
+                        try? inputHandle.close()
+                    }
+                    controller?.finish()
+                }
+            }
+
+            if let chunkAction, let inputHandle {
+                act(on: chunkAction(chunk), through: inputHandle)
+            }
+
             if let lineHandler, let inputHandle, lineBuffer.count <= limit {
                 lineBuffer.append(chunk.prefix(max(0, limit - lineBuffer.count)))
                 while let newline = lineBuffer.firstIndex(of: 0x0A) {
                     let line = String(decoding: lineBuffer[..<newline], as: UTF8.self)
                     lineBuffer.removeSubrange(...newline)
-                    switch lineHandler(line) {
-                    case .none:
-                        break
-                    case .write(let response):
-                        guard inputIsOpen else { break }
-                        do {
-                            try inputHandle.write(contentsOf: response)
-                        } catch {
-                            inputIsOpen = false
-                            controller?.stop(because: .write(error.localizedDescription))
-                        }
-                    case .finishProcess:
-                        if inputIsOpen {
-                            inputIsOpen = false
-                            try? inputHandle.close()
-                        }
-                        controller?.finish()
-                    }
+                    act(on: lineHandler(line), through: inputHandle)
                 }
             }
         }

@@ -1833,18 +1833,18 @@ struct SessionView: View {
         }
         if usage.contextWindow > 0 {
             rows.append(Tooltip.Row(
-                label: agent == .codex ? "Window" : "Context",
+                label: agent.asksPermissions ? "Context" : "Window",
                 value: "\(formattedTokens(usage.contextTokens)) of \(formattedTokens(usage.contextWindow))"))
         }
-        // Codex reports no cost, so a zero here means "unknown" rather than free.
+        // Codex and Copilot report no cost, so a zero here means "unknown" rather than free.
         if appSettings.showsCost(for: agent), usage.costUSD > 0 {
             rows.append(Tooltip.Row(label: "Spent", value: Money.short(usage.costUSD)))
         }
         let turns = counted(usage.turns, "turn")
-        let note = if agent == .codex {
+        let note = if !agent.asksPermissions {
             clearable
-                ? "Current model window after the latest model call. Codex compacts it automatically as it fills. Click for options."
-                : "Current model window after the latest model call. Codex compacts it automatically as it fills."
+                ? "Current model window after the latest model call. \(agent.title) compacts it automatically as it fills. Click for options."
+                : "Current model window after the latest model call. \(agent.title) compacts it automatically as it fills."
         } else {
             clearable
                 ? "Context in use after the last turn. Click for options."
@@ -1859,8 +1859,8 @@ struct SessionView: View {
     // A session runs into the end of its window mid-thought, and the failure is a turn
     // that will not start rather than anything the meter said. So once the window is
     // nearly full the way out is offered here, on the line above the composer, rather
-    // than waiting to be looked for. Codex handles this condition through automatic
-    // compaction, so only Claude Code needs the interruption.
+    // than waiting to be looked for. Codex and Copilot handle this condition through
+    // automatic compaction, so only Claude Code needs the interruption.
     @ViewBuilder private func contextNudge(_ session: ChatSession) -> some View {
         let fraction = session.usage?.contextFraction(for: session.agent) ?? 0
         let actions = contextActions()

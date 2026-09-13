@@ -145,12 +145,13 @@ struct SessionMemoryLimitRunnerTests {
     wait
     """
 
-    @Test(arguments: [AgentKind.codex, .claudeCode])
+    @Test(arguments: [AgentKind.codex, .claudeCode, .copilot])
     func stopsRunawayChildrenAndKeepsQueuedWorkPaused(agent: AgentKind) async throws {
         var recapChecks = 0
         let reply = """
         printf '%s\n' '{"type":"item.completed","item":{"id":"answer","item_type":"agent_message","text":"Tests started"}}'
         printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"Tests started"}]}}'
+        printf '%s\n' '{"type":"assistant.message","data":{"messageId":"answer","content":"Tests started"}}'
         """
         let fixture = try RunnerHarness(agent: agent,
                                         script: Self.start + "\n" + reply + "\n" + Self.allocate,
@@ -181,7 +182,7 @@ struct SessionMemoryLimitRunnerTests {
         #expect(try String(contentsOf: fixture.scratch.path("starts"), encoding: .utf8) == "started\n")
     }
 
-    @Test(arguments: [AgentKind.codex, .claudeCode])
+    @Test(arguments: [AgentKind.codex, .claudeCode, .copilot])
     func aRecapMemoryStopDoesNotRunFallbacksOrQueuedPrompts(agent: AgentKind) async throws {
         let fixture = try RunnerHarness(agent: agent, script: Self.start + "\n" + Self.allocate,
                                         memoryLimit: 24 * 1_024 * 1_024)

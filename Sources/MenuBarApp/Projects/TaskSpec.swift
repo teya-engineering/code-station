@@ -15,13 +15,15 @@ struct TaskSpec: Codable, Equatable, Sendable {
     var effort: String?
     var permissionMode: String?
     var codexSandboxMode: String?
+    var copilotAccessMode: String?
     var inputs: [TaskInput] = []
     var lastValues: [String: String] = [:]
     var schedule: TaskSchedule?
 
     init(prompt: String, agent: AgentKind? = nil, agentAvatarName: String? = nil,
          model: String? = nil, effort: String? = nil, permissionMode: String? = nil,
-         codexSandboxMode: String? = nil, inputs: [TaskInput] = [],
+         codexSandboxMode: String? = nil, copilotAccessMode: String? = nil,
+         inputs: [TaskInput] = [],
          lastValues: [String: String] = [:], schedule: TaskSchedule? = nil) {
         self.prompt = prompt
         self.agent = agent
@@ -30,6 +32,7 @@ struct TaskSpec: Codable, Equatable, Sendable {
         self.effort = effort
         self.permissionMode = permissionMode
         self.codexSandboxMode = codexSandboxMode
+        self.copilotAccessMode = copilotAccessMode
         self.inputs = inputs
         self.lastValues = lastValues
         self.schedule = schedule
@@ -45,6 +48,7 @@ struct TaskSpec: Codable, Equatable, Sendable {
         effort = try container.decodeIfPresent(String.self, forKey: .effort)
         permissionMode = try container.decodeIfPresent(String.self, forKey: .permissionMode)
         codexSandboxMode = try container.decodeIfPresent(String.self, forKey: .codexSandboxMode)
+        copilotAccessMode = try container.decodeIfPresent(String.self, forKey: .copilotAccessMode)
         inputs = try container.decodeIfPresent([TaskInput].self, forKey: .inputs) ?? []
         lastValues = try container.decodeIfPresent([String: String].self, forKey: .lastValues)
             ?? [:]

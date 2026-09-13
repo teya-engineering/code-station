@@ -582,7 +582,7 @@ private struct HomeIntroduction: View {
                   detail: "Follow the conversation, tool activity, files, diffs, token use and terminal without losing context."),
         Highlight(icon: "person.2.fill",
                   title: "Use the right agent",
-                  detail: "Start each session with Codex or Claude Code and choose its model, reasoning and access settings."),
+                  detail: "Start each session with Claude Code, Codex or Copilot and choose its model, reasoning and access settings."),
         Highlight(icon: "wrench.and.screwdriver.fill",
                   title: "Stay in flow",
                   detail: "Answer permissions, manage Git, inspect Docker, send API requests and use MCP tools inside Code Station.")

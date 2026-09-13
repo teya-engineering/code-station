@@ -131,9 +131,7 @@ struct NewSessionFooter: View {
         runner.availableAgents.map { agent in
             .item(agent.title,
                   checked: chosenAgent == agent,
-                  subtitle: agent == .codex
-                      ? "OpenAI's coding agent."
-                      : "Anthropic's coding agent.") {
+                  subtitle: agent.blurb) {
                 selectedAgent = agent
             }
         }

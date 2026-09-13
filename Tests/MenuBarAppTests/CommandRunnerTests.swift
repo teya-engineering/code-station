@@ -330,11 +330,11 @@ struct CommandRunnerTests {
         """, to: script)
         let existing = [ModelChoice.Option(id: "gpt-5.6-astra", title: "Astra",
                                            detail: "Fast.")]
-        let runner = SessionRunner(paths: [.codex: script.path], codexModels: existing)
+        let runner = SessionRunner(paths: [.codex: script.path], discoveredModels: [.codex: existing])
 
-        await runner.refreshCodexModels()
+        await runner.refreshDiscoveredModels()
 
-        #expect(runner.codexModels == existing)
+        #expect(runner.discoveredModels[.codex] == existing)
     }
 
     private func backgroundChildArguments(pidFile: URL,

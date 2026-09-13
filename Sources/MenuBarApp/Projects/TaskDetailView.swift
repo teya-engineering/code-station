@@ -335,9 +335,12 @@ struct TaskDetailView: View {
     }
 
     private func runChoices(_ task: Project) -> [RunChoice] {
-        [modelChoice(task),
-         effortChoice(task),
-         runAgent(task) == .claudeCode ? permissionsChoice(task) : codexAccessChoice(task)]
+        let access = switch runAgent(task) {
+        case .claudeCode: permissionsChoice(task)
+        case .codex: codexAccessChoice(task)
+        case .copilot: copilotAccessChoice(task)
+        }
+        return [modelChoice(task), effortChoice(task), access]
     }
 
     private func agentChoice(_ task: Project) -> RunChoice {
@@ -441,6 +444,26 @@ struct TaskDetailView: View {
             selection: Binding(get: { override?.rawValue },
                                set: { value in
                                    changeSpec(task) { $0.codexSandboxMode = value }
+                               }))
+    }
+
+    private func copilotAccessChoice(_ task: Project) -> RunChoice {
+        let agent = runAgent(task)
+        let override = CopilotAccessMode.valid(spec(task).copilotAccessMode)
+        let appDefault = CopilotAccessMode.resolved(runner.defaults(for: agent).copilotAccessMode)
+        let selected = override ?? appDefault
+        return RunChoice(
+            badge: "ACCESS",
+            label: selected.summary,
+            overridden: override != nil,
+            help: selected.detail,
+            defaultTitle: defaultTitle(appDefault.title),
+            options: CopilotAccessMode.allCases.map { (id: $0.rawValue, title: $0.title) },
+            warning: selected == .fullAccess,
+            warningOption: CopilotAccessMode.fullAccess.rawValue,
+            selection: Binding(get: { override?.rawValue },
+                               set: { value in
+                                   changeSpec(task) { $0.copilotAccessMode = value }
                                }))
     }
 

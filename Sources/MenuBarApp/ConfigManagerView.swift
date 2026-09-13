@@ -7,6 +7,7 @@ struct ConfigManagerView: View {
     @Environment(ProcessManager.self) private var processes
     @Environment(ClaudeCodeManager.self) private var claude
     @Environment(CodexCodeManager.self) private var codex
+    @Environment(CopilotCodeManager.self) private var copilot
     @Environment(\.dismiss) private var dismiss
     @State private var addingPresetGroup: SiteDefaults.MCP.PresetGroup?
     @State private var showingAddJSON = false
@@ -184,6 +185,12 @@ struct ConfigManagerView: View {
                         codex.syncAll(store.servers)
                     }
                 }
+                if copilot.available {
+                    syncButton(needing: copilot.serversNeedingSync(store.servers).count,
+                               busy: copilot.bulkBusy, label: "Copilot") {
+                        copilot.syncAll(store.servers)
+                    }
+                }
 
                 Text("+ Add server")
                     .font(.system(size: 14, weight: .semibold))
@@ -266,7 +273,8 @@ struct ConfigManagerView: View {
         AgentConfiguredServer.outsideCodeStation(
             managedServers: store.servers,
             claudeEntries: claude.entries,
-            codexEntries: codex.entries)
+            codexEntries: codex.entries,
+            copilotEntries: copilot.entries)
     }
 
     private var filteredAgentConfiguredServers: [AgentConfiguredServer] {
@@ -314,6 +322,7 @@ struct ConfigManagerView: View {
     private func refreshIntegrations() {
         claude.refresh()
         codex.refresh(store.servers)
+        copilot.refresh(store.servers)
     }
 
     // MARK: - Detail

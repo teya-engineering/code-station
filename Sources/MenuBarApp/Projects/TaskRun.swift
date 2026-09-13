@@ -52,6 +52,7 @@ enum TaskRun {
             settings.effort = runner.validEffort(spec?.effort, for: agent, model: model)
             settings.permissionMode = spec?.permissionMode
             settings.codexSandboxMode = spec?.codexSandboxMode
+            settings.copilotAccessMode = spec?.copilotAccessMode
             store.setSettings(settings, for: created.id)
             if !values.isEmpty { store.setTaskValues(values, for: created.id) }
             let prompt = prompt(for: spec, values: values, note: note)

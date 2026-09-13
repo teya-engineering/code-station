@@ -78,7 +78,7 @@ Keep organisation-specific hostnames, client IDs, and repository URLs in that fi
 
 A project is a reference to a folder on disk. A workspace is a reusable group of projects with one lead project. When a session starts, it records its own project paths and worktree choices so later workspace edits do not change an existing conversation.
 
-`SessionRunner` launches the selected `codex` or `claude` executable and reads its JSONL stream. The Codex and Claude adapters normalize their different protocols into shared `StreamEvent` values. The rest of the app can then render messages, tool calls, permission requests, usage, and completion state without agent-specific branches.
+`SessionRunner` launches the selected `claude`, `codex` or `copilot` executable and reads its JSONL stream. The Claude, Codex and Copilot adapters normalize their different protocols into shared `StreamEvent` values. The rest of the app can then render messages, tool calls, permission requests, usage, and completion state without agent-specific branches.
 
 Git worktree sessions use a checkout and branch owned by that session. Workspace sessions may create a separate worktree for each Git project. A session using a project folder edits that folder directly. Git inspection is kept separate from the commands that switch, commit, pull, and push.
 

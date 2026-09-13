@@ -48,7 +48,7 @@ private struct ToolsMenuModifier: ViewModifier {
                              handler: actions.configureServers),
                 MenuCardItem(label: "Skills", icon: "sparkles",
                              showsUpdate: skills.updateCount > 0,
-                             detail: "Claude + Codex", handler: actions.openSkills),
+                             detail: "Claude + Codex + Copilot", handler: actions.openSkills),
                 MenuCardItem(label: "Docker", icon: "shippingbox.fill",
                              detail: dockerDetail.text, detailColour: dockerDetail.colour,
                              handler: actions.openDocker),

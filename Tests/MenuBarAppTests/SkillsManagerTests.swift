@@ -158,14 +158,49 @@ struct SkillsManagerTests {
         ])
     }
 
-    @Test func readsMarketplaceNamesFromBothCLIShapes() {
+    @Test func readsMarketplaceNamesFromEveryCLIShape() {
         let claude = #"[{"name":"example-engineering"},{"name":"official"}]"#
         let codex = #"{"marketplaces":[{"name":"example-engineering"}]}"#
+        let copilot = """
+        Included with GitHub Copilot:
+          ◆ copilot-plugins (GitHub: github/copilot-plugins)
+          ◆ awesome-copilot (GitHub: github/awesome-copilot)
+
+        Registered marketplaces:
+          • example-engineering (URL: https://github.com/example/claude-plugins)
+        """
 
         #expect(SkillsManager.marketplaceNames(from: claude) ==
                 Set(["example-engineering", "official"]))
         #expect(SkillsManager.marketplaceNames(from: codex) ==
                 Set(["example-engineering"]))
+        #expect(SkillsManager.marketplaceNames(from: copilot) ==
+                Set(["copilot-plugins", "awesome-copilot", "example-engineering"]))
+    }
+
+    // Copilot lists plugins among everything else it has configured, so only the
+    // plugin rows from the marketplace count.
+    @Test func readsCopilotInstallationsOutOfItsMixedList() {
+        let output = """
+        {
+          "plugins": [
+            {"kind": "plugin", "name": "backend-specialist", "scope": "user",
+             "source": "marketplace:example-engineering", "enabled": false, "version": "1.9.1"},
+            {"kind": "plugin", "name": "other", "scope": "user",
+             "source": "marketplace:elsewhere", "enabled": true, "version": "1.0.0"},
+            {"kind": "skill", "name": "backend-specialist", "scope": "plugin", "source": "plugin", "enabled": true},
+            {"kind": "mcp", "name": "github", "scope": "user", "source": "user", "enabled": true}
+          ],
+          "errors": []
+        }
+        """
+
+        let installed = SkillsManager.installedPlugins(from: output, for: .copilot,
+                                                       marketplace: "example-engineering")
+
+        #expect(installed == [
+            "backend-specialist": SkillInstallation(version: "1.9.1", enabled: false)
+        ])
     }
 
     @Test func buildsAgentSpecificPluginCommands() {
@@ -186,6 +221,19 @@ struct SkillsManagerTests {
         #expect(SkillHost.codex.removeArguments(plugin: "backend-specialist",
                                                 marketplace: marketplace) == [
             "plugin", "remove", "backend-specialist@example-engineering", "--json"
+        ])
+        #expect(SkillHost.copilot.listArguments == ["plugins", "list", "--json"])
+        #expect(SkillHost.copilot.installArguments(plugin: "backend-specialist",
+                                                   marketplace: marketplace) == [
+            "plugin", "install", "backend-specialist@example-engineering"
+        ])
+        #expect(SkillHost.copilot.removeArguments(plugin: "backend-specialist",
+                                                  marketplace: marketplace) == [
+            "plugin", "uninstall", "backend-specialist@example-engineering"
+        ])
+        #expect(SkillHost.copilot.updateArguments(plugin: "backend-specialist",
+                                                  marketplace: marketplace) == [
+            "plugin", "update", "backend-specialist@example-engineering"
         ])
     }
 

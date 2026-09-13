@@ -15,10 +15,10 @@ struct SessionRunSettingsControls: View {
             HStack(spacing: 10) {
                 modelControl(session, lastRan: session.usage?.model(for: agent))
                 effortMenu(agent: agent)
-                if agent == .claudeCode {
-                    permissionsMenu(agent: agent)
-                } else {
-                    codexAccessMenu(agent: agent)
+                switch agent {
+                case .claudeCode: permissionsMenu(agent: agent)
+                case .codex: codexAccessMenu(agent: agent)
+                case .copilot: copilotAccessMenu(agent: agent)
                 }
             }
         }
@@ -140,6 +140,25 @@ struct SessionRunSettingsControls: View {
             selection: Binding(get: { override?.rawValue },
                                set: { value in
                                    changeSettings { $0.codexSandboxMode = value }
+                               }))
+    }
+
+    private func copilotAccessMenu(agent: AgentKind) -> some View {
+        let settings = sessionSettings
+        let override = CopilotAccessMode.valid(settings.copilotAccessMode)
+        let appDefault = CopilotAccessMode.resolved(runner.defaults(for: agent).copilotAccessMode)
+        let selected = override ?? appDefault
+        return settingMenu(
+            selected.summary,
+            overridden: override != nil,
+            help: selected.detail,
+            defaultTitle: defaultTitle(appDefault.title),
+            options: CopilotAccessMode.allCases.map { (id: $0.rawValue, title: $0.title) },
+            warning: selected == .fullAccess,
+            warningOption: CopilotAccessMode.fullAccess.rawValue,
+            selection: Binding(get: { override?.rawValue },
+                               set: { value in
+                                   changeSettings { $0.copilotAccessMode = value }
                                }))
     }
 

@@ -13,6 +13,7 @@ enum TroubleshootSkills {
         switch agent {
         case .claudeCode: .claude
         case .codex: .codex
+        case .copilot: .copilot
         }
     }
 
@@ -318,17 +319,25 @@ enum TroubleshootMCPState: Equatable {
         return configuration.isAvailable ? .ready : .unavailable(configuration)
     }
 
-    // The same question asked of a live agent. Only Codex can have a server registered
-    // but switched off, and only Codex reads its registry in the background.
+    // The same question asked of a live agent. Codex and Copilot can have a server
+    // registered but switched off, and both read their registry in the background.
     @MainActor
     static func resolve(agent: AgentKind, enabled: Bool, servers: [Server],
                         hasStartedCheck: Bool,
-                        claude: ClaudeCodeManager, codex: CodexCodeManager) -> Self {
+                        claude: ClaudeCodeManager, codex: CodexCodeManager,
+                        copilot: CopilotCodeManager) -> Self {
         switch agent {
         case .claudeCode:
             resolve(enabled: enabled, servers: servers, hasStartedCheck: hasStartedCheck,
                     isRefreshing: false,
                     registeredNames: Set(claude.entries.keys), disabledNames: [])
+        case .copilot:
+            resolve(enabled: enabled, servers: servers, hasStartedCheck: hasStartedCheck,
+                    isRefreshing: copilot.isRefreshing,
+                    registeredNames: Set(copilot.entries.keys),
+                    disabledNames: Set(copilot.entries.compactMap {
+                        $0.value.enabled ? nil : $0.key
+                    }))
         case .codex:
             resolve(enabled: enabled, servers: servers, hasStartedCheck: hasStartedCheck,
                     isRefreshing: codex.isRefreshing,

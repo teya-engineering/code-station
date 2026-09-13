@@ -112,7 +112,7 @@ struct SkillsView: View {
         if !manager.hasLoaded && manager.plugins.isEmpty {
             PaneMessage(icon: "shippingbox",
                         title: "Fetching repertoire",
-                        detail: "Reading the marketplace and both agent installations.")
+                        detail: "Reading the marketplace and each agent's installations.")
         } else if manager.plugins.isEmpty {
             marketplaceSetup
         } else {

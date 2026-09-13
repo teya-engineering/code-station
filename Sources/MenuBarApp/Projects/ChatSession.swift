@@ -79,6 +79,7 @@ struct ChatSession: Identifiable, Codable, Equatable, Sendable {
     // still be recovered. New sessions only fill the id belonging to their chosen agent.
     var claudeSessionID: String?
     var codexSessionID: String?
+    var copilotSessionID: String?
     var createdAt: Date = Date()
     // Set when the session runs in its own git worktree instead of the project
     // folder. The worktree and branch belong to this session and go with it.
@@ -137,12 +138,14 @@ struct ChatSession: Identifiable, Codable, Equatable, Sendable {
     // came from a version that did not save dates.
     var hasStarted: Bool {
         summary.lastMessageAt != nil || claudeSessionID != nil || codexSessionID != nil
+            || copilotSessionID != nil
     }
 
     func agentSessionID(for agent: AgentKind) -> String? {
         switch agent {
         case .claudeCode: claudeSessionID
         case .codex: codexSessionID
+        case .copilot: copilotSessionID
         }
     }
 
@@ -170,7 +173,7 @@ struct ChatSession: Identifiable, Codable, Equatable, Sendable {
         case id, projectID, title, isPinned, isTroubleshooting, agent, mode, designPhase
         case designRevisions, approvedDesignRevisionID, sourceDesignSessionID
         case handedOffDesignRevisionID, designSourceSessionID
-        case claudeSessionID, codexSessionID, createdAt
+        case claudeSessionID, codexSessionID, copilotSessionID, createdAt
         case worktreePath, worktreeBranch
         case workspaceID, sessionProjects, settings, usage, agentAvatarName
         // `pullRequest` is only read: a file written when a session could hold one
@@ -208,6 +211,7 @@ struct ChatSession: Identifiable, Codable, Equatable, Sendable {
             UUID.self, forKey: .handedOffDesignRevisionID)
         claudeSessionID = try container.decodeIfPresent(String.self, forKey: .claudeSessionID)
         codexSessionID = try container.decodeIfPresent(String.self, forKey: .codexSessionID)
+        copilotSessionID = try container.decodeIfPresent(String.self, forKey: .copilotSessionID)
         createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
         worktreePath = try container.decodeIfPresent(String.self, forKey: .worktreePath)
         worktreeBranch = try container.decodeIfPresent(String.self, forKey: .worktreeBranch)
@@ -227,6 +231,7 @@ struct ChatSession: Identifiable, Codable, Equatable, Sendable {
         agent = try container.decodeIfPresent(AgentKind.self, forKey: .agent)
             ?? Self.inferredAgent(claudeSessionID: claudeSessionID,
                                   codexSessionID: codexSessionID,
+                                  copilotSessionID: copilotSessionID,
                                   settings: settings,
                                   usage: usage)
     }
@@ -252,6 +257,7 @@ struct ChatSession: Identifiable, Codable, Equatable, Sendable {
         try container.encodeIfPresent(designSourceSessionID, forKey: .designSourceSessionID)
         try container.encodeIfPresent(claudeSessionID, forKey: .claudeSessionID)
         try container.encodeIfPresent(codexSessionID, forKey: .codexSessionID)
+        try container.encodeIfPresent(copilotSessionID, forKey: .copilotSessionID)
         try container.encode(createdAt, forKey: .createdAt)
         try container.encodeIfPresent(worktreePath, forKey: .worktreePath)
         try container.encodeIfPresent(worktreeBranch, forKey: .worktreeBranch)
@@ -271,8 +277,10 @@ struct ChatSession: Identifiable, Codable, Equatable, Sendable {
     // Old sessions did not save their agent. Usage is the strongest signal for mixed
     // histories, followed by a model choice and then the one resume id on the record.
     private static func inferredAgent(claudeSessionID: String?, codexSessionID: String?,
+                                      copilotSessionID: String?,
                                       settings: SessionSettings?, usage: SessionUsage?) -> AgentKind {
         if let latest = usage?.latestAgent { return latest }
+        if copilotSessionID != nil, claudeSessionID == nil, codexSessionID == nil { return .copilot }
         if let inferred = ModelChoice.inferredAgent(of: settings?.model) { return inferred }
         if codexSessionID != nil, claudeSessionID == nil { return .codex }
         return .claudeCode

@@ -85,6 +85,7 @@ struct FirstRunWizard: View {
     @State private var selectedAgent: AgentKind
     @State private var claude = ClaudeAgentInfo()
     @State private var codex = CodexAgentInfo()
+    @State private var copilot = CopilotAgentInfo()
     @State private var terminalAction: TerminalAction?
     @State private var loader = SiteConfigurationLoader()
 
@@ -298,7 +299,7 @@ struct FirstRunWizard: View {
             selectedAgent = agent
         } label: {
             HStack(spacing: 11) {
-                Image(systemName: agent == .codex ? "sparkles" : "brain.head.profile")
+                Image(systemName: agent.symbol)
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(selected ? Color.white : Theme.accent)
                     .frame(width: 32, height: 32)
@@ -307,7 +308,7 @@ struct FirstRunWizard: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(agent.title)
                         .font(.system(size: 13.5, weight: .semibold))
-                    Text(agent == .codex ? "OpenAI" : "Anthropic")
+                    Text(agent.vendor)
                         .font(.system(size: 11.5))
                         .opacity(0.72)
                 }
@@ -382,6 +383,7 @@ struct FirstRunWizard: View {
         switch selectedAgent {
         case .claudeCode: claude.path != nil
         case .codex: codex.path != nil
+        case .copilot: copilot.path != nil
         }
     }
 
@@ -389,6 +391,7 @@ struct FirstRunWizard: View {
         switch selectedAgent {
         case .claudeCode: claude.account != nil
         case .codex: codex.account != nil
+        case .copilot: copilot.account != nil
         }
     }
 
@@ -458,6 +461,7 @@ struct FirstRunWizard: View {
         runner.refreshAvailableAgents()
         claude.refresh()
         codex.refresh()
+        copilot.refresh()
     }
 
     private func finish() {

@@ -2,10 +2,11 @@ import Foundation
 
 // The coding agents the app can run a session on. Each is a CLI resolved on PATH, with
 // models, sign-in and conversation history of its own; the app speaks each one's stream
-// dialect and folds both onto the same events, so everything past the runner is shared.
+// dialect and folds them all onto the same events, so everything past the runner is shared.
 enum AgentKind: String, CaseIterable, Codable, Sendable, Identifiable {
     case claudeCode = "claude"
     case codex = "codex"
+    case copilot = "copilot"
 
     var id: String { rawValue }
 
@@ -16,6 +17,26 @@ enum AgentKind: String, CaseIterable, Codable, Sendable, Identifiable {
         switch self {
         case .claudeCode: "Claude Code"
         case .codex: "Codex"
+        case .copilot: "Copilot"
+        }
+    }
+
+    // Who makes the agent, for the places that tell the agents apart by it.
+    var vendor: String {
+        switch self {
+        case .claudeCode: "Anthropic"
+        case .codex: "OpenAI"
+        case .copilot: "GitHub"
+        }
+    }
+
+    var blurb: String { "\(vendor)'s coding agent." }
+
+    var symbol: String {
+        switch self {
+        case .claudeCode: "brain.head.profile"
+        case .codex: "sparkles"
+        case .copilot: "airplane"
         }
     }
 
@@ -23,6 +44,7 @@ enum AgentKind: String, CaseIterable, Codable, Sendable, Identifiable {
         switch self {
         case .claudeCode: "npm install -g @anthropic-ai/claude-code"
         case .codex: "npm install -g @openai/codex"
+        case .copilot: "npm install -g @github/copilot"
         }
     }
 
@@ -31,8 +53,17 @@ enum AgentKind: String, CaseIterable, Codable, Sendable, Identifiable {
         switch self {
         case .claudeCode: "claude /login"
         case .codex: "codex login"
+        case .copilot: "copilot login"
         }
     }
+
+    // Whether the CLI can be asked a permission question mid-turn. The others run each
+    // turn to the end with the access they were started with.
+    var asksPermissions: Bool { self == .claudeCode }
+
+    // Whether the CLI keeps one conversation id for the whole session. Claude Code forks
+    // a new id on every resumed turn instead, which is what lets a turn be wound back.
+    var reusesConversationID: Bool { self != .claudeCode }
 }
 
 // What a session runs the agent with, on top of the prompt itself. These are the same
@@ -47,6 +78,7 @@ struct SessionSettings: Codable, Equatable, Sendable {
     var effort: String?
     var permissionMode: String?
     var codexSandboxMode: String?
+    var copilotAccessMode: String?
     var mcpServersEnabled: Bool?
     // An allowlist of managed servers for sessions that need a filtered MCP config.
     // Nil keeps using the agent's own configuration without filtering it.
@@ -112,6 +144,40 @@ enum CodexSandboxMode: String, CaseIterable {
     }
 }
 
+// Copilot's prompt mode cannot ask a question back either, so a turn runs with the
+// access it was started with. Tools always run without asking - the CLI refuses to run
+// a prompt otherwise - and the choice is how far past the session's folders they reach.
+enum CopilotAccessMode: String, CaseIterable {
+    case workspace = "workspace"
+    case fullAccess = "full-access"
+
+    var title: String {
+        switch self {
+        case .workspace: "Workspace only"
+        case .fullAccess: "Full access"
+        }
+    }
+
+    var summary: String { title }
+
+    var detail: String {
+        switch self {
+        case .workspace:
+            "Tools run without asking inside this session's folders. Files elsewhere and web addresses stay blocked."
+        case .fullAccess:
+            "Any file, any web address, no confirmation. Use only with projects you trust."
+        }
+    }
+
+    static func valid(_ value: String?) -> Self? {
+        value.flatMap(Self.init(rawValue:))
+    }
+
+    static func resolved(_ value: String?) -> Self {
+        valid(value) ?? .workspace
+    }
+}
+
 // The permission modes Claude Code takes, minus the ones that have no place in a desktop
 // app: nothing here can turn every check off. Stored as its raw value, which is the word
 // the CLI's --permission-mode flag takes.
@@ -157,8 +223,10 @@ enum PermissionMode: String, CaseIterable, Identifiable {
 }
 
 // The models each agent's picker offers. Claude Code publishes stable aliases but no
-// account-aware catalog, so those stay curated here. Codex supplies its choices through
-// the local app server; the fallback keeps settings usable with older or offline CLIs.
+// account-aware catalog, so those stay curated here. Codex and Copilot supply their
+// choices through a local server of their own; the fallbacks keep settings usable with
+// older or offline CLIs. `discovered` is that live catalog for the agent being asked
+// about, and nil where there is none yet.
 enum ModelChoice {
     struct Option: Identifiable, Equatable, Sendable {
         let id: String?
@@ -183,46 +251,70 @@ enum ModelChoice {
         Option(id: "gpt-5.6-luna", title: "Luna", detail: "The fastest and cheapest; best for small, mechanical work."),
     ]
 
-    static func options(for agent: AgentKind, codexModels: [Option]? = nil) -> [Option] {
+    // Copilot serves models from several makers, and which ones an account gets is up to
+    // the account. These are the ones every plan has had.
+    static let copilotFallback: [Option] = [
+        Option(id: nil, title: "Default", detail: "Whatever Copilot is set to use."),
+        Option(id: "auto", title: "Auto", detail: "Copilot picks the model for each request."),
+        Option(id: "claude-sonnet-5", title: "Claude Sonnet 5", detail: "The everyday balance of speed and depth."),
+        Option(id: "claude-opus-5", title: "Claude Opus 5", detail: "The strongest reasoning, and the slowest."),
+        Option(id: "gpt-5.4", title: "GPT-5.4", detail: "OpenAI's everyday model."),
+    ]
+
+    static func fallback(for agent: AgentKind) -> [Option] {
         switch agent {
-        case .claudeCode: return claude
-        case .codex:
-            guard let codexModels else { return codexFallback }
-            return [Option(id: nil, title: "Default",
-                           detail: "Whatever Codex is set to use.")] + codexModels
+        case .claudeCode: claude
+        case .codex: codexFallback
+        case .copilot: copilotFallback
         }
     }
 
+    static func options(for agent: AgentKind, discovered: [Option]? = nil) -> [Option] {
+        guard agent != .claudeCode, let discovered else { return fallback(for: agent) }
+        return [Option(id: nil, title: "Default",
+                       detail: "Whatever \(agent.title) is set to use.")] + discovered
+    }
+
     static func valid(_ id: String?, for agent: AgentKind,
-                      codexModels: [Option]? = nil) -> String? {
+                      discovered: [Option]? = nil) -> String? {
         guard let id, !id.isEmpty else { return nil }
         switch agent {
         case .claudeCode:
             guard claude.contains(where: { $0.id == id }) || id.hasPrefix("claude-")
             else { return nil }
         case .codex:
-            if let codexModels {
-                guard codexModels.contains(where: { $0.id == id }) else { return nil }
+            if let discovered {
+                guard discovered.contains(where: { $0.id == id }) else { return nil }
             } else {
                 guard !claude.contains(where: { $0.id == id }), !id.hasPrefix("claude-")
                 else { return nil }
+            }
+        case .copilot:
+            // Copilot's catalog names Claude models too, so nothing about the id itself
+            // says whether it belongs here. Without a catalog the CLI is left to judge.
+            if let discovered {
+                guard discovered.contains(where: { $0.id == id }) else { return nil }
             }
         }
         return id
     }
 
-    static func title(of id: String?, codexModels: [Option]? = nil) -> String {
-        (claude + (codexModels ?? codexFallback)).first { $0.id == id }?.title
+    // Copilot's fallback is left out on purpose: its ids are full model names, which
+    // read better cut down the way the strip cuts them than under the picker's titles.
+    static func title(of id: String?, discovered: [Option]? = nil) -> String {
+        (claude + codexFallback + (discovered ?? [])).first { $0.id == id }?.title
             ?? id.map(shortName) ?? "Default"
     }
 
     // How the app-wide choice reads on the row that says a session is following it.
     static func summary(of id: String?, agent: AgentKind,
-                        codexModels: [Option]? = nil) -> String {
+                        discovered: [Option]? = nil) -> String {
         guard let id, !id.isEmpty else { return "Whatever \(agent.title) is set to use" }
-        return title(of: id, codexModels: codexModels)
+        return title(of: id, discovered: discovered)
     }
 
+    // Which agent an old session most likely ran on, going by its model. Only Claude Code
+    // and Codex predate the agent being saved with the session, so those are the choices.
     static func inferredAgent(of id: String?) -> AgentKind? {
         guard let id, !id.isEmpty else { return nil }
         if claude.contains(where: { $0.id == id }) || id.hasPrefix("claude-") {
@@ -250,7 +342,7 @@ enum ModelChoice {
         guard let family = parts.first, !family.isEmpty else { return canonical }
 
         let version = parts.dropFirst().joined(separator: ".")
-        let title = family.prefix(1).uppercased() + family.dropFirst()
+        let title = family == "gpt" ? "GPT" : family.prefix(1).uppercased() + family.dropFirst()
         return version.isEmpty ? title : "\(title) \(version)"
     }
 }
@@ -272,12 +364,14 @@ enum EffortChoice {
         Option(id: "max", title: "Max"),
     ]
 
+    // A discovered catalog can say which levels a model takes; the curated levels stand
+    // in for every other case.
     static func all(for agent: AgentKind, model: String? = nil,
-                    codexModels: [ModelChoice.Option]? = nil) -> [Option] {
-        guard agent == .codex, let codexModels else { return levels }
+                    discovered: [ModelChoice.Option]? = nil) -> [Option] {
+        guard agent != .claudeCode, let discovered else { return levels }
         let selected = model.flatMap { selected in
-            codexModels.first { $0.id == selected }
-        } ?? codexModels.first(where: \.isDefault)
+            discovered.first { $0.id == selected }
+        } ?? discovered.first(where: \.isDefault)
         guard let efforts = selected?.supportedEfforts, !efforts.isEmpty else { return levels }
         return [Option(id: nil, title: "Default")] + efforts.map {
             Option(id: $0, title: title(of: $0))
@@ -285,22 +379,24 @@ enum EffortChoice {
     }
 
     static func valid(_ id: String?, for agent: AgentKind, model: String? = nil,
-                      codexModels: [ModelChoice.Option]? = nil) -> String? {
+                      discovered: [ModelChoice.Option]? = nil) -> String? {
         guard let id, !id.isEmpty,
-              all(for: agent, model: model, codexModels: codexModels)
+              all(for: agent, model: model, discovered: discovered)
                 .contains(where: { $0.id == id }) else { return nil }
         return id
     }
 
     static func summary(of id: String?, agent: AgentKind, model: String? = nil,
-                        codexModels: [ModelChoice.Option]? = nil) -> String {
+                        discovered: [ModelChoice.Option]? = nil) -> String {
         guard let id, !id.isEmpty else { return "Whatever \(agent.title) is set to use" }
-        return all(for: agent, model: model, codexModels: codexModels)
+        return all(for: agent, model: model, discovered: discovered)
             .first { $0.id == id }?.title ?? Self.title(of: id)
     }
 
     private static func title(of id: String) -> String {
         switch id {
+        case "none": "None"
+        case "minimal": "Minimal"
         case "low": "Low"
         case "medium": "Medium"
         case "high": "High"

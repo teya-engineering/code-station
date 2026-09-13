@@ -21,9 +21,10 @@ final class SessionRunner {
     // settings between turns. Each agent has its own because their choices do not overlap.
     private var defaultsByAgent: [AgentKind: SessionSettings]
 
-    // Nil means discovery has not succeeded yet, so callers use the bundled fallback.
-    // A failed refresh leaves the last successful catalog in place.
-    private(set) var codexModels: [ModelChoice.Option]?
+    // The model catalogs read off the CLIs that publish one, by agent. An agent with no
+    // entry has not answered yet, so callers use the bundled fallback for it. A failed
+    // refresh leaves the last successful catalog in place.
+    private(set) var discoveredModels: [AgentKind: [ModelChoice.Option]] = [:]
 
     var defaults: SessionSettings {
         get { defaults(for: agent) }
@@ -103,7 +104,7 @@ final class SessionRunner {
     @ObservationIgnored private let discoversPaths: Bool
     @ObservationIgnored private let configs: ConfigStore?
     @ObservationIgnored private let codexContextReader = CodexContextReader()
-    @ObservationIgnored private var codexModelRefreshID = UUID()
+    @ObservationIgnored private var modelRefreshIDs: [AgentKind: UUID] = [:]
     @ObservationIgnored private var codexContextRefreshes:
         [UUID: (id: UUID, task: Task<Void, Never>)] = [:]
     @ObservationIgnored private let stalledAfter: TimeInterval
@@ -111,14 +112,21 @@ final class SessionRunner {
     @ObservationIgnored private let memoryLimit: () -> UInt64
     @ObservationIgnored private let automaticRecapsEnabled: () -> Bool
 
-    // How Claude Code says it no longer holds the conversation we asked to resume.
-    private static let lostConversation = "No conversation found with session ID"
+    // How a CLI says it no longer holds the conversation we asked to resume. Codex has
+    // no such message: a thread it cannot find is a failed turn like any other.
+    nonisolated static func lostConversation(_ agent: AgentKind) -> String? {
+        switch agent {
+        case .claudeCode: "No conversation found with session ID"
+        case .codex: nil
+        case .copilot: "No session, task, or name matched"
+        }
+    }
     static let recoveryPrompt = """
     Inspect the current state and continue only the unfinished parts of the previous request. Do not repeat work or side effects that are already complete.
     """
 
     init(configs: ConfigStore? = nil, paths: [AgentKind: String]? = nil,
-         codexModels: [ModelChoice.Option]? = nil,
+         discoveredModels: [AgentKind: [ModelChoice.Option]] = [:],
          stalledAfter: TimeInterval = 5 * 60,
          stallCheckInterval: Duration = .seconds(5),
          memoryLimit: @escaping () -> UInt64 = {
@@ -128,7 +136,7 @@ final class SessionRunner {
              Preferences.sessionRecapsEnabled()
          }) {
         self.configs = configs
-        self.codexModels = codexModels
+        self.discoveredModels = discoveredModels
         self.stalledAfter = stalledAfter
         self.stallCheckInterval = stallCheckInterval
         self.memoryLimit = memoryLimit
@@ -167,40 +175,54 @@ final class SessionRunner {
         }
     }
 
-    func refreshCodexModels() async {
-        guard let path = paths[.codex] else { return }
-        let id = UUID()
-        codexModelRefreshID = id
-        let models = await CodexModelReader.read(at: path, searchPath: ProcessManager.searchPath)
-        guard codexModelRefreshID == id, let models else { return }
-        codexModels = models
+    // Asks every installed CLI that publishes a catalog for its models. A refresh started
+    // while another is still asking wins: the older answer is dropped when it arrives.
+    func refreshDiscoveredModels() async {
+        await withTaskGroup(of: (AgentKind, [ModelChoice.Option]?, UUID).self) { group in
+            for agent in [AgentKind.codex, .copilot] {
+                guard let path = paths[agent] else { continue }
+                let id = UUID()
+                modelRefreshIDs[agent] = id
+                let searchPath = ProcessManager.searchPath
+                group.addTask {
+                    let models: [ModelChoice.Option]? = switch agent {
+                    case .codex: await CodexModelReader.read(at: path, searchPath: searchPath)
+                    case .copilot: await CopilotServer.models(at: path, searchPath: searchPath)
+                    case .claudeCode: nil
+                    }
+                    return (agent, models, id)
+                }
+            }
+            for await (agent, models, id) in group {
+                guard modelRefreshIDs[agent] == id, let models else { continue }
+                discoveredModels[agent] = models
+            }
+        }
     }
 
     func modelOptions(for agent: AgentKind) -> [ModelChoice.Option] {
-        ModelChoice.options(for: agent, codexModels: codexModels)
+        ModelChoice.options(for: agent, discovered: discoveredModels[agent])
     }
 
     func validModel(_ id: String?, for agent: AgentKind) -> String? {
-        ModelChoice.valid(id, for: agent, codexModels: agent == .codex ? codexModels : nil)
+        ModelChoice.valid(id, for: agent, discovered: discoveredModels[agent])
     }
 
     func modelTitle(_ id: String?) -> String {
-        ModelChoice.title(of: id, codexModels: codexModels)
+        ModelChoice.title(of: id, discovered: discoveredModels.values.flatMap { $0 })
     }
 
     func effortOptions(for agent: AgentKind, model: String?) -> [EffortChoice.Option] {
-        EffortChoice.all(for: agent, model: model,
-                         codexModels: agent == .codex ? codexModels : nil)
+        EffortChoice.all(for: agent, model: model, discovered: discoveredModels[agent])
     }
 
     func validEffort(_ id: String?, for agent: AgentKind, model: String?) -> String? {
-        EffortChoice.valid(id, for: agent, model: model,
-                           codexModels: agent == .codex ? codexModels : nil)
+        EffortChoice.valid(id, for: agent, model: model, discovered: discoveredModels[agent])
     }
 
     func effortTitle(_ id: String?, for agent: AgentKind, model: String?) -> String {
         EffortChoice.summary(of: id, agent: agent, model: model,
-                             codexModels: agent == .codex ? codexModels : nil)
+                             discovered: discoveredModels[agent])
     }
 
     var availableAgents: [AgentKind] {
@@ -646,7 +668,7 @@ final class SessionRunner {
     func canRetryStalled(_ sessionID: UUID, store: ProjectStore) -> Bool {
         guard let record = records[sessionID], case .stalled = record.state,
               !record.isBeingRemoved,
-              let turn = record.turn, turn.agent == .codex, !turn.stopRequested,
+              let turn = record.turn, !turn.agent.asksPermissions, !turn.stopRequested,
               !record.expectsSilence(from: turn),
               let session = store.session(sessionID) else { return false }
         return session.hasAgentConversation
@@ -697,8 +719,9 @@ final class SessionRunner {
             return true
         }
         guard Self.isCompactCommand(text) else { return false }
-        guard store.session(sessionID)?.agent == .claudeCode else {
-            note("Codex compacts context automatically. Manual compaction is not available.",
+        guard let agent = store.session(sessionID)?.agent, agent == .claudeCode else {
+            let title = store.session(sessionID)?.agent.title ?? "This agent"
+            note("\(title) compacts context automatically. Manual compaction is not available.",
                  sessionID: sessionID, store: store)
             return true
         }
@@ -754,6 +777,7 @@ final class SessionRunner {
         store.markSessionSeen(sessionID)
         store.restoreAgentSessionIDs(claudeSessionID: checkpoint.claudeSessionID,
                                      codexSessionID: checkpoint.codexSessionID,
+                                     copilotSessionID: checkpoint.copilotSessionID,
                                      for: sessionID)
         // How full the window was described the discarded turns; the next turn
         // measures the conversation as it stands now.
@@ -955,7 +979,8 @@ final class SessionRunner {
         // point that can be come back to.
         let checkpoint = ConversationCheckpoint(agent: session.agent,
                                                 claudeSessionID: session.claudeSessionID,
-                                                codexSessionID: session.codexSessionID)
+                                                codexSessionID: session.codexSessionID,
+                                                copilotSessionID: session.copilotSessionID)
         for var message in next.transcriptMessages {
             if message.role == .user { message.checkpoint = checkpoint }
             store.append(message, to: sessionID)
@@ -1093,21 +1118,27 @@ final class SessionRunner {
     // Everything the CLI is run with for one turn. The session's own choices win, the app
     // defaults fill the gaps for mutable run controls, and anything neither has chosen is
     // left off rather than sent as a guess. A choice that does not belong to this agent
-    // would be refused, so it counts as unchosen here.
+    // would be refused, so it counts as unchosen here. Copilot alone takes the prompt as
+    // an argument, and a new Copilot conversation is given its id up front rather than
+    // read back off the stream.
     nonisolated static func arguments(agent: AgentKind = .claudeCode,
                                       settings: SessionSettings, defaults: SessionSettings,
                                       addDirectories: [String] = [], writableRoots: [String] = [],
                                       resume: String? = nil,
+                                      newSessionID: String? = nil,
+                                      prompt: String? = nil,
                                       mcpConfigPath: String? = nil,
                                       additionalSystemPrompt: String? = nil,
-                                      codexModels: [ModelChoice.Option]? = nil) -> [String] {
+                                      discovered: [ModelChoice.Option]? = nil) -> [String] {
         // The model belongs to the session and can be changed explicitly between turns.
         // Falling back to the current app default would change it without the user asking.
-        let model = ModelChoice.valid(settings.model, for: agent, codexModels: codexModels)
+        let model = ModelChoice.valid(settings.model, for: agent, discovered: discovered)
         let effort = EffortChoice.valid(settings.effort ?? defaults.effort, for: agent,
-                                        model: model, codexModels: codexModels)
+                                        model: model, discovered: discovered)
         let codexSandbox = CodexSandboxMode.resolved(settings.codexSandboxMode
             ?? defaults.codexSandboxMode)
+        let copilotAccess = CopilotAccessMode.resolved(settings.copilotAccessMode
+            ?? defaults.copilotAccessMode)
 
         switch agent {
         case .claudeCode:
@@ -1193,6 +1224,38 @@ final class SessionRunner {
             // The prompt goes over stdin, which "-" asks for; passed as an argument, a
             // prompt starting with a dash would be read as a flag.
             arguments.append("-")
+            return arguments
+
+        case .copilot:
+            // Prompt mode runs the turn to the end and prints the session log as JSON
+            // lines. It refuses to run at all unless tools may run without asking, so
+            // the access choice is only about how far past the session's folders they
+            // reach. Any guidance for the turn rides in the prompt: there is no flag for
+            // a system prompt of its own.
+            let prompt = [additionalSystemPrompt, prompt].compactMap { $0 }
+                .joined(separator: "\n\n")
+            var arguments = ["-p", prompt, "--output-format", "json",
+                             "--no-auto-update", "--no-color", "--no-ask-user"]
+            if let resume, !resume.isEmpty {
+                arguments += ["--resume", resume]
+            } else if let newSessionID, !newSessionID.isEmpty {
+                arguments += ["--session-id", newSessionID]
+            }
+            switch copilotAccess {
+            case .workspace: arguments.append("--allow-all-tools")
+            case .fullAccess: arguments.append("--allow-all")
+            }
+            if let model { arguments += ["--model", model] }
+            if let effort { arguments += ["--effort", effort] }
+            if settings.mcpServersEnabled == false {
+                // No one flag turns every configured server off, so the built-in one
+                // goes here and the rest go by name below.
+                arguments.append("--disable-builtin-mcps")
+            }
+            for server in settings.disabledMCPServers ?? [] where !server.name.isEmpty {
+                arguments += ["--disable-mcp-server", server.name]
+            }
+            for directory in addDirectories { arguments += ["--add-dir", directory] }
             return arguments
         }
     }
@@ -1463,6 +1526,10 @@ final class SessionRunner {
         }
 
         records[sessionID, default: SessionRecord()].turn = turn
+        if let presetSessionID = plan.presetSessionID {
+            turn.agentSessionID = presetSessionID
+            store.setAgentSessionID(presetSessionID, agent: agent, for: sessionID)
+        }
         setState(.starting, for: sessionID)
         startStallWatchdog(turn, sessionID: sessionID)
         SessionLog.note("starting \(agent.command) arguments=\(plan.arguments.count)",
@@ -1478,6 +1545,9 @@ final class SessionRunner {
         // workspace's other roots as well.
         let prompt: String
         let resumed: Bool
+        // The id a new conversation was told to use, for agents given one up front. Saved
+        // as soon as the process starts: the stream only confirms it at the very end.
+        var presetSessionID: String? = nil
     }
 
     private func turnPlan(for session: ChatSession, prompt: String, attachments: [Attachment],
@@ -1487,6 +1557,8 @@ final class SessionRunner {
         let resume = session.agentSessionID(for: agent).flatMap { $0.isEmpty ? nil : $0 }
         let promptForAgent = resume == nil ? workspacePrompt(prompt, session: session, store: store)
                                            : prompt
+        let presetSessionID = agent == .copilot && resume == nil
+            ? UUID().uuidString.lowercased() : nil
         let projectDirectories = Array(workingDirectories.dropFirst())
         let attachmentDirectories = Self.directoriesOutside(workingDirectories, for: attachments)
         let designArtifact = session.isActivelyDesigning
@@ -1516,14 +1588,16 @@ final class SessionRunner {
             addDirectories: additionalDirectories,
             writableRoots: writableRoots,
             resume: resume,
+            newSessionID: presetSessionID,
+            prompt: promptForAgent,
             mcpConfigPath: mcpConfigURL?.path,
             additionalSystemPrompt: designArtifact.map {
                 Self.designSystemPrompt(artifactURL: $0,
                                         canvasWidth: canvasWidths[session.id])
             } ?? implementationReference.map(Self.implementationSystemPrompt),
-            codexModels: agent == .codex ? codexModels : nil)
+            discovered: discoveredModels[agent])
         return TurnPlan(agent: agent, arguments: arguments, prompt: promptForAgent,
-                        resumed: resume != nil)
+                        resumed: resume != nil, presetSessionID: presetSessionID)
     }
 
     // Starts the process and wires up everything that listens to it: the two output
@@ -1590,9 +1664,13 @@ final class SessionRunner {
         let buffer = LineBuffer()
         let stream = StreamBatcher()
 
+        let copilotStream = CopilotStream()
         let parseLine: @Sendable (String) -> [StreamEvent] = { line in
-            let events = agent == .codex ? StreamEvent.parseCodex(line)
-                                         : StreamEvent.parse(line, projectPath: workingDirectory)
+            let events = switch agent {
+            case .claudeCode: StreamEvent.parse(line, projectPath: workingDirectory)
+            case .codex: StreamEvent.parseCodex(line)
+            case .copilot: copilotStream.parse(line)
+            }
             let detail = events.isEmpty
                 ? "stream event ignored bytes=\(line.utf8.count)"
                 : events.map(\.logSummary).joined(separator: ", ")
@@ -1698,6 +1776,11 @@ final class SessionRunner {
             // ever goes back down it: there are no questions to answer mid-turn.
             sent = turn.write(Data((prompt + "\n").utf8))
             if sent { turn.closeInput() }
+        case .copilot:
+            // Copilot was given the prompt as an argument, and it waits for stdin to
+            // close before it starts, so the pipe is shut straight away.
+            sent = true
+            turn.closeInput()
         }
         guard sent else {
             requestStop(sessionID, failure:
@@ -2166,7 +2249,7 @@ final class SessionRunner {
     }
 
     private func startStallWatchdog(_ turn: Turn, sessionID: UUID) {
-        guard turn.agent == .codex else { return }
+        guard !turn.agent.asksPermissions else { return }
         let token = turn.token
         let interval = stallCheckInterval
         turn.stallWatchdog = Task { [weak self] in
@@ -2473,10 +2556,10 @@ final class SessionRunner {
             return
         }
 
-        // Warnings on stderr are common and harmless. Codex must also report its terminal
-        // event, since an exit code of zero after a broken stream does not prove the turn
-        // reached completion.
-        let missingCompletion = turn.agent == .codex && !turn.receivedCompletion
+        // Warnings on stderr are common and harmless. Codex and Copilot must also report
+        // their terminal event, since an exit code of zero after a broken stream does not
+        // prove the turn reached completion.
+        let missingCompletion = !turn.agent.asksPermissions && !turn.receivedCompletion
         guard turn.failure != nil || status != 0 || missingCompletion else {
             SessionLog.note("turn finished", session: sessionID)
             setState(.idle, for: sessionID)
@@ -2510,7 +2593,7 @@ final class SessionRunner {
         if !stderr.isEmpty { parts.append(stderr) }
         if parts.isEmpty {
             parts.append(missingCompletion
-                ? "Codex ended before completing the turn."
+                ? "\(turn.agent.title) ended before completing the turn."
                 : "\(turn.agent.title) exited with code \(status).")
         }
         let message = parts.joined(separator: "\n\n")
@@ -2518,12 +2601,12 @@ final class SessionRunner {
             "turn failed status=\(status) failure=\(turn.failure != nil) stderrBytes=\(turn.stderr.utf8.count)",
             session: sessionID)
 
-        // Claude Code no longer holds the conversation we asked it to resume, usually
+        // The CLI no longer holds the conversation we asked it to resume, usually
         // because its own history was pruned. The prompt is still good, so run it once
         // more as a new conversation instead of leaving the session stuck for good.
-        if turn.agent == .claudeCode, turn.canRetryWithoutResume, turn.resumed,
-           message.contains(Self.lostConversation) {
-            store.clearAgentSessionID(agent: .claudeCode, for: sessionID)
+        if turn.canRetryWithoutResume, turn.resumed,
+           let lost = Self.lostConversation(turn.agent), message.contains(lost) {
+            store.clearAgentSessionID(agent: turn.agent, for: sessionID)
             store.append(
                 ChatMessage(role: .system,
                             text: "The earlier conversation could not be resumed, so this reply starts a fresh one without the previous context."),
@@ -2555,7 +2638,7 @@ final class SessionRunner {
         store.release(sessionID, for: .running)
 
         let completedNormally = !turn.stopRequested && turn.failure == nil && status == 0
-            && (turn.agent != .codex || turn.receivedCompletion)
+            && (turn.agent.asksPermissions || turn.receivedCompletion)
         let text: String? = if completedNormally {
             switch attempt.mode {
             case .claudeCode:

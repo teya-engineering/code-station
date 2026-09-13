@@ -12,6 +12,7 @@ struct TroubleshootTabView: View {
     @Environment(SessionRunner.self) private var runner
     @Environment(ClaudeCodeManager.self) private var claude
     @Environment(CodexCodeManager.self) private var codex
+    @Environment(CopilotCodeManager.self) private var copilot
     @Environment(ConfigStore.self) private var configs
     @Environment(DialogPresenter.self) private var dialogs
     @Environment(SkillsManager.self) private var skills
@@ -247,12 +248,13 @@ struct TroubleshootTabView: View {
         .resolve(agent: session.agent, enabled: mcpServersEnabled,
                  servers: environmentMCPServers,
                  hasStartedCheck: hasStartedMCPConfigurationCheck,
-                 claude: claude, codex: codex)
+                 claude: claude, codex: codex, copilot: copilot)
     }
 
     private func refreshMCPConfiguration() {
         claude.refresh()
         codex.refresh(configs.servers)
+        copilot.refresh(configs.servers)
         hasStartedMCPConfigurationCheck = true
     }
 
@@ -276,11 +278,12 @@ struct TroubleshootTabView: View {
             let managedServers = configs.servers
             let selectedServers = managedServers.filter { chosenEnvironment.includes($0) }
             var disabledServers: [DisabledMCPServer] = []
-            if session.agent == .codex, let directory,
+            if session.agent != .claudeCode, let directory,
                !enableMCPServers || !managedServers.isEmpty {
                 do {
-                    disabledServers = try await codexServersToDisable(
-                        in: directory, keeping: selectedServers, mcpEnabled: enableMCPServers)
+                    disabledServers = try await serversToDisable(
+                        for: session.agent, in: directory, keeping: selectedServers,
+                        mcpEnabled: enableMCPServers)
                 } catch {
                     dialogs.show(.notice("Could not filter MCP servers",
                                          message: error.localizedDescription))
@@ -317,11 +320,15 @@ struct TroubleshootTabView: View {
         }
     }
 
-    // The servers Codex has switched on that the diagnosis must not see: all of them
-    // while MCP is off, otherwise the ones outside the chosen environment.
-    private func codexServersToDisable(in directory: String, keeping selected: [Server],
-                                       mcpEnabled: Bool) async throws -> [DisabledMCPServer] {
-        let enabled = try await codex.enabledServers(in: directory)
+    // The servers the agent has switched on that the diagnosis must not see: all of them
+    // while MCP is off, otherwise the ones outside the chosen environment. Claude Code
+    // is handed a filtered configuration instead, so it never comes through here.
+    private func serversToDisable(for agent: AgentKind, in directory: String,
+                                  keeping selected: [Server],
+                                  mcpEnabled: Bool) async throws -> [DisabledMCPServer] {
+        let enabled = agent == .copilot
+            ? try await copilot.enabledServers(in: directory)
+            : try await codex.enabledServers(in: directory)
         guard mcpEnabled else { return enabled }
         let selectedNames = Set(selected.map(\.name))
         return enabled.filter { !selectedNames.contains($0.name) }

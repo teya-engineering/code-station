@@ -272,7 +272,7 @@ struct CodexTests {
             agent: .codex,
             settings: SessionSettings(model: "gpt-5.6-astra", effort: "ultra"),
             defaults: SessionSettings(),
-            codexModels: models)
+            discovered: models)
 
         #expect(pair(arguments, after: "--model") == "gpt-5.6-astra")
         #expect(arguments.contains("model_reasoning_effort=\"ultra\""))
@@ -281,7 +281,7 @@ struct CodexTests {
             agent: .codex,
             settings: SessionSettings(model: "gpt-5.6-astra", effort: "max"),
             defaults: SessionSettings(),
-            codexModels: models)
+            discovered: models)
         #expect(!unsupported.contains { $0.hasPrefix("model_reasoning_effort=") })
     }
 
@@ -942,14 +942,14 @@ struct CodexTests {
         ]
 
         #expect(ModelChoice.valid("gpt-5.6-astra", for: .codex,
-                                  codexModels: models) == "gpt-5.6-astra")
+                                  discovered: models) == "gpt-5.6-astra")
         #expect(ModelChoice.valid("gpt-5.6-terra", for: .codex,
-                                  codexModels: models) == nil)
-        #expect(ModelChoice.title(of: "gpt-5.6-astra", codexModels: models) == "Astra")
+                                  discovered: models) == nil)
+        #expect(ModelChoice.title(of: "gpt-5.6-astra", discovered: models) == "Astra")
         #expect(EffortChoice.all(for: .codex, model: "gpt-5.6-astra",
-                                 codexModels: models).compactMap(\.id) == ["low", "ultra"])
+                                 discovered: models).compactMap(\.id) == ["low", "ultra"])
         #expect(EffortChoice.valid("ultra", for: .codex, model: "gpt-5.6-luna",
-                                   codexModels: models) == nil)
+                                   discovered: models) == nil)
         #expect(ModelChoice.valid("gpt-5.8-future", for: .codex) == "gpt-5.8-future")
     }
 

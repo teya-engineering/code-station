@@ -185,13 +185,14 @@ enum MessageBlock: Identifiable {
 // The resume ids as they stood before a prompt ran, written on that prompt's message.
 // Claude Code forks a new id on every resumed turn, so an id recorded here keeps
 // pointing at the conversation as it was then - which is what makes rewinding to the
-// message, or forking a new session from it, possible. Codex reuses one thread for the
-// whole conversation, so a Codex turn cannot be wound back; the agent that ran the
-// turn is recorded to tell the two apart.
+// message, or forking a new session from it, possible. Codex and Copilot reuse one
+// conversation id for the whole session, so their turns cannot be wound back; the agent
+// that ran the turn is recorded to tell them apart.
 struct ConversationCheckpoint: Codable, Equatable, Sendable {
     var agent: AgentKind
     var claudeSessionID: String?
     var codexSessionID: String?
+    var copilotSessionID: String? = nil
 }
 
 struct ChatMessage: Identifiable, Codable, Equatable, Sendable {

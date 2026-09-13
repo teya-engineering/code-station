@@ -2,9 +2,9 @@ import SwiftUI
 
 // The pane is about the agents the app can run: which one sessions use, whether its CLI
 // is there, who it is signed in as, and where its own files live. The account details
-// come straight from each CLI's own files rather than from asking the CLI, which keeps
-// opening the pane instant. Versions and Codex account usage need a process, so they
-// arrive when they arrive.
+// come straight from each CLI's own files where it keeps them there, which keeps
+// opening the pane instant. Versions, Codex account usage and Copilot's sign-in need a
+// process, so they arrive when they arrive.
 @MainActor
 @Observable
 final class ClaudeAgentInfo {
@@ -163,6 +163,52 @@ final class CodexAgentInfo {
 }
 
 // Runs "<cli> --version" and hands back the line it printed.
+// Copilot keeps its sign-in in the system keychain or takes it from the gh CLI, so the
+// only honest way to read it is to ask the CLI. That takes a moment, like its version.
+@MainActor
+@Observable
+final class CopilotAgentInfo {
+    private(set) var path: String?
+    private(set) var version: String?
+    private(set) var account: CopilotServer.AuthStatus?
+    private(set) var isCheckingAccount = false
+    private var refreshID = UUID()
+    @ObservationIgnored private var versionTask: Task<Void, Never>?
+    @ObservationIgnored private var accountTask: Task<Void, Never>?
+
+    init() { refresh() }
+
+    func refresh() {
+        versionTask?.cancel()
+        accountTask?.cancel()
+        path = ProcessManager.resolve("copilot")
+        version = nil
+        account = nil
+        isCheckingAccount = false
+        refreshID = UUID()
+        guard let path else { return }
+        let searchPath = ProcessManager.searchPath
+        let id = refreshID
+        versionTask = Task {
+            // The CLI prints "GitHub Copilot CLI 1.0.83." and a line about updates; the
+            // number is the part worth keeping.
+            let version = await cliVersion(at: path, searchPath: searchPath)?
+                .split(whereSeparator: \.isNewline).first?
+                .split(separator: " ").last
+                .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: ".")) }
+            guard !Task.isCancelled, refreshID == id else { return }
+            self.version = version
+        }
+        isCheckingAccount = true
+        accountTask = Task {
+            let status = await CopilotServer.authStatus(at: path, searchPath: searchPath)
+            guard !Task.isCancelled, refreshID == id else { return }
+            self.account = status?.isAuthenticated == true ? status : nil
+            self.isCheckingAccount = false
+        }
+    }
+}
+
 private nonisolated func cliVersion(at path: String, searchPath: String) async -> String? {
     var env = ProcessInfo.processInfo.environment
     env["PATH"] = searchPath
@@ -185,6 +231,7 @@ struct AgentSettingsView: View {
     @State private var selectedAgent: AgentKind
     @State private var claude = ClaudeAgentInfo()
     @State private var codex = CodexAgentInfo()
+    @State private var copilot = CopilotAgentInfo()
     @State private var loggingIn: AgentKind?
 
     let requestedAgent: AgentKind?
@@ -215,7 +262,8 @@ struct AgentSettingsView: View {
         runner.refreshAvailableAgents()
         claude.refresh()
         codex.refresh()
-        Task { await runner.refreshCodexModels() }
+        copilot.refresh()
+        Task { await runner.refreshDiscoveredModels() }
     }
 
     // MARK: - Agent tabs
@@ -237,9 +285,7 @@ struct AgentSettingsView: View {
                         AgentKind.allCases.map { agent in
                             .item(agent.title,
                                   checked: runner.agent == agent,
-                                  subtitle: agent == .codex
-                                      ? "OpenAI's coding agent."
-                                      : "Anthropic's coding agent.") {
+                                  subtitle: agent.blurb) {
                                 runner.agent = agent
                             }
                         }
@@ -284,6 +330,9 @@ struct AgentSettingsView: View {
         let path: String?
         let version: String?
         let account: String?
+        // Kept apart from the account text: a check still under way has words on the
+        // row but no sign-in to show for them yet.
+        let signedIn: Bool
         let plan: String?
         let usage: [AccountUsageWindow]
         let usageCheckedAt: Date?
@@ -305,6 +354,7 @@ struct AgentSettingsView: View {
                 account: claude.account.map { account in
                     account.name.map { "\($0) · \(account.email)" } ?? account.email
                 },
+                signedIn: claude.account != nil,
                 plan: claude.account?.plan,
                 usage: claudeUsage,
                 usageCheckedAt: runner.rateLimitsUpdatedAt[.claudeCode],
@@ -322,6 +372,7 @@ struct AgentSettingsView: View {
                 account: codex.account.map { account in
                     account.email.map { "\(account.method) · \($0)" } ?? account.method
                 },
+                signedIn: codex.account != nil,
                 plan: codex.account?.plan,
                 usage: codex.usage?.windows ?? [],
                 usageCheckedAt: codex.usage?.checkedAt,
@@ -334,7 +385,27 @@ struct AgentSettingsView: View {
                 configFile: ".codex/config.toml",
                 refresh: {
                     codex.refresh()
-                    Task { await runner.refreshCodexModels() }
+                    Task { await runner.refreshDiscoveredModels() }
+                })
+        case .copilot:
+            AgentProfile(
+                heading: "COPILOT",
+                path: copilot.path,
+                version: copilot.version,
+                account: copilot.account?.summary
+                    ?? (copilot.isCheckingAccount ? "Checking…" : nil),
+                signedIn: copilot.account != nil,
+                plan: nil,
+                usage: [],
+                usageCheckedAt: nil,
+                usageLoading: false,
+                usageEmptyMessage: "Premium request use is shown on github.com under your Copilot settings.",
+                usageNote: "Copilot does not report account usage to the app.",
+                fileTitle: "Copilot config",
+                configFile: ".copilot/config.json",
+                refresh: {
+                    copilot.refresh()
+                    Task { await runner.refreshDiscoveredModels() }
                 })
         }
     }
@@ -345,7 +416,7 @@ struct AgentSettingsView: View {
             ChoiceBlock(profile.heading) {
                 SettingsCard {
                     statusRow(installed: profile.path != nil,
-                              signedIn: profile.account != nil,
+                              signedIn: profile.signedIn,
                               refresh: profile.refresh)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 12)
@@ -437,6 +508,7 @@ struct AgentSettingsView: View {
         switch agent {
         case .claudeCode: claudePermissions
         case .codex: codexPermissions
+        case .copilot: copilotPermissions
         }
     }
 
@@ -474,12 +546,29 @@ struct AgentSettingsView: View {
         }
     }
 
+    private var copilotPermissions: some View {
+        ChoiceBlock("PERMISSIONS", note: "Used by every Copilot session unless that session has its own choice. Changes apply from its next turn.") {
+            SettingsCard {
+                ForEach(CopilotAccessMode.allCases.indices, id: \.self) { index in
+                    let mode = CopilotAccessMode.allCases[index]
+                    OptionRow(title: mode.title,
+                              detail: mode.detail,
+                              selected: CopilotAccessMode.resolved(defaults.copilotAccessMode) == mode,
+                              warning: mode == .fullAccess) {
+                        change { $0.copilotAccessMode = mode.rawValue }
+                    }
+                    if index < CopilotAccessMode.allCases.count - 1 { SettingsRowDivider() }
+                }
+            }
+        }
+    }
+
     // Hiding it only takes the figure off the screen. Sessions still record what they
     // spent, so turning this back on shows the full total rather than starting again.
     private func cost(for agent: AgentKind) -> some View {
-        ChoiceBlock("COST", note: agent == .codex
-                    ? "Codex reports no cost of its own, so its sessions have nothing to show until it does."
-                    : nil) {
+        ChoiceBlock("COST", note: agent == .claudeCode
+                    ? nil
+                    : "\(agent.title) reports no cost of its own, so its sessions have nothing to show until it does.") {
             SettingsCard {
                 SettingsToggleRow(
                     "Show what a session has spent",

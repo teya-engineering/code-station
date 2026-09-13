@@ -52,11 +52,11 @@ struct SessionFacts: Equatable {
     }
 
     // The tint the window reading wears, and with it the hairline under the deck. Codex
-    // makes its own room as the window fills, so a full one there is worth noticing
-    // rather than a failure waiting to happen.
+    // and Copilot make their own room as the window fills, so a full one there is worth
+    // noticing rather than a failure waiting to happen.
     static func contextColour(_ fraction: Double, agent: AgentKind) -> Color {
         switch Int((fraction * 100).rounded()) {
-        case 85...: agent == .codex ? Theme.attention : Theme.deletion
+        case 85...: agent.asksPermissions ? Theme.deletion : Theme.attention
         case 70...: Theme.attention
         default: Theme.dotOn
         }
@@ -139,7 +139,7 @@ struct SessionFactsChip: View {
         let opens = facts.namedBranch.map { "Branch \($0), session details" }
             ?? "Session details"
         guard let context = facts.context else { return opens }
-        let window = facts.agent == .codex ? "window" : "context"
+        let window = facts.agent.asksPermissions ? "context" : "window"
         return "\(opens), \(window) \(SessionFacts.percent(context)) full"
     }
 
@@ -354,7 +354,7 @@ struct SessionFactsChip: View {
     // conversation to work on and nothing running that still holds it.
     @ViewBuilder private func contextRow(_ fraction: Double) -> some View {
         let actions = contextActions()
-        row(facts.agent == .codex ? "WINDOW" : "CONTEXT") {
+        row(facts.agent.asksPermissions ? "CONTEXT" : "WINDOW") {
             if actions.isEmpty {
                 contextReading(fraction, clearable: false)
                     .appTooltip(usageTooltip)

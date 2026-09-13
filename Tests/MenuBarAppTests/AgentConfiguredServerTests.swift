@@ -30,6 +30,24 @@ struct AgentConfiguredServerTests {
         #expect(!servers[2].hasDifferentConfigurations)
     }
 
+    @Test func listsCopilotRegistrationsWithTheirHeaders() throws {
+        let servers = AgentConfiguredServer.outsideCodeStation(
+            managedServers: [],
+            claudeEntries: [:],
+            codexEntries: [:],
+            copilotEntries: [
+                "remote": CopilotCodeManager.Entry(url: "https://mcp.example/mcp", type: "http",
+                                                   headers: ["Authorization": "Bearer x"],
+                                                   enabled: false)
+            ])
+
+        let registration = try #require(servers.first?.registrations.first)
+        #expect(registration.source == .copilot)
+        #expect(registration.transport == "http")
+        #expect(registration.headers == ["Authorization": "Bearer x"])
+        #expect(!registration.enabled)
+    }
+
     @Test func noticesWhenAgentsUseDifferentDefinitionsForTheSameName() {
         let servers = AgentConfiguredServer.outsideCodeStation(
             managedServers: [],

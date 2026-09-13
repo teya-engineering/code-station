@@ -79,7 +79,7 @@ struct AgentConfiguredServerDetailView: View {
     }
 
     private var differenceCard: some View {
-        WarningStrip("Claude Code and Codex use different connection details for this server name.")
+        WarningStrip("The agents use different connection details for this server name.")
             .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 

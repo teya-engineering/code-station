@@ -260,6 +260,11 @@ enum Preferences {
                             effort: text("codexDefaultEffort") ?? text("defaultEffort"),
                             codexSandboxMode: store.string(forKey: "codexSandboxMode")
                                 ?? CodexSandboxMode.workspaceWrite.rawValue)
+        case .copilot:
+            SessionSettings(model: text("copilotDefaultModel"),
+                            effort: text("copilotDefaultEffort"),
+                            copilotAccessMode: store.string(forKey: "copilotAccessMode")
+                                ?? CopilotAccessMode.workspace.rawValue)
         }
     }
 
@@ -275,6 +280,11 @@ enum Preferences {
             set(settings.effort, "codexDefaultEffort")
             store.set(CodexSandboxMode.resolved(settings.codexSandboxMode).rawValue,
                       forKey: "codexSandboxMode")
+        case .copilot:
+            set(settings.model, "copilotDefaultModel")
+            set(settings.effort, "copilotDefaultEffort")
+            store.set(CopilotAccessMode.resolved(settings.copilotAccessMode).rawValue,
+                      forKey: "copilotAccessMode")
         }
     }
 
