@@ -537,7 +537,7 @@ struct SessionView: View {
 
     // What the pane can open beside where you already are: the panel toggles, then what
     // the session itself offers. A hairline closes each group, so the rail reads as two
-    // things rather than as five icons.
+    // things rather than as a row of icons.
     private func rail(session: ChatSession, project: Project, recap: SessionRecap?,
                       fit: HeaderFit) -> some View {
         HStack(spacing: 9) {
@@ -594,13 +594,15 @@ struct SessionView: View {
         .accessibilityValue(isOpen ? "open" : "closed")
     }
 
-    // What the session offers rather than where to look inside it: the recap of what has
-    // happened, the code that puts it on a phone, and the Design materials where there
-    // are any. All three are about this session as a whole, which is what keeps them
-    // together at the end of the rail.
+    // Actions for the session as a whole stay together at the end of the rail.
     private func utilities(session: ChatSession, project: Project,
                            recap: SessionRecap?) -> some View {
         HStack(spacing: 2) {
+            if let worktreePath = session.worktreePath {
+                HeaderRailButton(icon: "folder", label: "Open worktree in Finder") {
+                    NSWorkspace.shared.open(URL(fileURLWithPath: worktreePath, isDirectory: true))
+                }
+            }
             if showsDesignMaterialExport(session) {
                 designMaterialExportButton(session: session, project: project)
             }
@@ -620,7 +622,7 @@ struct SessionView: View {
         }
     }
 
-    // The same three behind one button, for a window too narrow to hold the rail. The
+    // The same actions behind one button, for a window too narrow to hold the rail. The
     // utilities fold before the toggles and the tab deck do: they are the group you reach
     // for least often, and the only one whose words survive being put in a menu.
     private func utilitiesOverflow(session: ChatSession, project: Project) -> some View {
@@ -632,6 +634,11 @@ struct SessionView: View {
 
     private func utilityEntries(session: ChatSession, project: Project) -> [MenuEntry] {
         var entries: [MenuEntry] = []
+        if let worktreePath = session.worktreePath {
+            entries.append(.item("Open worktree in Finder", icon: "folder") {
+                NSWorkspace.shared.open(URL(fileURLWithPath: worktreePath, isDirectory: true))
+            })
+        }
         if showsDesignMaterialExport(session) {
             entries.append(.item("Export Design materials", icon: "doc.zipper") {
                 exportDesignMaterials(session: session, project: project)
@@ -650,7 +657,8 @@ struct SessionView: View {
     }
 
     private func hasUtilities(session: ChatSession) -> Bool {
-        showsDesignMaterialExport(session) || showsRecap || appSettings.mobileAccessEnabled
+        session.worktreePath != nil || showsDesignMaterialExport(session)
+            || showsRecap || appSettings.mobileAccessEnabled
     }
 
     // A design session is recapped through the conversation it belongs to, so what the
