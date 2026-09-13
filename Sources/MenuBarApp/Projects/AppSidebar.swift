@@ -2248,13 +2248,12 @@ private struct SessionCard: View {
                     .minimumScaleFactor(0.85)
                 if session.isPinned { PinnedMark() }
                 // WT means every checkout is a worktree. A session that is only partly
-                // in worktrees still shares a folder, so it wears a count in the amber
-                // of something that needs a look rather than the plain chip.
+                // in worktrees still shares a folder, so it wears MIXED in the amber of
+                // something that needs a look. The tooltip names which projects share.
                 if worktrees.isComplete {
                     MonoChip(text: "WT", size: 8.5)
                 } else if worktrees.isPartial {
-                    MonoChip(text: "WT \(worktrees.isolated.count)/\(worktrees.isolated.count + worktrees.shared.count)",
-                             size: 8.5, tint: Theme.attentionText)
+                    MonoChip(text: "MIXED", size: 8.5, tint: Theme.attentionText)
                 }
                 if uncommitted { UncommittedMark() }
                 if connected { MobileConnectionMark() }
