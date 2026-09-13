@@ -1091,7 +1091,7 @@ struct SettingsView: View {
             .accessibilityLabel("Default bot preview")
             .accessibilityValue("\(defaultBotTitle): \(defaultBot.personality.sampleLine)")
         } controls: {
-            controlRow("Bot") { defaultBotPicker }
+            controlRow("Default bot") { defaultBotPicker }
 
             controlRow("Bots") {
                 HStack(spacing: 8) {
