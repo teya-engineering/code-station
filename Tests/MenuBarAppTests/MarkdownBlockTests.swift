@@ -213,6 +213,66 @@ struct MarkdownBlockTests {
         #expect(!attributed.hasLocalFileLink)
     }
 
+    @Test(arguments: ["/tmp/report.txt", "/tmp/output/"], [false, true])
+    @MainActor func fileLinksShareTheCustomTooltipAndClickAction(
+        path: String, viaTooltip: Bool
+    ) async throws {
+        let tooltips = TooltipPresenter()
+        var opened: [URL] = []
+        let view = MarkdownBlockView(
+            block: MarkdownBlock(id: 0, kind: .paragraph("Open [result](\(path)).")),
+            projectPath: "/tmp",
+            textScale: 1)
+            .environment(tooltips)
+            .environment(\.openURL, OpenURLAction { url in
+                opened.append(url)
+                return .handled
+            })
+        let host = NSHostingView(rootView: view)
+        host.frame = CGRect(x: 0, y: 0, width: 400, height: 100)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.contentView = host
+        defer {
+            tooltips.hideAll()
+            window.contentView = nil
+        }
+        host.layoutSubtreeIfNeeded()
+
+        let textView = try #require(host.descendants.compactMap { $0 as? NSTextView }.first)
+        #expect(!textView.displaysLinkToolTips)
+        let storage = try #require(textView.textStorage)
+        let linkRange = (storage.string as NSString).range(of: "result")
+        let url = try #require(storage.attribute(.link, at: linkRange.location,
+                                                 effectiveRange: nil) as? URL)
+        let layoutManager = try #require(textView.layoutManager)
+        let container = try #require(textView.textContainer)
+        layoutManager.ensureLayout(for: container)
+        let glyphs = layoutManager.glyphRange(forCharacterRange: linkRange,
+                                              actualCharacterRange: nil)
+        let frame = layoutManager.boundingRect(forGlyphRange: glyphs, in: container)
+        let point = textView.convert(
+            CGPoint(x: frame.midX + textView.textContainerOrigin.x,
+                    y: frame.midY + textView.textContainerOrigin.y), to: nil)
+        let hover = try #require(NSEvent.mouseEvent(
+            with: .mouseMoved, location: point, modifierFlags: [], timestamp: 0,
+            windowNumber: window.windowNumber, context: nil, eventNumber: 0,
+            clickCount: 0, pressure: 0))
+
+        textView.mouseMoved(with: hover)
+        #expect(await waitUntil(timeout: .seconds(2)) { tooltips.current != nil })
+        let tooltip = try #require(tooltips.current)
+        #expect(tooltip.title == "Open in Finder")
+        let action = try #require(tooltip.action)
+        if viaTooltip {
+            action()
+        } else {
+            textView.clicked(onLink: url, at: linkRange.location)
+        }
+        #expect(opened == [url])
+        #expect(tooltips.current == nil)
+    }
+
     @Test func keepsAFileURLWithoutASourceLine() {
         let url = URL(fileURLWithPath: "/tmp/result.png")
 

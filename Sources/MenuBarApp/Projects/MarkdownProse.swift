@@ -497,7 +497,7 @@ private struct InlineMarkdownText: View {
                     attributed: attributed,
                     font: font,
                     color: secondary ? .secondaryLabelColor : .labelColor,
-                    openLink: { openURL($0) },
+                    openLink: openLink,
                     linkHoverChanged: linkHoverChanged)
                     // NSViewRepresentable does not pass NSTextView's baseline to SwiftUI.
                     // The font metric keeps linked and native text on the same baseline.
@@ -532,7 +532,7 @@ private struct InlineMarkdownText: View {
             try? await Task.sleep(for: TooltipPresenter.hoverDelay)
             guard !Task.isCancelled else { return }
             tooltipPresenter.show(
-                Tooltip(title: TranscriptLink.finderToolTip) { openURL(hovered.url) },
+                Tooltip(title: TranscriptLink.finderToolTip) { openLink(hovered.url) },
                 from: hovered.frame,
                 owner: owner)
         }
@@ -541,6 +541,12 @@ private struct InlineMarkdownText: View {
     private func hideLinkTooltip() {
         pendingTooltip?.cancel()
         tooltipPresenter.hide(owner: tooltipOwner)
+    }
+
+    private func openLink(_ url: URL) {
+        pendingTooltip?.cancel()
+        tooltipPresenter.hideAll()
+        openURL(url)
     }
 
     private var resolvedNSFont: NSFont {
@@ -658,6 +664,8 @@ private struct LinkAwareText: NSViewRepresentable {
         let view = LinkTextView(usingTextLayoutManager: false)
         view.isEditable = false
         view.isSelectable = true
+        // Per-link hints belong to TooltipPresenter, including their Finder action.
+        view.displaysLinkToolTips = false
         view.drawsBackground = false
         view.backgroundColor = .clear
         view.textContainerInset = .zero
