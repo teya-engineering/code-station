@@ -39,6 +39,14 @@ enum CopilotServer {
         }
     }
 
+    // Starting the CLI can stop on a system prompt asking to unlock the keychain the
+    // sign-in is kept in. Killing it while that prompt is up cancels the read waiting
+    // behind it, and an "Always Allow" answered after that is never recorded, so the
+    // prompt returns on every later read. Any wait therefore has to outlast a person
+    // reading a dialog and typing a password. It is here only to catch a CLI that never
+    // answers at all, and nothing is waiting on the result in the meantime.
+    static let replyTimeout = Duration.seconds(180)
+
     static func authStatus(at path: String, searchPath: String) async -> AuthStatus? {
         guard let result = await request("auth.getStatus", at: path, searchPath: searchPath)
         else { return nil }
@@ -101,7 +109,7 @@ enum CopilotServer {
             environment: environment,
             input: message,
             outputChunkAction: exchange.receive,
-            timeout: .seconds(20),
+            timeout: replyTimeout,
             outputByteLimit: 4_194_304
         )) != nil else { return nil }
         return exchange.result

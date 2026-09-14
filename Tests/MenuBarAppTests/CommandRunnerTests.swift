@@ -337,6 +337,37 @@ struct CommandRunnerTests {
         #expect(runner.discoveredModels[.codex] == existing)
     }
 
+    // Reading a catalog starts the agent's CLI, which can stop on a system prompt, so a
+    // picker shown again must not start it a second time. The refresh button still does.
+    @MainActor
+    @Test func aCatalogIsReadOnceUntilARefreshAsksAgain() async throws {
+        let runs = scratch.path("codex-model-runs")
+        let script = scratch.path("codex-model-once")
+        try FixtureCLI.write("""
+        printf 'ran\\n' >> "\(runs.path)"
+        IFS= read -r initialize
+        printf '%s\\n' '{"id":1,"result":{}}'
+        IFS= read -r models
+        printf '%s\\n' '{"id":2,"result":{"data":[{"model":"gpt-5.6-astra","displayName":"Astra"}],"nextCursor":null}}'
+        """, to: script)
+        let runner = SessionRunner(paths: [.codex: script.path])
+
+        await runner.discoverModels(for: .codex)
+        await runner.discoverModels(for: .codex)
+
+        #expect(runner.discoveredModels[.codex]?.compactMap(\.id) == ["gpt-5.6-astra"])
+        #expect(try timesRun(runs) == 1)
+
+        await runner.refreshDiscoveredModels()
+
+        #expect(try timesRun(runs) == 2)
+    }
+
+    private func timesRun(_ file: URL) throws -> Int {
+        try String(contentsOf: file, encoding: .utf8)
+            .split(whereSeparator: \.isNewline).count
+    }
+
     private func backgroundChildArguments(pidFile: URL,
                                           keepLeaderRunning: Bool = false) -> [String] {
         let finish = keepLeaderRunning ? "sleep 30" : "exit 0"

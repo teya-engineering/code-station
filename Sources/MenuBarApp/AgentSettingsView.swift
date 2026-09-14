@@ -481,6 +481,7 @@ struct AgentSettingsView: View {
                 }
             }
         }
+        .task(id: agent) { await runner.discoverModels(for: agent) }
     }
 
     private func effort(for agent: AgentKind) -> some View {

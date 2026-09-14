@@ -21,6 +21,7 @@ struct SessionRunSettingsControls: View {
                 case .copilot: copilotAccessMenu(agent: agent)
                 }
             }
+            .task(id: agent) { await runner.discoverModels(for: agent) }
         }
     }
 

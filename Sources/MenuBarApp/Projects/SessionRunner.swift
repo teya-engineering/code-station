@@ -105,6 +105,9 @@ final class SessionRunner {
     @ObservationIgnored private let configs: ConfigStore?
     @ObservationIgnored private let codexContextReader = CodexContextReader()
     @ObservationIgnored private var modelRefreshIDs: [AgentKind: UUID] = [:]
+    // The agents whose catalog has already been asked for, so showing a picker again
+    // does not start their CLI a second time.
+    @ObservationIgnored private var catalogsAsked: Set<AgentKind> = []
     @ObservationIgnored private var codexContextRefreshes:
         [UUID: (id: UUID, task: Task<Void, Never>)] = [:]
     @ObservationIgnored private let stalledAfter: TimeInterval
@@ -175,11 +178,27 @@ final class SessionRunner {
         }
     }
 
-    // Asks every installed CLI that publishes a catalog for its models. A refresh started
-    // while another is still asking wins: the older answer is dropped when it arrives.
+    // Reads the catalog the first time a picker for this agent is shown, and does nothing
+    // on every later showing. Reading starts the agent's CLI, and that CLI may stop on a
+    // system prompt for the sign-in it has stored, so the ask waits until a picker is on
+    // screen and the person is already looking at that agent.
+    func discoverModels(for agent: AgentKind) async {
+        guard catalogsAsked.insert(agent).inserted else { return }
+        await readModels(for: [agent])
+    }
+
+    // Asks every installed CLI that publishes a catalog for its models again, for the
+    // refresh button on the Agents settings pane.
     func refreshDiscoveredModels() async {
+        catalogsAsked.formUnion(AgentKind.allCases)
+        await readModels(for: AgentKind.allCases)
+    }
+
+    // A read started while another is still asking wins: the older answer is dropped when
+    // it arrives.
+    private func readModels(for agents: [AgentKind]) async {
         await withTaskGroup(of: (AgentKind, [ModelChoice.Option]?, UUID).self) { group in
-            for agent in [AgentKind.codex, .copilot] {
+            for agent in agents {
                 guard let path = paths[agent] else { continue }
                 let id = UUID()
                 modelRefreshIDs[agent] = id

@@ -304,6 +304,7 @@ struct TaskDetailView: View {
                     ? "Ask for what this run needs, then start a fresh session"
                     : "Start a fresh session with the saved prompt")
         }
+        .task(id: runAgent(task)) { await runner.discoverModels(for: runAgent(task)) }
     }
 
     private func botBinding(_ task: Project) -> Binding<String> {

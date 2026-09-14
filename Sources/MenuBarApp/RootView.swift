@@ -91,7 +91,6 @@ struct RootView: View {
         }
         .task { await resumePendingSessionRemovals() }
         .task { await appUpdates.checkIfNeeded() }
-        .task { await runner.refreshDiscoveredModels() }
         .task(id: skillsRefreshRule) { await refreshSkillsAutomatically() }
         .task(id: sweepRule) { await deleteOldSessionsAutomatically() }
         .task(id: settings.autoPruneOrphanedWorktrees) { await monitorOrphanedWorktrees() }

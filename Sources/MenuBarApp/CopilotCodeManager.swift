@@ -143,7 +143,7 @@ final class CopilotCodeManager {
                                                  arguments: ["mcp", "list", "--json"],
                                                  currentDirectory: URL(fileURLWithPath: directory),
                                                  environment: CLIRegistrar.environment,
-                                                 timeout: .seconds(30))
+                                                 timeout: CopilotServer.replyTimeout)
         } catch {
             throw DiscoveryFailure(message: "Could not run Copilot: \(error.localizedDescription)")
         }
@@ -212,7 +212,7 @@ final class CopilotCodeManager {
         guard let result = try? await CommandRunner.run(executable: copilotPath,
                                                         arguments: arguments,
                                                         environment: CLIRegistrar.environment,
-                                                        timeout: .seconds(30)),
+                                                        timeout: CopilotServer.replyTimeout),
               result.succeeded else { return nil }
         return result.output
     }
