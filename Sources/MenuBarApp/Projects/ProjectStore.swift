@@ -97,6 +97,11 @@ final class ProjectStore {
     var projectToReveal: UUID?
     var sessionToReveal: UUID?
 
+    // The row the rail should point out once it is in view. Navigation that starts
+    // somewhere else leaves the eye on the click that caused it, so the rail has to say
+    // where it landed; a click on a row in the rail is already where the eye is.
+    var sidebarHighlight: UUID?
+
     // Sessions that ended a turn while the user was not reading them on either screen.
     // This is about live attention rather than the conversation, so it is not saved: a
     // relaunch is not something to catch up on.
@@ -344,15 +349,17 @@ final class ProjectStore {
 
     // Choosing a project is different from opening a conversation. Keeping the two
     // actions separate leaves the project screen available until a session is chosen.
-    func selectProject(_ id: UUID, revealingInSidebar: Bool = false) {
+    func selectProject(_ id: UUID, revealingInSidebar: Bool = true) {
         guard project(id) != nil else { return }
         selectedProjectID = id
         selection = nil
         if revealingInSidebar { projectToReveal = id }
+        sidebarHighlight = revealingInSidebar ? id : nil
         persistSelection()
     }
 
-    func selectSession(_ id: UUID, destination: SessionDestination = .conversation) {
+    func selectSession(_ id: UUID, destination: SessionDestination = .conversation,
+                       revealingInSidebar: Bool = true) {
         let visibleID = userFacingSessionID(for: id)
         guard let session = session(visibleID) else { return }
         // Asking for a Design conversation means asking for the board it draws on. It has
@@ -364,12 +371,15 @@ final class ProjectStore {
         sessionOpenRequest = SessionOpenRequest(sessionID: visibleID, destination: landing)
         selection = .session(visibleID)
         sessionToReveal = visibleID
+        sidebarHighlight = revealingInSidebar ? visibleID : nil
         persistSelection()
     }
 
-    func selectWorkspace(_ id: UUID) {
+    func selectWorkspace(_ id: UUID, revealingInSidebar: Bool = true) {
         guard workspace(id) != nil else { return }
         selection = .workspace(id)
+        if revealingInSidebar { projectToReveal = id }
+        sidebarHighlight = revealingInSidebar ? id : nil
         persistSelection()
     }
 

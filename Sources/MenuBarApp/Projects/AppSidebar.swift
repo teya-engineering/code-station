@@ -114,6 +114,7 @@ struct AppSidebar: View {
             setExpanded(true, for: id)
         }
         .task { await watchWorkingTrees() }
+        .task(id: store.sidebarHighlight) { await endHighlight() }
         .task(id: oldSessionRefreshRule) { await refreshOldSessionsHourly() }
         .onChange(of: commandPalette.newSessionRequest) { _, _ in
             startSessionInSelection()
@@ -608,13 +609,13 @@ struct AppSidebar: View {
     }
 
     private func openProject(_ project: Project) {
-        store.selectProject(project.id)
+        store.selectProject(project.id, revealingInSidebar: false)
         setExpanded(true, for: project.id)
         if isFiltering { revealedFilterContainerID = project.id }
     }
 
     private func openWorkspace(_ workspace: ProjectWorkspace) {
-        store.selectWorkspace(workspace.id)
+        store.selectWorkspace(workspace.id, revealingInSidebar: false)
         setExpanded(true, for: workspace.id)
         if isFiltering { revealedFilterContainerID = workspace.id }
     }
@@ -637,6 +638,9 @@ struct AppSidebar: View {
         } else {
             store.projectToReveal = destination.containerID
         }
+        // Dropping the filter puts the whole rail back, which moves the current row from
+        // wherever the matches had left it.
+        store.sidebarHighlight = destination.sessionID ?? destination.containerID
     }
 
     private func announceSelection() {
@@ -726,6 +730,7 @@ struct AppSidebar: View {
                      confirmRemoveWorkspace(workspace)
                  }]
             }
+            .sidebarRevealGlow(store.sidebarHighlight == workspace.id)
 
             if expanded, !visible.isEmpty {
                 sessionRail(sessions, visible: visible, in: workspace.id,
@@ -790,6 +795,7 @@ struct AppSidebar: View {
                 onCancelRename: { renamingID = nil }
             )
             .appContextMenu { headerMenu(project) }
+            .sidebarRevealGlow(store.sidebarHighlight == project.id)
 
             // An expanded project with nothing under it draws no block at all: an empty one
             // still carries its padding, which reads as the row shifting on every click.
@@ -832,7 +838,9 @@ struct AppSidebar: View {
                                 connected: mobileAccess.isConnected(session: session.id),
                                 isRenaming: renamingID == session.id,
                                 onOpen: {
-                                    store.selectSession(session.id, destination: destination(for: session))
+                                    store.selectSession(session.id,
+                                                        destination: destination(for: session),
+                                                        revealingInSidebar: false)
                                 },
                                 onDelete: { confirmRemoveSession(session) },
                                 onRename: { name in
@@ -840,6 +848,7 @@ struct AppSidebar: View {
                                     renamingID = nil
                                 },
                                 onCancelRename: { renamingID = nil })
+                        .sidebarRevealGlow(store.sidebarHighlight == session.id)
                 }
                 .id(session.id)
                 .background {
@@ -1020,6 +1029,15 @@ struct AppSidebar: View {
             scroller.scrollTo(id, anchor: .bottom)
         }
         store.sessionToReveal = nil
+    }
+
+    // A blink says where the rail landed once; holding the request would keep the row
+    // marked long after the eye has found it.
+    private func endHighlight() async {
+        guard store.sidebarHighlight != nil else { return }
+        try? await Task.sleep(for: .milliseconds(1_400))
+        guard !Task.isCancelled else { return }
+        store.sidebarHighlight = nil
     }
 
     // Brings a project opened away from the rail into view. The row has to be drawn
@@ -2442,4 +2460,53 @@ private extension SessionNotice {
 // to one that has spent three dollars, so the column lines up.
 enum Money {
     static func short(_ amount: Double) -> String { String(format: "$%.2f", amount) }
+}
+
+// The rail's way of saying where it landed. A row opened from somewhere else - the
+// command palette, Home, a link in a conversation - is scrolled into view and then blinks
+// green twice, which is enough to find it in a long list without moving anything.
+private struct SidebarRevealGlow: ViewModifier {
+    let revealed: Bool
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var glow: Double = 0
+
+    // Every row in the rail is drawn on this radius, so the glow sits on the edge the row
+    // already has rather than around it.
+    private static let radius: CGFloat = 9
+
+    func body(content: Content) -> some View {
+        content
+            .background(RoundedRectangle(cornerRadius: Self.radius)
+                .fill(Theme.addition.opacity(glow * 0.16)))
+            .overlay(RoundedRectangle(cornerRadius: Self.radius)
+                .stroke(Theme.addition.opacity(glow), lineWidth: 1.5)
+                .shadow(color: Theme.addition.opacity(glow * 0.75), radius: 6)
+                .allowsHitTesting(false))
+            .task(id: revealed) { await blink() }
+    }
+
+    private func blink() async {
+        guard revealed else { return }
+        guard !reduceMotion else {
+            // One steady mark held long enough to be found, since a blink is the thing
+            // this setting is asking not to see.
+            withAnimation(.easeOut(duration: 0.2)) { glow = 1 }
+            try? await Task.sleep(for: .milliseconds(900))
+            withAnimation(.easeIn(duration: 0.3)) { glow = 0 }
+            return
+        }
+        for _ in 0..<2 {
+            withAnimation(.easeOut(duration: 0.16)) { glow = 1 }
+            try? await Task.sleep(for: .milliseconds(250))
+            withAnimation(.easeIn(duration: 0.22)) { glow = 0 }
+            try? await Task.sleep(for: .milliseconds(260))
+        }
+    }
+}
+
+private extension View {
+    func sidebarRevealGlow(_ revealed: Bool) -> some View {
+        modifier(SidebarRevealGlow(revealed: revealed))
+    }
 }

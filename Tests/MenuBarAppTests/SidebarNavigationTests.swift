@@ -63,6 +63,47 @@ struct SidebarNavigationTests {
         #expect(harness.store.selection == nil)
         #expect(harness.store.selectedProjectID == project.id)
         #expect(Preferences.sidebarExpansion()[project.id] == true)
+        // A click on the row is already where the eye is, so nothing is pointed out.
+        #expect(harness.store.sidebarHighlight == nil)
+    }
+
+    @Test func aWorkspaceOpenedFromElsewhereIsScrolledToAndPointedOut() async throws {
+        let expansion = Preferences.sidebarExpansion()
+        let groups = Preferences.collapsedSidebarGroups()
+        defer {
+            Preferences.setSidebarExpansion(expansion)
+            Preferences.setCollapsedSidebarGroups(groups)
+        }
+        let harness = try SidebarHarness()
+        defer { harness.close() }
+        var projects: [Project] = []
+        for index in 1...18 {
+            projects.append(try TestStore.project(in: harness.store, named: "a-project-\(index)"))
+        }
+        let workspace = try #require(harness.store.addWorkspace(name: "z-workspace",
+            projectIDs: [projects[0].id, projects[1].id], leadProjectID: projects[0].id))
+        harness.settings.projectGrouping = .flat
+        harness.store.selectHome()
+        harness.mount()
+        await harness.settle()
+        #expect(try #require(harness.scrollView).documentVisibleRect.minY == 0)
+
+        // What the command palette does: the row is chosen from a screen of its own, so
+        // the rail has to travel to it.
+        harness.store.selectWorkspace(workspace.id)
+        // Caught inside the first blink, so the snapshot shows the row wearing its green.
+        try? await Task.sleep(for: .milliseconds(120))
+        harness.hosting?.view.layoutSubtreeIfNeeded()
+        try harness.snapshot("workspace-pointed-out")
+
+        await harness.settle()
+        let scroll = try #require(harness.scrollView)
+        let document = try #require(scroll.documentView)
+        // The workspace sorts last, so the rail has to travel to the bottom of the list.
+        #expect(scroll.documentVisibleRect.maxY >= document.bounds.maxY - 14)
+        #expect(harness.store.sidebarHighlight == workspace.id)
+
+        #expect(await waitUntil { harness.store.sidebarHighlight == nil })
     }
 
     @Test func externalWorkspaceNavigationRevealsItsParentAndRecoversFromAFilter() async throws {
