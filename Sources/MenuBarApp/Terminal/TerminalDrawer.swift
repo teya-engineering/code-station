@@ -180,35 +180,55 @@ struct TerminalDrawer: View {
 }
 
 // The header control for a shell in the folder behind whatever is on screen. Wanting a
-// shell here and wanting one in a window of its own are the same wish, so both hang off
-// one button. It is deliberately separate from the tabs because the drawer can stay open
-// alongside any of them.
+// shell here and wanting one in a window of its own are the same wish reached two ways,
+// and the terminal setting says which one the press means, so the press acts rather than
+// asking again. The other way stays on the right-click menu. It is deliberately separate
+// from the tabs because the drawer can stay open alongside any of them.
 struct TerminalToggle: View {
     let isOpen: Bool
     let directory: String
     let toggle: () -> Void
 
+    @Environment(AppSettings.self) private var appSettings
+
     var body: some View {
-        HStack(spacing: 6) {
-            Text(">_")
-                .font(.mono(11, .bold))
-            Text("Terminal")
-                .font(.system(size: 12, weight: .semibold))
-            Image(systemName: "chevron.down")
-                .font(.system(size: 8, weight: .bold))
-                .opacity(0.65)
+        let inDrawer = appSettings.opensTerminalInDrawer
+        let lit = inDrawer && isOpen
+
+        return Button {
+            if inDrawer { toggle() } else { SystemTerminal.open(directory) }
+        } label: {
+            HStack(spacing: 6) {
+                Text(">_")
+                    .font(.mono(11, .bold))
+                Text("Terminal")
+                    .font(.system(size: 12, weight: .semibold))
+            }
+            .foregroundStyle(lit ? Color.white : Color.primary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .surface(lit ? Theme.accentFill : Theme.card, cornerRadius: 10,
+                     border: lit ? .clear : Theme.border)
+            .contentShape(Rectangle())
         }
-        .foregroundStyle(isOpen ? Color.white : Color.primary)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 7)
-        .surface(isOpen ? Theme.accentFill : Theme.card, cornerRadius: 10,
-                 border: isOpen ? .clear : Theme.border)
-        .appMenu {
-            [.item("Open in \(SystemTerminal.appName)") { SystemTerminal.open(directory) },
-             .item(isOpen ? "Hide terminal here" : "Open terminal here",
-                   detail: "^`",
-                   action: toggle)]
-        }
-        .appTooltip("Open a shell in this folder")
+        .buttonStyle(.plain)
+        .appContextMenu { terminalEntries(isOpen: isOpen, toggle: toggle, directory: directory) }
+        .appTooltip(inDrawer
+                    ? "Open a shell in this folder"
+                    : "Open a shell in \(SystemTerminal.appName)")
     }
+}
+
+// Both ways to reach a shell, in the order the setting puts them: what the press already
+// does comes first, so the menu reads as the choice that was made plus the other one.
+@MainActor func terminalEntries(isOpen: Bool,
+                                toggle: @escaping () -> Void,
+                                directory: String) -> [MenuEntry] {
+    let here = MenuEntry.item(isOpen ? "Hide terminal here" : "Open terminal here",
+                              detail: "^`",
+                              action: toggle)
+    let app = MenuEntry.item("Open in \(SystemTerminal.appName)") {
+        SystemTerminal.open(directory)
+    }
+    return Preferences.terminalBundleID == nil ? [here, app] : [app, here]
 }

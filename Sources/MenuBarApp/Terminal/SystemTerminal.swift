@@ -3,10 +3,13 @@ import UniformTypeIdentifiers
 
 // The terminal outside this app, for a shell in a window of its own rather than in the
 // drawer. macOS has no setting for a preferred terminal, so the app takes the one chosen
-// in settings, and without a choice falls back to the app that opens .command files: that
-// is Terminal until the user points it somewhere else.
+// in settings. With none chosen, shells open in the drawer instead, and the app that
+// opens .command files is only the name the menu offers.
 enum SystemTerminal {
     static let fallback = URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app")
+
+    // What the drawer is called wherever the terminal choice is shown or offered.
+    static let drawerName = "Terminal here"
 
     private static var shellScript: UTType? { UTType("com.apple.terminal.shell-script") }
 

@@ -86,11 +86,13 @@ final class AppSettings {
         didSet { Preferences.setProjectGrouping(projectGrouping, in: preferences) }
     }
 
-    // nil follows whatever macOS hands a .command file, so the app has a sensible terminal
-    // before the user has thought about it.
+    // Which terminal app a shell opens in. nil means no app was picked, and shells open
+    // in the drawer inside this app instead.
     var terminalBundleID: String? {
         didSet { Preferences.setTerminalBundleID(terminalBundleID, in: preferences) }
     }
+
+    var opensTerminalInDrawer: Bool { terminalBundleID == nil }
 
     var appearance: Appearance {
         didSet {
@@ -959,37 +961,36 @@ struct SettingsView: View {
     }
 
     private var terminal: some View {
-        // Reading the stored choice here is what ties this row to the setting, so the name
-        // and icon change the moment a different terminal is picked.
-        let chosen = settings.terminalBundleID
-        let app = SystemTerminal.appURL
+        // Reading the stored choice here is what ties this row to the setting, so the words
+        // change the moment a different terminal is picked.
+        let inDrawer = settings.opensTerminalInDrawer
+        let value = inDrawer ? SystemTerminal.drawerName : SystemTerminal.appName
 
         return HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Terminal")
                     .font(.system(size: 13, weight: .semibold))
-                Text(chosen == nil
-                     ? "\"Open in \(SystemTerminal.name(of: app))\" follows the app macOS opens .command files with. Pick one to keep it fixed."
-                     : "\"Open in \(SystemTerminal.name(of: app))\" opens a shell in a window of its own.")
+                Text(inDrawer
+                     ? "The Terminal button opens a shell in the drawer below the pane. Pick an app to open one in a window of its own instead."
+                     : "The Terminal button opens a shell in \(value), in a window of its own.")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
-            OptionMenu(value: SystemTerminal.name(of: app)) { terminalMenu }
+            OptionMenu(value: value) { terminalMenu }
                 .fixedSize(horizontal: true, vertical: false)
-                .accessibilityLabel("Terminal: \(SystemTerminal.name(of: app))")
+                .accessibilityLabel("Terminal: \(value)")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var terminalMenu: [MenuEntry] {
-        let system = SystemTerminal.systemDefault
         var entries: [MenuEntry] = [
-            .item("System default",
-                  image: NSWorkspace.shared.icon(forFile: system.path),
-                  checked: settings.terminalBundleID == nil,
-                  subtitle: "Currently \(SystemTerminal.name(of: system)).") {
+            .item(SystemTerminal.drawerName,
+                  icon: "terminal",
+                  checked: settings.opensTerminalInDrawer,
+                  subtitle: "A shell in the drawer, beside what you were reading.") {
                 settings.terminalBundleID = nil
             },
             .separator

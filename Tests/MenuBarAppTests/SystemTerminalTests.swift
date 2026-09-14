@@ -86,3 +86,58 @@ struct SystemTerminalTests {
         #expect(ids.count == Set(ids).count)
     }
 }
+
+// The terminal setting answers one question - where a shell opens - so the header button
+// acts on the answer rather than putting it to the user a second time.
+@Suite(.serialized)
+@MainActor
+struct TerminalDestinationTests {
+    private func labels(_ entries: [MenuEntry]) -> [String] {
+        entries.compactMap { entry in
+            guard case let .item(item) = entry else { return nil }
+            return item.label
+        }
+    }
+
+    @Test func opensInTheDrawerUntilATerminalAppIsPicked() {
+        let defaults = UserDefaults(suiteName: "terminal-destination-\(UUID().uuidString)")!
+        let settings = AppSettings(agentAvatarURL: URL(fileURLWithPath: "/tmp/avatar"),
+                                   preferences: defaults)
+
+        #expect(settings.opensTerminalInDrawer)
+
+        settings.terminalBundleID = "com.example.terminal"
+        #expect(!settings.opensTerminalInDrawer)
+
+        settings.terminalBundleID = nil
+        #expect(settings.opensTerminalInDrawer)
+    }
+
+    // The menu leads with what pressing the button already does, so the row that repeats
+    // the press comes first and the other way out sits under it.
+    @Test func leadsTheMenuWithWhatThePressDoes() {
+        let saved = Preferences.terminalBundleID
+        defer { Preferences.terminalBundleID = saved }
+
+        Preferences.terminalBundleID = nil
+        let drawerFirst = labels(terminalEntries(isOpen: false, toggle: {}, directory: "/tmp"))
+        #expect(drawerFirst.first == "Open terminal here")
+        #expect(drawerFirst.count == 2)
+
+        Preferences.terminalBundleID = "com.apple.Terminal"
+        let appFirst = labels(terminalEntries(isOpen: false, toggle: {}, directory: "/tmp"))
+        #expect(appFirst.first == "Open in \(SystemTerminal.appName)")
+        #expect(appFirst.last == "Open terminal here")
+    }
+
+    // The drawer row says whether the press will put it away, so the words match the state
+    // rather than always offering to open one.
+    @Test func namesTheDrawerRowForWhatItWillDo() {
+        let saved = Preferences.terminalBundleID
+        defer { Preferences.terminalBundleID = saved }
+
+        Preferences.terminalBundleID = nil
+        #expect(labels(terminalEntries(isOpen: true, toggle: {}, directory: "/tmp")).first
+                == "Hide terminal here")
+    }
+}

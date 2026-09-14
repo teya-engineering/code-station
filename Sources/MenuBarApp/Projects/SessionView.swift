@@ -562,19 +562,28 @@ struct SessionView: View {
     // they carry a tooltip, which the worded tabs do not need.
     private func panelToggles(session: ChatSession, project: Project) -> some View {
         let directory = session.worktreePath ?? project.path
+        let inDrawer = appSettings.opensTerminalInDrawer
         let terminalOpen = terminals.isOpen(terminalScope)
+        let lit = inDrawer && terminalOpen
         return HStack(spacing: 2) {
-            // Opening one in the system terminal is the same wish reached a different
-            // way, so it stays on the toggle's own menu.
+            // The terminal setting says where a shell belongs, so the press goes straight
+            // there. Opening one the other way is the same wish reached a different way,
+            // so it stays on the button's own menu.
             HeaderRailButton(icon: "terminal",
-                             state: terminalOpen ? .open : .rest,
-                             label: terminalOpen ? "Hide terminal here" : "Open terminal here") {
-                toggleTerminal(directory: directory)
+                             state: lit ? .open : .rest,
+                             label: inDrawer
+                                ? (terminalOpen ? "Hide terminal here" : "Open terminal here")
+                                : "Open in \(SystemTerminal.appName)") {
+                if inDrawer {
+                    toggleTerminal(directory: directory)
+                } else {
+                    SystemTerminal.open(directory)
+                }
             }
             .appContextMenu {
-                [.item("Open in \(SystemTerminal.appName)") { SystemTerminal.open(directory) },
-                 .item(terminalOpen ? "Hide terminal here" : "Open terminal here",
-                       detail: "^`") { toggleTerminal(directory: directory) }]
+                terminalEntries(isOpen: terminalOpen,
+                                toggle: { toggleTerminal(directory: directory) },
+                                directory: directory)
             }
             workingSetToggle
         }
