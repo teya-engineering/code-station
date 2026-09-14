@@ -56,12 +56,18 @@ final class SessionMemoryGuard: @unchecked Sendable {
         let limit: UInt64
         let largestPID: pid_t
         let largestBytes: UInt64
+        let largestProcessName: String?
 
         var message: String {
             let used = ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .memory)
             let allowed = ByteCountFormatter.string(fromByteCount: Int64(limit), countStyle: .memory)
+            let largestUsed = ByteCountFormatter.string(fromByteCount: Int64(largestBytes),
+                                                       countStyle: .memory)
+            let process = largestProcessName.map { "\($0) (PID \(largestPID))" }
+                ?? "PID \(largestPID)"
             return "Stopped to protect your Mac: this session's agent and child processes used "
-                + "\(used), exceeding the \(allowed) memory limit. Review the last command before trying again."
+                + "\(used), exceeding the \(allowed) memory limit. "
+                + "Largest process: \(process) used \(largestUsed). Review this process before trying again."
         }
     }
 
@@ -150,15 +156,16 @@ final class SessionMemoryGuard: @unchecked Sendable {
         guard !lock.withLock({ stopped }), let processes = Self.processes() else { return }
         let members = tree.members(in: processes)
         var total: UInt64 = 0
-        var largest: (pid: pid_t, bytes: UInt64) = (tree.root.pid, 0)
+        var largest: (identity: ProcessIdentity, bytes: UInt64) = (tree.root, 0)
         for process in members {
             guard let bytes = Self.footprint(of: process.identity) else { continue }
             total += bytes
-            if bytes > largest.bytes { largest = (process.identity.pid, bytes) }
+            if bytes > largest.bytes { largest = (process.identity, bytes) }
         }
         guard total > byteLimit else { return }
         let violation = Violation(bytes: total, limit: byteLimit,
-                                  largestPID: largest.pid, largestBytes: largest.bytes)
+                                  largestPID: largest.identity.pid, largestBytes: largest.bytes,
+                                  largestProcessName: Self.processName(of: largest.identity))
         let shouldReport = lock.withLock {
             guard !stopped else { return false }
             recordedViolation = violation
@@ -191,6 +198,22 @@ final class SessionMemoryGuard: @unchecked Sendable {
         // Footprint includes compressed memory, which disappears from an RSS reading
         // just when the machine is struggling to free RAM.
         return usage.ri_phys_footprint
+    }
+
+    // Capture the executable before stopping it; a PID alone cannot identify it afterward.
+    static func processName(of process: ProcessIdentity) -> String? {
+        // Swift cannot import PROC_PIDPATHINFO_MAXSIZE, which is four times MAXPATHLEN.
+        var buffer = [UInt8](repeating: 0, count: 4 * Int(MAXPATHLEN))
+        let size = UInt32(buffer.count)
+        let hasPath = proc_pidpath(process.pid, &buffer, size) > 0
+        if !hasPath {
+            buffer = [UInt8](repeating: 0, count: buffer.count)
+            guard proc_name(process.pid, &buffer, size) > 0 else { return nil }
+        }
+        guard process.isAlive else { return nil }
+        let value = String(decoding: buffer.prefix { $0 != 0 }, as: UTF8.self)
+        let name = hasPath ? URL(fileURLWithPath: value).lastPathComponent : value
+        return name.isEmpty ? nil : name
     }
 
     private static func processes() -> [ProcessEntry]? {

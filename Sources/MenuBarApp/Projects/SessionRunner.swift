@@ -1728,7 +1728,8 @@ final class SessionRunner {
             violation in
             SessionLog.note(
                 "memory limit exceeded bytes=\(violation.bytes) limit=\(violation.limit) "
-                    + "largestPID=\(violation.largestPID) largestBytes=\(violation.largestBytes)",
+                    + "largestPID=\(violation.largestPID) largestBytes=\(violation.largestBytes) "
+                    + "largestName=\(violation.largestProcessName?.debugDescription ?? "unknown")",
                 session: sessionID)
             Task { @MainActor in
                 runner.memoryLimitExceeded(sessionID, token: token, violation: violation)

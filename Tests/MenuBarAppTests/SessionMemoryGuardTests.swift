@@ -64,6 +64,33 @@ struct SessionMemoryGuardTests {
             pid: current.pid, startedAt: current.startedAt + 1)) == nil)
     }
 
+    @Test func processNameRequiresTheSameProcessIdentity() throws {
+        let watched = try sleeper()
+        defer { reap(watched) }
+        #expect(SessionMemoryGuard.processName(of: watched) == "sleep")
+        #expect(SessionMemoryGuard.processName(of: .init(
+            pid: watched.pid, startedAt: watched.startedAt + 1)) == nil)
+    }
+
+    @Test func warningIdentifiesTheLargestProcessAndItsMemory() {
+        let gib: UInt64 = 1_024 * 1_024 * 1_024
+        let violation = SessionMemoryGuard.Violation(
+            bytes: 17 * gib, limit: 16 * gib, largestPID: 57956,
+            largestBytes: 13 * gib, largestProcessName: "krunkit")
+
+        #expect(violation.message.contains("used 17 GB, exceeding the 16 GB memory limit"))
+        #expect(violation.message.contains("Largest process: krunkit (PID 57956) used 13 GB."))
+    }
+
+    @Test func warningFallsBackToThePIDWhenTheProcessNameIsUnavailable() {
+        let gib: UInt64 = 1_024 * 1_024 * 1_024
+        let violation = SessionMemoryGuard.Violation(
+            bytes: 17 * gib, limit: 16 * gib, largestPID: 57956,
+            largestBytes: 13 * gib, largestProcessName: nil)
+
+        #expect(violation.message.contains("Largest process: PID 57956 used 13 GB."))
+    }
+
     // Blocking the main actor proves that stopping the process does not depend on the UI.
     @MainActor @Test func killsOnlyItsOwnGroupWithoutWaitingForTheMainActor() throws {
         let watched = try sleeper()
@@ -77,7 +104,10 @@ struct SessionMemoryGuardTests {
         defer { guardrail.stop() }
 
         #expect(signalled.wait(timeout: .now() + 5) == .success)
-        #expect(guardrail.violation != nil)
+        let violation = try #require(guardrail.violation)
+        #expect(violation.largestPID == watched.pid)
+        #expect(violation.largestProcessName == "sleep")
+        #expect(violation.largestBytes > 0)
         #expect(CommandRunner.waitForExit(of: watched.pid) != 0)
         #expect(!watched.isAlive)
         #expect(unrelated.isAlive)
@@ -178,6 +208,8 @@ struct SessionMemoryLimitRunnerTests {
         #expect(note.role == .system)
         #expect(note.text.contains("Stopped to protect your Mac"))
         #expect(note.text.contains("24 MB"))
+        #expect(note.text.contains("Largest process: perl"))
+        #expect(note.text.contains("(PID \(child.pid))"))
         #expect(recapChecks == 0)
         #expect(try String(contentsOf: fixture.scratch.path("starts"), encoding: .utf8) == "started\n")
     }
