@@ -229,6 +229,7 @@ struct DesignView: View {
             || !runner.isAvailable(session.agent)
         let busy = runner.state(sessionID).isBusy
         return Composer(sessionID: sessionID,
+                        agent: session.agent,
                         blocked: blocked,
                         isFocused: $composerFocused,
                         placeholder: busy ? "Queue the next revision…" : "Describe what to design…",

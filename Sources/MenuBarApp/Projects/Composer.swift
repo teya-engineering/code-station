@@ -13,6 +13,8 @@ struct Composer<Above: View, Accessory: View>: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     let sessionID: UUID
+    // Which CLI the prompt is bound for: only Claude's reads a thinking keyword out of it.
+    let agent: AgentKind
     // Whether the session can run at all: its folder is there and its CLI is installed.
     let blocked: Bool
     @Binding var isFocused: Bool
@@ -56,7 +58,8 @@ struct Composer<Above: View, Accessory: View>: View {
                               onSubmit: send,
                               onOversizedPaste: onOversizedPaste,
                               onRecallUp: onRecallUp,
-                              onRecallDown: onRecallDown) {
+                              onRecallDown: onRecallDown,
+                              highlightsKeyword: agent == .claudeCode) {
                     accessory
                 }
 

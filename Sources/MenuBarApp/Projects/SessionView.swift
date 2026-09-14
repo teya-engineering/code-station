@@ -1729,6 +1729,7 @@ struct SessionView: View {
         let blocked = !FileManager.default.fileExists(atPath: session.worktreePath ?? project.path)
             || !runner.isAvailable(session.agent)
         return Composer(sessionID: sessionID,
+                        agent: session.agent,
                         blocked: blocked,
                         isFocused: $composerFocused,
                         placeholder: placeholder(state: state),

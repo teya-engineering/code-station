@@ -20,11 +20,14 @@ struct ComposerField<TrailingAccessory: View>: View {
     // cursor movement when it did not.
     var onRecallUp: (() -> Bool)? = nil
     var onRecallDown: (() -> Bool)? = nil
+    // Only Claude knows the thinking keyword, so only its prompts colour it.
+    var highlightsKeyword: Bool = false
 
     // Past this the box stops growing and the text scrolls inside it, so a long prompt
     // can never push the transcript off the screen.
     private let maxLines = 10
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var height: CGFloat = 0
 
     init(text: Binding<String>, isFocused: Binding<Bool>, placeholder: String,
@@ -32,6 +35,7 @@ struct ComposerField<TrailingAccessory: View>: View {
          onOversizedPaste: @escaping (String) -> Void,
          onRecallUp: (() -> Bool)? = nil,
          onRecallDown: (() -> Bool)? = nil,
+         highlightsKeyword: Bool = false,
          @ViewBuilder trailingAccessory: () -> TrailingAccessory) {
         _text = text
         _isFocused = isFocused
@@ -41,6 +45,7 @@ struct ComposerField<TrailingAccessory: View>: View {
         self.onOversizedPaste = onOversizedPaste
         self.onRecallUp = onRecallUp
         self.onRecallDown = onRecallDown
+        self.highlightsKeyword = highlightsKeyword
         self.trailingAccessory = trailingAccessory()
     }
 
@@ -56,6 +61,8 @@ struct ComposerField<TrailingAccessory: View>: View {
                  onOversizedPaste: onOversizedPaste,
                  onRecallUp: onRecallUp,
                  onRecallDown: onRecallDown,
+                 highlightsKeyword: highlightsKeyword,
+                 animatesKeyword: !reduceMotion,
                  onHeightChange: { height = $0 })
             .frame(height: min(max(height, line), line * CGFloat(maxLines)))
             .overlay(alignment: .topLeading) {
@@ -92,7 +99,7 @@ private extension NSFont {
     var lineHeightForComposer: CGFloat { ascender - descender + leading }
 }
 
-private struct TextArea: NSViewRepresentable {
+struct TextArea: NSViewRepresentable {
     @Binding var text: String
     @Binding var isFocused: Bool
     let isEnabled: Bool
@@ -101,42 +108,14 @@ private struct TextArea: NSViewRepresentable {
     let onOversizedPaste: (String) -> Void
     let onRecallUp: (() -> Bool)?
     let onRecallDown: (() -> Bool)?
+    let highlightsKeyword: Bool
+    let animatesKeyword: Bool
     let onHeightChange: (CGFloat) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
     func makeNSView(context: Context) -> NSScrollView {
-        let textView = EditorView()
-        textView.delegate = context.coordinator
-        textView.coordinator = context.coordinator
-        textView.font = font
-        textView.isRichText = false
-        textView.importsGraphics = false
-        textView.allowsUndo = true
-        textView.drawsBackground = false
-        textView.textContainerInset = .zero
-        textView.textContainer?.lineFragmentPadding = 0
-        // The container follows the view's width, which is what makes the text wrap where
-        // the box actually ends.
-        textView.textContainer?.widthTracksTextView = true
-        textView.textContainer?.size = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
-        textView.isHorizontallyResizable = false
-        textView.isVerticallyResizable = true
-        textView.minSize = .zero
-        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-        textView.autoresizingMask = [.width]
-        textView.string = text
-
-        let scrollView = NSScrollView()
-        scrollView.documentView = textView
-        scrollView.drawsBackground = false
-        scrollView.borderType = .noBorder
-        scrollView.hasVerticalScroller = true
-        scrollView.autohidesScrollers = true
-        scrollView.scrollerStyle = .overlay
-        scrollView.hasHorizontalScroller = false
-        scrollView.verticalScrollElasticity = .none
-        return scrollView
+        context.coordinator.makeField()
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
@@ -163,6 +142,12 @@ private struct TextArea: NSViewRepresentable {
         if isFocused, isEnabled, textView.window?.firstResponder !== textView {
             DispatchQueue.main.async { textView.window?.makeFirstResponder(textView) }
         }
+
+        textView.highlightsKeyword = highlightsKeyword
+        textView.animatesKeyword = animatesKeyword
+        // After the colour above, which is written into the text and takes the keyword's
+        // own colours off it.
+        textView.refreshKeyword()
     }
 
     @MainActor
@@ -171,6 +156,42 @@ private struct TextArea: NSViewRepresentable {
         private var lastHeight: CGFloat = -1
 
         init(_ parent: TextArea) { self.parent = parent }
+
+        // The box the field draws in. Separate from makeNSView so a test can stand one
+        // up without a SwiftUI context.
+        func makeField() -> NSScrollView {
+            let textView = EditorView()
+            textView.delegate = self
+            textView.coordinator = self
+            textView.font = parent.font
+            textView.isRichText = false
+            textView.importsGraphics = false
+            textView.allowsUndo = true
+            textView.drawsBackground = false
+            textView.textContainerInset = .zero
+            textView.textContainer?.lineFragmentPadding = 0
+            // The container follows the view's width, which is what makes the text wrap where
+            // the box actually ends.
+            textView.textContainer?.widthTracksTextView = true
+            textView.textContainer?.size = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
+            textView.isHorizontallyResizable = false
+            textView.isVerticallyResizable = true
+            textView.minSize = .zero
+            textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+            textView.autoresizingMask = [.width]
+            textView.string = parent.text
+
+            let scrollView = NSScrollView()
+            scrollView.documentView = textView
+            scrollView.drawsBackground = false
+            scrollView.borderType = .noBorder
+            scrollView.hasVerticalScroller = true
+            scrollView.autohidesScrollers = true
+            scrollView.scrollerStyle = .overlay
+            scrollView.hasHorizontalScroller = false
+            scrollView.verticalScrollElasticity = .none
+            return scrollView
+        }
 
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
@@ -254,6 +275,83 @@ private struct TextArea: NSViewRepresentable {
 
     final class EditorView: NSTextView {
         weak var coordinator: Coordinator?
+
+        // The thinking keyword, coloured where it sits so it is clear the word was taken
+        // for more than text. The colours are temporary attributes, which live in the
+        // layout manager rather than in the text, so the prompt itself stays plain and
+        // typing around the word carries none of its colour.
+        var highlightsKeyword = false
+        var animatesKeyword = true
+        private var keywordRanges: [NSRange] = []
+        private var colouredRanges: [NSRange] = []
+        private var sweep: Task<Void, Never>?
+        private static let frameRate = Duration.milliseconds(42)
+
+        // Whether the colours are moving, which is the one part of this that cannot be
+        // read back off the attributes.
+        var isSweeping: Bool { sweep != nil }
+
+        // Called whenever the text or the settings around it change, since a keyword can
+        // appear, move or stop being one with every keystroke.
+        func refreshKeyword() {
+            keywordRanges = highlightsKeyword ? ThinkingKeyword.ranges(in: string) : []
+
+            if keywordRanges.isEmpty || !animatesKeyword {
+                sweep?.cancel()
+                sweep = nil
+            } else if sweep == nil {
+                sweep = Task { @MainActor [weak self] in
+                    while !Task.isCancelled {
+                        try? await Task.sleep(for: Self.frameRate)
+                        guard let self else { return }
+                        // A field SwiftUI has already taken out of its window has nothing
+                        // to colour. The phase comes from the clock, so a skipped frame
+                        // leaves the sweep where it should be rather than behind.
+                        guard window != nil else { continue }
+                        colourKeyword()
+                    }
+                }
+            }
+            colourKeyword()
+        }
+
+        private func colourKeyword() {
+            guard let layoutManager else { return }
+
+            let length = (string as NSString).length
+            for range in colouredRanges where NSMaxRange(range) <= length {
+                layoutManager.removeTemporaryAttribute(.foregroundColor, forCharacterRange: range)
+            }
+            colouredRanges = keywordRanges
+
+            let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            let now = Date()
+            for range in keywordRanges {
+                for letter in 0..<range.length {
+                    let colour = ThinkingKeyword.colour(letter: letter, of: range.length,
+                                                        at: animatesKeyword ? now : ThinkingKeyword.still,
+                                                        dark: dark)
+                    layoutManager.setTemporaryAttributes([.foregroundColor: colour],
+                                                         forCharacterRange: NSRange(location: range.location + letter,
+                                                                                    length: 1))
+                }
+            }
+        }
+
+        override func didChangeText() {
+            super.didChangeText()
+            refreshKeyword()
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if window == nil {
+                sweep?.cancel()
+                sweep = nil
+            } else {
+                refreshKeyword()
+            }
+        }
 
         override func paste(_ sender: Any?) {
             guard coordinator?.handleOversizedPaste(from: .general) != true else { return }
