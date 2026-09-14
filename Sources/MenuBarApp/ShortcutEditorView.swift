@@ -67,9 +67,11 @@ struct ShortcutEditorView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Available in all projects")
                                 .font(.system(size: 12, weight: .semibold))
-                            Text(availabilityDetail)
-                                .font(.system(size: 10.5))
-                                .foregroundStyle(.secondary)
+                            if let availabilityDetail {
+                                Text(availabilityDetail)
+                                    .font(.system(size: 10.5))
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                     }
                     .toggleStyle(.appCheckbox)
@@ -102,12 +104,13 @@ struct ShortcutEditorView: View {
         dismiss()
     }
 
-    private var availabilityDetail: String {
+    // A project-only shortcut needs no note: the text below already says where it runs.
+    private var availabilityDetail: String? {
         if availableInAllProjects {
             return "Shown in every project and run from the project using it."
         }
-        if let name = request.projectName {
-            return "Shown only in \(name)."
+        if request.projectName != nil {
+            return nil
         }
         return "Turn this on to use the shortcut from any project."
     }
