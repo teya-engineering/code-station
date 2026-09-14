@@ -58,6 +58,8 @@ struct ChatSession: Identifiable, Codable, Equatable, Sendable {
     var id: UUID = UUID()
     var projectID: UUID
     var title: String = "New session"
+    // Changes whenever a title is assigned, so a summary cannot replace a later rename.
+    var titleRevision: UUID?
     var isPinned = false
     var isTroubleshooting = false
     var agent: AgentKind
@@ -159,7 +161,7 @@ struct ChatSession: Identifiable, Codable, Equatable, Sendable {
     // terminal output can carry long runs of spaces and tabs, which would spend the whole
     // title on blanks, so runs collapse to one space before it is cut to length.
     mutating func retitleIfNeeded(from prompt: String) {
-        guard title == "New session" else { return }
+        guard title == "New session", titleRevision == nil else { return }
         let line = prompt.trimmed.split(separator: "\n").first.map(String.init) ?? ""
         let words = line.split(whereSeparator: \.isWhitespace).joined(separator: " ")
         guard !words.isEmpty else { return }
@@ -170,7 +172,7 @@ struct ChatSession: Identifiable, Codable, Equatable, Sendable {
     // encodes to. It is still decoded: a file written before the split holds every
     // conversation inline, and that is what the store moves out on the first launch.
     private enum CodingKeys: String, CodingKey {
-        case id, projectID, title, isPinned, isTroubleshooting, agent, mode, designPhase
+        case id, projectID, title, titleRevision, isPinned, isTroubleshooting, agent, mode, designPhase
         case designRevisions, approvedDesignRevisionID, sourceDesignSessionID
         case handedOffDesignRevisionID, designSourceSessionID
         case claudeSessionID, codexSessionID, copilotSessionID, createdAt
@@ -192,6 +194,7 @@ struct ChatSession: Identifiable, Codable, Equatable, Sendable {
         id = try container.decode(UUID.self, forKey: .id)
         projectID = try container.decode(UUID.self, forKey: .projectID)
         title = try container.decodeIfPresent(String.self, forKey: .title) ?? "New session"
+        titleRevision = try container.decodeIfPresent(UUID.self, forKey: .titleRevision)
         isPinned = try container.decodeIfPresent(Bool.self, forKey: .isPinned) ?? false
         isTroubleshooting = try container.decodeIfPresent(Bool.self, forKey: .isTroubleshooting)
             ?? false
@@ -241,6 +244,7 @@ struct ChatSession: Identifiable, Codable, Equatable, Sendable {
         try container.encode(id, forKey: .id)
         try container.encode(projectID, forKey: .projectID)
         try container.encode(title, forKey: .title)
+        try container.encodeIfPresent(titleRevision, forKey: .titleRevision)
         try container.encode(isPinned, forKey: .isPinned)
         try container.encode(isTroubleshooting, forKey: .isTroubleshooting)
         try container.encode(agent, forKey: .agent)

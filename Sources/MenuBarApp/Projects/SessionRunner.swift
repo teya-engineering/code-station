@@ -114,6 +114,7 @@ final class SessionRunner {
     @ObservationIgnored private let stallCheckInterval: Duration
     @ObservationIgnored private let memoryLimit: () -> UInt64
     @ObservationIgnored private let automaticRecapsEnabled: () -> Bool
+    @ObservationIgnored private let automaticTitlesEnabled: () -> Bool
 
     // How a CLI says it no longer holds the conversation we asked to resume. Codex has
     // no such message: a thread it cannot find is a failed turn like any other.
@@ -137,6 +138,9 @@ final class SessionRunner {
          },
          automaticRecapsEnabled: @escaping () -> Bool = {
              Preferences.sessionRecapsEnabled()
+         },
+         automaticTitlesEnabled: @escaping () -> Bool = {
+             Preferences.sessionTitlesEnabled()
          }) {
         self.configs = configs
         self.discoveredModels = discoveredModels
@@ -144,6 +148,7 @@ final class SessionRunner {
         self.stallCheckInterval = stallCheckInterval
         self.memoryLimit = memoryLimit
         self.automaticRecapsEnabled = automaticRecapsEnabled
+        self.automaticTitlesEnabled = automaticTitlesEnabled
         defaultsByAgent = Dictionary(uniqueKeysWithValues: AgentKind.allCases.map {
             ($0, Preferences.sessionDefaults(for: $0))
         })
@@ -364,13 +369,18 @@ final class SessionRunner {
         let since: Date
     }
 
-    // A prompt waiting for its turn to start.
-    enum RecapMode: Equatable, Sendable {
-        case claudeCode
-        case prompt
+    enum SummaryMode: Equatable, Sendable {
+        case claudeRecap
+        case promptRecap
+        case title(SessionTitleRequest)
+
+        var isTitle: Bool {
+            if case .title = self { return true }
+            return false
+        }
     }
 
-    enum RecapRestingState: Equatable, Sendable {
+    enum SummaryRestingState: Equatable, Sendable {
         case idle
         case failed(String)
 
@@ -382,9 +392,10 @@ final class SessionRunner {
         }
     }
 
-    struct RecapAttempt: Equatable, Sendable {
-        let mode: RecapMode
-        let restingState: RecapRestingState
+    struct SummaryAttempt: Equatable, Sendable {
+        let mode: SummaryMode
+        let restingState: SummaryRestingState
+        var recapAfterTitle = false
     }
 
     struct QueuedPrompt: Identifiable, Equatable, Sendable {
@@ -396,7 +407,7 @@ final class SessionRunner {
         // typed at the agent. It travels down the same pipe but is not a line of the
         // conversation, so it does not appear as one.
         var isAppCommand = false
-        var recap: RecapAttempt? = nil
+        var summary: SummaryAttempt? = nil
 
         var prompt: String {
             guard let customInstructions else { return text }
@@ -865,7 +876,8 @@ final class SessionRunner {
 
     func isRecapping(_ sessionID: UUID) -> Bool {
         guard let record = records[sessionID] else { return false }
-        return record.turn?.recap != nil || record.queue.contains { $0.recap != nil }
+        return record.turn?.summary?.mode.isTitle == false
+            || record.queue.contains { $0.summary?.mode.isTitle == false }
     }
 
     func canRecap(_ sessionID: UUID, store: ProjectStore) -> Bool {
@@ -884,19 +896,19 @@ final class SessionRunner {
         guard canRecap(sessionID, store: store), let session = store.session(sessionID) else {
             return false
         }
-        let restingState: RecapRestingState = if case .failed(let message) = state(sessionID) {
+        let restingState: SummaryRestingState = if case .failed(let message) = state(sessionID) {
             .failed(message)
         } else {
             .idle
         }
-        let mode: RecapMode = session.agent == .claudeCode ? .claudeCode : .prompt
-        let prompt = mode == .claudeCode ? "/recap" : Self.recapPrompt
+        let mode: SummaryMode = session.agent == .claudeCode ? .claudeRecap : .promptRecap
+        let prompt = mode == .claudeRecap ? "/recap" : Self.recapPrompt
         records[sessionID, default: SessionRecord()].queue.append(QueuedPrompt(
             text: prompt,
             attachments: [],
             customInstructions: nil,
             isAppCommand: true,
-            recap: RecapAttempt(mode: mode, restingState: restingState)))
+            summary: SummaryAttempt(mode: mode, restingState: restingState)))
         SessionLog.note("generating session recap", session: sessionID)
         runQueue(sessionID, store: store)
         return true
@@ -906,6 +918,77 @@ final class SessionRunner {
                                        store: ProjectStore) {
         guard unseen, automaticRecapsEnabled() else { return }
         _ = requestRecap(sessionID, store: store)
+    }
+
+    // MARK: - Session titles
+
+    private func titleConversationID(_ sessionID: UUID, store: ProjectStore) -> UUID {
+        guard store.session(sessionID)?.isImplementingDesign != true else { return sessionID }
+        return store.designConversation(for: sessionID)?.id ?? sessionID
+    }
+
+    func isGeneratingTitle(_ sessionID: UUID, store: ProjectStore) -> Bool {
+        let conversationID = titleConversationID(sessionID, store: store)
+        guard let record = records[conversationID] else { return false }
+        return record.turn?.summary?.mode.isTitle == true
+            || record.queue.contains { $0.summary?.mode.isTitle == true }
+    }
+
+    func canRegenerateTitle(_ sessionID: UUID, store: ProjectStore) -> Bool {
+        let conversationID = titleConversationID(sessionID, store: store)
+        guard let session = store.session(conversationID),
+              session.agentSessionID(for: session.agent)?.isEmpty == false,
+              !state(sessionID).isBusy, !state(conversationID).isBusy,
+              !isBeingRemoved(sessionID), !isBeingRemoved(conversationID) else { return false }
+        return !isGeneratingTitle(sessionID, store: store)
+    }
+
+    @discardableResult
+    func regenerateTitle(_ sessionID: UUID, store: ProjectStore) -> Bool {
+        guard canRegenerateTitle(sessionID, store: store),
+              let session = store.session(store.userFacingSessionID(for: sessionID)) else {
+            return false
+        }
+        let conversationID = titleConversationID(sessionID, store: store)
+        let restingState: SummaryRestingState = if case .failed(let message) = state(conversationID) {
+            .failed(message)
+        } else {
+            .idle
+        }
+        records[conversationID, default: SessionRecord()].queue.append(QueuedPrompt(
+            text: SessionTitle.prompt, attachments: [], customInstructions: nil,
+            isAppCommand: true,
+            summary: SummaryAttempt(mode: .title(SessionTitleRequest(session)),
+                                    restingState: restingState)))
+        SessionLog.note("generating session title", session: conversationID)
+        runQueue(conversationID, store: store)
+        return true
+    }
+
+    private func queueAutomaticTitle(after turn: Turn, sessionID: UUID,
+                                     store: ProjectStore) -> Bool {
+        guard turn.isFirstTurn, automaticTitlesEnabled(),
+              let session = store.session(store.userFacingSessionID(for: sessionID)),
+              session.titleRevision == nil,
+              let conversation = store.session(sessionID),
+              conversation.agentSessionID(for: conversation.agent)?.isEmpty == false,
+              !isBeingRemoved(session.id), !isBeingRemoved(sessionID) else { return false }
+
+        // A title gets the first turn's context before any queued follow-up runs. If
+        // no work is queued, the completed task can already be marked ready to review.
+        let noQueuedWork = records[sessionID]?.queue.isEmpty == true
+        var unseen = false
+        if noQueuedWork {
+            unseen = store.noteTurnEnded(for: sessionID)
+            AppNotifier.shared.turnEnded(sessionID: session.id,
+                                         sessionTitle: session.title, failure: nil)
+        }
+        records[sessionID, default: SessionRecord()].queue.insert(QueuedPrompt(
+            text: SessionTitle.prompt, attachments: [], customInstructions: nil,
+            isAppCommand: true,
+            summary: SummaryAttempt(mode: .title(SessionTitleRequest(session)),
+                                    restingState: .idle, recapAfterTitle: unseen)), at: 0)
+        return true
     }
 
     // MARK: - The nearly-full nudge
@@ -976,7 +1059,7 @@ final class SessionRunner {
         guard !record.state.isBusy,
               let next = record.queue.first,
               let session = store.session(sessionID) else { return }
-        if next.recap == nil { records[sessionID]?.continuable = nil }
+        if next.summary == nil { records[sessionID]?.continuable = nil }
 
         // Two agents sharing any direct project folder would edit the same files under
         // each other. Workspace sessions therefore conflict when any root overlaps.
@@ -1000,6 +1083,9 @@ final class SessionRunner {
                                                 claudeSessionID: session.claudeSessionID,
                                                 codexSessionID: session.codexSessionID,
                                                 copilotSessionID: session.copilotSessionID)
+        let titleSession = store.session(store.userFacingSessionID(for: sessionID)) ?? session
+        let isFirstTurn = !next.isAppCommand && !session.hasStarted && !titleSession.hasStarted
+            && titleSession.title == "New session"
         for var message in next.transcriptMessages {
             if message.role == .user { message.checkpoint = checkpoint }
             store.append(message, to: sessionID)
@@ -1007,7 +1093,8 @@ final class SessionRunner {
         let avatarSequence = nextAvatarSequence(for: sessionID)
         launch(Self.prompt(next.prompt, with: next.attachments), attachments: next.attachments,
                sessionID: sessionID, store: store, avatarSequence: avatarSequence,
-               canRetryWithoutResume: true, recap: next.recap)
+               canRetryWithoutResume: true, summary: next.summary,
+               isFirstTurn: isFirstTurn)
     }
 
     private func nextAvatarSequence(for sessionID: UUID) -> Int {
@@ -1458,7 +1545,7 @@ final class SessionRunner {
     private func launch(_ prompt: String, attachments: [Attachment], sessionID: UUID,
                         store: ProjectStore, avatarSequence: Int,
                         canRetryWithoutResume: Bool,
-                        recap: RecapAttempt? = nil) {
+                        summary: SummaryAttempt? = nil, isFirstTurn: Bool = false) {
         // Read the session again rather than passing it in: a retry runs after the stored
         // claudeSessionID has been cleared, and must not try to resume anything.
         guard let session = store.session(sessionID) else { return }
@@ -1506,16 +1593,16 @@ final class SessionRunner {
             TreeSnapshots.shared.baseline(at: workingDirectory, using: git)
         }
 
-        // The whole ordinary turn, tool calls included, lands in this one message. A recap
-        // is only for its card, so its reply stays private to the turn.
+        // Summaries belong to the session title or recap card, so their replies stay
+        // private to the turn.
         let reply = ChatMessage(role: .assistant)
-        if recap == nil { store.append(reply, to: sessionID) }
+        if summary == nil { store.append(reply, to: sessionID) }
 
         // Takes back everything above: the config file, the empty reply and the hold on
         // the transcript, then says why the turn did not run.
         func fail(_ message: String) {
             if let mcpConfigURL { try? FileManager.default.removeItem(at: mcpConfigURL) }
-            if recap == nil { store.removeMessage(reply.id, from: sessionID) }
+            if summary == nil { store.removeMessage(reply.id, from: sessionID) }
             store.release(sessionID, for: .running)
             setState(.failed(message), for: sessionID)
         }
@@ -1536,7 +1623,7 @@ final class SessionRunner {
                              messageID: reply.id, attachments: attachments,
                              avatarSequence: avatarSequence,
                              canRetryWithoutResume: canRetryWithoutResume,
-                             mcpConfigURL: mcpConfigURL, recap: recap,
+                             mcpConfigURL: mcpConfigURL, summary: summary,
                              sessionID: sessionID, store: store)
         } catch {
             SessionLog.note("could not start: \(error.localizedDescription)", session: sessionID)
@@ -1544,6 +1631,7 @@ final class SessionRunner {
             return
         }
 
+        turn.isFirstTurn = isFirstTurn
         records[sessionID, default: SessionRecord()].turn = turn
         if let presetSessionID = plan.presetSessionID {
             turn.agentSessionID = presetSessionID
@@ -1624,7 +1712,7 @@ final class SessionRunner {
     private func spawn(_ plan: TurnPlan, agentPath: String, workingDirectory: String,
                        messageID: UUID, attachments: [Attachment], avatarSequence: Int,
                        canRetryWithoutResume: Bool, mcpConfigURL: URL?,
-                       recap: RecapAttempt?,
+                       summary: SummaryAttempt?,
                        sessionID: UUID, store: ProjectStore) throws -> Turn {
         var env = ProcessInfo.processInfo.environment
         env["PATH"] = ProcessManager.searchPath
@@ -1677,7 +1765,7 @@ final class SessionRunner {
                         attachments: attachments, resumed: plan.resumed,
                         avatarSequence: avatarSequence,
                         canRetryWithoutResume: canRetryWithoutResume,
-                        mcpConfigURL: mcpConfigURL, recap: recap)
+                        mcpConfigURL: mcpConfigURL, summary: summary)
         let token = turn.token
         let runner = self
         let buffer = LineBuffer()
@@ -1984,9 +2072,9 @@ final class SessionRunner {
             case .text(let text):
                 setState(.streaming, for: sessionID)
                 refreshCodexContextAfterModelActivity(turn, sessionID: sessionID, store: store)
-                if turn.recap != nil {
-                    if !turn.recapText.isEmpty { turn.recapText += "\n\n" }
-                    turn.recapText += text
+                if turn.summary != nil {
+                    if !turn.summaryText.isEmpty { turn.summaryText += "\n\n" }
+                    turn.summaryText += text
                     continue
                 }
                 freshReply(turn, sessionID: sessionID, store: store)
@@ -2245,7 +2333,7 @@ final class SessionRunner {
                 // turn: the CLI runs a follow-up turn when a task finishes, but only
                 // while its process is alive, so the input pipe is held open until the
                 // last task is done and the turn after it has answered.
-                if !isError, !turn.pendingTasks.isEmpty {
+                if !isError, turn.summary == nil, !turn.pendingTasks.isEmpty {
                     SessionLog.note("holding turn open for background tasks \(turn.pendingTasks.map(\.id).sorted())",
                                     session: sessionID)
                     turn.waitingOnTasks = true
@@ -2287,7 +2375,7 @@ final class SessionRunner {
 
     private func recordAgentTask(_ record: AgentTaskRecord, turn: Turn,
                                  sessionID: UUID, store: ProjectStore) {
-        guard turn.recap == nil else { return }
+        guard turn.summary == nil else { return }
         let messageID = turn.agentTaskMessages[record.task.id] ?? turn.messageID
         turn.agentTasks[record.task.id] = record
         turn.agentTaskMessages[record.task.id] = messageID
@@ -2395,7 +2483,7 @@ final class SessionRunner {
     // when a background task finishes. Without this the follow-up would keep writing
     // into the bubble of the turn that already answered.
     private func freshReply(_ turn: Turn, sessionID: UUID, store: ProjectStore) {
-        guard turn.needsFreshReply else { return }
+        guard turn.summary == nil, turn.needsFreshReply else { return }
         endHold(turn, sessionID: sessionID)
         removeReplyIfEmpty(turn, sessionID: sessionID, store: store)
         openFreshReply(turn, sessionID: sessionID, store: store)
@@ -2407,7 +2495,7 @@ final class SessionRunner {
     // the ones behind it go when this one's result comes back.
     private func injectQueued(_ sessionID: UUID, store: ProjectStore) {
         guard let record = records[sessionID], let turn = record.turn, turn.waitingOnTasks,
-              let next = record.queue.first else { return }
+              let next = record.queue.first, turn.summary == nil, next.summary == nil else { return }
         let prompt = Self.prompt(next.prompt, with: next.attachments)
         // A failed write means the pipe is gone; the prompt stays queued and starts a
         // fresh process once this turn winds down.
@@ -2533,9 +2621,9 @@ final class SessionRunner {
             return
         }
 
-        if let recap = turn.recap {
-            finishRecap(turn, attempt: recap, status: status,
-                        sessionID: sessionID, store: store)
+        if let summary = turn.summary {
+            finishSummary(turn, attempt: summary, status: status,
+                          sessionID: sessionID, store: store)
             return
         }
 
@@ -2583,6 +2671,8 @@ final class SessionRunner {
         guard turn.failure != nil || status != 0 || missingCompletion else {
             SessionLog.note("turn finished", session: sessionID)
             setState(.idle, for: sessionID)
+            let titleQueued = queueAutomaticTitle(after: turn, sessionID: sessionID,
+                                                  store: store)
             // Given back before the queue runs: the next turn takes the transcript for
             // itself, and releasing after it started would take that hold away.
             store.release(sessionID, for: .running)
@@ -2593,7 +2683,7 @@ final class SessionRunner {
             resumeDesignWorkflowQueues(after: sessionID, store: store)
             // A queued prompt starting straight away means the session has not stopped
             // working, and there is nothing to come back to yet.
-            if !state(sessionID).isBusy {
+            if !state(sessionID).isBusy, !titleQueued {
                 let unseen = store.noteTurnEnded(for: sessionID)
                 if let session = store.session(sessionID) {
                     AppNotifier.shared.turnEnded(
@@ -2633,7 +2723,7 @@ final class SessionRunner {
                 to: sessionID)
             launch(turn.prompt, attachments: turn.attachments, sessionID: sessionID,
                    store: store, avatarSequence: turn.avatarSequence,
-                   canRetryWithoutResume: false)
+                   canRetryWithoutResume: false, isFirstTurn: turn.isFirstTurn)
             return
         }
 
@@ -2652,27 +2742,43 @@ final class SessionRunner {
         requestAutomaticRecap(sessionID, unseen: unseen, store: store)
     }
 
-    private func finishRecap(_ turn: Turn, attempt: RecapAttempt, status: Int32,
-                             sessionID: UUID, store: ProjectStore) {
-        let streamed = turn.recapText
+    private func finishSummary(_ turn: Turn, attempt: SummaryAttempt, status: Int32,
+                               sessionID: UUID, store: ProjectStore) {
+        let streamed = turn.summaryText
         store.release(sessionID, for: .running)
 
         let completedNormally = !turn.stopRequested && turn.failure == nil && status == 0
             && (turn.agent.asksPermissions || turn.receivedCompletion)
         let text: String? = if completedNormally {
             switch attempt.mode {
-            case .claudeCode:
+            case .claudeRecap:
                 SessionRecap.nativeText(from: streamed)
                     ?? SessionRecap.nativeText(from: turn.resultMessage)
-            case .prompt:
+            case .promptRecap:
                 SessionRecap.cleaned(streamed) ?? SessionRecap.cleaned(turn.resultMessage)
+            case .title:
+                SessionTitle.cleaned(streamed) ?? SessionTitle.cleaned(turn.resultMessage)
             }
         } else {
             nil
         }
 
+        if case .title(let request) = attempt.mode {
+            if let text { store.setGeneratedTitle(text, for: request) }
+            setState(attempt.restingState.sessionState, for: sessionID)
+            SessionLog.note(text != nil ? "session title finished" : "session title unchanged",
+                            session: sessionID)
+            if !turn.stopRequested { runQueue(sessionID, store: store) }
+            resumeDesignWorkflowQueues(after: sessionID, store: store)
+            if attempt.recapAfterTitle, !turn.stopRequested,
+               store.hasFinished(request.sessionID) {
+                requestAutomaticRecap(sessionID, unseen: true, store: store)
+            }
+            return
+        }
+
         if let text {
-            let source: SessionRecap.Source = attempt.mode == .claudeCode
+            let source: SessionRecap.Source = attempt.mode == .claudeRecap
                 ? .claudeCode : .prompt
             store.setRecap(SessionRecap(text: text, generatedAt: Date(), source: source),
                            for: sessionID)
@@ -2683,13 +2789,13 @@ final class SessionRunner {
             return
         }
 
-        if attempt.mode == .claudeCode, !turn.stopRequested {
+        if attempt.mode == .claudeRecap, !turn.stopRequested {
             records[sessionID, default: SessionRecord()].queue.insert(QueuedPrompt(
                 text: Self.recapPrompt,
                 attachments: [],
                 customInstructions: nil,
                 isAppCommand: true,
-                recap: RecapAttempt(mode: .prompt, restingState: attempt.restingState)),
+                summary: SummaryAttempt(mode: .promptRecap, restingState: attempt.restingState)),
                 at: 0)
             setState(attempt.restingState.sessionState, for: sessionID)
             SessionLog.note("native recap unavailable; using summary prompt", session: sessionID)
@@ -2752,14 +2858,15 @@ final class SessionRunner {
         let resumed: Bool
         let canRetryWithoutResume: Bool
         let mcpConfigURL: URL?
-        let recap: RecapAttempt?
+        let summary: SummaryAttempt?
+        var isFirstTurn = false
         var agentSessionID: String?
         var stderr = ""
         var failure: String?
         var lastStreamError: String?
         var resultMessage: String?
-        // Recap text belongs to the recap card and never becomes a transcript message.
-        var recapText = ""
+        // A summary never becomes a transcript message.
+        var summaryText = ""
         var receivedCompletion = false
         // Whether anything the turn said has come through yet. A result before that
         // belongs to a turn the app never asked for, so it is not this turn ending.
@@ -2817,7 +2924,7 @@ final class SessionRunner {
         init(processGroup: pid_t, agent: AgentKind, messageID: UUID, input: Pipe,
              output: Pipe, errorOutput: Pipe, prompt: String, workingDirectory: String,
              attachments: [Attachment], resumed: Bool, avatarSequence: Int,
-             canRetryWithoutResume: Bool, mcpConfigURL: URL?, recap: RecapAttempt?) {
+             canRetryWithoutResume: Bool, mcpConfigURL: URL?, summary: SummaryAttempt?) {
             self.processGroup = processGroup
             self.agent = agent
             self.messageID = messageID
@@ -2831,7 +2938,7 @@ final class SessionRunner {
             self.resumed = resumed
             self.canRetryWithoutResume = canRetryWithoutResume
             self.mcpConfigURL = mcpConfigURL
-            self.recap = recap
+            self.summary = summary
         }
     }
 }

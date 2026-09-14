@@ -138,6 +138,12 @@ final class AppSettings {
         }
     }
 
+    var sessionTitlesEnabled: Bool {
+        didSet {
+            Preferences.setSessionTitlesEnabled(sessionTitlesEnabled, in: preferences)
+        }
+    }
+
     var sessionFinishedSound: SessionSound {
         didSet {
             Preferences.setSessionFinishedSound(sessionFinishedSound, in: preferences)
@@ -173,6 +179,7 @@ final class AppSettings {
         designEnabled = Preferences.designEnabled(in: preferences)
         mobileAccessEnabled = Preferences.mobileAccessEnabled(in: preferences)
         sessionRecapsEnabled = Preferences.sessionRecapsEnabled(in: preferences)
+        sessionTitlesEnabled = Preferences.sessionTitlesEnabled(in: preferences)
         sessionFinishedSound = Preferences.sessionFinishedSound(in: preferences)
         hasCompletedOnboarding = Preferences.hasCompletedOnboarding(in: preferences)
         costShown = Dictionary(uniqueKeysWithValues: AgentKind.allCases.map {
@@ -560,6 +567,15 @@ struct SettingsView: View {
                     .padding(.horizontal, 14)
                     .padding(.vertical, 13)
             }
+            SettingsCard {
+                SettingsToggleRow(
+                    "Automatic session titles",
+                    detail: "Summarises the conversation into a short title after the first turn finishes. You can still regenerate a title from the session's right-click menu when this is off.",
+                    isOn: $settings.sessionTitlesEnabled)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 13)
+            }
+            .id(SettingsSearchTarget.generalTitles.id)
         }
     }
 
@@ -1659,6 +1675,7 @@ private struct DayField: View {
 enum SettingsSearchTarget: String, Hashable {
     case generalSidebar
     case generalRecaps
+    case generalTitles
     case generalSound
     case generalOldSessions
     case generalOrphanedWorktrees
@@ -1703,6 +1720,8 @@ enum SettingsSearchIndex {
                "sidebar recent project workspace see more limit"),
         result("Automatic session recaps", .general, .generalRecaps,
                "recap catch up return summary conversation finish away manual toggle"),
+        result("Automatic session titles", .general, .generalTitles,
+               "title name rename regenerate summarise sentence first turn right click manual toggle"),
         result("Session finished sound", .general, .generalSound,
                "sound alert audio chime beep play finish turn ends notification silent off"),
         result("Old sessions", .general, .generalOldSessions,

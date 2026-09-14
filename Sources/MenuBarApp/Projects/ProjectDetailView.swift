@@ -442,6 +442,7 @@ struct ProjectDetailView: View {
     private func sessionMenu(_ session: ChatSession, project: Project) -> [MenuEntry] {
         [
             .item("Open session") { store.selectSession(session.id) },
+            SessionTitle.menuEntry(for: session.id, runner: runner, store: store),
             .item(session.isPinned ? "Unpin" : "Pin",
                   icon: session.isPinned ? "pin.slash" : "pin") {
                 store.setPinned(!session.isPinned, forSession: session.id)

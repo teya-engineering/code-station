@@ -246,6 +246,23 @@ struct AppPathsTests {
             .sessionRecapsEnabled)
     }
 
+    @Test @MainActor func sessionTitlesDefaultOffAndPersist() throws {
+        let suite = "code-station-title-tests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let avatar = root.appendingPathComponent("avatar.png")
+        let settings = AppSettings(agentAvatarURL: avatar, preferences: defaults)
+
+        #expect(!Preferences.sessionTitlesEnabled(in: defaults))
+        #expect(!settings.sessionTitlesEnabled)
+
+        settings.sessionTitlesEnabled = true
+
+        #expect(Preferences.sessionTitlesEnabled(in: defaults))
+        #expect(AppSettings(agentAvatarURL: avatar, preferences: defaults)
+            .sessionTitlesEnabled)
+    }
+
     @Test func sessionRecapsRespectTheOldCatchUpOptOut() throws {
         let suite = "code-station-recap-migration-tests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))

@@ -865,6 +865,7 @@ struct AppSidebar: View {
                          store.setPinned(!session.isPinned, forSession: session.id)
                      },
                      .item("Rename…") { renamingID = session.id },
+                     SessionTitle.menuEntry(for: session.id, runner: runner, store: store),
                      .separator,
                      .item("Delete session", kind: .destructive) {
                          confirmRemoveSession(session)

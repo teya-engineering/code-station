@@ -1247,15 +1247,21 @@ final class ProjectStore {
         """
     }
 
-    // A title the person typed is also what stops the first prompt from taking the title
-    // over, since that only ever replaces the untouched "New session".
     func renameSession(_ sessionID: UUID, to title: String) {
         guard let i = index(sessionID) else { return }
         let trimmed = title.trimmed
-        guard !trimmed.isEmpty, sessions[i].title != trimmed else { return }
+        guard !trimmed.isEmpty else { return }
         sessions[i].title = trimmed
+        sessions[i].titleRevision = UUID()
         publishSidebarSessions()
         saveIndex()
+    }
+
+    func setGeneratedTitle(_ title: String, for request: SessionTitleRequest) {
+        guard let session = session(request.sessionID),
+              session.title == request.originalTitle,
+              session.titleRevision == request.revision else { return }
+        renameSession(request.sessionID, to: title)
     }
 
     func setPinned(_ isPinned: Bool, forSession sessionID: UUID) {

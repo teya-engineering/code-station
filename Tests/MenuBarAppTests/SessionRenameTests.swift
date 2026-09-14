@@ -2,8 +2,7 @@ import Foundation
 import Testing
 @testable import MenuBarApp
 
-// A session title is either taken from the first prompt or typed by hand. Once it is
-// typed, nothing the conversation does may take it back.
+// An automatic title must leave a name the person typed alone.
 @MainActor
 struct SessionRenameTests {
     private let store: ProjectStore

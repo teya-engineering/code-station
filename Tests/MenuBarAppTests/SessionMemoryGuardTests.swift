@@ -214,13 +214,18 @@ struct SessionMemoryLimitRunnerTests {
         #expect(try String(contentsOf: fixture.scratch.path("starts"), encoding: .utf8) == "started\n")
     }
 
-    @Test(arguments: [AgentKind.codex, .claudeCode, .copilot])
-    func aRecapMemoryStopDoesNotRunFallbacksOrQueuedPrompts(agent: AgentKind) async throws {
+    @Test(arguments: AgentKind.allCases, [false, true])
+    func aSummaryMemoryStopDoesNotRunFallbacksOrQueuedPrompts(agent: AgentKind,
+                                                             title: Bool) async throws {
         let fixture = try RunnerHarness(agent: agent, script: Self.start + "\n" + Self.allocate,
                                         memoryLimit: 24 * 1_024 * 1_024)
         defer { fixture.tearDown() }
         fixture.store.setAgentSessionID("existing-session", agent: agent, for: fixture.session.id)
-        #expect(fixture.runner.recap(fixture.session.id, store: fixture.store))
+        if title {
+            #expect(fixture.runner.regenerateTitle(fixture.session.id, store: fixture.store))
+        } else {
+            #expect(fixture.runner.recap(fixture.session.id, store: fixture.store))
+        }
         let child = try await child(in: fixture)
         defer { if child.isAlive { kill(child.pid, SIGKILL) } }
         fixture.runner.send("Continue the work", sessionID: fixture.session.id, store: fixture.store)
@@ -232,6 +237,7 @@ struct SessionMemoryLimitRunnerTests {
         })
         #expect(await waitUntil(timeout: .seconds(5)) { !child.isAlive })
         #expect(!fixture.runner.isRecapping(fixture.session.id))
+        #expect(!fixture.runner.isGeneratingTitle(fixture.session.id, store: fixture.store))
         #expect(fixture.store.recap(for: fixture.session.id) == nil)
         #expect(fixture.runner.queued(fixture.session.id).map(\.text) == ["Continue the work"])
         #expect(fixture.store.transcript(of: fixture.session.id).last?.text

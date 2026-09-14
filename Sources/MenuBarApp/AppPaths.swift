@@ -550,6 +550,16 @@ enum Preferences {
         store.set(enabled, forKey: "sessionRecapsEnabled")
     }
 
+    static func sessionTitlesEnabled(in store: UserDefaults = .standard) -> Bool {
+        store.bool(forKey: "sessionTitlesEnabled")
+    }
+
+    static func setSessionTitlesEnabled(
+        _ enabled: Bool, in store: UserDefaults = .standard
+    ) {
+        store.set(enabled, forKey: "sessionTitlesEnabled")
+    }
+
     // What a finished session plays. An unset key reads as the standard sound: a turn
     // ending while the person is elsewhere is the moment they most want to hear about,
     // so it is on until they say otherwise.

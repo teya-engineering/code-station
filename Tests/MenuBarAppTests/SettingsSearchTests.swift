@@ -45,6 +45,14 @@ struct SettingsSearchTests {
         #expect(result.target == .generalRecaps)
     }
 
+    @Test func findsAutomaticSessionTitles() throws {
+        let result = try #require(SettingsSearchIndex.results(for: "regenerate title").first)
+
+        #expect(result.title == "Automatic session titles")
+        #expect(result.tab == .general)
+        #expect(result.target == .generalTitles)
+    }
+
     @Test func findsTheWorkingSetDefault() throws {
         let result = try #require(SettingsSearchIndex.results(for: "working set").first)
 
