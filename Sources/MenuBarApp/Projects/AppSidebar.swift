@@ -1008,8 +1008,9 @@ struct AppSidebar: View {
             + store.projects.flatMap { grouped[$0.id, default: []].map(\.id) }
     }
 
-    // Start at the parent to keep the session in context, then expose the selected card
-    // if the rail is taller than the viewport. Navigation can also reorder the list.
+    // Brings the selected card on screen, and only as far as that takes: a card already
+    // in view leaves the rail where the user put it. Starting a session is the common
+    // case, and its card is drawn next to the row that was just clicked.
     private func reveal(with scroller: ScrollViewProxy) async {
         guard let id = store.sessionToReveal, store.sidebarDestination?.sessionID == id,
               let session = store.sidebarSession(id) else { return }
@@ -1021,12 +1022,11 @@ struct AppSidebar: View {
         guard renderedSessionIDs.contains(id) else {
             // Lazy rows report their cards after layout. Keep the request until that
             // happens, or a scroll can stop at a parent whose card does not exist yet.
-            scroller.scrollTo(containerID, anchor: .top)
+            scroller.scrollTo(containerID)
             return
         }
         withAnimation(reduceMotion ? nil : .easeOut(duration: 0.26)) {
-            // The parent stays in view when both fit; a long rail still exposes the card.
-            scroller.scrollTo(id, anchor: .bottom)
+            scroller.scrollTo(id)
         }
         store.sessionToReveal = nil
     }
@@ -1035,7 +1035,7 @@ struct AppSidebar: View {
     // marked long after the eye has found it.
     private func endHighlight() async {
         guard store.sidebarHighlight != nil else { return }
-        try? await Task.sleep(for: .milliseconds(1_400))
+        try? await Task.sleep(for: .milliseconds(1_000))
         guard !Task.isCancelled else { return }
         store.sidebarHighlight = nil
     }
@@ -2464,7 +2464,7 @@ enum Money {
 
 // The rail's way of saying where it landed. A row opened from somewhere else - the
 // command palette, Home, a link in a conversation - is scrolled into view and then blinks
-// green twice, which is enough to find it in a long list without moving anything.
+// green once, which is enough to find it in a long list without moving anything.
 private struct SidebarRevealGlow: ViewModifier {
     let revealed: Bool
 
@@ -2488,20 +2488,11 @@ private struct SidebarRevealGlow: ViewModifier {
 
     private func blink() async {
         guard revealed else { return }
-        guard !reduceMotion else {
-            // One steady mark held long enough to be found, since a blink is the thing
-            // this setting is asking not to see.
-            withAnimation(.easeOut(duration: 0.2)) { glow = 1 }
-            try? await Task.sleep(for: .milliseconds(900))
-            withAnimation(.easeIn(duration: 0.3)) { glow = 0 }
-            return
-        }
-        for _ in 0..<2 {
-            withAnimation(.easeOut(duration: 0.16)) { glow = 1 }
-            try? await Task.sleep(for: .milliseconds(250))
-            withAnimation(.easeIn(duration: 0.22)) { glow = 0 }
-            try? await Task.sleep(for: .milliseconds(260))
-        }
+        // Reduce Motion asks for no flicker, so the mark arrives and leaves more slowly
+        // instead of not being drawn at all.
+        withAnimation(.easeOut(duration: reduceMotion ? 0.3 : 0.16)) { glow = 1 }
+        try? await Task.sleep(for: .milliseconds(reduceMotion ? 700 : 320))
+        withAnimation(.easeIn(duration: reduceMotion ? 0.4 : 0.3)) { glow = 0 }
     }
 }
 

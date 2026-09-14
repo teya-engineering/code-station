@@ -91,7 +91,7 @@ struct SidebarNavigationTests {
         // What the command palette does: the row is chosen from a screen of its own, so
         // the rail has to travel to it.
         harness.store.selectWorkspace(workspace.id)
-        // Caught inside the first blink, so the snapshot shows the row wearing its green.
+        // Caught inside the blink, so the snapshot shows the row wearing its green.
         try? await Task.sleep(for: .milliseconds(120))
         harness.hosting?.view.layoutSubtreeIfNeeded()
         try harness.snapshot("workspace-pointed-out")
@@ -104,6 +104,35 @@ struct SidebarNavigationTests {
         #expect(harness.store.sidebarHighlight == workspace.id)
 
         #expect(await waitUntil { harness.store.sidebarHighlight == nil })
+    }
+
+    @Test func startingASessionLeavesTheRailWhereTheUserPutIt() async throws {
+        let expansion = Preferences.sidebarExpansion()
+        defer { Preferences.setSidebarExpansion(expansion) }
+        let harness = try SidebarHarness()
+        defer { harness.close() }
+        var projects: [Project] = []
+        for index in 1...18 {
+            projects.append(try TestStore.project(in: harness.store, named: "a-project-\(index)"))
+        }
+        harness.settings.projectGrouping = .flat
+        harness.store.selectHome()
+        harness.mount()
+        await harness.settle()
+
+        let project = projects[12]
+        harness.store.selectProject(project.id)
+        await harness.settle()
+        let scroll = try #require(harness.scrollView)
+        let landed = scroll.documentVisibleRect.minY
+        #expect(landed > 0)
+
+        // The new card is drawn right under the row that was just clicked, so the rail
+        // has no reason to travel anywhere for it.
+        let session = try harness.store.insertSession(in: project.id).get()
+        await harness.settle()
+        #expect(harness.store.selection == .session(session.id))
+        #expect(scroll.documentVisibleRect.minY == landed)
     }
 
     @Test func externalWorkspaceNavigationRevealsItsParentAndRecoversFromAFilter() async throws {
