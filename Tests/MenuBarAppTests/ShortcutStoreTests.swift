@@ -208,8 +208,10 @@ struct ShortcutStoreTests {
         let store = emptyStore(url)
         let id = try #require(store.add(name: "Say", command: "echo hello"))
         let run = ShortcutRun(id, in: FileManager.default.temporaryDirectory.path)
+        let scope = ShortcutScope.session(UUID())
 
         store.start(run)
+        store.showOutput(run, for: scope)
         #expect(await waitUntil { !store.state(run).isActive })
         #expect(!store.log(run).isEmpty)
 
@@ -217,6 +219,69 @@ struct ShortcutStoreTests {
 
         #expect(store.state(run) == .stopped)
         #expect(store.log(run).isEmpty)
+        // An edit can move the command to another folder, so the run the drawer is
+        // pointed at is one nothing will write to again.
+        #expect(store.output(for: scope) == nil)
+    }
+
+    // The pane a run was started from is thrown away and built again whenever the
+    // sidebar moves, so the open drawer has to outlive it or a build started here is
+    // out of sight the moment another session is read.
+    @Test func keepsTheOpenOutputPerScreen() throws {
+        let store = emptyStore(url)
+        let id = try #require(store.add(name: "Build", command: "true"))
+        let run = ShortcutRun(id, in: FileManager.default.temporaryDirectory.path)
+        let session = ShortcutScope.session(UUID())
+        let project = ShortcutScope.project(UUID())
+
+        store.showOutput(run, for: session)
+
+        #expect(store.output(for: session) == run)
+        // Another screen is not showing anything just because this one is.
+        #expect(store.output(for: project) == nil)
+
+        store.showOutput(nil, for: session)
+        #expect(store.output(for: session) == nil)
+    }
+
+    // Removing a shortcut takes its output with it, wherever it is on screen, since the
+    // drawer has no command left to name.
+    @Test func closesTheOutputOfARemovedShortcut() throws {
+        let store = emptyStore(url)
+        let kept = try #require(store.add(name: "Test", command: "true"))
+        let removed = try #require(store.add(name: "Build", command: "true"))
+        let directory = FileManager.default.temporaryDirectory.path
+        let first = ShortcutScope.session(UUID())
+        let second = ShortcutScope.session(UUID())
+        let third = ShortcutScope.project(UUID())
+
+        store.showOutput(ShortcutRun(removed, in: directory), for: first)
+        store.showOutput(ShortcutRun(removed, in: directory), for: second)
+        store.showOutput(ShortcutRun(kept, in: directory), for: third)
+
+        store.remove(removed)
+
+        #expect(store.output(for: first) == nil)
+        #expect(store.output(for: second) == nil)
+        #expect(store.output(for: third) == ShortcutRun(kept, in: directory))
+    }
+
+    // A deleted project or session cannot be reached again, so nothing should stay
+    // filed under it.
+    @Test func discardsTheOutputOfADeletedScreen() throws {
+        let store = emptyStore(url)
+        let id = try #require(store.add(name: "Build", command: "true"))
+        let sessionID = UUID()
+        let scope = ShortcutScope.session(sessionID)
+        store.showOutput(ShortcutRun(id, in: FileManager.default.temporaryDirectory.path),
+                         for: scope)
+
+        let owner = try #require(ShortcutScope(.session(sessionID)))
+        store.discard(owner)
+
+        #expect(store.output(for: scope) == nil)
+        // A workspace screen has no chips, so there is no scope to discard for one.
+        #expect(ShortcutScope(.workspace(UUID())) == nil)
     }
 
     private func emptyStore(_ url: URL) -> ShortcutStore {

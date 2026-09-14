@@ -24,10 +24,10 @@ struct ProjectDetailView: View {
     @State private var git: GitSnapshot?
     @State private var orphanedWorktrees: [GitWorktree.Orphaned] = []
     @State private var pruningOrphans = false
-    @State private var openShortcutRun: ShortcutRun?
     @State private var shortcutEditor: ShortcutEditorRequest?
 
     private var terminalScope: TerminalScope { .project(projectID) }
+    private var shortcutScope: ShortcutScope { .project(projectID) }
 
     var body: some View {
         if let project = store.project(projectID) {
@@ -36,8 +36,10 @@ struct ProjectDetailView: View {
                 statusStrip(project)
                 if store.isMissing(project) { missingFolder(project) }
                 content(project)
-                if let openShortcutRun {
-                    ShortcutOutputDrawer(run: openShortcutRun) { self.openShortcutRun = nil }
+                if let openRun = shortcuts.output(for: shortcutScope) {
+                    ShortcutOutputDrawer(run: openRun) {
+                        shortcuts.showOutput(nil, for: shortcutScope)
+                    }
                 }
                 if terminals.isOpen(terminalScope) {
                     TerminalDrawer(scope: terminalScope,
@@ -60,7 +62,6 @@ struct ProjectDetailView: View {
                 .appOverlays()
             }
             .task(id: project.path) {
-                openShortcutRun = nil
                 git = await GitInspector.snapshot(at: project.path, lane: .interactive)
             }
             // A session ending is the moment the folder is most likely to have moved on.
@@ -276,8 +277,10 @@ struct ProjectDetailView: View {
         }
         if !entries.isEmpty {
             entries.append(.separator)
-            if openShortcutRun != nil {
-                entries.append(.item("Hide output") { openShortcutRun = nil })
+            if shortcuts.output(for: shortcutScope) != nil {
+                entries.append(.item("Hide output") {
+                    shortcuts.showOutput(nil, for: shortcutScope)
+                })
             }
         }
         entries.append(.item("New shortcut…", icon: "plus") {
@@ -318,7 +321,7 @@ struct ProjectDetailView: View {
             shortcuts.stop(run)
         } else {
             shortcuts.start(run)
-            openShortcutRun = run
+            shortcuts.showOutput(run, for: shortcutScope)
         }
     }
 

@@ -65,6 +65,22 @@ struct ShortcutRun: Hashable, Sendable {
     }
 }
 
+// The screen an output drawer is docked on. A project overview and each session in it are
+// separate screens, so each one remembers the run it is showing.
+enum ShortcutScope: Hashable {
+    case project(UUID)
+    case session(UUID)
+
+    // A workspace screen has no shortcut chips, so nothing is ever filed under one.
+    init?(_ owner: RemovedOwner) {
+        switch owner {
+        case .project(let id): self = .project(id)
+        case .session(let id): self = .session(id)
+        case .workspace: return nil
+        }
+    }
+}
+
 // One shortcut as it is offered in a group of projects. Shared shortcuts have no project
 // of their own, so the project records the checkout they will run in.
 struct ShortcutPlacement: Identifiable, Equatable, Sendable {
@@ -108,6 +124,10 @@ final class ShortcutStore {
     private(set) var shortcuts: [CommandShortcut] = SiteDefaults.current.commandShortcuts
     private(set) var states: [ShortcutRun: State] = [:]
     private(set) var logs: [ShortcutRun: String] = [:]
+    // Which run each screen has its output open on. It is kept here rather than in the
+    // view because a pane is thrown away and built again every time the sidebar moves,
+    // and a command started before switching away is the one most worth coming back to.
+    private var openOutput: [ShortcutScope: ShortcutRun] = [:]
     private(set) var loadError: String?
     private(set) var saveError: String?
     private var importedSiteShortcutIDs = Set(SiteDefaults.current.commandShortcuts.map(\.id))
@@ -220,6 +240,21 @@ final class ShortcutStore {
 
     func log(_ run: ShortcutRun) -> String {
         logs[run] ?? ""
+    }
+
+    // MARK: - The output drawer
+
+    func output(for scope: ShortcutScope) -> ShortcutRun? {
+        openOutput[scope]
+    }
+
+    func showOutput(_ run: ShortcutRun?, for scope: ShortcutScope) {
+        openOutput[scope] = run
+    }
+
+    // A deleted project or session leaves nothing that can reach its drawer again.
+    func discard(_ scope: ShortcutScope) {
+        openOutput[scope] = nil
     }
 
     // MARK: - Persistence
@@ -402,6 +437,11 @@ final class ShortcutStore {
         for run in states.keys where run.shortcutID == id { states[run] = nil }
         for run in logs.keys where run.shortcutID == id { logs[run] = nil }
         for run in runTokens.keys where run.shortcutID == id { runTokens[run] = nil }
+        // Every screen showing one of these runs loses it, not just the one the reader
+        // was on: the drawer has nothing left to report.
+        for scope in openOutput.keys where openOutput[scope]?.shortcutID == id {
+            openOutput[scope] = nil
+        }
     }
 
     private func finished(_ run: ShortcutRun, token: UUID, status: Int32) {

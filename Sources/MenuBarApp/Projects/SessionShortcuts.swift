@@ -15,8 +15,9 @@ struct SessionShortcutChips: View {
     @Environment(ProjectStore.self) private var store
 
     let session: ChatSession
-    @Binding var openRun: ShortcutRun?
     let edit: (ShortcutEditorRequest) -> Void
+
+    private var scope: ShortcutScope { .session(session.id) }
 
     var body: some View {
         HStack(spacing: 7) {
@@ -51,7 +52,7 @@ struct SessionShortcutChips: View {
             shortcut: shortcut,
             state: shortcuts.state(run),
             tint: checkouts.count > 1 ? Theme.projectTint(for: entry.project?.name ?? "") : nil,
-            open: openRun == run,
+            open: shortcuts.output(for: scope) == run,
             toggle: { toggle(run) }
         )
         .appContextMenu {
@@ -59,7 +60,7 @@ struct SessionShortcutChips: View {
                 shortcuts.state(run).isActive
                     ? .item("Stop", action: { toggle(run) })
                     : .item("Run", action: { toggle(run) }),
-                .item("Show output", action: { openRun = run }),
+                .item("Show output", action: { shortcuts.showOutput(run, for: scope) }),
                 .item("Edit", action: {
                     edit(ShortcutEditorRequest(shortcut: shortcut,
                                                projectID: entry.checkout.projectID,
@@ -69,7 +70,6 @@ struct SessionShortcutChips: View {
             if !shortcut.availableInAllProjects {
                 entries.append(.separator)
                 entries.append(.item("Remove", kind: .destructive, action: {
-                    if openRun?.shortcutID == shortcut.id { openRun = nil }
                     shortcuts.remove(shortcut.id)
                 }))
             }
@@ -148,7 +148,7 @@ struct SessionShortcutChips: View {
             shortcuts.stop(run)
         } else {
             shortcuts.start(run)
-            openRun = run
+            shortcuts.showOutput(run, for: scope)
         }
     }
 }

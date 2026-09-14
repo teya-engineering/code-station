@@ -149,7 +149,6 @@ struct SessionView: View {
     @State private var composerFocused = false
     @State private var selectedProjectID: UUID?
     @State private var explorerShowsDesignFiles = false
-    @State private var openShortcutRun: ShortcutRun?
     @State private var shortcutEditor: ShortcutEditorRequest?
     @State private var exportingDesignMaterials = false
     @State private var transcriptWindow = TranscriptWindow()
@@ -182,6 +181,7 @@ struct SessionView: View {
 
     private let bottomAnchor = "transcript-bottom"
     private var terminalScope: TerminalScope { .session(sessionID) }
+    private var shortcutScope: ShortcutScope { .session(sessionID) }
 
     private struct RequestedChange: Hashable {
         let root: String
@@ -265,8 +265,10 @@ struct SessionView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
 
-                if let openShortcutRun {
-                    ShortcutOutputDrawer(run: openShortcutRun) { self.openShortcutRun = nil }
+                if let openRun = shortcuts.output(for: shortcutScope) {
+                    ShortcutOutputDrawer(run: openRun) {
+                        shortcuts.showOutput(nil, for: shortcutScope)
+                    }
                 }
 
                 if terminals.isOpen(terminalScope) {
@@ -309,7 +311,6 @@ struct SessionView: View {
                     }?.projectID
                 } ?? session.projectID
                 explorerShowsDesignFiles = designFilesURL != nil
-                openShortcutRun = nil
                 sampleMissingFolders()
                 refreshStats(workingDirectories, reusingRecent: true)
                 runner.refreshContext(sessionID, store: store)
@@ -1766,7 +1767,6 @@ struct SessionView: View {
             // is nothing there worth saving a command against.
             if project.kind == .project {
                 SessionShortcutChips(session: session,
-                                     openRun: $openShortcutRun,
                                      edit: { shortcutEditor = $0 })
             }
         }

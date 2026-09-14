@@ -82,9 +82,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         SessionLog.startMemoryMonitoring()
         closeShellsLeftBehind()
         // A deleted project or session leaves no way back to its terminals, so they are
-        // closed with it rather than kept alive by a store nothing can reach.
+        // closed with it rather than kept alive by a store nothing can reach. Its open
+        // shortcut output goes for the same reason.
         projects.onRemoved = { [weak self] owner in
             self?.terminals.discard(TerminalScope(owner))
+            if let scope = ShortcutScope(owner) { self?.shortcuts.discard(scope) }
         }
         Attachments.pruneOldPastes()
         AppNotifier.shared.activate()
