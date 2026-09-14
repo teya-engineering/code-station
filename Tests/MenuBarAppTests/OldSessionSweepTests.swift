@@ -162,6 +162,46 @@ struct OldSessionSweepTests {
         #expect(store.session(old.id) == nil)
     }
 
+    // Snooze stops the unattended deletion behind the countdown as well as the offer in
+    // the sheet, so nothing of that project goes before the deadline it was given.
+    @Test func takesNothingFromASnoozedProject() async throws {
+        let old = agedSession()
+        let firstSeen = Date()
+        store.snoozeCleanup(forProject: project.id, now: firstSeen)
+        var buffer = OldSessionSweep.EligibilityBuffer()
+
+        let afterWarning = await OldSessionSweep.run(
+            days: 7, policy: .deleteSafe, store: store, runner: runner, buffer: &buffer,
+            now: firstSeen.addingTimeInterval(OldSessionSweep.gracePeriod))
+
+        #expect(afterWarning == 0)
+        #expect(store.session(old.id) != nil)
+    }
+
+    // The snooze expires on its own, and the session it was protecting is picked up again
+    // on the far side of a fresh warning hour without anyone clearing anything.
+    @Test func takesTheSessionOnceTheSnoozeHasRunOut() async throws {
+        let old = agedSession()
+        let firstSeen = Date()
+        store.snoozeCleanup(forProject: project.id, now: firstSeen)
+        var buffer = OldSessionSweep.EligibilityBuffer()
+        let awake = firstSeen.addingTimeInterval(ProjectSnooze.step + 1)
+
+        let whileSnoozed = await OldSessionSweep.run(
+            days: 7, policy: .deleteSafe, store: store, runner: runner, buffer: &buffer,
+            now: firstSeen.addingTimeInterval(OldSessionSweep.gracePeriod))
+        _ = await OldSessionSweep.run(
+            days: 7, policy: .deleteSafe, store: store, runner: runner, buffer: &buffer,
+            now: awake)
+        let afterWarning = await OldSessionSweep.run(
+            days: 7, policy: .deleteSafe, store: store, runner: runner, buffer: &buffer,
+            now: awake.addingTimeInterval(OldSessionSweep.gracePeriod))
+
+        #expect(whileSnoozed == 0)
+        #expect(afterWarning == 1)
+        #expect(store.session(old.id) == nil)
+    }
+
     @Test func keepsAnOldDesignSessionThatContainsGeneratedFiles() async throws {
         let old = agedSession(seed: .init(mode: .design))
         let artifact = try #require(store.designArtifactURL(for: old))

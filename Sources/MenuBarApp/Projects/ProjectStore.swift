@@ -595,6 +595,28 @@ final class ProjectStore {
         saveIndex()
     }
 
+    // Gives the project another day before its old sessions are offered for deletion or
+    // taken by the sweep. Repeatable: each call adds a day to the deadline it already has.
+    func snoozeCleanup(forProject id: UUID, now: Date = Date()) {
+        guard let i = projects.firstIndex(where: { $0.id == id }) else { return }
+        projects[i].snoozedUntil = ProjectSnooze.extended(projects[i].snoozedUntil, now: now)
+        saveIndex()
+    }
+
+    func wakeCleanup(forProject id: UUID) {
+        guard let i = projects.firstIndex(where: { $0.id == id }),
+              projects[i].snoozedUntil != nil else { return }
+        projects[i].snoozedUntil = nil
+        saveIndex()
+    }
+
+    // The snooze standing over a session, which is the one on the project it runs in. A
+    // workspace session takes the deadline of the project it leads, the same project its
+    // row is grouped under in the review sheet.
+    func snoozeDeadline(for session: ChatSession) -> Date? {
+        project(session.projectID)?.snoozedUntil
+    }
+
     func changeSidebarAvatar(forProject id: UUID) {
         guard let i = projects.firstIndex(where: { $0.id == id }),
               let next = projects[i].sidebarAvatar.randomArtworkIndex() else { return }

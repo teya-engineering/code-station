@@ -3,11 +3,16 @@ import SwiftUI
 // The offer to clear out sessions that have gone quiet. Everything here is a choice: the
 // sheet arrives with the harmless rows ticked and says, next to each one, exactly what
 // deleting it costs. Anything that would lose work can only be cleared from here.
+//
+// Rows are grouped by the project they belong to, and a group can be snoozed: the third
+// answer, "not this project, not yet", which takes the whole project out of the count for
+// a day without moving the threshold in Settings or pinning its sessions one by one.
 struct OldSessionsView: View {
     @Environment(ProjectStore.self) private var store
     @Environment(SessionRunner.self) private var runner
     @Environment(DialogPresenter.self) private var dialogs
     @Environment(AppSettings.self) private var appSettings
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dismiss) private var dismiss
 
     @State private var rows: [Row] = []
@@ -25,10 +30,24 @@ struct OldSessionsView: View {
 
     private struct Row: Identifiable {
         let session: ChatSession
-        let projectName: String
+        let projectID: UUID
         var cost: SessionRemovalCost
 
         var id: UUID { session.id }
+    }
+
+    // One project's worth of rows. The header carries the project, which is what lets the
+    // rows underneath drop the fixed column they used to spend on it.
+    private struct ProjectGroup: Identifiable {
+        let projectID: UUID
+        let name: String
+        let rows: [Row]
+        // Nil once the deadline has passed, so an expired snooze needs no cleanup pass to
+        // hand its sessions back.
+        let snoozedUntil: Date?
+
+        var id: UUID { projectID }
+        var isSnoozed: Bool { snoozedUntil != nil }
     }
 
     private struct DeletionProgress {
@@ -44,16 +63,9 @@ struct OldSessionsView: View {
         VStack(spacing: 0) {
             header
             ScrollView {
-                VStack(spacing: 8) {
-                    ForEach(rows) { row in
-                        SessionChoiceRow(title: row.session.title,
-                                         projectName: row.projectName,
-                                         detail: detail(row),
-                                         cost: row.cost,
-                                         hasWorktree: !worktreePaths(row.session).isEmpty,
-                                         ticked: ticked.contains(row.id),
-                                         canToggle: row.cost.canSelect && !isDeleting,
-                                         toggle: { toggle(row) })
+                VStack(spacing: 14) {
+                    ForEach(groups) { group in
+                        groupView(group)
                     }
                     // Said out loud, so a half-ticked list reads as a decision rather than
                     // a glitch.
@@ -62,7 +74,8 @@ struct OldSessionsView: View {
                                "Only the first \(Self.preselectLimit) sessions are ticked for you. Tick the rest by hand if you want those gone as well.")
                     }
                     // What this screen can do that cannot be undone, said before the button
-                    // is reached rather than in a dialog after it.
+                    // is reached rather than in a dialog after it. A snoozed project is out
+                    // of reach, so its rows are not counted here either.
                     if designArtifactsAtRisk > 0 {
                         notice(icon: "paintbrush.pointed", tint: Theme.deletion,
                                Self.designArtifactsCost(designArtifactsAtRisk, unticked: true))
@@ -71,6 +84,15 @@ struct OldSessionsView: View {
                         notice(icon: "exclamationmark.triangle", tint: Theme.deletion,
                                Self.dirtyWorktreeCost(dirtyWorktrees, unticked: true))
                     }
+                    if everythingIsSnoozed {
+                        Text("Every project is snoozed. Nothing is cleared until they come back.")
+                            .font(.system(size: 12.5))
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 28)
+                            .padding(.horizontal, 14)
+                    }
                 }
                 .padding(20)
             }
@@ -78,7 +100,7 @@ struct OldSessionsView: View {
 
             SheetFooter(title: footerNote,
                         primary: SheetAction(title: deleteLabel,
-                                             enabled: !ticked.isEmpty && !isDeleting,
+                                             enabled: !tickedRows.isEmpty && !isDeleting,
                                              tone: .danger, action: confirmDelete),
                         dismiss: { if !isDeleting { dismiss() } })
                 .disabled(isDeleting)
@@ -99,6 +121,122 @@ struct OldSessionsView: View {
         }
         .padding(.horizontal, 20)
         .headerBand()
+    }
+
+    // MARK: - Groups
+
+    // Built from the rows rather than kept beside them, so the snooze a menu sets while
+    // this sheet is open lands here without the list being loaded again.
+    private var groups: [ProjectGroup] {
+        var order: [UUID] = []
+        var byProject: [UUID: [Row]] = [:]
+        for row in rows {
+            if byProject[row.projectID] == nil { order.append(row.projectID) }
+            byProject[row.projectID, default: []].append(row)
+        }
+        return order.map { projectID in
+            let project = store.project(projectID)
+            return ProjectGroup(projectID: projectID,
+                                name: project?.name ?? "Unknown project",
+                                rows: byProject[projectID] ?? [],
+                                snoozedUntil: activeSnooze(project?.snoozedUntil))
+        }
+    }
+
+    private func activeSnooze(_ deadline: Date?) -> Date? {
+        ProjectSnooze.isActive(deadline) ? deadline : nil
+    }
+
+    @ViewBuilder
+    private func groupView(_ group: ProjectGroup) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            groupHeader(group)
+            // The group stays in place rather than disappearing, so what was snoozed is
+            // still on screen and still reversible.
+            if let deadline = group.snoozedUntil {
+                snoozedCard(group, until: deadline)
+                    .transition(fold)
+            } else {
+                ForEach(group.rows) { row in
+                    SessionChoiceRow(title: row.session.title,
+                                     detail: detail(row),
+                                     cost: row.cost,
+                                     hasWorktree: !worktreePaths(row.session).isEmpty,
+                                     ticked: ticked.contains(row.id),
+                                     canToggle: row.cost.canSelect && !isDeleting,
+                                     toggle: { toggle(row) })
+                        .transition(fold)
+                }
+            }
+        }
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: group.snoozedUntil)
+    }
+
+    private func groupHeader(_ group: ProjectGroup) -> some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(Theme.monogram(for: group.name))
+                .frame(width: 6, height: 6)
+            Text(group.name)
+                .font(.system(size: 12.5, weight: .semibold))
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Text(counted(group.rows.count, "session"))
+                .font(.mono(10))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            Spacer(minLength: 8)
+            if !group.isSnoozed { snoozeButton(group) }
+        }
+        .padding(.horizontal, 2)
+        .accessibilityElement(children: .contain)
+    }
+
+    // The rows folded into one line: when they come back, and the way out. Sunken and
+    // quiet, since nothing here is up for deletion while the snooze runs.
+    private func snoozedCard(_ group: ProjectGroup, until deadline: Date) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "clock")
+                .font(.system(size: 14))
+                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(ProjectSnooze.title(group.name, until: deadline))
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .lineLimit(1)
+                Text(ProjectSnooze.detail(sessions: group.rows.count, until: deadline))
+                    .font(.mono(11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            snoozeButton(group)
+            // Nothing was destroyed, so putting it back costs one press and no dialog.
+            ActionButton(title: "Wake now", tone: .sunken, height: 24, size: 11.5) {
+                store.wakeCleanup(forProject: group.projectID)
+            }
+            .disabled(isDeleting)
+            .accessibilityLabel("Wake \(group.name) now")
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .surface(Theme.sunken, cornerRadius: 10, border: Theme.settingsBorder)
+    }
+
+    // The name stays the same in the sheet and in the project's menu, because it does the
+    // same thing in both: one more day, however many times it is pressed.
+    private func snoozeButton(_ group: ProjectGroup) -> some View {
+        ActionButton(title: "Snooze 1 day", tone: .outlined, height: 24, size: 11.5,
+                     icon: "clock") {
+            store.snoozeCleanup(forProject: group.projectID)
+        }
+        .disabled(isDeleting)
+        .accessibilityLabel(group.isSnoozed
+            ? "Snooze \(group.name) for 1 more day"
+            : "Snooze \(group.name) for 1 day")
+    }
+
+    private var fold: AnyTransition {
+        reduceMotion ? .identity : .opacity.combined(with: .offset(y: -4))
     }
 
     // A card under the list saying something about the list as a whole. Tinted when it
@@ -145,28 +283,52 @@ struct OldSessionsView: View {
         if let progress = deletionProgress {
             return "Deleting \(min(progress.completed + 1, progress.total)) of \(progress.total)…"
         }
-        return ticked.isEmpty ? "Delete" : "Delete \(counted(ticked.count, "session"))"
+        let count = tickedRows.count
+        return count == 0 ? "Delete" : "Delete \(counted(count, "session"))"
     }
 
     // The line that explains the button while there is nothing to explain, and names what
     // is being cleared once there is.
     private var footerNote: String {
-        guard let current = deletionProgress?.current, !current.isEmpty else {
+        if let current = deletionProgress?.current, !current.isEmpty {
+            return "Clearing \(current)…"
+        }
+        guard snoozedProjects > 0 else {
             return "Project folders stay on disk. Ticked Design files and session worktrees are removed."
         }
-        return "Clearing \(current)…"
+        return "Project folders stay on disk. \(counted(snoozedProjects, "project")) snoozed, "
+            + "so nothing of theirs is cleared yet."
     }
 
     private var isDeleting: Bool {
         deletionProgress != nil
     }
 
+    // A snoozed project is out of reach until it comes back, so its rows count for
+    // nothing the footer or the warnings promise.
+    private var awakeRows: [Row] {
+        let snoozed = Set(groups.filter(\.isSnoozed).map(\.projectID))
+        return rows.filter { !snoozed.contains($0.projectID) }
+    }
+
+    private var tickedRows: [Row] {
+        awakeRows.filter { ticked.contains($0.id) }
+    }
+
+    private var snoozedProjects: Int {
+        groups.count(where: \.isSnoozed)
+    }
+
+    private var everythingIsSnoozed: Bool {
+        !groups.isEmpty && groups.allSatisfy(\.isSnoozed)
+    }
+
     private var designArtifactsAtRisk: Int {
-        rows.count { $0.cost.deletesDesignArtifacts }
+        awakeRows.count { $0.cost.deletesDesignArtifacts }
     }
 
     private var dirtyWorktrees: Int {
-        rows.count { $0.cost.worktree.losesWork }
+        awakeRows.count { $0.cost.worktree.losesWork }
     }
 
     private var preselectCapped: Bool {
@@ -201,16 +363,12 @@ struct OldSessionsView: View {
     // MARK: - Loading
 
     // A session that is running is never old, however long ago its last turn was: it is
-    // busy right now, which is the opposite of what this screen is for.
+    // busy right now, which is the opposite of what this screen is for. A snoozed project
+    // is loaded like any other: its group is what offers the way back.
     private func load() async {
         rows = OldSessions.olderThan(days, in: store.userSessions)
             .filter { !runner.state($0.id).isBusy }
-            .map { session in
-                Row(session: session,
-                    projectName: session.workspaceID.flatMap(store.workspace)?.name
-                        ?? store.project(session.projectID)?.name ?? "",
-                    cost: startingCost(session))
-            }
+            .map { Row(session: $0, projectID: $0.projectID, cost: startingCost($0)) }
         ticked = Set(rows.filter { $0.cost.losesNothing }
             .prefix(Self.preselectLimit)
             .map(\.id))
@@ -249,6 +407,8 @@ struct OldSessionsView: View {
 
     // MARK: - Acting
 
+    // Snoozing leaves every tick where it was: it takes the project out of the count
+    // until it comes back, so waking it puts the rows back as they were.
     private func toggle(_ row: Row) {
         guard row.cost.canSelect, !isDeleting else { return }
         if ticked.contains(row.id) {
@@ -262,7 +422,7 @@ struct OldSessionsView: View {
     // row that holds generated files or uncommitted work is worth asking about twice.
     private func confirmDelete() {
         guard !isDeleting else { return }
-        let chosen = rows.filter { ticked.contains($0.id) }
+        let chosen = tickedRows
         let designArtifacts = chosen.count { $0.cost.deletesDesignArtifacts }
         let dirtyWorktrees = chosen.count { $0.cost.worktree.losesWork }
         guard designArtifacts > 0 || dirtyWorktrees > 0 else {
@@ -328,10 +488,10 @@ struct OldSessionsView: View {
 }
 
 // One session up for deletion: the tick, who it is, and what removing it would cost. The
-// cost is the point of the row, so it sits at the end where the eye stops.
+// cost is the point of the row, so it sits at the end where the eye stops. The project is
+// carried by the group header above, which is what gives the title its width back.
 private struct SessionChoiceRow: View {
     let title: String
-    let projectName: String
     let detail: String
     let cost: SessionRemovalCost
     let hasWorktree: Bool
@@ -347,19 +507,7 @@ private struct SessionChoiceRow: View {
             .toggleStyle(.appCheckbox)
 
             VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 10) {
-                    // A column of its own, so the project reads down the list instead of
-                    // landing wherever the title before it happened to end.
-                    HStack(spacing: 5) {
-                        Circle()
-                            .fill(Theme.monogram(for: projectName))
-                            .frame(width: 6, height: 6)
-                        Text(projectName)
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                    .frame(width: 110, alignment: .leading)
+                HStack(spacing: 8) {
                     Text(title)
                         .font(.system(size: 13, weight: .semibold))
                         .lineLimit(1)

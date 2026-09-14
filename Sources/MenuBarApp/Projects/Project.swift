@@ -19,6 +19,11 @@ struct Project: Identifiable, Codable, Equatable, Sendable {
     // The saved prompt behind a task. Nil on normal projects, and on tasks created
     // before prompts existed, which read as an empty prompt.
     var task: TaskSpec?
+    // While this is in the future, none of the project's sessions count as old. A date
+    // rather than a day count, so it survives relaunch and an app that was closed over
+    // the weekend cannot extend it by accident. A deadline in the past needs no cleanup
+    // pass: it simply stops matching.
+    var snoozedUntil: Date?
 
     var url: URL { URL(fileURLWithPath: path) }
 
@@ -32,7 +37,8 @@ struct Project: Identifiable, Codable, Equatable, Sendable {
     }
 
     init(id: UUID = UUID(), name: String, path: String, kind: Kind = .project,
-         isPinned: Bool = false, sidebarAvatarIndex: Int? = nil, task: TaskSpec? = nil) {
+         isPinned: Bool = false, sidebarAvatarIndex: Int? = nil, task: TaskSpec? = nil,
+         snoozedUntil: Date? = nil) {
         self.id = id
         self.name = name
         self.path = path
@@ -40,6 +46,7 @@ struct Project: Identifiable, Codable, Equatable, Sendable {
         self.isPinned = isPinned
         self.sidebarAvatarIndex = sidebarAvatarIndex
         self.task = task
+        self.snoozedUntil = snoozedUntil
     }
 
     // Folder name is a good enough default title.
@@ -48,7 +55,7 @@ struct Project: Identifiable, Codable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, path, kind, isPinned, sidebarAvatarIndex, task
+        case id, name, path, kind, isPinned, sidebarAvatarIndex, task, snoozedUntil
     }
 
     init(from decoder: any Decoder) throws {
@@ -62,6 +69,7 @@ struct Project: Identifiable, Codable, Equatable, Sendable {
         sidebarAvatarIndex = try container.decodeIfPresent(Int.self,
                                                             forKey: .sidebarAvatarIndex)
         task = try container.decodeIfPresent(TaskSpec.self, forKey: .task)
+        snoozedUntil = try container.decodeIfPresent(Date.self, forKey: .snoozedUntil)
     }
 
     // Ad-hoc tasks created before the kind was stored can be identified by the private

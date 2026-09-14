@@ -57,10 +57,13 @@ enum OldSessionSweep {
 
     // The order is the sheet's order, oldest first, so a capped pass takes the sessions
     // that have been sitting the longest. A session that is pinned, open, or running is
-    // never eligible, however long ago its last turn was.
+    // never eligible, however long ago its last turn was, and neither is one whose
+    // project is snoozed: the filter is inherited, so the countdown in the sidebar and
+    // the deletion behind it stop for that project together.
     static func due(days: Int, in sessions: [ChatSession], now: Date = Date(),
-                    isBusy: (UUID) -> Bool, isOpen: (UUID) -> Bool) -> [ChatSession] {
-        Array(OldSessions.olderThan(days, in: sessions, now: now)
+                    isBusy: (UUID) -> Bool, isOpen: (UUID) -> Bool,
+                    snoozedUntil: OldSessions.SnoozeDeadline = { _ in nil }) -> [ChatSession] {
+        Array(OldSessions.olderThan(days, in: sessions, now: now, snoozedUntil: snoozedUntil)
             .filter { !$0.isPinned && !isBusy($0.id) && !isOpen($0.id) }
             .prefix(batchLimit))
     }
@@ -75,7 +78,8 @@ enum OldSessionSweep {
         var deleted = 0
         let eligible = due(days: days, in: store.sidebarSessions, now: now,
                            isBusy: { runner.isBusy($0, store: store) },
-                           isOpen: { store.selection == .session($0) })
+                           isOpen: { store.selection == .session($0) },
+                           snoozedUntil: { store.snoozeDeadline(for: $0) })
         let due = buffer.ready(eligible, now: now)
         // Reading git takes time, and the app keeps running while it does: a session that
         // has since been opened, picked up, or removed by hand is no longer ours to take,
@@ -84,6 +88,7 @@ enum OldSessionSweep {
             store.session(session.id)?.isPinned == false
                 && store.selection != .session(session.id)
                 && !runner.isBusy(session.id, store: store)
+                && !ProjectSnooze.isActive(store.snoozeDeadline(for: session), now: now)
         }
 
         for session in due {

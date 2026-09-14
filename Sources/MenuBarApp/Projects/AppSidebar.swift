@@ -61,6 +61,9 @@ struct AppSidebar: View {
         var losesNothing = 0
         var unpinnedSessions = 0
         var unpinnedLosesNothing = 0
+        // Projects whose snooze is holding old sessions back. A snooze over a project
+        // with nothing old to hide is not worth a line in the strip.
+        var snoozedProjects = 0
     }
 
     private struct OldSessionRefreshRule: Equatable {
@@ -902,12 +905,24 @@ struct AppSidebar: View {
                                  icon: project.isPinned ? "pin.slash" : "pin") {
             store.setPinned(!project.isPinned, forProject: project.id)
         }
+        let snoozed = ProjectSnooze.isActive(project.snoozedUntil)
+        var cleanup: [MenuEntry] = [
+            .item(snoozed ? "Snooze cleanup 1 more day" : "Snooze cleanup 1 day",
+                  icon: "clock") {
+                store.snoozeCleanup(forProject: project.id)
+            }]
+        if snoozed {
+            cleanup.append(.item("Wake now", icon: "clock.badge.xmark") {
+                store.wakeCleanup(forProject: project.id)
+            })
+        }
         if project.kind == .adHoc {
             return [pin,
                     .item("Run task") { runTask(project) },
                     .item("Rename…") { renamingID = project.id },
-                    .separator,
-                    .item("Reveal in Finder") {
+                    .separator]
+                + cleanup
+                + [.item("Reveal in Finder") {
                         NSWorkspace.shared.activateFileViewerSelecting([project.url])
                     },
                     .item("Open in \(SystemTerminal.appName)") { openInTerminal(project) },
@@ -918,8 +933,9 @@ struct AppSidebar: View {
         return [pin,
                 .item("Rename…") { renamingID = project.id },
                 .item("New session") { requestNewSession(in: project) },
-                .separator,
-                .item("Reveal in Finder") {
+                .separator]
+            + cleanup
+            + [.item("Reveal in Finder") {
                     NSWorkspace.shared.activateFileViewerSelecting([project.url])
                 },
                 .item("Open in \(SystemTerminal.appName)") { openInTerminal(project) },
@@ -1283,9 +1299,7 @@ struct AppSidebar: View {
                             .foregroundStyle(losesWork ? Theme.attentionText : Color.primary)
                             .lineLimit(1)
                             .minimumScaleFactor(0.85)
-                        Text(summary.losesWork == 1
-                             ? "1 session would lose work"
-                             : "\(summary.losesWork) sessions would lose work")
+                        Text(Self.stripDetail(summary))
                             .font(.mono(10))
                             .foregroundStyle(losesWork ? Theme.attentionText : Color.secondary)
                             .lineLimit(1)
@@ -1336,6 +1350,18 @@ struct AppSidebar: View {
         .accessibilityLabel("Review old sessions")
     }
 
+    // "1 project snoozed · 1 would lose work", so a quiet countdown is never a mystery.
+    // With nothing snoozed the line says only what it has always said.
+    private static func stripDetail(_ summary: OldSessionSummary) -> String {
+        let work = summary.losesWork == 1
+            ? "1 session would lose work"
+            : "\(summary.losesWork) sessions would lose work"
+        guard summary.snoozedProjects > 0 else { return work }
+        let snoozed = "\(counted(summary.snoozedProjects, "project")) snoozed"
+        guard summary.losesWork > 0 else { return snoozed }
+        return "\(snoozed) · \(summary.losesWork) would lose work"
+    }
+
     private var oldSessionDays: Int { appSettings.oldSessionDays }
 
     private func automaticallyDeletedCount(in summary: OldSessionSummary) -> Int {
@@ -1350,18 +1376,22 @@ struct AppSidebar: View {
         let sessions = store.sidebarSessions
         return OldSessionRefreshRule(
             days: oldSessionDays,
-            oldSessions: OldSessions.olderThan(oldSessionDays, in: sessions).map {
+            oldSessions: OldSessions.olderThan(oldSessionDays, in: sessions,
+                                               snoozedUntil: snoozeDeadline).map {
                 OldSessionRefreshRule.Session(
                     id: $0.id,
                     isBusy: runner.isBusy($0.id, store: store),
                     isPinned: $0.isPinned)
             },
-            nextOldAt: OldSessions.nextOldAt(oldSessionDays, in: sessions))
+            nextOldAt: OldSessions.nextOldAt(oldSessionDays, in: sessions,
+                                             snoozedUntil: snoozeDeadline))
     }
 
     private func refreshOldSessions() async {
-        let sessions = OldSessions.olderThan(oldSessionDays, in: store.sidebarSessions)
+        let old = OldSessions.olderThan(oldSessionDays, in: store.sidebarSessions)
             .filter { !runner.isBusy($0.id, store: store) }
+        let heldBack = old.filter { ProjectSnooze.isActive(snoozeDeadline($0)) }
+        let sessions = old.filter { !ProjectSnooze.isActive(snoozeDeadline($0)) }
         var losesWork = 0
         var losesNothing = 0
         var unpinnedSessions = 0
@@ -1383,7 +1413,12 @@ struct AppSidebar: View {
                                               losesWork: losesWork,
                                               losesNothing: losesNothing,
                                               unpinnedSessions: unpinnedSessions,
-                                              unpinnedLosesNothing: unpinnedLosesNothing)
+                                              unpinnedLosesNothing: unpinnedLosesNothing,
+                                              snoozedProjects: Set(heldBack.map(\.projectID)).count)
+    }
+
+    private func snoozeDeadline(_ session: ChatSession) -> Date? {
+        store.snoozeDeadline(for: session)
     }
 
     private func refreshOldSessionsHourly() async {
@@ -1392,8 +1427,11 @@ struct AppSidebar: View {
             let now = Date()
             let hourlyRefresh = now.addingTimeInterval(
                 Self.oldSessionRefreshInterval)
+            // The earliest snooze deadline counts as well, so the strip wakes up on the
+            // minute a project comes back rather than at the next hourly pass.
             let nextOldSession = OldSessions.nextOldAt(
-                oldSessionDays, in: store.sidebarSessions, now: now)
+                oldSessionDays, in: store.sidebarSessions, now: now,
+                snoozedUntil: snoozeDeadline)
             let nextRefresh = min(hourlyRefresh, nextOldSession ?? .distantFuture)
             do {
                 try await Task.sleep(for: .seconds(max(0, nextRefresh.timeIntervalSinceNow)))
@@ -1979,6 +2017,13 @@ private struct ProjectHeaderRow: View {
                                 .lineLimit(1)
                                 .truncationMode(.tail)
                             if project.isPinned { PinnedMark() }
+                            // The only mark a snoozed project carries. Its tooltip gives
+                            // the day its sessions come back into the cleanup list.
+                            if let snoozedUntil = project.snoozedUntil,
+                               ProjectSnooze.isActive(snoozedUntil) {
+                                MonoChip(text: ProjectSnooze.badge(until: snoozedUntil), size: 9.5)
+                                    .appTooltip("Cleanup snoozed until \(ProjectSnooze.wakeDay(snoozedUntil))")
+                            }
                             if let schedule = project.task?.schedule, schedule.isActive {
                                 Image(systemName: "clock.fill")
                                     .font(.system(size: 9.5, weight: .semibold))

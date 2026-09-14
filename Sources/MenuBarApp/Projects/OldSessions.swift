@@ -11,19 +11,74 @@ enum OldSessions {
         min(max(days, dayRange.lowerBound), dayRange.upperBound)
     }
 
-    static func olderThan(_ days: Int, in sessions: [ChatSession], now: Date = Date()) -> [ChatSession] {
+    // A session whose project is snoozed is not old, whatever its last turn says. The
+    // deadline is asked for per session rather than read from a project here, so the
+    // sheet can leave it out and keep showing what a snooze has taken from the count.
+    typealias SnoozeDeadline = (ChatSession) -> Date?
+
+    static func olderThan(_ days: Int, in sessions: [ChatSession], now: Date = Date(),
+                          snoozedUntil: SnoozeDeadline = { _ in nil }) -> [ChatSession] {
         let cutoff = now.addingTimeInterval(-Double(days) * 86_400)
         return sessions
-            .filter { $0.lastActivity < cutoff }
+            .filter { $0.lastActivity < cutoff && !ProjectSnooze.isActive(snoozedUntil($0), now: now) }
             .sorted { $0.lastActivity < $1.lastActivity }
     }
 
-    static func nextOldAt(_ days: Int, in sessions: [ChatSession], now: Date = Date()) -> Date? {
+    // When the list changes next: either a session goes quiet for long enough, or a
+    // snooze runs out and hands its sessions back.
+    static func nextOldAt(_ days: Int, in sessions: [ChatSession], now: Date = Date(),
+                          snoozedUntil: SnoozeDeadline = { _ in nil }) -> Date? {
         let age = Double(days) * 86_400
-        return sessions
-            .map { $0.lastActivity.addingTimeInterval(age) }
+        let turningOld = sessions.map { $0.lastActivity.addingTimeInterval(age) }
+        let waking = sessions.compactMap(snoozedUntil)
+        return (turningOld + waking)
             .filter { $0 > now }
             .min()
+    }
+}
+
+// An extra day before one project's old sessions are offered for deletion or taken by
+// the unattended sweep. Snooze is the third answer the review sheet can give - "not this
+// project, not yet" - without moving the global threshold or pinning sessions one by one.
+enum ProjectSnooze {
+    static let step: TimeInterval = 86_400
+
+    static func isActive(_ deadline: Date?, now: Date = Date()) -> Bool {
+        guard let deadline else { return false }
+        return deadline > now
+    }
+
+    // Each press adds a day to the deadline the project already has, so a second press
+    // extends the snooze instead of restarting it from today.
+    static func extended(_ deadline: Date?, now: Date = Date()) -> Date {
+        max(now, deadline ?? now).addingTimeInterval(step)
+    }
+
+    // Days still to run, rounded up: the sidebar badge shows "1d" through the final day
+    // rather than dropping to nothing while the sessions are still held back.
+    static func remainingDays(until deadline: Date, now: Date = Date()) -> Int {
+        max(1, Int(ceil(deadline.timeIntervalSince(now) / step)))
+    }
+
+    static func badge(until deadline: Date, now: Date = Date()) -> String {
+        "\(remainingDays(until: deadline, now: now))d"
+    }
+
+    // "15 Sep", the day the sessions come back.
+    static func wakeDay(_ deadline: Date) -> String {
+        deadline.formatted(.dateTime.day().month(.abbreviated))
+    }
+
+    // "code-station snoozed until tomorrow", or "snoozed for 2 days" once pressed twice.
+    static func title(_ projectName: String, until deadline: Date, now: Date = Date()) -> String {
+        let days = remainingDays(until: deadline, now: now)
+        let when = days == 1 ? "until tomorrow" : "for \(counted(days, "day"))"
+        return "\(projectName) snoozed \(when)"
+    }
+
+    // "2 sessions · back on 15 Sep"
+    static func detail(sessions: Int, until deadline: Date) -> String {
+        "\(counted(sessions, "session")) · back on \(wakeDay(deadline))"
     }
 }
 
