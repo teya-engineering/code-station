@@ -15,6 +15,8 @@
 ## SwiftPM
 
 - Run SwiftPM commands with `--disable-sandbox` and `--cache-path /private/tmp/teya-swiftpm-cache`. Codex already provides the outer macOS sandbox.
+- Add `--build-system native` to every `swift build` and `swift test`. The default build system compiles SwiftTerm's Metal shader, which needs a separate Xcode Metal toolchain that is not installed. The native system skips the shader, and the app still builds and the whole test suite still runs.
+- Do not try to install that toolchain. `xcodebuild -downloadComponent MetalToolchain` fetches an 839 MB asset, never registers it, and the build fails the same way afterwards.
 - Keep build and module caches inside the worktree or `/private/tmp`.
 - SwiftPM dependency downloads require network access. If a dependency fetch is blocked, request network escalation immediately. Do not retry with a fresh cache inside the same sandbox.
 - Request filesystem escalation only when a command needs access outside the worktree or `/private/tmp`.
