@@ -217,6 +217,38 @@ struct SessionSettingsTests {
         #expect(usage.contextWindow == 1_000_000)
     }
 
+    // A turn that hit a limit before the model answered reports only what the CLI's own
+    // background calls spent, on a small model with a small window. Neither describes the
+    // session, so the spend is kept and the reading is not.
+    @Test func aFailedTurnReportsSpendButNotAModel() throws {
+        let line = """
+        {"type":"result","is_error":true,"subtype":"success","total_cost_usd":0.001193,\
+        "result":"You've reached your Fable limit.","usage":{"input_tokens":0,"output_tokens":0},\
+        "modelUsage":{"claude-haiku-4-5":{"outputTokens":0,"contextWindow":200000,\
+        "costUSD":0.001193}}}
+        """
+        guard case .usage(let usage)? = StreamEvent.parse(line).first else {
+            Issue.record("expected usage")
+            return
+        }
+        #expect(usage.costUSD == 0.001193)
+        #expect(usage.model == nil)
+        #expect(usage.contextWindow == 0)
+    }
+
+    // The reading a failed turn withheld must not wipe the one the session already has:
+    // the turn before it is still what the conversation sits in.
+    @Test func aFailedTurnLeavesTheLastGoodReadingAlone() {
+        var usage = SessionUsage()
+        usage.add(TurnUsage(contextWindow: 1_000_000, model: "claude-opus-5"), from: .claudeCode)
+        usage.noteContext(183_003, contextWindow: nil, model: nil, from: .claudeCode)
+        usage.add(TurnUsage(costUSD: 0.001193), from: .claudeCode)
+
+        #expect(usage.model == "claude-opus-5")
+        #expect(usage.contextWindow == 1_000_000)
+        #expect(usage.contextFraction == 183_003.0 / 1_000_000.0)
+    }
+
     @Test func aResultWithoutCountsIsStillJustAResult() {
         let events = StreamEvent.parse("""
         {"type":"result","is_error":true,"subtype":"error","result":"boom"}

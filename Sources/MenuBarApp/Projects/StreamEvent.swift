@@ -277,7 +277,19 @@ extension StreamEvent {
             let message = object["result"] as? String
                 ?? (errors.isEmpty ? nil : errors.joined(separator: "\n"))
             var events: [StreamEvent] = []
-            if let usage = turnUsage(of: object) { events.append(.usage(usage)) }
+            if var usage = turnUsage(of: object) {
+                // A turn that failed before the model answered still reports what the
+                // CLI's own background calls spent, and those run on a small model with
+                // a window of its own. Taking the model or the window from a failed turn
+                // puts a model the session never ran on the row, measured against a
+                // window it does not have, and both stay there until a turn finishes
+                // cleanly. What was spent was still spent, so the totals stay.
+                if isError {
+                    usage.model = nil
+                    usage.contextWindow = 0
+                }
+                events.append(.usage(usage))
+            }
             events.append(.finished(isError: isError, message: message))
             return events
 
