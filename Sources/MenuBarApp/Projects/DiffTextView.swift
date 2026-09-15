@@ -7,6 +7,11 @@ import SwiftUI
 // and drag selection behave like they do in an editor.
 struct DiffTextView: NSViewRepresentable {
     let text: NSAttributedString
+    // Set while the same diff is only showing more of itself. The rows already on
+    // screen then stay where they are instead of the pane jumping back to the top.
+    var keepsScroll = false
+    // The header row a click landed on, named by DiffHunk.key.
+    var onExpand: ((String) -> Void)?
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -51,13 +56,23 @@ struct DiffTextView: NSViewRepresentable {
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? DiffDocumentView else { return }
+        textView.onExpand = onExpand
         // The string is built once per loaded diff, so identity is enough to tell the
         // same document from a newly opened file.
         guard context.coordinator.shown !== text else { return }
         context.coordinator.shown = text
+        let heightBefore = textView.frame.height
+        let origin = scrollView.contentView.bounds.origin
         textView.textStorage?.setAttributedString(text)
         textView.sizeToFit()
-        scrollView.contentView.scroll(to: .zero)
+        if keepsScroll {
+            // Opening a hunk only ever inserts rows above it, so pushing the view down
+            // by however much the document grew leaves the same rows under the pointer.
+            let grew = textView.frame.height - heightBefore
+            scrollView.contentView.scroll(to: NSPoint(x: origin.x, y: max(0, origin.y + grew)))
+        } else {
+            scrollView.contentView.scroll(to: .zero)
+        }
         scrollView.reflectScrolledClipView(scrollView.contentView)
     }
 
@@ -70,6 +85,11 @@ struct DiffTextView: NSViewRepresentable {
 // wants its band to run the full width of the pane, so the colour travels in a custom
 // attribute and is painted here across the whole line fragment.
 private final class DiffDocumentView: NSTextView {
+    var onExpand: ((String) -> Void)?
+    // The hunk header under the pointer, which is drawn a shade stronger so it reads
+    // as something to press.
+    private var hovered: String?
+    private var hoverTracking: NSTrackingArea?
 
     // Grow with the text, but never sit narrower than the pane, so the bands reach the
     // right edge even when every line is short.
@@ -92,6 +112,83 @@ private final class DiffDocumentView: NSTextView {
     // width the text never needed.
     @objc private func paneResized() { sizeToFit() }
 
+    // MARK: - Opening a hunk
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverTracking { removeTrackingArea(hoverTracking) }
+        let area = NSTrackingArea(rect: .zero,
+                                  options: [.mouseMoved, .mouseEnteredAndExited,
+                                            .cursorUpdate, .activeInKeyWindow, .inVisibleRect],
+                                  owner: self)
+        addTrackingArea(area)
+        hoverTracking = area
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        // A held modifier means the click is about the selection, not the row.
+        let plain = event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty
+        if plain, let onExpand, let hunk = hunkKey(at: event) {
+            onExpand(hunk)
+            return
+        }
+        super.mouseDown(with: event)
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        let hunk = hunkKey(at: event)
+        if hunk != nil { NSCursor.pointingHand.set() }
+        guard hunk != hovered else { return }
+        hovered = hunk
+        needsDisplay = true
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        guard hovered != nil else { return }
+        hovered = nil
+        needsDisplay = true
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        if hunkKey(at: event) != nil {
+            NSCursor.pointingHand.set()
+        } else {
+            super.cursorUpdate(with: event)
+        }
+    }
+
+    // Which hunk header a point is on, if any. The whole band counts, not just the
+    // text on it, so there is a row to hit rather than a line of characters.
+    private func hunkKey(at event: NSEvent) -> String? {
+        guard let layoutManager, let textContainer, let storage = textStorage,
+              storage.length > 0 else { return nil }
+        let point = convert(event.locationInWindow, from: nil)
+        let origin = textContainerOrigin
+        let inContainer = NSPoint(x: point.x - origin.x, y: point.y - origin.y)
+        guard inContainer.x >= 0, inContainer.y >= 0 else { return nil }
+        let index = layoutManager.characterIndex(for: inContainer, in: textContainer,
+                                                 fractionOfDistanceBetweenInsertionPoints: nil)
+        guard index < storage.length else { return nil }
+        // The lookup above snaps to the nearest row, so a point past the last line
+        // would answer with it. Only a point inside the row itself is on the row.
+        let fragment = layoutManager.lineFragmentRect(
+            forGlyphAt: layoutManager.glyphIndexForCharacter(at: index), effectiveRange: nil)
+        guard inContainer.y >= fragment.minY, inContainer.y < fragment.maxY else { return nil }
+        return storage.attribute(.diffHunk, at: index, effectiveRange: nil) as? String
+    }
+
+    // A hovered header sits a shade stronger than its usual band. Mixing towards the
+    // text colour works in either appearance: it darkens on a light pane and lightens
+    // on a dark one.
+    private func hoverFill(_ band: NSColor) -> NSColor {
+        guard let base = band.usingColorSpace(.sRGB),
+              let ink = NSColor.labelColor.usingColorSpace(.sRGB),
+              let mixed = base.blended(withFraction: 0.12, of: ink) else { return band }
+        return mixed
+    }
+
     override func drawBackground(in rect: NSRect) {
         super.drawBackground(in: rect)
         guard let layoutManager, let textContainer, let storage = textStorage,
@@ -104,7 +201,9 @@ private final class DiffDocumentView: NSTextView {
             guard index < storage.length,
                   let band = storage.attribute(.diffRowBackground, at: index,
                                                effectiveRange: nil) as? NSColor else { return }
-            band.setFill()
+            let isHovered = self.hovered != nil
+                && storage.attribute(.diffHunk, at: index, effectiveRange: nil) as? String == self.hovered
+            (isHovered ? self.hoverFill(band) : band).setFill()
             NSRect(x: 0, y: fragment.minY + origin.y,
                    width: self.bounds.width, height: fragment.height).fill()
         }
@@ -140,6 +239,9 @@ enum DiffText {
             if let band = band(line.kind) {
                 attributes[.diffRowBackground] = band
             }
+            if let hunk = line.hunk, hunk.isExpandable {
+                attributes[.diffHunk] = hunk.key
+            }
             if line.kind == .section {
                 // A little air around a section title so one file's diff reads as
                 // separate from the next.
@@ -153,6 +255,14 @@ enum DiffText {
                 result.append(codeLine(line, language: activeLanguage, attributes: attributes))
             } else {
                 result.append(NSAttributedString(string: line.text, attributes: attributes))
+            }
+            // What the header is standing in for, so the row says it can be opened
+            // rather than leaving it to be found by accident.
+            if let hunk = line.hunk, hunk.isExpandable {
+                var hint = attributes
+                hint[.foregroundColor] = NSColor.tertiaryLabelColor
+                result.append(NSAttributedString(string: "   ↑ \(counted(hunk.hidden, "line"))",
+                                                 attributes: hint))
             }
             if index < lines.count - 1 {
                 result.append(NSAttributedString(string: "\n", attributes: attributes))
@@ -218,4 +328,8 @@ extension NSAttributedString.Key {
     // The colour of the band behind a diff row. Painted by the view rather than through
     // .backgroundColor, which stops at the last glyph instead of the pane's edge.
     static let diffRowBackground = NSAttributedString.Key("codeStationDiffRowBackground")
+
+    // Marks a hunk header that still hides unchanged lines, named by DiffHunk.key. Only
+    // rows carrying it answer a click.
+    static let diffHunk = NSAttributedString.Key("codeStationDiffHunk")
 }

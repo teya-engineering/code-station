@@ -109,6 +109,9 @@ struct ChangesView: View {
     @State private var diff: FileDiff?
     @State private var diffText: NSAttributedString?
     @State private var loadingDiff = false
+    @State private var keepDiffScroll = false
+    // Hunk headers git is reading the hidden lines for right now.
+    @State private var expanding: Set<String> = []
     @State private var appliedInitialSelection = false
 
     private var files: [GitChange] { snapshot?.files ?? [] }
@@ -594,13 +597,15 @@ struct ChangesView: View {
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let diffText {
-            DiffTextView(text: diffText)
+            DiffTextView(text: diffText, keepsScroll: keepDiffScroll) { hunk in
+                expand(hunk)
+            }
         } else {
             Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity)
         }
 
         if let diff, diff.truncated {
-            Text("Showing the first \(diff.lines.count) lines of \(diff.totalLines). \(truncationHint)")
+            Text("Showing the first \(diff.lines.count - diff.revealed) lines of \(diff.totalLines). \(truncationHint)")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 20)
@@ -1043,6 +1048,7 @@ struct ChangesView: View {
         loadingDiff = true
         let loaded = await GitInspector.commitDiff(commit.hash, root: repoRoot)
         guard !Task.isCancelled, selectedCommit?.id == commit.id else { return }
+        keepDiffScroll = false
         diff = loaded
         diffText = loaded.lines.isEmpty
             ? nil
@@ -1051,10 +1057,15 @@ struct ChangesView: View {
     }
 
     // Built again from the lines already in hand rather than by asking git a second time:
-    // nothing about the change has moved, only the size it is drawn at. A commit diff
-    // spans many files and takes its languages from its own section headings, so only a
-    // single file's diff has a language to name here.
+    // nothing about the change has moved, only the size it is drawn at.
     private func reopenDiff() {
+        keepDiffScroll = false
+        renderDiff()
+    }
+
+    // A commit diff spans many files and takes its languages from its own section
+    // headings, so only a single file's diff has a language to name here.
+    private func renderDiff() {
         guard let diff, !diff.lines.isEmpty else { return }
         diffText = DiffText.attributed(
             diff.lines,
@@ -1062,6 +1073,30 @@ struct ChangesView: View {
                 CodeLanguage(fileExtension: ($0.path as NSString).pathExtension)
             },
             scale: appSettings.textSize.scale)
+    }
+
+    // A grey hunk header stands for the unchanged lines the diff skipped. Pressing one
+    // reads those lines back and drops them in above the header, so a change can be read
+    // with the code around it without leaving the pane.
+    private func expand(_ key: String) {
+        // Pressing again before the first read lands would show the same lines twice.
+        guard !expanding.contains(key),
+              let hunk = diff?.lines.first(where: { $0.hunk?.key == key })?.hunk else { return }
+        expanding.insert(key)
+        Task {
+            let expansion = await GitInspector.expand(hunk, root: repoRoot)
+            expanding.remove(key)
+            // The diff can have been reloaded or closed while git was reading the file.
+            guard var opened = diff,
+                  let at = opened.lines.firstIndex(where: { $0.hunk?.key == key }) else { return }
+            opened.lines[at].hunk = expansion.hunk
+            opened.lines.insert(contentsOf: expansion.lines, at: at)
+            opened.revealed += expansion.lines.count
+            for i in opened.lines.indices { opened.lines[i].id = i }
+            diff = opened
+            keepDiffScroll = true
+            renderDiff()
+        }
     }
 
     private func closeDiff() {
@@ -1074,12 +1109,14 @@ struct ChangesView: View {
         diff = nil
         diffText = nil
         loadingDiff = false
+        keepDiffScroll = false
     }
 
     private func loadDiff(_ file: GitChange, root: String) async {
         loadingDiff = true
         let loaded = await GitInspector.diff(for: file, root: root)
         guard !Task.isCancelled, fileSelection.activeID == file.id else { return }
+        keepDiffScroll = false
         diff = loaded
         diffText = loaded.lines.isEmpty ? nil : DiffText.attributed(
             loaded.lines,

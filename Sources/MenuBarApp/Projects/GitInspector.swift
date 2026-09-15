@@ -79,6 +79,37 @@ struct GitSnapshot: Sendable, Equatable {
     static func state(_ state: GitRepoState) -> GitSnapshot { GitSnapshot(state: state) }
 }
 
+// Which version of a file a diff put on its new side, so the lines it left out can be
+// read back from the same place the diff came from.
+enum DiffRevision: Sendable, Equatable, Hashable {
+    case workingTree
+    case index
+    case commit(String)
+}
+
+// A hunk header, and the unchanged lines the diff leaves out above it. Line numbers
+// count the new side of the file, which is the side we can read back.
+struct DiffHunk: Sendable, Equatable, Hashable {
+    var revision: DiffRevision
+    var path: String
+    var hiddenStart: Int
+    var hidden: Int
+
+    var isExpandable: Bool { hidden > 0 }
+
+    // Names one header row for as long as the diff is open. Revealing lines only ever
+    // shrinks the count above a header, so the name survives it and the pane can find
+    // the row again.
+    var key: String {
+        let version = switch revision {
+        case .workingTree: "tree"
+        case .index: "index"
+        case .commit(let hash): hash
+        }
+        return "\(version)|\(path)|\(hiddenStart)"
+    }
+}
+
 struct DiffLine: Identifiable, Sendable, Equatable {
     enum Kind: Sendable, Equatable {
         case addition, deletion, hunk, context, meta, section
@@ -87,6 +118,16 @@ struct DiffLine: Identifiable, Sendable, Equatable {
     var id: Int
     var kind: Kind
     var text: String
+    // Only on a hunk header: what that header stands for, which is what makes it
+    // clickable while it still hides something.
+    var hunk: DiffHunk?
+}
+
+// What one click on a hunk header brings back: the lines to drop in above it, and
+// whatever is still hidden after that.
+struct DiffExpansion: Sendable, Equatable {
+    var lines: [DiffLine] = []
+    var hunk: DiffHunk?
 }
 
 // Both sides of a changed picture. A side is nil when that version does not exist: a
@@ -101,6 +142,9 @@ struct FileDiff: Sendable, Equatable {
     // True when we stopped rendering early so a huge diff cannot stall the UI.
     var truncated: Bool = false
     var totalLines: Int = 0
+    // Unchanged lines a reader opened up from a hunk header. They are not part of the
+    // diff, so they do not count towards what a cut-short diff says it is holding back.
+    var revealed: Int = 0
     var note: String?
     // Set instead of lines when the file is a picture, which has nothing to show as text.
     var images: DiffImages?
@@ -338,7 +382,8 @@ enum GitInspector {
             let output = run(tool, ["--no-pager", "show", "--no-color", "--no-ext-diff",
                                     "--no-textconv", "-M", "--format=", hash], in: rootURL)
             guard output.ok else { return FileDiff(note: output.failureMessage) }
-            let parsed = parse(output.text, startingAt: 0, limit: limit, fileHeadings: true)
+            let parsed = parse(output.text, startingAt: 0, limit: limit,
+                               revision: .commit(hash), path: "", fileHeadings: true)
             var diff = FileDiff(lines: parsed.lines,
                                 truncated: parsed.truncated || output.truncated,
                                 totalLines: parsed.total)
@@ -380,12 +425,12 @@ enum GitInspector {
         if let original = change.originalPath { pathspec.insert(original, at: 0) }
 
         var diff = FileDiff()
-        var sources: [(title: String, arguments: [String])] = []
+        var sources: [(title: String, revision: DiffRevision, arguments: [String])] = []
         if change.isStaged {
-            sources.append(("STAGED", ["diff", "--cached"]))
+            sources.append(("STAGED", .index, ["diff", "--cached"]))
         }
         if change.isUnstaged || sources.isEmpty {
-            sources.append(("NOT STAGED", ["diff"]))
+            sources.append(("NOT STAGED", .workingTree, ["diff"]))
         }
 
         for source in sources {
@@ -398,7 +443,9 @@ enum GitInspector {
                 diff.note = output.failureMessage
                 return diff
             }
-            let parsed = parse(output.text, startingAt: diff.lines.count, limit: limit - diff.lines.count)
+            let parsed = parse(output.text, startingAt: diff.lines.count,
+                               limit: limit - diff.lines.count,
+                               revision: source.revision, path: change.path)
             if parsed.binary {
                 diff.note = "Binary file. Line by line changes are not shown."
                 return diff
@@ -477,6 +524,63 @@ enum GitInspector {
             truncated: all.count > limit,
             totalLines: all.count,
             note: all.isEmpty ? "Empty file." : nil)
+    }
+
+    // MARK: - Opening up a hunk
+
+    // A gap this short is opened in one go; a longer one comes back a step at a time, so
+    // one click on a header near the top of a big file reveals a screenful and not the
+    // thousand lines before the change.
+    static let hunkExpandStep = 20
+    static let hunkExpandWhole = 40
+
+    // The unchanged lines a hunk leaves out above it, read back from the version the
+    // diff was made against. They arrive from the bottom of the gap upwards, which is
+    // the end a reader is working away from.
+    static func expand(_ hunk: DiffHunk, root: String) async -> DiffExpansion {
+        guard hunk.isExpandable else { return DiffExpansion() }
+        guard let tool = await tool() else { return DiffExpansion(hunk: hunk) }
+        return await offMain(lane: .interactive) {
+            let rootURL = URL(fileURLWithPath: root)
+            guard let text = contents(of: hunk.path, at: hunk.revision, tool: tool, root: rootURL)
+            else { return DiffExpansion() }
+
+            var all = text.components(separatedBy: "\n")
+            if all.last == "" { all.removeLast() }
+            let take = hunk.hidden <= hunkExpandWhole ? hunk.hidden : hunkExpandStep
+            let first = max(0, hunk.hiddenStart - 1 + hunk.hidden - take)
+            let last = min(all.count, hunk.hiddenStart - 1 + hunk.hidden)
+            guard first < last else { return DiffExpansion() }
+
+            // Unchanged lines carry a leading space in a diff, which is what lines the
+            // code up with the signed rows around it.
+            let lines = all[first..<last].map {
+                DiffLine(id: 0, kind: .context, text: clean(" " + $0))
+            }
+            var left = hunk
+            left.hidden -= (last - first)
+            return DiffExpansion(lines: lines, hunk: left.isExpandable ? left : nil)
+        }
+    }
+
+    private static func contents(of path: String, at revision: DiffRevision,
+                                 tool: GitTool, root: URL) -> String? {
+        switch revision {
+        case .workingTree:
+            guard let data = readLimited(root.appendingPathComponent(path)),
+                  !data.looksBinary else { return nil }
+            return String(decoding: data, as: UTF8.self)
+        case .index:
+            return show(":./" + path, tool: tool, root: root)
+        case .commit(let hash):
+            return show(hash + ":./" + path, tool: tool, root: root)
+        }
+    }
+
+    private static func show(_ object: String, tool: GitTool, root: URL) -> String? {
+        let output = run(tool, ["--no-pager", "show", object], in: root)
+        guard output.ok, !output.truncated else { return nil }
+        return output.text
     }
 
     // MARK: - Parsing
@@ -570,23 +674,29 @@ enum GitInspector {
     // file, which is how a whole commit's diff keeps its files apart, and a binary file
     // becomes a note instead of ending the parse, so it cannot swallow the files after it.
     private static func parse(
-        _ text: String, startingAt offset: Int, limit: Int, fileHeadings: Bool = false
+        _ text: String, startingAt offset: Int, limit: Int,
+        revision: DiffRevision, path defaultPath: String, fileHeadings: Bool = false
     ) -> (lines: [DiffLine], truncated: Bool, total: Int, binary: Bool) {
         var lines: [DiffLine] = []
         var total = 0
         var inHunk = false
         var binary = false
+        var path = defaultPath
+        // Where the new side of the file has got to, so a hunk starting further down
+        // says how many unchanged lines the diff skipped over.
+        var nextNewLine = 1
 
         for raw in text.split(separator: "\n", omittingEmptySubsequences: false) {
             let line = String(raw)
             if line.hasPrefix("diff --git") {
                 // Start of another file in the same output: back to header lines.
                 inHunk = false
+                path = fileName(fromDiffHeader: line)
+                nextNewLine = 1
                 if fileHeadings {
                     total += 1
                     if lines.count < limit {
-                        lines.append(DiffLine(id: offset + lines.count, kind: .section,
-                                              text: fileName(fromDiffHeader: line)))
+                        lines.append(DiffLine(id: offset + lines.count, kind: .section, text: path))
                     }
                 }
                 continue
@@ -625,9 +735,22 @@ enum GitInspector {
             case "\\": kind = .meta
             default: kind = .context
             }
+
+            var hunk: DiffHunk?
+            if kind == .hunk, let range = newSideRange(ofHunk: line) {
+                // A hunk that only removes lines is written as sitting after a line
+                // rather than at one, so the first line it shows is the next one.
+                let firstShown = range.count == 0 ? range.start + 1 : range.start
+                hunk = DiffHunk(revision: revision, path: path,
+                                hiddenStart: nextNewLine,
+                                hidden: max(0, firstShown - nextNewLine))
+                nextNewLine = max(nextNewLine, firstShown + range.count)
+            }
+
             total += 1
             if lines.count < limit {
-                lines.append(DiffLine(id: offset + lines.count, kind: kind, text: clean(line)))
+                lines.append(DiffLine(id: offset + lines.count, kind: kind,
+                                      text: clean(line), hunk: hunk))
             }
         }
 
@@ -637,6 +760,18 @@ enum GitInspector {
             total -= 1
         }
         return (lines, total > lines.count, total, binary)
+    }
+
+    // "@@ -12,7 +34,9 @@ trailing" says the new side starts at line 34 and covers 9
+    // lines. A missing count means one line.
+    private static func newSideRange(ofHunk line: String) -> (start: Int, count: Int)? {
+        let fields = line.split(separator: " ")
+        guard fields.count >= 3, fields[2].hasPrefix("+") else { return nil }
+        let numbers = fields[2].dropFirst().split(separator: ",")
+        guard let start = Int(numbers[0]) else { return nil }
+        guard numbers.count > 1 else { return (start, 1) }
+        guard let count = Int(numbers[1]) else { return nil }
+        return (start, count)
     }
 
     // "diff --git a/old b/new" names the file; the b side is where it lives now. Paths
