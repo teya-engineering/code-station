@@ -109,8 +109,8 @@ struct ChangesView: View {
     @State private var diff: FileDiff?
     @State private var diffText: NSAttributedString?
     @State private var loadingDiff = false
-    @State private var keepDiffScroll = false
-    // Hunk headers git is reading the hidden lines for right now.
+    @State private var diffScroll = DiffTextView.Scroll.top
+    // Gap rows git is reading the hidden lines for right now.
     @State private var expanding: Set<String> = []
     @State private var appliedInitialSelection = false
 
@@ -597,8 +597,8 @@ struct ChangesView: View {
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let diffText {
-            DiffTextView(text: diffText, keepsScroll: keepDiffScroll) { hunk in
-                expand(hunk)
+            DiffTextView(text: diffText, scroll: diffScroll) { gap, direction in
+                expand(gap, direction)
             }
         } else {
             Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1048,7 +1048,7 @@ struct ChangesView: View {
         loadingDiff = true
         let loaded = await GitInspector.commitDiff(commit.hash, root: repoRoot)
         guard !Task.isCancelled, selectedCommit?.id == commit.id else { return }
-        keepDiffScroll = false
+        diffScroll = .top
         diff = loaded
         diffText = loaded.lines.isEmpty
             ? nil
@@ -1059,7 +1059,7 @@ struct ChangesView: View {
     // Built again from the lines already in hand rather than by asking git a second time:
     // nothing about the change has moved, only the size it is drawn at.
     private func reopenDiff() {
-        keepDiffScroll = false
+        diffScroll = .top
         renderDiff()
     }
 
@@ -1075,26 +1075,34 @@ struct ChangesView: View {
             scale: appSettings.textSize.scale)
     }
 
-    // A grey hunk header stands for the unchanged lines the diff skipped. Pressing one
-    // reads those lines back and drops them in above the header, so a change can be read
-    // with the code around it without leaving the pane.
-    private func expand(_ key: String) {
+    // A grey gap row stands for the unchanged lines the diff skipped. Pressing one of its
+    // controls reads that end of the gap back and drops the lines in beside the row, so a
+    // change can be read with the code around it without leaving the pane.
+    private func expand(_ key: String, _ direction: DiffExpandDirection) {
         // Pressing again before the first read lands would show the same lines twice.
         guard !expanding.contains(key),
-              let hunk = diff?.lines.first(where: { $0.hunk?.key == key })?.hunk else { return }
+              let gap = diff?.lines.first(where: { $0.gap?.key == key })?.gap else { return }
         expanding.insert(key)
         Task {
-            let expansion = await GitInspector.expand(hunk, root: repoRoot)
+            let expansion = await GitInspector.expand(gap, direction, root: repoRoot)
             expanding.remove(key)
             // The diff can have been reloaded or closed while git was reading the file.
             guard var opened = diff,
-                  let at = opened.lines.firstIndex(where: { $0.hunk?.key == key }) else { return }
-            opened.lines[at].hunk = expansion.hunk
-            opened.lines.insert(contentsOf: expansion.lines, at: at)
-            opened.revealed += expansion.lines.count
+                  let at = opened.lines.firstIndex(where: { $0.gap?.key == key }) else { return }
+            if let left = expansion.gap {
+                // The row holds whatever is still hidden, so it keeps sitting between the
+                // lines opened from one end and the ones opened from the other.
+                opened.lines[at].gap = left
+                opened.lines.insert(contentsOf: expansion.lines, at: direction == .up ? at + 1 : at)
+                opened.revealed += expansion.lines.count
+            } else {
+                opened.lines.replaceSubrange(at...at, with: expansion.lines)
+                opened.revealed += expansion.lines.count - 1
+            }
             for i in opened.lines.indices { opened.lines[i].id = i }
             diff = opened
-            keepDiffScroll = true
+            // Only reading down puts lines above the row that was pressed.
+            diffScroll = direction == .down ? .follow : .hold
             renderDiff()
         }
     }
@@ -1109,14 +1117,14 @@ struct ChangesView: View {
         diff = nil
         diffText = nil
         loadingDiff = false
-        keepDiffScroll = false
+        diffScroll = .top
     }
 
     private func loadDiff(_ file: GitChange, root: String) async {
         loadingDiff = true
         let loaded = await GitInspector.diff(for: file, root: root)
         guard !Task.isCancelled, fileSelection.activeID == file.id else { return }
-        keepDiffScroll = false
+        diffScroll = .top
         diff = loaded
         diffText = loaded.lines.isEmpty ? nil : DiffText.attributed(
             loaded.lines,

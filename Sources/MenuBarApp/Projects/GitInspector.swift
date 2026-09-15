@@ -87,47 +87,55 @@ enum DiffRevision: Sendable, Equatable, Hashable {
     case commit(String)
 }
 
-// A hunk header, and the unchanged lines the diff leaves out above it. Line numbers
-// count the new side of the file, which is the side we can read back.
-struct DiffHunk: Sendable, Equatable, Hashable {
+// Which end of a gap a press opens. The arrow points the way the reader is travelling:
+// down carries on from the code above the gap, up reads back from the code below it.
+enum DiffExpandDirection: String, Sendable, Equatable, Hashable {
+    case up, down, all
+}
+
+// A run of unchanged lines a diff left out, and the row that stands in for it. Line
+// numbers count the new side of the file, which is the side we can read back.
+struct DiffGap: Sendable, Equatable, Hashable {
     var revision: DiffRevision
     var path: String
-    var hiddenStart: Int
-    var hidden: Int
+    // Handed out while parsing and never touched again. A gap opens from either end, so
+    // neither of its line numbers stays put long enough to name the row it belongs to.
+    var id: Int
+    var start: Int
+    // Nil for the gap after the last hunk: a diff never says how long the file is, so
+    // the size of that one only settles once the lines are read back.
+    var count: Int?
 
-    var isExpandable: Bool { hidden > 0 }
-
-    // Names one header row for as long as the diff is open. Revealing lines only ever
-    // shrinks the count above a header, so the name survives it and the pane can find
-    // the row again.
+    // Names one row for as long as the diff is open. A file diff parses the staged and
+    // the unstaged side apart from each other, so the version is part of the name too.
     var key: String {
         let version = switch revision {
         case .workingTree: "tree"
         case .index: "index"
         case .commit(let hash): hash
         }
-        return "\(version)|\(path)|\(hiddenStart)"
+        return "\(version)|\(path)|\(id)"
     }
 }
 
 struct DiffLine: Identifiable, Sendable, Equatable {
     enum Kind: Sendable, Equatable {
-        case addition, deletion, hunk, context, meta, section
+        case addition, deletion, hunk, context, meta, section, gap
     }
 
     var id: Int
     var kind: Kind
     var text: String
-    // Only on a hunk header: what that header stands for, which is what makes it
-    // clickable while it still hides something.
-    var hunk: DiffHunk?
+    // Only on a gap row: the lines that row stands for, which is what it carries its
+    // controls for.
+    var gap: DiffGap?
 }
 
-// What one click on a hunk header brings back: the lines to drop in above it, and
-// whatever is still hidden after that.
+// What one press on a gap row brings back: the lines to drop in beside it, and whatever
+// is still hidden after that.
 struct DiffExpansion: Sendable, Equatable {
     var lines: [DiffLine] = []
-    var hunk: DiffHunk?
+    var gap: DiffGap?
 }
 
 // Both sides of a changed picture. A side is nil when that version does not exist: a
@@ -142,8 +150,8 @@ struct FileDiff: Sendable, Equatable {
     // True when we stopped rendering early so a huge diff cannot stall the UI.
     var truncated: Bool = false
     var totalLines: Int = 0
-    // Unchanged lines a reader opened up from a hunk header. They are not part of the
-    // diff, so they do not count towards what a cut-short diff says it is holding back.
+    // Rows that are not diff output: the gap rows, and the unchanged lines a reader
+    // opened from one. They do not count towards what a cut-short diff says it holds back.
     var revealed: Int = 0
     var note: String?
     // Set instead of lines when the file is a picture, which has nothing to show as text.
@@ -386,7 +394,8 @@ enum GitInspector {
                                revision: .commit(hash), path: "", fileHeadings: true)
             var diff = FileDiff(lines: parsed.lines,
                                 truncated: parsed.truncated || output.truncated,
-                                totalLines: parsed.total)
+                                totalLines: parsed.total,
+                                revealed: parsed.extra)
             if diff.lines.isEmpty {
                 diff.note = "No file changes in this commit."
             }
@@ -457,6 +466,7 @@ enum GitInspector {
             }
             diff.lines.append(contentsOf: parsed.lines)
             diff.totalLines += parsed.total
+            diff.revealed += parsed.extra
             if parsed.truncated || output.truncated { diff.truncated = true }
         }
 
@@ -526,40 +536,44 @@ enum GitInspector {
             note: all.isEmpty ? "Empty file." : nil)
     }
 
-    // MARK: - Opening up a hunk
+    // MARK: - Opening up a gap
 
     // A gap this short is opened in one go; a longer one comes back a step at a time, so
-    // one click on a header near the top of a big file reveals a screenful and not the
+    // one press on a row near the top of a big file reveals a screenful and not the
     // thousand lines before the change.
-    static let hunkExpandStep = 20
-    static let hunkExpandWhole = 40
+    static let gapExpandStep = 20
+    static let gapExpandWhole = 40
 
-    // The unchanged lines a hunk leaves out above it, read back from the version the
-    // diff was made against. They arrive from the bottom of the gap upwards, which is
-    // the end a reader is working away from.
-    static func expand(_ hunk: DiffHunk, root: String) async -> DiffExpansion {
-        guard hunk.isExpandable else { return DiffExpansion() }
-        guard let tool = await tool() else { return DiffExpansion(hunk: hunk) }
+    // The lines a gap stands for, read back from the version the diff was made against.
+    // Only the end that was pressed comes back, and the gap left over says what is still
+    // hidden between the two sides.
+    static func expand(_ gap: DiffGap, _ direction: DiffExpandDirection,
+                       root: String) async -> DiffExpansion {
+        guard let tool = await tool() else { return DiffExpansion(gap: gap) }
         return await offMain(lane: .interactive) {
             let rootURL = URL(fileURLWithPath: root)
-            guard let text = contents(of: hunk.path, at: hunk.revision, tool: tool, root: rootURL)
+            guard let text = contents(of: gap.path, at: gap.revision, tool: tool, root: rootURL)
             else { return DiffExpansion() }
 
             var all = text.components(separatedBy: "\n")
             if all.last == "" { all.removeLast() }
-            let take = hunk.hidden <= hunkExpandWhole ? hunk.hidden : hunkExpandStep
-            let first = max(0, hunk.hiddenStart - 1 + hunk.hidden - take)
-            let last = min(all.count, hunk.hiddenStart - 1 + hunk.hidden)
-            guard first < last else { return DiffExpansion() }
+            // A gap running to the end of the file learns its size here; a measured one
+            // is still held against the file, which can have moved on since the diff.
+            let hidden = min(gap.count ?? .max, max(0, all.count - gap.start + 1))
+            guard hidden > 0 else { return DiffExpansion() }
+            let take = direction == .all || hidden <= gapExpandWhole ? hidden : gapExpandStep
+            let first = direction == .up ? gap.start - 1 + hidden - take : gap.start - 1
 
             // Unchanged lines carry a leading space in a diff, which is what lines the
             // code up with the signed rows around it.
-            let lines = all[first..<last].map {
+            let lines = all[first..<(first + take)].map {
                 DiffLine(id: 0, kind: .context, text: clean(" " + $0))
             }
-            var left = hunk
-            left.hidden -= (last - first)
-            return DiffExpansion(lines: lines, hunk: left.isExpandable ? left : nil)
+            var left = gap
+            left.count = hidden - take
+            // Reading down takes the top of the gap, so what is left starts lower.
+            if direction != .up { left.start = gap.start + take }
+            return DiffExpansion(lines: lines, gap: left.count == 0 ? nil : left)
         }
     }
 
@@ -667,6 +681,17 @@ enum GitInspector {
         return entries
     }
 
+    // What one pass over git's output found. Gap rows are ours rather than git's, so
+    // they are counted apart from the diff's own rows.
+    private struct ParsedDiff {
+        var lines: [DiffLine] = []
+        var total = 0
+        var extra = 0
+        var binary = false
+
+        var truncated: Bool { total > lines.count - extra }
+    }
+
     // Header lines before the first hunk are noise we already show elsewhere, so they are
     // dropped. Once inside a hunk every line is classified by its first character only:
     // a removed line whose own text starts with "--" would otherwise look like a header.
@@ -676,27 +701,51 @@ enum GitInspector {
     private static func parse(
         _ text: String, startingAt offset: Int, limit: Int,
         revision: DiffRevision, path defaultPath: String, fileHeadings: Bool = false
-    ) -> (lines: [DiffLine], truncated: Bool, total: Int, binary: Bool) {
-        var lines: [DiffLine] = []
-        var total = 0
+    ) -> ParsedDiff {
+        var result = ParsedDiff()
         var inHunk = false
-        var binary = false
         var path = defaultPath
         // Where the new side of the file has got to, so a hunk starting further down
         // says how many unchanged lines the diff skipped over.
         var nextNewLine = 1
+        // An added file is shown whole, so it has no tail left to offer.
+        var whole = false
+        var gapID = 0
+
+        // A row for lines the diff left out. It goes where the hole is, so it keeps
+        // sitting between the lines shown on either side of it however it is opened.
+        func openGap(from start: Int, count: Int?) {
+            if let count, count <= 0 { return }
+            guard result.lines.count < limit else { return }
+            result.extra += 1
+            result.lines.append(DiffLine(
+                id: offset + result.lines.count, kind: .gap, text: "",
+                gap: DiffGap(revision: revision, path: path, id: gapID,
+                             start: start, count: count)))
+            gapID += 1
+        }
+
+        // Whatever the file has after its last hunk. A deleted file has no new side to
+        // read, and its hunks never move the new line count off the start.
+        func openTail() {
+            guard inHunk, !whole, nextNewLine > 1 else { return }
+            openGap(from: nextNewLine, count: nil)
+        }
 
         for raw in text.split(separator: "\n", omittingEmptySubsequences: false) {
             let line = String(raw)
             if line.hasPrefix("diff --git") {
                 // Start of another file in the same output: back to header lines.
+                openTail()
                 inHunk = false
+                whole = false
                 path = fileName(fromDiffHeader: line)
                 nextNewLine = 1
                 if fileHeadings {
-                    total += 1
-                    if lines.count < limit {
-                        lines.append(DiffLine(id: offset + lines.count, kind: .section, text: path))
+                    result.total += 1
+                    if result.lines.count < limit {
+                        result.lines.append(DiffLine(id: offset + result.lines.count,
+                                                     kind: .section, text: path))
                     }
                 }
                 continue
@@ -706,20 +755,22 @@ enum GitInspector {
                     inHunk = true
                 } else if line.hasPrefix("Binary files") || line.hasPrefix("GIT binary patch") {
                     if fileHeadings {
-                        total += 1
-                        if lines.count < limit {
-                            lines.append(DiffLine(id: offset + lines.count, kind: .meta,
-                                                  text: "Binary file. Line by line changes are not shown."))
+                        result.total += 1
+                        if result.lines.count < limit {
+                            result.lines.append(DiffLine(id: offset + result.lines.count, kind: .meta,
+                                                         text: "Binary file. Line by line changes are not shown."))
                         }
                         continue
                     }
-                    binary = true
+                    result.binary = true
                     break
                 } else if line.hasPrefix("rename from") || line.hasPrefix("rename to")
                             || line.hasPrefix("new file mode") || line.hasPrefix("deleted file mode") {
-                    total += 1
-                    if lines.count < limit {
-                        lines.append(DiffLine(id: offset + lines.count, kind: .meta, text: line))
+                    if line.hasPrefix("new file mode") { whole = true }
+                    result.total += 1
+                    if result.lines.count < limit {
+                        result.lines.append(DiffLine(id: offset + result.lines.count,
+                                                     kind: .meta, text: line))
                     }
                     continue
                 } else {
@@ -736,30 +787,28 @@ enum GitInspector {
             default: kind = .context
             }
 
-            var hunk: DiffHunk?
             if kind == .hunk, let range = newSideRange(ofHunk: line) {
                 // A hunk that only removes lines is written as sitting after a line
                 // rather than at one, so the first line it shows is the next one.
                 let firstShown = range.count == 0 ? range.start + 1 : range.start
-                hunk = DiffHunk(revision: revision, path: path,
-                                hiddenStart: nextNewLine,
-                                hidden: max(0, firstShown - nextNewLine))
+                openGap(from: nextNewLine, count: firstShown - nextNewLine)
                 nextNewLine = max(nextNewLine, firstShown + range.count)
             }
 
-            total += 1
-            if lines.count < limit {
-                lines.append(DiffLine(id: offset + lines.count, kind: kind,
-                                      text: clean(line), hunk: hunk))
+            result.total += 1
+            if result.lines.count < limit {
+                result.lines.append(DiffLine(id: offset + result.lines.count, kind: kind,
+                                             text: clean(line)))
             }
         }
 
         // A trailing newline always produces one empty final line.
-        if let last = lines.last, last.text.isEmpty, last.kind == .context {
-            lines.removeLast()
-            total -= 1
+        if let last = result.lines.last, last.text.isEmpty, last.kind == .context {
+            result.lines.removeLast()
+            result.total -= 1
         }
-        return (lines, total > lines.count, total, binary)
+        openTail()
+        return result
     }
 
     // "@@ -12,7 +34,9 @@ trailing" says the new side starts at line 34 and covers 9

@@ -6,12 +6,23 @@ import SwiftUI
 // drop the rest. An NSTextView owns the whole document, which makes Cmd+A, copy,
 // and drag selection behave like they do in an editor.
 struct DiffTextView: NSViewRepresentable {
+    // Where the pane looks once the text has changed.
+    enum Scroll {
+        // A diff that was just opened starts at the top.
+        case top
+        // The same diff showing more of itself, below what is on screen: the rows
+        // already up there keep their place.
+        case hold
+        // The same diff showing more of itself, above what is on screen: the view moves
+        // down by as much as the document grew, so the pressed row stays under the
+        // pointer and the new lines fill in above it.
+        case follow
+    }
+
     let text: NSAttributedString
-    // Set while the same diff is only showing more of itself. The rows already on
-    // screen then stay where they are instead of the pane jumping back to the top.
-    var keepsScroll = false
-    // The header row a click landed on, named by DiffHunk.key.
-    var onExpand: ((String) -> Void)?
+    var scroll: Scroll = .top
+    // The gap row a press landed on, named by DiffGap.key, and the end of it to open.
+    var onExpand: ((String, DiffExpandDirection) -> Void)?
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -65,13 +76,14 @@ struct DiffTextView: NSViewRepresentable {
         let origin = scrollView.contentView.bounds.origin
         textView.textStorage?.setAttributedString(text)
         textView.sizeToFit()
-        if keepsScroll {
-            // Opening a hunk only ever inserts rows above it, so pushing the view down
-            // by however much the document grew leaves the same rows under the pointer.
+        switch scroll {
+        case .top:
+            scrollView.contentView.scroll(to: .zero)
+        case .hold:
+            scrollView.contentView.scroll(to: origin)
+        case .follow:
             let grew = textView.frame.height - heightBefore
             scrollView.contentView.scroll(to: NSPoint(x: origin.x, y: max(0, origin.y + grew)))
-        } else {
-            scrollView.contentView.scroll(to: .zero)
         }
         scrollView.reflectScrolledClipView(scrollView.contentView)
     }
@@ -85,9 +97,9 @@ struct DiffTextView: NSViewRepresentable {
 // wants its band to run the full width of the pane, so the colour travels in a custom
 // attribute and is painted here across the whole line fragment.
 private final class DiffDocumentView: NSTextView {
-    var onExpand: ((String) -> Void)?
-    // The hunk header under the pointer, which is drawn a shade stronger so it reads
-    // as something to press.
+    var onExpand: ((String, DiffExpandDirection) -> Void)?
+    // The gap row under the pointer, which is drawn a shade stronger so it reads as
+    // something to press.
     private var hovered: String?
     private var hoverTracking: NSTrackingArea?
 
@@ -112,7 +124,7 @@ private final class DiffDocumentView: NSTextView {
     // width the text never needed.
     @objc private func paneResized() { sizeToFit() }
 
-    // MARK: - Opening a hunk
+    // MARK: - Opening a gap
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
@@ -128,8 +140,8 @@ private final class DiffDocumentView: NSTextView {
     override func mouseDown(with event: NSEvent) {
         // A held modifier means the click is about the selection, not the row.
         let plain = event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty
-        if plain, let onExpand, let hunk = hunkKey(at: event) {
-            onExpand(hunk)
+        if plain, let onExpand, let target = target(at: event), let direction = target.direction {
+            onExpand(target.key, direction)
             return
         }
         super.mouseDown(with: event)
@@ -137,10 +149,10 @@ private final class DiffDocumentView: NSTextView {
 
     override func mouseMoved(with event: NSEvent) {
         super.mouseMoved(with: event)
-        let hunk = hunkKey(at: event)
-        if hunk != nil { NSCursor.pointingHand.set() }
-        guard hunk != hovered else { return }
-        hovered = hunk
+        let target = target(at: event)
+        if target?.direction != nil { NSCursor.pointingHand.set() }
+        guard target?.key != hovered else { return }
+        hovered = target?.key
         needsDisplay = true
     }
 
@@ -152,36 +164,25 @@ private final class DiffDocumentView: NSTextView {
     }
 
     override func cursorUpdate(with event: NSEvent) {
-        if hunkKey(at: event) != nil {
+        if target(at: event)?.direction != nil {
             NSCursor.pointingHand.set()
         } else {
             super.cursorUpdate(with: event)
         }
     }
 
-    // Which hunk header a point is on, if any. The whole band counts, not just the
-    // text on it, so there is a row to hit rather than a line of characters.
-    private func hunkKey(at event: NSEvent) -> String? {
-        guard let layoutManager, let textContainer, let storage = textStorage,
-              storage.length > 0 else { return nil }
+    private func target(at event: NSEvent) -> DiffGapHit? {
+        guard let layoutManager, let textContainer, let storage = textStorage else { return nil }
         let point = convert(event.locationInWindow, from: nil)
         let origin = textContainerOrigin
-        let inContainer = NSPoint(x: point.x - origin.x, y: point.y - origin.y)
-        guard inContainer.x >= 0, inContainer.y >= 0 else { return nil }
-        let index = layoutManager.characterIndex(for: inContainer, in: textContainer,
-                                                 fractionOfDistanceBetweenInsertionPoints: nil)
-        guard index < storage.length else { return nil }
-        // The lookup above snaps to the nearest row, so a point past the last line
-        // would answer with it. Only a point inside the row itself is on the row.
-        let fragment = layoutManager.lineFragmentRect(
-            forGlyphAt: layoutManager.glyphIndexForCharacter(at: index), effectiveRange: nil)
-        guard inContainer.y >= fragment.minY, inContainer.y < fragment.maxY else { return nil }
-        return storage.attribute(.diffHunk, at: index, effectiveRange: nil) as? String
+        return DiffGapHit.at(NSPoint(x: point.x - origin.x, y: point.y - origin.y),
+                             layoutManager: layoutManager, container: textContainer,
+                             storage: storage)
     }
 
-    // A hovered header sits a shade stronger than its usual band. Mixing towards the
-    // text colour works in either appearance: it darkens on a light pane and lightens
-    // on a dark one.
+    // A hovered row sits a shade stronger than its usual band. Mixing towards the text
+    // colour works in either appearance: it darkens on a light pane and lightens on a
+    // dark one.
     private func hoverFill(_ band: NSColor) -> NSColor {
         guard let base = band.usingColorSpace(.sRGB),
               let ink = NSColor.labelColor.usingColorSpace(.sRGB),
@@ -202,11 +203,40 @@ private final class DiffDocumentView: NSTextView {
                   let band = storage.attribute(.diffRowBackground, at: index,
                                                effectiveRange: nil) as? NSColor else { return }
             let isHovered = self.hovered != nil
-                && storage.attribute(.diffHunk, at: index, effectiveRange: nil) as? String == self.hovered
+                && storage.attribute(.diffGap, at: index, effectiveRange: nil) as? String == self.hovered
             (isHovered ? self.hoverFill(band) : band).setFill()
             NSRect(x: 0, y: fragment.minY + origin.y,
                    width: self.bounds.width, height: fragment.height).fill()
         }
+    }
+}
+
+// What a point in a laid out diff lands on: the gap row it is over, and the control
+// there if it is on one. A point anywhere along the row names the row, so the band can
+// light up as the pointer arrives, but only the characters of a control open anything.
+struct DiffGapHit: Equatable {
+    var key: String
+    var direction: DiffExpandDirection?
+
+    // The point is in text container coordinates.
+    static func at(_ point: NSPoint, layoutManager: NSLayoutManager,
+                   container: NSTextContainer, storage: NSTextStorage) -> DiffGapHit? {
+        guard storage.length > 0, point.x >= 0, point.y >= 0 else { return nil }
+        let index = layoutManager.characterIndex(for: point, in: container,
+                                                 fractionOfDistanceBetweenInsertionPoints: nil)
+        guard index < storage.length else { return nil }
+        // The lookup above snaps to the nearest row and to the nearest character on it,
+        // so a point past the text would answer with whatever is closest. Only a point
+        // inside the row, and on a character of it, is on that character.
+        let glyph = layoutManager.glyphIndexForCharacter(at: index)
+        let fragment = layoutManager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+        guard point.y >= fragment.minY, point.y < fragment.maxY else { return nil }
+        guard let key = storage.attribute(.diffGap, at: index, effectiveRange: nil) as? String
+        else { return nil }
+        let used = layoutManager.lineFragmentUsedRect(forGlyphAt: glyph, effectiveRange: nil)
+        guard point.x < used.maxX else { return DiffGapHit(key: key) }
+        let action = storage.attribute(.diffGapAction, at: index, effectiveRange: nil) as? String
+        return DiffGapHit(key: key, direction: action.flatMap(DiffExpandDirection.init(rawValue:)))
     }
 }
 
@@ -239,8 +269,8 @@ enum DiffText {
             if let band = band(line.kind) {
                 attributes[.diffRowBackground] = band
             }
-            if let hunk = line.hunk, hunk.isExpandable {
-                attributes[.diffHunk] = hunk.key
+            if let gap = line.gap {
+                attributes[.diffGap] = gap.key
             }
             if line.kind == .section {
                 // A little air around a section title so one file's diff reads as
@@ -251,22 +281,46 @@ enum DiffText {
                 attributes[.paragraphStyle] = style
             }
             let isCode = line.kind == .addition || line.kind == .deletion || line.kind == .context
-            if let activeLanguage, isCode {
+            if let gap = line.gap {
+                result.append(controls(gap, attributes: attributes))
+            } else if let activeLanguage, isCode {
                 result.append(codeLine(line, language: activeLanguage, attributes: attributes))
             } else {
                 result.append(NSAttributedString(string: line.text, attributes: attributes))
             }
-            // What the header is standing in for, so the row says it can be opened
-            // rather than leaving it to be found by accident.
-            if let hunk = line.hunk, hunk.isExpandable {
-                var hint = attributes
-                hint[.foregroundColor] = NSColor.tertiaryLabelColor
-                result.append(NSAttributedString(string: "   ↑ \(counted(hunk.hidden, "line"))",
-                                                 attributes: hint))
-            }
             if index < lines.count - 1 {
                 result.append(NSAttributedString(string: "\n", attributes: attributes))
             }
+        }
+        return result
+    }
+
+    // What a gap row offers. A gap too long to open in one go opens from either end, so
+    // it carries an arrow for each: down carries on from the code above the row, up reads
+    // back from the code below it. The count in the middle always opens the lot, and a
+    // gap short enough to open whole is nothing but that count.
+    private static func controls(_ gap: DiffGap,
+                                 attributes: [NSAttributedString.Key: Any]) -> NSAttributedString {
+        var plain = attributes
+        plain[.foregroundColor] = NSColor.tertiaryLabelColor
+        let result = NSMutableAttributedString()
+        func add(_ text: String, _ direction: DiffExpandDirection? = nil) {
+            var run = plain
+            if let direction { run[.diffGapAction] = direction.rawValue }
+            result.append(NSAttributedString(string: text, attributes: run))
+        }
+
+        guard let count = gap.count else {
+            add(" ↓ ", .down)
+            add("the rest of the file", .all)
+            return result
+        }
+        if count > GitInspector.gapExpandWhole {
+            add(" ↑ ", .up)
+            add(counted(count, "line"), .all)
+            add(" ↓ ", .down)
+        } else {
+            add(" " + counted(count, "line"), .all)
         }
         return result
     }
@@ -309,7 +363,7 @@ enum DiffText {
         switch kind {
         case .addition: NSColor(Theme.addition)
         case .deletion: NSColor(Theme.deletion)
-        case .hunk, .meta, .section: .secondaryLabelColor
+        case .hunk, .meta, .section, .gap: .secondaryLabelColor
         case .context: .labelColor
         }
     }
@@ -318,7 +372,7 @@ enum DiffText {
         switch kind {
         case .addition: NSColor(Theme.dotOn).withAlphaComponent(0.14)
         case .deletion: NSColor(Theme.deletion).withAlphaComponent(0.10)
-        case .hunk, .section: NSColor(Theme.field)
+        case .hunk, .section, .gap: NSColor(Theme.field)
         case .meta, .context: nil
         }
     }
@@ -329,7 +383,10 @@ extension NSAttributedString.Key {
     // .backgroundColor, which stops at the last glyph instead of the pane's edge.
     static let diffRowBackground = NSAttributedString.Key("codeStationDiffRowBackground")
 
-    // Marks a hunk header that still hides unchanged lines, named by DiffHunk.key. Only
-    // rows carrying it answer a click.
-    static let diffHunk = NSAttributedString.Key("codeStationDiffHunk")
+    // Marks a row standing in for unchanged lines, named by DiffGap.key.
+    static let diffGap = NSAttributedString.Key("codeStationDiffGap")
+
+    // Marks one control on such a row, holding the DiffExpandDirection it opens. Only
+    // characters carrying it answer a press.
+    static let diffGapAction = NSAttributedString.Key("codeStationDiffGapAction")
 }
