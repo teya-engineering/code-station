@@ -1,41 +1,22 @@
 import SwiftUI
 import AppKit
 
+// The app is started as an AppKit one rather than through SwiftUI's App protocol. Every
+// window it shows is an AppKit window it builds itself, so the only thing a SwiftUI scene
+// would have brought is the main menu, and an empty scene kept around for that can end up
+// on screen as a window with nothing in it.
 @main
-struct MenuBarApp: App {
-    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+enum MenuBarApp {
+    // NSApplication holds its delegate weakly, so ownership has to live somewhere else.
+    @MainActor private static var delegate: AppDelegate?
 
-    // The window itself is owned by AppDelegate, so this scene renders nothing. It earns
-    // its place by giving the app the standard macOS main menu, which is what supplies
-    // Cmd+C/V/A in the composer and diff views. Settings is dropped from that menu
-    // because there is nothing to configure.
-    var body: some Scene {
-        Settings { EmptyView() }
-            .commands {
-                CommandGroup(replacing: .appSettings) { }
-                textSize
-            }
-    }
-
-    // Text size is in the View menu because that is where Cmd+ and Cmd- live in every
-    // other Mac app. The menu is also the only place these keys can be found: bound to a
-    // hidden button in the window the way the app's other shortcuts are, nothing on
-    // screen would ever say they exist, and this is the one setting whose whole point is
-    // helping someone who is struggling to read.
-    private var textSize: some Commands {
-        CommandGroup(after: .toolbar) {
-            Button("Bigger Text") { step { $0.bigger } }
-                .keyboardShortcut("+", modifiers: .command)
-            Button("Smaller Text") { step { $0.smaller } }
-                .keyboardShortcut("-", modifiers: .command)
-            Button("Actual Size") { step { _ in .standard } }
-                .keyboardShortcut("0", modifiers: .command)
-        }
-    }
-
-    private func step(_ next: (TextSize) -> TextSize) {
-        let settings = appDelegate.appSettings
-        settings.textSize = next(settings.textSize)
+    @MainActor
+    static func main() {
+        let app = NSApplication.shared
+        let appDelegate = AppDelegate()
+        delegate = appDelegate
+        app.delegate = appDelegate
+        app.run()
     }
 }
 
@@ -58,7 +39,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let gitStats = GitStatsCache()
     private let terminals = TerminalStore()
     private let loginItem = LoginItem()
-    // Reached from the main menu as well as the window, so the text size commands can
+    // Reached from the main menu as well as the window, so the text size items can
     // change the same setting the Settings sheet shows.
     let appSettings = AppSettings()
     private let docker = DockerService()
@@ -68,6 +49,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let shortcuts = ShortcutStore()
     private let appUpdates = AppUpdateChecker()
     private var window: NSWindow?
+
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        MainMenu.install()
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
@@ -95,6 +80,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.showManager()
         }
         showManager()
+    }
+
+    @objc func biggerText(_ sender: Any?) {
+        appSettings.textSize = appSettings.textSize.bigger
+    }
+
+    @objc func smallerText(_ sender: Any?) {
+        appSettings.textSize = appSettings.textSize.smaller
+    }
+
+    @objc func actualSizeText(_ sender: Any?) {
+        appSettings.textSize = .standard
     }
 
     // A terminal outlives the app that opened it. A run ending anywhere other than
