@@ -153,7 +153,7 @@ struct ShortcutChipFitTests {
     }
 
     private func placement(named name: String) -> ShortcutPlacement {
-        ShortcutPlacement(shortcut: CommandShortcut(name: name, command: "true"),
+        ShortcutPlacement(shortcut: Shortcut(name: name, text: "true"),
                           projectID: UUID())
     }
 }

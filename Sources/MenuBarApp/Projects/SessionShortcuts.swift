@@ -96,7 +96,7 @@ struct SessionShortcutChips: View {
 
     // MARK: - Chips
 
-    private func chip(_ shortcut: CommandShortcut, in entry: Checkout) -> some View {
+    private func chip(_ shortcut: Shortcut, in entry: Checkout) -> some View {
         let run = run(for: shortcut, in: entry)
         return ShortcutChip(
             shortcut: shortcut,
@@ -159,7 +159,7 @@ struct SessionShortcutChips: View {
                          projectTint: tinted
                             ? Theme.projectTint(for: entry.project?.name ?? "") : nil,
                          icon: shortcut.glyph,
-                         subtitle: shortcut.command,
+                         subtitle: shortcut.text,
                          monospacedSubtitle: true,
                          detail: Self.detail(for: state),
                          detailColour: Self.detailColour(for: state),
@@ -167,7 +167,7 @@ struct SessionShortcutChips: View {
         }
         // Never a dead end: the place the commands went is also a place to save another.
         menu.append(.separator)
-        menu.append(.item("New shortcut…", icon: "plus", action: { edit(blankRequest) }))
+        menu.append(.item("New command…", icon: "plus", action: { edit(blankRequest) }))
         return menu
     }
 
@@ -198,13 +198,20 @@ struct SessionShortcutChips: View {
             .overlay(RoundedRectangle(cornerRadius: 7)
                 .strokeBorder(Theme.border, style: StrokeStyle(lineWidth: 1, dash: [3, 3])))
             .appMenu { newMenu }
-            .appTooltip("Save a command for this project")
+            .appTooltip("Save a command or a prompt for this project")
             .accessibilityLabel("New shortcut")
     }
 
     private var newMenu: [MenuEntry] {
         var entries: [MenuEntry] = [
-            .item("New shortcut…", action: { edit(blankRequest) })
+            .item("New command…", action: { edit(blankRequest) }),
+            // Saved here beside the commands, but offered on the rail above the session,
+            // since that is where a prompt is sent from.
+            .item("New prompt…", action: {
+                var request = blankRequest
+                request.kind = .prompt
+                edit(request)
+            })
         ]
         // The command the agent just ran is the one most worth keeping, and it has
         // already been typed once.
@@ -213,7 +220,7 @@ struct SessionShortcutChips: View {
                                  subtitle: command,
                                  action: {
                                      var request = blankRequest
-                                     request.command = command
+                                     request.text = command
                                      edit(request)
                                  }))
         }
@@ -240,8 +247,11 @@ struct SessionShortcutChips: View {
         }
     }
 
+    // Commands only. A prompt has no folder and no output, so it is offered on the icon
+    // rail above the session instead, where the conversation it lands in is the one on
+    // screen.
     private var placements: [ShortcutPlacement] {
-        shortcuts.shortcuts(for: checkouts.map(\.checkout.projectID))
+        shortcuts.shortcuts(for: checkouts.map(\.checkout.projectID), kind: .command)
     }
 
     private func checkout(with projectID: UUID) -> Checkout? {
@@ -256,7 +266,7 @@ struct SessionShortcutChips: View {
         return shortcuts.state(run(for: placement.shortcut, in: entry))
     }
 
-    private func run(for shortcut: CommandShortcut, in entry: Checkout) -> ShortcutRun {
+    private func run(for shortcut: Shortcut, in entry: Checkout) -> ShortcutRun {
         ShortcutRun(shortcut.id,
                     in: shortcut.directory(projectPath: entry.project?.path,
                                            workspacePath: entry.checkout.worktreePath))
@@ -280,7 +290,7 @@ struct SessionShortcutChips: View {
 // session has to say, and anything more makes that line unreadable. The timing and the
 // output are in the drawer, which opens on its own the moment a run starts.
 struct ShortcutChip: View {
-    let shortcut: CommandShortcut
+    let shortcut: Shortcut
     let state: ShortcutStore.State
     // Set only for a session spanning several checkouts, where the checkout this command
     // runs in matters and the name alone does not say.
@@ -336,7 +346,7 @@ struct ShortcutChip: View {
         .onHover { hovering = $0 }
         .accessibilityLabel(state.isActive ? "Stop \(shortcut.name)" : "Run \(shortcut.name)")
         .appTooltip {
-            Tooltip(title: tooltip, subtitle: shortcut.command,
+            Tooltip(title: tooltip, subtitle: shortcut.text,
                     note: shortcut.availableInAllProjects ? "Available in all projects" : nil)
         }
     }

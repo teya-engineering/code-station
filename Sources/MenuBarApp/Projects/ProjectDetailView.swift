@@ -52,7 +52,8 @@ struct ProjectDetailView: View {
             .sheet(item: $shortcutEditor) { request in
                 ShortcutEditorView(request: request) { shortcut in
                     if request.shortcut == nil {
-                        shortcuts.add(name: shortcut.name, command: shortcut.command,
+                        shortcuts.add(name: shortcut.name, text: shortcut.text,
+                                      kind: shortcut.kind,
                                       icon: shortcut.icon,
                                       projectID: shortcut.projectID,
                                       availableInAllProjects: shortcut.availableInAllProjects)
@@ -242,8 +243,11 @@ struct ProjectDetailView: View {
     // work in front of you; here they are one more thing the folder has, so they take the
     // room of one reading. A run happens in the project folder, since a project screen is
     // not looking at any one worktree.
+    //
+    // The project's prompts are not here: a project screen has no conversation to send
+    // one to, so they are offered on the rail above a session instead.
     private func shortcutsControl(_ project: Project) -> some View {
-        let saved = shortcuts.shortcuts(for: project.id)
+        let saved = shortcuts.shortcuts(for: project.id, kind: .command)
         let running = shortcuts.runningCount(of: saved)
         let failed = shortcuts.failureCount(of: saved)
         let tint = running > 0 ? Theme.accent : failed > 0 ? Theme.deletion : Color.secondary
@@ -265,13 +269,13 @@ struct ProjectDetailView: View {
                     : "\(counted(saved.count, "saved command")), run in the project folder")
     }
 
-    private func shortcutMenu(_ project: Project, saved: [CommandShortcut]) -> [MenuEntry] {
+    private func shortcutMenu(_ project: Project, saved: [Shortcut]) -> [MenuEntry] {
         var entries: [MenuEntry] = saved.map { shortcut in
             let run = ShortcutRun(shortcut.id, in: shortcut.directory(projectPath: project.path))
             let state = shortcuts.state(run)
             return .item(state.isActive ? "Stop \(shortcut.name)" : shortcut.name,
                          icon: shortcut.icon,
-                         subtitle: shortcut.command,
+                         subtitle: shortcut.text,
                          detail: shortcutDetail(shortcut, state: state),
                          detailColour: colour(of: state)) {
                 toggle(run)
@@ -292,7 +296,7 @@ struct ProjectDetailView: View {
         return entries
     }
 
-    private func shortcutDetail(_ shortcut: CommandShortcut,
+    private func shortcutDetail(_ shortcut: Shortcut,
                                 state: ShortcutStore.State) -> String? {
         let stateDetail = detail(of: state)
         guard shortcut.availableInAllProjects else { return stateDetail }

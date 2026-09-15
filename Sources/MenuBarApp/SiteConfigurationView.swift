@@ -680,7 +680,8 @@ private struct SiteConfigurationEditorView: View {
         VStack(alignment: .leading, spacing: 12) {
             ForEach(Array((draft.shortcuts ?? []).indices), id: \.self) { index in
                 let shortcut = binding(\.shortcuts, at: index,
-                                       or: SiteDefaults.Shortcut(name: "", command: ""))
+                                       or: SiteDefaults.ShortcutEntry(name: "", command: ""))
+                let kind = shortcut.kind.wrappedValue ?? .command
                 editorCard {
                     HStack(alignment: .top, spacing: 10) {
                         SiteConfigurationField(caption: "NAME",
@@ -688,8 +689,19 @@ private struct SiteConfigurationEditorView: View {
                                                text: shortcut.name)
                         removeButton { draft.shortcuts?.remove(at: index) }
                     }
-                    SiteConfigurationField(caption: "COMMAND",
-                                           placeholder: "./gradlew bootRun",
+                    HStack(spacing: 7) {
+                        ForEach(ShortcutKind.allCases) { option in
+                            ChoicePill(title: option.title, selected: kind == option) {
+                                // A command is the default, so it is written as the
+                                // absence of a kind and files stay readable by older builds.
+                                shortcut.kind.wrappedValue = option == .command ? nil : option
+                            }
+                        }
+                    }
+                    SiteConfigurationField(caption: kind == .command ? "COMMAND" : "PROMPT",
+                                           placeholder: kind == .command
+                                            ? "./gradlew bootRun"
+                                            : "Review my working tree and list what is unfinished.",
                                            text: shortcut.command)
                     VStack(alignment: .leading, spacing: 7) {
                         SectionLabel("ICON", style: .field)
@@ -698,7 +710,7 @@ private struct SiteConfigurationEditorView: View {
                 }
             }
             addButton("Add shortcut") {
-                draft.shortcuts?.append(SiteDefaults.Shortcut(name: "", command: ""))
+                draft.shortcuts?.append(SiteDefaults.ShortcutEntry(name: "", command: ""))
             }
         }
     }
@@ -975,11 +987,12 @@ private enum SiteConfigurationForm {
 
         case .shortcuts:
             let shortcuts = (result.shortcuts ?? []).map {
-                SiteDefaults.Shortcut(name: $0.name.trimmed, command: $0.command.trimmed,
-                                      icon: ShortcutIcon.resolve($0.icon))
+                SiteDefaults.ShortcutEntry(name: $0.name.trimmed, command: $0.command.trimmed,
+                                           icon: ShortcutIcon.resolve($0.icon),
+                                           kind: $0.kind == .command ? nil : $0.kind)
             }
             guard shortcuts.allSatisfy({ !$0.name.isEmpty && !$0.command.isEmpty }) else {
-                throw ImportError("Every shortcut needs a name and command.")
+                throw ImportError("Every shortcut needs a name, and a command or prompt.")
             }
             result.shortcuts = shortcuts
         }

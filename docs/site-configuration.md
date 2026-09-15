@@ -1,6 +1,6 @@
 # Site configuration
 
-Site configuration keeps the parts of Code Station that belong to one organisation outside the app's source code. A configuration can provide environments, API access, starter requests, MCP presets, a skills marketplace, and command shortcuts.
+Site configuration keeps the parts of Code Station that belong to one organisation outside the app's source code. A configuration can provide environments, API access, starter requests, MCP presets, a skills marketplace, and shortcuts.
 
 Every section is optional, and so is the file itself. Without one, the app uses its built-in staging and production environments, with no saved requests, MCP presets, marketplace, or shortcuts. Everything else works as normal.
 
@@ -61,7 +61,7 @@ A `swift run` development build has no bundle in which to include the file, so u
 | `dispatch.requests` | Defines the saved requests available on a fresh install. Each request has a `name`, `url`, and optional `method`. `{{env}}` in the URL is replaced with the selected environment's name. |
 | `mcp.presets` | Defines reusable servers shown when adding an MCP server. Presets with the same optional `serverType` are offered together through an action such as `Add Grafana MCP server`. A preset without a server type stays under `Add from preset` for compatibility. Each preset also has a unique `name`, optional display `title` and `environment`, and exactly one connection: a stdio `command` with optional `args` and `env`, or a remote `url` with optional transport `type` and `headers`. An empty environment variable or header value is requested when the preset is added, so the shared file can define required credentials without storing them. |
 | `skills` | Defines the marketplace shown by the Skills screen. It contains the display `name`, the `marketplace` name used by the agent CLIs, and the source `repository`. |
-| `shortcuts` | Defines command shortcuts available on a fresh install. Each entry has a `name`, a `command`, and an optional `icon` naming an SF Symbol drawn beside the name. An icon the app cannot draw is ignored. These shortcuts run from the user's home folder because the configuration does not belong to a specific project. Users can add their own global or project shortcuts, which are stored locally and are not overwritten by this file. |
+| `shortcuts` | Defines shortcuts available on a fresh install. Each entry has a `name`, a `command`, an optional `icon` naming an SF Symbol drawn beside the name, and an optional `kind` of `command` or `prompt`. An icon the app cannot draw is ignored. Leaving `kind` out means `command`. A command shortcut runs `command` with zsh from the user's home folder, because the configuration does not belong to a specific project. A prompt shortcut sends `command` to the agent in whichever session is on screen, and is offered on the icon rail above that session. Users can add their own global or project shortcuts, which are stored locally and are not overwritten by this file. |
 
 ## Secrets
 

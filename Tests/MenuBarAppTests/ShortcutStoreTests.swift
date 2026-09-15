@@ -13,7 +13,7 @@ struct ShortcutStoreTests {
         let store = ShortcutStore(storageURL: url)
 
         #expect(store.shortcuts.map(\.name)
-            == SiteDefaults.current.commandShortcuts.map(\.name))
+            == SiteDefaults.current.startingShortcuts.map(\.name))
         #expect(!FileManager.default.fileExists(atPath: url.path))
     }
 
@@ -21,13 +21,13 @@ struct ShortcutStoreTests {
         let store = emptyStore(url)
 
         let id = try #require(store.add(
-            name: "  API server  ", command: "  ./gradlew bootRun  "))
-        store.update(CommandShortcut(id: id, name: "Service", command: "./gradlew run",
+            name: "  API server  ", text: "  ./gradlew bootRun  "))
+        store.update(Shortcut(id: id, name: "Service", text: "./gradlew run",
                                      availableInAllProjects: true))
 
         let reloaded = emptyStore(url)
         #expect(reloaded.shortcuts == [
-            CommandShortcut(id: id, name: "Service", command: "./gradlew run",
+            Shortcut(id: id, name: "Service", text: "./gradlew run",
                             availableInAllProjects: true)
         ])
 
@@ -46,7 +46,7 @@ struct ShortcutStoreTests {
 
         #expect(store.loadError == nil)
         #expect(store.shortcuts == [
-            CommandShortcut(id: id, name: "Prune", command: "docker system prune")
+            Shortcut(id: id, name: "Prune", text: "docker system prune")
         ])
         #expect(store.macShortcuts.count == 1)
     }
@@ -56,11 +56,11 @@ struct ShortcutStoreTests {
     @Test func resolvesTheFolderFromWhoTheShortcutBelongsTo() {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
 
-        let mac = CommandShortcut(name: "Prune", command: "docker system prune")
+        let mac = Shortcut(name: "Prune", text: "docker system prune")
         #expect(mac.directory(projectPath: "/repos/lantern", workspacePath: "/worktrees/a")
             == home)
 
-        let owned = CommandShortcut(name: "Lint", command: "npm run lint",
+        let owned = Shortcut(name: "Lint", text: "npm run lint",
                                     projectID: UUID())
         #expect(owned.directory(projectPath: "/repos/lantern", workspacePath: "/worktrees/a")
             == "/worktrees/a")
@@ -69,7 +69,7 @@ struct ShortcutStoreTests {
         // And a project whose folder cannot be found is still somewhere runnable.
         #expect(owned.directory(projectPath: nil) == home)
 
-        let shared = CommandShortcut(name: "Build", command: "make",
+        let shared = Shortcut(name: "Build", text: "make",
                                      availableInAllProjects: true)
         #expect(shared.directory(projectPath: "/repos/lantern",
                                  workspacePath: "/worktrees/a") == "/worktrees/a")
@@ -81,13 +81,13 @@ struct ShortcutStoreTests {
         let lantern = UUID()
         let other = UUID()
 
-        let prune = try #require(store.add(name: "Prune", command: "docker system prune"))
-        let lint = try #require(store.add(name: "Lint", command: "npm run lint",
+        let prune = try #require(store.add(name: "Prune", text: "docker system prune"))
+        let lint = try #require(store.add(name: "Lint", text: "npm run lint",
                                           projectID: lantern))
-        let test = try #require(store.add(name: "Test", command: "swift test",
+        let test = try #require(store.add(name: "Test", text: "swift test",
                                           projectID: lantern))
-        let build = try #require(store.add(name: "Build", command: "make", projectID: other))
-        let shared = try #require(store.add(name: "Format", command: "swift format",
+        let build = try #require(store.add(name: "Build", text: "make", projectID: other))
+        let shared = try #require(store.add(name: "Format", text: "swift format",
                                             availableInAllProjects: true))
 
         #expect(store.macShortcuts.map(\.id) == [prune, shared])
@@ -104,11 +104,11 @@ struct ShortcutStoreTests {
         let lead = UUID()
         let attached = UUID()
 
-        let leadShortcut = try #require(store.add(name: "Lead", command: "make lead",
+        let leadShortcut = try #require(store.add(name: "Lead", text: "make lead",
                                                    projectID: lead))
-        let shared = try #require(store.add(name: "Shared", command: "make shared",
+        let shared = try #require(store.add(name: "Shared", text: "make shared",
                                            availableInAllProjects: true))
-        let attachedShortcut = try #require(store.add(name: "Attached", command: "make attached",
+        let attachedShortcut = try #require(store.add(name: "Attached", text: "make attached",
                                                        projectID: attached))
 
         let placements = store.shortcuts(for: [lead, attached])
@@ -121,7 +121,7 @@ struct ShortcutStoreTests {
     @Test func countsRunsOnlyForTheListDoingTheAsking() async throws {
         let store = emptyStore(url)
         let lantern = UUID()
-        let owned = try #require(store.add(name: "Lint", command: "exit 1",
+        let owned = try #require(store.add(name: "Lint", text: "exit 1",
                                            projectID: lantern))
         let run = ShortcutRun(owned, in: FileManager.default.temporaryDirectory.path)
 
@@ -139,7 +139,7 @@ struct ShortcutStoreTests {
         let store = emptyStore(url)
         #expect(store.loadError != nil)
 
-        store.add(name: "Build", command: "swift build")
+        store.add(name: "Build", text: "swift build")
 
         #expect(store.saveError != nil)
         #expect(try Data(contentsOf: url) == original)
@@ -149,7 +149,7 @@ struct ShortcutStoreTests {
         let store = emptyStore(url)
         let id = try #require(store.add(
             name: "Output",
-            command: "printf 'standard output'; printf 'error output' >&2"
+            text: "printf 'standard output'; printf 'error output' >&2"
         ))
         let run = ShortcutRun(id, in: FileManager.default.temporaryDirectory.path)
 
@@ -163,7 +163,7 @@ struct ShortcutStoreTests {
 
     @Test func reportsTheExitCodeOfACommandThatFails() async throws {
         let store = emptyStore(url)
-        let id = try #require(store.add(name: "Lint", command: "exit 3"))
+        let id = try #require(store.add(name: "Lint", text: "exit 3"))
         let run = ShortcutRun(id, in: FileManager.default.temporaryDirectory.path)
 
         store.start(run)
@@ -187,7 +187,7 @@ struct ShortcutStoreTests {
         }
 
         let store = emptyStore(url)
-        let id = try #require(store.add(name: "Where", command: "pwd"))
+        let id = try #require(store.add(name: "Where", text: "pwd"))
         let one = ShortcutRun(id, in: first.path)
         let two = ShortcutRun(id, in: second.path)
 
@@ -206,7 +206,7 @@ struct ShortcutStoreTests {
     // is no longer there, so the state they carry stops meaning anything.
     @Test func forgetsRunsWhenAShortcutIsEdited() async throws {
         let store = emptyStore(url)
-        let id = try #require(store.add(name: "Say", command: "echo hello"))
+        let id = try #require(store.add(name: "Say", text: "echo hello"))
         let run = ShortcutRun(id, in: FileManager.default.temporaryDirectory.path)
         let scope = ShortcutScope.session(UUID())
 
@@ -215,7 +215,7 @@ struct ShortcutStoreTests {
         #expect(await waitUntil { !store.state(run).isActive })
         #expect(!store.log(run).isEmpty)
 
-        store.update(CommandShortcut(id: id, name: "Say", command: "echo goodbye"))
+        store.update(Shortcut(id: id, name: "Say", text: "echo goodbye"))
 
         #expect(store.state(run) == .stopped)
         #expect(store.log(run).isEmpty)
@@ -229,7 +229,7 @@ struct ShortcutStoreTests {
     // out of sight the moment another session is read.
     @Test func keepsTheOpenOutputPerScreen() throws {
         let store = emptyStore(url)
-        let id = try #require(store.add(name: "Build", command: "true"))
+        let id = try #require(store.add(name: "Build", text: "true"))
         let run = ShortcutRun(id, in: FileManager.default.temporaryDirectory.path)
         let session = ShortcutScope.session(UUID())
         let project = ShortcutScope.project(UUID())
@@ -248,8 +248,8 @@ struct ShortcutStoreTests {
     // drawer has no command left to name.
     @Test func closesTheOutputOfARemovedShortcut() throws {
         let store = emptyStore(url)
-        let kept = try #require(store.add(name: "Test", command: "true"))
-        let removed = try #require(store.add(name: "Build", command: "true"))
+        let kept = try #require(store.add(name: "Test", text: "true"))
+        let removed = try #require(store.add(name: "Build", text: "true"))
         let directory = FileManager.default.temporaryDirectory.path
         let first = ShortcutScope.session(UUID())
         let second = ShortcutScope.session(UUID())
@@ -270,7 +270,7 @@ struct ShortcutStoreTests {
     // filed under it.
     @Test func discardsTheOutputOfADeletedScreen() throws {
         let store = emptyStore(url)
-        let id = try #require(store.add(name: "Build", command: "true"))
+        let id = try #require(store.add(name: "Build", text: "true"))
         let sessionID = UUID()
         let scope = ShortcutScope.session(sessionID)
         store.showOutput(ShortcutRun(id, in: FileManager.default.temporaryDirectory.path),
@@ -288,11 +288,11 @@ struct ShortcutStoreTests {
     @Test func persistsTheIcon() throws {
         let store = emptyStore(url)
 
-        let id = try #require(store.add(name: "Tests", command: "swift test", icon: "hammer"))
+        let id = try #require(store.add(name: "Tests", text: "swift test", icon: "hammer"))
 
         #expect(emptyStore(url).shortcut(id)?.icon == "hammer")
 
-        store.update(CommandShortcut(id: id, name: "Tests", command: "swift test",
+        store.update(Shortcut(id: id, name: "Tests", text: "swift test",
                                      icon: "checkmark.seal"))
         #expect(emptyStore(url).shortcut(id)?.icon == "checkmark.seal")
     }
@@ -302,7 +302,7 @@ struct ShortcutStoreTests {
     @Test func dropsAnIconTheSystemCannotDraw() throws {
         let store = emptyStore(url)
 
-        let id = try #require(store.add(name: "Tests", command: "swift test",
+        let id = try #require(store.add(name: "Tests", text: "swift test",
                                         icon: "not.a.real.symbol"))
 
         #expect(store.shortcut(id)?.icon == nil)
@@ -312,7 +312,7 @@ struct ShortcutStoreTests {
     // still describes it and the drawer stays where it was.
     @Test func keepsRunsWhenOnlyTheIconChanges() async throws {
         let store = emptyStore(url)
-        let id = try #require(store.add(name: "Say", command: "echo hello"))
+        let id = try #require(store.add(name: "Say", text: "echo hello"))
         let run = ShortcutRun(id, in: FileManager.default.temporaryDirectory.path)
         let scope = ShortcutScope.session(UUID())
 
@@ -320,11 +320,87 @@ struct ShortcutStoreTests {
         store.showOutput(run, for: scope)
         #expect(await waitUntil { !store.state(run).isActive })
 
-        store.update(CommandShortcut(id: id, name: "Say", command: "echo hello",
+        store.update(Shortcut(id: id, name: "Say", text: "echo hello",
                                      icon: "terminal"))
 
         #expect(store.log(run).contains("hello"))
         #expect(store.output(for: scope) == run)
+    }
+
+    // A shortcut saved before a shortcut could be anything but a command still is one,
+    // and a prompt has to survive the round trip to disk with its kind intact.
+    @Test func readsShortcutsSavedBeforePromptsExisted() throws {
+        let id = UUID()
+        try Data("""
+        { "shortcuts": [ { "id": "\(id.uuidString)", "name": "Prune", "command": "docker system prune" } ] }
+        """.utf8).write(to: url)
+
+        let store = emptyStore(url)
+        #expect(store.shortcut(id)?.kind == .command)
+
+        let prompt = try #require(store.add(name: "Unfinished",
+                                            text: "List what is left to do.",
+                                            kind: .prompt))
+        #expect(emptyStore(url).shortcut(prompt) == Shortcut(
+            id: prompt, name: "Unfinished", text: "List what is left to do.", kind: .prompt))
+    }
+
+    // A prompt is sent by a session, which has a conversation to send it to. Nothing can
+    // hand one to zsh, so asking for a run leaves it exactly where it was.
+    @Test func neverRunsAPrompt() throws {
+        let store = emptyStore(url)
+        let id = try #require(store.add(name: "Recap", text: "Sum up this session.",
+                                        kind: .prompt))
+        let run = ShortcutRun(id, in: FileManager.default.temporaryDirectory.path)
+
+        store.start(run)
+
+        #expect(store.state(run) == .stopped)
+        #expect(store.log(run).isEmpty)
+    }
+
+    // The chip strip runs commands and the prompt rail sends prompts, so each asks for
+    // the kind it can offer and neither ever sees the other's.
+    @Test func splitsWhatAProjectOffersByKind() throws {
+        let store = emptyStore(url)
+        let project = UUID()
+        _ = store.add(name: "Lint", text: "npm run lint", projectID: project)
+        _ = store.add(name: "Review", text: "Review my working tree.", kind: .prompt,
+                      projectID: project)
+        _ = store.add(name: "Tidy", text: "Tidy what you just wrote.", kind: .prompt,
+                      availableInAllProjects: true)
+
+        #expect(store.shortcuts(for: project).map(\.name) == ["Lint", "Review", "Tidy"])
+        #expect(store.shortcuts(for: project, kind: .command).map(\.name) == ["Lint"])
+        #expect(store.shortcuts(for: project, kind: .prompt).map(\.name)
+            == ["Review", "Tidy"])
+        #expect(store.shortcuts(for: [project], kind: .prompt).map(\.shortcut.name)
+            == ["Review", "Tidy"])
+    }
+
+    // A prompt is offered on a rail of glyphs with no room for a name, so one saved
+    // without an icon still has something to draw.
+    @Test func givesEveryPromptAGlyph() {
+        #expect(Shortcut(name: "Recap", text: "Sum up.", kind: .prompt).glyph == "sparkles")
+        #expect(Shortcut(name: "Recap", text: "Sum up.", kind: .prompt, icon: "book")
+            .glyph == "book")
+        #expect(Shortcut(name: "Lint", text: "npm run lint").glyph == nil)
+    }
+
+    // Rewriting what a shortcut does makes the last run stop describing it, and changing
+    // a command into a prompt is the largest rewrite there is.
+    @Test func forgetsRunsWhenTheKindChanges() async throws {
+        let store = emptyStore(url)
+        let id = try #require(store.add(name: "Say", text: "echo hello"))
+        let run = ShortcutRun(id, in: FileManager.default.temporaryDirectory.path)
+
+        store.start(run)
+        #expect(await waitUntil { !store.state(run).isActive })
+
+        store.update(Shortcut(id: id, name: "Say", text: "echo hello", kind: .prompt))
+
+        #expect(store.log(run).isEmpty)
+        #expect(store.state(run) == .stopped)
     }
 
     private func emptyStore(_ url: URL) -> ShortcutStore {

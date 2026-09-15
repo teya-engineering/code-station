@@ -24,7 +24,7 @@ struct SiteDefaults: Codable, Sendable, Equatable {
     var environments: [Environment]? = nil
     var mcp: MCP? = nil
     var skills: Skills? = nil
-    var shortcuts: [Shortcut]? = nil
+    var shortcuts: [ShortcutEntry]? = nil
 
     // Not part of the file. These tell the UI where the values came from and whether a
     // higher-priority location failed, so a fallback never looks like that file worked.
@@ -41,7 +41,7 @@ struct SiteDefaults: Codable, Sendable, Equatable {
          environments: [Environment]? = nil,
          mcp: MCP? = nil,
          skills: Skills? = nil,
-         shortcuts: [Shortcut]? = nil,
+         shortcuts: [ShortcutEntry]? = nil,
          loadFailure: String? = nil,
          sourceURL: URL? = nil) {
         self.dispatch = dispatch
@@ -90,7 +90,7 @@ struct SiteDefaults: Codable, Sendable, Equatable {
             })
         }
         skills = try values.decodeIfPresent(Skills.self, forKey: .skills)
-        shortcuts = try values.decodeIfPresent([Shortcut].self, forKey: .shortcuts)
+        shortcuts = try values.decodeIfPresent([ShortcutEntry].self, forKey: .shortcuts)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -297,14 +297,18 @@ struct SiteDefaults: Codable, Sendable, Equatable {
         var sourceKind: SkillMarketplaceConfiguration.SourceKind?
     }
 
-    // A command a fresh install starts with, for the ones a whole team runs often enough
-    // to be worth handing over rather than typing out.
-    struct Shortcut: Codable, Sendable, Equatable {
+    // A shortcut a fresh install starts with, for the ones a whole team reaches for often
+    // enough to be worth handing over rather than typing out.
+    struct ShortcutEntry: Codable, Sendable, Equatable {
         var name: String
+        // The shell command to run, or the prompt to send when the kind says so. The key
+        // is still "command" so that files written before prompts existed still read.
         var command: String
         // An SF Symbol name. A symbol this build cannot draw is dropped, so the shortcut
         // arrives with no icon rather than with a gap where one should be.
         var icon: String? = nil
+        // Left out for a command, which is all a shortcut could be when the key was added.
+        var kind: ShortcutKind? = nil
     }
 }
 
@@ -467,12 +471,13 @@ extension SiteDefaults {
     // The shortcuts a first run starts with. The file names no IDs, so they are derived
     // from what a shortcut is: the same entry keeps the same identity across launches,
     // which is what keeps a running command attached to its row.
-    var commandShortcuts: [CommandShortcut] {
+    var startingShortcuts: [Shortcut] {
         (shortcuts ?? []).map {
-            CommandShortcut(id: Self.identity(of: "\($0.name)\n\($0.command)"),
-                            name: $0.name,
-                            command: $0.command,
-                            icon: $0.icon)
+            Shortcut(id: Self.identity(of: "\($0.name)\n\($0.command)"),
+                     name: $0.name,
+                     text: $0.command,
+                     kind: $0.kind ?? .command,
+                     icon: $0.icon)
         }
     }
 
@@ -493,7 +498,7 @@ extension SiteDefaults {
         let named = environments?.count ?? 0
         let requests = dispatchRequests.count
         let presets = mcpPresets.count
-        let commands = commandShortcuts.count
+        let commands = startingShortcuts.count
         let marketplace = skills == nil ? "no skills marketplace" : "a skills marketplace"
         return "\(counted(named, "environment")), \(counted(requests, "starter request")), "
             + "\(counted(presets, "MCP preset")), \(counted(commands, "shortcut")), and \(marketplace)."

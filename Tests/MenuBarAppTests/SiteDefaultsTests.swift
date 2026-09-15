@@ -84,8 +84,8 @@ struct SiteDefaultsTests {
             == "https://grafana.example")
         #expect(defaults.skills?.marketplace == "example-engineering")
 
-        #expect(defaults.commandShortcuts.map(\.name) == ["Orders service"])
-        #expect(defaults.commandShortcuts[0].command == "./gradlew bootRun")
+        #expect(defaults.startingShortcuts.map(\.name) == ["Orders service"])
+        #expect(defaults.startingShortcuts[0].text == "./gradlew bootRun")
     }
 
     @Test func missingFileLeavesEverythingEmpty() {
@@ -96,7 +96,7 @@ struct SiteDefaultsTests {
         #expect(defaults.dispatchRequests.isEmpty)
         #expect(defaults.mcpPresets.isEmpty)
         #expect(defaults.skills == nil)
-        #expect(defaults.commandShortcuts.isEmpty)
+        #expect(defaults.startingShortcuts.isEmpty)
         #expect(defaults.dispatchOAuth == OAuthConfig())
     }
 
@@ -123,11 +123,26 @@ struct SiteDefaultsTests {
         ] }
         """)
 
-        let first = SiteDefaults.load([url]).commandShortcuts
-        let second = SiteDefaults.load([url]).commandShortcuts
+        let first = SiteDefaults.load([url]).startingShortcuts
+        let second = SiteDefaults.load([url]).startingShortcuts
 
         #expect(first == second)
         #expect(first[0].id != first[1].id)
+    }
+
+    // A team can hand over a prompt as well as a command. The key is left out for a
+    // command, so files written before prompts existed still read as commands.
+    @Test func readsTheKindOfEachSharedShortcut() throws {
+        let url = try file("""
+        { "shortcuts": [
+            { "name": "Build", "command": "swift build" },
+            { "name": "Review", "command": "Review my working tree.", "kind": "prompt" }
+        ] }
+        """)
+
+        let shortcuts = SiteDefaults.load([url]).startingShortcuts
+
+        #expect(shortcuts.map(\.kind) == [.command, .prompt])
     }
 
     @Test func readsThePreviousHTTPClientSection() throws {
@@ -256,7 +271,8 @@ struct SiteDefaultsTests {
             #expect(defaults.deployEnvironment(named: preset.environmentTag) != nil)
         }
         #expect(defaults.skills != nil)
-        #expect(!defaults.commandShortcuts.isEmpty)
+        // Both kinds, since the example is what a deployment reads to learn the shape.
+        #expect(Set(defaults.startingShortcuts.map(\.kind)) == [.command, .prompt])
     }
 
     // No settings are compiled in, so a plain checkout builds an app with no file to fall
