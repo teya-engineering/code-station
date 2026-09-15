@@ -20,3 +20,7 @@
 - Keep build and module caches inside the worktree or `/private/tmp`.
 - SwiftPM dependency downloads require network access. If a dependency fetch is blocked, request network escalation immediately. Do not retry with a fresh cache inside the same sandbox.
 - Request filesystem escalation only when a command needs access outside the worktree or `/private/tmp`.
+
+## Scratch probes
+
+- A throwaway probe that opens a window to measure the UI must call `window.center()` before it shows the window. An `NSWindow` built from a `contentRect` with an origin of `0, 0` lands in the bottom left corner of the screen, where it is clipped by the screen edge and reads as a broken part of the real app.
