@@ -1771,13 +1771,17 @@ struct SessionView: View {
             pinnedSetting(agent.title, help: "This session always runs on \(agent.title).")
             SessionRunSettingsControls(sessionID: sessionID)
 
-            Spacer(minLength: 12)
-
             // Ad-hoc tasks run in a private folder the app made for one prompt, so there
             // is nothing there worth saving a command against.
             if project.kind == .project {
+                // The commands take the rest of the row, so they end at its right edge
+                // and have the whole of it to scroll in once there are enough of them
+                // to need it.
                 SessionShortcutChips(session: session,
                                      edit: { shortcutEditor = $0 })
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+            } else {
+                Spacer(minLength: 12)
             }
         }
     }

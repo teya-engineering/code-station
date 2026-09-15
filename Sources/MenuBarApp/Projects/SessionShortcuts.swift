@@ -24,27 +24,34 @@ struct SessionShortcutChips: View {
             // The commands sit against the right of the row and scroll from there, so
             // the last one saved is the one in view and the control that makes another
             // is always beside it.
-            ScrollView(.horizontal) {
-                HStack(spacing: 7) {
-                    ForEach(placements) { placement in
-                        if let entry = checkout(with: placement.projectID) {
-                            chip(placement.shortcut, in: entry)
-                        }
-                    }
+            //
+            // A scroll view fills whatever width it is given and lays its content out
+            // from the left, which would leave a few commands stranded in the middle of
+            // the row. So the plain row is used while it fits, and the scrolling one
+            // only once there are more commands than the row can hold.
+            ViewThatFits(in: .horizontal) {
+                chipRow
+                ScrollView(.horizontal) {
+                    chipRow.padding(.vertical, 1)
                 }
-                .padding(.vertical, 1)
-                // The scroll view takes a share of the row's spare width whether or not
-                // the chips need it, so the chips are pinned to the trailing edge of
-                // that width rather than left to float in the middle of the row.
-                .frame(maxWidth: .infinity, alignment: .trailing)
+                .scrollIndicators(.hidden)
+                .defaultScrollAnchor(.trailing)
+                .scrollClipDisabled()
             }
-            .scrollIndicators(.hidden)
-            .defaultScrollAnchor(.trailing)
-            .scrollClipDisabled()
 
             // Outside the scroll: it makes something new rather than being one of the
             // saved commands, and it cannot be the control that scrolls out of reach.
             newButton
+        }
+    }
+
+    private var chipRow: some View {
+        HStack(spacing: 7) {
+            ForEach(placements) { placement in
+                if let entry = checkout(with: placement.projectID) {
+                    chip(placement.shortcut, in: entry)
+                }
+            }
         }
     }
 
