@@ -203,19 +203,33 @@ enum Theme {
 }
 
 extension View {
-    // Lays a header out as a band of the shared height and draws the rule that closes it.
-    // The rule belongs to the band rather than sitting next to it, so a header cannot be
-    // given one twice or left without one.
-    func headerBand(_ background: Color = Theme.card,
-                    height: CGFloat = Theme.headerHeight) -> some View {
+    // Lays a header out as a band of the shared height and draws the rule that closes it,
+    // along with anything else the band wants along that edge. The rule belongs to the
+    // band rather than sitting next to it, so a header cannot be given one twice or left
+    // without one.
+    //
+    // Every line is drawn under the row rather than over it. A row sits well clear of the
+    // bottom edge, so nothing is lost by it, and a card or menu hanging off the band no
+    // longer has the band's own lines running across its top.
+    func headerBand<Bottom: View>(_ background: Color = Theme.card,
+                                  height: CGFloat = Theme.headerHeight,
+                                  @ViewBuilder bottom: () -> Bottom) -> some View {
         frame(maxWidth: .infinity, alignment: .leading)
             .frame(height: height)
-            .background(background)
-            .overlay(alignment: .bottom) {
-                Rectangle()
-                    .fill(Theme.hairline)
-                    .frame(height: 1)
+            .background(alignment: .bottom) {
+                ZStack(alignment: .bottom) {
+                    background
+                    Rectangle()
+                        .fill(Theme.hairline)
+                        .frame(height: 1)
+                    bottom()
+                }
             }
+    }
+
+    func headerBand(_ background: Color = Theme.card,
+                    height: CGFloat = Theme.headerHeight) -> some View {
+        headerBand(background, height: height) { EmptyView() }
     }
 
     // The strip of state that sits under a header. It takes the side padding of the band

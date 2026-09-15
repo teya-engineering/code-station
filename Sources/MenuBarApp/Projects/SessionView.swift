@@ -394,20 +394,13 @@ struct SessionView: View {
     // Nothing on it navigates. Where to go is the deck under it, which
     // holds every destination and every panel this pane can open.
     private func identityDeck(session: ChatSession, project: Project) -> some View {
-        let context = session.usage?.contextFraction(for: session.agent)
-        let tone = SessionTone(sessionID, store: store, runner: runner)
         // The pane draws the first of these that fits. What the readings ask for is
         // measured rather than guessed at a width chosen in advance, so a longer branch
         // or a longer project name gives something up on its own instead of running off
         // the right edge of the pane.
-        return ViewThatFits(in: .horizontal) {
+        ViewThatFits(in: .horizontal) {
             identityRow(session: session, project: project, fit: .whole)
             identityRow(session: session, project: project, fit: .folded)
-        }
-        .overlay(alignment: .bottom) {
-            if let context {
-                ContextHairline(fraction: context, animated: tone == .running)
-            }
         }
     }
 
@@ -415,6 +408,8 @@ struct SessionView: View {
                              fit: HeaderFit) -> some View {
         let workspace = session.workspaceID.flatMap(store.workspace)
         let container = workspace?.name ?? project.name
+        let context = session.usage?.contextFraction(for: session.agent)
+        let tone = SessionTone(sessionID, store: store, runner: runner)
         return HStack(spacing: 8) {
             HStack(spacing: 9) {
                 if let workspace {
@@ -465,7 +460,13 @@ struct SessionView: View {
                 .layoutPriority(1)
         }
         .padding(.horizontal, 20)
-        .headerBand(height: Self.identityDeckHeight)
+        // The window reading closes the band the same way the rule does, so it is drawn
+        // with it and stays behind anything the band opens.
+        .headerBand(height: Self.identityDeckHeight) {
+            if let context {
+                ContextHairline(fraction: context, animated: tone == .running)
+            }
+        }
     }
 
     // The session's state and branch, with the other details behind the branch chip.
