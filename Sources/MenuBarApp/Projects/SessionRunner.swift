@@ -1106,7 +1106,9 @@ final class SessionRunner {
     // Extra system prompt appended to every Claude Code session started by the app.
     // The app renders interactive choices as a modal, and the CLI's default is to write
     // options as an inline numbered list instead of calling AskUserQuestion, so tell it
-    // to prefer the tool whenever the choice is a small closed set.
+    // to prefer the tool whenever the choice is a small closed set. The second paragraph
+    // is about waiting: a build or a test run is long enough that the agent reaches for a
+    // watcher loop, and the usual one it writes can never end.
     nonisolated static let appendedSystemPrompt = """
         When you need the user to pick between 2-4 mutually exclusive options before \
         proceeding, use the AskUserQuestion tool. Do not present the options as an inline \
@@ -1114,6 +1116,15 @@ final class SessionRunner {
         a modal with clickable choices, while inline lists have no clickable options and \
         no "Other" escape hatch. Prose questions are only for open-ended clarifications \
         where a fixed option set doesn't fit.
+
+        Do not start a shell loop to watch work you have already backgrounded: you are \
+        told when it finishes, so the loop only spends the session. When you do have to \
+        wait, wait on something the wait itself cannot affect, such as a line appearing \
+        in an output file or `wait` on a pid you captured. Never wait on `pgrep -f` for a \
+        pattern that appears in your own command, such as \
+        `while pgrep -qf some-helper; do sleep 20; done`: `pgrep -f` reads whole command \
+        lines, so the loop matches the shell running it and waits forever. If you must \
+        match on a name, hide the pattern from itself as `pgrep -qf '[s]ome-helper'`.
         """
 
     nonisolated static func designSystemPrompt(artifactURL: URL,
