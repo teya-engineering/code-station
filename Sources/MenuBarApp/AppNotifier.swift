@@ -54,11 +54,23 @@ final class AppNotifier: NSObject {
              body: Self.firstLine(body))
     }
 
+    // A turn held open for a task that is never going to report. Said once, when the wait
+    // passes the point of being ordinary, because the row itself gives nothing away until
+    // the session is opened.
+    func waitWentStale(sessionID: UUID, sessionTitle: String, tasks: [BackgroundTask]) {
+        post(identifier: "stuck-\(sessionID.uuidString)",
+             sessionID: sessionID,
+             title: sessionTitle,
+             body: "Still waiting for \(BackgroundTaskPhrase.of(tasks)). "
+                + "The turn is held open and needs you.")
+    }
+
     // Opening a session, or answering what it asked, deals with its notifications, so
     // they leave Notification Centre together with the reason for them.
     func clear(sessionID: UUID) {
         guard let center else { return }
-        let identifiers = ["finished-\(sessionID.uuidString)", "input-\(sessionID.uuidString)"]
+        let identifiers = ["finished-\(sessionID.uuidString)", "input-\(sessionID.uuidString)",
+                           "stuck-\(sessionID.uuidString)"]
         center.removeDeliveredNotifications(withIdentifiers: identifiers)
         pending.removeAll { identifiers.contains($0.identifier) }
     }

@@ -887,10 +887,12 @@ struct SessionView: View {
     // there beside the light, so nothing here is said in colour alone.
     private func stateSeat(tone: SessionTone, conversation: ChatSession,
                            isTroubleshooting: Bool) -> some View {
+        // Read off the wait rather than the tone: a wait that has gone stale reads as
+        // NEEDS YOU, and how long it has been held is exactly what that row is for.
+        let waitingSince = runner.waitingSince(conversation.id)
         let since: Date? = switch tone {
         case .running: runner.turnStarted(conversation.id)
-        case .waiting: runner.waitingSince(conversation.id) ?? conversation.lastActivity
-        default: conversation.lastActivity
+        default: waitingSince ?? conversation.lastActivity
         }
         return HStack(spacing: 6) {
             if tone == .running {
@@ -907,7 +909,7 @@ struct SessionView: View {
                 StatusDot()
                 // A live turn has to keep counting when nothing arrives to redraw it,
                 // which is most of a long one and all of a wait.
-                if tone == .running || tone == .waiting {
+                if tone == .running || waitingSince != nil {
                     TimelineView(.periodic(from: .now, by: 1)) { _ in
                         StatusValue(text: RelativeTime.duration(since: since))
                     }

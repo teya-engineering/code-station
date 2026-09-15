@@ -112,6 +112,13 @@ final class SessionRunner {
         [UUID: (id: UUID, task: Task<Void, Never>)] = [:]
     @ObservationIgnored private let stalledAfter: TimeInterval
     @ObservationIgnored private let stallCheckInterval: Duration
+    // How long a held-open turn may sit with none of its tasks reporting before the wait
+    // is called stuck. Longer than the stall threshold because a wait is legitimately
+    // quiet: the turn has answered, and a build or a test run owes nothing until it ends.
+    @ObservationIgnored private let waitingStaleAfter: TimeInterval
+    // Kept out of the record so arming the timer does not redraw every row watching the
+    // session, the same reason the Codex context refreshes are held apart.
+    @ObservationIgnored private var waitWatchdogs: [UUID: Task<Void, Never>] = [:]
     @ObservationIgnored private let memoryLimit: () -> UInt64
     @ObservationIgnored private let automaticRecapsEnabled: () -> Bool
     @ObservationIgnored private let automaticTitlesEnabled: () -> Bool
@@ -133,6 +140,7 @@ final class SessionRunner {
          discoveredModels: [AgentKind: [ModelChoice.Option]] = [:],
          stalledAfter: TimeInterval = 5 * 60,
          stallCheckInterval: Duration = .seconds(5),
+         waitingStaleAfter: TimeInterval = 10 * 60,
          memoryLimit: @escaping () -> UInt64 = {
              Preferences.sessionMemoryLimit().bytes()
          },
@@ -146,6 +154,7 @@ final class SessionRunner {
         self.discoveredModels = discoveredModels
         self.stalledAfter = stalledAfter
         self.stallCheckInterval = stallCheckInterval
+        self.waitingStaleAfter = waitingStaleAfter
         self.memoryLimit = memoryLimit
         self.automaticRecapsEnabled = automaticRecapsEnabled
         self.automaticTitlesEnabled = automaticTitlesEnabled
@@ -310,6 +319,11 @@ final class SessionRunner {
     // rather than from the start of the turn.
     func waitingSince(_ sessionID: UUID) -> Date? { records[sessionID]?.wait?.since }
 
+    // Whether the wait has gone on long enough that it is not going to end by itself. A
+    // task that never reports leaves the turn held open for good, so the state light has
+    // to stop reading as a live session and start asking for someone.
+    func waitIsStale(_ sessionID: UUID) -> Bool { records[sessionID]?.wait?.isStale ?? false }
+
     // Lets go of a turn that is only being held open for its tasks. The tasks are the
     // CLI's own children, so there is no way to keep them and end the turn: closing the
     // input is an ordinary end of turn, and the CLI stops them on its way out. The wait is
@@ -367,6 +381,10 @@ final class SessionRunner {
         // When the answer landed. The turn's own start says nothing about this: most of a
         // held-open turn can be work, or none of it can.
         let since: Date
+        // Whether the wait has run past the point where a task was still going to report.
+        // Stored rather than worked out from `since` on demand: a row redraws when what it
+        // reads changes, and a deadline passing on its own changes nothing it can see.
+        var isStale = false
     }
 
     enum SummaryMode: Equatable, Sendable {
@@ -2358,6 +2376,7 @@ final class SessionRunner {
                     records[sessionID]?.wait = Wait(tasks: turn.pendingTasks, since: Date())
                     turn.needsFreshReply = true
                     setState(.waiting, for: sessionID)
+                    startWaitWatchdog(sessionID, token: turn.token, store: store)
                     // A prompt typed while the agent was working can go down the open
                     // pipe now instead of sitting behind the task.
                     injectQueued(sessionID, store: store)
@@ -2480,6 +2499,39 @@ final class SessionRunner {
         turn.waitingOnTasks = false
         turn.needsFreshReply = false
         records[sessionID]?.wait = nil
+        waitWatchdogs.removeValue(forKey: sessionID)?.cancel()
+    }
+
+    // A wait that ends on its own always ends through `endHold`, so anything still armed
+    // when the deadline passes is a wait nothing is going to come back to. The turn is
+    // left running: its tasks are the CLI's children and may yet finish, and throwing away
+    // work nobody asked to stop would be worse than a row that says it needs someone.
+    private func startWaitWatchdog(_ sessionID: UUID, token: UUID, store: ProjectStore) {
+        waitWatchdogs.removeValue(forKey: sessionID)?.cancel()
+        let deadline = waitingStaleAfter
+        waitWatchdogs[sessionID] = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(deadline))
+            guard !Task.isCancelled else { return }
+            self?.markWaitStale(sessionID, token: token, store: store)
+        }
+    }
+
+    private func markWaitStale(_ sessionID: UUID, token: UUID, store: ProjectStore) {
+        waitWatchdogs.removeValue(forKey: sessionID)
+        // The turn is checked by token because a session can be on its next turn by now,
+        // and that one's wait is its own.
+        guard let record = records[sessionID], let wait = record.wait,
+              record.turn?.token == token, !wait.isStale else { return }
+        records[sessionID]?.wait?.isStale = true
+        SessionLog.note("wait went stale after \(Int(Date().timeIntervalSince(wait.since)))s "
+                        + "with \(wait.tasks.count) tasks still running", session: sessionID)
+        // Named after the session the person can actually open: a Design companion has no
+        // row of its own, so its own title would point at nothing.
+        let userFacing = store.userFacingSessionID(for: sessionID)
+        guard let session = store.session(userFacing) else { return }
+        AppNotifier.shared.waitWentStale(sessionID: userFacing,
+                                         sessionTitle: session.title,
+                                         tasks: wait.tasks)
     }
 
     // A reply bubble is normally full by the time it is left behind, but a turn that said

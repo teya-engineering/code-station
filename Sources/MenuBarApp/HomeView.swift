@@ -232,7 +232,7 @@ struct HomeView: View {
             let card = describe(session, live: live, busy: busy,
                                 permission: permission, finished: finished)
 
-            if permission != nil || finished {
+            if permission != nil || finished || card.tone == .needsYou {
                 standing.waiting.append(card)
             } else if busy {
                 standing.running.append(card)
@@ -281,7 +281,7 @@ struct HomeView: View {
             tint: tint,
             avatar: avatar,
             tone: SessionTone(busy: busy, needsInput: permission != nil, finished: finished,
-                              waiting: waiting),
+                              waiting: waiting, waitIsStale: runner.waitIsStale(live.id)),
             activity: SessionActivity.line(
                 permission: permission,
                 runningTool: busy ? runner.runningTool(live.id) : nil,

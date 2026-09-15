@@ -10,11 +10,16 @@ import SwiftUI
 // its own state rather than a kind of running: the turn is alive and will pick itself up,
 // but nothing is being worked on, and a row that says RUNNING for an hour of that is the
 // row that sends someone looking for a hang.
+//
+// A wait only reads as live while it can still end by itself. Once it has gone stale the
+// task holding the turn open is never going to report, so the row joins the ones asking
+// for someone rather than sitting on a green light for the rest of the day.
 enum SessionTone {
     case running, waiting, needsYou, idle
 
-    init(busy: Bool, needsInput: Bool = false, finished: Bool = false, waiting: Bool = false) {
-        if needsInput || finished {
+    init(busy: Bool, needsInput: Bool = false, finished: Bool = false,
+         waiting: Bool = false, waitIsStale: Bool = false) {
+        if needsInput || finished || (waiting && waitIsStale) {
             self = .needsYou
         } else if waiting {
             self = .waiting

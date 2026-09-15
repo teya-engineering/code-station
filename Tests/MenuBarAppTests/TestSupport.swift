@@ -182,6 +182,7 @@ final class RunnerHarness {
     init(agent: AgentKind, script: String,
          stalledAfter: TimeInterval = 5 * 60,
          stallCheckInterval: Duration = .seconds(5),
+         waitingStaleAfter: TimeInterval = 10 * 60,
          memoryLimit: UInt64 = SessionMemoryLimit.automatic.bytes(),
          automaticRecapsEnabled: @escaping () -> Bool = { false },
          automaticTitlesEnabled: @escaping () -> Bool = { false }) throws {
@@ -196,6 +197,7 @@ final class RunnerHarness {
         runner = SessionRunner(paths: [agent: executable.path],
                                stalledAfter: stalledAfter,
                                stallCheckInterval: stallCheckInterval,
+                               waitingStaleAfter: waitingStaleAfter,
                                memoryLimit: { memoryLimit },
                                automaticRecapsEnabled: automaticRecapsEnabled,
                                automaticTitlesEnabled: automaticTitlesEnabled)

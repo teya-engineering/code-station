@@ -92,7 +92,8 @@ extension SessionTone {
         self.init(busy: runner.state(live).isBusy,
                   needsInput: runner.question(live) != nil,
                   finished: store.hasFinished(sessionID),
-                  waiting: runner.state(live) == .waiting)
+                  waiting: runner.state(live) == .waiting,
+                  waitIsStale: runner.waitIsStale(live))
     }
 }
 

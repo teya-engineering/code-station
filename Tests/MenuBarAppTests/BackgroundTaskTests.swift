@@ -138,6 +138,21 @@ struct BackgroundTaskTests {
         #expect(SessionTone(busy: true, needsInput: true, waiting: true) == .needsYou)
     }
 
+    // A wait only reads as live while it can still end by itself. The task holding this
+    // one open is never going to report, so the row has to stop looking like work in
+    // progress and start asking for someone.
+    @Test func aStaleWaitAsksForSomeone() {
+        #expect(SessionTone(busy: true, waiting: true, waitIsStale: true) == .needsYou)
+        #expect(SessionTone(busy: true, waiting: true, waitIsStale: true).word == "NEEDS YOU")
+    }
+
+    // Staleness is only ever about a wait. A turn that is genuinely working carries the
+    // flag through untouched rather than being pulled off its own state by it.
+    @Test func aRunningTurnIgnoresStaleness() {
+        #expect(SessionTone(busy: true, waiting: false, waitIsStale: true) == .running)
+        #expect(SessionTone(busy: false, waiting: false, waitIsStale: true) == .idle)
+    }
+
     @Test func theTallyCountsWaitingApart() {
         let tally = [SessionTone.running, .waiting, .needsYou, .idle, .idle].tally
         #expect(tally == "1 RUNNING · 1 WAITING · 1 NEEDS YOU · 2 IDLE")
@@ -348,6 +363,34 @@ struct BackgroundTaskTests {
         #expect(fixture.runner.waitingSince(fixture.session.id) == nil)
     }
 
+    // A task that never reports leaves the turn held open for good. Nothing else has a
+    // deadline on it - the stall watchdog is off by the time the hold is taken - so this
+    // is the only thing that stops a stuck session sitting on a live light all day.
+    @MainActor @Test func aWaitThatOverrunsGoesStale() async throws {
+        let fixture = try heldOpenTurn(waitingStaleAfter: 0.2)
+        defer { fixture.tearDown() }
+        #expect(await waitUntil { fixture.runner.state(fixture.session.id) == .waiting })
+
+        #expect(await waitUntil { fixture.runner.waitIsStale(fixture.session.id) })
+        // The turn is left alone: its tasks are the CLI's own children and may yet finish,
+        // so the wait is reported rather than ended.
+        #expect(fixture.runner.state(fixture.session.id) == .waiting)
+        #expect(!fixture.runner.backgroundTasks(fixture.session.id).isEmpty)
+    }
+
+    // The deadline belongs to the wait it was armed for. A wait that ends on its own has
+    // to take its watchdog with it, or the next quiet moment inherits the alarm.
+    @MainActor @Test func aWaitThatEndsIsNeverCalledStale() async throws {
+        let fixture = try heldOpenTurn(waitingStaleAfter: 0.2)
+        defer { fixture.tearDown() }
+        #expect(await waitUntil { fixture.runner.state(fixture.session.id) == .waiting })
+
+        fixture.runner.endWait(fixture.session.id)
+        #expect(await waitUntil { fixture.runner.state(fixture.session.id) == .idle })
+        try? await Task.sleep(for: .milliseconds(400))
+        #expect(!fixture.runner.waitIsStale(fixture.session.id))
+    }
+
     // A CLI that answers with nothing running behind it ends the turn there and then, so
     // the hold cannot be what keeps an ordinary session busy.
     @MainActor @Test func aTurnWithNoTasksIsOverWhenItAnswers() async throws {
@@ -401,10 +444,10 @@ struct BackgroundTaskTests {
     // A fake CLI that reports two tasks, answers, and then waits on its input the way the
     // real one does while a task of its own is still running.
     @MainActor
-    private func heldOpenTurn() throws -> RunnerHarness {
+    private func heldOpenTurn(waitingStaleAfter: TimeInterval = 10 * 60) throws -> RunnerHarness {
         try turn(script: Self.reportsTwoTasks + """
         cat > /dev/null
-        """)
+        """, waitingStaleAfter: waitingStaleAfter)
     }
 
     // The same, but one of the two ends when the test says so rather than on a timer, so
@@ -426,8 +469,10 @@ struct BackgroundTaskTests {
 
     // A fake Claude Code CLI already running its first turn.
     @MainActor
-    private func turn(script: String) throws -> RunnerHarness {
-        let harness = try RunnerHarness(agent: .claudeCode, script: script)
+    private func turn(script: String,
+                      waitingStaleAfter: TimeInterval = 10 * 60) throws -> RunnerHarness {
+        let harness = try RunnerHarness(agent: .claudeCode, script: script,
+                                        waitingStaleAfter: waitingStaleAfter)
         harness.runner.send("start", sessionID: harness.session.id, store: harness.store)
         return harness
     }

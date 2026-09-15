@@ -831,6 +831,8 @@ struct AppSidebar: View {
                                 selected: selected,
                                 busy: runner.state(live.id).isBusy,
                                 waiting: runner.state(live.id) == .waiting,
+                                waitIsStale: runner.waitIsStale(live.id),
+                                waitingSince: runner.waitingSince(live.id),
                                 needsInput: runner.question(live.id) != nil,
                                 finished: store.hasFinished(session.id),
                                 activity: activity(live),
@@ -2213,6 +2215,11 @@ private struct SessionCard: View {
     let selected: Bool
     let busy: Bool
     let waiting: Bool
+    let waitIsStale: Bool
+    // When the turn stopped working, which is what a wait has to be counted from. The
+    // session's own last activity is the start of the turn still holding it, so on a long
+    // turn it reads as a far longer wait than the one actually being served.
+    let waitingSince: Date?
     let needsInput: Bool
     let finished: Bool
     let activity: String?
@@ -2232,7 +2239,8 @@ private struct SessionCard: View {
     @FocusState private var focused: Bool
 
     private var tone: SessionTone {
-        SessionTone(busy: busy, needsInput: needsInput, finished: finished, waiting: waiting)
+        SessionTone(busy: busy, needsInput: needsInput, finished: finished,
+                    waiting: waiting, waitIsStale: waitIsStale)
     }
 
     var body: some View {
@@ -2311,7 +2319,8 @@ private struct SessionCard: View {
                 if uncommitted { UncommittedMark() }
                 if connected { MobileConnectionMark() }
                 Spacer(minLength: 4)
-                Text(RelativeTime.short(session.lastActivity))
+                Text(RelativeTime.short(waiting ? waitingSince ?? session.lastActivity
+                                                : session.lastActivity))
                     .font(.mono(9.5))
                     .foregroundStyle(.tertiary)
                     .opacity(hovering ? 0 : 1)
