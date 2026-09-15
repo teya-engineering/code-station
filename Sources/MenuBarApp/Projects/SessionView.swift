@@ -1776,8 +1776,8 @@ struct SessionView: View {
             // is nothing there worth saving a command against.
             if project.kind == .project {
                 // The commands take the rest of the row, so they end at its right edge
-                // and have the whole of it to scroll in once there are enough of them
-                // to need it.
+                // and fit themselves to whatever is left of it once there are more of
+                // them than it can hold.
                 SessionShortcutChips(session: session,
                                      edit: { shortcutEditor = $0 })
                     .frame(maxWidth: .infinity, alignment: .trailing)

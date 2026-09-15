@@ -48,6 +48,13 @@ struct CommandShortcut: Identifiable, Codable, Equatable, Sendable {
                     Bool.self, forKey: .availableInAllProjects) ?? false)
     }
 
+    // The glyph drawn beside the name wherever this shortcut is offered. A shared command
+    // with no icon of its own falls back to the globe, since being offered by every
+    // project is the one thing about a shortcut the name alone cannot say.
+    var glyph: String? {
+        icon ?? (availableInAllProjects ? "globe" : nil)
+    }
+
     // The folder this run happens in. A project shortcut or a shared Mac shortcut falls
     // back to the checkout, which is what it means for a project with nothing open:
     // there is no worktree in front of you, so the folder the worktrees come from is the

@@ -147,6 +147,10 @@ enum Theme {
 
         var fill: Color { colour.opacity(0.15) }
         var ring: Color { colour.opacity(0.3) }
+
+        // Draws nothing, for holding a place in a column beside rows that do carry a
+        // colour.
+        static let blank = ProjectTint(colour: .clear, ink: .clear)
     }
 
     private static func tint(_ colour: (Double, Double, Double),

@@ -18,6 +18,7 @@ enum MenuEntry {
 
     static func item(_ label: String,
                      kind: MenuItem.Kind = .plain,
+                     projectTint: Theme.ProjectTint? = nil,
                      icon: String? = nil,
                      image: NSImage? = nil,
                      imageShape: MenuItem.ImageShape = .circle,
@@ -26,13 +27,16 @@ enum MenuEntry {
                      badge: String? = nil,
                      badgeTint: Color? = nil,
                      subtitle: String? = nil,
+                     monospacedSubtitle: Bool = false,
                      detail: String? = nil,
                      detailColour: Color? = nil,
                      action: @escaping () -> Void) -> MenuEntry {
-        .item(MenuItem(label: label, kind: kind, icon: icon, image: image,
+        .item(MenuItem(label: label, kind: kind, projectTint: projectTint,
+                       icon: icon, image: image,
                        imageShape: imageShape, checked: checked,
                        showsUpdate: showsUpdate,
                        badge: badge, badgeTint: badgeTint, subtitle: subtitle,
+                       monospacedSubtitle: monospacedSubtitle,
                        detail: detail, detailColour: detailColour,
                        handler: action))
     }
@@ -83,6 +87,9 @@ struct MenuItem {
 
     let label: String
     var kind: Kind = .plain
+    // The colour of the thing the row belongs to, for menus whose entries are spread
+    // across several projects and where the name alone does not say which.
+    var projectTint: Theme.ProjectTint?
     // An optional leading symbol for menus whose entries create different kinds of thing.
     // The host reserves the column for every row once one entry uses it.
     var icon: String?
@@ -98,6 +105,9 @@ struct MenuItem {
     // A second line under the label saying what picking the row does, so the mechanism
     // is explained at the moment of choosing.
     var subtitle: String?
+    // Set when the subtitle is something typed at a shell rather than a sentence, so it
+    // is read as the literal text it has to be.
+    var monospacedSubtitle = false
     // Trailing state on the row - a count, an environment, a shortcut - so a menu of
     // places can say how each one is doing without being opened.
     var detail: String?
@@ -319,6 +329,7 @@ struct ContextMenuHost: View {
             }
         }
         let hasChecks = items.contains(where: \.checked)
+        let hasTints = items.contains { $0.projectTint != nil }
         let hasIcons = items.contains { $0.icon != nil || $0.image != nil }
         let hasCheckedIcons = items.contains {
             $0.checked && ($0.icon != nil || $0.image != nil)
@@ -329,6 +340,7 @@ struct ContextMenuHost: View {
         return MenuContentScrollView(maxHeight: maxHeight) {
             menuContent(hasChecks: hasChecks,
                         hasIcons: hasIcons,
+                        hasTints: hasTints,
                         usesSharedMarkColumn: usesSharedMarkColumn)
         }
         .frame(minWidth: menuMinimumWidth, alignment: .leading)
@@ -337,6 +349,7 @@ struct ContextMenuHost: View {
 
     private func menuContent(hasChecks: Bool,
                              hasIcons: Bool,
+                             hasTints: Bool,
                              usesSharedMarkColumn: Bool) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(presenter.entries.enumerated()), id: \.offset) { _, entry in
@@ -345,6 +358,7 @@ struct ContextMenuHost: View {
                     MenuItemRow(item: item,
                                 checkColumn: hasChecks,
                                 iconColumn: hasIcons,
+                                tintColumn: hasTints,
                                 usesSharedMarkColumn: usesSharedMarkColumn,
                                 action: item.handler == nil ? nil : { presenter.run(item) },
                                 detailAction: item.detailHandler == nil
@@ -354,6 +368,7 @@ struct ContextMenuHost: View {
                     SearchableMenuItemsView(searchable: searchable,
                                             checkColumn: hasChecks,
                                             iconColumn: hasIcons,
+                                            tintColumn: hasTints,
                                             usesSharedMarkColumn: usesSharedMarkColumn)
                         .transition(.fadeIn)
                 case .cards(let items):
@@ -434,6 +449,7 @@ private struct SearchableMenuItemsView: View {
     let searchable: SearchableMenuItems
     let checkColumn: Bool
     let iconColumn: Bool
+    let tintColumn: Bool
     let usesSharedMarkColumn: Bool
 
     @Environment(MenuPresenter.self) private var presenter
@@ -484,6 +500,7 @@ private struct SearchableMenuItemsView: View {
                     MenuItemRow(item: indexed.item,
                                 checkColumn: checkColumn,
                                 iconColumn: iconColumn,
+                                tintColumn: tintColumn,
                                 usesSharedMarkColumn: usesSharedMarkColumn,
                                 action: indexed.item.handler == nil
                                     ? nil : { presenter.run(indexed.item) },
@@ -580,6 +597,7 @@ private struct MenuItemRow: View {
     let item: MenuItem
     let checkColumn: Bool
     let iconColumn: Bool
+    let tintColumn: Bool
     let usesSharedMarkColumn: Bool
     let action: (() -> Void)?
     let detailAction: (() -> Void)?
@@ -600,6 +618,11 @@ private struct MenuItemRow: View {
 
     private var row: some View {
         HStack(spacing: 7) {
+            // The column is kept for every row once one entry uses it, so a row with
+            // nothing to say about where it belongs still lines up with the ones that do.
+            if tintColumn {
+                ProjectDot(tint: item.projectTint ?? .blank, size: 6)
+            }
             if checkColumn && !usesSharedMarkColumn {
                 Image(systemName: "checkmark")
                     .font(.system(size: 10, weight: .semibold))
@@ -643,7 +666,7 @@ private struct MenuItemRow: View {
                 }
                 if let subtitle = item.subtitle {
                     Text(subtitle)
-                        .font(.system(size: 11))
+                        .font(item.monospacedSubtitle ? .mono(10.5) : .system(size: 11))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.tail)
