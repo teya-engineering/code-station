@@ -70,6 +70,90 @@ struct FileTreeTests {
         #expect(failure != nil)
     }
 
+    @Test func aLinkedFileIsReadThroughToItsTarget() async throws {
+        let target = root.appendingPathComponent("AGENTS.md")
+        let link = root.appendingPathComponent("CLAUDE.md")
+        try Data("shared guidance".utf8).write(to: target)
+        try FileManager.default.createSymbolicLink(atPath: link.path,
+                                                   withDestinationPath: "AGENTS.md")
+
+        #expect(await FileTree.preview(of: link) == .text("shared guidance"))
+    }
+
+    // An atomic write renames a new file into place, so a save that forgot the link would
+    // leave a copy behind and quietly split the two files apart.
+    @Test func savingALinkedFileKeepsTheLink() async throws {
+        let target = root.appendingPathComponent("AGENTS.md")
+        let link = root.appendingPathComponent("CLAUDE.md")
+        try Data("before".utf8).write(to: target)
+        try FileManager.default.createSymbolicLink(atPath: link.path,
+                                                   withDestinationPath: "AGENTS.md")
+
+        let failure = await FileTree.write("after", to: link)
+
+        #expect(failure == nil)
+        #expect(try String(contentsOf: target, encoding: .utf8) == "after")
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: link.path) == "AGENTS.md")
+    }
+
+    @Test func aBrokenLinkSaysWhereItPointed() async throws {
+        let link = root.appendingPathComponent("CLAUDE.md")
+        try FileManager.default.createSymbolicLink(atPath: link.path,
+                                                   withDestinationPath: "AGENTS.md")
+
+        #expect(await FileTree.preview(of: link)
+            == .unreadable("This link points at AGENTS.md, which is not there."))
+    }
+
+    @Test func linksListWithTheirTargetsSizeAndShape() async throws {
+        let folder = root.appendingPathComponent("docs", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data("shared guidance".utf8).write(to: root.appendingPathComponent("AGENTS.md"))
+        try FileManager.default.createSymbolicLink(
+            atPath: root.appendingPathComponent("CLAUDE.md").path, withDestinationPath: "AGENTS.md")
+        try FileManager.default.createSymbolicLink(
+            atPath: root.appendingPathComponent("guides").path, withDestinationPath: "docs")
+
+        let nodes = await FileTree.children(of: root, includeHidden: false)
+        let fileLink = try #require(nodes.first { $0.name == "CLAUDE.md" })
+        let folderLink = try #require(nodes.first { $0.name == "guides" })
+
+        #expect(fileLink.linkDestination == "AGENTS.md")
+        #expect(!fileLink.isDirectory)
+        #expect(fileLink.size == 15)
+        #expect(folderLink.linkDestination == "docs")
+        #expect(folderLink.isDirectory)
+    }
+
+    @Test func aLinkedFolderListsWhatItPointsAt() async throws {
+        let folder = root.appendingPathComponent("docs", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data().write(to: folder.appendingPathComponent("setup.md"))
+        let link = root.appendingPathComponent("guides")
+        try FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: "docs")
+
+        let nodes = await FileTree.children(of: link, includeHidden: false)
+
+        #expect(nodes.map(\.name) == ["setup.md"])
+    }
+
+    // The tree opens one level at a time, but this walk reads everything, so a folder link
+    // that points back up its own branch would never finish.
+    @Test func theRecursiveWalkStopsAtLinkedFolders() async throws {
+        let folder = root.appendingPathComponent("docs", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data().write(to: folder.appendingPathComponent("setup.md"))
+        try Data().write(to: root.appendingPathComponent("AGENTS.md"))
+        try FileManager.default.createSymbolicLink(
+            atPath: root.appendingPathComponent("CLAUDE.md").path, withDestinationPath: "AGENTS.md")
+        try FileManager.default.createSymbolicLink(
+            atPath: root.appendingPathComponent("loop").path, withDestinationPath: ".")
+
+        let files = await FileTree.files(beneath: root, includeHidden: false)
+
+        #expect(Set(files.map(\.name)) == ["AGENTS.md", "CLAUDE.md", "setup.md"])
+    }
+
     @Test func listsFilesRecursivelyWithoutWalkingGitMetadata() async throws {
         let nested = root.appendingPathComponent("Sources/Feature")
         let git = root.appendingPathComponent(".git/objects")

@@ -1,16 +1,23 @@
 import Foundation
 
 // One entry in the explorer: a file or a folder inside a session's working directory.
+//
+// A link is described by what it points at rather than by itself: its size and whether it
+// opens as a folder are the target's, since that is the thing the user means to work on.
 struct FileNode: Identifiable, Sendable, Equatable {
     var url: URL
     var name: String
     var isDirectory: Bool
     var size: Int64
     var modified: Date?
+    // The link as it was written, so "../shared/AGENTS.md" is shown the way it reads on
+    // disk instead of as a long absolute path. Nil for everything that is not a link.
+    var linkDestination: String?
 
     var id: String { url.path }
     var path: String { url.path }
     var kind: String { url.pathExtension.lowercased() }
+    var isLink: Bool { linkDestination != nil }
     var supportsMarkdownPreview: Bool { kind == "md" || kind == "markdown" }
 }
 
@@ -121,19 +128,22 @@ enum FileTree {
                 .isDirectoryKey, .isSymbolicLinkKey, .fileSizeKey, .contentModificationDateKey
             ]
             let options: FileManager.DirectoryEnumerationOptions = includeHidden ? [] : [.skipsHiddenFiles]
+            let listed = url.resolvingSymlinksInPath()
             guard let entries = try? FileManager.default.contentsOfDirectory(
-                at: url, includingPropertiesForKeys: keys, options: options) else { return [] }
+                at: listed, includingPropertiesForKeys: keys, options: options) else { return [] }
 
             var nodes: [FileNode] = []
             for entry in entries where !skipped.contains(entry.lastPathComponent) {
                 let values = try? entry.resourceValues(forKeys: Set(keys))
-                // A link into a folder that contains it walks forever, so links are leaves:
-                // they can be revealed in Finder but not opened in the tree.
-                let isLink = values?.isSymbolicLink ?? false
+                let visible = pathWalkedIn(to: entry, listed: listed, asked: url)
+                if values?.isSymbolicLink == true {
+                    nodes.append(linkNode(at: visible, keys: keys))
+                    continue
+                }
                 nodes.append(FileNode(
-                    url: entry,
+                    url: visible,
                     name: entry.lastPathComponent,
-                    isDirectory: (values?.isDirectory ?? false) && !isLink,
+                    isDirectory: values?.isDirectory ?? false,
                     size: Int64(values?.fileSize ?? 0),
                     modified: values?.contentModificationDate))
             }
@@ -160,8 +170,9 @@ enum FileTree {
             .isDirectoryKey, .isSymbolicLinkKey, .fileSizeKey, .contentModificationDateKey
         ]
         let options: FileManager.DirectoryEnumerationOptions = includeHidden ? [] : [.skipsHiddenFiles]
+        let listed = url.resolvingSymlinksInPath()
         guard let entries = FileManager.default.enumerator(
-            at: url, includingPropertiesForKeys: keys, options: options) else { return [] }
+            at: listed, includingPropertiesForKeys: keys, options: options) else { return [] }
 
         var nodes: [FileNode] = []
         for case let entry as URL in entries {
@@ -172,12 +183,20 @@ enum FileTree {
             }
 
             let values = try? entry.resourceValues(forKeys: Set(keys))
-            let isLink = values?.isSymbolicLink ?? false
-            if isLink { entries.skipDescendants() }
+            let visible = pathWalkedIn(to: entry, listed: listed, asked: url)
+            if values?.isSymbolicLink == true {
+                // The tree opens a folder link a level at a time, so a link that points back
+                // up its own branch costs nothing there. This walk reads everything at once,
+                // where the same link would never finish, so it stops at the link itself.
+                entries.skipDescendants()
+                let node = linkNode(at: visible, keys: keys)
+                if !node.isDirectory { nodes.append(node) }
+                continue
+            }
             if values?.isDirectory == true { continue }
 
             nodes.append(FileNode(
-                url: entry,
+                url: visible,
                 name: entry.lastPathComponent,
                 isDirectory: false,
                 size: Int64(values?.fileSize ?? 0),
@@ -187,6 +206,31 @@ enum FileTree {
         return nodes.sorted {
             $0.path.localizedStandardCompare($1.path) == .orderedAscending
         }
+    }
+
+    // Neither the folder listing nor the recursive walk will look through a folder link, so
+    // both are pointed at what the link resolves to. What they find is then put back on the
+    // path it was reached by, so a row reads as the way the user walked in rather than as
+    // wherever the link happened to land.
+    private static func pathWalkedIn(to entry: URL, listed: URL, asked: URL) -> URL {
+        guard listed.path != asked.path,
+              let relativePath = entry.path.pathRelative(to: listed.path) else { return entry }
+        return asked.appendingPathComponent(relativePath)
+    }
+
+    // A link is measured through to its target, so it lists with the size of the file it
+    // points at and opens as a folder when that is what is on the other end. A link with
+    // nothing at the end is still listed: a name in the tree is how the user finds it.
+    private static func linkNode(at url: URL, keys: [URLResourceKey]) -> FileNode {
+        let destination = try? FileManager.default.destinationOfSymbolicLink(atPath: url.path)
+        let target = try? url.resolvingSymlinksInPath().resourceValues(forKeys: Set(keys))
+        return FileNode(
+            url: url,
+            name: url.lastPathComponent,
+            isDirectory: target?.isDirectory ?? false,
+            size: Int64(target?.fileSize ?? 0),
+            modified: target?.contentModificationDate,
+            linkDestination: destination ?? "")
     }
 
     static func ancestorDirectories(of file: URL, beneath root: URL) -> [String] {
@@ -265,7 +309,18 @@ enum FileTree {
 
     static func preview(of url: URL) async -> FilePreview {
         await Task.detached(priority: .userInitiated) {
-            let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
+            let files = FileManager.default
+            // fileExists follows a link, so this is also what tells a link with nothing on
+            // the other end apart from a file that has been deleted underneath the pane.
+            guard files.fileExists(atPath: url.path) else {
+                guard let destination = try? files.destinationOfSymbolicLink(atPath: url.path) else {
+                    return .unreadable("This file is no longer there.")
+                }
+                return .unreadable("This link points at \(destination), which is not there.")
+            }
+
+            let target = url.resolvingSymlinksInPath()
+            let attributes = try? files.attributesOfItem(atPath: target.path)
             guard let attributes else { return .unreadable("This file is no longer there.") }
             if let type = attributes[.type] as? FileAttributeType, type != .typeRegular {
                 return .unreadable("This is not a regular file.")
@@ -274,7 +329,7 @@ enum FileTree {
             let size = (attributes[.size] as? NSNumber)?.int64Value ?? 0
             guard size > 0 else { return .empty }
             guard size <= byteLimit else { return .tooLarge(size: size) }
-            guard let data = try? Data(contentsOf: url) else {
+            guard let data = try? Data(contentsOf: target) else {
                 return .unreadable("Could not read this file.")
             }
 
@@ -291,7 +346,8 @@ enum FileTree {
     // tell whether anyone else has been at it.
     static func modified(of url: URL) async -> Date? {
         await Task.detached(priority: .userInitiated) {
-            try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+            try? url.resolvingSymlinksInPath()
+                .resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
         }.value
     }
 
@@ -299,7 +355,10 @@ enum FileTree {
     static func write(_ text: String, to url: URL) async -> String? {
         await Task.detached(priority: .userInitiated) {
             do {
-                try Data(text.utf8).write(to: url, options: .atomic)
+                // An atomic write renames a fresh file over the path it is given, which
+                // would leave a copy where a link used to be. Saving through to the target
+                // keeps the link, which is the whole point of having made one.
+                try Data(text.utf8).write(to: url.resolvingSymlinksInPath(), options: .atomic)
                 return nil
             } catch {
                 return error.localizedDescription

@@ -267,6 +267,9 @@ struct ExplorerView: View {
     }
 
     private func icon(_ node: FileNode) -> String {
+        // A link is drawn as a link whatever sits on the other end. What it points at is
+        // spelled out in the header once it is picked, which is where there is room for it.
+        if node.isLink { return "arrow.turn.down.right" }
         if node.isDirectory { return expanded.contains(node.path) ? "folder.fill" : "folder" }
         if FileTree.imageKinds.contains(node.kind) { return "photo" }
         return switch node.kind {
@@ -292,6 +295,14 @@ struct ExplorerView: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.head)
+                    if let destination = node.linkDestination {
+                        Text("→ \(destination)")
+                            .font(.mono(11))
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                            .truncationMode(.head)
+                            .appTooltip("Opening or saving this file goes to \(destination)")
+                    }
                     Spacer()
                     if loadingPreview || saving { ProgressView().controlSize(.small) }
                     if dirty { saveButtons(node) }
@@ -386,7 +397,8 @@ struct ExplorerView: View {
             PaneMessage(icon: "doc.badge.ellipsis", title: "Too big to open",
                         detail: "\(size.formatted(.byteCount(style: .file))). Open it in an editor instead.")
         case .unreadable(let reason):
-            PaneMessage(icon: "exclamationmark.triangle", title: "Could not read this file",
+            PaneMessage(icon: "exclamationmark.triangle",
+                        title: node.isLink ? "Could not follow this link" : "Could not read this file",
                         detail: reason)
         case nil:
             if node.isDirectory {
