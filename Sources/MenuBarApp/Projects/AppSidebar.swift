@@ -783,14 +783,12 @@ struct AppSidebar: View {
                     guard appSettings.showsCost(for: session.agent) else { return total }
                     return total + (session.usage?.costUSD ?? 0)
                 },
-                clearableCount: sessions.count - running,
                 canRunTask: running == 0,
                 isRenaming: renamingID == project.id,
                 onOpen: { openProject(project) },
                 onToggle: { toggleExpanded(project.id, expanded: expanded) },
                 onNewSession: { requestNewSession(in: project) },
                 onRunTask: { runTask(project) },
-                onClearSessions: { confirmClearSessions(in: project) },
                 onRename: { name in
                     store.renameProject(project.id, to: name)
                     renamingID = nil
@@ -1965,14 +1963,12 @@ private struct ProjectHeaderRow: View {
     let runningCount: Int
     let finishedCount: Int
     let cost: Double
-    let clearableCount: Int
     let canRunTask: Bool
     let isRenaming: Bool
     let onOpen: () -> Void
     let onToggle: () -> Void
     let onNewSession: () -> Void
     let onRunTask: () -> Void
-    let onClearSessions: () -> Void
     let onRename: (String) -> Void
     let onCancelRename: () -> Void
 
@@ -2059,17 +2055,10 @@ private struct ProjectHeaderRow: View {
                         }
 
                         if hovering {
-                            HStack(spacing: selected ? 2 : 10) {
-                                // A running session is doing work nobody asked to throw away,
-                                // so the bin is only offered once there is something idle to
-                                // clear.
-                                if clearableCount > 0 {
-                                    RowAction(icon: "trash", title: "Delete", compact: selected, action: onClearSessions)
-                                        .appTooltip("Clear \(counted(clearableCount, "idle session"))")
-                                }
-                                // A task is run with its saved prompt rather than opened
-                                // empty. The button waits while a run is still working in
-                                // the task's folder.
+                            // A task is run with its saved prompt rather than opened
+                            // empty. The button waits while a run is still working in
+                            // the task's folder.
+                            Group {
                                 if isTask {
                                     if canRunTask {
                                         RowAction(icon: "play.fill", title: "Run", compact: selected, action: onRunTask)
