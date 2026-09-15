@@ -29,6 +29,7 @@ struct ShortcutsView: View {
                     if let id = store.add(
                         name: shortcut.name,
                         command: shortcut.command,
+                        icon: shortcut.icon,
                         availableInAllProjects: shortcut.availableInAllProjects
                     ) {
                         selectedID = id
@@ -245,6 +246,11 @@ private struct ShortcutRow: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 7) {
+                    if let icon = shortcut.icon {
+                        Image(systemName: icon)
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(Theme.accent)
+                    }
                     Text(shortcut.name)
                         .font(.system(size: 13, weight: .semibold))
                         .lineLimit(1)

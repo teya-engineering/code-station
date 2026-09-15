@@ -284,6 +284,49 @@ struct ShortcutStoreTests {
         #expect(ShortcutScope(.workspace(UUID())) == nil)
     }
 
+    // An icon is what the chip is read by, so it has to survive the round trip to disk.
+    @Test func persistsTheIcon() throws {
+        let store = emptyStore(url)
+
+        let id = try #require(store.add(name: "Tests", command: "swift test", icon: "hammer"))
+
+        #expect(emptyStore(url).shortcut(id)?.icon == "hammer")
+
+        store.update(CommandShortcut(id: id, name: "Tests", command: "swift test",
+                                     icon: "checkmark.seal"))
+        #expect(emptyStore(url).shortcut(id)?.icon == "checkmark.seal")
+    }
+
+    // A file can name a symbol this build cannot draw, which would leave a gap on the
+    // chip where an icon should be.
+    @Test func dropsAnIconTheSystemCannotDraw() throws {
+        let store = emptyStore(url)
+
+        let id = try #require(store.add(name: "Tests", command: "swift test",
+                                        icon: "not.a.real.symbol"))
+
+        #expect(store.shortcut(id)?.icon == nil)
+    }
+
+    // Giving a shortcut an icon leaves the same command, so what the last run reported
+    // still describes it and the drawer stays where it was.
+    @Test func keepsRunsWhenOnlyTheIconChanges() async throws {
+        let store = emptyStore(url)
+        let id = try #require(store.add(name: "Say", command: "echo hello"))
+        let run = ShortcutRun(id, in: FileManager.default.temporaryDirectory.path)
+        let scope = ShortcutScope.session(UUID())
+
+        store.start(run)
+        store.showOutput(run, for: scope)
+        #expect(await waitUntil { !store.state(run).isActive })
+
+        store.update(CommandShortcut(id: id, name: "Say", command: "echo hello",
+                                     icon: "terminal"))
+
+        #expect(store.log(run).contains("hello"))
+        #expect(store.output(for: scope) == run)
+    }
+
     private func emptyStore(_ url: URL) -> ShortcutStore {
         ShortcutStore(storageURL: url, siteDefaults: SiteDefaults())
     }

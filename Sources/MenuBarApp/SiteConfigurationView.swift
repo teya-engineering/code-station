@@ -691,6 +691,10 @@ private struct SiteConfigurationEditorView: View {
                     SiteConfigurationField(caption: "COMMAND",
                                            placeholder: "./gradlew bootRun",
                                            text: shortcut.command)
+                    VStack(alignment: .leading, spacing: 7) {
+                        SectionLabel("ICON", style: .field)
+                        ShortcutIconPicker(symbol: shortcut.icon)
+                    }
                 }
             }
             addButton("Add shortcut") {
@@ -971,7 +975,8 @@ private enum SiteConfigurationForm {
 
         case .shortcuts:
             let shortcuts = (result.shortcuts ?? []).map {
-                SiteDefaults.Shortcut(name: $0.name.trimmed, command: $0.command.trimmed)
+                SiteDefaults.Shortcut(name: $0.name.trimmed, command: $0.command.trimmed,
+                                      icon: ShortcutIcon.resolve($0.icon))
             }
             guard shortcuts.allSatisfy({ !$0.name.isEmpty && !$0.command.isEmpty }) else {
                 throw ImportError("Every shortcut needs a name and command.")

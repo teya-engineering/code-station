@@ -9,6 +9,10 @@ struct CommandShortcut: Identifiable, Codable, Equatable, Sendable {
     let id: UUID
     var name: String
     var command: String
+    // An SF Symbol drawn beside the name, and nil for a shortcut that goes by its name
+    // alone. Only a symbol the system can render is kept, so a file naming one this
+    // build does not have leaves the shortcut without an icon rather than with a gap.
+    var icon: String?
     // The project this shortcut is filed under, and nil for the ones that belong to the
     // Mac rather than to any checkout.
     var projectID: UUID?
@@ -16,26 +20,29 @@ struct CommandShortcut: Identifiable, Codable, Equatable, Sendable {
     // there is still one place to edit or remove it.
     var availableInAllProjects: Bool
 
-    init(id: UUID = UUID(), name: String, command: String, projectID: UUID? = nil,
-         availableInAllProjects: Bool = false) {
+    init(id: UUID = UUID(), name: String, command: String, icon: String? = nil,
+         projectID: UUID? = nil, availableInAllProjects: Bool = false) {
         self.id = id
         self.name = name
         self.command = command
+        self.icon = ShortcutIcon.resolve(icon)
         self.projectID = availableInAllProjects ? nil : projectID
         self.availableInAllProjects = availableInAllProjects
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, command, projectID, availableInAllProjects
+        case id, name, command, icon, projectID, availableInAllProjects
     }
 
     // Shortcuts saved before they could belong to a project are the Mac's own. Shortcuts
-    // saved before sharing was added remain private to that list.
+    // saved before sharing was added remain private to that list, and ones saved before
+    // icons go by their name.
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.init(id: try container.decode(UUID.self, forKey: .id),
                   name: try container.decode(String.self, forKey: .name),
                   command: try container.decode(String.self, forKey: .command),
+                  icon: try container.decodeIfPresent(String.self, forKey: .icon),
                   projectID: try container.decodeIfPresent(UUID.self, forKey: .projectID),
                   availableInAllProjects: try container.decodeIfPresent(
                     Bool.self, forKey: .availableInAllProjects) ?? false)
@@ -210,7 +217,8 @@ final class ShortcutStore {
     var siteConfigurationShortcuts: [SiteDefaults.Shortcut] {
         shortcuts.compactMap { shortcut in
             guard importedSiteShortcutIDs.contains(shortcut.id) else { return nil }
-            return SiteDefaults.Shortcut(name: shortcut.name, command: shortcut.command)
+            return SiteDefaults.Shortcut(name: shortcut.name, command: shortcut.command,
+                                         icon: shortcut.icon)
         }
     }
 
@@ -318,7 +326,7 @@ final class ShortcutStore {
     // MARK: - Mutations
 
     @discardableResult
-    func add(name: String, command: String, projectID: UUID? = nil,
+    func add(name: String, command: String, icon: String? = nil, projectID: UUID? = nil,
              availableInAllProjects: Bool = false) -> CommandShortcut.ID? {
         let name = name.trimmed
         let command = command.trimmed
@@ -326,6 +334,7 @@ final class ShortcutStore {
         let shortcut = CommandShortcut(
             name: name,
             command: command,
+            icon: icon,
             projectID: projectID,
             availableInAllProjects: availableInAllProjects
         )
@@ -340,16 +349,19 @@ final class ShortcutStore {
         guard !name.isEmpty, !command.isEmpty,
               !isRunningAnywhere(shortcut.id),
               let index = shortcuts.firstIndex(where: { $0.id == shortcut.id }) else { return }
+        let rewritten = command != shortcuts[index].command
         shortcuts[index] = CommandShortcut(
             id: shortcut.id,
             name: name,
             command: command,
+            icon: shortcut.icon,
             projectID: shortcut.projectID,
             availableInAllProjects: shortcut.availableInAllProjects
         )
-        // The state and output on screen belong to the command that was there before,
-        // so they stop meaning anything the moment it is rewritten.
-        forgetRuns(of: shortcut.id)
+        // The state and output on screen belong to the command that was there before, so
+        // they stop meaning anything the moment it is rewritten. Renaming a shortcut or
+        // giving it an icon leaves the same command, and the last run still describes it.
+        if rewritten { forgetRuns(of: shortcut.id) }
         save()
     }
 

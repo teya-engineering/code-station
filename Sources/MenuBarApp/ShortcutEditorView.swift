@@ -1,8 +1,9 @@
 import SwiftUI
 
-// Asking for a shortcut: a name, a command, and whether every project can use it. The
-// screen it was opened from supplies the private scope, while sharing deliberately moves
-// the shortcut to the Mac so every project can see the same saved command.
+// Asking for a shortcut: a name, an optional icon, a command, and whether every project
+// can use it. The screen it was opened from supplies the private scope, while sharing
+// deliberately moves the shortcut to the Mac so every project can see the same saved
+// command.
 struct ShortcutEditorRequest: Identifiable {
     let id = UUID()
     var shortcut: CommandShortcut?
@@ -27,6 +28,7 @@ struct ShortcutEditorView: View {
 
     @State private var name: String
     @State private var command: String
+    @State private var icon: String?
     @State private var availableInAllProjects: Bool
 
     init(request: ShortcutEditorRequest, onSave: @escaping (CommandShortcut) -> Void) {
@@ -38,6 +40,7 @@ struct ShortcutEditorView: View {
         self.onSave = onSave
         _name = State(initialValue: shortcut?.name ?? "")
         _command = State(initialValue: shortcut?.command ?? request.command ?? "")
+        _icon = State(initialValue: shortcut?.icon)
         _availableInAllProjects = State(
             initialValue: shortcut?.availableInAllProjects ?? false)
     }
@@ -52,6 +55,14 @@ struct ShortcutEditorView: View {
                     SectionLabel("NAME")
                     TextField("Local service", text: $name)
                         .appTextField(cornerRadius: 9)
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    SectionLabel("ICON")
+                    ShortcutIconPicker(symbol: $icon)
+                    Text("Drawn on the chip beside the name. A shortcut needs no icon.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
                 }
 
                 VStack(alignment: .leading, spacing: 8) {
@@ -99,6 +110,7 @@ struct ShortcutEditorView: View {
     private func save() {
         onSave(CommandShortcut(id: id, name: name.trimmed,
                                command: command.trimmed,
+                               icon: icon,
                                projectID: availableInAllProjects ? nil : projectIDWhenPrivate,
                                availableInAllProjects: availableInAllProjects))
         dismiss()

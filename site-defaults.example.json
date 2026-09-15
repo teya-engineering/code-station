@@ -71,7 +71,8 @@
   "shortcuts": [
     {
       "name": "Orders service",
-      "command": "./gradlew :orders-service:bootRun"
+      "command": "./gradlew :orders-service:bootRun",
+      "icon": "play"
     }
   ]
 }

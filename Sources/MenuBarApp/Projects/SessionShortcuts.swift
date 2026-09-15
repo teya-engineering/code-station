@@ -167,10 +167,10 @@ struct SessionShortcutChips: View {
 // MARK: - One chip
 
 // A saved command as one small control: click runs it, click again stops it. It carries
-// its name and a single glyph for how the last run went - a dot, a tick, an exclamation
-// - because a row of these shares a line with everything else the session has to say, and
-// anything more makes that line unreadable. The timing and the output are in the drawer,
-// which opens on its own the moment a run starts.
+// the icon it was given, its name, and a single glyph for how the last run went - a dot,
+// a tick, an exclamation - because a row of these shares a line with everything else the
+// session has to say, and anything more makes that line unreadable. The timing and the
+// output are in the drawer, which opens on its own the moment a run starts.
 private struct ShortcutChip: View {
     let shortcut: CommandShortcut
     let state: ShortcutStore.State
@@ -188,11 +188,10 @@ private struct ShortcutChip: View {
             ZStack {
                 HStack(spacing: 6) {
                     if let tint { ProjectDot(tint: tint, size: 6) }
-                    if shortcut.availableInAllProjects {
-                        Image(systemName: "globe")
-                            .font(.system(size: 9, weight: .semibold))
+                    if let icon {
+                        Image(systemName: icon)
+                            .font(.system(size: 9.5, weight: .semibold))
                             .foregroundStyle(Theme.accent)
-                            .accessibilityLabel("Available in all projects")
                     }
                     Text(shortcut.name)
                         .font(.system(size: 12, weight: .semibold))
@@ -219,7 +218,17 @@ private struct ShortcutChip: View {
         .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: hovering)
         .onHover { hovering = $0 }
         .accessibilityLabel(state.isActive ? "Stop \(shortcut.name)" : "Run \(shortcut.name)")
-        .appTooltip { Tooltip(title: tooltip, subtitle: shortcut.command) }
+        .appTooltip {
+            Tooltip(title: tooltip, subtitle: shortcut.command,
+                    note: shortcut.availableInAllProjects ? "Available in all projects" : nil)
+        }
+    }
+
+    // The shortcut's own icon when it has one. A shared command with no icon falls back
+    // to the globe, since being offered by every project is the one thing about a chip
+    // the name alone cannot say.
+    private var icon: String? {
+        shortcut.icon ?? (shortcut.availableInAllProjects ? "globe" : nil)
     }
 
     @ViewBuilder private var stateGlyph: some View {

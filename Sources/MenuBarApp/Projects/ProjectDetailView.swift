@@ -53,6 +53,7 @@ struct ProjectDetailView: View {
                 ShortcutEditorView(request: request) { shortcut in
                     if request.shortcut == nil {
                         shortcuts.add(name: shortcut.name, command: shortcut.command,
+                                      icon: shortcut.icon,
                                       projectID: shortcut.projectID,
                                       availableInAllProjects: shortcut.availableInAllProjects)
                     } else {
@@ -269,6 +270,7 @@ struct ProjectDetailView: View {
             let run = ShortcutRun(shortcut.id, in: shortcut.directory(projectPath: project.path))
             let state = shortcuts.state(run)
             return .item(state.isActive ? "Stop \(shortcut.name)" : shortcut.name,
+                         icon: shortcut.icon,
                          subtitle: shortcut.command,
                          detail: shortcutDetail(shortcut, state: state),
                          detailColour: colour(of: state)) {

@@ -302,6 +302,9 @@ struct SiteDefaults: Codable, Sendable, Equatable {
     struct Shortcut: Codable, Sendable, Equatable {
         var name: String
         var command: String
+        // An SF Symbol name. A symbol this build cannot draw is dropped, so the shortcut
+        // arrives with no icon rather than with a gap where one should be.
+        var icon: String? = nil
     }
 }
 
@@ -468,7 +471,8 @@ extension SiteDefaults {
         (shortcuts ?? []).map {
             CommandShortcut(id: Self.identity(of: "\($0.name)\n\($0.command)"),
                             name: $0.name,
-                            command: $0.command)
+                            command: $0.command,
+                            icon: $0.icon)
         }
     }
 
