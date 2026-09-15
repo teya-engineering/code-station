@@ -1880,8 +1880,8 @@ private struct WorkspaceHeaderRow: View {
                     ZStack(alignment: .trailing) {
                         HStack(spacing: 6) {
                             if runningCount > 0 { RunningDot() }
-                            if !selected {
-                                Text("\(projects.count) projects")
+                            if !selected, sessionCount > 0 {
+                                Text(counted(sessionCount, "session"))
                                     .font(.mono(10))
                                     .foregroundStyle(.secondary)
                             }
