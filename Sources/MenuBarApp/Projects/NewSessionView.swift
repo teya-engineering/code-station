@@ -49,30 +49,36 @@ struct NewSessionView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            VStack(spacing: 10) {
-                CheckoutModePicker(
-                    usesWorktree: useWorktree,
-                    supportsWorktree: project.isGitRepository,
-                    branch: project.isGitRepository
-                        ? (useWorktree ? planned.branch : GitHead.branch(at: project.path))
-                        : nil,
-                    path: useWorktree ? planned.path.abbreviatedPath : project.collapsedPath,
-                    selectWorktree: selectWorktree,
-                    selectProjectFolder: selectProjectFolder)
-                    .padding(14)
-                    .cardSurface(cornerRadius: 11)
+            // The middle scrolls so the sheet can be squeezed into a short window. A
+            // sheet that asks for more height than the window has is not shrunk but
+            // clipped, and since it is clipped from the middle out, the footer and its
+            // Create button are the first things to go.
+            ScrollView {
+                VStack(spacing: 10) {
+                    CheckoutModePicker(
+                        usesWorktree: useWorktree,
+                        supportsWorktree: project.isGitRepository,
+                        branch: project.isGitRepository
+                            ? (useWorktree ? planned.branch : GitHead.branch(at: project.path))
+                            : nil,
+                        path: useWorktree ? planned.path.abbreviatedPath : project.collapsedPath,
+                        selectWorktree: selectWorktree,
+                        selectProjectFolder: selectProjectFolder)
+                        .padding(14)
+                        .cardSurface(cornerRadius: 11)
 
-                if project.isGitRepository,
-                   let report = freshness, report.isStale || (useWorktree && report.dirty) {
-                    FreshnessNotice(report: report, forWorktree: useWorktree,
-                                    startPoint: $startPoint) {
-                        startPointWasChosen = true
+                    if project.isGitRepository,
+                       let report = freshness, report.isStale || (useWorktree && report.dirty) {
+                        FreshnessNotice(report: report, forWorktree: useWorktree,
+                                        startPoint: $startPoint) {
+                            startPointWasChosen = true
+                        }
+                        .transition(.fadeIn)
                     }
-                    .transition(.fadeIn)
                 }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 20)
             }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 20)
 
             NewSessionFooter(sessionID: sessionID,
                              note: footerNote,
