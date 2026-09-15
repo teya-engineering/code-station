@@ -82,36 +82,62 @@ struct ShortcutIconPicker: View {
 
     var body: some View {
         LazyVGrid(columns: Self.columns, spacing: 6) {
-            tile(nil, label: "No icon")
+            IconTile(symbol: nil, label: "No icon", selected: symbol == nil) { symbol = nil }
             ForEach(ShortcutIcon.catalogue) { icon in
-                tile(icon.symbol, label: icon.label)
+                IconTile(symbol: icon.symbol, label: icon.label,
+                         selected: symbol == icon.symbol) { symbol = icon.symbol }
             }
         }
         .padding(8)
         .cardSurface(cornerRadius: 9)
     }
+}
 
-    private func tile(_ tileSymbol: String?, label: String) -> some View {
-        let selected = symbol == tileSymbol
-        return Button { symbol = tileSymbol } label: {
-            Group {
-                if let tileSymbol {
-                    Image(systemName: tileSymbol)
-                        .font(.system(size: 12.5))
-                } else {
-                    Image(systemName: "slash.circle")
-                        .font(.system(size: 12.5))
-                }
-            }
-            .foregroundStyle(selected ? Color.white : Color.secondary)
-            .frame(maxWidth: .infinity)
-            .frame(height: 26)
-            .surface(selected ? Theme.accentFill : Theme.field, cornerRadius: 7,
-                     border: selected ? .clear : Theme.border)
-            .contentShape(RoundedRectangle(cornerRadius: 7))
+// One glyph to pick. Hovering lifts it and puts the accent glow under it, the same way a
+// shortcut chip answers the pointer, so the two places a glyph is seen behave alike.
+private struct IconTile: View {
+    // The tile that clears the icon has no symbol of its own, and is drawn with the sign
+    // for nothing rather than left blank.
+    let symbol: String?
+    let label: String
+    let selected: Bool
+    let choose: () -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: choose) {
+            Image(systemName: symbol ?? "slash.circle")
+                .font(.system(size: 12.5))
+                .foregroundStyle(foreground)
+                .frame(maxWidth: .infinity)
+                .frame(height: 26)
+                .surface(background, cornerRadius: 7, border: border)
+                .shadow(color: Theme.accent.opacity(hovering ? 0.35 : 0),
+                        radius: hovering ? 5 : 0)
+                .scaleEffect(hovering && !reduceMotion ? 1.1 : 1)
+                .contentShape(RoundedRectangle(cornerRadius: 7))
         }
         .buttonStyle(.plain)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: hovering)
+        .onHover { hovering = $0 }
         .appTooltip(label)
         .accessibilityLabel(label)
+    }
+
+    private var foreground: Color {
+        if selected { return .white }
+        return hovering ? Theme.accent : .secondary
+    }
+
+    private var background: Color {
+        if selected { return Theme.accentFill }
+        return hovering ? Theme.accent.opacity(0.1) : Theme.field
+    }
+
+    private var border: Color {
+        if selected { return .clear }
+        return hovering ? Theme.accent.opacity(0.75) : Theme.border
     }
 }
