@@ -136,6 +136,8 @@ private struct PasteCatcher: ViewModifier {
             // behind a sheet must not answer for the sheet's own.
             guard let onPaste, let window = anchor?.window,
                   window === Self.frontmostWindow else { return false }
+            // A shell in the drawer is typed into, so its paste is its own.
+            guard !(window.firstResponder is TerminalSurface) else { return false }
             let found = Attachments.fromClipboard()
             guard !found.isEmpty else { return false }
             onPaste(found)

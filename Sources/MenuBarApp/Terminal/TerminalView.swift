@@ -7,12 +7,18 @@ import SwiftUI
 // of the app.
 struct TerminalScreen: View {
     @Environment(\.textScale) private var textScale
+    // A dialog and a menu are drawn inside the window and answer the keyboard
+    // themselves, so the shell stands back while one is up. Both are optional because a
+    // shell can also be hosted by a sheet that carries no overlays of its own.
+    @Environment(DialogPresenter.self) private var dialogs: DialogPresenter?
+    @Environment(MenuPresenter.self) private var menus: MenuPresenter?
 
     let terminal: TerminalSession
     @Binding var isFocused: Bool
 
     var body: some View {
-        TerminalHost(surface: terminal.surface, isFocused: $isFocused, textScale: textScale)
+        TerminalHost(surface: terminal.surface, isFocused: $isFocused, textScale: textScale,
+                     claimsKeys: dialogs?.current == nil && menus?.isOpen != true)
             .id(terminal.id)
             .background(Theme.background)
             .overlay {
@@ -41,9 +47,11 @@ private struct TerminalHost: NSViewRepresentable {
     let surface: TerminalSurface
     @Binding var isFocused: Bool
     let textScale: CGFloat
+    let claimsKeys: Bool
 
     func makeNSView(context: Context) -> NSView {
         surface.applyTextScale(textScale)
+        surface.claimsKeys = claimsKeys
         let container = NSView()
         install(in: container)
         return container
@@ -51,6 +59,7 @@ private struct TerminalHost: NSViewRepresentable {
 
     func updateNSView(_ container: NSView, context: Context) {
         if surface.superview !== container { install(in: container) }
+        surface.claimsKeys = claimsKeys
         // Resizing the type reflows the shell, so this only runs when the size has
         // actually changed rather than on every pass through here.
         surface.applyTextScale(textScale)
@@ -81,6 +90,9 @@ private struct TerminalHost: NSViewRepresentable {
 final class TerminalSurface: SwiftTerm.TerminalView {
     var onClear: (() -> Void)?
     var onFocusChange: ((Bool) -> Void)?
+    // Whether the shell is the one being typed into, or something the app has drawn over
+    // it is. Only the view layer can tell, so it says.
+    var claimsKeys = true
     // What the app wants, as opposed to what AppKit currently has. The two come apart
     // whenever the window stops being the key one.
     var wantsFocus = false
@@ -145,28 +157,53 @@ final class TerminalSurface: SwiftTerm.TerminalView {
         return fixed
     }
 
-    // MARK: - Keys the app keeps
+    // MARK: - Keys
 
-    // SwiftTerm's key handling is sealed, so the app's few keys are taken before
-    // dispatch instead: a monitor sees every key press ahead of the responder chain,
-    // and steps in only while this terminal is the one being typed into.
+    // Where one key press goes while the shell holds the keyboard. Command belongs to
+    // the app, which is where a Mac shortcut lives and what keeps Copy, Paste and Quit
+    // working over a terminal; everything else belongs to the shell, because Escape,
+    // Control-C and the rest are how a terminal is driven.
+    enum KeyRoute: Equatable {
+        case shell
+        case app
+        case clear
+        case focusOut
+    }
+
+    static func route(_ event: NSEvent, claimsKeys: Bool) -> KeyRoute {
+        guard claimsKeys else { return .app }
+        let characters = event.charactersIgnoringModifiers
+        if event.modifierFlags.contains(.command) {
+            // Clearing the screen is the one Command key the shell answers.
+            return characters == "k" ? .clear : .app
+        }
+        // Control-backtick is the way back out of a focused terminal, so the app keeps
+        // it. Nothing else would be left to move focus with.
+        if event.modifierFlags.contains(.control), characters == "`" { return .focusOut }
+        return .shell
+    }
+
+    // Both SwiftTerm's key handling and the responder chain are reached too late to make
+    // that split: a menu item and the hidden button behind a SwiftUI keyboard shortcut
+    // are each offered a key press before the first responder sees it, so a plain Escape
+    // or a Control key bound anywhere else in the window would never arrive. A monitor
+    // runs ahead of both, and hands the shell its keys directly.
     private func interceptAppKeys() {
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             let handled = MainActor.assumeIsolated { () -> Bool in
                 guard let self, self.window?.firstResponder === self,
                       event.window === self.window else { return false }
-                let flags = event.modifierFlags
-                if flags.contains(.command), event.charactersIgnoringModifiers == "k" {
+                switch Self.route(event, claimsKeys: self.claimsKeys) {
+                case .app:
+                    return false
+                case .clear:
                     self.onClear?()
-                    return true
-                }
-                // Control-backtick belongs to the app, which uses it to move focus;
-                // passed on up the chain rather than into the shell.
-                if flags.contains(.control), event.charactersIgnoringModifiers == "`" {
+                case .focusOut:
                     self.nextResponder?.keyDown(with: event)
-                    return true
+                case .shell:
+                    self.keyDown(with: event)
                 }
-                return false
+                return true
             }
             return handled ? nil : event
         }
