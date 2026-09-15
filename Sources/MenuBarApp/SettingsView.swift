@@ -339,7 +339,11 @@ struct SettingsView: View {
         .frame(width: 960, height: 680)
         .background(Theme.background)
         .onAppear { loginItem.refresh() }
-        .sheet(isPresented: $reviewingOldSessions) { OldSessionsView().appOverlays() }
+        .sheet(isPresented: $reviewingOldSessions) {
+            OldSessionsView(sessions: OldSessions.reviewable(days: settings.oldSessionDays,
+                                                            store: store, runner: runner))
+                .appOverlays()
+        }
         .sheet(isPresented: $showingLog) { LogView().appOverlays() }
     }
 

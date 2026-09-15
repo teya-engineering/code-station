@@ -185,9 +185,11 @@ struct OldSessionsSheetTests {
             agentAvatarURL: store.storeURL.deletingLastPathComponent()
                 .appendingPathComponent("avatar.png"),
             preferences: UserDefaults(suiteName: "snooze-\(UUID().uuidString)") ?? .standard)
-        let view = OldSessionsView()
+        let runner = SessionRunner(paths: [:])
+        let view = OldSessionsView(sessions: OldSessions.reviewable(
+            days: settings.oldSessionDays, store: store, runner: runner))
             .environment(store)
-            .environment(SessionRunner(paths: [:]))
+            .environment(runner)
             .environment(DialogPresenter())
             .environment(settings)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 620, height: 760),
@@ -261,5 +263,49 @@ struct OldSessionsSheetTests {
         store.wakeCleanup(forProject: alpha.id)
         settle()
         #expect(content.fittingSize.height == listed)
+    }
+}
+
+// The sheet is measured once, when it opens: the window it is given comes from the height
+// its content reports on that first pass. A list worked out after that is shown in a
+// window sized for an empty one, which is a sheet with no room for a session in it.
+@MainActor
+struct OldSessionsSheetSizeTests {
+
+    // Measured without a window, so nothing the sheet does once it is on screen has run:
+    // this is the height it reports the first time it is asked.
+    private func firstPassHeight(_ store: ProjectStore) -> CGFloat {
+        let settings = AppSettings(
+            agentAvatarURL: store.storeURL.deletingLastPathComponent()
+                .appendingPathComponent("avatar.png"),
+            preferences: UserDefaults(suiteName: "size-\(UUID().uuidString)") ?? .standard)
+        let runner = SessionRunner(paths: [:])
+        let view = OldSessionsView(sessions: OldSessions.reviewable(
+            days: settings.oldSessionDays, store: store, runner: runner))
+            .environment(store)
+            .environment(runner)
+            .environment(DialogPresenter())
+            .environment(settings)
+        return NSHostingView(rootView: view).fittingSize.height
+    }
+
+    private func agedSessions(_ count: Int, in project: Project, store: ProjectStore) {
+        for _ in 0..<count {
+            let session = store.newSession(in: project.id)
+            store.append(ChatMessage(role: .user, text: "Old work",
+                                     date: Date().addingTimeInterval(-9 * 86_400)),
+                         to: session.id)
+        }
+    }
+
+    @Test func theFirstPassIsAlreadySizedForTheSessions() throws {
+        let (empty, _) = TestStore.make()
+        _ = try TestStore.project(in: empty, named: "empty")
+
+        let (store, _) = TestStore.make()
+        let alpha = try TestStore.project(in: store, named: "alpha")
+        agedSessions(3, in: alpha, store: store)
+
+        #expect(firstPassHeight(store) > firstPassHeight(empty))
     }
 }

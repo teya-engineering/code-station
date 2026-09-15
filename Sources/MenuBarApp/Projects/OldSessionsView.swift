@@ -15,7 +15,7 @@ struct OldSessionsView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dismiss) private var dismiss
 
-    @State private var rows: [Row] = []
+    @State private var rows: [Row]
     @State private var ticked: Set<UUID> = []
     // Counted apart from `ticked`, so unticking a row the app chose never buys room for
     // another one to be chosen in its place.
@@ -25,6 +25,16 @@ struct OldSessionsView: View {
     // A tick is a promise the user has read the row. Past a certain length nobody reads the
     // whole list, so the ticking stops and anything beyond it has to be asked for by hand.
     private static let preselectLimit = 50
+
+    // The sessions come from whoever opens the sheet rather than being read once it is up,
+    // because the window a sheet gets is measured on its first pass: a list that arrives
+    // after that is shown in a window with no room for it. What each one costs is the part
+    // that has to be waited for, and only the words in a row change when it lands.
+    init(sessions: [ChatSession]) {
+        _rows = State(initialValue: sessions.map {
+            Row(session: $0, projectID: $0.projectID, cost: .unchecked)
+        })
+    }
 
     private var days: Int { appSettings.oldSessionDays }
 
@@ -362,13 +372,13 @@ struct OldSessionsView: View {
 
     // MARK: - Loading
 
-    // A session that is running is never old, however long ago its last turn was: it is
-    // busy right now, which is the opposite of what this screen is for. A snoozed project
-    // is loaded like any other: its group is what offers the way back.
+    // What each row costs, in two passes: what the disk can answer on its own, then what
+    // only git can. A snoozed project is loaded like any other: its group is what offers
+    // the way back.
     private func load() async {
-        rows = OldSessions.olderThan(days, in: store.userSessions)
-            .filter { !runner.state($0.id).isBusy }
-            .map { Row(session: $0, projectID: $0.projectID, cost: startingCost($0)) }
+        for i in rows.indices {
+            rows[i].cost = startingCost(rows[i].session)
+        }
         ticked = Set(rows.filter { $0.cost.losesNothing }
             .prefix(Self.preselectLimit)
             .map(\.id))

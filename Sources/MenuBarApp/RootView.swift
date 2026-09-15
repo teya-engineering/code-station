@@ -179,7 +179,9 @@ struct RootView: View {
         case .dispatch: DispatchView()
         case .shortcuts: ShortcutsView()
         case .troubleshoot: TroubleshootView(skills: skills)
-        case .oldSessions: OldSessionsView()
+        case .oldSessions:
+            OldSessionsView(sessions: OldSessions.reviewable(days: settings.oldSessionDays,
+                                                             store: store, runner: runner))
         case .onboarding:
             FirstRunWizard(initialAgent: runner.agent,
                            onSiteConfigurationLoaded: applySiteConfiguration) {

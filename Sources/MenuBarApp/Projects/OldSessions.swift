@@ -24,6 +24,15 @@ enum OldSessions {
             .sorted { $0.lastActivity < $1.lastActivity }
     }
 
+    // What the review sheet lists: old enough to offer, minus the ones in the middle of a
+    // turn, which are busy right now rather than quiet. A snoozed project stays in, since
+    // the sheet is where its snooze is shown and taken back.
+    @MainActor
+    static func reviewable(days: Int, store: ProjectStore, runner: SessionRunner)
+        -> [ChatSession] {
+        olderThan(days, in: store.userSessions).filter { !runner.state($0.id).isBusy }
+    }
+
     // When the list changes next: either a session goes quiet for long enough, or a
     // snooze runs out and hands its sessions back.
     static func nextOldAt(_ days: Int, in sessions: [ChatSession], now: Date = Date(),
@@ -143,6 +152,11 @@ enum SessionOutcome: Equatable {
 struct SessionRemovalCost: Equatable {
     let worktree: SessionOutcome
     let deletesDesignArtifacts: Bool
+
+    // Before anything has been looked at. Nothing can be ticked from here, and the row
+    // says so, which is what a session shows while its cost is still being worked out.
+    static let unchecked = SessionRemovalCost(worktree: .checking,
+                                              deletesDesignArtifacts: false)
 
     var label: String {
         guard deletesDesignArtifacts else { return worktree.label }
