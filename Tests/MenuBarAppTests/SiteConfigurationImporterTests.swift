@@ -183,7 +183,7 @@ struct SiteConfigurationImporterTests {
 
         #expect(reset.environments?.map(\.name) == ["local"])
         #expect(reset.skills?.name == "Team")
-        #expect(reset.commandShortcuts.map(\.name) == ["Personal"])
+        #expect(reset.startingShortcuts.map(\.name) == ["Personal"])
         #expect(written == reset)
     }
 
@@ -240,7 +240,7 @@ struct SiteConfigurationImporterTests {
         let shortcutsURL = root.appendingPathComponent("shortcuts.json")
         try Data(#"{ "shortcuts": [] }"#.utf8).write(to: shortcutsURL)
         let shortcuts = ShortcutStore(storageURL: shortcutsURL)
-        _ = shortcuts.add(name: "Personal", command: "make personal")
+        _ = shortcuts.add(name: "Personal", text: "make personal")
 
         let authURL = root.appendingPathComponent("auth.json")
         let keychain = KeychainClient(read: { [:] }, write: { _ in })
@@ -322,7 +322,7 @@ struct SiteConfigurationImporterTests {
         let url = root.appendingPathComponent("shortcuts.json")
         let store = ShortcutStore(storageURL: url)
         store.applySiteDefaults(first)
-        _ = store.add(name: "Personal", command: "make personal")
+        _ = store.add(name: "Personal", text: "make personal")
 
         #expect(store.siteConfigurationShortcuts.map(\.name) == ["First"])
 

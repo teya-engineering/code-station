@@ -287,7 +287,8 @@ struct SessionView: View {
             .sheet(item: $shortcutEditor) { request in
                 ShortcutEditorView(request: request) { shortcut in
                     if request.shortcut == nil {
-                        shortcuts.add(name: shortcut.name, command: shortcut.command,
+                        shortcuts.add(name: shortcut.name, text: shortcut.text,
+                                      kind: shortcut.kind,
                                       icon: shortcut.icon,
                                       projectID: shortcut.projectID,
                                       availableInAllProjects: shortcut.availableInAllProjects)
@@ -537,13 +538,21 @@ struct SessionView: View {
         .headerBand(Theme.statusBand, height: Self.destinationDeckHeight)
     }
 
-    // What the pane can open beside where you already are: the panel toggles, then what
-    // the session itself offers. A hairline closes each group, so the rail reads as two
-    // things rather than as a row of icons.
+    // What the pane can open beside where you already are: the panel toggles, the saved
+    // prompts, then what the session itself offers. A hairline closes each group, so the
+    // rail reads as a few things rather than as a row of icons.
     private func rail(session: ChatSession, project: Project, recap: SessionRecap?,
                       fit: HeaderFit) -> some View {
         HStack(spacing: 9) {
             panelToggles(session: session, project: project)
+            // An ad-hoc task runs in a private folder made for one prompt, so there is no
+            // project behind it to have saved any.
+            if project.kind == .project, !promptsBlocked(session: session, project: project) {
+                SessionPromptShortcuts(session: session,
+                                       conversationID: visibleConversationID,
+                                       folded: fit == .folded,
+                                       edit: { shortcutEditor = $0 })
+            }
             if hasUtilities(session: session) {
                 HeaderRailDivider()
                 if fit == .whole {
@@ -665,6 +674,12 @@ struct SessionView: View {
             })
         }
         return entries
+    }
+
+    // A session whose folder has gone cannot take a prompt any more than it can take a
+    // typed one, and the pane already says so above the composer.
+    private func promptsBlocked(session: ChatSession, project: Project) -> Bool {
+        !FileManager.default.fileExists(atPath: session.worktreePath ?? project.path)
     }
 
     private func hasUtilities(session: ChatSession) -> Bool {

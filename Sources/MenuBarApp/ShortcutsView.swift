@@ -1,17 +1,20 @@
 import SwiftUI
 
-// The commands saved against this Mac. They run from the home folder here, and the ones
-// marked for all projects also appear in each project's folder and session worktrees.
-// Commands owned by one project stay with the sessions that run them.
+// The shortcuts saved against this Mac. Commands run from the home folder here, and the
+// ones marked for all projects also appear in each project's folder and session
+// worktrees. Shortcuts owned by one project stay with the sessions that use them.
+//
+// A prompt has no folder and no output, so it is listed and edited here but only ever
+// sent from a session, where there is a conversation to send it to.
 struct ShortcutsView: View {
     @Environment(ShortcutStore.self) private var store
     @Environment(DialogPresenter.self) private var dialogs
     @Environment(\.dismiss) private var dismiss
 
-    @State private var selectedID: CommandShortcut.ID?
+    @State private var selectedID: Shortcut.ID?
     @State private var editor: ShortcutEditorRequest?
 
-    private var shortcuts: [CommandShortcut] { store.macShortcuts }
+    private var shortcuts: [Shortcut] { store.macShortcuts }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -28,7 +31,8 @@ struct ShortcutsView: View {
                 if request.shortcut == nil {
                     if let id = store.add(
                         name: shortcut.name,
-                        command: shortcut.command,
+                        text: shortcut.text,
+                        kind: shortcut.kind,
                         icon: shortcut.icon,
                         availableInAllProjects: shortcut.availableInAllProjects
                     ) {
@@ -55,6 +59,12 @@ struct ShortcutsView: View {
             ActionButton(title: "Add shortcut", tone: .green, height: 28, size: 12, icon: "plus") {
                 editor = ShortcutEditorRequest()
             }
+            .appContextMenu {
+                ShortcutKind.allCases.map { kind in
+                    .item("New \(kind.payloadName)…",
+                          action: { editor = ShortcutEditorRequest(kind: kind) })
+                }
+            }
         }
         .padding(.horizontal, 20)
         .headerBand()
@@ -69,7 +79,7 @@ struct ShortcutsView: View {
         if shared > 0 {
             return "\(count) on this Mac · \(shared) available in all projects"
         }
-        return "\(count) on this Mac, run from your home folder"
+        return "\(count) on this Mac"
     }
 
     private var content: some View {
@@ -89,7 +99,8 @@ struct ShortcutsView: View {
             PaneMessage(
                 icon: "bolt.slash",
                 title: "No shortcuts saved",
-                detail: "Add a shell command you want to run without leaving the app."
+                detail: "Add a shell command to run without leaving the app, "
+                    + "or a prompt to send a session in one click."
             )
             .frame(height: 220)
         } else {
@@ -152,7 +163,7 @@ struct ShortcutsView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
-    private var selected: CommandShortcut? {
+    private var selected: Shortcut? {
         shortcuts.first { $0.id == selectedID }
     }
 
@@ -165,6 +176,10 @@ struct ShortcutsView: View {
     }
 
     private var outputText: String {
+        if selected?.kind == .prompt {
+            return "A prompt has no output of its own. Send it from the icon rail above a "
+                + "session and the answer arrives in that conversation."
+        }
         guard let selectedRun else { return "Select a shortcut to see its output." }
         let log = store.log(selectedRun)
         if !log.isEmpty { return log }
@@ -177,18 +192,19 @@ struct ShortcutsView: View {
     }
 
     private var outputIsPlaceholder: Bool {
-        guard let selectedRun else { return true }
+        guard selected?.kind == .command, let selectedRun else { return true }
         return store.log(selectedRun).isEmpty
     }
 
     // Every shortcut on this screen belongs to the Mac, so every run of one is in the
     // home folder and each shortcut has only the single run.
-    private func run(for shortcut: CommandShortcut) -> ShortcutRun {
+    private func run(for shortcut: Shortcut) -> ShortcutRun {
         ShortcutRun(shortcut.id, in: shortcut.directory(projectPath: nil))
     }
 
-    private func toggle(_ shortcut: CommandShortcut) {
+    private func toggle(_ shortcut: Shortcut) {
         selectedID = shortcut.id
+        guard shortcut.kind == .command else { return }
         let run = run(for: shortcut)
         if store.state(run).isActive {
             store.stop(run)
@@ -201,7 +217,14 @@ struct ShortcutsView: View {
         if selected == nil { selectedID = shortcuts.first?.id }
     }
 
-    private func contextMenu(for shortcut: CommandShortcut) -> [MenuEntry] {
+    private func contextMenu(for shortcut: Shortcut) -> [MenuEntry] {
+        if shortcut.kind == .prompt {
+            return [
+                .item("Edit", action: { editor = ShortcutEditorRequest(shortcut: shortcut) }),
+                .separator,
+                .item("Remove", kind: .destructive, action: { confirmRemoval(of: shortcut) })
+            ]
+        }
         if store.state(run(for: shortcut)).isActive {
             return [
                 .item("Stop", action: { toggle(shortcut) }),
@@ -217,20 +240,23 @@ struct ShortcutsView: View {
         ]
     }
 
-    private func confirmRemoval(of shortcut: CommandShortcut) {
-        dialogs.show(.confirm(
-            "Remove \(shortcut.name)?",
-            message: store.state(run(for: shortcut)).isActive
-                ? "This stops the running command and removes the shortcut."
-                : "The command and its saved shortcut will be removed.",
-            action: "Remove") { store.remove(shortcut.id) })
+    private func confirmRemoval(of shortcut: Shortcut) {
+        let message = if shortcut.kind == .prompt {
+            "The prompt and its saved shortcut will be removed."
+        } else if store.state(run(for: shortcut)).isActive {
+            "This stops the running command and removes the shortcut."
+        } else {
+            "The command and its saved shortcut will be removed."
+        }
+        dialogs.show(.confirm("Remove \(shortcut.name)?", message: message,
+                              action: "Remove") { store.remove(shortcut.id) })
     }
 
     private static let outputBottom = "shortcut-output-bottom"
 }
 
 private struct ShortcutRow: View {
-    let shortcut: CommandShortcut
+    let shortcut: Shortcut
     let state: ShortcutStore.State
     let selected: Bool
     let select: () -> Void
@@ -254,6 +280,17 @@ private struct ShortcutRow: View {
                     Text(shortcut.name)
                         .font(.system(size: 13, weight: .semibold))
                         .lineLimit(1)
+                    if shortcut.kind == .prompt {
+                        Text("PROMPT")
+                            .font(.mono(8.5, .semibold))
+                            .kerning(0.45)
+                            .foregroundStyle(Theme.secret)
+                            .padding(.horizontal, 6)
+                            .frame(height: 17)
+                            .background(Capsule().fill(Theme.secret.opacity(0.1)))
+                            .overlay(Capsule().stroke(Theme.secret.opacity(0.28)))
+                            .fixedSize()
+                    }
                     if shortcut.availableInAllProjects {
                         Text("ALL PROJECTS")
                             .font(.mono(8.5, .semibold))
@@ -266,8 +303,8 @@ private struct ShortcutRow: View {
                             .fixedSize()
                     }
                 }
-                Text(commandSummary)
-                    .font(.mono(10.5))
+                Text(summary)
+                    .font(shortcut.kind == .command ? .mono(10.5) : .system(size: 11))
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
                     .textSelection(.enabled)
@@ -283,9 +320,13 @@ private struct ShortcutRow: View {
                 .opacity(state.isActive ? 0.35 : 1)
             iconButton("trash", label: "Remove \(shortcut.name)", colour: Theme.deletion,
                        action: remove)
-            ActionButton(title: state.isActive ? "Stop" : "Run",
-                         tone: state.isActive ? .danger : .dark, height: 28, size: 12,
-                         action: run)
+            // A prompt needs a conversation to land in, and this list is about the Mac
+            // rather than about any session, so there is nothing here to send it to.
+            if shortcut.kind == .command {
+                ActionButton(title: state.isActive ? "Stop" : "Run",
+                             tone: state.isActive ? .danger : .dark, height: 28, size: 12,
+                             action: run)
+            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 11)
@@ -295,24 +336,28 @@ private struct ShortcutRow: View {
         .onTapGesture(perform: select)
     }
 
-    private var commandSummary: String {
-        shortcut.command.split(whereSeparator: \Character.isWhitespace).joined(separator: " ")
+    private var summary: String {
+        shortcut.text.split(whereSeparator: \Character.isWhitespace).joined(separator: " ")
     }
 
     private var statusText: String {
+        guard shortcut.kind == .command else {
+            return "Sent from the icon rail above a session"
+        }
         switch state {
-        case .stopped: "Not running"
-        case .running: "Running"
-        case .finished: "Finished"
-        case .failed(let message, _, _): "Failed: \(message)"
+        case .stopped: return "Not running"
+        case .running: return "Running"
+        case .finished: return "Finished"
+        case .failed(let message, _, _): return "Failed: \(message)"
         }
     }
 
     private var statusColour: Color {
+        guard shortcut.kind == .command else { return Theme.secret }
         switch state {
-        case .stopped, .finished: Theme.dotOff
-        case .running: Theme.dotOn
-        case .failed: Theme.deletion
+        case .stopped, .finished: return Theme.dotOff
+        case .running: return Theme.dotOn
+        case .failed: return Theme.deletion
         }
     }
 

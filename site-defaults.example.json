@@ -73,6 +73,12 @@
       "name": "Orders service",
       "command": "./gradlew :orders-service:bootRun",
       "icon": "play"
+    },
+    {
+      "name": "Review",
+      "command": "Review my working tree and list anything left unfinished.",
+      "icon": "checklist",
+      "kind": "prompt"
     }
   ]
 }

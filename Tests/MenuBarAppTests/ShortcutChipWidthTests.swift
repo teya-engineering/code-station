@@ -35,7 +35,7 @@ struct ShortcutChipWidthTests {
             for glyph in glyphs {
                 for state in states {
                     for tinted in [false, true] {
-                        let shortcut = CommandShortcut(name: name, command: "true", icon: glyph)
+                        let shortcut = Shortcut(name: name, text: "true", icon: glyph)
                         let drawn = width(of: ShortcutChip(
                             shortcut: shortcut,
                             state: state,

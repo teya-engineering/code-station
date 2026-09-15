@@ -70,7 +70,7 @@ struct SiteConfigurationPlanTests {
         #expect(reset.dispatch?.oauth?.clientID == "personal")
         #expect(reset.dispatchRequests.map(\.name) == ["Personal"])
         #expect(reset.skills?.name == "Team")
-        #expect(reset.commandShortcuts.map(\.name) == ["Run service"])
+        #expect(reset.startingShortcuts.map(\.name) == ["Run service"])
     }
 
     @Test func apiAccessAndRequestsResetIndependently() throws {

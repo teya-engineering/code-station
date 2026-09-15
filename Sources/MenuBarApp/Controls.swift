@@ -514,6 +514,9 @@ struct HeaderRailButton: View {
     // Says there is something new behind the button, which a glyph on its own cannot.
     var badge = false
     let label: String
+    // The saved text behind a button whose name is not the whole story - a prompt, where
+    // what is about to be sent matters more than what it was called.
+    var hint: String? = nil
     var action: (() -> Void)? = nil
 
     @State private var hovering = false
@@ -530,7 +533,7 @@ struct HeaderRailButton: View {
         .onHover { hovering = $0 }
         .animation(.easeOut(duration: 0.12), value: hovering)
         .animation(.easeOut(duration: 0.12), value: state)
-        .appTooltip(label, delay: .zero)
+        .appTooltip(delay: .zero) { Tooltip(title: label, subtitle: hint) }
         .accessibilityLabel(label)
     }
 

@@ -151,9 +151,9 @@ struct ProjectRemovalTests {
     @Test func takesTheProjectsSavedCommandsWithIt() async throws {
         let project = try addProject(named: "checkout")
         let other = try addProject(named: "elsewhere")
-        shortcuts.add(name: "Lint", command: "npm run lint", projectID: project.id)
-        shortcuts.add(name: "Build", command: "make", projectID: other.id)
-        shortcuts.add(name: "Prune", command: "docker system prune")
+        shortcuts.add(name: "Lint", text: "npm run lint", projectID: project.id)
+        shortcuts.add(name: "Build", text: "make", projectID: other.id)
+        shortcuts.add(name: "Prune", text: "docker system prune")
 
         let result = await ProjectRemoval.run(project, in: store, runner: SessionRunner(),
                                               shortcuts: shortcuts,
