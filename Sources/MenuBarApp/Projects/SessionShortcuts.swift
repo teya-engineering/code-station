@@ -33,6 +33,10 @@ struct SessionShortcutChips: View {
                     }
                 }
                 .padding(.vertical, 1)
+                // The scroll view takes a share of the row's spare width whether or not
+                // the chips need it, so the chips are pinned to the trailing edge of
+                // that width rather than left to float in the middle of the row.
+                .frame(maxWidth: .infinity, alignment: .trailing)
             }
             .scrollIndicators(.hidden)
             .defaultScrollAnchor(.trailing)
