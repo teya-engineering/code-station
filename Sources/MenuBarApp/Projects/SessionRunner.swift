@@ -1651,7 +1651,9 @@ final class SessionRunner {
         // The prompt as the agent receives it, which on a first turn carries the
         // workspace's other roots as well.
         let prompt: String
-        let resumed: Bool
+        // The conversation the turn was told to pick up, if there was one.
+        let resumeSessionID: String?
+        var resumed: Bool { resumeSessionID != nil }
         // The id a new conversation was told to use, for agents given one up front. Saved
         // as soon as the process starts: the stream only confirms it at the very end.
         var presetSessionID: String? = nil
@@ -1704,7 +1706,7 @@ final class SessionRunner {
             } ?? implementationReference.map(Self.implementationSystemPrompt),
             discovered: discoveredModels[agent])
         return TurnPlan(agent: agent, arguments: arguments, prompt: promptForAgent,
-                        resumed: resume != nil, presetSessionID: presetSessionID)
+                        resumeSessionID: resume, presetSessionID: presetSessionID)
     }
 
     // Starts the process and wires up everything that listens to it: the two output
@@ -1762,7 +1764,7 @@ final class SessionRunner {
         let turn = Turn(processGroup: processGroup, agent: agent, messageID: messageID,
                         input: input, output: out, errorOutput: errors,
                         prompt: plan.prompt, workingDirectory: workingDirectory,
-                        attachments: attachments, resumed: plan.resumed,
+                        attachments: attachments, resumedFrom: plan.resumeSessionID,
                         avatarSequence: avatarSequence,
                         canRetryWithoutResume: canRetryWithoutResume,
                         mcpConfigURL: mcpConfigURL, summary: summary)
@@ -2065,9 +2067,14 @@ final class SessionRunner {
             switch event {
             case .initialized(let claudeSessionID):
                 // Saved right away, before the turn can fail: this id is what resuming
-                // needs, so losing it would strand the conversation.
-                turn.agentSessionID = claudeSessionID
-                store.setAgentSessionID(claudeSessionID, agent: turn.agent, for: sessionID)
+                // needs, so losing it would strand the conversation. A stop already on its
+                // way is the exception. The process is about to be killed, so the
+                // conversation it just opened will stay empty, and taking its id would
+                // throw away the one that still works.
+                if !turn.stopRequested {
+                    turn.agentSessionID = claudeSessionID
+                    store.setAgentSessionID(claudeSessionID, agent: turn.agent, for: sessionID)
+                }
 
             case .text(let text):
                 setState(.streaming, for: sessionID)
@@ -2576,6 +2583,24 @@ final class SessionRunner {
         turn.closeInput()
     }
 
+    // Puts back the conversation a turn was resuming when the fork it opened instead was
+    // left empty. Claude Code answers every resume by starting a new conversation and
+    // copying the old one into it, and that copy is only written once the turn speaks. A
+    // turn stopped or broken before its first word therefore leaves an id that nothing can
+    // be resumed from, while the id it replaced is still whole. Keeping the new one costs
+    // the session its entire history on the next prompt.
+    private func restorePreviousConversation(_ turn: Turn, status: Int32, sessionID: UUID,
+                                             store: ProjectStore) {
+        guard let previous = turn.resumedFrom, !turn.answered,
+              let opened = turn.agentSessionID, opened != previous,
+              turn.stopRequested || turn.failure != nil || status != 0
+        else { return }
+        turn.agentSessionID = previous
+        store.setAgentSessionID(previous, agent: turn.agent, for: sessionID)
+        SessionLog.note("kept the conversation the turn resumed, its own was never written",
+                        session: sessionID)
+    }
+
     // The exit status and the last bytes of output arrive on different queues, so a turn
     // only ends once both pipes are at EOF and the process is gone. Otherwise the tail of
     // a reply, or the stderr that explains a failure, can be dropped. Dropping the turn
@@ -2596,6 +2621,7 @@ final class SessionRunner {
         // The process that parked them is gone, so nothing is listening for an answer.
         records[sessionID]?.asked = []
         cleanUp(turn)
+        restorePreviousConversation(turn, status: status, sessionID: sessionID, store: store)
 
         // Even a recap must stay stopped after exceeding the limit. Starting queued
         // work or a fallback summary here can immediately repeat the memory spike.
@@ -2855,7 +2881,12 @@ final class SessionRunner {
         let workingDirectory: String
         let attachments: [Attachment]
         var avatarSequence: Int
-        let resumed: Bool
+        // The conversation this turn was told to pick up. Claude Code answers a resume by
+        // forking a new conversation, and it only writes the copied history once the turn
+        // says something, so a turn killed before that leaves an id behind that nothing
+        // can be resumed from. Kept so the working one can be put back.
+        let resumedFrom: String?
+        var resumed: Bool { resumedFrom != nil }
         let canRetryWithoutResume: Bool
         let mcpConfigURL: URL?
         let summary: SummaryAttempt?
@@ -2923,7 +2954,7 @@ final class SessionRunner {
 
         init(processGroup: pid_t, agent: AgentKind, messageID: UUID, input: Pipe,
              output: Pipe, errorOutput: Pipe, prompt: String, workingDirectory: String,
-             attachments: [Attachment], resumed: Bool, avatarSequence: Int,
+             attachments: [Attachment], resumedFrom: String?, avatarSequence: Int,
              canRetryWithoutResume: Bool, mcpConfigURL: URL?, summary: SummaryAttempt?) {
             self.processGroup = processGroup
             self.agent = agent
@@ -2935,7 +2966,7 @@ final class SessionRunner {
             self.workingDirectory = workingDirectory
             self.attachments = attachments
             self.avatarSequence = avatarSequence
-            self.resumed = resumed
+            self.resumedFrom = resumedFrom
             self.canRetryWithoutResume = canRetryWithoutResume
             self.mcpConfigURL = mcpConfigURL
             self.summary = summary
