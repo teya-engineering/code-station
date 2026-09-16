@@ -42,6 +42,7 @@ struct WorkspaceDetailView: View {
             }
             .background(Theme.background)
             .task(id: workspace.projectIDs) { await checkFreshness(workspace) }
+            .task(id: workspace.projectIDs) { await watchWorkingTrees(workspace) }
             .sheet(item: $creatingSession) { workspace in
                 NewWorkspaceSessionView(workspace: workspace) { choice in
                     startSession(choice, in: workspace)
@@ -118,6 +119,7 @@ struct WorkspaceDetailView: View {
             StatusRule()
             if let lead { leadTag(lead) }
             freshnessVerdict(workspace)
+            uncommittedVerdict(workspace)
 
             Spacer(minLength: 12)
 
@@ -168,6 +170,21 @@ struct WorkspaceDetailView: View {
                 .appTooltip(stale == 0
                             ? "Every repository is on its default branch at the latest revision."
                             : "Open the rows below to switch branch or pull.")
+        }
+    }
+
+    // Dirtiness is a separate question from freshness, so it gets a reading of its own:
+    // a workspace can be on the latest revision everywhere and still hold work no
+    // worktree session would carry. Nothing shows when every folder is clean, which is
+    // the usual case and not worth a word.
+    @ViewBuilder private func uncommittedVerdict(_ workspace: ProjectWorkspace) -> some View {
+        let dirty = workspace.projectIDs.compactMap(store.project)
+            .filter(\.isGitRepository)
+            .count { workingTrees.isDirty($0.path) }
+        if dirty > 0 {
+            StatusDot()
+            StatusCaps(text: "\(dirty) WITH UNCOMMITTED WORK", tint: Theme.attentionText)
+                .appTooltip("The rows below say which. A worktree session starts from the last commit, so this work stays in the project folder.")
         }
     }
 
@@ -244,6 +261,7 @@ struct WorkspaceDetailView: View {
                         MonoChip(text: "MISSING", size: 9, tint: Theme.deletion)
                     }
                     freshnessChip(project)
+                    uncommittedChip(project, workspace: workspace)
                 }
                 Text(summary(project, workspace: workspace))
                     .font(.mono(10.5))
@@ -288,6 +306,7 @@ struct WorkspaceDetailView: View {
                         MonoChip(text: "MISSING", size: 9, tint: Theme.deletion)
                     }
                     freshnessChip(project)
+                    uncommittedChip(project, workspace: workspace)
                 }
                 Text(summary(project, workspace: workspace))
                     .font(.mono(10.5))
@@ -370,6 +389,26 @@ struct WorkspaceDetailView: View {
         }
     }
 
+    // The other half of "what state is this checkout in": the chip beside it is about the
+    // branch, this one is about the folder. It belongs next to the name because a worktree
+    // session starts from the last commit, so work waiting here is work that session will
+    // not see, and that is worth knowing before one is started rather than while it is.
+    @ViewBuilder private func uncommittedChip(_ project: Project,
+                                              workspace: ProjectWorkspace) -> some View {
+        let count = workingTrees.uncommittedFileCount(at: project.path)
+        Group {
+            if count > 0 {
+                MonoChip(text: counted(count, "UNCOMMITTED FILE", plural: "UNCOMMITTED FILES"),
+                         size: 9, tint: Theme.attention)
+                    .appTooltip(workspace.worktreeProjectIDs.contains(project.id)
+                                ? "\(counted(count, "file")) changed in the project folder. A worktree session starts from the last commit, so this work stays behind."
+                                : "\(counted(count, "file")) changed in the project folder. Sessions here run in it, so they start with this work in place.")
+                    .transition(.fadeIn)
+            }
+        }
+        .animation(.easeOut(duration: 0.2), value: count)
+    }
+
     private func freshenMenu(_ project: Project, report: GitFreshness.Report) -> [MenuEntry] {
         guard let branch = report.defaultBranch else { return [] }
         if !report.onDefaultBranch {
@@ -418,6 +457,19 @@ struct WorkspaceDetailView: View {
             await GitFreshness.checkAll(repositories, fetch: fetch) { id, report in
                 withAnimation(.easeOut(duration: 0.2)) { freshness[id] = report }
             }
+        }
+    }
+
+    // Freshness is read once when the page opens, but dirtiness changes under the page:
+    // a commit in a terminal, a session writing files. So the folders are re-read for as
+    // long as the page is up, at the same slow rate the sidebar uses.
+    private func watchWorkingTrees(_ workspace: ProjectWorkspace) async {
+        let folders = Set(workspace.projectIDs.compactMap(store.project)
+            .filter(\.isGitRepository)
+            .map(\.path))
+        while !Task.isCancelled {
+            workingTrees.refresh(folders)
+            try? await Task.sleep(for: WorkingTreeWatch.interval)
         }
     }
 
