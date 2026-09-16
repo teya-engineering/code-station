@@ -86,8 +86,8 @@ final class AppSettings {
         didSet { Preferences.setProjectGrouping(projectGrouping, in: preferences) }
     }
 
-    // Which terminal app a shell opens in. nil means no app was picked, and shells open
-    // in the drawer inside this app instead.
+    // Which app a shell opens in when it opens in a window of its own. nil means no app
+    // was picked, so the drawer inside this app is what the terminal button offers first.
     var terminalBundleID: String? {
         didSet { Preferences.setTerminalBundleID(terminalBundleID, in: preferences) }
     }
@@ -1014,8 +1014,8 @@ struct SettingsView: View {
                 Text("Terminal")
                     .font(.system(size: 13, weight: .semibold))
                 Text(inDrawer
-                     ? "The Terminal button opens a shell in the drawer below the pane. Pick an app to open one in a window of its own instead."
-                     : "The Terminal button opens a shell in \(value), in a window of its own.")
+                     ? "The Terminal button offers a shell in the drawer and one in a window of its own. The drawer is named first, and a window opens in \(SystemTerminal.appName), the app macOS hands shell scripts. Pick an app to name it first instead."
+                     : "The Terminal button offers a shell in the drawer and one in a window of its own. \(value) is named first, and is where a window opens.")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

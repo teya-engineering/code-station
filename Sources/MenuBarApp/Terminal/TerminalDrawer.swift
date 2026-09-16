@@ -179,55 +179,49 @@ struct TerminalDrawer: View {
     }
 }
 
-// The header control for a shell in the folder behind whatever is on screen. Wanting a
-// shell here and wanting one in a window of its own are the same wish reached two ways,
-// and the terminal setting says which one the press means, so the press acts rather than
-// asking again. The other way stays on the right-click menu. It is deliberately separate
-// from the tabs because the drawer can stay open alongside any of them.
+// The header control for a shell in the folder behind whatever is on screen. A shell in
+// the drawer and a shell in a window of its own are the same wish reached two ways, so the
+// press offers both rather than picking one; the terminal setting only says which of them
+// the menu names first. The keyboard shortcut still reaches the drawer in one stroke.
 struct TerminalToggle: View {
     let isOpen: Bool
     let directory: String
     let toggle: () -> Void
 
-    @Environment(AppSettings.self) private var appSettings
-
     var body: some View {
-        let inDrawer = appSettings.opensTerminalInDrawer
-        let lit = inDrawer && isOpen
-
-        return Button {
-            if inDrawer { toggle() } else { SystemTerminal.open(directory) }
-        } label: {
-            HStack(spacing: 6) {
-                Text(">_")
-                    .font(.mono(11, .bold))
-                Text("Terminal")
-                    .font(.system(size: 12, weight: .semibold))
-            }
-            .foregroundStyle(lit ? Color.white : Color.primary)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 7)
-            .surface(lit ? Theme.accentFill : Theme.card, cornerRadius: 10,
-                     border: lit ? .clear : Theme.border)
-            .contentShape(Rectangle())
+        HStack(spacing: 6) {
+            Text(">_")
+                .font(.mono(11, .bold))
+            Text("Terminal")
+                .font(.system(size: 12, weight: .semibold))
+            Image(systemName: "chevron.down")
+                .font(.system(size: 8, weight: .semibold))
+                .foregroundStyle(isOpen ? Color.white.opacity(0.75) : Color.secondary)
         }
-        .buttonStyle(.plain)
-        .appContextMenu { terminalEntries(isOpen: isOpen, toggle: toggle, directory: directory) }
-        .appTooltip(inDrawer
-                    ? "Open a shell in this folder"
-                    : "Open a shell in \(SystemTerminal.appName)")
+        .foregroundStyle(isOpen ? Color.white : Color.primary)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .surface(isOpen ? Theme.accentFill : Theme.card, cornerRadius: 10,
+                 border: isOpen ? .clear : Theme.border)
+        .contentShape(Rectangle())
+        .appMenu { terminalEntries(isOpen: isOpen, toggle: toggle, directory: directory) }
+        .appTooltip("Open a shell here or in \(SystemTerminal.appName)")
     }
 }
 
-// Both ways to reach a shell, in the order the setting puts them: what the press already
-// does comes first, so the menu reads as the choice that was made plus the other one.
+// Both ways to reach a shell, in the order the setting puts them: the one the setting
+// prefers comes first, so the menu reads as the choice that was made plus the other one.
 @MainActor func terminalEntries(isOpen: Bool,
                                 toggle: @escaping () -> Void,
                                 directory: String) -> [MenuEntry] {
     let here = MenuEntry.item(isOpen ? "Hide terminal here" : "Open terminal here",
+                              icon: "terminal",
+                              subtitle: "A shell in the drawer, beside what you were reading.",
                               detail: "^`",
                               action: toggle)
-    let app = MenuEntry.item("Open in \(SystemTerminal.appName)") {
+    let app = MenuEntry.item("Open in \(SystemTerminal.appName)",
+                             icon: "macwindow",
+                             subtitle: "A shell in a window of its own.") {
         SystemTerminal.open(directory)
     }
     return Preferences.terminalBundleID == nil ? [here, app] : [app, here]
