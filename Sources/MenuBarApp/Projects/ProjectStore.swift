@@ -87,6 +87,13 @@ final class ProjectStore {
     }
     var selectedProjectID: UUID?
 
+    // The trail of places visited, which Cmd+[ and Cmd+] walk.
+    private(set) var history = NavigationHistory()
+    // Held true while the trail is being walked, so applying a place is not filed as a
+    // fresh arrival. Without this, stepping back would record a new visit and there
+    // would be no way out of the last two places.
+    @ObservationIgnored private var isWalkingHistory = false
+
     // Most session links open the conversation. A link whose purpose is reviewing the
     // working tree carries that intent through navigation so the destination matches the
     // words on the button.
@@ -344,7 +351,7 @@ final class ProjectStore {
     // Home takes the user back to the same working context instead of changing their place.
     func selectHome() {
         selection = .home
-        persistSelection()
+        arrived()
     }
 
     // Choosing a project is different from opening a conversation. Keeping the two
@@ -355,7 +362,7 @@ final class ProjectStore {
         selection = nil
         if revealingInSidebar { projectToReveal = id }
         sidebarHighlight = revealingInSidebar ? id : nil
-        persistSelection()
+        arrived()
     }
 
     func selectSession(_ id: UUID, destination: SessionDestination = .conversation,
@@ -372,7 +379,7 @@ final class ProjectStore {
         selection = .session(visibleID)
         sessionToReveal = visibleID
         sidebarHighlight = revealingInSidebar ? visibleID : nil
-        persistSelection()
+        arrived()
     }
 
     func selectWorkspace(_ id: UUID, revealingInSidebar: Bool = true) {
@@ -380,13 +387,78 @@ final class ProjectStore {
         selection = .workspace(id)
         if revealingInSidebar { projectToReveal = id }
         sidebarHighlight = revealingInSidebar ? id : nil
-        persistSelection()
+        arrived()
     }
 
     private func persistSelection() {
         Preferences.selectedSessionID = if case .session(let id) = selection { id } else { nil }
         Preferences.selectedWorkspaceID = if case .workspace(let id) = selection { id } else { nil }
         Preferences.selectedProjectID = selectedProjectID
+    }
+
+    // Somewhere new is on screen. Writing the place down and filing it on the trail are
+    // the same moment, which is what separates arriving from the index being saved.
+    private func arrived() {
+        persistSelection()
+        recordVisit()
+    }
+
+    // MARK: - Back and forward
+    //
+    // Cmd+[ and Cmd+] are Back and Forward everywhere else on the Mac, so here they walk
+    // the places already visited rather than the order the sidebar happens to be in.
+
+    // Where the app is pointed right now. A project is chosen without opening anything,
+    // so it is the one place that is read from `selectedProjectID` instead of `selection`.
+    var currentPlace: NavigationPlace? {
+        switch selection {
+        case .home: .home
+        case .session(let id): .session(id)
+        case .workspace(let id): .workspace(id)
+        case nil: selectedProjectID.map(NavigationPlace.project)
+        }
+    }
+
+    var canGoBack: Bool { history.canGoBack }
+    var canGoForward: Bool { history.canGoForward }
+
+    @discardableResult
+    func goBack() -> Bool {
+        guard let place = history.goBack(reachable: stillExists) else { return false }
+        open(place)
+        return true
+    }
+
+    @discardableResult
+    func goForward() -> Bool {
+        guard let place = history.goForward(reachable: stillExists) else { return false }
+        open(place)
+        return true
+    }
+
+    private func recordVisit() {
+        guard !isWalkingHistory, let currentPlace else { return }
+        history.visit(currentPlace)
+    }
+
+    private func open(_ place: NavigationPlace) {
+        isWalkingHistory = true
+        defer { isWalkingHistory = false }
+        switch place {
+        case .home: selectHome()
+        case .project(let id): selectProject(id)
+        case .session(let id): selectSession(id)
+        case .workspace(let id): selectWorkspace(id)
+        }
+    }
+
+    private func stillExists(_ place: NavigationPlace) -> Bool {
+        switch place {
+        case .home: true
+        case .project(let id): project(id) != nil
+        case .session(let id): session(id) != nil
+        case .workspace(let id): workspace(id) != nil
+        }
     }
 
     // MARK: - Turns worth knowing about
@@ -890,6 +962,7 @@ final class ProjectStore {
         publishSidebarSessions()
         selectedProjectID = session.projectID
         selection = .session(session.id)
+        arrived()
         saveIndex()
         return session
     }
@@ -933,6 +1006,7 @@ final class ProjectStore {
         clearSessionMemory(sessionID)
         self.selection = selection
         selectedProjectID = projectID
+        arrived()
         markIndexDirty()
     }
 
@@ -1821,6 +1895,7 @@ final class ProjectStore {
         publishSidebarSessions()
         selectedProjectID = fork.projectID
         selection = .session(fork.id)
+        arrived()
         saveIndex()
         return fork
     }
@@ -2182,6 +2257,7 @@ final class ProjectStore {
         } else if let id = Preferences.selectedWorkspaceID, workspace(id) != nil {
             selection = .workspace(id)
         }
+        recordVisit()
     }
 
     private func publishSidebarSessions() {

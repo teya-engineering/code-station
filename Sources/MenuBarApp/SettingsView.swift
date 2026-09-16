@@ -521,6 +521,9 @@ struct SettingsView: View {
                 personalisation
             }
             .transition(.fadeIn)
+        case .keyboard:
+            keyboardShortcuts.id(SettingsSearchTarget.keyboardShortcuts.id)
+            .transition(.fadeIn)
         case .agents:
             AgentSettingsView(selectedAgent: runner.agent,
                               requestedAgent: searchedAgent)
@@ -536,6 +539,23 @@ struct SettingsView: View {
         case .experimental:
             experimentalFeatures.id(SettingsSearchTarget.experimentalFeatures.id)
             .transition(.fadeIn)
+        }
+    }
+
+    // Read only. The keys are bound where their action lives, so this is the one place
+    // that says out loud what the whole set is.
+    private var keyboardShortcuts: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            ForEach(KeyboardShortcutsReference.groups) { group in
+                ChoiceBlock(group.title.uppercased()) {
+                    SettingsCard {
+                        ForEach(Array(group.shortcuts.enumerated()), id: \.element.id) { index, shortcut in
+                            if index > 0 { SettingsRowDivider() }
+                            KeyboardShortcutRow(shortcut: shortcut)
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -1698,6 +1718,7 @@ enum SettingsSearchTarget: String, Hashable {
     case appearanceWorkingSet
     case appearanceSidebarIcons
     case appearanceDefaultBot
+    case keyboardShortcuts
     case agentDefault
     case agentConfigure
     case agentDetails
@@ -1761,6 +1782,10 @@ enum SettingsSearchIndex {
                "appearance style monogram dicebear motion still animated"),
         result("Default bot", .appearance, .appearanceDefaultBot,
                "appearance avatar image personality photo add remove delete"),
+        result("Keyboard shortcuts", .keyboard, .keyboardShortcuts,
+               "keys key command cmd control ctrl option shift escape reference list bindings"),
+        result("Back and forward", .keyboard, .keyboardShortcuts,
+               "previous next session project workspace history navigate bracket retrace"),
         result("Default agent", .agents, .agentDefault,
                "claude code codex copilot new sessions"),
         result("Configure agent", .agents, .agentConfigure,
@@ -1843,6 +1868,7 @@ enum SettingsSearchIndex {
 enum SettingsTab: CaseIterable, Hashable {
     case general
     case appearance
+    case keyboard
     case agents
     case design
     case advanced
@@ -1852,6 +1878,7 @@ enum SettingsTab: CaseIterable, Hashable {
         switch self {
         case .general: "General"
         case .appearance: "Appearance"
+        case .keyboard: "Keyboard"
         case .agents: "Agents"
         case .design: "Design"
         case .advanced: "Advanced"
@@ -1863,6 +1890,7 @@ enum SettingsTab: CaseIterable, Hashable {
         switch self {
         case .general: "slider.horizontal.3"
         case .appearance: "paintpalette"
+        case .keyboard: "keyboard"
         case .agents: "cpu"
         case .design: "paintbrush"
         case .advanced: "gearshape"
@@ -1874,10 +1902,41 @@ enum SettingsTab: CaseIterable, Hashable {
         switch self {
         case .general: "Settings for Teya Code Station."
         case .appearance: "Make Code Station comfortable to read and easy to recognise at a glance."
+        case .keyboard: "Every key Code Station answers, and what it does."
         case .agents: "Choose an agent and set how it runs."
         case .design: "Give sessions a Design workspace for visual ideas and prototypes."
         case .advanced: "Manage shared configuration and other advanced settings."
         case .experimental: "Try features that are still in development."
         }
+    }
+}
+
+// The key sits at the trailing edge in a cap of its own, so a column of them reads down
+// the card however long the sentence beside it runs.
+private struct KeyboardShortcutRow: View {
+    let shortcut: KeyboardShortcutHelp
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(shortcut.title)
+                    .font(.system(size: 12.5, weight: .semibold))
+                Text(shortcut.detail)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Text(shortcut.keys)
+                .font(.mono(11, .semibold))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .fieldSurface(cornerRadius: 6)
+                .fixedSize()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 11)
     }
 }

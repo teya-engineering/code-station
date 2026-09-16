@@ -112,6 +112,22 @@ struct RootView: View {
             .opacity(0)
             .keyboardShortcut("k", modifiers: .command)
         )
+        // Cmd+[ and Cmd+] are Back and Forward on the rest of the Mac, so they retrace
+        // the projects, workspaces and sessions already looked at. They are disabled
+        // when the trail has no more to give, which leaves the key to anything that has
+        // a better use for it.
+        .background(
+            ZStack {
+                Button("") { store.goBack() }
+                    .keyboardShortcut("[", modifiers: .command)
+                    .disabled(!canNavigateHistory || !store.canGoBack)
+                Button("") { store.goForward() }
+                    .keyboardShortcut("]", modifiers: .command)
+                    .disabled(!canNavigateHistory || !store.canGoForward)
+            }
+            .buttonStyle(.plain)
+            .opacity(0)
+        )
         .background {
             if commandPalette.isPresented {
                 Button("") { commandPalette.close() }
@@ -141,6 +157,10 @@ struct RootView: View {
             sheetContent(sheet).appOverlays()
         }
     }
+
+    // Moving the window behind a sheet or the palette would leave the person looking at
+    // something that no longer belongs to what is underneath it.
+    private var canNavigateHistory: Bool { sheet == nil && !commandPalette.isPresented }
 
     private var commandPaletteLayer: some View {
         GeometryReader { geometry in
