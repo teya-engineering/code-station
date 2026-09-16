@@ -57,14 +57,24 @@ struct SidebarSessionVisibilityTests {
         #expect(visibility.visible(sessions(13), in: projectID).count == 13)
     }
 
-    @Test func pinningKeepsTheCapAndAddsTheOpenedSession() {
+    @Test func pinningKeepsTheCapAndSwapsInTheOpenedSession() {
         var visibility = SidebarSessionVisibility()
         let all = sessions(12)
         visibility.pin(all[8].id, in: projectID)
 
         let visible = visibility.visible(all, in: projectID)
 
-        #expect(visible.map(\.id) == all.prefix(4).map(\.id) + [all[8].id])
+        #expect(visible.map(\.id) == all.prefix(3).map(\.id) + [all[8].id])
+    }
+
+    @Test func openingAShownSessionLeavesTheRowCountAlone() {
+        var visibility = SidebarSessionVisibility()
+        let all = sessions(12)
+        visibility.pin(all[8].id, in: projectID)
+
+        #expect(visibility.visible(all, in: projectID).count == 4)
+        #expect(visibility.visible(all, in: projectID,
+                                   selectedSessionID: all[0].id).count == 4)
     }
 
     @Test func pinningASessionAlreadyShownAddsNothing() {
@@ -100,7 +110,7 @@ struct SidebarSessionVisibilityTests {
         visibility.reset(projectID)
 
         #expect(visibility.visible(all, in: projectID, selectedSessionID: all[12].id).map(\.id)
-                == all.prefix(4).map(\.id) + [all[12].id])
+                == all.prefix(3).map(\.id) + [all[12].id])
     }
 
     @Test func selectionTakesPrecedenceOverAnEarlierRevealWithoutOpeningTheHistory() {
@@ -110,7 +120,7 @@ struct SidebarSessionVisibilityTests {
 
         #expect(visibility.visible(all, in: projectID, limit: 2,
                                    selectedSessionID: all[12].id).map(\.id)
-                == all.prefix(2).map(\.id) + [all[12].id])
+                == all.prefix(1).map(\.id) + [all[12].id])
     }
 
     @Test func selectionRemainsVisibleAfterTheSessionOrderChanges() {
@@ -120,7 +130,7 @@ struct SidebarSessionVisibilityTests {
 
         #expect(visibility.visible(reversed, in: projectID,
                                    selectedSessionID: all[0].id).map(\.id)
-                == reversed.prefix(4).map(\.id) + [all[0].id])
+                == reversed.prefix(3).map(\.id) + [all[0].id])
         #expect(visibility.visible(all, in: projectID,
                                    selectedSessionID: all[0].id).map(\.id)
                 == all.prefix(4).map(\.id))
