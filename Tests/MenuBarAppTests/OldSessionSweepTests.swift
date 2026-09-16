@@ -72,7 +72,7 @@ struct OldSessionSweepTests {
         #expect(due.map(\.id) == [sessions[4].id])
     }
 
-    @Test func clearsALongBacklogOverSeveralPasses() {
+    @Test func offersABacklogOldestFirst() {
         let sessions = (0..<(OldSessionSweep.batchLimit + 20)).map {
             session(daysAgo: 8 + Double($0))
         }
@@ -81,68 +81,75 @@ struct OldSessionSweepTests {
                                       isBusy: { _ in false },
                                       isOpen: { _ in false })
 
-        #expect(due.count == OldSessionSweep.batchLimit)
-        // Oldest first, so the backlog is worked through from the far end.
+        #expect(due.count == sessions.count)
+        // Oldest first, so a capped cohort works through the backlog from the far end.
         #expect(due.first?.id == sessions.last?.id)
     }
 
-    @Test func waitsAnHourAfterAnOldSessionIsFirstSeen() {
-        let old = session(daysAgo: 8)
+    @Test func countsDownForTheCohortItArmed() {
+        let first = UUID()
+        let second = UUID()
         var buffer = OldSessionSweep.EligibilityBuffer()
 
-        #expect(buffer.nextReadyAt == nil)
-        #expect(buffer.ready([old], now: now).isEmpty)
-        #expect(buffer.nextReadyAt == now.addingTimeInterval(OldSessionSweep.gracePeriod))
-        #expect(buffer.ready(
-            [old], now: now.addingTimeInterval(OldSessionSweep.gracePeriod - 1)).isEmpty)
-        #expect(buffer.ready(
-            [old], now: now.addingTimeInterval(OldSessionSweep.gracePeriod)).map(\.id)
-                == [old.id])
+        #expect(buffer.deletion == nil)
+        #expect(buffer.canArm(now: now))
+        buffer.arm([first, second], now: now)
 
-        buffer.remove(old.id)
-        #expect(buffer.nextReadyAt == nil)
+        #expect(buffer.deletion == OldSessionSweep.Deletion(
+            at: now.addingTimeInterval(OldSessionSweep.gracePeriod), sessions: 2))
+        #expect(!buffer.isDue(now: now.addingTimeInterval(OldSessionSweep.gracePeriod - 1)))
+        #expect(buffer.isDue(now: now.addingTimeInterval(OldSessionSweep.gracePeriod)))
     }
 
-    @Test func givesANewlyEligibleSessionAnHourWhileTheAppIsOpen() {
-        let newlyOld = session(daysAgo: 7)
+    // The number beside the countdown is a promise about a fixed set, so a session that
+    // goes quiet while the clock runs waits for the next cohort instead of joining this
+    // one behind the count that has already been shown.
+    @Test func doesNotTakeOnMoreSessionsOnceTheCountdownHasStarted() {
+        let armed = UUID()
+        let newlyOld = UUID()
         var buffer = OldSessionSweep.EligibilityBuffer()
+        buffer.arm([armed], now: now)
 
-        #expect(buffer.ready([], now: now).isEmpty)
-        #expect(buffer.ready(
-            [newlyOld], now: now.addingTimeInterval(OldSessionSweep.gracePeriod)).isEmpty)
-        #expect(buffer.ready(
-            [newlyOld],
-            now: now.addingTimeInterval(OldSessionSweep.gracePeriod * 2 - 1)).isEmpty)
-        #expect(buffer.ready(
-            [newlyOld],
-            now: now.addingTimeInterval(OldSessionSweep.gracePeriod * 2)).map(\.id)
-                == [newlyOld.id])
+        let halfway = now.addingTimeInterval(OldSessionSweep.gracePeriod / 2)
+        #expect(!buffer.canArm(now: halfway))
+        buffer.keepOnly([armed, newlyOld])
+
+        #expect(buffer.cohort == [armed])
+        #expect(buffer.deletion?.sessions == 1)
     }
 
-    @Test func startsANewHourWhenASessionBecomesEligibleAgain() {
-        let old = session(daysAgo: 8)
+    @Test func dropsASessionThatStopsBeingEligibleWhileTheCohortWaits() {
+        let kept = UUID()
+        let takenBack = UUID()
         var buffer = OldSessionSweep.EligibilityBuffer()
+        buffer.arm([kept, takenBack], now: now)
 
-        #expect(buffer.ready([old], now: now).isEmpty)
-        #expect(buffer.ready(
-            [], now: now.addingTimeInterval(OldSessionSweep.gracePeriod / 2)).isEmpty)
-        #expect(buffer.ready(
-            [old], now: now.addingTimeInterval(OldSessionSweep.gracePeriod * 2)).isEmpty)
+        buffer.keepOnly([kept])
+
+        #expect(buffer.cohort == [kept])
+        #expect(buffer.deletion?.sessions == 1)
     }
 
-    @Test func waitsBeforeRetryingASessionThatCouldNotBeDeleted() {
-        let old = session(daysAgo: 8)
+    @Test func standsDownWhenEveryMemberOfTheCohortLeaves() {
         var buffer = OldSessionSweep.EligibilityBuffer()
-        let warningEnds = now.addingTimeInterval(OldSessionSweep.gracePeriod)
-        let retryAt = warningEnds.addingTimeInterval(OldSessionSweep.retryInterval)
+        buffer.arm([UUID()], now: now)
 
-        _ = buffer.ready([old], now: now)
-        #expect(buffer.ready([old], now: warningEnds) == [old])
-        buffer.retry(old.id, at: retryAt)
+        buffer.keepOnly([])
 
-        #expect(buffer.nextReadyAt == retryAt)
-        #expect(buffer.ready([old], now: retryAt.addingTimeInterval(-1)).isEmpty)
-        #expect(buffer.ready([old], now: retryAt) == [old])
+        #expect(buffer.deletion == nil)
+        #expect(buffer.canArm(now: now))
+    }
+
+    // Settling a cohort reads git, so finding nothing safe to take must not turn into a
+    // worktree read every second.
+    @Test func waitsBeforeLookingAgainWhenNothingCanBeTaken() {
+        var buffer = OldSessionSweep.EligibilityBuffer()
+        buffer.arm([], now: now)
+
+        #expect(buffer.deletion == nil)
+        #expect(!buffer.canArm(
+            now: now.addingTimeInterval(OldSessionSweep.retryInterval - 1)))
+        #expect(buffer.canArm(now: now.addingTimeInterval(OldSessionSweep.retryInterval)))
     }
 
     @Test func deletesAStillEligibleSessionAfterTheWarningHour() async throws {
@@ -160,6 +167,49 @@ struct OldSessionSweepTests {
         #expect(duringWarning == 0)
         #expect(afterWarning == 1)
         #expect(store.session(old.id) == nil)
+    }
+
+    // A session that goes quiet while the countdown runs is not swept up by a deadline
+    // that was set, and counted, before it was old. It gets a cohort, and an hour, of
+    // its own.
+    @Test func leavesASessionThatGoesQuietDuringTheCountdownForTheNextCohort() async throws {
+        let first = agedSession()
+        let firstSeen = Date()
+        var buffer = OldSessionSweep.EligibilityBuffer()
+
+        _ = await OldSessionSweep.run(
+            days: 7, policy: .deleteSafe, store: store, runner: runner,
+            buffer: &buffer, now: firstSeen)
+        #expect(buffer.deletion?.sessions == 1)
+
+        let second = agedSession()
+        let deadline = firstSeen.addingTimeInterval(OldSessionSweep.gracePeriod)
+        let atDeadline = await OldSessionSweep.run(
+            days: 7, policy: .deleteSafe, store: store, runner: runner,
+            buffer: &buffer, now: deadline)
+
+        #expect(atDeadline == 1)
+        #expect(store.session(first.id) == nil)
+        #expect(store.session(second.id) != nil)
+
+        _ = await OldSessionSweep.run(
+            days: 7, policy: .deleteSafe, store: store, runner: runner,
+            buffer: &buffer, now: deadline)
+
+        #expect(buffer.deletion == OldSessionSweep.Deletion(
+            at: deadline.addingTimeInterval(OldSessionSweep.gracePeriod), sessions: 1))
+        #expect(store.session(second.id) != nil)
+    }
+
+    @Test func armsNoMoreThanOneBatchAtATime() async throws {
+        for _ in 0..<(OldSessionSweep.batchLimit + 5) { _ = agedSession() }
+        var buffer = OldSessionSweep.EligibilityBuffer()
+
+        _ = await OldSessionSweep.run(
+            days: 7, policy: .deleteSafe, store: store, runner: runner,
+            buffer: &buffer, now: Date())
+
+        #expect(buffer.deletion?.sessions == OldSessionSweep.batchLimit)
     }
 
     // Snooze stops the unattended deletion behind the countdown as well as the offer in
@@ -293,10 +343,7 @@ struct OldSessionSweepTests {
 
         let duringWarning = await OldSessionSweep.run(
             days: 7, policy: .deleteSafe, store: store, runner: runner,
-            buffer: &buffer, now: firstSeen) { _ in
-                Issue.record("git should not be checked during the warning hour")
-                return self.snapshot(changedFiles: 0)
-            }
+            buffer: &buffer, now: firstSeen) { _ in self.snapshot(changedFiles: 0) }
 
         let deleted = await OldSessionSweep.run(
             days: 7, policy: .deleteSafe, store: store, runner: runner,
@@ -320,10 +367,7 @@ struct OldSessionSweepTests {
 
         _ = await OldSessionSweep.run(
             days: 7, policy: .deleteSafe, store: store, runner: runner,
-            buffer: &buffer, now: firstSeen) { _ in
-                Issue.record("git should not be checked during the warning hour")
-                return self.snapshot(changedFiles: 0)
-            }
+            buffer: &buffer, now: firstSeen) { _ in self.snapshot(changedFiles: 0) }
 
         let deleted = await OldSessionSweep.run(
             days: 7, policy: .deleteSafe, store: store, runner: runner,

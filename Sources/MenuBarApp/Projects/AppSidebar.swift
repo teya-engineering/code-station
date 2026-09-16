@@ -6,7 +6,7 @@ import SwiftUI
 struct AppSidebar: View {
     let skills: SkillsManager
     let tools: ToolsMenuActions
-    let oldSessionDeletionAt: Date?
+    let oldSessionDeletion: OldSessionSweep.Deletion?
     let onReviewOldSessions: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -58,9 +58,6 @@ struct AppSidebar: View {
     private struct OldSessionSummary: Equatable {
         var sessions = 0
         var losesWork = 0
-        var losesNothing = 0
-        var unpinnedSessions = 0
-        var unpinnedLosesNothing = 0
         // Projects whose snooze is holding old sessions back. A snooze over a project
         // with nothing old to hide is not worth a line in the strip.
         var snoozedProjects = 0
@@ -1286,36 +1283,39 @@ struct AppSidebar: View {
     }
 
     // Sessions pile up quietly, and the worktrees behind them take real disk. The strip
-    // says how much has gone stale, shows when automatic cleanup runs, and hands it to a
-    // screen that explains what clearing each one would cost.
+    // says how much has gone stale and hands it to a screen that explains what clearing
+    // each one would cost. Once the sweep has a cohort waiting, the strip switches to
+    // that cohort: the count beside the countdown is what the sweep will take, so the
+    // number a person reads before walking away is the number that goes.
     private func oldSessionsStrip(_ summary: OldSessionSummary) -> some View {
         let losesWork = summary.losesWork > 0
         return Button(action: onReviewOldSessions) {
             ZStack {
                 HStack(spacing: 8) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("\(counted(summary.sessions, "session")) older than \(counted(oldSessionDays, "day"))")
+                        Text(Self.stripTitle(summary, deleting: oldSessionDeletion?.sessions,
+                                             days: oldSessionDays))
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundStyle(losesWork ? Theme.attentionText : Color.primary)
                             .lineLimit(1)
                             .minimumScaleFactor(0.85)
-                        Text(Self.stripDetail(summary))
+                        Text(Self.stripDetail(summary, deleting: oldSessionDeletion?.sessions,
+                                              days: oldSessionDays))
                             .font(.mono(10))
                             .foregroundStyle(losesWork ? Theme.attentionText : Color.secondary)
                             .lineLimit(1)
                     }
                     Spacer(minLength: 8)
-                    if let oldSessionDeletionAt,
-                       automaticallyDeletedCount(in: summary) > 0 {
+                    if let deletionAt = oldSessionDeletion?.at {
                         TimelineView(.periodic(from: .now, by: 1)) { context in
                             let countdownIsUrgent = CleanupCountdown.isUrgent(
-                                until: oldSessionDeletionAt,
+                                until: deletionAt,
                                 now: context.date)
                             HStack(spacing: 4) {
                                 Image(systemName: "timer")
                                     .font(.system(size: 9, weight: .semibold))
                                 Text(CleanupCountdown.text(
-                                    until: oldSessionDeletionAt,
+                                    until: deletionAt,
                                     now: context.date))
                                     .font(.mono(10, .semibold))
                                     .monospacedDigit()
@@ -1326,7 +1326,7 @@ struct AppSidebar: View {
                             .accessibilityElement(children: .ignore)
                             .accessibilityLabel("Automatic deletion countdown")
                             .accessibilityValue(CleanupCountdown.text(
-                                until: oldSessionDeletionAt,
+                                until: deletionAt,
                                 now: context.date))
                         }
                     }
@@ -1350,9 +1350,37 @@ struct AppSidebar: View {
         .accessibilityLabel("Review old sessions")
     }
 
-    // "1 project snoozed · 1 would lose work", so a quiet countdown is never a mystery.
+    // The strip makes one statement at a time. Once a cohort is waiting the top line is a
+    // promise about that cohort and nothing else, so it counts the sessions the sweep has
+    // already settled on rather than everything that has gone quiet.
+    private static func stripTitle(_ summary: OldSessionSummary, deleting: Int?,
+                                   days: Int) -> String {
+        guard let deleting else {
+            return "\(counted(summary.sessions, "session")) older than \(counted(days, "day"))"
+        }
+        return "\(counted(deleting, "session")) will be deleted"
+    }
+
+    // Under a promise the detail carries the threshold the top line gave up naming and
+    // says what the cohort is leaving behind. With no cohort waiting the strip is only an
+    // offer to review, so the detail counts what accepting it would cost.
+    private static func stripDetail(_ summary: OldSessionSummary, deleting: Int?,
+                                    days: Int) -> String {
+        guard let deleting else { return reviewDetail(summary) }
+        var parts = ["Older than \(counted(days, "day"))"]
+        // The summary is refreshed on its own slower clock, so it can lag a cohort that
+        // has just lost a member.
+        let kept = max(0, summary.sessions - deleting)
+        if kept > 0 { parts.append("\(kept) kept for review") }
+        if summary.snoozedProjects > 0 {
+            parts.append("\(counted(summary.snoozedProjects, "project")) snoozed")
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    // "1 project snoozed · 1 would lose work", so a quiet strip is never a mystery.
     // With nothing snoozed the line says only what it has always said.
-    private static func stripDetail(_ summary: OldSessionSummary) -> String {
+    private static func reviewDetail(_ summary: OldSessionSummary) -> String {
         let work = summary.losesWork == 1
             ? "1 session would lose work"
             : "\(summary.losesWork) sessions would lose work"
@@ -1363,14 +1391,6 @@ struct AppSidebar: View {
     }
 
     private var oldSessionDays: Int { appSettings.oldSessionDays }
-
-    private func automaticallyDeletedCount(in summary: OldSessionSummary) -> Int {
-        switch appSettings.oldSessionCleanupPolicy {
-        case .review: 0
-        case .deleteSafe: summary.unpinnedLosesNothing
-        case .deleteAll: summary.unpinnedSessions
-        }
-    }
 
     private var oldSessionRefreshRule: OldSessionRefreshRule {
         let sessions = store.sidebarSessions
@@ -1393,27 +1413,16 @@ struct AppSidebar: View {
         let heldBack = old.filter { ProjectSnooze.isActive(snoozeDeadline($0)) }
         let sessions = old.filter { !ProjectSnooze.isActive(snoozeDeadline($0)) }
         var losesWork = 0
-        var losesNothing = 0
-        var unpinnedSessions = 0
-        var unpinnedLosesNothing = 0
         for session in sessions {
             guard !Task.isCancelled else { return }
             let cost = await SessionCost.settledCost(
                 worktrees: store.checkoutProjects(for: session).compactMap(\.worktreePath),
                 deletesDesignArtifacts: store.hasDesignArtifacts(for: session))
             if cost.losesWork { losesWork += 1 }
-            if cost.losesNothing { losesNothing += 1 }
-            if !session.isPinned {
-                unpinnedSessions += 1
-                if cost.losesNothing { unpinnedLosesNothing += 1 }
-            }
         }
         guard !Task.isCancelled else { return }
         oldSessionSummary = OldSessionSummary(sessions: sessions.count,
                                               losesWork: losesWork,
-                                              losesNothing: losesNothing,
-                                              unpinnedSessions: unpinnedSessions,
-                                              unpinnedLosesNothing: unpinnedLosesNothing,
                                               snoozedProjects: Set(heldBack.map(\.projectID)).count)
     }
 
