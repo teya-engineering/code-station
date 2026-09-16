@@ -1316,12 +1316,15 @@ struct SessionView: View {
                 let visibleMessages = transcriptWindow.visibleMessages(in: session.messages)
                 transcriptContent(session, messages: visibleMessages, state: state,
                                   projectPath: projectPath) {
-                    let firstVisibleID = visibleMessages.first?.id
                     transcriptWindow.loadEarlier(totalCount: session.messages.count)
-                    guard let firstVisibleID else { return }
+                    // Land on the oldest message the page just added, so the reader
+                    // starts at the beginning of what they asked for and reads forward
+                    // into what they had already.
+                    guard let earliestID = transcriptWindow
+                        .visibleMessages(in: session.messages).first?.id else { return }
                     Task {
                         await Task.yield()
-                        proxy.scrollTo(firstVisibleID, anchor: .top)
+                        proxy.scrollTo(earliestID, anchor: .top)
                     }
                 }
                     .padding(.horizontal, 26)
