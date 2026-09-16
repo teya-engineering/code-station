@@ -61,6 +61,14 @@ struct SettingsSearchTests {
         #expect(result.target == .appearanceWorkingSet)
     }
 
+    @Test func findsTheDesignWorkspaceInItsOwnTab() throws {
+        let result = try #require(SettingsSearchIndex.results(for: "design prototypes").first)
+
+        #expect(result.title == "Design")
+        #expect(result.tab == .design)
+        #expect(result.target == .designWorkspace)
+    }
+
     @Test func findsEnvironmentCredentials() throws {
         let result = try #require(SettingsSearchIndex.results(for: "environment credentials").first)
 

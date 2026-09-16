@@ -530,6 +530,9 @@ struct SettingsView: View {
                 SiteConfigurationSection(skills: skills)
             }
             .transition(.fadeIn)
+        case .design:
+            designWorkspace.id(SettingsSearchTarget.designWorkspace.id)
+            .transition(.fadeIn)
         case .experimental:
             experimentalFeatures.id(SettingsSearchTarget.experimentalFeatures.id)
             .transition(.fadeIn)
@@ -1063,9 +1066,9 @@ struct SettingsView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var experimentalFeatures: some View {
+    private var designWorkspace: some View {
         @Bindable var settings = settings
-        return ChoiceBlock("EXPERIMENTAL") {
+        return ChoiceBlock("DESIGN") {
             SettingsCard {
                 SettingsToggleRow(
                     "Design",
@@ -1073,9 +1076,14 @@ struct SettingsView: View {
                     isOn: $settings.designEnabled)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 13)
+            }
+        }
+    }
 
-                SettingsRowDivider()
-
+    private var experimentalFeatures: some View {
+        @Bindable var settings = settings
+        return ChoiceBlock("EXPERIMENTAL") {
+            SettingsCard {
                 SettingsToggleRow(
                     "Mobile access",
                     detail: "Puts a QR code on Home, on every project and on every session. A phone on the same trusted Wi-Fi can read and run whatever the code it scanned covers.",
@@ -1701,6 +1709,7 @@ enum SettingsSearchTarget: String, Hashable {
     case agentFiles
     case advancedConfiguration
     case advancedReset
+    case designWorkspace
     case experimentalFeatures
 
     var id: String { rawValue }
@@ -1782,8 +1791,8 @@ enum SettingsSearchIndex {
                "json environments api access credentials oauth shared defaults starter requests mcp presets skills marketplace shortcuts"),
         result("Reset from file", .advanced, .advancedReset,
                "repository url github load choose file restore aspects"),
-        result("Design", .experimental, .experimentalFeatures,
-               "visual ideas prototypes feature"),
+        result("Design", .design, .designWorkspace,
+               "visual ideas prototypes workspace feature"),
         result("Mobile access", .experimental, .experimentalFeatures,
                "qr code phone wifi experimental")
     ]
@@ -1835,6 +1844,7 @@ enum SettingsTab: CaseIterable, Hashable {
     case general
     case appearance
     case agents
+    case design
     case advanced
     case experimental
 
@@ -1843,6 +1853,7 @@ enum SettingsTab: CaseIterable, Hashable {
         case .general: "General"
         case .appearance: "Appearance"
         case .agents: "Agents"
+        case .design: "Design"
         case .advanced: "Advanced"
         case .experimental: "Experimental"
         }
@@ -1853,6 +1864,7 @@ enum SettingsTab: CaseIterable, Hashable {
         case .general: "slider.horizontal.3"
         case .appearance: "paintpalette"
         case .agents: "cpu"
+        case .design: "paintbrush"
         case .advanced: "gearshape"
         case .experimental: "flask"
         }
@@ -1863,6 +1875,7 @@ enum SettingsTab: CaseIterable, Hashable {
         case .general: "Settings for Teya Code Station."
         case .appearance: "Make Code Station comfortable to read and easy to recognise at a glance."
         case .agents: "Choose an agent and set how it runs."
+        case .design: "Give sessions a Design workspace for visual ideas and prototypes."
         case .advanced: "Manage shared configuration and other advanced settings."
         case .experimental: "Try features that are still in development."
         }
