@@ -143,6 +143,23 @@ struct ChatSession: Identifiable, Codable, Equatable, Sendable {
             || copilotSessionID != nil
     }
 
+    // The shell command behind a running task. A task is reported by its description,
+    // which says what the call was for rather than what it runs, so a wait that can never
+    // end reads exactly like a wait on a build until the command itself is on screen.
+    func shellCommand(forTaskWith toolUseID: String) -> String? {
+        for message in messages.reversed() {
+            guard let tool = message.tools.first(where: { $0.id == toolUseID }) else { continue }
+            guard let command = ToolPresentation.shellCommand(in: tool.input),
+                  !command.isBlank else { return nil }
+            // A command written over several lines would push the buttons off the card.
+            return command.split(whereSeparator: \.isNewline)
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+                .joined(separator: " ")
+        }
+        return nil
+    }
+
     func agentSessionID(for agent: AgentKind) -> String? {
         switch agent {
         case .claudeCode: claudeSessionID

@@ -1494,6 +1494,9 @@ struct SessionView: View {
                 WaitingNotice(since: waitingSince,
                               tasks: runner.backgroundTasks(sessionID),
                               agentTitle: session.agent.title,
+                              command: { task in
+                                  task.toolUseID.flatMap(session.shellCommand(forTaskWith:))
+                              },
                               onKeepWaiting: { waitNoticeDismissed = true },
                               onEnd: { runner.endWait(sessionID) })
                     .transition(.fadeIn)
@@ -2184,6 +2187,9 @@ private struct WaitingNotice: View {
     let since: Date
     let tasks: [BackgroundTask]
     let agentTitle: String
+    // Looked up rather than passed in already resolved: the answer costs a walk back
+    // through the transcript, and the card is only on screen after minutes of waiting.
+    let command: (BackgroundTask) -> String?
     let onKeepWaiting: () -> Void
     let onEnd: () -> Void
 
@@ -2212,12 +2218,32 @@ private struct WaitingNotice: View {
                         + "is being held open so the task can wake it again. Type to carry on in the same "
                         + "turn. Ending it stops the tasks it started.")
                         .fixedSize(horizontal: false, vertical: true)
-                    if tasks.count > 1 {
-                        ForEach(tasks) { task in
-                            Text("· \(task.label)")
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
+                    ForEach(tasks) { task in
+                        let command = command(task)
+                        // A lone task with nothing known about it is already named in the
+                        // line above, and an empty row would still take the stack's gap.
+                        if tasks.count > 1 || command != nil {
+                            VStack(alignment: .leading, spacing: 2) {
+                                if tasks.count > 1 {
+                                    Text("· \(task.label)")
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                }
+                                // The description alone hides the difference between a
+                                // wait that is working and one that can never finish. The
+                                // command shows it: a loop over a file nothing writes any
+                                // more gives itself away on sight, where its description
+                                // never would.
+                                if let command {
+                                    Text(command)
+                                        .font(.mono(11))
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(2)
+                                        .truncationMode(.middle)
+                                        .textSelection(.enabled)
+                                }
+                            }
                         }
                     }
                 }

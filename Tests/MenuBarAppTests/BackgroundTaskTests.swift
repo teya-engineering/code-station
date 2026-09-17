@@ -517,6 +517,48 @@ struct BackgroundTaskTests {
         #expect(grown.outputTokens == 0)
     }
 
+    // MARK: - Naming the command behind a held-open wait
+
+    private func session(with tools: [ToolUse]) -> ChatSession {
+        var session = ChatSession(projectID: UUID())
+        session.messages = [ChatMessage(role: .assistant, tools: tools)]
+        return session
+    }
+
+    @Test func findsTheCommandBehindATask() {
+        let session = session(with: [
+            ToolUse(id: "toolu_1", name: "Bash", input: #"{"command":"npm run dev"}"#),
+        ])
+        #expect(session.shellCommand(forTaskWith: "toolu_1") == "npm run dev")
+    }
+
+    // A wait that will never end is only obvious once the loop itself is on screen, and
+    // the loop is usually the longest thing the model ever writes on one line.
+    @Test func keepsTheWholeLoopOnOneLine() {
+        let session = session(with: [
+            ToolUse(id: "toolu_1", name: "Bash",
+                    input: #"{"command":"until grep -q done out\ndo :\ndone"}"#),
+        ])
+        #expect(session.shellCommand(forTaskWith: "toolu_1") == "until grep -q done out do : done")
+    }
+
+    // A task whose call has scrolled out of the loaded transcript still has to draw, just
+    // without the command.
+    @Test func hasNoCommandForAnUnknownCall() {
+        let session = session(with: [
+            ToolUse(id: "toolu_1", name: "Bash", input: #"{"command":"npm run dev"}"#),
+        ])
+        #expect(session.shellCommand(forTaskWith: "toolu_other") == nil)
+    }
+
+    // An agent is a background task too, and its input names no command.
+    @Test func hasNoCommandForACallThatIsNotAShell() {
+        let session = session(with: [
+            ToolUse(id: "toolu_1", name: "Agent", input: #"{"description":"Review the diff"}"#),
+        ])
+        #expect(session.shellCommand(forTaskWith: "toolu_1") == nil)
+    }
+
     // The model and window ride along on the newest report even when nothing grew.
     @Test func keepsTheNewestModelAndWindow() {
         let first = usage(cost: 1.0, input: 10, output: 100)
