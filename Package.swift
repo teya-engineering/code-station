@@ -4,7 +4,7 @@ import PackageDescription
 let package = Package(
     name: "MenuBarApp",
     platforms: [
-        .macOS(.v14)
+        .macOS(.v15)
     ],
     dependencies: [
         .package(url: "https://github.com/migueldeicaza/SwiftTerm", from: "1.15.0")

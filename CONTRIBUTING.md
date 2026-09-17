@@ -15,8 +15,8 @@ The app has one Swift package dependency, [SwiftTerm](https://github.com/migueld
 Build and run the executable:
 
 ```bash
-swift build --disable-sandbox
-swift run --disable-sandbox
+swift build --build-system native --disable-sandbox
+swift run --build-system native --disable-sandbox
 ```
 
 Create the app bundle used for normal manual testing:
@@ -115,7 +115,7 @@ Prefer existing controls and patterns before adding another variation. Comments 
 
 ## Before submitting a change
 
-1. Build the package with `swift build --disable-sandbox`.
+1. Build the package with `swift build --build-system native --disable-sandbox`.
 2. Run `swift test --disable-sandbox`.
 3. For UI changes, build the app bundle and check the affected flow in the running app.
 4. Review the diff for unrelated generated files or local configuration.

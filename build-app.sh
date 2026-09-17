@@ -10,8 +10,12 @@ BUNDLE_ID="com.teya.code-station"
 # file; a build with no file is left unconfigured.
 SITE_DEFAULTS="${SITE_DEFAULTS:-site-defaults.json}"
 
-swift build -c "$CONFIG"
-BIN="$(swift build -c "$CONFIG" --show-bin-path)/MenuBarApp"
+# The native build system records the SDK the app was really built against. The default
+# one records the deployment target instead, and AppKit then falls back to its macOS 14
+# behaviour, where a sheet is sized once as it opens and never follows its content.
+BUILD_SYSTEM=(--build-system native)
+swift build "${BUILD_SYSTEM[@]}" -c "$CONFIG"
+BIN="$(swift build "${BUILD_SYSTEM[@]}" -c "$CONFIG" --show-bin-path)/MenuBarApp"
 
 APP="build/$APP_NAME.app"
 rm -rf "$APP"
