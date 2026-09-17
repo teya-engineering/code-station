@@ -1887,11 +1887,15 @@ private struct WorkspaceHeaderRow: View {
                     : "")
                 .accessibilityAddTraits(selected && activeSessionTitle == nil ? [.isSelected] : [])
 
-                if !selected || hovering || runningCount > 0 {
+                // The count belongs to the row whether or not it is the current one:
+                // the sidebar is read at a glance, and a row that drops its number
+                // reads as a row with nothing in it. The slot keeps its width so the
+                // chevrons stay in one column down the list.
+                if sessionCount > 0 || runningCount > 0 || hovering {
                     ZStack(alignment: .trailing) {
                         HStack(spacing: 6) {
                             if runningCount > 0 { RunningDot() }
-                            if !selected, sessionCount > 0 {
+                            if sessionCount > 0 {
                                 Text(counted(sessionCount, "session"))
                                     .font(.mono(10))
                                     .foregroundStyle(.secondary)
@@ -1905,7 +1909,7 @@ private struct WorkspaceHeaderRow: View {
                                 .appTooltip("New multi-project session")
                         }
                     }
-                    .frame(minWidth: selected ? 0 : 62, alignment: .trailing)
+                    .frame(minWidth: 62, alignment: .trailing)
                 }
                 if sessionCount > 0 {
                     SidebarDisclosure(name: workspace.name, expanded: isExpanded, action: onToggle)
