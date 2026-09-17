@@ -144,6 +144,12 @@ final class AppSettings {
         }
     }
 
+    var promptSuggestionsEnabled: Bool {
+        didSet {
+            Preferences.setPromptSuggestionsEnabled(promptSuggestionsEnabled, in: preferences)
+        }
+    }
+
     var sessionFinishedSound: SessionSound {
         didSet {
             Preferences.setSessionFinishedSound(sessionFinishedSound, in: preferences)
@@ -180,6 +186,7 @@ final class AppSettings {
         mobileAccessEnabled = Preferences.mobileAccessEnabled(in: preferences)
         sessionRecapsEnabled = Preferences.sessionRecapsEnabled(in: preferences)
         sessionTitlesEnabled = Preferences.sessionTitlesEnabled(in: preferences)
+        promptSuggestionsEnabled = Preferences.promptSuggestionsEnabled(in: preferences)
         sessionFinishedSound = Preferences.sessionFinishedSound(in: preferences)
         hasCompletedOnboarding = Preferences.hasCompletedOnboarding(in: preferences)
         costShown = Dictionary(uniqueKeysWithValues: AgentKind.allCases.map {
@@ -603,6 +610,15 @@ struct SettingsView: View {
                     .padding(.vertical, 13)
             }
             .id(SettingsSearchTarget.generalTitles.id)
+            SettingsCard {
+                SettingsToggleRow(
+                    "Suggest the next prompt",
+                    detail: "Offers a likely next prompt above the composer once a turn ends. Claude Code predicts one as part of the turn. Codex and Copilot cannot, so they are asked in a short separate run that costs a little on every turn.",
+                    isOn: $settings.promptSuggestionsEnabled)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 13)
+            }
+            .id(SettingsSearchTarget.generalSuggestions.id)
         }
     }
 
@@ -1708,6 +1724,7 @@ enum SettingsSearchTarget: String, Hashable {
     case generalSidebar
     case generalRecaps
     case generalTitles
+    case generalSuggestions
     case generalSound
     case generalOldSessions
     case generalOrphanedWorktrees
@@ -1756,6 +1773,8 @@ enum SettingsSearchIndex {
                "recap catch up return summary conversation finish away manual toggle"),
         result("Automatic session titles", .general, .generalTitles,
                "title name rename regenerate summarise sentence first turn right click manual toggle"),
+        result("Suggest the next prompt", .general, .generalSuggestions,
+               "suggestion suggest next prompt predict composer follow up autocomplete toggle"),
         result("Session finished sound", .general, .generalSound,
                "sound alert audio chime beep play finish turn ends notification silent off"),
         result("Old sessions", .general, .generalOldSessions,

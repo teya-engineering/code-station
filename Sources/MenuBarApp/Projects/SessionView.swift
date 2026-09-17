@@ -1765,6 +1765,7 @@ struct SessionView: View {
                         above: {
                             runChoices(session, project: project)
                             contextNudge(session)
+                            promptSuggestion(busy: state.isBusy, blocked: blocked)
                             queueStrip(busy: state.isBusy, blocked: blocked)
                         },
                         accessory: {
@@ -1942,6 +1943,21 @@ struct SessionView: View {
             .padding(.vertical, 10)
             .frame(maxWidth: .infinity, alignment: .leading)
             .surface(Theme.field, cornerRadius: 8, border: Theme.attention.opacity(0.4))
+        }
+    }
+
+    // What the agent expects to be asked next. It sits with the other rows about what
+    // happens next, and goes as soon as the session starts working again, since a
+    // prediction made about a finished turn says nothing about the one now running.
+    @ViewBuilder private func promptSuggestion(busy: Bool, blocked: Bool) -> some View {
+        if !busy, !blocked, let suggestion = runner.suggestion(sessionID) {
+            PromptSuggestionStrip(
+                suggestion: suggestion,
+                take: {
+                    runner.takeSuggestion(sessionID)
+                    composerFocused = true
+                },
+                dismiss: { runner.dismissSuggestion(sessionID) })
         }
     }
 

@@ -43,6 +43,9 @@ enum StreamEvent: Sendable {
     // This is status, not the result of the turn.
     case streamError(String)
     case finished(isError: Bool, message: String?)
+    // What the CLI thinks the next prompt will be. It comes after the result rather than
+    // before it, since the turn has to be over before there is anything to predict.
+    case promptSuggestion(String)
 }
 
 // A command or agent the CLI started and left running behind the turn. The description is
@@ -140,6 +143,8 @@ extension StreamEvent {
                 + "messageBytes=\(message.utf8.count)"
         case .finished(let isError, let message):
             "finished error=\(isError) messageBytes=\(message?.utf8.count ?? 0)"
+        case .promptSuggestion(let suggestion):
+            "prompt suggestion bytes=\(suggestion.utf8.count)"
         }
     }
 
@@ -292,6 +297,11 @@ extension StreamEvent {
             }
             events.append(.finished(isError: isError, message: message))
             return events
+
+        case "prompt_suggestion":
+            guard let suggestion = PromptSuggestion.cleaned(object["suggestion"] as? String)
+            else { return [] }
+            return [.promptSuggestion(suggestion)]
 
         default:
             return []

@@ -61,6 +61,10 @@ enum AgentKind: String, CaseIterable, Codable, Sendable, Identifiable {
     // turn to the end with the access they were started with.
     var asksPermissions: Bool { self == .claudeCode }
 
+    // Whether the CLI predicts the next prompt itself and reports it on its stream. The
+    // others have to be asked in a run of their own, so a suggestion costs them far more.
+    var predictsPrompts: Bool { self == .claudeCode }
+
     // Whether the CLI keeps one conversation id for the whole session. Claude Code forks
     // a new id on every resumed turn instead, which is what lets a turn be wound back.
     var reusesConversationID: Bool { self != .claudeCode }

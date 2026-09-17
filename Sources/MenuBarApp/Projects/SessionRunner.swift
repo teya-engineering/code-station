@@ -71,6 +71,9 @@ final class SessionRunner {
         var compactNoticeID: UUID?
         // Whether the current context-limit nudge has been dismissed.
         var nudgeDismissed = false
+        // The next prompt the agent expects, offered under the composer. It belongs to
+        // the turn that has just ended, so the next one starting takes it away.
+        var suggestion: String?
         // What a held-open turn is waiting for. Kept beside the turn rather than on it: a
         // turn is a class, so a task list changing inside one is not a change any screen
         // would be told about, and the rows that name the wait would go stale.
@@ -119,9 +122,13 @@ final class SessionRunner {
     // Kept out of the record so arming the timer does not redraw every row watching the
     // session, the same reason the Codex context refreshes are held apart.
     @ObservationIgnored private var waitWatchdogs: [UUID: Task<Void, Never>] = [:]
+    // The suggestion run each session is waiting on. An answer for a run that is no
+    // longer the current one is dropped, the way a model catalog read is.
+    @ObservationIgnored private var suggestionRequests: [UUID: UUID] = [:]
     @ObservationIgnored private let memoryLimit: () -> UInt64
     @ObservationIgnored private let automaticRecapsEnabled: () -> Bool
     @ObservationIgnored private let automaticTitlesEnabled: () -> Bool
+    @ObservationIgnored private let promptSuggestionsEnabled: () -> Bool
 
     // How a CLI says it no longer holds the conversation we asked to resume. Codex has
     // no such message: a thread it cannot find is a failed turn like any other.
@@ -149,6 +156,9 @@ final class SessionRunner {
          },
          automaticTitlesEnabled: @escaping () -> Bool = {
              Preferences.sessionTitlesEnabled()
+         },
+         promptSuggestionsEnabled: @escaping () -> Bool = {
+             Preferences.promptSuggestionsEnabled()
          }) {
         self.configs = configs
         self.discoveredModels = discoveredModels
@@ -158,6 +168,7 @@ final class SessionRunner {
         self.memoryLimit = memoryLimit
         self.automaticRecapsEnabled = automaticRecapsEnabled
         self.automaticTitlesEnabled = automaticTitlesEnabled
+        self.promptSuggestionsEnabled = promptSuggestionsEnabled
         defaultsByAgent = Dictionary(uniqueKeysWithValues: AgentKind.allCases.map {
             ($0, Preferences.sessionDefaults(for: $0))
         })
@@ -883,6 +894,60 @@ final class SessionRunner {
         }
     }
 
+    // MARK: - Suggesting the next prompt
+
+    func suggestion(_ sessionID: UUID) -> String? { records[sessionID]?.suggestion }
+
+    func dismissSuggestion(_ sessionID: UUID) {
+        records[sessionID]?.suggestion = nil
+    }
+
+    // Taking a suggestion puts it in the composer rather than sending it, so it can be
+    // read, changed or thrown away like anything else typed there.
+    func takeSuggestion(_ sessionID: UUID) {
+        guard let suggestion = records[sessionID]?.suggestion else { return }
+        records[sessionID]?.suggestion = nil
+        editDraft(sessionID) { draft in
+            draft.text = draft.text.isBlank ? suggestion : draft.text + " " + suggestion
+        }
+    }
+
+    // Claude Code predicts the next prompt as part of the turn and says so on its stream,
+    // which costs nothing on top. The others have to be asked, so they are asked in a run
+    // of their own that never touches the session's conversation.
+    private func requestPromptSuggestion(_ sessionID: UUID, store: ProjectStore) {
+        // One ask per turn. The record is cleared when the next turn starts, so this is
+        // also what stops a recap finishing afterwards from asking all over again.
+        guard promptSuggestionsEnabled(), !isBeingRemoved(sessionID),
+              suggestionRequests[sessionID] == nil,
+              let session = store.session(sessionID), !session.agent.predictsPrompts,
+              let path = paths[session.agent], !state(sessionID).isBusy else { return }
+
+        let transcript = store.transcript(of: sessionID)
+        guard let reply = transcript.last(where: { $0.role == .assistant && !$0.text.isBlank }),
+              let asked = transcript.last(where: { $0.role == .user && !$0.text.isBlank })
+        else { return }
+        guard let directory = store.workingDirectories(for: session).first else { return }
+
+        let token = UUID()
+        suggestionRequests[sessionID] = token
+        let agent = session.agent
+        let searchPath = ProcessManager.searchPath
+        let prompt = PromptSuggestion.conversationTail(lastPrompt: asked.text,
+                                                       lastReply: reply.text)
+        SessionLog.note("asking \(agent.command) for a prompt suggestion", session: sessionID)
+        Task { [weak self] in
+            let suggestion = await PromptSuggestion.read(
+                agent: agent, at: path, searchPath: searchPath,
+                workingDirectory: directory, prompt: prompt)
+            await MainActor.run {
+                guard let self, self.suggestionRequests[sessionID] == token,
+                      let suggestion, self.promptSuggestionsEnabled() else { return }
+                self.records[sessionID]?.suggestion = suggestion
+            }
+        }
+    }
+
     // MARK: - Recapping the conversation
 
     // Claude Code has a local recap command. Codex compaction is opaque and cannot be
@@ -1095,6 +1160,13 @@ final class SessionRunner {
         records[sessionID]?.waitsForDesignWorkflowDirectory = false
 
         records[sessionID]?.queue.removeFirst()
+        // The prediction belonged to the turn that has just ended, so starting another
+        // one takes it away whether or not it was used. Forgetting the run it was asked
+        // for is what stops a slow answer arriving afterwards and putting it back.
+        if next.summary == nil {
+            records[sessionID]?.suggestion = nil
+            suggestionRequests[sessionID] = nil
+        }
         // Where the conversation stands right now, stamped on the prompt so it marks a
         // point that can be come back to.
         let checkpoint = ConversationCheckpoint(agent: session.agent,
@@ -1264,6 +1336,7 @@ final class SessionRunner {
                                       prompt: String? = nil,
                                       mcpConfigPath: String? = nil,
                                       additionalSystemPrompt: String? = nil,
+                                      suggestsPrompts: Bool = false,
                                       discovered: [ModelChoice.Option]? = nil) -> [String] {
         // The model belongs to the session and can be changed explicitly between turns.
         // Falling back to the current app default would change it without the user asking.
@@ -1295,6 +1368,12 @@ final class SessionRunner {
                              "--append-system-prompt", systemPrompt]
             if let model { arguments += ["--model", model] }
             if let effort { arguments += ["--effort", effort] }
+            // The CLI predicts the next prompt for nothing on top of the turn, but only
+            // says so when it is asked both on the command line and in the environment.
+            // It keeps its own counsel about when there is nothing worth predicting: a
+            // conversation still finding its feet, or a turn that ended badly, says
+            // nothing at all, and the composer simply has no row that turn.
+            if suggestsPrompts { arguments += ["--prompt-suggestions", "true"] }
             if settings.mcpServersEnabled == false {
                 arguments += ["--strict-mcp-config", "--mcp-config", #"{"mcpServers":{}}"#]
             } else if let mcpConfigPath {
@@ -1640,7 +1719,12 @@ final class SessionRunner {
         do {
             plan = try turnPlan(for: session, prompt: prompt, attachments: attachments,
                                 workingDirectories: workingDirectories,
-                                mcpConfigURL: mcpConfigURL, store: store)
+                                mcpConfigURL: mcpConfigURL,
+                                // A recap or a title is the app talking to itself, so
+                                // there is no next prompt for it to predict.
+                                suggestsPrompts: summary == nil && agent.predictsPrompts
+                                    && promptSuggestionsEnabled(),
+                                store: store)
         } catch {
             fail(error.localizedDescription)
             return
@@ -1686,11 +1770,14 @@ final class SessionRunner {
         // The id a new conversation was told to use, for agents given one up front. Saved
         // as soon as the process starts: the stream only confirms it at the very end.
         var presetSessionID: String? = nil
+        // Whether the CLI was asked to predict the next prompt, which it also needs
+        // saying in its environment.
+        var suggestsPrompts = false
     }
 
     private func turnPlan(for session: ChatSession, prompt: String, attachments: [Attachment],
                           workingDirectories: [String], mcpConfigURL: URL?,
-                          store: ProjectStore) throws -> TurnPlan {
+                          suggestsPrompts: Bool, store: ProjectStore) throws -> TurnPlan {
         let agent = session.agent
         let resume = session.agentSessionID(for: agent).flatMap { $0.isEmpty ? nil : $0 }
         let promptForAgent = resume == nil ? workspacePrompt(prompt, session: session, store: store)
@@ -1733,9 +1820,11 @@ final class SessionRunner {
                 Self.designSystemPrompt(artifactURL: $0,
                                         canvasWidth: canvasWidths[session.id])
             } ?? implementationReference.map(Self.implementationSystemPrompt),
+            suggestsPrompts: suggestsPrompts,
             discovered: discoveredModels[agent])
         return TurnPlan(agent: agent, arguments: arguments, prompt: promptForAgent,
-                        resumeSessionID: resume, presetSessionID: presetSessionID)
+                        resumeSessionID: resume, presetSessionID: presetSessionID,
+                        suggestsPrompts: suggestsPrompts)
     }
 
     // Starts the process and wires up everything that listens to it: the two output
@@ -1747,6 +1836,7 @@ final class SessionRunner {
                        sessionID: UUID, store: ProjectStore) throws -> Turn {
         var env = ProcessInfo.processInfo.environment
         env["PATH"] = ProcessManager.searchPath
+        if plan.suggestsPrompts { env["CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION"] = "1" }
 
         let out = Pipe()
         let errors = Pipe()
@@ -2341,6 +2431,13 @@ final class SessionRunner {
                 turn.lastStreamError = message
                 setState(.reconnecting(message), for: sessionID)
 
+            // Sent after the result, since the turn has to be over before there is
+            // anything to predict. The preference is read again here because it can be
+            // turned off while the turn that asked for one is still running.
+            case .promptSuggestion(let suggestion):
+                guard turn.summary == nil, promptSuggestionsEnabled() else { continue }
+                records[sessionID]?.suggestion = suggestion
+
             case .finished(let isError, let message):
                 // A resumed process hands over whatever the one before it left queued -
                 // the wake-up for a background task it never got to report - and that
@@ -2779,6 +2876,9 @@ final class SessionRunner {
                         sessionID: store.userFacingSessionID(for: sessionID),
                         sessionTitle: session.title, failure: nil)
                 }
+                // Before the recap, which would otherwise hold the session busy and
+                // leave the turn with nothing to offer.
+                requestPromptSuggestion(sessionID, store: store)
                 requestAutomaticRecap(sessionID, unseen: unseen, store: store)
             }
             return
@@ -2833,6 +2933,10 @@ final class SessionRunner {
 
     private func finishSummary(_ turn: Turn, attempt: SummaryAttempt, status: Int32,
                                sessionID: UUID, store: ProjectStore) {
+        // A title runs before the turn that earned a suggestion has settled, so the ask
+        // is made here instead. It stands down on its own if one has already been made,
+        // or if another summary is still to run.
+        defer { requestPromptSuggestion(sessionID, store: store) }
         let streamed = turn.summaryText
         store.release(sessionID, for: .running)
 

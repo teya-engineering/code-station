@@ -185,7 +185,8 @@ final class RunnerHarness {
          waitingStaleAfter: TimeInterval = 10 * 60,
          memoryLimit: UInt64 = SessionMemoryLimit.automatic.bytes(),
          automaticRecapsEnabled: @escaping () -> Bool = { false },
-         automaticTitlesEnabled: @escaping () -> Bool = { false }) throws {
+         automaticTitlesEnabled: @escaping () -> Bool = { false },
+         promptSuggestionsEnabled: @escaping () -> Bool = { false }) throws {
         scratch = ScratchDirectory(prefix: "runner-\(agent.rawValue)")
         executable = scratch.path("\(agent.rawValue)-fixture")
         try FixtureCLI.write(script, to: executable)
@@ -200,7 +201,8 @@ final class RunnerHarness {
                                waitingStaleAfter: waitingStaleAfter,
                                memoryLimit: { memoryLimit },
                                automaticRecapsEnabled: automaticRecapsEnabled,
-                               automaticTitlesEnabled: automaticTitlesEnabled)
+                               automaticTitlesEnabled: automaticTitlesEnabled,
+                               promptSuggestionsEnabled: promptSuggestionsEnabled)
     }
 
     // Snapshots only mean anything inside a repository, so a test that expects one has

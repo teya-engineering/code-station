@@ -550,6 +550,18 @@ enum Preferences {
         store.set(enabled, forKey: "sessionRecapsEnabled")
     }
 
+    // Off unless asked for: a suggestion is work the agent does on top of the turn, and
+    // on the CLIs that cannot predict one themselves it is a whole extra run.
+    static func promptSuggestionsEnabled(in store: UserDefaults = .standard) -> Bool {
+        store.bool(forKey: "promptSuggestionsEnabled")
+    }
+
+    static func setPromptSuggestionsEnabled(
+        _ enabled: Bool, in store: UserDefaults = .standard
+    ) {
+        store.set(enabled, forKey: "promptSuggestionsEnabled")
+    }
+
     static func sessionTitlesEnabled(in store: UserDefaults = .standard) -> Bool {
         store.bool(forKey: "sessionTitlesEnabled")
     }
