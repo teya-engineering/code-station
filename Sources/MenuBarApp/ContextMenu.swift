@@ -227,10 +227,16 @@ private struct AppMenuButton: ViewModifier {
     let entries: () -> [MenuEntry]
 
     @State private var anchor = FrameAnchor()
+    // The menu this button opened, so the button can tell its own menu from the one
+    // another control has since opened.
+    @State private var opened: Int?
+
+    private var isOpen: Bool { presenter.isOpen && presenter.generation == opened }
 
     func body(content: Content) -> some View {
         Button(action: open) {
             content
+                .environment(\.menuIsOpen, isOpen)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -248,6 +254,7 @@ private struct AppMenuButton: ViewModifier {
             trailingAnchor: frame.maxX,
             verticalAttachment: .control(
                 edge: edge, oppositeY: edge == .bottom ? frame.minY - 4 : frame.maxY + 4))
+        opened = generation
         guard let refreshOnOpen else { return }
         Task { @MainActor in
             await refreshOnOpen()
@@ -277,6 +284,29 @@ enum MenuVerticalAttachment {
     }
 }
 
+extension EnvironmentValues {
+    // True on the label of a menu button while the menu it opened is on screen, so a
+    // control can show that the open menu is its own.
+    @Entry var menuIsOpen = false
+}
+
+// The mark on a control that hangs a menu under itself. It turns over while the menu is
+// open, so the pill and the menu read as one thing unfolding.
+struct MenuChevron: View {
+    var size: CGFloat = 9
+    var tint: Color = .secondary
+
+    @Environment(\.menuIsOpen) private var open
+
+    var body: some View {
+        Image(systemName: "chevron.down")
+            .font(.system(size: size, weight: .semibold))
+            .foregroundStyle(tint)
+            .rotationEffect(.degrees(open ? 180 : 0))
+            .motion(Motion.reveal, value: open)
+    }
+}
+
 // MARK: - Host
 
 struct ContextMenuHost: View {
@@ -287,35 +317,55 @@ struct ContextMenuHost: View {
     private var size: CGSize { measurement.size }
 
     var body: some View {
-        if presenter.isOpen {
-            GeometryReader { geometry in
-                ZStack(alignment: .topLeading) {
-                    // Swallows the click that dismisses the menu so it does not also
-                    // land on whatever is underneath.
-                    Color.clear
-                        .contentShape(Rectangle())
-                        .onTapGesture { presenter.dismiss() }
-
-                    card(maxHeight: max(0, geometry.size.height - 16))
-                        // A menu opened to a fixed width keeps it; anything else takes
-                        // the width its own rows ask for.
-                        .fixedSize(horizontal: presenter.width == nil, vertical: false)
-                        .frame(width: presenter.width)
-                        .id(presenter.generation)
-                        .smoothlyResizes(when: presenter.contentRevision)
-                        .measuredOverlay(generation: presenter.generation, into: $measurement)
-                        .offset(x: x(in: geometry.size), y: y(in: geometry.size))
-
-                    // Escape closes the menu, the way a menu is expected to behave when
-                    // the mouse is not involved.
-                    Button("", action: presenter.dismiss)
-                        .buttonStyle(.plain)
-                        .opacity(0)
-                        .keyboardShortcut(.escape, modifiers: [])
-                }
+        ZStack {
+            if presenter.isOpen {
+                content
             }
-            .ignoresSafeArea()
         }
+        .motion(Motion.reveal, value: presenter.isOpen)
+    }
+
+    private var content: some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .topLeading) {
+                // Swallows the click that dismisses the menu so it does not also
+                // land on whatever is underneath.
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture { presenter.dismiss() }
+
+                card(maxHeight: max(0, geometry.size.height - 16))
+                    // A menu opened to a fixed width keeps it; anything else takes
+                    // the width its own rows ask for.
+                    .fixedSize(horizontal: presenter.width == nil, vertical: false)
+                    .frame(width: presenter.width)
+                    .id(presenter.generation)
+                    .smoothlyResizes(when: presenter.contentRevision)
+                    .measuredOverlay(generation: presenter.generation, into: $measurement)
+                    .offset(x: x(in: geometry.size), y: y(in: geometry.size))
+                    .transition(opening)
+
+                // Escape closes the menu, the way a menu is expected to behave when
+                // the mouse is not involved.
+                Button("", action: presenter.dismiss)
+                    .buttonStyle(.plain)
+                    .opacity(0)
+                    .keyboardShortcut(.escape, modifiers: [])
+            }
+        }
+        .ignoresSafeArea()
+    }
+
+    // The menu grows out of the edge it is attached to, so it unfolds from its control
+    // rather than landing on top of the window. It leaves without the scale: a menu on
+    // its way out is already behind whatever the click started.
+    private var opening: AnyTransition {
+        let anchor: UnitPoint = switch presenter.verticalAttachment {
+        case .control(edge: .top, oppositeY: _): .bottom
+        default: .top
+        }
+        return .asymmetric(insertion: .scale(scale: 0.97, anchor: anchor).combined(with: .opacity),
+                           removal: .opacity)
     }
 
     private func card(maxHeight: CGFloat) -> some View {
@@ -614,6 +664,7 @@ private struct MenuItemRow: View {
             }
         }
         .onHover { hovering = $0 }
+        .motion(Motion.hover, value: hovering)
     }
 
     private var row: some View {

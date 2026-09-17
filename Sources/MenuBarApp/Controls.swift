@@ -57,6 +57,12 @@ struct HeaderTabToggle<Selection: Hashable>: View {
 
 // A switch trails its label, the way a row of settings expects.
 struct AppSwitchStyle: ToggleStyle {
+    private static let trackWidth: CGFloat = 34
+    private static let trackHeight: CGFloat = 20
+    private static let knob: CGFloat = 16
+    private static let inset: CGFloat = 2
+    private static var travel: CGFloat { trackWidth - knob - inset * 2 }
+
     func makeBody(configuration: Configuration) -> some View {
         Button {
             configuration.isOn.toggle()
@@ -65,18 +71,22 @@ struct AppSwitchStyle: ToggleStyle {
                 configuration.label
                 Capsule()
                     .fill(configuration.isOn ? Theme.accentFill : Theme.dotOff)
-                    .frame(width: 34, height: 20)
-                    .overlay(alignment: configuration.isOn ? .trailing : .leading) {
+                    .frame(width: Self.trackWidth, height: Self.trackHeight)
+                    .overlay(alignment: .leading) {
+                        // The knob is given its own size and slid along the track. A shape
+                        // in an overlay otherwise takes the whole track and draws itself in
+                        // the middle of it, whichever end the switch is aligned to.
                         Circle()
                             .fill(.white)
-                            .padding(2)
+                            .frame(width: Self.knob, height: Self.knob)
                             .shadow(color: .black.opacity(0.15), radius: 1, y: 1)
+                            .offset(x: Self.inset + (configuration.isOn ? Self.travel : 0))
                     }
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .animation(.easeInOut(duration: 0.15), value: configuration.isOn)
+        .motion(Motion.control, value: configuration.isOn)
     }
 }
 
@@ -93,17 +103,21 @@ struct AppCheckboxStyle: ToggleStyle {
                     .overlay(RoundedRectangle(cornerRadius: 5)
                         .stroke(configuration.isOn ? .clear : Theme.border, lineWidth: 1.5))
                     .overlay {
-                        if configuration.isOn {
-                            Image(systemName: "checkmark")
-                                .font(.system(size: 9, weight: .bold))
-                                .foregroundStyle(.white)
-                        }
+                        // The tick is always there and grows into the filled box, so
+                        // ticking a line is one movement rather than a mark appearing on
+                        // top of a box that has already changed colour.
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(.white)
+                            .scaleEffect(configuration.isOn ? 1 : 0.4)
+                            .opacity(configuration.isOn ? 1 : 0)
                     }
                 configuration.label
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .motion(Motion.control, value: configuration.isOn)
     }
 }
 
@@ -203,6 +217,7 @@ struct DisclosureHeader<Label: View>: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .motion(Motion.control, value: isExpanded)
         .appTooltip(isExpanded ? hide : show)
     }
 }

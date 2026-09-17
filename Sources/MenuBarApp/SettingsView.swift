@@ -312,6 +312,10 @@ struct SettingsView: View {
     @State private var botDraft = BotDraft()
     @State private var hoveredBot: AgentAvatar.ID?
     @FocusState private var searchFocused: Bool
+    // Ties the seat under the chosen pane to whichever row holds it, so picking another
+    // pane slides the same shape down the list instead of redrawing it there.
+    @Namespace private var paneSeat
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(spacing: 0) {
@@ -416,8 +420,9 @@ struct SettingsView: View {
                         SettingsNavigationItem(
                             title: choice.title,
                             symbol: choice.symbol,
-                            selected: tab == choice) {
-                                tab = choice
+                            selected: tab == choice,
+                            seat: paneSeat) {
+                                show { tab = choice }
                                 searchTarget = nil
                             }
                     }
@@ -456,6 +461,12 @@ struct SettingsView: View {
         }
     }
 
+    // A pane is swapped for another rather than redrawn in place, so the change is made
+    // where the animation can see both sides of it.
+    private func show(_ change: () -> Void) {
+        withAnimation(reduceMotion ? nil : Motion.reveal, change)
+    }
+
     private var searchResults: [SettingsSearchResult] {
         SettingsSearchIndex.results(for: searchText)
     }
@@ -470,7 +481,7 @@ struct SettingsView: View {
     }
 
     private func select(_ result: SettingsSearchResult) {
-        tab = result.tab
+        show { tab = result.tab }
         searchTarget = result.target
         searchResultID = result.id
         searchedAgent = result.agent
@@ -1448,9 +1459,11 @@ private struct SettingsNavigationItem: View {
     let title: String
     let symbol: String
     let selected: Bool
+    let seat: Namespace.ID
     let action: () -> Void
 
     @FocusState private var focused: Bool
+    @State private var hovering = false
 
     var body: some View {
         Button(action: action) {
@@ -1464,20 +1477,35 @@ private struct SettingsNavigationItem: View {
                     .foregroundStyle(selected ? Color.primary : Color.secondary)
                 Spacer(minLength: 0)
                 Circle()
-                    .fill(selected ? Theme.accent : .clear)
+                    .fill(Theme.accent)
                     .frame(width: 6, height: 6)
+                    .scaleEffect(selected ? 1 : 0.1)
+                    .opacity(selected ? 1 : 0)
             }
             .padding(.horizontal, 10)
             .frame(maxWidth: .infinity, minHeight: 42)
-            .background(RoundedRectangle(cornerRadius: 10)
-                .fill(selected ? Theme.card : .clear))
-            .overlay(RoundedRectangle(cornerRadius: 10)
-                .stroke(focused ? Theme.accent : selected ? Theme.border : .clear,
-                        lineWidth: focused ? 2 : 1))
+            .background {
+                if selected {
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(Theme.card)
+                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
+                        .matchedGeometryEffect(id: "pane", in: seat)
+                } else if hovering {
+                    RoundedRectangle(cornerRadius: 10).fill(Theme.card.opacity(0.5))
+                }
+            }
+            .overlay {
+                if focused {
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(Theme.accent, lineWidth: 2)
+                }
+            }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .focused($focused)
+        .onHover { hovering = $0 }
+        .motion(Motion.hover, value: hovering)
         .accessibilityLabel(title)
         .accessibilityValue(selected ? "Selected" : "Not selected")
     }

@@ -447,6 +447,40 @@ private struct ChangingName: ViewModifier {
     }
 }
 
+// MARK: - Motion
+
+// The pace everything interactive moves at. A switch, a pill, a menu and a pane all move
+// on one of these three curves, so the window reads as a single surface reacting rather
+// than a set of parts each keeping its own time.
+enum Motion {
+    // A colour settling under the pointer: over almost before it is noticed.
+    static let hover = Animation.easeOut(duration: 0.12)
+    // A control taking a new state. The spring overshoots by a hair, which is what makes
+    // a switch feel thrown rather than redrawn.
+    static let control = Animation.spring(response: 0.26, dampingFraction: 0.78)
+    // Something arriving or leaving: a menu unfolding, a pane swapped for another.
+    static let reveal = Animation.easeOut(duration: 0.18)
+}
+
+extension View {
+    // Runs one of the shared curves when `value` changes, and stands still for anyone who
+    // has asked the system for less motion.
+    func motion<Value: Equatable>(_ animation: Animation, value: Value) -> some View {
+        modifier(MotionModifier(animation: animation, value: value))
+    }
+}
+
+private struct MotionModifier<Value: Equatable>: ViewModifier {
+    let animation: Animation
+    let value: Value
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        content.animation(reduceMotion ? nil : animation, value: value)
+    }
+}
+
 // Inserted content fades into its final place. Removed content leaves immediately, so it
 // cannot linger over the view that replaces it while the surrounding layout changes.
 extension AnyTransition {
@@ -705,8 +739,7 @@ struct ActionButton: View {
                 // shares the row give way, rather than truncating its own words.
                 .fixedSize()
             if disclosure {
-                Image(systemName: "chevron.down")
-                    .font(.system(size: size - 4, weight: .semibold))
+                MenuChevron(size: size - 4, tint: label)
                     .opacity(0.65)
             }
         }
@@ -846,19 +879,35 @@ struct OptionMenu: View {
             if let caption {
                 SectionLabel(caption, style: .field)
             }
-            HStack(spacing: 8) {
-                Text(value)
-                    .font(.system(size: 12, weight: .medium))
-                Spacer()
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 11)
-            .padding(.vertical, 9)
-            .cardSurface(cornerRadius: 9)
-            .contentShape(Rectangle())
-            .appMenu(matchWidth: matchWidth, entries)
+            OptionMenuPill(value: value)
+                .appMenu(matchWidth: matchWidth, entries)
         }
+    }
+}
+
+// The pill itself, kept apart from the control around it so it can read whether its own
+// menu is open: that state is set on the label by the menu button, which is a layer
+// below where OptionMenu's body is built.
+private struct OptionMenuPill: View {
+    let value: String
+
+    @Environment(\.menuIsOpen) private var open
+    @State private var hovering = false
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(value)
+                .font(.system(size: 12, weight: .medium))
+            Spacer()
+            MenuChevron()
+        }
+        .padding(.horizontal, 11)
+        .padding(.vertical, 9)
+        .surface(open || hovering ? Theme.field : Theme.card, cornerRadius: 9,
+                 border: open ? Theme.accent.opacity(0.5) : Theme.border)
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
+        .motion(Motion.hover, value: hovering)
+        .motion(Motion.reveal, value: open)
     }
 }

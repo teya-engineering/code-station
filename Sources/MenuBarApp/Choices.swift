@@ -132,12 +132,29 @@ struct OptionRow: View {
         warning ? Theme.deletion.opacity(0.07) : Theme.field
     }
 
+    @State private var hovering = false
+
+    private var background: Color {
+        if selected { return selectedBackground }
+        return hovering ? Theme.field.opacity(0.5) : .clear
+    }
+
     var body: some View {
         Button(action: choose) {
             HStack(spacing: 10) {
-                Image(systemName: selected ? "largecircle.fill.circle" : "circle")
-                    .font(.system(size: 13))
-                    .foregroundStyle(selected ? selectionColour : Color.secondary)
+                // The mark is drawn rather than swapped between two symbols, so choosing
+                // an option swells its dot instead of cutting one glyph for another.
+                ZStack {
+                    Circle()
+                        .stroke(selected ? selectionColour : Color.secondary, lineWidth: 1.4)
+                        .frame(width: 12.5, height: 12.5)
+                    Circle()
+                        .fill(selectionColour)
+                        .frame(width: 6.5, height: 6.5)
+                        .scaleEffect(selected ? 1 : 0.1)
+                        .opacity(selected ? 1 : 0)
+                }
+                .frame(width: 15, height: 15)
                 VStack(alignment: .leading, spacing: 1) {
                     HStack(spacing: 6) {
                         Text(title).font(.system(size: 13, weight: .medium))
@@ -159,10 +176,13 @@ struct OptionRow: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 12)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(selected ? selectedBackground : .clear)
+            .background(background)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .motion(Motion.control, value: selected)
+        .motion(Motion.hover, value: hovering)
     }
 }
 
@@ -177,6 +197,8 @@ struct ChoicePill: View {
     // notice a click away.
     var dot: Color? = nil
     let choose: () -> Void
+
+    @State private var hovering = false
 
     var body: some View {
         Button(action: choose) {
@@ -197,12 +219,19 @@ struct ChoicePill: View {
             .foregroundStyle(selected ? Color.white : Color.secondary)
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
-            .surface(selected ? Theme.accentFill : Theme.card, cornerRadius: 8,
-                     border: selected ? .clear : Theme.border)
+            .surface(fill, cornerRadius: 8, border: selected ? .clear : Theme.border)
             .contentShape(Rectangle())
             .opacity(enabled ? 1 : 0.45)
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
+        .onHover { hovering = $0 }
+        .motion(Motion.control, value: selected)
+        .motion(Motion.hover, value: hovering)
+    }
+
+    private var fill: Color {
+        if selected { return Theme.accentFill }
+        return hovering && enabled ? Theme.field : Theme.card
     }
 }
