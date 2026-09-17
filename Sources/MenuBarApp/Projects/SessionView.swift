@@ -1459,8 +1459,8 @@ struct SessionView: View {
                             openChange: { path in
                                 openChange(path, root: projectPath)
                             },
-                            openTerminal: {
-                                openTerminal(directory: projectPath)
+                            runInShell: { command in
+                                runInShell(command, directory: projectPath)
                             },
                             promptMenu: promptMenu(for: message))
                     // Every message is on screen now, and a streaming turn rewrites
@@ -1597,10 +1597,16 @@ struct SessionView: View {
         tab = .changes
     }
 
-    private func openTerminal(directory: String) {
-        if !terminals.isOpen(terminalScope) {
-            terminals.setOpen(true, for: terminalScope, directory: directory)
-        }
+    // The shell a command ran in belongs to the agent and is gone by the time its output
+    // is being read, so there is none to reopen. What is worth having instead is the
+    // command itself, in a shell of your own: it arrives at the prompt unrun, ready to be
+    // edited or fired off. A tab with something running in it is left to it and a new one
+    // is opened, since whatever holds that terminal would read the command as its input.
+    private func runInShell(_ command: String, directory: String) {
+        terminals.setOpen(true, for: terminalScope, directory: directory)
+        let idle = terminals.selection(for: terminalScope).flatMap { $0.isBusy ? nil : $0 }
+        let shell = idle ?? terminals.add(to: terminalScope, directory: directory)
+        shell.paste(command)
         terminalFocused = true
     }
 

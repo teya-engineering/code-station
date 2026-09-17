@@ -8,7 +8,7 @@ struct MessageView: View, Equatable {
     let projectPath: String
     let textScale: CGFloat
     var openChange: (String) -> Void = { _ in }
-    var openTerminal: () -> Void = {}
+    var runInShell: (String) -> Void = { _ in }
     var availableWidth: CGFloat?
     // The right-click menu on the user's own prompt. Its entries are built when the
     // menu opens, so what it offers reflects the session as it is then.
@@ -123,7 +123,7 @@ struct MessageView: View, Equatable {
                                   projectPath: projectPath,
                                   messageID: message.id,
                                   openChange: openChange,
-                                  openTerminal: openTerminal)
+                                  runInShell: runInShell)
                         .transition(.fadeIn)
                 case .prose(_, let text):
                     // The shared block keeps file previews and transcripts visually

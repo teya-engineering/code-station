@@ -149,6 +149,25 @@ final class TerminalSession: Identifiable {
         pty?.write(Data(text.utf8))
     }
 
+    // A command put at the prompt for the user to look at, edit and run themselves;
+    // nothing is run here. Bracketed paste is what stops a command that spans several
+    // lines from running all but its last line as it arrives. A shell turns it on once
+    // its line editor is ready and off again while a command holds the terminal, so it
+    // doubles as the shell saying it is at a prompt and can take this - a shell that
+    // has only just started needs a moment to get there.
+    func paste(_ text: String) {
+        guard !text.isEmpty, isRunning else { return }
+        Task { @MainActor in
+            let terminal = surface.getTerminal()
+            let deadline = Date().addingTimeInterval(2)
+            while !terminal.bracketedPasteMode, isRunning, Date() < deadline {
+                try? await Task.sleep(for: .milliseconds(50))
+            }
+            guard isRunning else { return }
+            send(terminal.bracketedPasteMode ? "\u{1b}[200~\(text)\u{1b}[201~" : text)
+        }
+    }
+
     func clear() {
         surface.getTerminal().resetToInitialState()
         surface.setNeedsDisplay(surface.bounds)

@@ -46,6 +46,10 @@ struct ToolPresentation: Sendable {
     let verb: String
     var argument = ""
 
+    // The shell command a Bash call ran, as it was written. `argument` is the same
+    // command flattened onto one line for a row; this is the form a shell can take.
+    var command: String?
+
     // The one-line form of a call, used wherever a row names what is running:
     // "Bash · swift build", or just the verb when the call has no argument.
     var label: String {
@@ -103,7 +107,9 @@ struct ToolPresentation: Sendable {
                 }
             }
         case "Bash":
-            argument = Self.singleLine(Self.shellCommand(in: tool.input) ?? tool.input)
+            let shell = Self.shellCommand(in: tool.input) ?? tool.input
+            command = shell
+            argument = Self.singleLine(shell)
             notesResultLineCount = true
         case "Grep", "Glob":
             argument = input["pattern"] as? String ?? argument

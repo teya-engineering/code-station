@@ -7,7 +7,7 @@ struct ActivitySpine: View {
     let projectPath: String
     var messageID: UUID?
     var openChange: ((String) -> Void)? = nil
-    var openTerminal: (() -> Void)? = nil
+    var runInShell: ((String) -> Void)? = nil
 
     @State private var expanded: Set<String> = []
 
@@ -16,7 +16,7 @@ struct ActivitySpine: View {
 
     init(nodes: [ToolNode], projectPath: String, messageID: UUID? = nil,
          openChange: ((String) -> Void)? = nil,
-         openTerminal: (() -> Void)? = nil) {
+         runInShell: ((String) -> Void)? = nil) {
         self.entries = TranscriptActivityEntry.grouped(nodes)
         self.calls = entries.compactMap { entry in
             if case .call(let node) = entry { return node }
@@ -25,7 +25,7 @@ struct ActivitySpine: View {
         self.projectPath = projectPath
         self.messageID = messageID
         self.openChange = openChange
-        self.openTerminal = openTerminal
+        self.runInShell = runInShell
     }
 
     var body: some View {
@@ -38,7 +38,7 @@ struct ActivitySpine: View {
                 case .agents(let nodes):
                     TranscriptAgentGroup(nodes: nodes, messageID: messageID,
                                          projectPath: projectPath, openChange: openChange,
-                                         openTerminal: openTerminal)
+                                         runInShell: runInShell)
                         .padding(.vertical, 6)
                 case .call(let node):
                     CallReceipt(
@@ -54,7 +54,7 @@ struct ActivitySpine: View {
                             }
                         },
                         openChange: openChange,
-                        openTerminal: openTerminal)
+                        runInShell: runInShell)
                         .transition(.fadeIn)
                 }
             }
@@ -160,7 +160,7 @@ struct ToolCallExpandedDetail: View {
                 presentation: ToolPresentationCache.presentation(
                     for: tool, projectPath: projectPath),
                 openChange: nil,
-                openTerminal: nil)
+                runInShell: nil)
         }
     }
 }
@@ -224,7 +224,7 @@ private struct CallReceipt: View {
     let isExpanded: Bool
     let onToggle: () -> Void
     let openChange: ((String) -> Void)?
-    let openTerminal: (() -> Void)?
+    let runInShell: ((String) -> Void)?
 
     private var tool: ToolUse { node.tool }
     private var isWorking: Bool {
@@ -252,7 +252,7 @@ private struct CallReceipt: View {
                     node: node,
                     presentation: presentation,
                     openChange: openChange,
-                    openTerminal: openTerminal)
+                    runInShell: runInShell)
                     .padding(.leading, 17)
                     .padding(.top, 4)
                     .padding(.bottom, 10)
@@ -404,7 +404,7 @@ private struct CallDetail: View {
     let node: ToolNode
     let presentation: ToolPresentation
     let openChange: ((String) -> Void)?
-    let openTerminal: (() -> Void)?
+    let runInShell: ((String) -> Void)?
 
     private var tool: ToolUse { node.tool }
     private var isCommand: Bool { tool.name == "Bash" }
@@ -418,7 +418,7 @@ private struct CallDetail: View {
                 ToolOutputCard(label: "OUTPUT",
                                text: tool.result ?? "",
                                isFailure: tool.isError,
-                               openTerminal: openTerminal)
+                               runInShell: rerun)
             }
             if hasDiff {
                 ForEach(presentation.changes) { change in
@@ -434,19 +434,24 @@ private struct CallDetail: View {
                     label: "RESULTS",
                     text: "Codex completed the search, but its command stream does not include the results.",
                     isFailure: false,
-                    openTerminal: nil)
+                    runInShell: nil)
             } else if !isCommand, let result = tool.result {
                 ToolOutputCard(label: tool.startsAgents ? "AGENT REPORT" : "OUTPUT",
                                text: result,
                                isFailure: tool.isError,
-                               openTerminal: nil)
+                               runInShell: nil)
             } else if !isCommand, let status = tool.status, !status.isEmpty {
                 ToolOutputCard(label: "STATUS",
                                text: status,
                                isFailure: tool.isError,
-                               openTerminal: nil)
+                               runInShell: nil)
             }
         }
+    }
+
+    private var rerun: (() -> Void)? {
+        guard let runInShell, let command = presentation.command else { return nil }
+        return { runInShell(command) }
     }
 
     nonisolated static func hasContent(node: ToolNode,
@@ -465,7 +470,7 @@ private struct ToolOutputCard: View {
     let label: String
     let text: String
     let isFailure: Bool
-    let openTerminal: (() -> Void)?
+    let runInShell: (() -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -474,8 +479,8 @@ private struct ToolOutputCard: View {
                     .scaledMono(10.5, .bold)
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 8)
-                if let openTerminal {
-                    ActivityLink(title: "open in Terminal ↗", action: openTerminal)
+                if let runInShell {
+                    ActivityLink(title: "run it yourself →", action: runInShell)
                 }
             }
             .padding(.horizontal, 12)

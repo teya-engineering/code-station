@@ -85,7 +85,7 @@ struct TranscriptAgentGroup: View {
     let messageID: UUID?
     let projectPath: String
     let openChange: ((String) -> Void)?
-    let openTerminal: (() -> Void)?
+    let runInShell: ((String) -> Void)?
 
     private var anchor: String {
         "agents:\(messageID?.uuidString ?? "preview"):\(nodes[0].id)"
@@ -130,7 +130,7 @@ struct TranscriptAgentGroup: View {
                         activity: agent,
                         children: nodes.first(where: { $0.id == agent.sourceTool?.id })?.children ?? [],
                         messageID: messageID, projectPath: projectPath,
-                        openChange: openChange, openTerminal: openTerminal,
+                        openChange: openChange, runInShell: runInShell,
                         onExpand: { expanded = true })
                 }
             }
@@ -171,7 +171,7 @@ private struct TranscriptAgentRow: View {
     let messageID: UUID?
     let projectPath: String
     let openChange: ((String) -> Void)?
-    let openTerminal: (() -> Void)?
+    let runInShell: ((String) -> Void)?
     let onExpand: () -> Void
 
     private var identity: (task: String, name: String?) {
@@ -234,7 +234,7 @@ private struct TranscriptAgentRow: View {
                 if !children.isEmpty {
                     AnyView(ActivitySpine(nodes: children, projectPath: projectPath,
                                           messageID: messageID, openChange: openChange,
-                                          openTerminal: openTerminal))
+                                          runInShell: runInShell))
                 }
                 if let tool = reportTool {
                     ToolCallExpandedDetail(tool: tool, projectPath: projectPath, isRunning: false)

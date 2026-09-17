@@ -172,6 +172,25 @@ struct ToolPresentationTests {
         #expect(presentation.argument == "swift build swift test")
     }
 
+    // The row reads better folded, but a shell needs the command back as it was written.
+    @Test func keepsTheShellCommandAsItWasWritten() {
+        let script = "cat <<'EOF' > notes.txt\nfirst\nsecond\nEOF"
+        let claude = ToolUse(id: "claude-script", name: "Bash",
+                             input: #"{"command": "cat <<'EOF' > notes.txt\nfirst\nsecond\nEOF"}"#)
+        let codex = ToolUse(id: "codex-script", name: "Bash", input: script)
+
+        #expect(ToolPresentation(tool: claude, projectPath: "/tmp/project").command == script)
+        #expect(ToolPresentation(tool: codex, projectPath: "/tmp/project").command == script)
+    }
+
+    // Only a command can be handed to a shell, so every other call leaves the link off.
+    @Test func hasNoShellCommandForACallThatIsNotOne() {
+        let tool = ToolUse(id: "read", name: "Read",
+                           input: "{\"file_path\": \"/tmp/project/Sources/App.swift\"}")
+
+        #expect(ToolPresentation(tool: tool, projectPath: "/tmp/project").command == nil)
+    }
+
     @Test func keepsPresentationsApartWhenCodexReusesACallID() {
         let callID = "reused-\(UUID().uuidString)"
         let frontend = ToolUse(id: callID, name: "Bash",
