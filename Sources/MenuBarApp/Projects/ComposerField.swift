@@ -22,6 +22,10 @@ struct ComposerField<TrailingAccessory: View>: View {
     var onRecallDown: (() -> Bool)? = nil
     // Only Claude knows the thinking keyword, so only its prompts colour it.
     var highlightsKeyword: Bool = false
+    // Tab, command-return and escape while a suggestion is being offered above the box.
+    // It answers whether it took the key, so with nothing offered tab still moves focus
+    // and escape still reaches whatever else wants it.
+    var onSuggestionKey: ((SuggestionKey) -> Bool)? = nil
 
     // Past this the box stops growing and the text scrolls inside it, so a long prompt
     // can never push the transcript off the screen.
@@ -36,6 +40,7 @@ struct ComposerField<TrailingAccessory: View>: View {
          onRecallUp: (() -> Bool)? = nil,
          onRecallDown: (() -> Bool)? = nil,
          highlightsKeyword: Bool = false,
+         onSuggestionKey: ((SuggestionKey) -> Bool)? = nil,
          @ViewBuilder trailingAccessory: () -> TrailingAccessory) {
         _text = text
         _isFocused = isFocused
@@ -46,6 +51,7 @@ struct ComposerField<TrailingAccessory: View>: View {
         self.onRecallUp = onRecallUp
         self.onRecallDown = onRecallDown
         self.highlightsKeyword = highlightsKeyword
+        self.onSuggestionKey = onSuggestionKey
         self.trailingAccessory = trailingAccessory()
     }
 
@@ -62,6 +68,7 @@ struct ComposerField<TrailingAccessory: View>: View {
                  onRecallUp: onRecallUp,
                  onRecallDown: onRecallDown,
                  highlightsKeyword: highlightsKeyword,
+                 onSuggestionKey: onSuggestionKey,
                  animatesKeyword: !reduceMotion,
                  onHeightChange: { height = $0 })
             .frame(height: min(max(height, line), line * CGFloat(maxLines)))
@@ -109,6 +116,7 @@ struct TextArea: NSViewRepresentable {
     let onRecallUp: (() -> Bool)?
     let onRecallDown: (() -> Bool)?
     let highlightsKeyword: Bool
+    let onSuggestionKey: ((SuggestionKey) -> Bool)?
     let animatesKeyword: Bool
     let onHeightChange: (CGFloat) -> Void
 
@@ -221,6 +229,14 @@ struct TextArea: NSViewRepresentable {
             case #selector(NSResponder.insertNewlineIgnoringFieldEditor(_:)):
                 textView.insertText("\n", replacementRange: textView.selectedRange())
                 return true
+            case #selector(NSResponder.insertTab(_:)):
+                // Only ever borrowed: with no suggestion to take, tab moves focus out of
+                // the box the way it does in every other field.
+                return suggestionKey(.edit)
+            case #selector(NSResponder.cancelOperation(_:)), #selector(NSResponder.complete(_:)):
+                // Escape arrives as cancelOperation:, which a text view turns into
+                // complete: on the way, so both spellings are taken.
+                return suggestionKey(.cancel)
             case #selector(NSResponder.moveUp(_:)):
                 // Only the first line recalls, so a press in the middle of a prompt that
                 // runs over several lines is always the cursor's. Whether an earlier
@@ -252,6 +268,10 @@ struct TextArea: NSViewRepresentable {
             return text.range(of: "\n",
                               range: NSRange(location: caret, length: text.length - caret))
                 .location == NSNotFound
+        }
+
+        func suggestionKey(_ key: SuggestionKey) -> Bool {
+            parent.onSuggestionKey?(key) == true
         }
 
         func focusChanged(_ focused: Bool) {
@@ -351,6 +371,19 @@ struct TextArea: NSViewRepresentable {
             } else {
                 refreshKeyword()
             }
+        }
+
+        // Command-return is a key equivalent rather than a text command, so it never
+        // reaches doCommandBySelector. It is only this field's while this field holds the
+        // cursor, which is what keeps it from firing from anywhere else in the window.
+        override func performKeyEquivalent(with event: NSEvent) -> Bool {
+            if window?.firstResponder === self,
+               event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+               event.charactersIgnoringModifiers == "\r",
+               coordinator?.suggestionKey(.send) == true {
+                return true
+            }
+            return super.performKeyEquivalent(with: event)
         }
 
         override func paste(_ sender: Any?) {

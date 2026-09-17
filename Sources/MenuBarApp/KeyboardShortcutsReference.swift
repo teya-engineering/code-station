@@ -43,7 +43,13 @@ enum KeyboardShortcutsReference {
             KeyboardShortcutHelp(keys: "⌃ `", title: "Terminal",
                                  detail: "Open the terminal drawer, then move between the shell and the composer."),
             KeyboardShortcutHelp(keys: "Esc", title: "Stop the turn",
-                                 detail: "Call off the agent while it is working.")
+                                 detail: "Call off the agent while it is working."),
+            KeyboardShortcutHelp(keys: "⇥", title: "Edit the suggestion",
+                                 detail: "Put the suggested next prompt in the composer to change it."),
+            KeyboardShortcutHelp(keys: "⌘ ⏎", title: "Send the suggestion",
+                                 detail: "Send the suggested next prompt as written. Nothing typed is ever sent over."),
+            KeyboardShortcutHelp(keys: "Esc", title: "Cancel the suggestion",
+                                 detail: "Drop the suggested next prompt for this turn.")
         ]),
         KeyboardShortcutGroup(title: "Files", shortcuts: [
             KeyboardShortcutHelp(keys: "⌘ S", title: "Save the file",

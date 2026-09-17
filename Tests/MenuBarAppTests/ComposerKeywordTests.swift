@@ -20,6 +20,7 @@ struct ComposerKeywordTests {
                                 onSubmit: {}, onOversizedPaste: { _ in },
                                 onRecallUp: nil, onRecallDown: nil,
                                 highlightsKeyword: highlights,
+                                onSuggestionKey: nil,
                                 // A still word takes the colours of the first frame,
                                 // which is all most of these need.
                                 animatesKeyword: animates,

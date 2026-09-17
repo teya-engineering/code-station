@@ -1762,6 +1762,7 @@ struct SessionView: View {
                             transcriptPinnedToBottom = true
                             transcriptScrollRequest += 1
                         },
+                        onSuggestionKey: { suggestionKey($0, blocked: blocked) },
                         above: {
                             runChoices(session, project: project)
                             contextNudge(session)
@@ -1953,12 +1954,42 @@ struct SessionView: View {
         if !busy, !blocked, let suggestion = runner.suggestion(sessionID) {
             PromptSuggestionStrip(
                 suggestion: suggestion,
-                take: {
-                    runner.takeSuggestion(sessionID)
-                    composerFocused = true
-                },
+                hasDraft: !runner.draft(sessionID).text.isBlank,
+                edit: editSuggestion,
+                send: sendSuggestion,
                 dismiss: { runner.dismissSuggestion(sessionID) })
         }
+    }
+
+    private func editSuggestion() {
+        runner.takeSuggestion(sessionID)
+        composerFocused = true
+    }
+
+    private func sendSuggestion() {
+        transcriptPinnedToBottom = true
+        transcriptScrollRequest += 1
+        runner.sendSuggestion(sessionID, store: store)
+    }
+
+    // The keys the strip answers, taken only while it is on screen and the cursor is in
+    // the composer. Return is deliberately not among them: the key pressed hundreds of
+    // times a day keeps meaning "send the draft" and can never be taken by a prediction.
+    private func suggestionKey(_ key: SuggestionKey, blocked: Bool) -> Bool {
+        guard !blocked, !runner.state(sessionID).isBusy,
+              runner.suggestion(sessionID) != nil else { return false }
+        switch key {
+        case .edit:
+            editSuggestion()
+        case .send:
+            // With words already typed the pill reads Append, so the key that would have
+            // sent has nothing to answer and falls through to its usual meaning.
+            guard runner.draft(sessionID).text.isBlank else { return false }
+            sendSuggestion()
+        case .cancel:
+            runner.dismissSuggestion(sessionID)
+        }
+        return true
     }
 
     // Prompts typed ahead, above the composer where what happens next belongs. A queue that

@@ -25,6 +25,9 @@ struct Composer<Above: View, Accessory: View>: View {
     var onRecallUp: (() -> Bool)? = nil
     var onRecallDown: (() -> Bool)? = nil
     var onSend: (() -> Void)? = nil
+    // Passed to the field so the keys the suggestion above answers are only taken while
+    // the cursor is in the box.
+    var onSuggestionKey: ((SuggestionKey) -> Bool)? = nil
     @ViewBuilder let above: Above
     @ViewBuilder let accessory: Accessory
 
@@ -59,7 +62,8 @@ struct Composer<Above: View, Accessory: View>: View {
                               onOversizedPaste: onOversizedPaste,
                               onRecallUp: onRecallUp,
                               onRecallDown: onRecallDown,
-                              highlightsKeyword: agent == .claudeCode) {
+                              highlightsKeyword: agent == .claudeCode,
+                              onSuggestionKey: onSuggestionKey) {
                     accessory
                 }
 

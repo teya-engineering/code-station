@@ -902,6 +902,16 @@ final class SessionRunner {
         records[sessionID]?.suggestion = nil
     }
 
+    // Sending the suggestion as it stands, as its own turn. The draft is left exactly as
+    // it was, and a draft with words in it stops this outright: a prediction may join
+    // what was typed, but it may never send over it, replace it, or throw it away.
+    func sendSuggestion(_ sessionID: UUID, store: ProjectStore) {
+        guard let suggestion = records[sessionID]?.suggestion,
+              draft(sessionID).text.isBlank else { return }
+        records[sessionID]?.suggestion = nil
+        send(suggestion, sessionID: sessionID, store: store)
+    }
+
     // Taking a suggestion puts it in the composer rather than sending it, so it can be
     // read, changed or thrown away like anything else typed there.
     func takeSuggestion(_ sessionID: UUID) {

@@ -110,6 +110,54 @@ struct PromptSuggestionRunnerTests {
         #expect(try Self.starts(harness) == "work\nsuggest\n")
     }
 
+    @Test func sendsTheSuggestionAsItsOwnTurnAndLeavesTheRestOfTheDraftAlone() async throws {
+        let harness = try RunnerHarness(agent: .claudeCode, script: Self.script(.claudeCode),
+                                        promptSuggestionsEnabled: { true })
+        defer { harness.tearDown() }
+        harness.runner.send("Fix the login retry", sessionID: harness.session.id,
+                            store: harness.store)
+        #expect(await waitUntil { harness.runner.suggestion(harness.session.id) != nil })
+
+        // Nothing typed, but a file already waiting to go out with whatever is typed next.
+        let file = harness.scratch.path("notes.txt")
+        try "notes".write(to: file, atomically: true, encoding: .utf8)
+        harness.runner.attach([Attachment(url: file)], to: harness.session.id)
+
+        harness.runner.sendSuggestion(harness.session.id, store: harness.store)
+        #expect(harness.runner.suggestion(harness.session.id) == nil)
+        #expect(await waitUntil {
+            harness.store.transcript(of: harness.session.id).last?.text == "Work complete"
+                && harness.store.transcript(of: harness.session.id).count == 4
+        })
+        #expect(harness.store.transcript(of: harness.session.id).map(\.text)
+            == ["Fix the login retry", "Work complete", "Add a regression test", "Work complete"])
+        // The turn went out on its own, so the file is still waiting on the composer.
+        #expect(harness.runner.draft(harness.session.id).attachments.map(\.url) == [file])
+        #expect(harness.runner.draft(harness.session.id).text.isEmpty)
+    }
+
+    @Test func neverSendsOverSomethingAlreadyTyped() async throws {
+        let harness = try RunnerHarness(agent: .claudeCode, script: Self.script(.claudeCode),
+                                        promptSuggestionsEnabled: { true })
+        defer { harness.tearDown() }
+        harness.runner.send("Fix the login retry", sessionID: harness.session.id,
+                            store: harness.store)
+        #expect(await waitUntil { harness.runner.suggestion(harness.session.id) != nil })
+        harness.runner.editDraft(harness.session.id) { $0.text = "also check the changelog" }
+
+        harness.runner.sendSuggestion(harness.session.id, store: harness.store)
+        #expect(harness.runner.draft(harness.session.id).text == "also check the changelog")
+        #expect(harness.runner.suggestion(harness.session.id) == "Add a regression test")
+        #expect(harness.store.transcript(of: harness.session.id).map(\.text)
+            == ["Fix the login retry", "Work complete"])
+
+        // The one thing it can do to a draft is join the end of it.
+        harness.runner.takeSuggestion(harness.session.id)
+        #expect(harness.runner.draft(harness.session.id).text
+            == "also check the changelog Add a regression test")
+        #expect(harness.runner.suggestion(harness.session.id) == nil)
+    }
+
     @Test func forgetsThePredictionOnceTheSessionStartsWorkingAgain() async throws {
         let harness = try RunnerHarness(agent: .claudeCode, script: Self.script(.claudeCode),
                                         promptSuggestionsEnabled: { true })

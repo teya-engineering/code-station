@@ -708,6 +708,9 @@ struct ActionButton: View {
     var height: CGFloat = 32
     var size: CGFloat = 12.5
     var icon: String? = nil
+    // The key that does the same thing, drawn as a cap on the button that names it. Only
+    // worth carrying where the key is the faster answer and the button is how it is learnt.
+    var shortcut: String? = nil
     var disclosure = false
     var fills = false
     var keyboardShortcut: KeyboardShortcut? = nil
@@ -748,6 +751,15 @@ struct ActionButton: View {
                 // A button's label is the button: it holds its width and lets whatever
                 // shares the row give way, rather than truncating its own words.
                 .fixedSize()
+            if let shortcut {
+                Text(shortcut)
+                    .font(.system(size: size - 1.5, weight: .semibold))
+                    .fixedSize()
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1.5)
+                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(label.opacity(0.32)))
+                    .opacity(0.75)
+            }
             if disclosure {
                 MenuChevron(size: size - 4, tint: label)
                     .opacity(0.65)
