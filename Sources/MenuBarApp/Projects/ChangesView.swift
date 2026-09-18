@@ -255,15 +255,23 @@ struct ChangesView: View {
             },
             .separator
         ]
-        entries.append(contentsOf: snapshot.branches.map { branch in
+        let items = snapshot.branches.map { branch in
             let current = snapshot.onBranch && branch == snapshot.branch
-            return .item(branch, checked: current) {
+            return MenuItem(label: branch, checked: current, handler: {
                 guard !current else { return }
                 perform("Switching to \(branch)…", failure: "Could not switch branch") {
                     await GitActions.switchBranch(branch, at: repoRoot)
                 }
-            }
-        })
+            })
+        }
+        // A handful of branches read faster as plain rows than behind a field to type in.
+        if items.count > 6 {
+            entries.append(.searchable(items,
+                                       prompt: "Filter branches by name",
+                                       noResults: "No branch matches this filter."))
+        } else {
+            entries.append(contentsOf: items.map { MenuEntry.item($0) })
+        }
         return entries
     }
 
