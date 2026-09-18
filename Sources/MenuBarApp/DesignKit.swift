@@ -91,24 +91,34 @@ struct RunningDot: View {
 // The same dot, breathing, for the one thing that is happening right now rather than
 // merely recently. Held steady under Reduce Motion, which is the setting that exists to
 // stop exactly this.
+//
+// The halo behind it carries all of the motion and the dot itself never changes. A dot
+// this small has only a couple of whole pixels to grow into, so scaling the dot pops it
+// between two sizes rather than breathing. The halo is wide enough to have somewhere to
+// go, and it stays out of the layout, so the row around it never shifts.
 struct PulsingDot: View {
     var colour: Color = Theme.dotOn
     var size: CGFloat = 6
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var dim = false
+    @State private var out = false
 
     var body: some View {
         Circle()
             .fill(colour)
             .frame(width: size, height: size)
-            .scaleEffect(dim ? 0.8 : 1)
-            .opacity(dim ? 0.45 : 1)
+            .background {
+                Circle()
+                    .fill(colour)
+                    .frame(width: size * 2.2, height: size * 2.2)
+                    .scaleEffect(out ? 1 : 0.45)
+                    .opacity(out ? 0 : 0.5)
+            }
             .animation(reduceMotion
                        ? nil
                        : .easeInOut(duration: 0.8).repeatForever(autoreverses: true),
-                       value: dim)
-            .onAppear { dim = !reduceMotion }
+                       value: out)
+            .onAppear { out = !reduceMotion }
     }
 }
 

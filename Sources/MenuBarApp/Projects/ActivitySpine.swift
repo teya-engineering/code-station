@@ -172,7 +172,7 @@ private struct RunningToolIndicator: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            PulsingDot(size: 7)
+            PulsingDot(size: 7 * textScale)
             Text("RUNNING")
                 .scaledMono(10, .bold)
                 .kerning(1)
@@ -298,13 +298,16 @@ private struct CallReceipt: View {
         .accessibilityValue(canExpand ? (isExpanded ? "expanded" : "collapsed") : "")
     }
 
+    // A receipt is transcript rather than chrome, so its light grows with the type beside
+    // it. Both states are drawn to the same size, or a row would change shape as it lands.
     @ViewBuilder private var statusDot: some View {
+        let size = 7 * textScale
         if state == .running {
-            PulsingDot(size: 7)
+            PulsingDot(size: size)
         } else {
             Circle()
                 .fill(state.dot)
-                .frame(width: 7, height: 7)
+                .frame(width: size, height: size)
         }
     }
 
