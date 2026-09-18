@@ -148,6 +148,37 @@ struct TranscriptChartTests {
         #expect(TranscriptChartFormat.value(412, unit: "ms") == "412 ms")
     }
 
+    // The readout rides the pointer, so the only thing that can go wrong is it leaving the
+    // plot. Every case here is a reading the reader would otherwise lose to the edge.
+    @Test func theHoverCardFollowsThePointerAndStaysInThePlot() {
+        let plot = CGSize(width: 400, height: 200)
+        let card = CGSize(width: 120, height: 60)
+
+        let middle = TranscriptChartReadout.placement(
+            pointer: CGPoint(x: 100, y: 100), card: card, within: plot)
+        #expect(middle == CGSize(width: 116, height: 70))
+
+        // Near the right edge the card swaps to the left of the pointer rather than run off.
+        let right = TranscriptChartReadout.placement(
+            pointer: CGPoint(x: 380, y: 100), card: card, within: plot)
+        #expect(right == CGSize(width: 244, height: 70))
+
+        // Top and bottom hold the card inside the plot instead of centring it on the pointer.
+        let top = TranscriptChartReadout.placement(
+            pointer: CGPoint(x: 100, y: 4), card: card, within: plot)
+        #expect(top.height == 0)
+        let bottom = TranscriptChartReadout.placement(
+            pointer: CGPoint(x: 100, y: 198), card: card, within: plot)
+        #expect(bottom.height == 140)
+
+        // A card wider than the plot has nowhere to go, so it starts at the leading edge
+        // and shows its first characters rather than its last.
+        let cramped = TranscriptChartReadout.placement(
+            pointer: CGPoint(x: 90, y: 50), card: CGSize(width: 500, height: 60),
+            within: plot)
+        #expect(cramped.width == 0)
+    }
+
     // The order of the slots is the mechanism that keeps neighbouring series apart for a
     // colour-blind reader, so a series takes the slot its position names.
     @Test func seriesTakeTheirSlotInOrder() {

@@ -7,8 +7,16 @@ import SwiftUI
 struct TranscriptChartView: View {
     let spec: TranscriptChartSpec
 
-    @State private var hovered: Double?
+    @State private var hovered: Hover?
+    @State private var readoutSize: CGSize = .zero
     @State private var showsSummary = false
+
+    // Where the pointer is, kept alongside the reading it picked out so the readout can
+    // ride the pointer while the marks stay snapped to real measurements.
+    private struct Hover: Equatable {
+        let value: Double
+        let location: CGPoint
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -111,7 +119,7 @@ struct TranscriptChartView: View {
                 }
             }
 
-            if let hovered, let x = snapped(hovered) {
+            if let hovered, let x = snapped(hovered.value) {
                 RuleMark(x: .value("", x))
                     .foregroundStyle(Theme.chartGrid)
                     .lineStyle(StrokeStyle(lineWidth: 1))
@@ -148,7 +156,9 @@ struct TranscriptChartView: View {
             }
         }
         // The pointer aims at a moment, never at a two-point line, so the readout snaps to
-        // the nearest reading and names every series at once.
+        // the nearest reading and names every series at once. It then rides the pointer,
+        // which keeps the numbers where the eye already is instead of asking it to travel
+        // to a corner and back for every reading along the line.
         .chartOverlay { proxy in
             GeometryReader { geometry in
                 if let plot = proxy.plotFrame {
@@ -159,19 +169,32 @@ struct TranscriptChartView: View {
                             switch phase {
                             case .active(let location):
                                 let inside = location.x - geometry[plot].origin.x
-                                hovered = proxy.value(atX: inside, as: Double.self)
+                                if let value = proxy.value(atX: inside, as: Double.self) {
+                                    hovered = Hover(value: value, location: location)
+                                } else {
+                                    hovered = nil
+                                }
                             case .ended:
                                 hovered = nil
                             }
                         }
+
+                    if let hovered, let x = snapped(hovered.value) {
+                        TranscriptChartReadout(spec: spec, x: x)
+                            .fixedSize()
+                            .background(
+                                GeometryReader { card in
+                                    Color.clear.onChange(of: card.size, initial: true) {
+                                        readoutSize = card.size
+                                    }
+                                }
+                            )
+                            .offset(TranscriptChartReadout.placement(
+                                pointer: hovered.location, card: readoutSize,
+                                within: geometry.size))
+                            .allowsHitTesting(false)
+                    }
                 }
-            }
-        }
-        .chartOverlay(alignment: .topLeading) { _ in
-            if let hovered, let x = snapped(hovered) {
-                TranscriptChartReadout(spec: spec, x: x)
-                    .padding(6)
-                    .allowsHitTesting(false)
             }
         }
         .frame(height: 200)
@@ -422,6 +445,22 @@ struct FlowRow: Layout {
 struct TranscriptChartReadout: View {
     let spec: TranscriptChartSpec
     let x: Double
+
+    // Room between the pointer and the card, so the card never sits under the cursor and
+    // hides the very reading it is naming.
+    private static let gap: CGFloat = 16
+
+    // The card follows the pointer, but it is the plot that decides where it can go: it
+    // swaps to the other side of the pointer rather than run off the right edge, and it
+    // is held inside the plot on both axes so no part of it is ever clipped away.
+    static func placement(pointer: CGPoint, card: CGSize, within plot: CGSize) -> CGSize {
+        let right = pointer.x + gap
+        let left = pointer.x - gap - card.width
+        let x = right + card.width <= plot.width || left < 0 ? right : left
+        let y = pointer.y - card.height / 2
+        return CGSize(width: min(max(0, x), max(0, plot.width - card.width)),
+                      height: min(max(0, y), max(0, plot.height - card.height)))
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
