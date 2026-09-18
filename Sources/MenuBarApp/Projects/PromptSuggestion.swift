@@ -211,6 +211,8 @@ struct PromptSuggestionStrip: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var shown = false
 
+    private let pillHeight: CGFloat = 26
+
     var body: some View {
         HStack(spacing: 8) {
             // The widest target does the safest thing, so a mis-click reaches the composer
@@ -233,25 +235,27 @@ struct PromptSuggestionStrip: View {
                         .truncationMode(.tail)
                         .foregroundStyle(.primary)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                // A minimum matching the pills beside it, so the target covers the row
+                // without the card growing to whatever height the composer offers.
+                .frame(maxWidth: .infinity, minHeight: pillHeight, alignment: .leading)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .appTooltip("Put this in the composer to change before sending")
             .accessibilityHidden(true)
 
-            ActionButton(title: "Edit", tone: .outlined, height: 26, size: 11.5,
+            ActionButton(title: "Edit", tone: .outlined, height: pillHeight, size: 11.5,
                          shortcut: "⇥", action: edit)
                 .appTooltip("Put this in the composer to change before sending")
                 .accessibilityLabel("Edit the suggested prompt: \(suggestion)")
 
             if hasDraft {
-                ActionButton(title: "Append", tone: .outlined, height: 26, size: 11.5,
+                ActionButton(title: "Append", tone: .outlined, height: pillHeight, size: 11.5,
                              action: edit)
                     .appTooltip("Add this to the end of what you have typed")
                     .accessibilityLabel("Append the suggested prompt to the draft: \(suggestion)")
             } else {
-                ActionButton(title: "Send", tone: .green, height: 26, size: 11.5,
+                ActionButton(title: "Send", tone: .green, height: pillHeight, size: 11.5,
                              shortcut: "⌘⏎", action: send)
                     .appTooltip("Send this as the next turn")
                     .accessibilityLabel("Send the suggested prompt: \(suggestion)")
