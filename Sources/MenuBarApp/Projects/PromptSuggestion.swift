@@ -213,26 +213,28 @@ struct PromptSuggestionStrip: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            HStack(spacing: 6) {
-                Image(systemName: "arrow.turn.down.right")
-                    .font(.system(size: 10, weight: .semibold))
-                Text("SUGGESTED")
-                    .font(.system(size: 11, weight: .semibold))
-                    .kerning(1.2)
-            }
-            .foregroundStyle(Theme.accent)
-
             // The widest target does the safest thing, so a mis-click reaches the composer
-            // rather than starting a turn. The pill beside it offers the same action under
-            // the same name, which is what keeps this out of the way of a reader.
+            // rather than starting a turn. Everything left of the pills is one target,
+            // label and gap included, since a reader aiming at the row means the offer.
             Button(action: edit) {
-                Text(suggestion)
-                    .font(.system(size: 13))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .foregroundStyle(.primary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
+                HStack(spacing: 8) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.turn.down.right")
+                            .font(.system(size: 10, weight: .semibold))
+                        Text("SUGGESTED")
+                            .font(.system(size: 11, weight: .semibold))
+                            .kerning(1.2)
+                    }
+                    .foregroundStyle(Theme.accent)
+
+                    Text(suggestion)
+                        .font(.system(size: 13))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .foregroundStyle(.primary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .appTooltip("Put this in the composer to change before sending")
