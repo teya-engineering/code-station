@@ -3,13 +3,16 @@ import Testing
 @testable import MenuBarApp
 
 struct TranscriptChartTests {
-    private func marker(_ payload: String) -> String {
-        "\(TranscriptMarker.open)chart\(TranscriptMarker.separator)\(payload)\(TranscriptMarker.close)"
+    private func fence(_ payload: String) -> String {
+        "```\(TranscriptChartSpec.fenceLanguage)\n\(payload)\n```"
     }
 
     private func spec(_ payload: String) throws -> TranscriptChartSpec {
-        let parsed = try #require(TranscriptChartSpec.parse(marker(payload)))
-        return try parsed.get()
+        try TranscriptChartSpec.parse(payload).get()
+    }
+
+    private func blocks(_ text: String) -> [MessageSegment] {
+        MessageSegment.split(text)
     }
 
     @Test func readsATimeSeriesWithItsThreshold() throws {
@@ -86,42 +89,53 @@ struct TranscriptChartTests {
     }
 
     @Test func aChartSitsBetweenTheProseAroundIt() throws {
-        let chart = try spec(#"{"kind":"line","series":[{"label":"a","points":[[1,2]]}]}"#)
-        let blocks = MarkdownBlock.parse("""
+        let payload = #"{"kind":"line","series":[{"label":"a","points":[[1,2]]}]}"#
+        let segments = blocks("""
         The retries start here.
 
-        \(marker(#"{"kind":"line","series":[{"label":"a","points":[[1,2]]}]}"#))
+        \(fence(payload))
 
         Everything after it recovered.
         """)
 
-        #expect(blocks.map(\.kind) == [
-            .paragraph("The retries start here."),
-            .chart(chart),
-            .paragraph("Everything after it recovered."),
-        ])
+        #expect(segments.map(\.isChart) == [false, true, false])
+        #expect(segments[1].text == payload)
+        #expect(try TranscriptChartSpec.parse(segments[1].text).get() == (try spec(payload)))
+        #expect(MarkdownBlock.parse(segments[0].text).map(\.kind)
+            == [.paragraph("The retries start here.")])
+        #expect(MarkdownBlock.parse(segments[2].text).map(\.kind)
+            == [.paragraph("Everything after it recovered.")])
     }
 
-    // Dropping it would lose the agent's evidence without saying so, and showing the raw
-    // line would put control characters in the transcript.
+    // Dropping it would lose the agent's evidence without saying so.
     @Test func aChartThatCannotBeReadSaysSo() {
         for payload in ["{broken", #"{"kind":"pie","series":[]}"#,
                         #"{"kind":"line","series":[]}"#, #"{"kind":"stat"}"#] {
-            #expect(MarkdownBlock.parse(marker(payload)).map(\.kind) == [.unreadableChart],
-                    "\(payload) should not draw a chart")
+            #expect(throws: TranscriptChartSpec.Failure.unreadable) {
+                try TranscriptChartSpec.parse(payload).get()
+            }
         }
     }
 
-    // A marker arrives a character at a time like the rest of the reply.
-    @Test func showsNothingWhileTheMarkerIsStillArriving() {
-        let half = "\(TranscriptMarker.open)chart\(TranscriptMarker.separator){\"kind\":\"li"
-        #expect(MarkdownBlock.parse(half).isEmpty)
-        #expect(MarkdownBlock.parse("Before it\n\n\(half)").map(\.kind) == [.paragraph("Before it")])
+    // A block arrives a character at a time like the rest of the reply, so the one at the
+    // end of a reply still running is held back until its closing fence lands.
+    @Test func showsNothingWhileTheChartIsStillArriving() throws {
+        let half = try #require(blocks("Before it\n\n```chart\n{\"kind\":\"li").last)
+        #expect(half.isChart)
+        #expect(half.isOpen)
+
+        let whole = try #require(blocks(fence(#"{"kind":"line","series":[{"label":"a","points":[[1,2]]}]}"#)).last)
+        #expect(whole.isChart)
+        #expect(!whole.isOpen)
     }
 
+    // The agent only ever sees the instructions as text, so nothing in them can rely on a
+    // character that has no glyph: it would read as though it were not there and be copied
+    // back the same way.
     @Test func everyClaudeSessionIsToldHowToDrawOne() {
         #expect(SessionRunner.appendedSystemPrompt.contains(TranscriptChartSpec.agentInstructions))
-        #expect(TranscriptChartSpec.agentInstructions.contains(marker("").dropLast()))
+        #expect(TranscriptChartSpec.agentInstructions.contains("```chart"))
+        #expect(!TranscriptChartSpec.agentInstructions.contains(TranscriptMarker.open))
     }
 
     @Test func numbersReadAtAGlance() {

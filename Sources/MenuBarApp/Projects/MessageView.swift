@@ -306,17 +306,26 @@ private extension View {
     }
 }
 
-// A run of prose or a fenced code block. Splitting on ``` is enough for what Claude
-// Code emits and keeps the app free of a Markdown dependency.
+// A run of prose or a fenced block. Splitting on ``` is enough for what Claude Code emits
+// and keeps the app free of a Markdown dependency. A fence is also how a reply asks for
+// something the app draws itself, such as a chart: an agent writes fenced blocks reliably
+// and a tag it invented still reads as code, so nothing is lost when a block is not one
+// the app knows.
 struct MessageSegment: Identifiable, Equatable {
     let id: Int
     let text: String
     let isCode: Bool
     var language: String?
+    // A block whose closing fence has not arrived yet. A reply is drawn as it streams, so
+    // the last block of one still running is usually half of what it will be.
+    var isOpen = false
+
+    var isChart: Bool { isCode && language == TranscriptChartSpec.fenceLanguage }
 
     static func split(_ text: String) -> [MessageSegment] {
         var segments: [MessageSegment] = []
-        for (index, part) in text.components(separatedBy: "```").enumerated() {
+        let parts = text.components(separatedBy: "```")
+        for (index, part) in parts.enumerated() {
             // Odd chunks sit between a pair of fences, so they are the code.
             let isCode = !index.isMultiple(of: 2)
             if !isCode {
@@ -339,7 +348,9 @@ struct MessageSegment: Identifiable, Equatable {
             }
             let code = body.trimmingCharacters(in: .newlines)
             if !code.isEmpty {
-                segments.append(MessageSegment(id: index, text: code, isCode: true, language: language))
+                segments.append(MessageSegment(id: index, text: code, isCode: true,
+                                               language: language,
+                                               isOpen: index == parts.count - 1))
             }
         }
         return segments

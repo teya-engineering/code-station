@@ -1,7 +1,9 @@
 import Foundation
 
-// The private-use characters that wrap a block the app draws itself rather than as prose.
-// They cannot appear in ordinary text, so a reply carrying one meant it.
+// The private-use characters that wrap a block the app writes for itself rather than as
+// prose. They cannot appear in ordinary text, so a line carrying one meant it. Only the
+// app may use them: they have no glyph, so an agent reading an example of one sees the
+// text around the characters and not the characters themselves, and copies what it saw.
 enum TranscriptMarker {
     static let open = "\u{E200}"
     static let separator = "\u{E202}"
@@ -11,14 +13,6 @@ enum TranscriptMarker {
         let prefix = open + name + separator
         guard line.hasPrefix(prefix), line.hasSuffix(close) else { return nil }
         return String(line.dropFirst(prefix.count).dropLast(close.count))
-    }
-
-    // A marker arrives a few characters at a time like everything else in a reply, so one
-    // carrying a payload big enough to be worth hiding is held back until its closing
-    // character lands. A marker whose payload is small enough to read, such as a file
-    // path, is better left on screen: a malformed one then says so rather than vanishing.
-    static func isIncomplete(_ line: String, named name: String) -> Bool {
-        line.hasPrefix(open + name + separator) && !line.hasSuffix(close)
     }
 }
 
@@ -105,9 +99,11 @@ extension TranscriptChartSpec {
         var errorDescription: String? { "This chart could not be read." }
     }
 
-    static func parse(_ line: String) -> Result<Self, Failure>? {
-        guard let payload = TranscriptMarker.payload(of: line, named: "chart") else { return nil }
-        guard let decoded = try? JSONDecoder().decode(Wire.self, from: Data(payload.utf8)),
+    // The language tag of a fenced block, which is how a reply asks for a chart.
+    static let fenceLanguage = "chart"
+
+    static func parse(_ json: String) -> Result<Self, Failure> {
+        guard let decoded = try? JSONDecoder().decode(Wire.self, from: Data(json.utf8)),
               let spec = Self(decoded), !spec.isEmpty else { return .failure(.unreadable) }
         return .success(spec)
     }
@@ -198,12 +194,14 @@ extension TranscriptChartSpec {
     // The app can draw a chart, but nothing about a transcript says so, so every agent
     // that can reach this renderer is handed the shape it reads.
     static let agentInstructions = """
-        You can draw a chart in the transcript by putting a marker on a line of its own:
+        You can draw a chart in the transcript with a fenced block tagged \
+        `\(fenceLanguage)`, holding the chart as JSON:
 
-        \(TranscriptMarker.open)chart\(TranscriptMarker.separator)\
-        {"kind":"line","title":"p99 checkout latency","unit":"ms","time":true,\
-        "series":[{"label":"checkout","points":[[1757000000,412],[1757000060,438]]}],\
-        "rules":[{"axis":"y","value":500,"label":"SLO"}]}\(TranscriptMarker.close)
+        ```\(fenceLanguage)
+        {"kind":"line","title":"p99 checkout latency","unit":"ms","time":true,
+         "series":[{"label":"checkout","points":[[1757000000,412],[1757000060,438]]}],
+         "rules":[{"axis":"y","value":500,"label":"SLO"}]}
+        ```
 
         - "kind" is "line", "area", "bar" or "stat".
         - "line" and "area" take points as [x, y] with a numeric x. Set "time": true when \
@@ -218,7 +216,7 @@ extension TranscriptChartSpec {
         - At most \(seriesLimit) series, and two to four reads best. At most \(pointLimit) \
         points per series: sample a longer range down yourself, rather than sending every \
         scrape.
-        - All the data must be inside the marker. The chart cannot fetch anything, which \
+        - All the data must be inside the block. The chart cannot fetch anything, which \
         is what keeps it agreeing with the words around it later.
 
         Chart the evidence a finding rests on, not every query you ran. Fewer than about \
