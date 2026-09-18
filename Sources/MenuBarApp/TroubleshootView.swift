@@ -54,15 +54,18 @@ struct TroubleshootRequest {
     let skills: [String]
     let mcpServersEnabled: Bool
     let mcpServerNames: [String]
+    let agent: AgentKind
 
     init(problem: String, environment: TroubleshootEnvironment, projects: [String],
-         skills: [String] = [], mcpServersEnabled: Bool, mcpServerNames: [String] = []) {
+         skills: [String] = [], mcpServersEnabled: Bool, mcpServerNames: [String] = [],
+         agent: AgentKind) {
         self.problem = problem
         self.environment = environment
         self.projects = projects
         self.skills = skills
         self.mcpServersEnabled = mcpServersEnabled
         self.mcpServerNames = mcpServerNames
+        self.agent = agent
     }
 
     var userInput: String {
@@ -93,6 +96,12 @@ struct TroubleshootRequest {
             Skills to use: \(names). Load each one before the first step it covers, whatever the agent calls skills.
             """
         }
+        // Claude is told how to draw a chart in its system prompt. The others have no
+        // such channel, and a diagnosis is where a chart earns its place most often, so
+        // the shape travels with the brief instead.
+        let chartText = agent == .claudeCode
+            ? ""
+            : "\n\n\(TranscriptChartSpec.agentInstructions)"
         let dangerText = environment.isDangerous
             ? " Treat this environment as live: do not mutate data, configuration, deployments, or running services."
             : ""
@@ -104,7 +113,7 @@ struct TroubleshootRequest {
         - \(skillText)
         - \(mcpText)
 
-        Investigate the problem and use read-only checks first. Do not change code or configuration.\(dangerText) Explain the likely root cause, cite the evidence you found, and give concrete next steps. If a fix is needed, propose it and wait for a follow-up before applying it.
+        Investigate the problem and use read-only checks first. Do not change code or configuration.\(dangerText) Explain the likely root cause, cite the evidence you found, and give concrete next steps. If a fix is needed, propose it and wait for a follow-up before applying it. Chart the measurements the root cause rests on.\(chartText)
         """
     }
 }
@@ -611,7 +620,8 @@ struct TroubleshootView: View {
                 projects: projects.map(\.name),
                 skills: chosenSkillNames,
                 mcpServersEnabled: enableMCPServers,
-                mcpServerNames: enableMCPServers ? selectedServers.map(\.name) : [])
+                mcpServerNames: enableMCPServers ? selectedServers.map(\.name) : [],
+                agent: selectedAgent)
             runner.send(request.userInput,
                         attachments: attachments,
                         customInstructions: request.customInstructions,

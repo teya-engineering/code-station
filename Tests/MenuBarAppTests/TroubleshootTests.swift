@@ -20,7 +20,8 @@ struct TroubleshootTests {
             projects: ["payments-api", "merchant-web"],
             skills: ["postgres-specialist", "grafana-specialist"],
             mcpServersEnabled: true,
-            mcpServerNames: ["grafana-shared-shared", "grafana-platform-prd"])
+            mcpServerNames: ["grafana-shared-shared", "grafana-platform-prd"],
+            agent: .claudeCode)
 
         #expect(request.userInput == "Payments return 503 after deployment")
         #expect(!request.customInstructions.contains(request.userInput))
@@ -36,6 +37,22 @@ struct TroubleshootTests {
         #expect(request.customInstructions.contains("Treat this environment as live"))
         #expect(request.customInstructions.contains("do not mutate data, configuration, deployments, or running services"))
         #expect(request.customInstructions.contains("wait for a follow-up before applying it"))
+        #expect(request.customInstructions.contains("Chart the measurements"))
+    }
+
+    // Claude reads the chart shape in its system prompt, so repeating it in the brief
+    // would spend the same tokens on every diagnosis for nothing. The agents with no
+    // system prompt to put it in get it here or not at all.
+    @Test func onlyTheAgentsWithoutASystemPromptCarryTheChartShape() {
+        func brief(_ agent: AgentKind) -> String {
+            TroubleshootRequest(problem: "Latency doubled", environment: Self.dev,
+                                projects: ["api"], mcpServersEnabled: false,
+                                agent: agent).customInstructions
+        }
+
+        #expect(!brief(.claudeCode).contains(TranscriptChartSpec.agentInstructions))
+        #expect(brief(.codex).contains(TranscriptChartSpec.agentInstructions))
+        #expect(brief(.copilot).contains(TranscriptChartSpec.agentInstructions))
     }
 
     @Test func attachmentOnlyDiagnosisStillHasAnInstruction() {
@@ -43,7 +60,8 @@ struct TroubleshootTests {
             problem: "  \n",
             environment: Self.dev,
             projects: ["api"],
-            mcpServersEnabled: false)
+            mcpServersEnabled: false,
+            agent: .claudeCode)
 
         #expect(request.userInput == "Troubleshoot the problem shown in the attached files.")
         #expect(request.customInstructions.contains("MCP servers are disabled for this diagnosis"))

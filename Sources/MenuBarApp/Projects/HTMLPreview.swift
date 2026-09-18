@@ -8,11 +8,8 @@ struct HTMLPreviewReference: Decodable, Equatable, Sendable {
     var mode: String?
 
     static func parse(_ text: String) -> HTMLPreviewReference? {
-        let prefix = "\u{E200}visualize\u{E202}"
-        let suffix = "\u{E201}"
-        guard text.hasPrefix(prefix), text.hasSuffix(suffix),
-              let reference = try? JSONDecoder().decode(Self.self, from: Data(
-                text.dropFirst(prefix.count).dropLast(suffix.count).utf8)),
+        guard let payload = TranscriptMarker.payload(of: text, named: "visualize"),
+              let reference = try? JSONDecoder().decode(Self.self, from: Data(payload.utf8)),
               !reference.path.trimmed.isEmpty else { return nil }
         return reference
     }

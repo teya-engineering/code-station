@@ -195,6 +195,38 @@ enum Theme {
 
     static func monogram(for name: String) -> Color { projectTint(for: name).ink }
 
+    // The eight series slots a chart draws from, in a fixed order: the first series in a
+    // chart takes slot one, the second slot two, and so on. They are the project wheel
+    // above stepped for each surface, leaving out red and amber so a series can never be
+    // mistaken for `deletion` or `attention`.
+    //
+    // The order is not decoration. Neighbouring slots are the pair a reader has to tell
+    // apart, so the order was picked to push the worst neighbouring pair as far apart as
+    // possible under red-green colour blindness: the worst pair is 23 apart in light mode
+    // and 22 in dark, against a floor of 8, and every slot clears 3:1 against the card it
+    // sits on. Changing a value, the order, or the card colour means measuring again.
+    static let chartSeries: [Color] = [
+        chartSlot(light: (0.184, 0.498, 0.851), dark: (0.271, 0.580, 0.941)),
+        chartSlot(light: (0.878, 0.416, 0.122), dark: (0.882, 0.420, 0.129)),
+        chartSlot(light: (0.737, 0.267, 0.737), dark: (0.824, 0.349, 0.820)),
+        chartSlot(light: (0.514, 0.612, 0.000), dark: (0.525, 0.624, 0.000)),
+        chartSlot(light: (0.337, 0.380, 0.851), dark: (0.420, 0.478, 0.961)),
+        chartSlot(light: (0.184, 0.639, 0.333), dark: (0.227, 0.671, 0.365)),
+        chartSlot(light: (0.541, 0.333, 0.851), dark: (0.635, 0.431, 0.961)),
+        chartSlot(light: (0.643, 0.412, 0.216), dark: (0.745, 0.502, 0.310)),
+    ]
+
+    private static func chartSlot(light: (Double, Double, Double),
+                                  dark: (Double, Double, Double)) -> Color {
+        adaptive(light: NSColor(srgbRed: light.0, green: light.1, blue: light.2, alpha: 1),
+                 dark: NSColor(srgbRed: dark.0, green: dark.1, blue: dark.2, alpha: 1))
+    }
+
+    // Axis furniture sits one step off the surface so it never competes with the data.
+    static let chartGrid = adaptive(
+        light: NSColor(srgbRed: 0.102, green: 0.102, blue: 0.082, alpha: 0.10),
+        dark: NSColor(srgbRed: 1, green: 1, blue: 1, alpha: 0.10))
+
     // Drawn by AppKit around the focused terminal, so it is an NSColor rather than a
     // SwiftUI one.
     static let focusRing = adaptiveNSColor(

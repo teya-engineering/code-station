@@ -4,6 +4,9 @@ extension String {
     var trimmed: String { trimmingCharacters(in: .whitespacesAndNewlines) }
 
     var isBlank: Bool { trimmed.isEmpty }
+
+    // For a field that is optional in meaning but arrives as an empty string.
+    var nilIfBlank: String? { isBlank ? nil : self }
 }
 
 // "1 file", "3 files". A noun with an irregular plural passes it in.

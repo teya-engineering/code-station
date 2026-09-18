@@ -1208,7 +1208,8 @@ final class SessionRunner {
     // options as an inline numbered list instead of calling AskUserQuestion, so tell it
     // to prefer the tool whenever the choice is a small closed set. The second paragraph
     // is about waiting: a build or a test run is long enough that the agent reaches for a
-    // watcher loop, and the usual one it writes can never end.
+    // watcher loop, and the usual one it writes can never end. The last is the chart
+    // block: the app can draw one, and nothing the agent can see would tell it so.
     nonisolated static let appendedSystemPrompt = """
         When you need the user to pick between 2-4 mutually exclusive options before \
         proceeding, use the AskUserQuestion tool. Do not present the options as an inline \
@@ -1225,6 +1226,8 @@ final class SessionRunner {
         `while pgrep -qf some-helper; do sleep 20; done`: `pgrep -f` reads whole command \
         lines, so the loop matches the shell running it and waits forever. If you must \
         match on a name, hide the pattern from itself as `pgrep -qf '[s]ome-helper'`.
+
+        \(TranscriptChartSpec.agentInstructions)
         """
 
     nonisolated static func designSystemPrompt(artifactURL: URL,

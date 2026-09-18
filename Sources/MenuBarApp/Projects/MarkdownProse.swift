@@ -16,6 +16,8 @@ struct MarkdownBlock: Identifiable, Equatable {
         case quote(String)
         case rule
         case htmlPreview(HTMLPreviewReference)
+        case chart(TranscriptChartSpec)
+        case unreadableChart
     }
 
     static func parse(_ text: String) -> [MarkdownBlock] {
@@ -39,6 +41,16 @@ struct MarkdownBlock: Identifiable, Equatable {
             } else if let reference = HTMLPreviewReference.parse(trimmed) {
                 flushParagraph()
                 kinds.append(.htmlPreview(reference))
+                index += 1
+            } else if let chart = TranscriptChartSpec.parse(trimmed) {
+                flushParagraph()
+                switch chart {
+                case .success(let spec): kinds.append(.chart(spec))
+                case .failure: kinds.append(.unreadableChart)
+                }
+                index += 1
+            } else if TranscriptMarker.isIncomplete(trimmed, named: "chart") {
+                flushParagraph()
                 index += 1
             } else if let level = headingLevel(trimmed) {
                 flushParagraph()
@@ -807,6 +819,13 @@ struct MarkdownBlockView: View, Equatable {
             paragraph(text)
         case .htmlPreview(let reference):
             HTMLPreview(reference: reference, projectPath: projectPath)
+        case .chart(let spec):
+            TranscriptChartView(spec: spec)
+        case .unreadableChart:
+            Text(TranscriptChartSpec.Failure.unreadable.localizedDescription)
+                .scaledText(12)
+                .foregroundStyle(Theme.warningText)
+                .padding(.vertical, 2)
         case .heading(let level, let text):
             let heading = headingSpec(level)
             InlineMarkdownText(text,

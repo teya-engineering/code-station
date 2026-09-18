@@ -307,7 +307,8 @@ struct TroubleshootTabView: View {
                 projects: projects.map(\.name),
                 skills: chosenSkillNames,
                 mcpServersEnabled: enableMCPServers,
-                mcpServerNames: enableMCPServers ? selectedServers.map(\.name) : [])
+                mcpServerNames: enableMCPServers ? selectedServers.map(\.name) : [],
+                agent: session.agent)
             runner.send(request.userInput,
                         attachments: attachments,
                         customInstructions: request.customInstructions,
