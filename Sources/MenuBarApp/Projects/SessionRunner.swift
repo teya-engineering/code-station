@@ -93,6 +93,9 @@ final class SessionRunner {
     // without the words going with it. Kept apart from the record because it changes on
     // every keystroke, and a change to the record redraws every row that watches a session.
     private var drafts: [UUID: Draft] = [:]
+    // What the Troubleshoot tab has been given and has not sent yet. The pane keeps only
+    // the tab that is open, so a look at Chat and back would take the words with it.
+    private var briefs: [UUID: TroubleshootBrief] = [:]
     // How far back through the earlier prompts the arrow keys have walked. Nothing on
     // screen says a walk is under way, so it does not have to redraw anything.
     @ObservationIgnored private var walks: [UUID: PromptWalk] = [:]
@@ -482,6 +485,27 @@ final class SessionRunner {
         drafts[sessionID] = nil
         walks[sessionID] = nil
     }
+
+    // An unsent troubleshoot brief: the problem, the evidence for it, and the two choices
+    // the tab makes about how the diagnosis runs.
+    struct TroubleshootBrief: Equatable {
+        var problem: String = ""
+        var attachments: [Attachment] = []
+        var environment = TroubleshootEnvironment.first()
+        var mcpServersEnabled = true
+    }
+
+    func brief(_ sessionID: UUID) -> TroubleshootBrief {
+        briefs[sessionID] ?? TroubleshootBrief()
+    }
+
+    func editBrief(_ sessionID: UUID, _ change: (inout TroubleshootBrief) -> Void) {
+        var brief = briefs[sessionID] ?? TroubleshootBrief()
+        change(&brief)
+        briefs[sessionID] = brief
+    }
+
+    func clearBrief(_ sessionID: UUID) { briefs[sessionID] = nil }
 
     // The canvas reports its own width as it is resized. Sub-pixel changes would rewrite
     // the system prompt for no visible difference, so only whole pixels are kept.
@@ -1615,6 +1639,7 @@ final class SessionRunner {
         codexContextRefreshes.removeValue(forKey: sessionID)?.task.cancel()
         records[sessionID] = nil
         drafts[sessionID] = nil
+        briefs[sessionID] = nil
         walks[sessionID] = nil
         canvasWidths[sessionID] = nil
     }

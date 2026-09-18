@@ -404,3 +404,58 @@ struct TroubleshootProjectTests {
         #expect(store.selection == .session(session.id))
     }
 }
+
+// The tab is thrown away and rebuilt every time the pane shows another one, so a brief
+// held there would go with a single look at Chat. These pin it to the runner instead.
+@MainActor
+struct TroubleshootBriefTests {
+
+    @Test func whatWasTypedOutlivesTheTabBeingRebuilt() {
+        let runner = SessionRunner()
+        let sessionID = UUID()
+        let evidence = Attachment(url: URL(fileURLWithPath: "/tmp/payments.log"))
+
+        runner.editBrief(sessionID) {
+            $0.problem = "Payments return 503 after deployment"
+            $0.attachments = [evidence]
+            $0.mcpServersEnabled = false
+        }
+
+        #expect(runner.brief(sessionID).problem == "Payments return 503 after deployment")
+        #expect(runner.brief(sessionID).attachments == [evidence])
+        #expect(runner.brief(sessionID).mcpServersEnabled == false)
+    }
+
+    @Test func eachSessionKeepsItsOwnBrief() {
+        let runner = SessionRunner()
+        let first = UUID()
+        let second = UUID()
+
+        runner.editBrief(first) { $0.problem = "checkout times out" }
+        runner.editBrief(second) { $0.problem = "webhooks arrive twice" }
+
+        #expect(runner.brief(first).problem == "checkout times out")
+        #expect(runner.brief(second).problem == "webhooks arrive twice")
+    }
+
+    @Test func aSessionWithoutABriefStartsOnTheDefaults() {
+        let runner = SessionRunner()
+
+        let brief = runner.brief(UUID())
+
+        #expect(brief.problem.isEmpty)
+        #expect(brief.attachments.isEmpty)
+        #expect(brief.mcpServersEnabled)
+    }
+
+    // A sent brief is in the transcript, so the form it came from starts again empty.
+    @Test func sendingLeavesTheFormEmpty() {
+        let runner = SessionRunner()
+        let sessionID = UUID()
+
+        runner.editBrief(sessionID) { $0.problem = "queue is stuck" }
+        runner.clearBrief(sessionID)
+
+        #expect(runner.brief(sessionID).problem.isEmpty)
+    }
+}

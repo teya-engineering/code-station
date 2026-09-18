@@ -22,15 +22,22 @@ struct TroubleshootTabView: View {
     // now holds it.
     let openConversation: () -> Void
 
-    @State private var problem = ""
-    @State private var attachments: [Attachment] = []
-    @State private var environment = TroubleshootEnvironment.first()
     @State private var selectedSkills = Preferences.troubleshootSkills()
-    @State private var mcpServersEnabled = true
     @State private var isStarting = false
     @State private var showingSkills = false
     @State private var hasStartedMCPConfigurationCheck = false
     @FocusState private var problemFocused: Bool
+
+    // The half-written brief is the runner's, not this view's: the pane keeps only the
+    // tab that is open, so anything held here would go the moment Chat is looked at.
+    private var brief: SessionRunner.TroubleshootBrief { runner.brief(sessionID) }
+
+    private func entry<Value>(
+        _ field: WritableKeyPath<SessionRunner.TroubleshootBrief, Value>
+    ) -> Binding<Value> {
+        Binding(get: { runner.brief(sessionID)[keyPath: field] },
+                set: { value in runner.editBrief(sessionID) { $0[keyPath: field] = value } })
+    }
 
     var body: some View {
         if let session = store.session(sessionID) {
@@ -143,7 +150,8 @@ struct TroubleshootTabView: View {
     private var problemSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             SectionLabel("PROBLEM AND EVIDENCE")
-            TroubleshootProblemEditor(problem: $problem, attachments: $attachments,
+            TroubleshootProblemEditor(problem: entry(\.problem),
+                                      attachments: entry(\.attachments),
                                       focused: $problemFocused)
         }
     }
@@ -153,19 +161,19 @@ struct TroubleshootTabView: View {
             HStack(alignment: .top, spacing: 18) {
                 VStack(alignment: .leading, spacing: 8) {
                     SectionLabel("ENVIRONMENT")
-                    TroubleshootEnvironmentPills(environment: $environment)
-                    if environment.isDangerous { liveNotice }
+                    TroubleshootEnvironmentPills(environment: entry(\.environment))
+                    if brief.environment.isDangerous { liveNotice }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
                 VStack(alignment: .leading, spacing: 8) {
                     SectionLabel("MCP SERVERS")
                     TroubleshootMCPOptions(agent: session.agent,
-                                           environment: environment,
+                                           environment: brief.environment,
                                            managedServers: configs.servers,
                                            environmentServers: environmentMCPServers,
                                            state: mcpConfigurationState(session),
-                                           enabled: $mcpServersEnabled)
+                                           enabled: entry(\.mcpServersEnabled))
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -181,7 +189,7 @@ struct TroubleshootTabView: View {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 11, weight: .semibold))
                 .padding(.top, 1)
-            Text("\(environment.title) is live. The agent reads logs, metrics and config, and changes nothing.")
+            Text("\(brief.environment.title) is live. The agent reads logs, metrics and config, and changes nothing.")
                 .font(.system(size: 12))
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -220,7 +228,7 @@ struct TroubleshootTabView: View {
         if !runner.isAvailable(session.agent) {
             return "\(session.agent.title) CLI was not found on PATH."
         }
-        if problem.isBlank && attachments.isEmpty {
+        if brief.problem.isBlank && brief.attachments.isEmpty {
             return "Describe the problem, or attach the evidence for it."
         }
         // A brief sent during a turn waits its turn like any other prompt, so the tab
@@ -236,16 +244,16 @@ struct TroubleshootTabView: View {
     private func canStart(_ session: ChatSession) -> Bool {
         !isStarting
             && mcpConfigurationState(session) == .ready
-            && (!problem.isBlank || !attachments.isEmpty)
+            && (!brief.problem.isBlank || !brief.attachments.isEmpty)
             && runner.isAvailable(session.agent)
     }
 
     private var environmentMCPServers: [Server] {
-        configs.servers.filter { environment.includes($0) }
+        configs.servers.filter { brief.environment.includes($0) }
     }
 
     private func mcpConfigurationState(_ session: ChatSession) -> TroubleshootMCPState {
-        .resolve(agent: session.agent, enabled: mcpServersEnabled,
+        .resolve(agent: session.agent, enabled: brief.mcpServersEnabled,
                  servers: environmentMCPServers,
                  hasStartedCheck: hasStartedMCPConfigurationCheck,
                  claude: claude, codex: codex, copilot: copilot)
@@ -264,10 +272,11 @@ struct TroubleshootTabView: View {
     private func startDiagnosis(_ session: ChatSession) {
         guard canStart(session) else { return }
         isStarting = true
-        let chosenEnvironment = environment
+        let sent = brief
+        let chosenEnvironment = sent.environment
         let chosenSkillNames = TroubleshootSkills.chosen(skills, for: session.agent,
                                                          selected: selectedSkills)
-        let enableMCPServers = mcpServersEnabled
+        let enableMCPServers = sent.mcpServersEnabled
         let projects = store.checkoutProjects(for: session).compactMap {
             store.project($0.projectID)
         }
@@ -302,7 +311,7 @@ struct TroubleshootTabView: View {
             store.markTroubleshooting(sessionID)
 
             let request = TroubleshootRequest(
-                problem: problem,
+                problem: sent.problem,
                 environment: chosenEnvironment,
                 projects: projects.map(\.name),
                 skills: chosenSkillNames,
@@ -310,13 +319,12 @@ struct TroubleshootTabView: View {
                 mcpServerNames: enableMCPServers ? selectedServers.map(\.name) : [],
                 agent: session.agent)
             runner.send(request.userInput,
-                        attachments: attachments,
+                        attachments: sent.attachments,
                         customInstructions: request.customInstructions,
                         sessionID: sessionID, store: store)
             // The form is left behind rather than kept: what it said is now in the
             // transcript, and a second brief is a new question about the same session.
-            problem = ""
-            attachments = []
+            runner.clearBrief(sessionID)
             openConversation()
         }
     }
