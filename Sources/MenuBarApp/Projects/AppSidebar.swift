@@ -2329,6 +2329,9 @@ private struct SessionCard: View {
                 } else if worktrees.isPartial {
                     MonoChip(text: "MIXED", size: 8.5, tint: Theme.attentionText)
                 }
+                if session.isTroubleshooting {
+                    MonoChip(text: "TROUBLESHOOT", size: 8.5, tint: Theme.secret)
+                }
                 if uncommitted { UncommittedMark() }
                 if connected { MobileConnectionMark() }
                 Spacer(minLength: 4)
@@ -2339,28 +2342,23 @@ private struct SessionCard: View {
                     .opacity(hovering ? 0 : 1)
             }
 
-            HStack(spacing: 6) {
-                if session.isTroubleshooting {
-                    MonoChip(text: "TROUBLESHOOT", size: 8.5, tint: Theme.secret)
-                }
-                if isRenaming {
-                    TextField("Name", text: $draft)
-                        .textFieldStyle(.plain)
-                        .padding(4)
-                        .fieldSurface(cornerRadius: 5)
-                        .font(.system(size: 12.5, weight: .semibold))
-                        .focused($focused)
-                        .onSubmit { onRename(draft) }
-                        .onExitCommand(perform: onCancelRename)
-                } else {
-                    Text(session.title)
-                        .font(.system(size: 12.5, weight: .semibold))
-                        .lineLimit(selected ? 2 : 1)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .truncationMode(.tail)
-                        .changingName(session.title)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
+            if isRenaming {
+                TextField("Name", text: $draft)
+                    .textFieldStyle(.plain)
+                    .padding(4)
+                    .fieldSurface(cornerRadius: 5)
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .focused($focused)
+                    .onSubmit { onRename(draft) }
+                    .onExitCommand(perform: onCancelRename)
+            } else {
+                Text(session.title)
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .lineLimit(selected ? 2 : 1)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .truncationMode(.tail)
+                    .changingName(session.title)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             ActivityLine(activity: activity)
