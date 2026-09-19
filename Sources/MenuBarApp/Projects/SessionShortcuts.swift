@@ -638,6 +638,9 @@ struct ShortcutOutputDrawer: View {
             .frame(height: 240)
         }
         .background(Theme.card)
+        .interruptOnControlC(isEnabled: shortcuts.state(run).isActive) {
+            shortcuts.stop(run)
+        }
     }
 
     private var strip: some View {
@@ -657,6 +660,20 @@ struct ShortcutOutputDrawer: View {
                 .lineLimit(1)
 
             Spacer(minLength: 12)
+
+            if shortcuts.state(run).isActive {
+                Button { shortcuts.stop(run) } label: {
+                    Text("Stop")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Theme.deletion)
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 4)
+                        .background(RoundedRectangle(cornerRadius: 7).fill(Theme.field))
+                        .contentShape(RoundedRectangle(cornerRadius: 7))
+                }
+                .buttonStyle(.plain)
+                .appTooltip("Stop this command (^C)")
+            }
 
             if !log.isEmpty {
                 Button { shortcuts.clearLog(run) } label: {
@@ -715,6 +732,93 @@ struct ShortcutOutputDrawer: View {
         case .finished: Theme.addition
         default: .secondary
         }
+    }
+}
+
+// The stroke that ends a running command, wherever the reader's hands happen to be.
+// The pane prints a command the way a shell does, so ^C is what anyone watching it
+// reaches for, and there is no text field in it to type that into. A monitor is what
+// catches it: the drawer never holds the keyboard, since the composer beside it does.
+private struct InterruptCatcher: ViewModifier {
+    let isEnabled: Bool
+    let interrupt: () -> Void
+
+    @State private var monitor = Monitor()
+
+    func body(content: Content) -> some View {
+        content
+            .background(InterruptWindowAnchor(monitor: monitor))
+            .onChange(of: isEnabled, initial: true) { _, enabled in
+                if enabled { monitor.start(interrupt) } else { monitor.stop() }
+            }
+            .onDisappear { monitor.stop() }
+    }
+
+    @MainActor
+    final class Monitor {
+        // Says which window the drawer is in. A monitor sees every key press in the app,
+        // so this is what keeps one window's ^C off another window's run.
+        weak var anchor: NSView?
+
+        private var token: Any?
+        private var interrupt: (() -> Void)?
+
+        func start(_ interrupt: @escaping () -> Void) {
+            self.interrupt = interrupt
+            guard token == nil else { return }
+            token = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                let isInterrupt = event.modifierFlags
+                    .intersection(.deviceIndependentFlagsMask) == .control
+                    && event.charactersIgnoringModifiers?.lowercased() == "c"
+                guard isInterrupt else { return event }
+                return MainActor.assumeIsolated { self.take() } ? nil : event
+            }
+        }
+
+        private func take() -> Bool {
+            guard let interrupt, let window = anchor?.window,
+                  window === Self.frontmostWindow else { return false }
+            // A shell in the drawer sends its own ^C to whatever it is running.
+            guard !(window.firstResponder is TerminalSurface) else { return false }
+            interrupt()
+            return true
+        }
+
+        private static var frontmostWindow: NSWindow? {
+            var window = NSApp.keyWindow
+            while let sheet = window?.attachedSheet { window = sheet }
+            return window
+        }
+
+        func stop() {
+            if let token { NSEvent.removeMonitor(token) }
+            token = nil
+            interrupt = nil
+        }
+    }
+}
+
+private struct InterruptWindowAnchor: NSViewRepresentable {
+    let monitor: InterruptCatcher.Monitor
+
+    func makeNSView(context: Context) -> NSView {
+        let view = AnchorView()
+        monitor.anchor = view
+        return view
+    }
+
+    func updateNSView(_ view: NSView, context: Context) { monitor.anchor = view }
+
+    // Only there to name a window, so it takes no clicks of its own.
+    private final class AnchorView: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    }
+}
+
+extension View {
+    func interruptOnControlC(isEnabled: Bool,
+                             interrupt: @escaping () -> Void) -> some View {
+        modifier(InterruptCatcher(isEnabled: isEnabled, interrupt: interrupt))
     }
 }
 

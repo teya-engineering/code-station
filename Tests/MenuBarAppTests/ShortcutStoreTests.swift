@@ -177,6 +177,27 @@ struct ShortcutStoreTests {
         #expect(store.failureCount(of: store.macShortcuts) == 1)
     }
 
+    // What ^C in the output drawer and the chip's own second click both come down to.
+    // Stopping has to reach the command itself, not just the state the app shows: a
+    // tunnel left holding its port would be worse than no stop at all.
+    @Test func stoppingARunEndsTheCommandBehindIt() async throws {
+        let pidFile = scratch.path("running.pid")
+        let store = emptyStore(url)
+        let id = try #require(store.add(name: "Tunnel",
+                                        text: "echo $$ > \(pidFile.path); sleep 120"))
+        let run = ShortcutRun(id, in: FileManager.default.temporaryDirectory.path)
+
+        store.start(run)
+        #expect(await waitUntil { (try? String(contentsOf: pidFile, encoding: .utf8)) != nil })
+        let pid = try #require(pid_t(
+            String(contentsOf: pidFile, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)))
+
+        store.stop(run)
+
+        #expect(store.state(run) == .stopped)
+        #expect(await waitUntil(timeout: .seconds(5)) { ProcessIdentity.of(pid) == nil })
+    }
+
     // The same shortcut in two worktrees is two runs. Neither may report the other's
     // state, which is the whole reason a run is a shortcut and a folder together.
     @Test func keepsRunsInDifferentFoldersApart() async throws {

@@ -44,6 +44,8 @@ enum KeyboardShortcutsReference {
                                  detail: "Open the terminal drawer, then move between the shell and the composer."),
             KeyboardShortcutHelp(keys: "Esc", title: "Stop the turn",
                                  detail: "Call off the agent while it is working."),
+            KeyboardShortcutHelp(keys: "⌃ C", title: "Stop the command",
+                                 detail: "Stop the shortcut whose output is open below."),
             KeyboardShortcutHelp(keys: "⇥", title: "Edit the suggestion",
                                  detail: "Put the suggested next prompt in the composer to change it."),
             KeyboardShortcutHelp(keys: "⌘ ⏎", title: "Send the suggestion",
