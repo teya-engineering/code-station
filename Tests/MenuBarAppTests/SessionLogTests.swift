@@ -43,7 +43,10 @@ struct SessionLogTests {
     }
 
     @Test func streamSummariesDoNotContainPayloads() {
-        let secret = "token-\(UUID().uuidString)"
+        // Letters only. A category is chosen by the first keyword that matches, and the
+        // digit ones are tried first, so a random hex secret that happens to hold "429"
+        // or "401" would be read as a rate limit rather than the reconnect it is in.
+        let secret = "token-" + UUID().uuidString.filter(\.isLetter)
         let reconnect = "Reconnecting to \(secret)"
 
         #expect(StreamEvent.text(secret).logSummary == "text bytes=\(secret.utf8.count)")

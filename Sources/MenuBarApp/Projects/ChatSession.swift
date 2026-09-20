@@ -146,11 +146,25 @@ struct ChatSession: Identifiable, Codable, Equatable, Sendable {
     // The shell command behind a running task. A task is reported by its description,
     // which says what the call was for rather than what it runs, so a wait that can never
     // end reads exactly like a wait on a build until the command itself is on screen.
-    func shellCommand(forTaskWith toolUseID: String) -> String? {
+    // The id is the sure way back to the call, but it only arrives when the CLI sends one
+    // with the task. The description is the fallback: a task is named after the very line
+    // the call was given, so the newest shell call carrying that line is the one meant.
+    func shellCommand(for task: BackgroundTask) -> String? {
+        if let toolUseID = task.toolUseID,
+           let command = shellCommand(matching: { $0.id == toolUseID }) {
+            return command
+        }
+        guard let description = task.description?.trimmed, !description.isEmpty else { return nil }
+        return shellCommand(matching: {
+            ToolPresentation.shellDescription(in: $0.input)?.trimmed == description
+        })
+    }
+
+    private func shellCommand(matching isWanted: (ToolUse) -> Bool) -> String? {
         for message in messages.reversed() {
-            guard let tool = message.tools.first(where: { $0.id == toolUseID }) else { continue }
-            guard let command = ToolPresentation.shellCommand(in: tool.input),
-                  !command.isBlank else { return nil }
+            guard let tool = message.tools.last(where: isWanted),
+                  let command = ToolPresentation.shellCommand(in: tool.input),
+                  !command.isBlank else { continue }
             // A command written over several lines would push the buttons off the card.
             return command.split(whereSeparator: \.isNewline)
                 .map { $0.trimmingCharacters(in: .whitespaces) }

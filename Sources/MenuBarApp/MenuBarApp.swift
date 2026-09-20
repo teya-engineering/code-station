@@ -102,8 +102,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func closeShellsLeftBehind() {
         Task.detached(priority: .utility) {
             let closed = await ShellRegistry.shared.reapOrphans()
-            guard !closed.isEmpty else { return }
-            SessionLog.note("closed \(counted(closed.count, "shell")) left behind by an earlier run")
+            if !closed.isEmpty {
+                SessionLog.note("closed \(counted(closed.count, "shell")) left behind by an earlier run")
+            }
+            let stopped = await ShellRegistry.tasks.reapOrphans()
+            guard !stopped.isEmpty else { return }
+            SessionLog.note("stopped \(counted(stopped.count, "command")) left behind by an earlier run")
         }
     }
 

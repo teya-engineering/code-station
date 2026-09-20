@@ -35,6 +35,20 @@ struct SessionMemoryGuardTests {
         #expect(tree.members(in: [replacementRoot, replacementChild]).isEmpty)
     }
 
+    // The groups that a stop aimed at the CLI would miss. Every command the CLI runs
+    // leads one, and it is the only handle left once the command has been reparented.
+    @Test func namesTheGroupsACommandLeadsAndNotTheCLIsOwn() {
+        let root = process(100, parent: 1, group: 100)
+        let inRootGroup = process(101, parent: 100, group: 100)
+        let leader = process(102, parent: 100, group: 102)
+        let underLeader = process(103, parent: 102, group: 102)
+        let orphanedLeader = process(104, parent: 1, group: 104)
+
+        let leaders = SessionMemoryGuard.groupLeaders(
+            among: [root, inRootGroup, leader, underLeader, orphanedLeader], root: 100)
+        #expect(leaders.map(\.pid) == [102, 104])
+    }
+
     @Test func automaticBudgetLeavesRoomForTheRestOfTheMachine() {
         let gib: UInt64 = 1_024 * 1_024 * 1_024
         #expect(SessionMemoryLimit.automatic.bytes(physicalMemory: 8 * gib) == 2 * gib)

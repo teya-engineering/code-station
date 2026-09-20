@@ -1494,9 +1494,7 @@ struct SessionView: View {
                 WaitingNotice(since: waitingSince,
                               tasks: runner.backgroundTasks(sessionID),
                               agentTitle: session.agent.title,
-                              command: { task in
-                                  task.toolUseID.flatMap(session.shellCommand(forTaskWith:))
-                              },
+                              command: { session.shellCommand(for: $0) },
                               onKeepWaiting: { waitNoticeDismissed = true },
                               onEnd: { runner.endWait(sessionID) })
                     .transition(.fadeIn)

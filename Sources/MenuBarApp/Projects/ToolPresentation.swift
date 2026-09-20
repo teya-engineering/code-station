@@ -379,6 +379,14 @@ struct ToolPresentation: Sendable {
         return object["command"] as? String
     }
 
+    // What the call said it was for. A background task goes by this same line, so it is
+    // the one thing that ties a task back to the call that started it when no id does.
+    static func shellDescription(in input: String) -> String? {
+        guard let object = (try? JSONSerialization.jsonObject(with: Data(input.utf8))) as? [String: Any]
+        else { return nil }
+        return object["description"] as? String
+    }
+
     // What a workflow goes by: the saved name it was launched under, the script file it
     // was resumed from, or the name in the script's own meta block. Without one the row
     // would carry a whole workflow script as its argument.

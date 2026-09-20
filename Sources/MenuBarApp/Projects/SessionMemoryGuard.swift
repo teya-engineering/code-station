@@ -117,17 +117,22 @@ final class SessionMemoryGuard: @unchecked Sendable {
     private let timer: DispatchSourceTimer
     private let byteLimit: UInt64
     private let onLimit: @Sendable (Violation) -> Void
+    private let registry: ShellRegistry?
     private var stopped = false
     private var recordedViolation: Violation?
     // Only the timer's serial queue touches the tree.
     private var tree: ProcessTree
+    // The turn's own leaders, kept for whoever ends the turn. Read from the main actor,
+    // written by the timer, so it lives under the lock rather than beside the tree.
+    private var leaders: [ProcessIdentity] = []
 
-    init?(processGroup: pid_t, limit: UInt64,
+    init?(processGroup: pid_t, limit: UInt64, registry: ShellRegistry? = nil,
           onLimit: @escaping @Sendable (Violation) -> Void) {
         guard processGroup > 1, processGroup != getpgrp(),
               let root = ProcessIdentity.of(processGroup) else { return nil }
         tree = ProcessTree(root: root)
         byteLimit = limit
+        self.registry = registry
         self.onLimit = onLimit
         timer = DispatchSource.makeTimerSource(
             queue: DispatchQueue(label: "session-memory-\(processGroup)", qos: .userInitiated))
@@ -140,6 +145,11 @@ final class SessionMemoryGuard: @unchecked Sendable {
     deinit { timer.cancel() }
 
     var violation: Violation? { lock.withLock { recordedViolation } }
+
+    // The process groups this turn started that killing the CLI's own group would miss.
+    // A command the CLI runs leads a group of its own, so it survives its parent and is
+    // reparented away, which leaves the tree as the only thing that still names it.
+    var startedGroups: [ProcessIdentity] { lock.withLock { leaders } }
 
     // Synchronizes with a limit crossing, so exit handling cannot mistake a memory stop
     // for a normal completion and start another turn before the UI callback arrives.
@@ -155,6 +165,7 @@ final class SessionMemoryGuard: @unchecked Sendable {
     private func sample() {
         guard !lock.withLock({ stopped }), let processes = Self.processes() else { return }
         let members = tree.members(in: processes)
+        noteLeaders(among: members)
         var total: UInt64 = 0
         var largest: (identity: ProcessIdentity, bytes: UInt64) = (tree.root, 0)
         for process in members {
@@ -185,6 +196,34 @@ final class SessionMemoryGuard: @unchecked Sendable {
             return true
         }
         if shouldReport { onLimit(violation) }
+    }
+
+    // Keeps the written-down list level with what is actually running. A note is worth
+    // writing only for a group leader: the rest of the turn's processes go when the group
+    // they sit in goes, and the CLI's own group is already stopped by whoever stops it.
+    private func noteLeaders(among members: [ProcessEntry]) {
+        let found = Self.groupLeaders(among: members, root: tree.root.pid)
+        let known = lock.withLock { leaders }
+        guard found != known else { return }
+        lock.withLock { leaders = found }
+        guard let registry else { return }
+        let foundPIDs = Set(found.map(\.pid))
+        for leader in found where !known.contains(leader) { registry.record(leader) }
+        for leader in known where !foundPIDs.contains(leader.pid) { registry.forget(leader) }
+    }
+
+    // A leader is a process whose group is its own, which is what a command run on its
+    // own becomes. The CLI's group is left out: whoever stops the turn signals that one
+    // already, and it is the only group that goes down with its parent.
+    //
+    // Sorted because the tree hands its members back in whatever order they sit in a
+    // dictionary. Two readings of one unchanged set have to look equal, or the check for
+    // what is new and what has gone would run against a fresh order every quarter second.
+    static func groupLeaders(among members: [ProcessEntry], root: pid_t) -> [ProcessIdentity] {
+        members
+            .filter { $0.identity.pid == $0.group && $0.group != root }
+            .map(\.identity)
+            .sorted { $0.pid < $1.pid }
     }
 
     static func footprint(of process: ProcessIdentity) -> UInt64? {

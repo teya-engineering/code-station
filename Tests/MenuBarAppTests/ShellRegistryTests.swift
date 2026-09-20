@@ -82,6 +82,22 @@ struct ShellRegistryTests {
         #expect(await waitUntil { markers(in: directory).isEmpty })
     }
 
+    // What ending a turn has to do. A command the CLI ran sits in a group of its own and
+    // survives both the CLI and, without this, the rest of the day.
+    @Test func everyGroupHandedOverIsClosedTogether() async throws {
+        let directory = scratch()
+        let registry = ShellRegistry(directory: directory)
+        let pids = try [startOrphan(), startOrphan()]
+        defer { for pid in pids { kill(pid, SIGKILL) } }
+        let groups = try pids.map { try identity(of: $0) }
+        for group in groups { registry.record(group) }
+
+        registry.retire(groups)
+
+        for pid in pids { #expect(await waitUntilGone(pid)) }
+        #expect(await waitUntil { markers(in: directory).isEmpty })
+    }
+
     @Test func aShellWhoseOwnerIsGoneIsClosed() async throws {
         let directory = scratch()
         let pid = try startOrphan()

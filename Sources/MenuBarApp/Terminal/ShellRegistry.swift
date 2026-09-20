@@ -42,6 +42,10 @@ struct ProcessIdentity: Codable, Equatable {
 // it has to be written down while the app still can.
 final class ShellRegistry: @unchecked Sendable {
     static let shared = ShellRegistry(directory: AppPaths.directory("shells", backedUp: false))
+    // The commands a turn starts lead process groups of their own, so stopping the CLI's
+    // group never reaches them and losing their parent only hides them. They are written
+    // down beside the shells so the same reaper can come back for them.
+    static let tasks = ShellRegistry(directory: AppPaths.directory("tasks", backedUp: false))
 
     // How long a shell is given to take its hangup before it is killed outright.
     private static let grace: Duration = .seconds(2)
@@ -92,6 +96,10 @@ final class ShellRegistry: @unchecked Sendable {
         CommandRunner.signalProcessGroup(shell.pid, signal: SIGHUP)
         let note = note(for: shell)
         Task.detached(priority: .utility) { await self.forgetOnceGone(shell, note: note) }
+    }
+
+    func retire(_ shells: [ProcessIdentity]) {
+        for shell in shells { retire(shell) }
     }
 
     // Closes the shells left behind by app runs that are over and drops the notes for

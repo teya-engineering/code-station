@@ -62,6 +62,10 @@ final class SessionRunner {
         // Design and Build share one checkout. A turn for one side waits here while the
         // other side is using it, then starts as soon as that turn releases the directory.
         var waitsForDesignWorkflowDirectory = false
+        // The process groups this session's turns started and did not take with them.
+        // A turn ending is no reason to stop a server somebody meant to leave running,
+        // so they are carried until the session itself goes.
+        var startedGroups: [ProcessIdentity] = []
         var isBeingRemoved = false
         // The turn that ended short and left a conversation that can be picked up again.
         // The offer stands until the next prompt is sent.
@@ -349,7 +353,33 @@ final class SessionRunner {
         SessionLog.note("wait ended by hand with \(wait.tasks.count) tasks running",
                         session: sessionID)
         endHold(turn, sessionID: sessionID)
+        stopStartedGroups(sessionID, reason: "wait ended by hand")
         turn.closeInput()
+    }
+
+    // The card offering this says that ending the turn stops the tasks it started, and a
+    // wait nothing is going to end is the reason most people press it. Closing the input
+    // only ends the CLI: a command sitting in a group of its own carries on, holding a
+    // port or a lock, and the next turn meets it as something it never started.
+    private func stopStartedGroups(_ sessionID: UUID, reason: String) {
+        let groups = startedGroups(sessionID)
+        records[sessionID]?.startedGroups = []
+        guard !groups.isEmpty else { return }
+        SessionLog.note("\(reason): stopping \(counted(groups.count, "process group")) "
+                        + "the session started", session: sessionID)
+        ShellRegistry.tasks.retire(groups)
+    }
+
+    // What the session has running outside the CLI's own group: the turn's own leaders as
+    // the guard last saw them, behind the ones carried over from the turns before it.
+    private func startedGroups(_ sessionID: UUID) -> [ProcessIdentity] {
+        guard let record = records[sessionID] else { return [] }
+        let live = record.turn?.memoryGuard?.startedGroups ?? []
+        var kept: [ProcessIdentity] = []
+        for group in record.startedGroups + live where group.isAlive && !kept.contains(group) {
+            kept.append(group)
+        }
+        return kept
     }
 
     // What this session is waiting on the person for, if anything.
@@ -1623,6 +1653,11 @@ final class SessionRunner {
     // part of the same shutdown.
     func stopAll() {
         for (sessionID, record) in records where record.turn != nil { requestStop(sessionID) }
+        // Over a copy of the keys: stopping a session's groups writes back to `records`,
+        // which the live key view is a window onto.
+        for sessionID in Array(records.keys) {
+            stopStartedGroups(sessionID, reason: "app quitting")
+        }
     }
 
     func beginRemoval(_ sessionID: UUID) -> Bool {
@@ -1636,6 +1671,7 @@ final class SessionRunner {
     }
 
     func finishRemoval(_ sessionID: UUID) {
+        stopStartedGroups(sessionID, reason: "session removed")
         codexContextRefreshes.removeValue(forKey: sessionID)?.task.cancel()
         records[sessionID] = nil
         drafts[sessionID] = nil
@@ -1990,7 +2026,8 @@ final class SessionRunner {
         }
 
         turn.memoryGuard = SessionMemoryGuard(processGroup: processGroup,
-                                              limit: memoryLimit()) {
+                                              limit: memoryLimit(),
+                                              registry: .tasks) {
             violation in
             SessionLog.note(
                 "memory limit exceeded bytes=\(violation.bytes) limit=\(violation.limit) "
@@ -2818,6 +2855,10 @@ final class SessionRunner {
         records[sessionID]?.wait = nil
         // The process that parked them is gone, so nothing is listening for an answer.
         records[sessionID]?.asked = []
+        // Read out before the assignment: both sides reach for `records`, and writing
+        // through the subscript holds it exclusively for as long as the right side runs.
+        let carried = startedGroups(sessionID)
+        records[sessionID]?.startedGroups = carried
         cleanUp(turn)
         restorePreviousConversation(turn, status: status, sessionID: sessionID, store: store)
 

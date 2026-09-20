@@ -525,11 +525,16 @@ struct BackgroundTaskTests {
         return session
     }
 
+    private func shellTask(id: String? = nil, description: String? = nil) -> BackgroundTask {
+        BackgroundTask(id: "task-1", kind: "local_bash", description: description,
+                       agentName: nil, toolUseID: id)
+    }
+
     @Test func findsTheCommandBehindATask() {
         let session = session(with: [
             ToolUse(id: "toolu_1", name: "Bash", input: #"{"command":"npm run dev"}"#),
         ])
-        #expect(session.shellCommand(forTaskWith: "toolu_1") == "npm run dev")
+        #expect(session.shellCommand(for: shellTask(id: "toolu_1")) == "npm run dev")
     }
 
     // A wait that will never end is only obvious once the loop itself is on screen, and
@@ -539,7 +544,8 @@ struct BackgroundTaskTests {
             ToolUse(id: "toolu_1", name: "Bash",
                     input: #"{"command":"until grep -q done out\ndo :\ndone"}"#),
         ])
-        #expect(session.shellCommand(forTaskWith: "toolu_1") == "until grep -q done out do : done")
+        #expect(session.shellCommand(for: shellTask(id: "toolu_1"))
+            == "until grep -q done out do : done")
     }
 
     // A task whose call has scrolled out of the loaded transcript still has to draw, just
@@ -548,7 +554,7 @@ struct BackgroundTaskTests {
         let session = session(with: [
             ToolUse(id: "toolu_1", name: "Bash", input: #"{"command":"npm run dev"}"#),
         ])
-        #expect(session.shellCommand(forTaskWith: "toolu_other") == nil)
+        #expect(session.shellCommand(for: shellTask(id: "toolu_other")) == nil)
     }
 
     // An agent is a background task too, and its input names no command.
@@ -556,7 +562,36 @@ struct BackgroundTaskTests {
         let session = session(with: [
             ToolUse(id: "toolu_1", name: "Agent", input: #"{"description":"Review the diff"}"#),
         ])
-        #expect(session.shellCommand(forTaskWith: "toolu_1") == nil)
+        #expect(session.shellCommand(for: shellTask(id: "toolu_1",
+                                                    description: "Review the diff")) == nil)
+    }
+
+    // The case the card was drawn blank for: the CLI reports the task by description
+    // alone. Without this the wait names something with nothing to judge it by.
+    @Test func findsTheCommandByDescriptionWhenNoIdArrived() {
+        let session = session(with: [
+            ToolUse(id: "toolu_1", name: "Bash",
+                    input: #"{"command":"npm test","description":"Run the tests"}"#),
+            ToolUse(id: "toolu_2", name: "Bash",
+                    input: #"{"command":"chrome --screenshot","description":"Screenshot the harness"}"#),
+        ])
+        #expect(session.shellCommand(for: shellTask(description: "Screenshot the harness"))
+            == "chrome --screenshot")
+        #expect(session.shellCommand(for: shellTask(description: "Nothing ran this")) == nil)
+    }
+
+    // Two calls can be given the same line. The id settles it whenever one arrived, and
+    // the newest call is the best guess when none did.
+    @Test func prefersTheIdAndOtherwiseTheNewestMatchingCall() {
+        let session = session(with: [
+            ToolUse(id: "toolu_1", name: "Bash",
+                    input: #"{"command":"first try","description":"Build it"}"#),
+            ToolUse(id: "toolu_2", name: "Bash",
+                    input: #"{"command":"second try","description":"Build it"}"#),
+        ])
+        #expect(session.shellCommand(for: shellTask(id: "toolu_1", description: "Build it"))
+            == "first try")
+        #expect(session.shellCommand(for: shellTask(description: "Build it")) == "second try")
     }
 
     // The model and window ride along on the newest report even when nothing grew.
