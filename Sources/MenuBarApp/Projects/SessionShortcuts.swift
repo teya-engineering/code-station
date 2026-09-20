@@ -755,75 +755,19 @@ private struct InterruptCatcher: ViewModifier {
     let isEnabled: Bool
     let interrupt: () -> Void
 
-    @State private var monitor = Monitor()
+    @State private var monitor = WindowKeyMonitor(.control, "c")
 
     func body(content: Content) -> some View {
         content
-            .background(InterruptWindowAnchor(monitor: monitor))
+            .background(WindowAnchor(monitor: monitor))
             .onChange(of: isEnabled, initial: true) { _, enabled in
-                if enabled { monitor.start(interrupt) } else { monitor.stop() }
+                guard enabled else { return monitor.stop() }
+                monitor.start {
+                    interrupt()
+                    return true
+                }
             }
             .onDisappear { monitor.stop() }
-    }
-
-    @MainActor
-    final class Monitor {
-        // Says which window the drawer is in. A monitor sees every key press in the app,
-        // so this is what keeps one window's ^C off another window's run.
-        weak var anchor: NSView?
-
-        private var token: Any?
-        private var interrupt: (() -> Void)?
-
-        func start(_ interrupt: @escaping () -> Void) {
-            self.interrupt = interrupt
-            guard token == nil else { return }
-            token = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-                let isInterrupt = event.modifierFlags
-                    .intersection(.deviceIndependentFlagsMask) == .control
-                    && event.charactersIgnoringModifiers?.lowercased() == "c"
-                guard isInterrupt else { return event }
-                return MainActor.assumeIsolated { self.take() } ? nil : event
-            }
-        }
-
-        private func take() -> Bool {
-            guard let interrupt, let window = anchor?.window,
-                  window === Self.frontmostWindow else { return false }
-            // A shell in the drawer sends its own ^C to whatever it is running.
-            guard !(window.firstResponder is TerminalSurface) else { return false }
-            interrupt()
-            return true
-        }
-
-        private static var frontmostWindow: NSWindow? {
-            var window = NSApp.keyWindow
-            while let sheet = window?.attachedSheet { window = sheet }
-            return window
-        }
-
-        func stop() {
-            if let token { NSEvent.removeMonitor(token) }
-            token = nil
-            interrupt = nil
-        }
-    }
-}
-
-private struct InterruptWindowAnchor: NSViewRepresentable {
-    let monitor: InterruptCatcher.Monitor
-
-    func makeNSView(context: Context) -> NSView {
-        let view = AnchorView()
-        monitor.anchor = view
-        return view
-    }
-
-    func updateNSView(_ view: NSView, context: Context) { monitor.anchor = view }
-
-    // Only there to name a window, so it takes no clicks of its own.
-    private final class AnchorView: NSView {
-        override func hitTest(_ point: NSPoint) -> NSView? { nil }
     }
 }
 

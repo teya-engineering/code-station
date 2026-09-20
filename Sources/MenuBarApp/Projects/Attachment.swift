@@ -91,89 +91,23 @@ private struct PasteCatcher: ViewModifier {
     let isEnabled: Bool
     let onPaste: ([Attachment]) -> Void
 
-    @State private var monitor = Monitor()
+    @State private var monitor = WindowKeyMonitor(.command, "v")
 
     func body(content: Content) -> some View {
         content
-            .background(PasteWindowAnchor(monitor: monitor))
+            .background(WindowAnchor(monitor: monitor))
             .onChange(of: isEnabled, initial: true) { _, enabled in
-                if enabled { monitor.start(onPaste) } else { monitor.stop() }
+                guard enabled else { return monitor.stop() }
+                monitor.start {
+                    // Swallowed only when something was attached; plain text still belongs
+                    // to the text field.
+                    let found = Attachments.fromClipboard()
+                    guard !found.isEmpty else { return false }
+                    onPaste(found)
+                    return true
+                }
             }
             .onDisappear { monitor.stop() }
-    }
-
-    // The handler runs outside the main actor, so what it needs lives in a class it can
-    // hold rather than in the view value it was created from.
-    @MainActor
-    final class Monitor {
-        // Says which window the box is in. A monitor sees every key press in the app, so
-        // this is what tells one box's paste from another's.
-        weak var anchor: NSView?
-
-        private var token: Any?
-        private var onPaste: (([Attachment]) -> Void)?
-
-        func start(_ onPaste: @escaping ([Attachment]) -> Void) {
-            // Kept on the monitor rather than captured by the handler: the view is a
-            // value that is made again on every redraw, and the handler is registered once.
-            self.onPaste = onPaste
-            guard token == nil else { return }
-            token = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-                // Nothing about the event itself is carried across: it stays here, and
-                // only the answer to "was this a paste" goes to the main actor.
-                let isPaste = event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command
-                    && event.charactersIgnoringModifiers?.lowercased() == "v"
-                guard isPaste else { return event }
-                // Swallowed only when something was attached; plain text still belongs to
-                // the text field.
-                return MainActor.assumeIsolated { self.take() } ? nil : event
-            }
-        }
-
-        private func take() -> Bool {
-            // Every box that accepts a pasted file has a monitor of its own and they all
-            // see the key press, so only the one in front acts on it. A box left focused
-            // behind a sheet must not answer for the sheet's own.
-            guard let onPaste, let window = anchor?.window,
-                  window === Self.frontmostWindow else { return false }
-            // A shell in the drawer is typed into, so its paste is its own.
-            guard !(window.firstResponder is TerminalSurface) else { return false }
-            let found = Attachments.fromClipboard()
-            guard !found.isEmpty else { return false }
-            onPaste(found)
-            return true
-        }
-
-        // Which of a sheet and the window it hangs off counts as key is not worth relying
-        // on, so the chain is followed to whichever sheet ended up on top.
-        private static var frontmostWindow: NSWindow? {
-            var window = NSApp.keyWindow
-            while let sheet = window?.attachedSheet { window = sheet }
-            return window
-        }
-
-        func stop() {
-            if let token { NSEvent.removeMonitor(token) }
-            token = nil
-            onPaste = nil
-        }
-    }
-}
-
-private struct PasteWindowAnchor: NSViewRepresentable {
-    let monitor: PasteCatcher.Monitor
-
-    func makeNSView(context: Context) -> NSView {
-        let view = AnchorView()
-        monitor.anchor = view
-        return view
-    }
-
-    func updateNSView(_ view: NSView, context: Context) { monitor.anchor = view }
-
-    // Only there to name a window, so it takes no clicks of its own.
-    private final class AnchorView: NSView {
-        override func hitTest(_ point: NSPoint) -> NSView? { nil }
     }
 }
 
