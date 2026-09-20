@@ -32,8 +32,21 @@ struct Composer<Above: View, Accessory: View>: View {
     @ViewBuilder let accessory: Accessory
 
     @State private var dropTargeted = false
+    @State private var commands: [AgentCommand] = []
+    @State private var commandSelection = 0
+    // The command being typed when the menu was waved away, so it stays away until the
+    // word changes rather than coming back on the next keystroke.
+    @State private var dismissedQuery: String?
 
     private var attachments: [Attachment] { runner.draft(sessionID).attachments }
+
+    // The slash command being typed, if the whole of the prompt is one.
+    private var query: String? { SlashQuery.typed(in: runner.draft(sessionID).text) }
+
+    private var matches: [AgentCommand] {
+        guard let query, query != dismissedQuery else { return [] }
+        return SlashQuery.matches(query, in: commands)
+    }
 
     private var draft: Binding<String> {
         Binding(get: { runner.draft(sessionID).text },
@@ -45,9 +58,19 @@ struct Composer<Above: View, Accessory: View>: View {
         let busy = state.isBusy
         let canSend = !blocked && !runner.draft(sessionID).isEmpty
 
+        let matches = matches
+
         VStack(alignment: .leading, spacing: 8) {
             above
             attachmentStrip
+
+            if !matches.isEmpty, isFocused, !blocked {
+                SlashCommandMenu(agent: agent,
+                                 commands: matches,
+                                 selected: min(commandSelection, matches.count - 1),
+                                 choose: take,
+                                 highlight: { commandSelection = $0 })
+            }
 
             HStack(alignment: .bottom, spacing: 10) {
                 // Typing during a turn is allowed: what is written goes to the back of the
@@ -63,7 +86,8 @@ struct Composer<Above: View, Accessory: View>: View {
                               onRecallUp: onRecallUp,
                               onRecallDown: onRecallDown,
                               highlightsKeyword: agent == .claudeCode,
-                              onSuggestionKey: onSuggestionKey) {
+                              onSuggestionKey: onSuggestionKey,
+                              onCommandKey: commandKey) {
                     accessory
                 }
 
@@ -118,6 +142,22 @@ struct Composer<Above: View, Accessory: View>: View {
         .overlay(RoundedRectangle(cornerRadius: 10)
             .stroke(Theme.accent, lineWidth: dropTargeted ? 2 : 0)
             .padding(6))
+        // Read again each time the menu opens rather than once: a command is a file
+        // someone can add, edit or delete between one prompt and the next.
+        .task(id: query == nil) {
+            guard query != nil else { return }
+            let roots = store.session(sessionID).map(store.workingDirectories(for:)) ?? []
+            let agent = agent
+            commands = await Task.detached {
+                AgentCommands.all(for: agent, workingDirectories: roots)
+            }.value
+        }
+        .onChange(of: query) { _, typed in
+            commandSelection = 0
+            // Waving the menu away is about the word that was on screen, so the next one
+            // typed gets its own answer.
+            if typed != dismissedQuery { dismissedQuery = nil }
+        }
         .pasteAttachments(enabled: isFocused && !blocked) { attach($0) }
         .dropDestination(for: URL.self) { urls, _ in
             guard !blocked else { return false }
@@ -141,6 +181,34 @@ struct Composer<Above: View, Accessory: View>: View {
                 .padding(.vertical, 1)
             }
         }
+    }
+
+    // The keys the menu answers, taken only while it is on screen. Return picks the
+    // highlighted command rather than sending, so a half-typed name can never be sent as
+    // a prompt by the key that finishes it; the next return sends what it left behind.
+    private func commandKey(_ key: CommandKey) -> Bool {
+        let matches = matches
+        guard !blocked, !matches.isEmpty else { return false }
+        let selected = min(commandSelection, matches.count - 1)
+        switch key {
+        case .up:
+            commandSelection = (selected - 1 + matches.count) % matches.count
+        case .down:
+            commandSelection = (selected + 1) % matches.count
+        case .complete:
+            take(matches[selected])
+        case .cancel:
+            dismissedQuery = query
+        }
+        return true
+    }
+
+    // The name goes in whole, with a space after it, so anything the command takes can be
+    // typed straight on the end. The space also closes the menu, since the word is settled.
+    private func take(_ command: AgentCommand) {
+        runner.editDraft(sessionID) { $0.text = command.typed + " " }
+        commandSelection = 0
+        isFocused = true
     }
 
     private func attach(_ found: [Attachment]) {

@@ -21,6 +21,7 @@ struct ComposerKeywordTests {
                                 onRecallUp: nil, onRecallDown: nil,
                                 highlightsKeyword: highlights,
                                 onSuggestionKey: nil,
+                                onCommandKey: nil,
                                 // A still word takes the colours of the first frame,
                                 // which is all most of these need.
                                 animatesKeyword: animates,

@@ -26,6 +26,9 @@ struct ComposerField<TrailingAccessory: View>: View {
     // It answers whether it took the key, so with nothing offered tab still moves focus
     // and escape still reaches whatever else wants it.
     var onSuggestionKey: ((SuggestionKey) -> Bool)? = nil
+    // The arrows, return, tab and escape while the command menu is open above the box.
+    // It is asked before anything else those keys mean, and answers the same way.
+    var onCommandKey: ((CommandKey) -> Bool)? = nil
 
     // Past this the box stops growing and the text scrolls inside it, so a long prompt
     // can never push the transcript off the screen.
@@ -41,6 +44,7 @@ struct ComposerField<TrailingAccessory: View>: View {
          onRecallDown: (() -> Bool)? = nil,
          highlightsKeyword: Bool = false,
          onSuggestionKey: ((SuggestionKey) -> Bool)? = nil,
+         onCommandKey: ((CommandKey) -> Bool)? = nil,
          @ViewBuilder trailingAccessory: () -> TrailingAccessory) {
         _text = text
         _isFocused = isFocused
@@ -52,6 +56,7 @@ struct ComposerField<TrailingAccessory: View>: View {
         self.onRecallDown = onRecallDown
         self.highlightsKeyword = highlightsKeyword
         self.onSuggestionKey = onSuggestionKey
+        self.onCommandKey = onCommandKey
         self.trailingAccessory = trailingAccessory()
     }
 
@@ -69,6 +74,7 @@ struct ComposerField<TrailingAccessory: View>: View {
                  onRecallDown: onRecallDown,
                  highlightsKeyword: highlightsKeyword,
                  onSuggestionKey: onSuggestionKey,
+                 onCommandKey: onCommandKey,
                  animatesKeyword: !reduceMotion,
                  onHeightChange: { height = $0 })
             .frame(height: min(max(height, line), line * CGFloat(maxLines)))
@@ -117,6 +123,7 @@ struct TextArea: NSViewRepresentable {
     let onRecallDown: (() -> Bool)?
     let highlightsKeyword: Bool
     let onSuggestionKey: ((SuggestionKey) -> Bool)?
+    let onCommandKey: ((CommandKey) -> Bool)?
     let animatesKeyword: Bool
     let onHeightChange: (CGFloat) -> Void
 
@@ -222,7 +229,7 @@ struct TextArea: NSViewRepresentable {
             case #selector(NSResponder.insertNewline(_:)):
                 if NSApp.currentEvent?.modifierFlags.contains(.shift) == true {
                     textView.insertText("\n", replacementRange: textView.selectedRange())
-                } else {
+                } else if !commandKey(.complete) {
                     parent.onSubmit()
                 }
                 return true
@@ -230,21 +237,26 @@ struct TextArea: NSViewRepresentable {
                 textView.insertText("\n", replacementRange: textView.selectedRange())
                 return true
             case #selector(NSResponder.insertTab(_:)):
-                // Only ever borrowed: with no suggestion to take, tab moves focus out of
-                // the box the way it does in every other field.
+                // Only ever borrowed: with no command to finish and no suggestion to
+                // take, tab moves focus out of the box the way it does in every other
+                // field.
+                if commandKey(.complete) { return true }
                 return suggestionKey(.edit)
             case #selector(NSResponder.cancelOperation(_:)), #selector(NSResponder.complete(_:)):
                 // Escape arrives as cancelOperation:, which a text view turns into
                 // complete: on the way, so both spellings are taken.
+                if commandKey(.cancel) { return true }
                 return suggestionKey(.cancel)
             case #selector(NSResponder.moveUp(_:)):
                 // Only the first line recalls, so a press in the middle of a prompt that
                 // runs over several lines is always the cursor's. Whether an earlier
                 // prompt should replace what is there at all is the runner's call, since
                 // only it knows a walk is under way.
+                if commandKey(.up) { return true }
                 if isOnFirstLine(textView), parent.onRecallUp?() == true { return true }
                 return false
             case #selector(NSResponder.moveDown(_:)):
+                if commandKey(.down) { return true }
                 if isOnLastLine(textView), parent.onRecallDown?() == true { return true }
                 return false
             default:
@@ -272,6 +284,10 @@ struct TextArea: NSViewRepresentable {
 
         func suggestionKey(_ key: SuggestionKey) -> Bool {
             parent.onSuggestionKey?(key) == true
+        }
+
+        func commandKey(_ key: CommandKey) -> Bool {
+            parent.onCommandKey?(key) == true
         }
 
         func focusChanged(_ focused: Bool) {

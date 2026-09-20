@@ -465,6 +465,10 @@ final class SessionRunner {
         let text: String
         let attachments: [Attachment]
         let customInstructions: String?
+        // The words behind a slash command, for the agents that do not know their own.
+        // The line stays as it was typed in the transcript, since that is what was meant
+        // and a whole command file read back would bury the conversation.
+        var expansion: String? = nil
         // A command the app sends on the person's behalf rather than something they
         // typed at the agent. It travels down the same pipe but is not a line of the
         // conversation, so it does not appear as one.
@@ -472,6 +476,7 @@ final class SessionRunner {
         var summary: SummaryAttempt? = nil
 
         var prompt: String {
+            let text = expansion ?? text
             guard let customInstructions else { return text }
             guard !text.isEmpty else { return customInstructions }
             return "\(text)\n\n\(customInstructions)"
@@ -811,6 +816,17 @@ final class SessionRunner {
 
     nonisolated static func isCompactCommand(_ text: String) -> Bool {
         text.trimmed.lowercased() == "/compact"
+    }
+
+    // The words behind a typed slash command, for an agent that would not recognise one.
+    // Nil for everything else, which is nearly every prompt: only a line starting with a
+    // slash is ever looked up, so the folders are read on the rare turn that needs them.
+    private func expansion(of text: String, sessionID: UUID, store: ProjectStore) -> String? {
+        guard text.hasPrefix("/"), let session = store.session(sessionID),
+              !session.agent.expandsCommands else { return nil }
+        let commands = AgentCommands.all(for: session.agent,
+                                         workingDirectories: store.workingDirectories(for: session))
+        return AgentCommands.expansion(of: text, in: commands)
     }
 
     // Runs a typed window command, saying in the transcript why if it could not. True
@@ -1176,7 +1192,8 @@ final class SessionRunner {
         records[sessionID, default: SessionRecord()].queue.append(QueuedPrompt(
             text: text,
             attachments: attachments,
-            customInstructions: instructions?.isEmpty == false ? instructions : nil))
+            customInstructions: instructions?.isEmpty == false ? instructions : nil,
+            expansion: expansion(of: text, sessionID: sessionID, store: store)))
         runQueue(sessionID, store: store)
     }
 
