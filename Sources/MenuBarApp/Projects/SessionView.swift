@@ -153,6 +153,9 @@ struct SessionView: View {
     @State private var exportingDesignMaterials = false
     @State private var transcriptWindow = TranscriptWindow()
     @State private var transcriptPinnedToBottom = true
+    // Held by the pane rather than by any one message, since the whole point of it is
+    // to carry a selection from a paragraph in one message into a paragraph in another.
+    @State private var transcriptSelection = TranscriptSelection()
     @State private var transcriptScrollRequest = 0
     @State private var agentFocus: AgentTranscriptFocus?
     @State private var recapOpen = false
@@ -1318,6 +1321,7 @@ struct SessionView: View {
                         proxy.scrollTo(earliestID, anchor: .top)
                     }
                 }
+                    .environment(\.transcriptSelection, transcriptSelection)
                     .padding(.horizontal, 26)
                     .padding(.vertical, 22)
                     // Capped so prose keeps a readable line length, and centered so a
@@ -1333,6 +1337,9 @@ struct SessionView: View {
                             transcriptPinnedToBottom = isAtBottom
                         }
                     }
+                    // Sits outside the padding so the margins count as page too: a press
+                    // beside a paragraph puts the selection away just as one below it does.
+                    .background(TranscriptSelectionClearing(selection: transcriptSelection))
                     // Message rows can settle after the first scroll when text wraps or
                     // an attachment gets its final size. Keep an opening transcript at
                     // its real end, then respect manual scrolling once it is visible.

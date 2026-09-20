@@ -461,16 +461,39 @@ enum TranscriptLink {
     }
 }
 
-private struct InlineMarkdownText: View {
+// How a block works out how wide it is.
+enum TextWidth {
+    // Fills the width it is offered and wraps to it. What page prose wants.
+    case fills
+    // Wraps to the width it is offered but claims only the width it used, so a short
+    // line leaves the rest of the row alone. What a bubble drawn around text wants.
+    case hugs
+    // Keeps the line breaks it came with and lets the longest of them set the width,
+    // running off the side into a scroller rather than folding. What code wants.
+    case fixed
+}
+
+// Every run of text in the transcript, prose and code alike, is drawn by a text view
+// rather than by SwiftUI's Text. A Text owns a selection that stops at its own edge, so
+// a page built from one per block could only ever be selected a block at a time. A text
+// view reports the character under a point and takes a selected range back, which is
+// what lets TranscriptSelection run one selection across the whole page.
+struct SelectableText: View {
     @Environment(\.openURL) private var openURL
     @Environment(TooltipPresenter.self) private var tooltipPresenter
     @Environment(\.textScale) private var textScale
+    @Environment(\.transcriptSelection) private var transcriptSelection
 
     private let attributed: AttributedString
     private let size: CGFloat
     private let weight: Font.Weight
     private let design: Font.Design
     private let secondary: Bool
+    private let lineSpacing: CGFloat
+    private let alignment: TextAlignment
+    private let width: TextWidth
+    private let italic: Bool
+    private let role: TranscriptTextRole
 
     @State private var tooltipOwner = UUID()
     @State private var tooltipURL: URL?
@@ -480,37 +503,101 @@ private struct InlineMarkdownText: View {
          size: CGFloat,
          weight: Font.Weight = .regular,
          design: Font.Design = .default,
-         secondary: Bool = false) {
-        self.attributed = .inlineMarkdown(text)
+         secondary: Bool = false,
+         lineSpacing: CGFloat = 0,
+         alignment: TextAlignment = .leading,
+         role: TranscriptTextRole = .block) {
+        self.init(attributed: .inlineMarkdown(text),
+                  size: size,
+                  weight: weight,
+                  design: design,
+                  secondary: secondary,
+                  lineSpacing: lineSpacing,
+                  alignment: alignment,
+                  width: .fills,
+                  italic: false,
+                  role: role)
+    }
+
+    // Code arrives already coloured by token, and its own line breaks are the only ones
+    // it should have, so it is handed over whole rather than read as markdown.
+    init(code: AttributedString, size: CGFloat) {
+        self.init(attributed: code,
+                  size: size,
+                  weight: .regular,
+                  design: .monospaced,
+                  secondary: false,
+                  lineSpacing: 0,
+                  alignment: .leading,
+                  width: .fixed,
+                  italic: false,
+                  role: .block)
+    }
+
+    // Text that is shown exactly as it arrived. A model's reasoning is not markdown, so
+    // the asterisks and backticks it happens to contain are characters, not formatting.
+    init(plain text: String,
+         size: CGFloat,
+         design: Font.Design = .default,
+         secondary: Bool = false,
+         italic: Bool = false,
+         lineSpacing: CGFloat = 0,
+         width: TextWidth = .fills) {
+        self.init(attributed: AttributedString(text),
+                  size: size,
+                  weight: .regular,
+                  design: design,
+                  secondary: secondary,
+                  lineSpacing: lineSpacing,
+                  alignment: .leading,
+                  width: width,
+                  italic: italic,
+                  role: .block)
+    }
+
+    private init(attributed: AttributedString,
+                 size: CGFloat,
+                 weight: Font.Weight,
+                 design: Font.Design,
+                 secondary: Bool,
+                 lineSpacing: CGFloat,
+                 alignment: TextAlignment,
+                 width: TextWidth,
+                 italic: Bool,
+                 role: TranscriptTextRole) {
+        self.attributed = attributed
         self.size = size
         self.weight = weight
         self.design = design
         self.secondary = secondary
+        self.lineSpacing = lineSpacing
+        self.alignment = alignment
+        self.width = width
+        self.italic = italic
+        self.role = role
     }
 
     var body: some View {
-        Group {
-            if attributed.runs.contains(where: { $0.link != nil }) {
-                let font = resolvedNSFont
-                let firstBaseline = font.ascender.rounded()
-                LinkAwareText(
-                    attributed: attributed,
-                    font: font,
-                    color: secondary ? .secondaryLabelColor : .labelColor,
-                    openLink: openLink,
-                    linkHoverChanged: linkHoverChanged)
-                    // NSViewRepresentable does not pass NSTextView's baseline to SwiftUI.
-                    // The font metric keeps linked and native text on the same baseline.
-                    .alignmentGuide(.firstTextBaseline) { _ in
-                        firstBaseline
-                    }
-                    .onDisappear(perform: hideLinkTooltip)
-            } else {
-                Text(attributed)
-                    .font(.system(size: size * textScale, weight: weight, design: design))
-                    .foregroundStyle(secondary ? Color.secondary : Color.primary)
+        let font = resolvedNSFont
+        let firstBaseline = font.ascender.rounded()
+        LinkAwareText(
+            attributed: attributed,
+            font: font,
+            color: secondary ? .secondaryLabelColor : .labelColor,
+            lineSpacing: lineSpacing,
+            alignment: alignment,
+            width: width,
+            role: role,
+            selection: transcriptSelection,
+            openLink: openLink,
+            linkHoverChanged: linkHoverChanged)
+            // NSViewRepresentable does not pass NSTextView's baseline to SwiftUI.
+            // The font metric keeps this text on the baseline of whatever it sits
+            // beside, such as the marker on a list row.
+            .alignmentGuide(.firstTextBaseline) { _ in
+                firstBaseline
             }
-        }
+            .onDisappear(perform: hideLinkTooltip)
     }
 
     private func linkHoverChanged(_ hovered: TranscriptLink.Hovered?) {
@@ -551,20 +638,22 @@ private struct InlineMarkdownText: View {
 
     private var resolvedNSFont: NSFont {
         let point = size * textScale
-        let nsWeight = InlineMarkdownText.nsWeight(from: weight)
-        switch design {
+        let nsWeight = SelectableText.nsWeight(from: weight)
+        let base: NSFont = switch design {
         case .serif:
-            let base = NSFont.systemFont(ofSize: point, weight: nsWeight)
-            if let descriptor = base.fontDescriptor.withDesign(.serif),
-               let font = NSFont(descriptor: descriptor, size: point) {
-                return font
-            }
-            return base
+            NSFont.systemFont(ofSize: point, weight: nsWeight).fontDescriptor
+                .withDesign(.serif)
+                .flatMap { NSFont(descriptor: $0, size: point) }
+                ?? NSFont.systemFont(ofSize: point, weight: nsWeight)
         case .monospaced:
-            return NSFont.monospacedSystemFont(ofSize: point, weight: nsWeight)
+            NSFont.monospacedSystemFont(ofSize: point, weight: nsWeight)
         default:
-            return NSFont.systemFont(ofSize: point, weight: nsWeight)
+            NSFont.systemFont(ofSize: point, weight: nsWeight)
         }
+
+        guard italic else { return base }
+        let slanted = base.fontDescriptor.withSymbolicTraits(.italic)
+        return NSFont(descriptor: slanted, size: point) ?? base
     }
 
     private static func nsWeight(from weight: Font.Weight) -> NSFont.Weight {
@@ -585,6 +674,10 @@ private struct InlineMarkdownText: View {
 private final class LinkTextView: NSTextView {
     var openLink: ((URL) -> Void)?
     var linkHoverChanged: ((TranscriptLink.Hovered?) -> Void)?
+    // Absent for a text view outside a transcript, such as one in a file preview,
+    // which selects on its own exactly as AppKit intends.
+    var selection: TranscriptSelection?
+    var reflows = true
 
     private var linkTrackingArea: NSTrackingArea?
     private var hoveredLink: TranscriptLink.Hovered?
@@ -595,19 +688,43 @@ private final class LinkTextView: NSTextView {
         pressedLink = nil
         linkMouseDown = nil
         let point = convert(event.locationInWindow, from: nil)
-        guard event.clickCount == 1,
-              event.modifierFlags.intersection([.shift, .control, .option]).isEmpty,
-              let link = TranscriptLink.hoveredLink(in: self, at: point) else {
+
+        // A plain press on a link might still turn into a drag, so nothing is decided
+        // until the pointer either moves or comes back up.
+        if event.clickCount == 1,
+           event.modifierFlags.intersection([.shift, .control, .option]).isEmpty,
+           let link = TranscriptLink.hoveredLink(in: self, at: point) {
+            pressedLink = link.url
+            linkMouseDown = event
+            return
+        }
+
+        guard let selection else {
             super.mouseDown(with: event)
             return
         }
-        pressedLink = link.url
-        linkMouseDown = event
+
+        // A double or triple click takes a word or a line, which AppKit already does
+        // inside one block and which no sweep across blocks would improve.
+        guard event.clickCount == 1 else {
+            selection.clear()
+            super.mouseDown(with: event)
+            return
+        }
+
+        window?.makeFirstResponder(self)
+        if event.modifierFlags.contains(.shift) {
+            selection.extend(toWindowPoint: event.locationInWindow)
+        } else {
+            selection.begin(in: self, at: point)
+        }
     }
 
     override func mouseUp(with event: NSEvent) {
         guard let pressedLink else {
-            super.mouseUp(with: event)
+            // A selection drag has already consumed its own press, so only a text view
+            // left to AppKit still needs the release passed on.
+            if selection == nil { super.mouseUp(with: event) }
             return
         }
         self.pressedLink = nil
@@ -618,13 +735,47 @@ private final class LinkTextView: NSTextView {
     }
 
     override func mouseDragged(with event: NSEvent) {
+        guard let selection else {
+            linkDragForOneTextView(event)
+            return
+        }
+
+        // The press landed on a link and has now moved far enough to be a drag, so the
+        // selection starts from where the press was rather than from here.
+        if let down = linkMouseDown {
+            guard dragBegan(from: down, to: event) else { return }
+            pressedLink = nil
+            linkMouseDown = nil
+            window?.makeFirstResponder(self)
+            selection.begin(in: self, at: convert(down.locationInWindow, from: nil))
+        }
+
+        selection.extend(toWindowPoint: event.locationInWindow)
+        scrollTranscript(with: event)
+    }
+
+    // A drag that runs past the edge of the transcript keeps going, so a selection can
+    // reach a message that was not on screen when it started. It has to be the
+    // transcript that moves: a code block sits in a scroller of its own, and letting
+    // the nearest one win would shunt that block sideways instead.
+    private func scrollTranscript(with event: NSEvent) {
+        var outermost: NSScrollView?
+        var view: NSView? = self
+        while let current = view {
+            if let scrollView = current as? NSScrollView { outermost = scrollView }
+            view = current.superview
+        }
+        outermost?.documentView?.autoscroll(with: event)
+    }
+
+    // A text view that selects only within itself hands the drag straight to AppKit
+    // once the press is no longer a link click.
+    private func linkDragForOneTextView(_ event: NSEvent) {
         guard let down = linkMouseDown else {
             super.mouseDragged(with: event)
             return
         }
-        let distance = hypot(event.locationInWindow.x - down.locationInWindow.x,
-                             event.locationInWindow.y - down.locationInWindow.y)
-        guard distance >= 4 else { return }
+        guard dragBegan(from: down, to: event) else { return }
         pressedLink = nil
         linkMouseDown = nil
         // Replay the press and drag together so NSTextView can select from the
@@ -633,12 +784,66 @@ private final class LinkTextView: NSTextView {
         super.mouseDown(with: down)
     }
 
+    private func dragBegan(from down: NSEvent, to event: NSEvent) -> Bool {
+        hypot(event.locationInWindow.x - down.locationInWindow.x,
+              event.locationInWindow.y - down.locationInWindow.y) >= 4
+    }
+
+    // AppKit asks a text view for a menu on right-click and would put up its own, which
+    // is a piece of another program in the middle of the page. The transcript's own menu
+    // is an overlay above this view and still gets the click.
+    override func menu(for event: NSEvent) -> NSMenu? { nil }
+
+    // MARK: - Selection
+
+    override func copy(_ sender: Any?) {
+        guard let text = selection?.selectedText else {
+            super.copy(sender)
+            return
+        }
+        Pasteboard.copy(text)
+    }
+
+    override func selectAll(_ sender: Any?) {
+        guard let selection else {
+            super.selectAll(sender)
+            return
+        }
+        selection.selectAll()
+    }
+
+    // The selection is painted here rather than left to AppKit, which draws a dimmed
+    // highlight in every text view that is not the first responder. Only one block of a
+    // transcript can hold that, so a selection over several would otherwise fade
+    // everywhere but the block the drag started in.
+    override func draw(_ dirtyRect: NSRect) {
+        drawSelectionHighlight()
+        super.draw(dirtyRect)
+    }
+
+    private func drawSelectionHighlight() {
+        let characters = selectedRange()
+        guard selection != nil, characters.length > 0,
+              let layoutManager, let textContainer else { return }
+
+        let origin = textContainerOrigin
+        Theme.accentNSColor.withAlphaComponent(0.28).setFill()
+        let glyphs = layoutManager.glyphRange(forCharacterRange: characters,
+                                              actualCharacterRange: nil)
+        layoutManager.enumerateEnclosingRects(forGlyphRange: glyphs,
+                                              withinSelectedGlyphRange: glyphs,
+                                              in: textContainer) { box, _ in
+            box.offsetBy(dx: origin.x, dy: origin.y).fill()
+        }
+    }
+
     // The text container reflows when its width changes, so SwiftUI must measure its
     // new height before laying out the next block.
     override func setFrameSize(_ newSize: NSSize) {
         let widthChanged = frame.width != newSize.width
         super.setFrameSize(newSize)
-        if widthChanged { invalidateIntrinsicContentSize() }
+        // Only text that reflows has a new height to report when its width changes.
+        if widthChanged, reflows { invalidateIntrinsicContentSize() }
     }
 
     override func updateTrackingAreas() {
@@ -700,6 +905,11 @@ private struct LinkAwareText: NSViewRepresentable {
     let attributed: AttributedString
     let font: NSFont
     let color: NSColor
+    let lineSpacing: CGFloat
+    let alignment: TextAlignment
+    let width: TextWidth
+    let role: TranscriptTextRole
+    let selection: TranscriptSelection?
     let openLink: (URL) -> Void
     let linkHoverChanged: (TranscriptLink.Hovered?) -> Void
 
@@ -715,18 +925,29 @@ private struct LinkAwareText: NSViewRepresentable {
         view.backgroundColor = .clear
         view.textContainerInset = .zero
         view.textContainer?.lineFragmentPadding = 0
-        view.textContainer?.widthTracksTextView = true
+        view.textContainer?.widthTracksTextView = width != .fixed
         view.textContainer?.heightTracksTextView = false
-        view.isHorizontallyResizable = false
+        view.isHorizontallyResizable = width == .fixed
         view.isVerticallyResizable = true
+        view.reflows = width != .fixed
+        if width == .fixed {
+            view.textContainer?.containerSize = CGSize(width: CGFloat.greatestFiniteMagnitude,
+                                                       height: CGFloat.greatestFiniteMagnitude)
+        }
         view.delegate = context.coordinator
         view.linkTextAttributes = [
             .foregroundColor: Theme.accentNSColor,
             .underlineStyle: NSUnderlineStyle.single.rawValue,
             .cursor: NSCursor.pointingHand,
         ]
+        // The highlight is drawn by the view itself, in one colour for every block a
+        // selection reaches. AppKit would instead dim it everywhere but the block the
+        // drag started in, since only that one is the first responder.
+        view.selectedTextAttributes = [.backgroundColor: NSColor.clear]
         view.openLink = openLink
         view.linkHoverChanged = linkHoverChanged
+        view.selection = selection
+        selection?.register(view, role: role)
         return view
     }
 
@@ -734,20 +955,53 @@ private struct LinkAwareText: NSViewRepresentable {
         context.coordinator.openLink = openLink
         (view as? LinkTextView)?.openLink = openLink
         (view as? LinkTextView)?.linkHoverChanged = linkHoverChanged
+        (view as? LinkTextView)?.selection = selection
+        selection?.register(view, role: role)
         view.textStorage?.setAttributedString(makeNSAttributedString())
         view.invalidateIntrinsicContentSize()
     }
 
+    static func dismantleNSView(_ view: NSTextView, coordinator: Coordinator) {
+        (view as? LinkTextView)?.selection?.unregister(view)
+    }
+
     func sizeThatFits(_ proposal: ProposedViewSize, nsView view: NSTextView, context: Context) -> CGSize? {
         guard let container = view.textContainer, let layoutManager = view.layoutManager else { return nil }
-        guard let width = proposal.width, width.isFinite, width > 0 else { return nil }
-        container.containerSize = CGSize(width: width, height: .greatestFiniteMagnitude)
+
+        guard width != .fixed else {
+            // The width on offer says nothing here: the longest line decides how wide
+            // the block is, and its scroller deals with the overflow.
+            container.containerSize = CGSize(width: CGFloat.greatestFiniteMagnitude,
+                                             height: CGFloat.greatestFiniteMagnitude)
+            layoutManager.ensureLayout(for: container)
+            let used = layoutManager.usedRect(for: container)
+            return CGSize(width: ceil(used.width), height: ceil(used.height))
+        }
+
+        guard let offered = proposal.width, offered.isFinite, offered > 0 else { return nil }
+        container.containerSize = CGSize(width: offered, height: .greatestFiniteMagnitude)
         layoutManager.ensureLayout(for: container)
-        let used = layoutManager.usedRect(for: container)
-        return CGSize(width: width, height: ceil(used.height))
+        let height = ceil(layoutManager.usedRect(for: container).height)
+        guard width == .hugs else { return CGSize(width: offered, height: height) }
+
+        // The used rect reports the width of the container rather than of the words in
+        // it, so the glyphs are measured to find how much room the text really takes.
+        // Claiming that re-wraps at exactly the longest line, which is the same layout,
+        // so the size settles rather than shrinking away over repeated passes.
+        let glyphs = layoutManager.glyphRange(for: container)
+        let laidOut = ceil(layoutManager.boundingRect(forGlyphRange: glyphs, in: container).width)
+        return CGSize(width: laidOut > 0 ? min(offered, laidOut) : offered, height: height)
     }
 
     private func makeNSAttributedString() -> NSAttributedString {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineSpacing = lineSpacing
+        paragraph.alignment = switch alignment {
+        case .leading: .left
+        case .center: .center
+        case .trailing: .right
+        }
+
         let result = NSMutableAttributedString()
         for run in attributed.runs {
             let piece = String(attributed[run.range].characters)
@@ -762,11 +1016,16 @@ private struct LinkAwareText: NSViewRepresentable {
                 let descriptor = runFont.fontDescriptor.withSymbolicTraits(traits)
                 runFont = NSFont(descriptor: descriptor, size: runFont.pointSize) ?? runFont
             }
-            var attrs: [NSAttributedString.Key: Any] = [.font: runFont]
+            var attrs: [NSAttributedString.Key: Any] = [.font: runFont,
+                                                        .paragraphStyle: paragraph]
             if let link = run.link {
                 attrs[.link] = link
             } else {
-                attrs[.foregroundColor] = color
+                // Highlighted code arrives with a colour per token. Anything that does
+                // not ask for one reads as body text.
+                attrs[.foregroundColor] = run.appKit.foregroundColor
+                    ?? run.swiftUI.foregroundColor.map(NSColor.init)
+                    ?? color
             }
             result.append(NSAttributedString(string: piece, attributes: attrs))
         }
@@ -809,11 +1068,10 @@ struct MarkdownBlockView: View, Equatable {
             HTMLPreview(reference: reference, projectPath: projectPath)
         case .heading(let level, let text):
             let heading = headingSpec(level)
-            InlineMarkdownText(text,
+            SelectableText(text,
                                size: heading.size,
                                weight: heading.weight,
                                design: heading.design)
-                .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.top, level <= 2 ? 6 : 2)
@@ -825,17 +1083,14 @@ struct MarkdownBlockView: View, Equatable {
                     HStack(alignment: .firstTextBaseline, spacing: 9) {
                         marker(item)
                             .frame(minWidth: 14, alignment: .trailing)
-                        paragraph(item.text)
-                            .lineSpacing(2)
+                        paragraph(item.text, lineSpacing: 2)
                     }
                     .padding(.leading, CGFloat(item.depth) * 16 * textScale)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         case .quote(let text):
-            InlineMarkdownText(text, size: 13, secondary: true)
-                .textSelection(.enabled)
-                .multilineTextAlignment(.leading)
+            SelectableText(text, size: 13, secondary: true)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.leading, 13)
                 .overlay(alignment: .leading) {
@@ -853,7 +1108,7 @@ struct MarkdownBlockView: View, Equatable {
 
     // A paragraph that holds images renders as text runs with each image between them
     // at reading size; without any it stays one piece of text, exactly as before.
-    @ViewBuilder private func paragraph(_ text: String) -> some View {
+    @ViewBuilder private func paragraph(_ text: String, lineSpacing: CGFloat = 0) -> some View {
         let parts = MarkdownBlock.resolvedParts(text) {
             TranscriptImage.resolve($0, projectPath: projectPath)
         }
@@ -878,7 +1133,9 @@ struct MarkdownBlockView: View, Equatable {
                         switch part {
                         case .text(let piece):
                             let trimmed = piece.trimmed
-                            if !trimmed.isEmpty { paragraphText(trimmed) }
+                            if !trimmed.isEmpty {
+                                paragraphText(trimmed, lineSpacing: lineSpacing)
+                            }
                         case .image(let alt, let url):
                             imagePreview(url: url, label: alt)
                         }
@@ -887,7 +1144,7 @@ struct MarkdownBlockView: View, Equatable {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         } else {
-            paragraphText(text)
+            paragraphText(text, lineSpacing: lineSpacing)
         }
     }
 
@@ -905,10 +1162,8 @@ struct MarkdownBlockView: View, Equatable {
         .fixedSize(horizontal: false, vertical: true)
     }
 
-    private func paragraphText(_ text: String) -> some View {
-        InlineMarkdownText(text, size: 13.5)
-            .textSelection(.enabled)
-            .multilineTextAlignment(.leading)
+    private func paragraphText(_ text: String, lineSpacing: CGFloat) -> some View {
+        SelectableText(text, size: 13.5, lineSpacing: lineSpacing)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -1045,9 +1300,8 @@ struct MarkdownCodeBlock: View, Equatable {
                     .foregroundStyle(.secondary)
             }
             ScrollView(.horizontal, showsIndicators: false) {
-                Text(CodeHighlight.highlight(segment.text, tag: segment.language))
-                    .scaledMono(12)
-                    .textSelection(.enabled)
+                SelectableText(code: CodeHighlight.highlight(segment.text, tag: segment.language),
+                               size: 12)
                     .padding(.trailing, 32)
             }
         }
@@ -1060,13 +1314,16 @@ struct MarkdownCodeBlock: View, Equatable {
 private struct MarkdownTableView: View {
     let table: MarkdownTable
     let textScale: CGFloat
+    // Tells the cells of this table apart from those of the next one, so a selection
+    // running over both does not read as one grid.
+    @State private var id = UUID()
 
     var body: some View {
         let columnWidths = preferredColumnWidths
         VStack(alignment: .leading, spacing: 0) {
             MarkdownTableRowLayout(preferredWidths: columnWidths) {
                 ForEach(table.header.indices, id: \.self) { column in
-                    cell(table.header[column], column: column, header: true)
+                    cell(table.header[column], column: column, row: 0, header: true)
                 }
             }
             .background(Theme.field)
@@ -1076,7 +1333,7 @@ private struct MarkdownTableView: View {
                     .frame(height: 1)
                 MarkdownTableRowLayout(preferredWidths: columnWidths) {
                     ForEach(table.rows[row].indices, id: \.self) { column in
-                        cell(table.rows[row][column], column: column, header: false)
+                        cell(table.rows[row][column], column: column, row: row + 1, header: false)
                     }
                 }
             }
@@ -1087,12 +1344,14 @@ private struct MarkdownTableView: View {
 
     // Every row uses the same preferred widths, so columns stay aligned while wider
     // content gets more room than a short number or label.
-    private func cell(_ text: String, column: Int, header: Bool) -> some View {
+    private func cell(_ text: String, column: Int, row: Int, header: Bool) -> some View {
         let alignment = table.alignments.indices.contains(column)
             ? table.alignments[column] : .leading
-        return InlineMarkdownText(text, size: 12.5, weight: header ? .semibold : .regular)
-            .textSelection(.enabled)
-            .multilineTextAlignment(textAlignment(alignment))
+        return SelectableText(text,
+                                  size: 12.5,
+                                  weight: header ? .semibold : .regular,
+                                  alignment: textAlignment(alignment),
+                                  role: .tableCell(table: id, row: row))
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: frameAlignment(alignment))
             .padding(.horizontal, 10)

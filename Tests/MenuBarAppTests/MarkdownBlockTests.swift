@@ -15,6 +15,18 @@ struct MarkdownBlockTests {
         AttributedString.inlineMarkdown(text).runs.compactMap(\.link).first
     }
 
+    private func hasLink(_ storage: NSTextStorage) -> Bool {
+        guard storage.length > 0 else { return false }
+        var found = false
+        storage.enumerateAttribute(.link,
+                                   in: NSRange(location: 0, length: storage.length)) { value, _, stop in
+            guard value != nil else { return }
+            found = true
+            stop.pointee = true
+        }
+        return found
+    }
+
     @Test func readsATableWithItsAlignments() {
         let text = """
         | Field | Value | Count |
@@ -407,17 +419,21 @@ struct MarkdownBlockTests {
             .environment(tooltipPresenter)
         host.layoutSubtreeIfNeeded()
 
-        let textViews = host.descendants.compactMap { $0 as? NSTextView }
-        try #require(textViews.count == 3)
-        #expect(textViews.allSatisfy { $0.frame.width >= 80 })
-        for textView in textViews {
+        // Every cell is a text view, so the linked ones are the column this is about:
+        // one per row, which is what makes a plain top-to-bottom overlap check right.
+        let linked = host.descendants
+            .compactMap { $0 as? NSTextView }
+            .filter { $0.textStorage.map(hasLink) ?? false }
+        try #require(linked.count == 3)
+        #expect(linked.allSatisfy { $0.frame.width >= 80 })
+        for textView in linked {
             let layoutManager = try #require(textView.layoutManager)
             let container = try #require(textView.textContainer)
             layoutManager.ensureLayout(for: container)
             #expect(textView.frame.height >= ceil(layoutManager.usedRect(for: container).height))
         }
 
-        let frames = textViews.map { host.convert($0.bounds, from: $0) }.sorted { $0.minY < $1.minY }
+        let frames = linked.map { host.convert($0.bounds, from: $0) }.sorted { $0.minY < $1.minY }
         for pair in zip(frames, frames.dropFirst()) {
             #expect(pair.0.maxY <= pair.1.minY)
         }

@@ -38,10 +38,10 @@ struct MessageView: View, Equatable {
         case .assistant:
             assistantBody
         case .system:
-            Text(message.text)
-                .scaledMono(11)
-                .foregroundStyle(.secondary)
-                .textSelection(.enabled)
+            SelectableText(plain: message.text,
+                           size: 11,
+                           design: .monospaced,
+                           secondary: true)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.trailing, 32)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -70,11 +70,12 @@ struct MessageView: View, Equatable {
                     }
                 }
                 if !message.text.isEmpty {
-                    Text(message.text)
-                        .scaledText(13.5)
-                        .lineSpacing(3)
-                        .textSelection(.enabled)
-                        .multilineTextAlignment(.leading)
+                    // The bubble is drawn around the words, so the text claims only the
+                    // width it fills rather than the whole cap it is allowed.
+                    SelectableText(plain: message.text,
+                                   size: 13.5,
+                                   lineSpacing: 3,
+                                   width: .hugs)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -177,11 +178,9 @@ private struct InstructionBubble: View {
                 }
 
                 if expanded {
-                    Text(text)
-                        .scaledText(13)
-                        .textSelection(.enabled)
-                        .multilineTextAlignment(.leading)
+                    SelectableText(plain: text, size: 13)
                         .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.leading, 18)
                         .transition(.fadeIn)
                 }
@@ -214,13 +213,13 @@ private struct ThinkingBlock: View {
             .foregroundStyle(.secondary)
 
             if expanded {
-                Text(text.trimmed)
-                    .scaledText(12)
-                    .italic()
-                    .foregroundStyle(.secondary)
-                    .lineSpacing(3)
-                    .textSelection(.enabled)
+                SelectableText(plain: text.trimmed,
+                               size: 12,
+                               secondary: true,
+                               italic: true,
+                               lineSpacing: 3)
                     .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.leading, 18)
                     .transcriptCopyButton(for: text)
                     .transition(.fadeIn)
