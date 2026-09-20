@@ -465,8 +465,8 @@ enum RelativeTime {
 }
 
 // A name that gets replaced rather than edited, most often the moment a session's first
-// prompt takes "New session" over. The old name leaves at once and the new one fades into
-// its final width, so the replacement is clear without drawing both names together.
+// prompt takes "New session" over. The new name fades in where the old one was, so the
+// replacement is clear without drawing both names together.
 extension View {
     func changingName(_ name: String) -> some View {
         modifier(ChangingName(name: name))
@@ -483,13 +483,14 @@ private struct ChangingName: ViewModifier {
     // over before it is looked at, and reads as the name having always been there.
     private static let duration = 0.7
 
+    // The words change inside the one view instead of a new copy being stacked over the
+    // old one. Stacking keys the view on the name itself, so a row the list hands to
+    // another session counts as a name change and draws both names at once, and the old
+    // one has no property left to animate away with: it stays until the row is rebuilt.
     func body(content: Content) -> some View {
-        ZStack(alignment: .leading) {
-            content
-                .id(name)
-                .transition(.fadeIn)
-        }
-        .animation(reduceMotion ? nil : .easeInOut(duration: Self.duration), value: name)
+        content
+            .contentTransition(.opacity)
+            .animation(reduceMotion ? nil : .easeInOut(duration: Self.duration), value: name)
     }
 }
 
