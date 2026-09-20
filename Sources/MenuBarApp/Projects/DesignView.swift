@@ -352,8 +352,8 @@ struct DesignView: View {
                         }
                     }
 
-                    GlyphButton(icon: "macwindow", side: 28,
-                                active: designWindow.isOpen, tint: Theme.accent) {
+                    ActionButton(title: "Full Screen", tone: .outlined,
+                                 height: 28, size: 11, icon: "macwindow") {
                         openDesignWindow(session, directory: directory)
                     }
                     .appTooltip(designWindow.isOpen
@@ -661,8 +661,8 @@ struct DesignReferenceView: View {
                     }
 
                     if canvas.revision != nil {
-                        GlyphButton(icon: "macwindow", side: 28,
-                                    active: designWindow.isOpen, tint: Theme.accent) {
+                        ActionButton(title: "Full Screen", tone: .outlined,
+                                     height: 28, size: 11, icon: "macwindow") {
                             openDesignWindow(session, directory: directory)
                         }
                         .appTooltip(designWindow.isOpen
