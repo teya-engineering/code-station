@@ -102,6 +102,52 @@ struct CommandRunnerTests {
     // being inherited, and the ones that matter are the other agent turns' pipes: a child
     // holding one keeps it from ever reaching end of file, so the turn that owns it waits
     // on a stream nobody will close and hangs for good.
+    // Stopping is a ^C before it is anything else, so a command that cleans up on an
+    // interrupt - a tunnel closing its port, a build removing a half-written file - runs
+    // its own ending rather than being taken down part way through one.
+    @Test func cancellationInterruptsBeforeItForcesTheChild() async throws {
+        let ready = scratch.path("ready")
+        let tidied = scratch.path("tidied")
+        // The shell is kept alive past the sleep, since one left with nothing to do after
+        // it replaces itself with the sleep and takes the trap with it.
+        let script = """
+        trap 'echo yes > \(tidied.path); exit 0' INT
+        echo yes > \(ready.path)
+        sleep 30
+        exit 0
+        """
+        let task = Task {
+            try await CommandRunner.run(
+                executable: "/bin/sh",
+                arguments: ["-c", script],
+                timeout: .seconds(20)
+            )
+        }
+        // Cancelling before the trap is in place would prove nothing: the interrupt
+        // would land on a shell that had not yet said what to do with one.
+        try #require(await waitUntil { FileManager.default.fileExists(atPath: ready.path) })
+
+        task.cancel()
+        _ = try? await task.value
+
+        #expect(await waitUntil(timeout: .seconds(5)) {
+            FileManager.default.fileExists(atPath: tidied.path)
+        }, "the command was forced without being interrupted first")
+    }
+
+    // Signals are blocked on the dispatch threads the app spawns from, and a mask is
+    // inherited across an exec even though the handlers are not. A child that inherited
+    // one would hold every interrupt pending for as long as it ran, so it is cleared at
+    // the spawn: here the child signals itself and has to see it arrive.
+    @Test func theChildStartsWithNoSignalsBlocked() async throws {
+        let output = try await CommandRunner.run(
+            executable: "/bin/sh",
+            arguments: ["-c", "trap 'echo caught' INT; kill -INT $$; echo after"],
+            timeout: .seconds(5)
+        )
+        #expect(output.output.contains("caught"), "child saw: \(output.output)")
+    }
+
     @Test func doesNotHandUnrelatedDescriptorsToTheChild() async throws {
         let stray = Pipe()
         defer {

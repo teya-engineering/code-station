@@ -310,12 +310,27 @@ enum CommandRunner {
             }
         }
 
+        // A child starts the way a shell would start it: nothing blocked, nothing
+        // ignored. The spawn happens on a dispatch worker thread, and those run with
+        // signals blocked, which a child otherwise inherits across the exec - an
+        // interrupt sent to it would then sit pending for as long as it ran, so the
+        // command could never be asked to stop the way ^C asks.
+        var openMask = sigset_t()
+        sigemptyset(&openMask)
+        var everySignal = sigset_t()
+        sigfillset(&everySignal)
+        guard posix_spawnattr_setsigmask(&attributes, &openMask) == 0,
+              posix_spawnattr_setsigdefault(&attributes, &everySignal) == 0 else {
+            throw RunError.launch("Could not reset the child process signals.")
+        }
+
         // Without CLOEXEC_DEFAULT a child inherits every descriptor the app has open, not
         // just the three it is given. Two agent turns running at once is enough for the
         // second one's process to end up holding the write end of the first one's stdin,
         // and then closing that pipe here never reaches the first CLI: it waits on a
         // stream that still has a writer, never exits, and its turn hangs for good.
-        let flags = Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_CLOEXEC_DEFAULT)
+        let flags = Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_CLOEXEC_DEFAULT
+            | POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF)
         guard posix_spawnattr_setflags(&attributes, flags) == 0,
               posix_spawnattr_setpgroup(&attributes, 0) == 0 else {
             throw RunError.launch("Could not isolate the child process group.")
@@ -402,6 +417,16 @@ enum CommandRunner {
         }
     }
 
+    // Stopping a command asks the way a shell asks: ^C first, then a polite terminate,
+    // then force. Each step only happens if the one before it was ignored, so a command
+    // that tidies up on an interrupt - a tunnel closing its port, a build removing a
+    // half-written file - is never cut off part way through doing it.
+    static let stopSignals: [Int32] = [SIGINT, SIGTERM, SIGKILL]
+
+    // How long each signal is given before the next one. Long enough for an ordinary
+    // clean-up, short enough that a stop still feels like one.
+    static let stopGrace: TimeInterval = 0.5
+
     static func signalProcessGroup(_ processGroup: pid_t, signal: Int32) {
         guard processGroup > 1, processGroup != getpgrp() else { return }
         Darwin.kill(-processGroup, signal)
@@ -410,15 +435,15 @@ enum CommandRunner {
     @discardableResult
     static func ensureProcessGroupStopped(_ processGroup: pid_t) -> Bool {
         guard processGroup > 1, processGroup != getpgrp() else { return false }
-        signalProcessGroup(processGroup, signal: SIGTERM)
-        for _ in 0..<50 {
-            if !processGroupExists(processGroup) { return true }
-            usleep(10_000)
-        }
-        signalProcessGroup(processGroup, signal: SIGKILL)
-        for _ in 0..<200 {
-            if !processGroupExists(processGroup) { return true }
-            usleep(10_000)
+        for signal in stopSignals {
+            signalProcessGroup(processGroup, signal: signal)
+            // A group cannot ignore SIGKILL, so the wait after it is about the kernel
+            // reaping the last of it rather than about giving anything a chance.
+            let waits = signal == SIGKILL ? 200 : Int(stopGrace * 100)
+            for _ in 0..<waits {
+                if !processGroupExists(processGroup) { return true }
+                usleep(10_000)
+            }
         }
         return !processGroupExists(processGroup)
     }
@@ -568,11 +593,20 @@ enum CommandRunner {
 
         private func terminate(_ group: pid_t) {
             guard isSafe(group) else { return }
-            Darwin.kill(-group, SIGTERM)
-            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.5) {
-                let stillOwned = self.lock.withLock { self.processGroup == group }
-                if stillOwned { Darwin.kill(-group, SIGKILL) }
-            }
+            escalate(group, from: 0)
+        }
+
+        // The group stops owning itself the moment the command finishes, and that is
+        // what ends the ladder: a command that went on the interrupt is never sent the
+        // signals that would have forced it.
+        private func escalate(_ group: pid_t, from step: Int) {
+            guard step < CommandRunner.stopSignals.count else { return }
+            Darwin.kill(-group, CommandRunner.stopSignals[step])
+            DispatchQueue.global(qos: .utility)
+                .asyncAfter(deadline: .now() + CommandRunner.stopGrace) {
+                    let stillOwned = self.lock.withLock { self.processGroup == group }
+                    if stillOwned { self.escalate(group, from: step + 1) }
+                }
         }
 
         private func isSafe(_ group: pid_t) -> Bool {
