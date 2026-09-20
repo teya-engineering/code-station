@@ -88,9 +88,51 @@ struct RunningDot: View {
     }
 }
 
+// A slow swing from 0 to 1 and back, taken off the clock.
+//
+// Read off the clock rather than animated, because a `repeatForever` animation is never
+// finished, and an animation that is still running is the animation in force for
+// everything inside it. A dot whose row then moves - the transcript scrolls, a sibling
+// resizes - does not travel to its new place and stop. It takes the swinging curve with
+// it and rocks between the old place and the new one for as long as it is on screen. The
+// clock drives nothing but the numbers asked for here, so a view that moves simply lands.
+//
+// Everything breathing at once shares a phase, since they all read the same clock.
+enum Breath {
+    static let period: TimeInterval = 1.6
+
+    // A cosine, so each end of the swing turns as softly as an ease would take it.
+    static func phase(at date: Date, period: TimeInterval = period) -> Double {
+        let turn = date.timeIntervalSinceReferenceDate
+            .truncatingRemainder(dividingBy: period) / period
+        return (1 - cos(2 * .pi * turn)) / 2
+    }
+}
+
+// Hands its content a breathing phase to draw itself with. Held at rest under Reduce
+// Motion, which is the setting that exists to stop exactly this.
+//
+// Resting pauses the clock rather than dropping the timeline, so content that is
+// expensive to build - artwork that has to be fetched and drawn - keeps its place in the
+// view tree and is not made again each time its session picks work up or puts it down.
+struct Breathing<Content: View>: View {
+    var active = true
+    var period: TimeInterval = Breath.period
+    @ViewBuilder let content: (Double) -> Content
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var moving: Bool { active && !reduceMotion }
+
+    var body: some View {
+        TimelineView(.animation(paused: !moving)) { context in
+            content(moving ? Breath.phase(at: context.date, period: period) : 0)
+        }
+    }
+}
+
 // The same dot, breathing, for the one thing that is happening right now rather than
-// merely recently. Held steady under Reduce Motion, which is the setting that exists to
-// stop exactly this.
+// merely recently.
 //
 // The halo behind it carries all of the motion and the dot itself never changes. A dot
 // this small has only a couple of whole pixels to grow into, so scaling the dot pops it
@@ -100,25 +142,19 @@ struct PulsingDot: View {
     var colour: Color = Theme.dotOn
     var size: CGFloat = 6
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var out = false
-
     var body: some View {
         Circle()
             .fill(colour)
             .frame(width: size, height: size)
             .background {
-                Circle()
-                    .fill(colour)
-                    .frame(width: size * 2.2, height: size * 2.2)
-                    .scaleEffect(out ? 1 : 0.45)
-                    .opacity(out ? 0 : 0.5)
+                Breathing { phase in
+                    Circle()
+                        .fill(colour)
+                        .frame(width: size * 2.2, height: size * 2.2)
+                        .scaleEffect(0.45 + 0.55 * phase)
+                        .opacity(0.5 * (1 - phase))
+                }
             }
-            .animation(reduceMotion
-                       ? nil
-                       : .easeInOut(duration: 0.8).repeatForever(autoreverses: true),
-                       value: out)
-            .onAppear { out = !reduceMotion }
     }
 }
 

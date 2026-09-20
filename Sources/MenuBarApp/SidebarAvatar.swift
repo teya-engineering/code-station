@@ -190,21 +190,14 @@ struct SidebarIdentityTile: View {
     }
 }
 
+// Artwork that cannot animate itself says a session is working by breathing instead. The
+// phase comes off the clock for the reason `Breath` gives: a tile in a rail that scrolls
+// would otherwise carry the repeating swing into its own position.
 private struct StillArtworkActiveMotion: ViewModifier {
     let active: Bool
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var dimmed = false
-
     func body(content: Content) -> some View {
-        content
-            .opacity(dimmed && !reduceMotion ? 0.55 : 1)
-            .animation(active && !reduceMotion
-                       ? .easeInOut(duration: 0.8).repeatForever(autoreverses: true)
-                       : nil,
-                       value: dimmed)
-            .onAppear { dimmed = active }
-            .onChange(of: active) { _, running in dimmed = running }
+        Breathing(active: active) { phase in content.opacity(1 - 0.45 * phase) }
     }
 }
 
