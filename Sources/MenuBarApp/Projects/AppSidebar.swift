@@ -1417,7 +1417,7 @@ struct AppSidebar: View {
             guard !Task.isCancelled else { return }
             let cost = await SessionCost.settledCost(
                 worktrees: store.checkoutProjects(for: session).compactMap(\.worktreePath),
-                deletesDesignArtifacts: store.hasDesignArtifacts(for: session))
+                design: store.designCost(for: session))
             if cost.losesWork { losesWork += 1 }
         }
         guard !Task.isCancelled else { return }

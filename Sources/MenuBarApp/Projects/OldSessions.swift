@@ -147,24 +147,45 @@ enum SessionOutcome: Equatable {
     }
 }
 
-// The whole cost of removing a session. Generated Design files sit outside git, so a clean
-// or absent worktree does not make a session safe to clear on its own.
+// What the generated Design files of a session are worth. They sit outside git, so what
+// happens to them is decided here rather than by what git says about the worktree.
+enum DesignCost: Equatable {
+    case absent
+    // The design was handed over and turned into code, so the files are a record of
+    // something the worktree already holds.
+    case implemented
+    // Never built, which makes these files the only copy of that work.
+    case unimplemented
+}
+
+// The whole cost of removing a session: what git can answer about the worktree, and what
+// the design behind the session is worth.
 struct SessionRemovalCost: Equatable {
     let worktree: SessionOutcome
-    let deletesDesignArtifacts: Bool
+    let design: DesignCost
 
     // Before anything has been looked at. Nothing can be ticked from here, and the row
     // says so, which is what a session shows while its cost is still being worked out.
-    static let unchecked = SessionRemovalCost(worktree: .checking,
-                                              deletesDesignArtifacts: false)
+    static let unchecked = SessionRemovalCost(worktree: .checking, design: .absent)
 
     var label: String {
-        guard deletesDesignArtifacts else { return worktree.label }
-        return worktree.losesWork ? "would delete design and changes" : "would delete design"
+        guard worktree.canSelect else { return worktree.label }
+        return switch design {
+        case .absent: worktree.label
+        case .implemented: worktree.losesWork ? worktree.label : "will remove design files"
+        case .unimplemented: worktree.losesWork
+            ? "would delete unbuilt design and changes" : "would delete unbuilt design"
+        }
     }
 
     var losesNothing: Bool {
-        worktree.losesNothing && !deletesDesignArtifacts
+        worktree.losesNothing && design != .unimplemented
+    }
+
+    // Something on disk goes with the session, but nothing that cannot be got back: a
+    // clean worktree, or the files of a design that has already become code.
+    var removesFiles: Bool {
+        worktree == .worktreeRemoved || design == .implemented
     }
 
     var canSelect: Bool {
@@ -172,7 +193,7 @@ struct SessionRemovalCost: Equatable {
     }
 
     var losesWork: Bool {
-        worktree.losesWork || deletesDesignArtifacts
+        worktree.losesWork || design == .unimplemented
     }
 }
 
@@ -195,10 +216,9 @@ enum SessionCost {
             ? .checking : .historyOnly
     }
 
-    static func startingCost(worktrees: [String], deletesDesignArtifacts: Bool)
+    static func startingCost(worktrees: [String], design: DesignCost)
         -> SessionRemovalCost {
-        SessionRemovalCost(worktree: startingOutcome(worktrees: worktrees),
-                           deletesDesignArtifacts: deletesDesignArtifacts)
+        SessionRemovalCost(worktree: startingOutcome(worktrees: worktrees), design: design)
     }
 
     // One worktree git could not read is enough to stop here. Silence from git is not the
@@ -221,11 +241,10 @@ enum SessionCost {
         return hasChanges ? .wouldLoseWork(added: added, removed: removed) : .worktreeRemoved
     }
 
-    static func settledCost(worktrees: [String], deletesDesignArtifacts: Bool,
+    static func settledCost(worktrees: [String], design: DesignCost,
                             inspect: Inspect = live) async -> SessionRemovalCost {
         let worktree = await settledOutcome(worktrees: worktrees, inspect: inspect)
-        return SessionRemovalCost(worktree: worktree,
-                                  deletesDesignArtifacts: deletesDesignArtifacts)
+        return SessionRemovalCost(worktree: worktree, design: design)
     }
 }
 

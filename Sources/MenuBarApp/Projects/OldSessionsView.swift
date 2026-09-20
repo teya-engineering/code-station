@@ -86,9 +86,9 @@ struct OldSessionsView: View {
                     // What this screen can do that cannot be undone, said before the button
                     // is reached rather than in a dialog after it. A snoozed project is out
                     // of reach, so its rows are not counted here either.
-                    if designArtifactsAtRisk > 0 {
+                    if unbuiltDesigns > 0 {
                         notice(icon: "paintbrush.pointed", tint: Theme.deletion,
-                               Self.designArtifactsCost(designArtifactsAtRisk, unticked: true))
+                               Self.unbuiltDesignCost(unbuiltDesigns, unticked: true))
                     }
                     if dirtyWorktrees > 0 {
                         notice(icon: "exclamationmark.triangle", tint: Theme.deletion,
@@ -266,16 +266,18 @@ struct OldSessionsView: View {
                  border: tint?.opacity(0.25) ?? Theme.border)
     }
 
-    // What deleting would cost, worded for one session or for several. The card that
-    // flags the rows adds that they were left unticked; the dialog that asks again
-    // leaves that out, since by then the user has ticked them.
-    private static func designArtifactsCost(_ count: Int, unticked: Bool) -> String {
+    // What deleting would cost, worded for one session or for several. Only designs that
+    // were never built are named: once a design has become code, its files are a copy of
+    // something the checkout already holds. The card that flags the rows adds that they
+    // were left unticked; the dialog that asks again leaves that out, since by then the
+    // user has ticked them.
+    private static func unbuiltDesignCost(_ count: Int, unticked: Bool) -> String {
         if count == 1 {
-            return "One Design session contains generated files\(unticked ? ", so it is left unticked" : ""). "
-                + "Deleting it permanently removes its HTML and local assets."
+            return "One session holds a design that was never implemented\(unticked ? ", so it is left unticked" : ""). "
+                + "Deleting it permanently removes that design's HTML and local assets."
         }
-        return "\(count) Design sessions contain generated files\(unticked ? ", so they are left unticked" : ""). "
-            + "Deleting them permanently removes their HTML and local assets."
+        return "\(count) sessions hold designs that were never implemented\(unticked ? ", so they are left unticked" : ""). "
+            + "Deleting them permanently removes those designs' HTML and local assets."
     }
 
     private static func dirtyWorktreeCost(_ count: Int, unticked: Bool) -> String {
@@ -333,8 +335,8 @@ struct OldSessionsView: View {
         !groups.isEmpty && groups.allSatisfy(\.isSnoozed)
     }
 
-    private var designArtifactsAtRisk: Int {
-        awakeRows.count { $0.cost.deletesDesignArtifacts }
+    private var unbuiltDesigns: Int {
+        awakeRows.count { $0.cost.design == .unimplemented }
     }
 
     private var dirtyWorktrees: Int {
@@ -388,7 +390,7 @@ struct OldSessionsView: View {
             guard !isDeleting else { return }
             let cost = await SessionCost.settledCost(
                 worktrees: worktreePaths(row.session),
-                deletesDesignArtifacts: store.hasDesignArtifacts(for: row.session))
+                design: store.designCost(for: row.session))
             guard !isDeleting else { return }
             settle(row.id, on: cost)
         }
@@ -397,7 +399,7 @@ struct OldSessionsView: View {
     private func startingCost(_ session: ChatSession) -> SessionRemovalCost {
         SessionCost.startingCost(
             worktrees: worktreePaths(session),
-            deletesDesignArtifacts: store.hasDesignArtifacts(for: session))
+            design: store.designCost(for: session))
     }
 
     private func worktreePaths(_ session: ChatSession) -> [String] {
@@ -433,15 +435,15 @@ struct OldSessionsView: View {
     private func confirmDelete() {
         guard !isDeleting else { return }
         let chosen = tickedRows
-        let designArtifacts = chosen.count { $0.cost.deletesDesignArtifacts }
+        let unbuiltDesigns = chosen.count { $0.cost.design == .unimplemented }
         let dirtyWorktrees = chosen.count { $0.cost.worktree.losesWork }
-        guard designArtifacts > 0 || dirtyWorktrees > 0 else {
+        guard unbuiltDesigns > 0 || dirtyWorktrees > 0 else {
             delete(chosen)
             return
         }
         var consequences: [String] = []
-        if designArtifacts > 0 {
-            consequences.append(Self.designArtifactsCost(designArtifacts, unticked: false))
+        if unbuiltDesigns > 0 {
+            consequences.append(Self.unbuiltDesignCost(unbuiltDesigns, unticked: false))
         }
         if dirtyWorktrees > 0 {
             consequences.append(Self.dirtyWorktreeCost(dirtyWorktrees, unticked: false))
@@ -549,24 +551,32 @@ private struct SessionChoiceRow: View {
     }
 
     // The cost of the row, said in colour as well as in words: nothing to lose reads as
-    // grey, a worktree going as amber, work going as red.
+    // grey, files that can be made again as amber, work going as red.
+    private enum Tone {
+        case quiet
+        case files
+        case loss
+    }
+
+    private var tone: Tone {
+        guard cost.canSelect else { return cost.worktree == .checking ? .quiet : .loss }
+        if cost.losesWork { return .loss }
+        return cost.removesFiles ? .files : .quiet
+    }
+
     private var tint: Color {
-        if cost.deletesDesignArtifacts { return Theme.deletion }
-        return switch cost.worktree {
-        case .historyOnly, .checking: Color.secondary
-        case .checkFailed: Theme.deletion
-        case .worktreeRemoved: Theme.secret
-        case .wouldLoseWork: Theme.deletion
+        switch tone {
+        case .quiet: Color.secondary
+        case .files: Theme.secret
+        case .loss: Theme.deletion
         }
     }
 
     private var border: Color {
-        if cost.deletesDesignArtifacts { return Theme.deletion.opacity(0.45) }
-        return switch cost.worktree {
-        case .historyOnly, .checking: Theme.border
-        case .checkFailed: Theme.deletion.opacity(0.45)
-        case .worktreeRemoved: Theme.secret.opacity(0.35)
-        case .wouldLoseWork: Theme.deletion.opacity(0.45)
+        switch tone {
+        case .quiet: Theme.border
+        case .files: Theme.secret.opacity(0.35)
+        case .loss: Theme.deletion.opacity(0.45)
         }
     }
 }

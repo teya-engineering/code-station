@@ -868,6 +868,14 @@ final class ProjectStore {
         return !entries.isEmpty
     }
 
+    // What the session's design files are worth once the session goes. A session that took
+    // the handoff has already turned the approved design into code, so its copy of the
+    // design is a record rather than the work itself.
+    func designCost(for session: ChatSession) -> DesignCost {
+        guard hasDesignArtifacts(for: session) else { return .absent }
+        return session.isImplementingDesign ? .implemented : .unimplemented
+    }
+
     func startDesign(for sourceSessionID: UUID) -> Result<ChatSession, PersistenceFailure> {
         guard let source = session(sourceSessionID), !source.isDesignSession else {
             return .failure(PersistenceFailure(message: "The session is no longer available."))

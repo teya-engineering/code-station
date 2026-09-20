@@ -68,14 +68,38 @@ struct OldSessionsTests {
         #expect(!SessionOutcome.checkFailed.canSelect)
     }
 
-    @Test func designArtifactsAreWorkThatDeletionWouldLose() {
-        let design = SessionRemovalCost(worktree: .historyOnly,
-                                        deletesDesignArtifacts: true)
+    @Test func aDesignThatWasNeverBuiltIsWorkThatDeletionWouldLose() {
+        let design = SessionRemovalCost(worktree: .historyOnly, design: .unimplemented)
 
         #expect(!design.losesNothing)
         #expect(design.losesWork)
         #expect(design.canSelect)
-        #expect(design.label == "would delete design")
+        #expect(design.label == "would delete unbuilt design")
+        #expect(SessionRemovalCost(worktree: .wouldLoseWork(added: 3, removed: 1),
+                                   design: .unimplemented).label
+            == "would delete unbuilt design and changes")
+    }
+
+    // Once a design has become code, its files are a copy of what the checkout already
+    // holds, so the row says they go without warning that anything is lost.
+    @Test func anImplementedDesignCostsNothingToClear() {
+        let implemented = SessionRemovalCost(worktree: .worktreeRemoved, design: .implemented)
+
+        #expect(implemented.losesNothing)
+        #expect(!implemented.losesWork)
+        #expect(implemented.removesFiles)
+        #expect(implemented.label == "will remove design files")
+        #expect(SessionRemovalCost(worktree: .wouldLoseWork(added: 3, removed: 1),
+                                   design: .implemented).label == "would lose work")
+    }
+
+    // The design is known from disk before git has answered, and saying so while the
+    // worktree is still being read would hide the wait.
+    @Test func saysItIsStillCheckingBeforeNamingTheDesign() {
+        #expect(SessionRemovalCost(worktree: .checking, design: .unimplemented).label
+            == "checking…")
+        #expect(SessionRemovalCost(worktree: .checkFailed, design: .implemented).label
+            == "check failed")
     }
 
     @Test func cleanupPoliciesEscalateWithoutOverlapping() {
