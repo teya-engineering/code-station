@@ -352,7 +352,8 @@ struct DesignView: View {
                         }
                     }
 
-                    ActionButton(title: "Full Screen", tone: .outlined,
+                    ActionButton(title: "Full Screen",
+                                 tone: designWindow.isOpen ? .sunken : .outlined,
                                  height: 28, size: 11, icon: "macwindow") {
                         openDesignWindow(session, directory: directory)
                     }
@@ -661,7 +662,8 @@ struct DesignReferenceView: View {
                     }
 
                     if canvas.revision != nil {
-                        ActionButton(title: "Full Screen", tone: .outlined,
+                        ActionButton(title: "Full Screen",
+                                     tone: designWindow.isOpen ? .sunken : .outlined,
                                      height: 28, size: 11, icon: "macwindow") {
                             openDesignWindow(session, directory: directory)
                         }
