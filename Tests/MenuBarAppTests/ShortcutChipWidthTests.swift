@@ -41,7 +41,7 @@ struct ShortcutChipWidthTests {
                             state: state,
                             tint: tinted ? Theme.projectTint(for: name) : nil,
                             open: false,
-                            toggle: {}))
+                            activate: {}))
                         let predicted = ShortcutChipFit.chipWidth(
                             name: name, glyph: shortcut.glyph, state: state, tinted: tinted)
 

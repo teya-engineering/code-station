@@ -103,7 +103,7 @@ struct SessionShortcutChips: View {
             state: shortcuts.state(run),
             tint: checkouts.count > 1 ? Theme.projectTint(for: entry.project?.name ?? "") : nil,
             open: shortcuts.output(for: scope) == run,
-            toggle: { toggle(run) }
+            activate: { activate(run) }
         )
         .appContextMenu {
             var entries: [MenuEntry] = [
@@ -272,6 +272,17 @@ struct SessionShortcutChips: View {
                                            workspacePath: entry.checkout.worktreePath))
     }
 
+    // While a command runs, the chip is the way back to what it is printing, not the
+    // way to kill it. Stopping is the rarer of the two and stays in the chip's menu and
+    // in the drawer the output opens in.
+    private func activate(_ run: ShortcutRun) {
+        if shortcuts.state(run).isActive {
+            shortcuts.showOutput(run, for: scope)
+        } else {
+            toggle(run)
+        }
+    }
+
     private func toggle(_ run: ShortcutRun) {
         if shortcuts.state(run).isActive {
             shortcuts.stop(run)
@@ -284,11 +295,12 @@ struct SessionShortcutChips: View {
 
 // MARK: - One chip
 
-// A saved command as one small control: click runs it, click again stops it. It carries
-// the icon it was given, its name, and a single glyph for how the last run went - a dot,
-// a tick, an exclamation - because a row of these shares a line with everything else the
-// session has to say, and anything more makes that line unreadable. The timing and the
-// output are in the drawer, which opens on its own the moment a run starts.
+// A saved command as one small control: click runs it, and click it again while it runs
+// to go back to the output it is printing. It carries the icon it was given, its name,
+// and a single glyph for how the last run went - a dot, a tick, an exclamation - because
+// a row of these shares a line with everything else the session has to say, and anything
+// more makes that line unreadable. The timing and the output are in the drawer, which
+// opens on its own the moment a run starts.
 struct ShortcutChip: View {
     let shortcut: Shortcut
     let state: ShortcutStore.State
@@ -296,13 +308,13 @@ struct ShortcutChip: View {
     // runs in matters and the name alone does not say.
     let tint: Theme.ProjectTint?
     let open: Bool
-    let toggle: () -> Void
+    let activate: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var hovering = false
 
     var body: some View {
-        Button(action: toggle) {
+        Button(action: activate) {
             ZStack {
                 HStack(spacing: 6) {
                     if let tint { ProjectDot(tint: tint, size: 6) }
@@ -325,13 +337,13 @@ struct ShortcutChip: View {
                                alignment: .leading)
                     stateGlyph
                 }
-                .opacity(offeringStop ? 0 : 1)
+                .opacity(offeringShow ? 0 : 1)
 
-                Text("Stop")
+                Text("Show")
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Theme.deletion)
+                    .foregroundStyle(Theme.accent)
                     .lineLimit(1)
-                    .opacity(offeringStop ? 1 : 0)
+                    .opacity(offeringShow ? 1 : 0)
             }
             .padding(.horizontal, 9)
             .frame(height: 22)
@@ -344,7 +356,9 @@ struct ShortcutChip: View {
         .buttonStyle(.plain)
         .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: hovering)
         .onHover { hovering = $0 }
-        .accessibilityLabel(state.isActive ? "Stop \(shortcut.name)" : "Run \(shortcut.name)")
+        .accessibilityLabel(state.isActive
+            ? "Show the output of \(shortcut.name)"
+            : "Run \(shortcut.name)")
         .appTooltip {
             Tooltip(title: tooltip, subtitle: shortcut.text,
                     note: shortcut.availableInAllProjects ? "Available in all projects" : nil)
@@ -373,7 +387,8 @@ struct ShortcutChip: View {
     private var tooltip: String {
         switch state {
         case .stopped: "Run \(shortcut.name)"
-        case .running(let since): "Running for \(RelativeTime.duration(since: since)). Click to stop."
+        case .running(let since):
+            "Running for \(RelativeTime.duration(since: since)). Click to see its output."
         case .finished(let at): "Finished \(RelativeTime.duration(since: at)) ago"
         case .failed(_, let status, let at):
             status.map { "Exited with code \($0) \(RelativeTime.duration(since: at)) ago" }
@@ -393,11 +408,10 @@ struct ShortcutChip: View {
     }
 
     private var emphasisColour: Color {
-        if offeringStop { return Theme.deletion }
-        return state.isFailure ? Theme.deletion : Theme.accent
+        state.isFailure ? Theme.deletion : Theme.accent
     }
 
-    private var offeringStop: Bool {
+    private var offeringShow: Bool {
         hovering && state.isActive
     }
 }
@@ -552,9 +566,9 @@ enum ShortcutChipFit {
             parts += 1
         }
         content += contentSpacing * CGFloat(parts - 1)
-        // Hovering a running command swaps its label for the word that stops it, and the
-        // chip keeps its width while it does.
-        return ceil(max(content, textWidth("Stop", font: nameFont))) + horizontalPadding * 2
+        // Hovering a running command swaps its label for the word that opens its output,
+        // and the chip keeps its width while it does.
+        return ceil(max(content, textWidth("Show", font: nameFont))) + horizontalPadding * 2
     }
 
     // Measured for every command at once and with room for the state dot, so whatever
@@ -661,48 +675,46 @@ struct ShortcutOutputDrawer: View {
 
             Spacer(minLength: 12)
 
-            if shortcuts.state(run).isActive {
-                Button { shortcuts.stop(run) } label: {
-                    Text("Stop")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Theme.deletion)
-                        .padding(.horizontal, 9)
-                        .padding(.vertical, 4)
-                        .background(RoundedRectangle(cornerRadius: 7).fill(Theme.field))
-                        .contentShape(RoundedRectangle(cornerRadius: 7))
-                }
-                .buttonStyle(.plain)
-                .appTooltip("Stop this command (^C)")
+            // Kept in the row whether or not anything is running, so the way to stop a
+            // command is always in the same place. The chip that opens this panel no
+            // longer stops anything, and a control that comes and goes is one the reader
+            // has to find again every time they need it.
+            let running = shortcuts.state(run).isActive
+            stripButton("Stop", tint: Theme.deletion, enabled: running) {
+                shortcuts.stop(run)
             }
+            .appTooltip(running ? "Stop this command (^C)" : "Nothing is running")
 
             if !log.isEmpty {
-                Button { shortcuts.clearLog(run) } label: {
-                    Text("Clear")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Theme.accent)
-                        .padding(.horizontal, 9)
-                        .padding(.vertical, 4)
-                        .background(RoundedRectangle(cornerRadius: 7).fill(Theme.field))
-                        .contentShape(RoundedRectangle(cornerRadius: 7))
-                }
-                .buttonStyle(.plain)
+                stripButton("Clear", tint: Theme.accent) { shortcuts.clearLog(run) }
             }
 
-            Button(action: onClose) {
-                Text("Close")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(Theme.deletion)
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 4)
-                    .background(RoundedRectangle(cornerRadius: 7).fill(Theme.field))
-                    .contentShape(RoundedRectangle(cornerRadius: 7))
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Hide the output")
+            // Named for what it does, since the row beside it stops the command and the
+            // two must not read as the same thing: this only puts the panel away, and
+            // whatever is running carries on.
+            stripButton("Close output", tint: Theme.deletion, action: onClose)
+                .appTooltip("Hide this panel. Anything running keeps running.")
+                .accessibilityLabel("Hide the output")
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 7)
         .background(Theme.card)
+    }
+
+    private func stripButton(_ title: String, tint: Color, enabled: Bool = true,
+                             action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(tint)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 4)
+                .background(RoundedRectangle(cornerRadius: 7).fill(Theme.field))
+                .contentShape(RoundedRectangle(cornerRadius: 7))
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.4)
     }
 
     private var log: String { shortcuts.log(run) }
