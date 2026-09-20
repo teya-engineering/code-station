@@ -33,17 +33,9 @@ struct AppSidebar: View {
     @State private var askingTask: Project?
     @State private var sessionVisibility = SidebarSessionVisibility()
     @State private var renderedSessionIDs: Set<UUID> = []
-    @State private var filterText = ""
-    @State private var sidebarFilterOpen = false
-    @State private var revealedFilterContainerID: UUID?
-    @State private var clearedFilterForDisclosure = false
-    @State private var oldSessionSummary = OldSessionSummary()
-    @State private var hoveringOldSessions = false
-    @State private var hoveringOrphanedWorktrees = false
-    @State private var hoveringHome = false
+    @State private var filterBox = SidebarFilterBox()
+    @State private var oldSessions = OldSessionsWatch()
     @FocusState private var filterFocused: Bool
-
-    private static let oldSessionRefreshInterval: TimeInterval = 3_600
 
     private struct SessionRevealTarget: Equatable {
         let id: UUID?
@@ -53,26 +45,6 @@ struct AppSidebar: View {
     private var sessionRevealTarget: SessionRevealTarget {
         SessionRevealTarget(id: store.sessionToReveal,
                             isRendered: store.sessionToReveal.map(renderedSessionIDs.contains) ?? false)
-    }
-
-    private struct OldSessionSummary: Equatable {
-        var sessions = 0
-        var losesWork = 0
-        // Projects whose snooze is holding old sessions back. A snooze over a project
-        // with nothing old to hide is not worth a line in the strip.
-        var snoozedProjects = 0
-    }
-
-    private struct OldSessionRefreshRule: Equatable {
-        struct Session: Equatable {
-            let id: UUID
-            let isBusy: Bool
-            let isPinned: Bool
-        }
-
-        let days: Int
-        let oldSessions: [Session]
-        let nextOldAt: Date?
     }
 
     var body: some View {
@@ -92,30 +64,31 @@ struct AppSidebar: View {
             guard let destination else { return }
             setExpanded(true, for: destination.containerID)
             if let sessionID = destination.sessionID {
-                filterText = ""
+                filterBox.clear()
                 store.sessionToReveal = sessionID
             }
             if old != destination { announceSelection() }
         }
         .onChange(of: filterQuery) { old, query in
-            if !old.isEmpty, query.isEmpty {
-                if !clearedFilterForDisclosure { revealCurrentContainer() }
-                clearedFilterForDisclosure = false
+            if !old.isEmpty, query.isEmpty, !filterBox.wasClearedForDisclosure() {
+                revealCurrentContainer()
             }
         }
         .onChange(of: store.sessionToReveal) { _, id in
             guard let id, let session = store.sidebarSession(id) else { return }
-            filterText = ""
+            filterBox.clear()
             setExpanded(true, for: containerID(of: session))
         }
         .onChange(of: store.projectToReveal) { _, id in
             guard let id else { return }
-            if !orderedItems.contains(where: { $0.id == id }) { filterText = "" }
+            if !orderedItems.contains(where: { $0.id == id }) { filterBox.clear() }
             setExpanded(true, for: id)
         }
         .task { await watchWorkingTrees() }
         .task(id: store.sidebarHighlight) { await endHighlight() }
-        .task(id: oldSessionRefreshRule) { await refreshOldSessionsHourly() }
+        .task(id: oldSessions.rule(store: store, runner: runner, days: appSettings.oldSessionDays)) {
+            await oldSessions.watch(store: store, runner: runner, days: appSettings.oldSessionDays)
+        }
         .onChange(of: commandPalette.newSessionRequest) { _, _ in
             startSessionInSelection()
         }
@@ -153,195 +126,19 @@ struct AppSidebar: View {
         // Both rows read the same list, so it is worked out once for the pair rather than
         // built and sorted twice on every redraw of the rail.
         let notices = sessionNotices
+        let waiting = notices.filter { $0.notice != .running }
         return VStack(alignment: .leading, spacing: 0) {
-            brandBar(notices)
-            needsYouCard(notices)
-            filterBar
+            SidebarBrandBar(runningCount: notices.count { $0.notice == .running },
+                            isHome: store.selection == .home,
+                            selectHome: store.selectHome,
+                            noticeMenu: { sessionNoticeMenu })
+            if !waiting.isEmpty {
+                SidebarNeedsYouCard(waiting: waiting, open: openNoticedSession)
+            }
+            SidebarFilterBar(box: $filterBox, focused: $filterFocused,
+                             openCommandPalette: commandPalette.open)
             arrangementBar
         }
-    }
-
-    private func brandBar(_ notices: [NoticedSession]) -> some View {
-        let running = notices.count { $0.notice == .running }
-        return HStack(spacing: 10) {
-            Button(action: store.selectHome) {
-                HStack(spacing: 9) {
-                    AppMark()
-                        .frame(width: 26, height: 26)
-                    Text("Teya Code Station")
-                        .font(.logo(18))
-                        .kerning(-0.2)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
-                }
-                .padding(.horizontal, 6)
-                .padding(.vertical, 4)
-                .background(RoundedRectangle(cornerRadius: 8)
-                    .fill(store.selection == .home || hoveringHome ? Theme.card : Color.clear))
-                .overlay(RoundedRectangle(cornerRadius: 8)
-                    .stroke(store.selection == .home ? Theme.border : Color.clear, lineWidth: 1.3))
-                .contentShape(RoundedRectangle(cornerRadius: 8))
-            }
-            .buttonStyle(.plain)
-            .padding(.leading, -6)
-            .onHover { hoveringHome = $0 }
-            .appTooltip("Home")
-
-            Spacer(minLength: 4)
-
-            // The count of what is running, which is the one number worth carrying at the
-            // very top: it is the reason to look at the rail at all.
-            if running > 0 {
-                HStack(spacing: 5) {
-                    RunningDot()
-                    Text("\(running)")
-                        .font(.mono(9.5, .semibold))
-                        .kerning(0.7)
-                        .foregroundStyle(Theme.accent)
-                }
-                .padding(.horizontal, 7)
-                .padding(.vertical, 4)
-                .background(RoundedRectangle(cornerRadius: 6).fill(Theme.accent.opacity(0.1)))
-                .appMenu { sessionNoticeMenu }
-                .appTooltip("Show active and unread sessions")
-            }
-
-            MobileAccessBadge()
-        }
-        .padding(.horizontal, 14)
-        .headerBand(Theme.sidebar)
-    }
-
-    // Permission prompts and turns that ended while the user was away are the only things
-    // in the app that are waiting on a person, so they sit above the tree rather than
-    // being found by opening the project they happen to belong to.
-    @ViewBuilder private func needsYouCard(_ notices: [NoticedSession]) -> some View {
-        let waiting = notices.filter { $0.notice != .running }
-        if !waiting.isEmpty {
-            VStack(alignment: .leading, spacing: 9) {
-                HStack(spacing: 7) {
-                    Circle().fill(Theme.attention).frame(width: 6, height: 6)
-                    Text("NEEDS YOU · \(waiting.count)")
-                        .font(.mono(9.5, .semibold))
-                        .kerning(1.1)
-                        .foregroundStyle(Theme.attentionText)
-                    Spacer(minLength: 6)
-                    Text("⌘⇧A")
-                        .font(.mono(9.5))
-                        .foregroundStyle(.tertiary)
-                }
-
-                VStack(alignment: .leading, spacing: 7) {
-                    ForEach(waiting.prefix(3), id: \.session.id) { noticed in
-                        needsYouRow(noticed)
-                    }
-                }
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 11)
-            .background(RoundedRectangle(cornerRadius: 11).fill(Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: 11)
-                .stroke(Theme.attention.opacity(0.45), lineWidth: 1.3))
-            .padding(.horizontal, 14)
-            .padding(.bottom, 12)
-        }
-    }
-
-    private func needsYouRow(_ noticed: NoticedSession) -> some View {
-        // Answering means the pending prompt; reviewing means the files a finished turn
-        // left behind, so the two land on different tabs of the same session.
-        let answering = noticed.notice == .needsInput
-        return HStack(spacing: 9) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(noticed.session.title)
-                    .font(.system(size: 12.5, weight: .semibold))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Text(noticed.reason)
-                    .font(.mono(10))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            ActionButton(title: answering ? "Answer" : "Review",
-                         height: 24, size: 11.5) {
-                openNoticedSession(noticed.session)
-            }
-        }
-        .contentShape(Rectangle())
-        .onTapGesture { openNoticedSession(noticed.session) }
-    }
-
-    // The visible control opens the app-wide filter. Command-F keeps the narrower tree
-    // filter for someone who only wants to trim this rail without leaving its context.
-    private var filterBar: some View {
-        Group {
-            if sidebarFilterOpen || !filterText.isEmpty {
-                sidebarFilterField
-            } else {
-                Button { commandPalette.open() } label: {
-                    HStack(spacing: 7) {
-                        Image(systemName: "magnifyingglass")
-                            .font(.system(size: 10.5, weight: .semibold))
-                            .foregroundStyle(.tertiary)
-                        Text("Filter projects, sessions, actions")
-                            .font(.system(size: 12.5))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                        Spacer(minLength: 4)
-                        Text("⌘K")
-                            .font(.mono(9.5))
-                            .foregroundStyle(.tertiary)
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 7)
-                    .fieldSurface(cornerRadius: 9)
-                    .contentShape(RoundedRectangle(cornerRadius: 9))
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Filter projects, sessions, and actions")
-                .appTooltip("Filter Code Station (command-K)")
-            }
-        }
-        .padding(.horizontal, 14)
-        .padding(.bottom, 10)
-    }
-
-    private var sidebarFilterField: some View {
-        HStack(spacing: 7) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 10.5, weight: .semibold))
-                .foregroundStyle(.tertiary)
-            TextField("Filter projects and sessions", text: $filterText)
-                .textFieldStyle(.plain)
-                .font(.system(size: 12.5))
-                .focused($filterFocused)
-            Text("⌘F")
-                .font(.mono(9.5))
-                .foregroundStyle(.tertiary)
-            Button {
-                if filterText.isEmpty {
-                    sidebarFilterOpen = false
-                    filterFocused = false
-                } else {
-                    filterText = ""
-                }
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.tertiary)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .appTooltip(filterText.isEmpty ? "Close project filter" : "Clear filter")
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
-        .fieldSurface(cornerRadius: 9)
-        .onChange(of: filterText) { _, _ in revealedFilterContainerID = nil }
     }
 
     // The order and the grouping both decide the shape of the whole rail under them, so
@@ -378,72 +175,18 @@ struct AppSidebar: View {
         .padding(.bottom, 10)
     }
 
-    private struct NoticedSession {
-        let session: ChatSession
-        let project: Project
-        let notice: SessionNotice
-        // Why this one is here, in the few words that fit under its title: the tool that
-        // is asking, or what the finished turn left behind.
-        let reason: String
-    }
-
     private var sessionNotices: [NoticedSession] {
-        store.sidebarSessions.compactMap { session in
-            guard let project = store.project(session.projectID) else { return nil }
-            let live = LiveConversation.id(of: session.id, store: store, runner: runner)
-            let question = runner.question(live)
-            guard let notice = SessionNotice(
-                isBusy: runner.state(live).isBusy,
-                needsInput: question != nil,
-                finishedUnseen: store.hasFinished(session.id)) else { return nil }
-            return NoticedSession(session: session, project: project, notice: notice,
-                                  reason: reason(notice, question: question, session: session))
-        }
-        .sorted {
-            if $0.notice != $1.notice { return $0.notice.rawValue < $1.notice.rawValue }
-            return $0.session.lastActivity > $1.session.lastActivity
-        }
-    }
-
-    private func reason(_ notice: SessionNotice, question: PermissionRequest?,
-                        session: ChatSession) -> String {
-        switch notice {
-        case .needsInput:
-            guard let question else { return "waiting on an answer" }
-            return question.isQuestion
-                ? "question · \(question.title.lowercased())"
-                : "permission · \(question.toolName.lowercased())"
-        case .running:
-            return activity(session) ?? "running"
-        case .finished:
-            return "finished while away"
-        }
+        SidebarNotices.all(store: store, runner: runner, activity: activity)
     }
 
     private var sessionNoticeMenu: [MenuEntry] {
-        let notices = sessionNotices
-        var entries: [MenuEntry] = []
-        for (index, noticed) in notices.enumerated() {
-            if index > 0, notices[index - 1].notice != noticed.notice {
-                entries.append(.separator)
-            }
-            entries.append(.item(
-                noticed.session.title,
-                checked: isSelected(noticed.session),
-                badge: noticed.notice.badge,
-                badgeTint: noticed.notice.tint,
-                subtitle: noticed.session.workspaceID.flatMap(store.workspace)?.name
-                    ?? noticed.project.name,
-                detail: RelativeTime.short(noticed.session.lastActivity)) {
-                    openNoticedSession(noticed.session)
-                })
-        }
-        return entries
+        SidebarNotices.menu(sessionNotices, store: store,
+                            isSelected: isSelected, open: openNoticedSession)
     }
 
     private func openNoticedSession(_ session: ChatSession) {
         let containerID = session.workspaceID ?? session.projectID
-        filterText = ""
+        filterBox.clear()
         setExpanded(true, for: containerID)
         sessionVisibility.pin(session.id, in: containerID)
         store.selectSession(session.id, destination: destination(for: session))
@@ -470,7 +213,7 @@ struct AppSidebar: View {
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                     Button {
-                        filterText = ""
+                        filterBox.clear()
                     } label: {
                         Text("Show \(current.name) in sidebar")
                             .font(.system(size: 12, weight: .semibold))
@@ -553,7 +296,7 @@ struct AppSidebar: View {
                         .animation(reduceMotion ? nil : .easeOut(duration: 0.22), value: appSettings.projectSort)
                         .animation(reduceMotion ? nil : .easeOut(duration: 0.22), value: appSettings.projectGrouping)
                         .animation(reduceMotion ? nil : .easeOut(duration: 0.22), value: collapsedGroups)
-                        .animation(reduceMotion ? nil : .easeOut(duration: 0.22), value: filterText)
+                        .animation(reduceMotion ? nil : .easeOut(duration: 0.22), value: filterBox.text)
                     }
                     .onPreferenceChange(SidebarRenderedSessionsKey.self) { renderedSessionIDs = $0 }
                     .onDisappear { renderedSessionIDs = [] }
@@ -575,11 +318,11 @@ struct AppSidebar: View {
         sections.flatMap(\.items).map(\.id)
     }
 
-    private var filter: SidebarFilter { SidebarFilter(filterText) }
+    private var filter: SidebarFilter { filterBox.filter }
 
-    private var filterQuery: String { filter.query }
+    private var filterQuery: String { filterBox.query }
 
-    private var isFiltering: Bool { filter.isActive }
+    private var isFiltering: Bool { filterBox.isActive }
 
     private func matchesName(_ item: SidebarItem, _ filter: SidebarFilter) -> Bool {
         switch item {
@@ -611,20 +354,17 @@ struct AppSidebar: View {
     private func openProject(_ project: Project) {
         store.selectProject(project.id, revealingInSidebar: false)
         setExpanded(true, for: project.id)
-        if isFiltering { revealedFilterContainerID = project.id }
+        filterBox.reveal(project.id)
     }
 
     private func openWorkspace(_ workspace: ProjectWorkspace) {
         store.selectWorkspace(workspace.id, revealingInSidebar: false)
         setExpanded(true, for: workspace.id)
-        if isFiltering { revealedFilterContainerID = workspace.id }
+        filterBox.reveal(workspace.id)
     }
 
     private func toggleExpanded(_ id: UUID, expanded: Bool) {
-        if isFiltering {
-            clearedFilterForDisclosure = true
-            filterText = ""
-        }
+        if isFiltering { filterBox.clearForDisclosure() }
         store.sessionToReveal = nil
         setExpanded(!expanded, for: id)
         if expanded { sessionVisibility.reset(id) }
@@ -997,7 +737,7 @@ struct AppSidebar: View {
                 selectedSessionID: selectedSessionID)
         }
         return filter.sessions(from: sessions,
-                               revealingAll: revealedFilterContainerID == containerID,
+                               revealingAll: filterBox.revealsEverything(in: containerID),
                                selectedSessionID: selectedSessionID)
     }
 
@@ -1060,7 +800,7 @@ struct AppSidebar: View {
     private func revealProject(with scroller: ScrollViewProxy) async {
         guard let id = store.projectToReveal,
               store.project(id) != nil || store.workspace(id) != nil else { return }
-        if !orderedItems.contains(where: { $0.id == id }) { filterText = "" }
+        if !orderedItems.contains(where: { $0.id == id }) { filterBox.clear() }
         showGroup(containing: id)
         await Task.yield()
         guard !Task.isCancelled else { return }
@@ -1258,8 +998,13 @@ struct AppSidebar: View {
 
     private var bottomBar: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if oldSessionSummary.sessions > 0 { oldSessionsStrip(oldSessionSummary) }
-            if !orphanedWorktrees.worktrees.isEmpty { orphanedWorktreesStrip }
+            if oldSessions.summary.sessions > 0 {
+                OldSessionsStrip(summary: oldSessions.summary,
+                                 deletion: oldSessionDeletion,
+                                 days: appSettings.oldSessionDays,
+                                 onReview: onReviewOldSessions)
+            }
+            if !orphanedWorktrees.worktrees.isEmpty { OrphanedWorktreesStrip() }
 
             HStack(spacing: 8) {
                 ActionButton(title: "Add", height: 38, size: 13, fills: true)
@@ -1280,254 +1025,6 @@ struct AppSidebar: View {
         .padding(.horizontal, 14)
         .padding(.top, 12)
         .padding(.bottom, 14)
-    }
-
-    // Sessions pile up quietly, and the worktrees behind them take real disk. The strip
-    // says how much has gone stale and hands it to a screen that explains what clearing
-    // each one would cost. Once the sweep has a cohort waiting, the strip switches to
-    // that cohort: the count beside the countdown is what the sweep will take, so the
-    // number a person reads before walking away is the number that goes.
-    private func oldSessionsStrip(_ summary: OldSessionSummary) -> some View {
-        let losesWork = summary.losesWork > 0
-        return Button(action: onReviewOldSessions) {
-            ZStack {
-                HStack(spacing: 8) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(Self.stripTitle(summary, deleting: oldSessionDeletion?.sessions,
-                                             days: oldSessionDays))
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(losesWork ? Theme.attentionText : Color.primary)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.85)
-                        Text(Self.stripDetail(summary, deleting: oldSessionDeletion?.sessions,
-                                              days: oldSessionDays))
-                            .font(.mono(10))
-                            .foregroundStyle(losesWork ? Theme.attentionText : Color.secondary)
-                            .lineLimit(1)
-                    }
-                    Spacer(minLength: 8)
-                    if let deletionAt = oldSessionDeletion?.at {
-                        TimelineView(.periodic(from: .now, by: 1)) { context in
-                            let countdownIsUrgent = CleanupCountdown.isUrgent(
-                                until: deletionAt,
-                                now: context.date)
-                            HStack(spacing: 4) {
-                                Image(systemName: "timer")
-                                    .font(.system(size: 9, weight: .semibold))
-                                Text(CleanupCountdown.text(
-                                    until: deletionAt,
-                                    now: context.date))
-                                    .font(.mono(10, .semibold))
-                                    .monospacedDigit()
-                            }
-                            .foregroundStyle(countdownIsUrgent
-                                ? Theme.deletion
-                                : losesWork ? Theme.attentionText : Theme.accent)
-                            .accessibilityElement(children: .ignore)
-                            .accessibilityLabel("Automatic deletion countdown")
-                            .accessibilityValue(CleanupCountdown.text(
-                                until: deletionAt,
-                                now: context.date))
-                        }
-                    }
-                }
-                .opacity(hoveringOldSessions ? 0 : 1)
-
-                Text("Click to review")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(losesWork ? Theme.attentionText : Color.primary)
-                    .opacity(hoveringOldSessions ? 1 : 0)
-            }
-            .padding(.horizontal, 11)
-            .padding(.vertical, 9)
-            .surface(losesWork ? Theme.attention.opacity(0.10) : Theme.field, cornerRadius: 9,
-                     border: losesWork ? Theme.attention.opacity(0.45) : .clear)
-            .contentShape(RoundedRectangle(cornerRadius: 9))
-        }
-        .buttonStyle(.plain)
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: hoveringOldSessions)
-        .onHover { hoveringOldSessions = $0 }
-        .accessibilityLabel("Review old sessions")
-    }
-
-    // The strip makes one statement at a time. Once a cohort is waiting the top line is a
-    // promise about that cohort and nothing else, so it counts the sessions the sweep has
-    // already settled on rather than everything that has gone quiet.
-    private static func stripTitle(_ summary: OldSessionSummary, deleting: Int?,
-                                   days: Int) -> String {
-        guard let deleting else {
-            return "\(counted(summary.sessions, "session")) older than \(counted(days, "day"))"
-        }
-        return "\(counted(deleting, "session")) will be deleted"
-    }
-
-    // Under a promise the detail carries the threshold the top line gave up naming and
-    // says what the cohort is leaving behind. With no cohort waiting the strip is only an
-    // offer to review, so the detail counts what accepting it would cost.
-    private static func stripDetail(_ summary: OldSessionSummary, deleting: Int?,
-                                    days: Int) -> String {
-        guard let deleting else { return reviewDetail(summary) }
-        var parts = ["Older than \(counted(days, "day"))"]
-        // The summary is refreshed on its own slower clock, so it can lag a cohort that
-        // has just lost a member.
-        let kept = max(0, summary.sessions - deleting)
-        if kept > 0 { parts.append("\(kept) kept for review") }
-        if summary.snoozedProjects > 0 {
-            parts.append("\(counted(summary.snoozedProjects, "project")) snoozed")
-        }
-        return parts.joined(separator: " · ")
-    }
-
-    // "1 project snoozed · 1 would lose work", so a quiet strip is never a mystery.
-    // With nothing snoozed the line says only what it has always said.
-    private static func reviewDetail(_ summary: OldSessionSummary) -> String {
-        let work = summary.losesWork == 1
-            ? "1 session would lose work"
-            : "\(summary.losesWork) sessions would lose work"
-        guard summary.snoozedProjects > 0 else { return work }
-        let snoozed = "\(counted(summary.snoozedProjects, "project")) snoozed"
-        guard summary.losesWork > 0 else { return snoozed }
-        return "\(snoozed) · \(summary.losesWork) would lose work"
-    }
-
-    private var oldSessionDays: Int { appSettings.oldSessionDays }
-
-    private var oldSessionRefreshRule: OldSessionRefreshRule {
-        let sessions = store.sidebarSessions
-        return OldSessionRefreshRule(
-            days: oldSessionDays,
-            oldSessions: OldSessions.olderThan(oldSessionDays, in: sessions,
-                                               snoozedUntil: snoozeDeadline).map {
-                OldSessionRefreshRule.Session(
-                    id: $0.id,
-                    isBusy: runner.isBusy($0.id, store: store),
-                    isPinned: $0.isPinned)
-            },
-            nextOldAt: OldSessions.nextOldAt(oldSessionDays, in: sessions,
-                                             snoozedUntil: snoozeDeadline))
-    }
-
-    private func refreshOldSessions() async {
-        let old = OldSessions.olderThan(oldSessionDays, in: store.sidebarSessions)
-            .filter { !runner.isBusy($0.id, store: store) }
-        let heldBack = old.filter { ProjectSnooze.isActive(snoozeDeadline($0)) }
-        let sessions = old.filter { !ProjectSnooze.isActive(snoozeDeadline($0)) }
-        var losesWork = 0
-        for session in sessions {
-            guard !Task.isCancelled else { return }
-            let cost = await SessionCost.settledCost(
-                worktrees: store.checkoutProjects(for: session).compactMap(\.worktreePath),
-                design: store.designCost(for: session))
-            if cost.losesWork { losesWork += 1 }
-        }
-        guard !Task.isCancelled else { return }
-        oldSessionSummary = OldSessionSummary(sessions: sessions.count,
-                                              losesWork: losesWork,
-                                              snoozedProjects: Set(heldBack.map(\.projectID)).count)
-    }
-
-    private func snoozeDeadline(_ session: ChatSession) -> Date? {
-        store.snoozeDeadline(for: session)
-    }
-
-    private func refreshOldSessionsHourly() async {
-        while !Task.isCancelled {
-            await refreshOldSessions()
-            let now = Date()
-            let hourlyRefresh = now.addingTimeInterval(
-                Self.oldSessionRefreshInterval)
-            // The earliest snooze deadline counts as well, so the strip wakes up on the
-            // minute a project comes back rather than at the next hourly pass.
-            let nextOldSession = OldSessions.nextOldAt(
-                oldSessionDays, in: store.sidebarSessions, now: now,
-                snoozedUntil: snoozeDeadline)
-            let nextRefresh = min(hourlyRefresh, nextOldSession ?? .distantFuture)
-            do {
-                try await Task.sleep(for: .seconds(max(0, nextRefresh.timeIntervalSinceNow)))
-            } catch {
-                return
-            }
-        }
-    }
-
-    private var orphanedWorktreesStrip: some View {
-        let worktrees = orphanedWorktrees.worktrees
-        let count = worktrees.count
-        let bytes = worktrees.reduce(Int64(0)) { $0 + $1.allocatedBytes }
-        let size = bytes > 0 ? bytes.formatted(.byteCount(style: .file)) : "No disk usage"
-
-        return Button { confirmPruneOrphanedWorktrees(worktrees) } label: {
-            ZStack {
-                HStack(spacing: 8) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(counted(count, "orphaned worktree"))
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(Theme.attentionText)
-                            .lineLimit(1)
-                        Text("No session · \(size)")
-                            .font(.mono(10))
-                            .foregroundStyle(Theme.attentionText)
-                            .lineLimit(1)
-                    }
-                    Spacer(minLength: 8)
-                    if appSettings.autoPruneOrphanedWorktrees,
-                       let deletionAt = orphanedWorktrees.automaticDeletionAt {
-                        TimelineView(.periodic(from: .now, by: 1)) { context in
-                            let countdownIsUrgent = CleanupCountdown.isUrgent(
-                                until: deletionAt,
-                                now: context.date)
-                            HStack(spacing: 4) {
-                                Image(systemName: "timer")
-                                    .font(.system(size: 9, weight: .semibold))
-                                Text(CleanupCountdown.text(until: deletionAt,
-                                                           now: context.date))
-                                    .font(.mono(10, .semibold))
-                                    .monospacedDigit()
-                            }
-                            .foregroundStyle(countdownIsUrgent
-                                ? Theme.deletion
-                                : Theme.attentionText)
-                            .accessibilityElement(children: .ignore)
-                            .accessibilityLabel("Automatic pruning countdown")
-                            .accessibilityValue(CleanupCountdown.text(
-                                until: deletionAt,
-                                now: context.date))
-                        }
-                    }
-                }
-                .opacity(hoveringOrphanedWorktrees ? 0 : 1)
-
-                Text("Click to prune")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Theme.attentionText)
-                    .opacity(hoveringOrphanedWorktrees ? 1 : 0)
-            }
-            .padding(.horizontal, 11)
-            .padding(.vertical, 9)
-            .surface(Theme.attention.opacity(0.10), cornerRadius: 9,
-                     border: Theme.attention.opacity(0.45))
-            .contentShape(RoundedRectangle(cornerRadius: 9))
-        }
-        .buttonStyle(.plain)
-        .disabled(orphanedWorktrees.isPruning)
-        .opacity(orphanedWorktrees.isPruning ? 0.55 : 1)
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: hoveringOrphanedWorktrees)
-        .onHover { hoveringOrphanedWorktrees = $0 }
-        .accessibilityLabel("Prune orphaned worktrees")
-    }
-
-    private func confirmPruneOrphanedWorktrees(_ worktrees: [OrphanedWorktree]) {
-        guard !worktrees.isEmpty else { return }
-        dialogs.show(OrphanedWorktreePruning.confirmation(for: worktrees) {
-            Task { await pruneOrphanedWorktrees(worktrees) }
-        })
-    }
-
-    private func pruneOrphanedWorktrees(_ worktrees: [OrphanedWorktree]) async {
-        let result = await orphanedWorktrees.prune(worktrees, in: store)
-        guard !result.failures.isEmpty else { return }
-        dialogs.show(.notice("Could not prune some worktrees",
-                             message: result.failures.map(\.message).joined(separator: "\n")))
     }
 
     // MARK: - Actions
@@ -1556,7 +1053,7 @@ struct AppSidebar: View {
                 .keyboardShortcut("n", modifiers: .command)
             Button("") {
                 commandPalette.close()
-                sidebarFilterOpen = true
+                filterBox.openField()
                 Task {
                     await Task.yield()
                     filterFocused = true
@@ -1629,7 +1126,7 @@ struct AppSidebar: View {
         let added = store.addProject(at: url)
         guard let id = added?.id ?? store.selectedProjectID else { return }
         setExpanded(true, for: id)
-        filterText = ""
+        filterBox.clear()
         store.selectProject(id, revealingInSidebar: true)
     }
 
@@ -1639,7 +1136,7 @@ struct AppSidebar: View {
         switch store.addTask(named: draft.name, prompt: draft.prompt) {
         case .success(let project):
             setExpanded(true, for: project.id)
-            filterText = ""
+            filterBox.clear()
             store.selectProject(project.id, revealingInSidebar: true)
             if draft.runNow { runTask(project) }
         case .failure(let failure):
@@ -2492,29 +1989,6 @@ private struct ActivityLine: View {
         shown = next
         if next != nil { shownAt = Date() }
     }
-}
-
-private extension SessionNotice {
-    var badge: String {
-        switch self {
-        case .needsInput: "INPUT"
-        case .running: "RUNNING"
-        case .finished: "FINISHED"
-        }
-    }
-
-    var tint: Color {
-        switch self {
-        case .running: Theme.addition
-        case .needsInput, .finished: Theme.attention
-        }
-    }
-}
-
-// Always two decimals: a session that has spent eight cents should read as $0.08 next
-// to one that has spent three dollars, so the column lines up.
-enum Money {
-    static func short(_ amount: Double) -> String { String(format: "$%.2f", amount) }
 }
 
 // The rail's way of saying where it landed. A row opened from somewhere else - the
