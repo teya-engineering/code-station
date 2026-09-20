@@ -104,16 +104,12 @@ final class ClaudeCodeManager {
 
     // Register everything missing and re-register everything out of sync.
     func syncAll(_ servers: [Server]) {
-        var steps: [[String]] = []
-        var names: [String] = []
-        for server in serversNeedingSync(servers) {
-            guard let args = addArgs(for: server) else { continue }
-            if isRegistered(server.name) { steps.append(removeArgs(server.name)) }
-            steps.append(args)
-            names.append(server.name)
-        }
-        guard !steps.isEmpty else { return }
-        runSteps(steps, names: names)
+        let plan = CLIRegistrar.plan(serversNeedingSync(servers),
+                                     add: addArgs(for:),
+                                     remove: removeArgs,
+                                     isRegistered: isRegistered)
+        guard !plan.steps.isEmpty else { return }
+        runSteps(plan.steps, names: plan.names)
     }
 
     // MARK: - Private

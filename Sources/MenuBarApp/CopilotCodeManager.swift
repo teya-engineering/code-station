@@ -102,7 +102,7 @@ final class CopilotCodeManager {
     }
 
     func remove(_ name: String) {
-        runSteps([["mcp", "remove", name]], names: [name])
+        runSteps([Self.removeArguments(name)], names: [name])
     }
 
     // Remove then add so a changed command, URL or header replaces the old registration.
@@ -112,21 +112,18 @@ final class CopilotCodeManager {
             return
         }
         knownServers[server.name] = server
-        runSteps([["mcp", "remove", server.name], args], names: [server.name])
+        runSteps([Self.removeArguments(server.name), args], names: [server.name])
     }
 
     func syncAll(_ servers: [Server]) {
         knownServers = Dictionary(uniqueKeysWithValues: servers.map { ($0.name, $0) })
-        var steps: [[String]] = []
-        var names: [String] = []
-        for server in serversNeedingSync(servers) {
-            guard let args = Self.addArguments(for: server, executable: resolvedCommand(server)) else { continue }
-            if isRegistered(server.name) { steps.append(["mcp", "remove", server.name]) }
-            steps.append(args)
-            names.append(server.name)
-        }
-        guard !steps.isEmpty else { return }
-        runSteps(steps, names: names)
+        let plan = CLIRegistrar.plan(
+            serversNeedingSync(servers),
+            add: { Self.addArguments(for: $0, executable: resolvedCommand($0)) },
+            remove: Self.removeArguments,
+            isRegistered: isRegistered)
+        guard !plan.steps.isEmpty else { return }
+        runSteps(plan.steps, names: plan.names)
     }
 
     // Copilot has no single flag that suppresses every configured MCP server, only one
@@ -164,6 +161,8 @@ final class CopilotCodeManager {
 
     // Kept separate from process handling so the supported Copilot CLI forms stay easy
     // to exercise without launching a real CLI in tests.
+    nonisolated static func removeArguments(_ name: String) -> [String] { ["mcp", "remove", name] }
+
     nonisolated static func addArguments(for server: Server, executable: String?) -> [String]? {
         if server.isRemote {
             guard ["http", "sse"].contains(server.transport),

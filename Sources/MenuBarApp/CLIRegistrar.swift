@@ -22,6 +22,28 @@ final class CLIRegistrar {
 
     func isBusy(_ name: String) -> Bool { busy.contains(name) }
 
+    // The steps that bring one CLI's registrations in line with what the app holds. None
+    // of the CLIs can edit a registration, so one that already exists is removed and added
+    // again: that is what lets a changed command, url or token replace the old entry
+    // rather than sit beside it. A server whose add arguments cannot be built is left out
+    // altogether - there is nothing to run for it, and naming it would mark it busy for a
+    // step that never comes.
+    nonisolated static func plan(_ servers: [Server],
+                                 add: (Server) -> [String]?,
+                                 remove: (String) -> [String],
+                                 isRegistered: (String) -> Bool)
+        -> (steps: [[String]], names: [String]) {
+        var steps: [[String]] = []
+        var names: [String] = []
+        for server in servers {
+            guard let adding = add(server) else { continue }
+            if isRegistered(server.name) { steps.append(remove(server.name)) }
+            steps.append(adding)
+            names.append(server.name)
+        }
+        return (steps, names)
+    }
+
     // The environment every CLI is started with. A Finder-launched app has a minimal PATH,
     // and the CLIs start servers by name.
     nonisolated static var environment: [String: String] {
