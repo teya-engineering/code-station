@@ -30,6 +30,20 @@ struct RootView: View {
     @State private var dismissedUpdateStage: AppUpdateInstallState.Stage?
 
     var body: some View {
+        window
+            .background(keyboardShortcuts)
+            .environment(skills)
+            .environment(commandPalette)
+            .environment(\.textScale, settings.textSize.scale)
+            .appOverlays()
+            // A sheet is a window of its own, so the layer under it cannot draw over it; each
+            // sheet gets one of its own to ask its own questions in.
+            .sheet(item: $sheet) { sheet in
+                sheetContent(sheet).appOverlays()
+            }
+    }
+
+    private var layout: some View {
         ZStack(alignment: .top) {
             HStack(spacing: 0) {
                 AppSidebar(skills: skills,
@@ -68,106 +82,92 @@ struct RootView: View {
         .background(Theme.background)
         .animation(reduceMotion ? nil : .easeOut(duration: 0.14),
                    value: commandPalette.isPresented)
-        .onChange(of: appUpdates.installState.stage) { _, _ in
-            dismissedUpdateStage = nil
-        }
-        .onChange(of: attention) { oldValue, newValue in
-            if oldValue != newValue { dismissedAttention = nil }
-        }
-        .onAppear {
-            mobileAccess.setEnabled(settings.mobileAccessEnabled)
-            let hasExistingWork = !store.projects.isEmpty
-                || !store.workspaces.isEmpty
-                || !store.sessions.isEmpty
-            if settings.shouldShowOnboarding(hasExistingWork: hasExistingWork) {
-                sheet = .onboarding
+    }
+
+    // The window and the work that runs for as long as it is up. Kept apart from `body`
+    // because one chain of this many modifiers takes the type checker past its own
+    // time limit on a slow machine.
+    private var window: some View {
+        layout
+            .onChange(of: appUpdates.installState.stage) { _, _ in
+                dismissedUpdateStage = nil
             }
-        }
-        .onChange(of: settings.mobileAccessEnabled) { _, enabled in
-            mobileAccess.setEnabled(enabled)
-        }
-        // Opening a session answers whatever was posted about it while the app was in
-        // the background.
-        .onChange(of: store.selection) { _, selection in
-            if case .session(let sessionID) = selection {
-                AppNotifier.shared.clear(sessionID: sessionID)
+            .onChange(of: attention) { oldValue, newValue in
+                if oldValue != newValue { dismissedAttention = nil }
             }
-        }
-        .onReceive(NotificationCenter.default.publisher(
-            for: NSApplication.willResignActiveNotification)) { _ in
-            store.applicationWillResignActive()
-        }
-        .onReceive(NotificationCenter.default.publisher(
-            for: NSApplication.didBecomeActiveNotification)) { _ in
-            store.applicationDidBecomeActive()
-        }
-        .task { await resumePendingSessionRemovals() }
-        .task { await appUpdates.checkIfNeeded() }
-        .task(id: skillsRefreshRule) { await refreshSkillsAutomatically() }
-        .task(id: sweepRule) { await deleteOldSessionsAutomatically() }
-        .task(id: settings.autoPruneOrphanedWorktrees) { await monitorOrphanedWorktrees() }
-        // Settings answers the shortcut every Mac app answers. The standard Settings
-        // scene is deliberately empty, so the shortcut is caught here and opens the
-        // same sheet the sidebar's menu does.
-        .background(
+            .onAppear {
+                mobileAccess.setEnabled(settings.mobileAccessEnabled)
+                let hasExistingWork = !store.projects.isEmpty
+                    || !store.workspaces.isEmpty
+                    || !store.sessions.isEmpty
+                if settings.shouldShowOnboarding(hasExistingWork: hasExistingWork) {
+                    sheet = .onboarding
+                }
+            }
+            .onChange(of: settings.mobileAccessEnabled) { _, enabled in
+                mobileAccess.setEnabled(enabled)
+            }
+            // Opening a session answers whatever was posted about it while the app was in
+            // the background.
+            .onChange(of: store.selection) { _, selection in
+                if case .session(let sessionID) = selection {
+                    AppNotifier.shared.clear(sessionID: sessionID)
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(
+                for: NSApplication.willResignActiveNotification)) { _ in
+                store.applicationWillResignActive()
+            }
+            .onReceive(NotificationCenter.default.publisher(
+                for: NSApplication.didBecomeActiveNotification)) { _ in
+                store.applicationDidBecomeActive()
+            }
+            .task { await resumePendingSessionRemovals() }
+            .task { await appUpdates.checkIfNeeded() }
+            .task(id: skillsRefreshRule) { await refreshSkillsAutomatically() }
+            .task(id: sweepRule) { await deleteOldSessionsAutomatically() }
+            .task(id: settings.autoPruneOrphanedWorktrees) { await monitorOrphanedWorktrees() }
+    }
+
+    // Keys the window answers wherever the focus is. They are drawn as buttons because a
+    // key equivalent belongs to one, and kept invisible because the window says what it
+    // does elsewhere.
+    private var keyboardShortcuts: some View {
+        ZStack {
+            // Settings answers the shortcut every Mac app answers. The standard Settings
+            // scene is deliberately empty, so the shortcut is caught here and opens the
+            // same sheet the sidebar's menu does.
             Button("", action: { sheet = .settings })
-                .buttonStyle(.plain)
-                .opacity(0)
                 .keyboardShortcut(",", modifiers: .command)
-        )
-        .background(
             Button("") {
                 guard sheet == nil else { return }
                 commandPalette.open()
             }
-            .buttonStyle(.plain)
-            .opacity(0)
             .keyboardShortcut("k", modifiers: .command)
-        )
-        // Cmd+[ and Cmd+] are Back and Forward on the rest of the Mac, so they retrace
-        // the projects, workspaces and sessions already looked at. They are disabled
-        // when the trail has no more to give, which leaves the key to anything that has
-        // a better use for it.
-        .background(
-            ZStack {
-                Button("") { store.goBack() }
-                    .keyboardShortcut("[", modifiers: .command)
-                    .disabled(!canNavigateHistory || !store.canGoBack)
-                Button("") { store.goForward() }
-                    .keyboardShortcut("]", modifiers: .command)
-                    .disabled(!canNavigateHistory || !store.canGoForward)
-            }
-            .buttonStyle(.plain)
-            .opacity(0)
-        )
-        .background {
+            // Cmd+[ and Cmd+] are Back and Forward on the rest of the Mac, so they retrace
+            // the projects, workspaces and sessions already looked at. They are disabled
+            // when the trail has no more to give, which leaves the key to anything that has
+            // a better use for it.
+            Button("") { store.goBack() }
+                .keyboardShortcut("[", modifiers: .command)
+                .disabled(!canNavigateHistory || !store.canGoBack)
+            Button("") { store.goForward() }
+                .keyboardShortcut("]", modifiers: .command)
+                .disabled(!canNavigateHistory || !store.canGoForward)
             if commandPalette.isPresented {
                 Button("") { commandPalette.close() }
-                    .buttonStyle(.plain)
-                    .opacity(0)
                     .keyboardShortcut(.escape, modifiers: [])
             }
-        }
-        // Growing the text is Cmd+ in the View menu, which AppKit only matches on a
-        // shifted key. The unshifted key most people actually press is the same command,
-        // so it is answered here rather than as a second line in the menu saying the same
-        // thing. The menu gets first refusal on a key equivalent, so Cmd+ still runs the
-        // menu item and only Cmd= reaches this.
-        .background(
+            // Growing the text is Cmd+ in the View menu, which AppKit only matches on a
+            // shifted key. The unshifted key most people actually press is the same command,
+            // so it is answered here rather than as a second line in the menu saying the same
+            // thing. The menu gets first refusal on a key equivalent, so Cmd+ still runs the
+            // menu item and only Cmd= reaches this.
             Button("", action: { settings.textSize = settings.textSize.bigger })
-                .buttonStyle(.plain)
-                .opacity(0)
                 .keyboardShortcut("=", modifiers: .command)
-        )
-        .environment(skills)
-        .environment(commandPalette)
-        .environment(\.textScale, settings.textSize.scale)
-        .appOverlays()
-        // A sheet is a window of its own, so the layer under it cannot draw over it; each
-        // sheet gets one of its own to ask its own questions in.
-        .sheet(item: $sheet) { sheet in
-            sheetContent(sheet).appOverlays()
         }
+        .buttonStyle(.plain)
+        .opacity(0)
     }
 
     // Moving the window behind a sheet or the palette would leave the person looking at
