@@ -12,6 +12,10 @@ struct PermissionRequest: Identifiable, Equatable, Sendable {
     // about to run, the file an edit is about to touch. This is what the answer is really
     // about, so it is never the CLI's paraphrase of it.
     let subject: String
+    // Whether the subject is a page of markdown rather than one telling line. A plan is
+    // the whole of what is being asked about, so it is read as prose; anything that only
+    // has room for a line takes the first one.
+    var subjectIsMarkdown = false
     // The CLI's own sentence about the call, kept only when it says more than the subject.
     let detail: String
     // The tool's own input, handed back untouched when allowed. An answered question goes
@@ -73,7 +77,14 @@ extension PermissionRequest {
         let suggestions = (request["permission_suggestions"] as? [Any])
             .flatMap { try? JSONSerialization.data(withJSONObject: $0) }
 
-        let subject = subject(toolName: toolName, input: rawInput, projectPath: projectPath)
+        // A plan is a document, and the answer is about the whole of it. Folding it into
+        // an argument the way every other call is folded would leave nothing to read.
+        let plan = toolName == "ExitPlanMode"
+            ? (rawInput["plan"] as? String ?? "").trimmed
+            : ""
+        let subject = plan.isEmpty
+            ? subject(toolName: toolName, input: rawInput, projectPath: projectPath)
+            : plan
         let described = request["description"] as? String ?? ""
 
         return PermissionRequest(
@@ -81,6 +92,7 @@ extension PermissionRequest {
             toolName: toolName,
             title: request["display_name"] as? String ?? toolName,
             subject: subject,
+            subjectIsMarkdown: !plan.isEmpty,
             detail: described == subject ? "" : described,
             input: input,
             suggestions: suggestions,
@@ -176,9 +188,13 @@ extension PermissionRequest {
 
     // How an answered question reads in the transcript afterwards. The answers themselves
     // go back inside the tool's input, where nothing else would show them.
+    //
+    // The bubble draws this as plain text, so the marker is what keeps a long question
+    // and the short answer under it from reading as one run-on paragraph, and the blank
+    // line is what keeps one pair from running into the next.
     static func transcript(of answers: [String: String]) -> String {
         answers.sorted { $0.key < $1.key }
-            .map { "\($0.key)\n\($0.value)" }
+            .map { "\($0.key)\n→ \($0.value)" }
             .joined(separator: "\n\n")
     }
 }
