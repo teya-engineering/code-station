@@ -67,14 +67,50 @@ private struct ToolsMenuModifier: ViewModifier {
         if let release = appUpdates.availableRelease {
             entries.append(.separator)
             entries.append(.item("Teya Code Station \(release.version)",
-                                 icon: "arrow.down.circle",
+                                 icon: updateIcon,
                                  showsUpdate: true,
-                                 subtitle: "A new version is available",
-                                 action: appUpdates.openReleasePage))
+                                 subtitle: updateSubtitle,
+                                 action: takeUpdate))
         }
         entries.append(.separator)
         entries.append(.item("Settings", detail: "⌘,", action: actions.openSettings))
         return entries
+    }
+
+    // The menu closes on the click, so the download it starts reports on the banner in
+    // the window rather than here.
+    private func takeUpdate() {
+        switch appUpdates.installState {
+        case .idle, .failed:
+            if appUpdates.canInstallInPlace {
+                appUpdates.installUpdate()
+            } else {
+                appUpdates.openReleasePage()
+            }
+        case .ready:
+            appUpdates.relaunch()
+        case .downloading, .installing:
+            break
+        }
+    }
+
+    private var updateIcon: String {
+        switch appUpdates.installState {
+        case .ready: "arrow.clockwise.circle"
+        case .failed: "exclamationmark.triangle"
+        case .idle, .downloading, .installing: "arrow.down.circle"
+        }
+    }
+
+    private var updateSubtitle: String {
+        switch appUpdates.installState {
+        case .idle where appUpdates.canInstallInPlace: "Install the new version"
+        case .idle: "A new version is available"
+        case .downloading(let fraction): "Downloading… \(Int(fraction * 100))%"
+        case .installing: "Installing…"
+        case .ready: "Restart to finish"
+        case .failed: "The update failed - try again"
+        }
     }
 
     private var dockerDetail: (text: String, colour: Color?) {

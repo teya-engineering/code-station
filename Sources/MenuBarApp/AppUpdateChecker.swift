@@ -5,6 +5,34 @@ import Observation
 struct AppUpdateRelease: Codable, Equatable, Sendable {
     let version: String
     let pageURL: URL
+    // The signed image and the checksum published beside it. Optional so a release cached
+    // by an older build still reads back; without them the update is only a link.
+    var downloadURL: URL?
+    var checksumURL: URL?
+
+    var canInstall: Bool { downloadURL != nil }
+}
+
+// How far the app has got with taking an update.
+enum AppUpdateInstallState: Equatable, Sendable {
+    case idle
+    case downloading(Double)
+    case installing
+    case ready
+    case failed(String)
+
+    // Progress inside a step is still the same piece of news, so something answered once
+    // about a download is not asked again as the numbers move.
+    enum Stage: Equatable { case idle, working, ready, failed }
+
+    var stage: Stage {
+        switch self {
+        case .idle: .idle
+        case .downloading, .installing: .working
+        case .ready: .ready
+        case .failed: .failed
+        }
+    }
 }
 
 struct AppVersion: Comparable, Equatable, Sendable {
@@ -55,17 +83,26 @@ final class AppUpdateChecker {
     private(set) var availableRelease: AppUpdateRelease?
     private(set) var isChecking = false
     private(set) var dismissedVersion: String?
+    private(set) var installState = AppUpdateInstallState.idle
 
     @ObservationIgnored private let installedVersion: AppVersion?
     @ObservationIgnored private let preferences: UserDefaults
     @ObservationIgnored private let session: URLSession
     @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private let releaseEndpoint: URL
+    @ObservationIgnored private let installTarget: () -> URL?
+    @ObservationIgnored private var installTask: Task<Void, Never>?
 
     var announcedRelease: AppUpdateRelease? {
         guard let availableRelease,
               availableRelease.version != dismissedVersion else { return nil }
         return availableRelease
+    }
+
+    // A debug build, or a copy installed where it cannot write over itself, can still be
+    // told about an update; it just has to be taken by hand.
+    var canInstallInPlace: Bool {
+        availableRelease?.canInstall == true && installTarget() != nil
     }
 
     init(
@@ -75,13 +112,15 @@ final class AppUpdateChecker {
         session: URLSession = .shared,
         now: @escaping () -> Date = Date.init,
         releaseEndpoint: URL = URL(
-            string: "https://api.github.com/repos/teya-engineering/code-station/releases/latest")!
+            string: "https://api.github.com/repos/teya-engineering/code-station/releases/latest")!,
+        installTarget: @escaping () -> URL? = { AppUpdateInstall.installedBundle() }
     ) {
         self.installedVersion = installedVersion.flatMap(AppVersion.init)
         self.preferences = preferences
         self.session = session
         self.now = now
         self.releaseEndpoint = releaseEndpoint
+        self.installTarget = installTarget
         dismissedVersion = Preferences.dismissedAppUpdateVersion(in: preferences)
         availableRelease = Self.available(
             Preferences.cachedAppUpdateRelease(in: preferences),
@@ -123,11 +162,70 @@ final class AppUpdateChecker {
         Preferences.setDismissedAppUpdateVersion(version, in: preferences)
     }
 
+    // For the places where the page is how the update is taken, so going there is acting
+    // on the announcement and there is nothing left to say.
     func openReleasePage() {
         guard let availableRelease else { return }
         dismissAnnouncement()
         NSWorkspace.shared.open(availableRelease.pageURL)
     }
+
+    // Reading what changed is not taking the update, so the offer stays on screen.
+    func openReleaseNotes() {
+        guard let availableRelease else { return }
+        NSWorkspace.shared.open(availableRelease.pageURL)
+    }
+
+    // Fetches the signed image, checks it, and swaps it in, leaving the running app to
+    // finish whatever it is doing. Nothing restarts until the person says so.
+    func installUpdate() {
+        guard installTask == nil, installState != .ready,
+              let release = availableRelease, let downloadURL = release.downloadURL,
+              let installed = installTarget() else { return }
+
+        installState = .downloading(0)
+        installTask = Task { [self] in
+            defer { installTask = nil }
+            do {
+                let directory = try AppUpdateInstall.temporaryDirectory()
+                defer { try? FileManager.default.removeItem(at: directory) }
+
+                let dmg = try await AppUpdateInstall.download(
+                    downloadURL,
+                    verifying: release.checksumURL,
+                    session: session,
+                    into: directory
+                ) { fraction in
+                    Task { @MainActor in
+                        // A fraction that arrives after the download finished belongs to
+                        // a step that is already over.
+                        guard case .downloading = self.installState else { return }
+                        self.installState = .downloading(fraction)
+                    }
+                }
+                installState = .installing
+                try await AppUpdateInstall.install(dmg, version: release.version,
+                                                   over: installed)
+                installState = .ready
+            } catch {
+                installState = .failed(error.localizedDescription)
+            }
+        }
+    }
+
+    // The new bundle is already in place, so quitting alone is enough to take the update;
+    // the helper only saves the person from starting the app again by hand.
+    func relaunch() {
+        guard installState == .ready, let installed = installTarget() else { return }
+        do {
+            try AppUpdateInstall.relaunchAfterExit(installed)
+        } catch {
+            installState = .failed(error.localizedDescription)
+            return
+        }
+        NSApp.terminate(nil)
+    }
+
 
     nonisolated static func shouldCheck(lastCheck: Date?, now: Date) -> Bool {
         guard let lastCheck else { return true }
@@ -137,20 +235,44 @@ final class AppUpdateChecker {
 
     nonisolated static func decodeRelease(_ data: Data) -> AppUpdateRelease? {
         struct GitHubRelease: Decodable {
+            struct Asset: Decodable {
+                let name: String
+                let downloadURL: URL
+
+                enum CodingKeys: String, CodingKey {
+                    case name
+                    case downloadURL = "browser_download_url"
+                }
+            }
+
             let tagName: String
             let pageURL: URL
+            let assets: [Asset]?
 
             enum CodingKeys: String, CodingKey {
                 case tagName = "tag_name"
                 case pageURL = "html_url"
+                case assets
             }
         }
 
         guard let remote = try? JSONDecoder().decode(GitHubRelease.self, from: data),
               let version = AppVersion(remote.tagName),
-              remote.pageURL.scheme == "https",
-              remote.pageURL.host == "github.com" else { return nil }
-        return AppUpdateRelease(version: version.display, pageURL: remote.pageURL)
+              isGitHub(remote.pageURL) else { return nil }
+
+        let assets = (remote.assets ?? []).filter { isGitHub($0.downloadURL) }
+        let image = assets.first { $0.name.hasSuffix(".dmg") }
+        return AppUpdateRelease(
+            version: version.display,
+            pageURL: remote.pageURL,
+            downloadURL: image?.downloadURL,
+            checksumURL: image.flatMap { image in
+                assets.first { $0.name == image.name + ".sha256" }?.downloadURL
+            })
+    }
+
+    private nonisolated static func isGitHub(_ url: URL) -> Bool {
+        url.scheme == "https" && url.host == "github.com"
     }
 
     private static func available(_ release: AppUpdateRelease?,
