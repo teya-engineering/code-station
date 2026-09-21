@@ -32,10 +32,10 @@ struct TranscriptSelectionTests {
         let selection = TranscriptSelection()
         let page = try Page(markdown: markdown, selection: selection)
         defer { page.close() }
-        try #require(page.views.count == 3)
+        try #require(page.views.count == 2)
 
         selection.begin(in: page.views[0], at: page.views[0].point(atCharacter: 10))
-        selection.extend(toWindowPoint: page.windowPoint(of: page.views[2], character: 12))
+        selection.extend(toWindowPoint: page.windowPoint(of: page.views[1], character: 12))
 
         #expect(try parts(of: selection) == [String(Self.first.dropFirst(10)),
                                              Self.second,
@@ -49,7 +49,7 @@ struct TranscriptSelectionTests {
         let page = try Page(markdown: markdown, selection: selection)
         defer { page.close() }
 
-        selection.begin(in: page.views[2], at: page.views[2].point(atCharacter: 12))
+        selection.begin(in: page.views[1], at: page.views[1].point(atCharacter: 12))
         selection.extend(toWindowPoint: page.windowPoint(of: page.views[0], character: 10))
 
         #expect(try parts(of: selection) == [String(Self.first.dropFirst(10)),
@@ -57,14 +57,17 @@ struct TranscriptSelectionTests {
                                              String(Self.third.prefix(12))])
     }
 
+    // Two paragraphs sharing a text view are still two paragraphs: a drag that starts
+    // and ends inside the second one takes nothing of the first.
     @Test func aDragInsideOneParagraphStaysThere() throws {
         let selection = TranscriptSelection()
         let page = try Page(markdown: markdown, selection: selection)
         defer { page.close() }
 
-        let view = page.views[1]
-        selection.begin(in: view, at: view.point(atCharacter: 2))
-        selection.extend(toWindowPoint: page.windowPoint(of: view, character: 20))
+        let view = page.views[0]
+        let second = Self.first.count + 1
+        selection.begin(in: view, at: view.point(atCharacter: second + 2))
+        selection.extend(toWindowPoint: page.windowPoint(of: view, character: second + 20))
 
         #expect(try parts(of: selection) == [String(Self.second.dropFirst(2).prefix(18))])
     }
@@ -76,7 +79,7 @@ struct TranscriptSelectionTests {
         let page = try Page(markdown: markdown, selection: selection)
         defer { page.close() }
 
-        let last = page.views[2]
+        let last = page.views[1]
         let below = last.convert(CGPoint(x: last.bounds.midX, y: last.bounds.maxY + 40), to: nil)
         selection.begin(in: page.views[0], at: page.views[0].point(atCharacter: 10))
         selection.extend(toWindowPoint: below)
@@ -113,8 +116,9 @@ struct TranscriptSelectionTests {
     // text ended, since a streaming turn rewrites the block it is still filling.
     @Test func aBlockLeavingTheWindowDropsOutOfTheSelection() throws {
         let selection = TranscriptSelection()
-        let page = try Page(markdown: markdown, selection: selection)
+        let page = try Page(markdown: markdownWithCode, selection: selection)
         defer { page.close() }
+        try #require(page.views.count == 3)
 
         selection.selectAll()
         let departed = page.views[1]
@@ -131,7 +135,7 @@ struct TranscriptSelectionTests {
         let page = try Page(markdown: markdown, selection: selection)
         defer { page.close() }
 
-        page.drag(from: (page.views[0], 10), to: (page.views[2], 12))
+        page.drag(from: (page.views[0], 10), to: (page.views[1], 12))
 
         #expect(try parts(of: selection) == [String(Self.first.dropFirst(10)),
                                              Self.second,
@@ -541,6 +545,146 @@ struct TranscriptSelectionTests {
         #expect(selection.selectedText == nil)
     }
 
+    // Anything at all changing in the session pane asks every block on the page to
+    // update. A block whose words did not move keeps the layout and the selected range
+    // it already had, rather than being handed its text again and losing both.
+    @Test func aRedrawThatChangesNothingLeavesASelectionStanding() throws {
+        let selection = TranscriptSelection()
+        let page = try Page(markdown: markdown, selection: selection)
+        defer { page.close() }
+        try #require(page.views.count == 2)
+
+        selection.begin(in: page.views[0], at: page.views[0].point(atCharacter: 10))
+        selection.extend(toWindowPoint: page.windowPoint(of: page.views[1], character: 12))
+        let before = try parts(of: selection)
+
+        page.redrawUnchanged(markdown: markdown)
+
+        #expect(try parts(of: selection) == before)
+    }
+
+    // The other half of the same bargain: a block that really was rewritten still takes
+    // the new words, which is what a streaming turn depends on.
+    @Test func aRedrawWithNewWordsStillReachesTheBlock() throws {
+        let selection = TranscriptSelection()
+        let page = try Page(markdown: markdown, selection: selection)
+        defer { page.close() }
+        try #require(page.views.count == 2)
+
+        let rewritten = [Self.first, "A middle paragraph with different words in it.", Self.third]
+            .joined(separator: "\n\n")
+        page.redrawUnchanged(markdown: rewritten)
+
+        selection.selectAll()
+        #expect(try parts(of: selection).contains("A middle paragraph with different words in it."))
+        #expect(try parts(of: selection).contains(Self.second) == false)
+    }
+
+    // MARK: - Blocks sharing a text view
+
+    // Scrolling costs the whole view tree on every frame, so a transcript's paragraphs
+    // are drawn together rather than one text view each.
+    @Test func adjacentParagraphsShareOneTextView() throws {
+        let selection = TranscriptSelection()
+        let fourth = "A fourth paragraph so the run has something to gather."
+        let page = try Page(markdown: markdown + "\n\n" + fourth, selection: selection)
+        defer { page.close() }
+
+        // Three gathered, and the last left on its own.
+        #expect(page.views.count == 2)
+        #expect(page.views[0].string == [Self.first, Self.second, Self.third].joined(separator: "\n"))
+        #expect(page.views[1].string == fourth)
+    }
+
+    // The gap between blocks is drawn rather than typed, so the blank line a reader sees
+    // has to be put back on the way to the clipboard.
+    @Test func sharedParagraphsStillCopyWithABlankLineBetweenThem() throws {
+        let selection = TranscriptSelection()
+        let page = try Page(markdown: markdown, selection: selection)
+        defer { page.close() }
+
+        selection.selectAll()
+
+        #expect(try #require(selection.selectedText)
+            == [Self.first, Self.second, Self.third].joined(separator: "\n\n"))
+    }
+
+    // A heading reads as a heading whether or not it has a view to itself.
+    @Test func aHeadingKeepsItsOwnTypeInsideASharedView() throws {
+        let selection = TranscriptSelection()
+        let page = try Page(markdown: "\(Self.first)\n\n## A heading\n\n\(Self.second)\n\n\(Self.third)",
+                            selection: selection)
+        defer { page.close() }
+
+        let view = try #require(page.views.first)
+        let storage = try #require(view.textStorage)
+        let heading = try #require(view.string.range(of: "A heading"))
+        let at = view.string.distance(from: view.string.startIndex, to: heading.lowerBound)
+
+        let headingFont = try #require(storage.attribute(.font, at: at, effectiveRange: nil) as? NSFont)
+        let bodyFont = try #require(storage.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)
+        #expect(headingFont.pointSize > bodyFont.pointSize)
+
+        // The air above a heading belongs to the heading's line, not to the newlines
+        // inside the paragraph before it.
+        let style = try #require(storage.attribute(.paragraphStyle, at: at,
+                                                   effectiveRange: nil) as? NSParagraphStyle)
+        #expect(style.paragraphSpacingBefore > 0)
+        let opening = try #require(storage.attribute(.paragraphStyle, at: 0,
+                                                     effectiveRange: nil) as? NSParagraphStyle)
+        #expect(opening.paragraphSpacingBefore == 0)
+    }
+
+    // A table brings cells of its own, so it cannot join a run and splits the prose
+    // around it into two.
+    @Test func aTableBreaksTheRunOfProseAroundIt() throws {
+        let selection = TranscriptSelection()
+        let page = try Page(markdown: "\(Self.first)\n\n\(Self.second)\n\n\(Self.table)\n\n\(Self.third)",
+                            selection: selection)
+        defer { page.close() }
+
+        // Two paragraphs together, six table cells, then the closing paragraph.
+        #expect(page.views.count == 8)
+        #expect(page.views[0].string == [Self.first, Self.second].joined(separator: "\n"))
+        #expect(page.views.last?.string == Self.third)
+    }
+
+    // A streaming turn rewrites its last block many times a second. It is left out of the
+    // run so that rewriting it does not rebuild, and clear the selection in, everything
+    // above it.
+    @Test func rewritingTheLastBlockLeavesASelectionAboveItStanding() throws {
+        let selection = TranscriptSelection()
+        let page = try Page(markdown: markdown, selection: selection)
+        defer { page.close() }
+        try #require(page.views.count == 2)
+
+        selection.begin(in: page.views[0], at: page.views[0].point(atCharacter: 0))
+        selection.extend(toWindowPoint: page.windowPoint(of: page.views[0],
+                                                         character: Self.first.count))
+        let before = try parts(of: selection)
+
+        page.redrawUnchanged(markdown: markdown + " Still being written.")
+
+        #expect(try parts(of: selection) == before)
+    }
+
+    // Blocks drawn together must take exactly the room they took apart, or the page
+    // silently reflows the day a run happens to gather one block more.
+    @Test func sharingATextViewLeavesThePageTheSameHeight() throws {
+        let selection = TranscriptSelection()
+        let body = [Self.first, "## A heading", Self.second, Self.third,
+                    "A fifth paragraph to make the run worth gathering."]
+            .joined(separator: "\n\n")
+
+        let shared = try Page(markdown: body, selection: TranscriptSelection())
+        defer { shared.close() }
+        let apart = try Page(markdown: body, selection: selection, separateBlocks: true)
+        defer { apart.close() }
+
+        try #require(shared.views.count < apart.views.count)
+        #expect(abs(shared.contentHeight - apart.contentHeight) < 1)
+    }
+
     private func parts(of selection: TranscriptSelection) throws -> [String] {
         try #require(selection.selectedText).components(separatedBy: "\n\n")
     }
@@ -552,29 +696,59 @@ struct TranscriptSelectionTests {
 private struct Page {
     let window: NSWindow
     let views: [NSTextView]
+    private let host: NSHostingView<AnyView>
+    private let dress: (AnyView) -> AnyView
+    private var separateBlocks = false
 
     init(markdown: String,
          selection: TranscriptSelection,
-         openURL: @escaping (URL) -> Void = { _ in }) throws {
+         openURL: @escaping (URL) -> Void = { _ in },
+         separateBlocks: Bool = false) throws {
         try self.init(selection: selection, openURL: openURL) {
+            Page.prose(markdown, separateBlocks: separateBlocks)
+        }
+        self.separateBlocks = separateBlocks
+    }
+
+    // Both the first draw and every redraw go through this, so a redraw hands SwiftUI
+    // the same shape of view and it keeps the text views rather than building new ones.
+    @ViewBuilder
+    static func prose(_ markdown: String, separateBlocks: Bool) -> some View {
+        if separateBlocks {
+            // The same blocks, one view each, to measure the gathered page against.
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(MarkdownBlock.parse(markdown)) { block in
+                    MarkdownBlockView(block: block, projectPath: "/tmp", textScale: 1)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
             MarkdownProse(text: markdown, projectPath: "/tmp", textScale: 1) { segment in
                 MarkdownCodeBlock(segment: segment)
             }
         }
     }
 
+    var contentHeight: CGFloat {
+        window.contentView?.fittingSize.height ?? 0
+    }
+
     init<Content: View>(selection: TranscriptSelection,
                         openURL: @escaping (URL) -> Void = { _ in },
                         @ViewBuilder content: () -> Content) throws {
-        let content = content()
-            .environment(TooltipPresenter())
-            .environment(\.transcriptSelection, selection)
-            .environment(\.openURL, OpenURLAction { url in
-                openURL(url)
-                return .handled
-            })
+        dress = { view in
+            AnyView(view
+                .environment(TooltipPresenter())
+                .environment(\.transcriptSelection, selection)
+                .environment(\.openURL, OpenURLAction { url in
+                    openURL(url)
+                    return .handled
+                }))
+        }
+        let content = dress(AnyView(content()))
 
         let host = NSHostingView(rootView: content)
+        self.host = host
         host.sizingOptions = []
         host.frame = CGRect(x: 0, y: 0, width: 520, height: 400)
         window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
@@ -605,6 +779,17 @@ private struct Page {
 
     func windowPoint(of view: NSTextView, character: Int) -> CGPoint {
         view.convert(view.point(atCharacter: character), to: nil)
+    }
+
+    // What a redraw of the pane does to the blocks: SwiftUI updates every text view,
+    // whether or not the words in it moved.
+    func redraw<Content: View>(@ViewBuilder content: () -> Content) {
+        host.rootView = dress(AnyView(content()))
+        host.layoutSubtreeIfNeeded()
+    }
+
+    func redrawUnchanged(markdown: String) {
+        redraw { Page.prose(markdown, separateBlocks: separateBlocks) }
     }
 
     func close() {

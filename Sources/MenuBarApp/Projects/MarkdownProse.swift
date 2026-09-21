@@ -310,6 +310,79 @@ extension MarkdownBlock {
     }
 }
 
+extension MarkdownBlock {
+    // The gap the stack used to leave between two blocks.
+    static let proseGap: CGFloat = 12
+
+    // Sizes step down the way the app's own headers do: serif for the two big levels,
+    // plain semibold below.
+    static func headingStyle(_ level: Int) -> (size: CGFloat, design: TranscriptFontDesign) {
+        switch level {
+        case 1: (18, .serif)
+        case 2: (15.5, .serif)
+        case 3: (14, .standard)
+        default: (13, .standard)
+        }
+    }
+
+    // Whether this is worth drawing in a text view shared with its neighbours. Only prose
+    // and headings are: everything else owns sibling views it cannot give up, such as a
+    // list's markers, a table's cells or a code block's own scroller.
+    var sharesATextView: Bool {
+        switch kind {
+        case .paragraph, .heading: true
+        default: false
+        }
+    }
+
+    // A run of blocks as one string for one text view. Each block keeps the type it had
+    // and the air above it, so the page reads exactly as it did when every block was a
+    // view of its own.
+    static func sharedProse(_ blocks: [MarkdownBlock]) -> AttributedString {
+        var result = AttributedString()
+        for (offset, block) in blocks.enumerated() {
+            let text: String
+            var style: TranscriptBlockStyle
+            switch block.kind {
+            case .paragraph(let body):
+                text = body
+                style = TranscriptBlockStyle(size: 13.5,
+                                             weight: NSFont.Weight.regular.rawValue,
+                                             design: .standard,
+                                             spacingBefore: proseGap)
+            case .heading(let level, let title):
+                let heading = headingStyle(level)
+                text = title
+                style = TranscriptBlockStyle(size: heading.size,
+                                             weight: NSFont.Weight.semibold.rawValue,
+                                             design: heading.design,
+                                             spacingBefore: proseGap + (level <= 2 ? 6 : 2))
+            default:
+                continue
+            }
+            // Nothing sits above the first block, so it takes no gap.
+            if offset == 0 { style.spacingBefore = 0 }
+
+            if offset > 0 {
+                var separator = AttributedString("\n")
+                separator[TranscriptBlockBreakAttribute.self] = true
+                result += separator
+            }
+
+            var piece = AttributedString.inlineMarkdown(text)
+            let opening = piece.characters.firstIndex(of: "\n") ?? piece.endIndex
+            piece[piece.startIndex..<opening][TranscriptBlockStyleAttribute.self] = style
+            if opening < piece.endIndex {
+                var continued = style
+                continued.spacingBefore = 0
+                piece[opening..<piece.endIndex][TranscriptBlockStyleAttribute.self] = continued
+            }
+            result += piece
+        }
+        return result
+    }
+}
+
 // Only local image files render here. Web links stay links without fetching them.
 enum TranscriptImage {
     static func resolve(_ source: String, projectPath: String) -> URL? {
@@ -473,6 +546,62 @@ enum TextWidth {
     case fixed
 }
 
+// Which typeface family a run asks for. Its own type rather than SwiftUI's Font.Design,
+// because a style has to travel inside an attributed string, which stays a value.
+enum TranscriptFontDesign: String, Codable, Hashable, Sendable {
+    case standard, serif, monospaced
+}
+
+// One place that turns type choices into a font, so a block inside a shared text view and
+// a whole text view of its own resolve theirs the same way.
+func transcriptNSFont(size: CGFloat, weight: NSFont.Weight,
+                      design: TranscriptFontDesign, italic: Bool) -> NSFont {
+    let base: NSFont = switch design {
+    case .serif:
+        NSFont.systemFont(ofSize: size, weight: weight).fontDescriptor
+            .withDesign(.serif)
+            .flatMap { NSFont(descriptor: $0, size: size) }
+            ?? NSFont.systemFont(ofSize: size, weight: weight)
+    case .monospaced:
+        NSFont.monospacedSystemFont(ofSize: size, weight: weight)
+    case .standard:
+        NSFont.systemFont(ofSize: size, weight: weight)
+    }
+
+    guard italic else { return base }
+    let slanted = base.fontDescriptor.withSymbolicTraits(.italic)
+    return NSFont(descriptor: slanted, size: size) ?? base
+}
+
+// How one line of a shared text view is set. Several blocks draw in one view, so what
+// used to be the view's own type and its gap in the stack travels with the text instead.
+struct TranscriptBlockStyle: Codable, Hashable, Sendable {
+    // Before the text scale, so one setting still moves the whole page.
+    var size: CGFloat
+    var weight: CGFloat
+    var design: TranscriptFontDesign
+    // The air above this line. A paragraph style belongs to a whole paragraph, so only
+    // the opening line of a block carries it: the newlines inside one are line breaks
+    // rather than new blocks, and must not be pushed down as well.
+    var spacingBefore: CGFloat
+}
+
+enum TranscriptBlockStyleAttribute: CodableAttributedStringKey {
+    typealias Value = TranscriptBlockStyle
+    static let name = "transcriptBlockStyle"
+}
+
+// Marks the newline standing between two blocks that share a text view. On screen it is
+// one line break and a gap; copied, it has to become the blank line it looks like.
+enum TranscriptBlockBreakAttribute: CodableAttributedStringKey {
+    typealias Value = Bool
+    static let name = "transcriptBlockBreak"
+}
+
+extension NSAttributedString.Key {
+    static let transcriptBlockBreak = NSAttributedString.Key("transcriptBlockBreak")
+}
+
 // Every run of text in the transcript, prose and code alike, is drawn by a text view
 // rather than by SwiftUI's Text. A Text owns a selection that stops at its own edge, so
 // a page built from one per block could only ever be selected a block at a time. A text
@@ -534,6 +663,22 @@ struct SelectableText: View {
                   role: .block)
     }
 
+    // Several blocks drawn as one text view. Each block's type and the gap above it
+    // travel in the string, so the size and weight here are only what a run that carries
+    // none of its own falls back to.
+    init(prose: AttributedString) {
+        self.init(attributed: prose,
+                  size: 13.5,
+                  weight: .regular,
+                  design: .default,
+                  secondary: false,
+                  lineSpacing: 0,
+                  alignment: .leading,
+                  width: .fills,
+                  italic: false,
+                  role: .block)
+    }
+
     // Text that is shown exactly as it arrived. A model's reasoning is not markdown, so
     // the asterisks and backticks it happens to contain are characters, not formatting.
     init(plain text: String,
@@ -583,6 +728,7 @@ struct SelectableText: View {
         LinkAwareText(
             attributed: attributed,
             font: font,
+            textScale: textScale,
             color: secondary ? .secondaryLabelColor : .labelColor,
             lineSpacing: lineSpacing,
             alignment: alignment,
@@ -637,23 +783,15 @@ struct SelectableText: View {
     }
 
     private var resolvedNSFont: NSFont {
-        let point = size * textScale
-        let nsWeight = SelectableText.nsWeight(from: weight)
-        let base: NSFont = switch design {
-        case .serif:
-            NSFont.systemFont(ofSize: point, weight: nsWeight).fontDescriptor
-                .withDesign(.serif)
-                .flatMap { NSFont(descriptor: $0, size: point) }
-                ?? NSFont.systemFont(ofSize: point, weight: nsWeight)
-        case .monospaced:
-            NSFont.monospacedSystemFont(ofSize: point, weight: nsWeight)
-        default:
-            NSFont.systemFont(ofSize: point, weight: nsWeight)
+        let resolved: TranscriptFontDesign = switch design {
+        case .serif: .serif
+        case .monospaced: .monospaced
+        default: .standard
         }
-
-        guard italic else { return base }
-        let slanted = base.fontDescriptor.withSymbolicTraits(.italic)
-        return NSFont(descriptor: slanted, size: point) ?? base
+        return transcriptNSFont(size: size * textScale,
+                                weight: SelectableText.nsWeight(from: weight),
+                                design: resolved,
+                                italic: italic)
     }
 
     private static func nsWeight(from weight: Font.Weight) -> NSFont.Weight {
@@ -904,6 +1042,8 @@ private final class LinkTextView: NSTextView {
 private struct LinkAwareText: NSViewRepresentable {
     let attributed: AttributedString
     let font: NSFont
+    // Only for the block styles inside the string: the fallback font arrives scaled.
+    let textScale: CGFloat
     let color: NSColor
     let lineSpacing: CGFloat
     let alignment: TextAlignment
@@ -956,7 +1096,22 @@ private struct LinkAwareText: NSViewRepresentable {
         (view as? LinkTextView)?.openLink = openLink
         (view as? LinkTextView)?.linkHoverChanged = linkHoverChanged
         (view as? LinkTextView)?.selection = selection
+        // Unconditional: this is how a block joins the selection that runs across the
+        // page, and a view that stopped re-registering would drop out of it.
         selection?.register(view, role: role)
+
+        // Handing the view a new string throws away the layout it has already done and
+        // the range it is holding, and every block in the transcript is asked to update
+        // whenever anything in the pane changes. Only the blocks whose text really moved
+        // pay for it.
+        let content = Coordinator.Content(attributed: attributed,
+                                          font: font,
+                                          textScale: textScale,
+                                          color: color,
+                                          lineSpacing: lineSpacing,
+                                          alignment: alignment)
+        guard context.coordinator.applied != content else { return }
+        context.coordinator.applied = content
         view.textStorage?.setAttributedString(makeNSAttributedString())
         view.invalidateIntrinsicContentSize()
     }
@@ -1002,13 +1157,34 @@ private struct LinkAwareText: NSViewRepresentable {
         case .trailing: .right
         }
 
+        // A run of blocks sharing this view repeats the same handful of styles, so each
+        // one is built once rather than per run of text.
+        var paragraphs: [TranscriptBlockStyle: NSParagraphStyle] = [:]
+        func paragraphStyle(for block: TranscriptBlockStyle) -> NSParagraphStyle {
+            if let known = paragraphs[block] { return known }
+            let made = NSMutableParagraphStyle()
+            made.setParagraphStyle(paragraph)
+            made.paragraphSpacingBefore = block.spacingBefore
+            paragraphs[block] = made
+            return made
+        }
+
         let result = NSMutableAttributedString()
         for run in attributed.runs {
             let piece = String(attributed[run.range].characters)
             let intent = run.inlinePresentationIntent ?? []
+            // A block that brought its own type sets the run; anything else is the one
+            // font this whole view was made with.
+            let block = run[TranscriptBlockStyleAttribute.self]
+            let blockFont = block.map {
+                transcriptNSFont(size: $0.size * textScale,
+                                 weight: NSFont.Weight(rawValue: $0.weight),
+                                 design: $0.design,
+                                 italic: false)
+            } ?? font
             var runFont = intent.contains(.code)
-                ? NSFont.monospacedSystemFont(ofSize: font.pointSize, weight: .regular)
-                : font
+                ? NSFont.monospacedSystemFont(ofSize: blockFont.pointSize, weight: .regular)
+                : blockFont
             var traits: NSFontDescriptor.SymbolicTraits = []
             if intent.contains(.stronglyEmphasized) { traits.insert(.bold) }
             if intent.contains(.emphasized) { traits.insert(.italic) }
@@ -1016,8 +1192,13 @@ private struct LinkAwareText: NSViewRepresentable {
                 let descriptor = runFont.fontDescriptor.withSymbolicTraits(traits)
                 runFont = NSFont(descriptor: descriptor, size: runFont.pointSize) ?? runFont
             }
-            var attrs: [NSAttributedString.Key: Any] = [.font: runFont,
-                                                        .paragraphStyle: paragraph]
+            var attrs: [NSAttributedString.Key: Any] = [
+                .font: runFont,
+                .paragraphStyle: block.map(paragraphStyle(for:)) ?? paragraph,
+            ]
+            if run[TranscriptBlockBreakAttribute.self] == true {
+                attrs[.transcriptBlockBreak] = true
+            }
             if let link = run.link {
                 attrs[.link] = link
             } else {
@@ -1036,7 +1217,21 @@ private struct LinkAwareText: NSViewRepresentable {
     // link is handed back to it by hand. That is what keeps a "path:line" link opening
     // the enclosing folder in Finder rather than whatever app owns the file type.
     final class Coordinator: NSObject, NSTextViewDelegate {
+        // Everything makeNSAttributedString reads. The other stored properties reach the
+        // string through the font and the colour, which are resolved before they arrive.
+        struct Content: Equatable {
+            let attributed: AttributedString
+            let font: NSFont
+            let textScale: CGFloat
+            let color: NSColor
+            let lineSpacing: CGFloat
+            let alignment: TextAlignment
+        }
+
         var openLink: (URL) -> Void
+        // What the view's storage was last built from. Nil until the first update, so a
+        // freshly made view always gets its text.
+        var applied: Content?
 
         init(openLink: @escaping (URL) -> Void) {
             self.openLink = openLink
@@ -1047,6 +1242,39 @@ private struct LinkAwareText: NSViewRepresentable {
             guard let url else { return false }
             openLink(url)
             return true
+        }
+    }
+}
+
+// Blocks that draw together in one text view. Most runs are several paragraphs; a block
+// that keeps sibling views of its own stands alone in a run of one.
+struct ProseRun: Identifiable, Equatable {
+    let id: Int
+    let blocks: [MarkdownBlock]
+}
+
+// A run of prose as one text view, or a single block drawn the way it always was.
+//
+// Every block used to be its own text view, and a transcript is mostly paragraphs, so a
+// long conversation ran to hundreds of them. They are what scrolling costs: AppKit walks
+// the whole view tree for tracking areas and SwiftUI walks the whole display list, on
+// every frame, however little of it is on screen.
+struct ProseRunView: View, Equatable {
+    let run: ProseRun
+    let projectPath: String
+    let textScale: CGFloat
+
+    nonisolated static func == (a: ProseRunView, b: ProseRunView) -> Bool {
+        a.run == b.run && a.projectPath == b.projectPath && a.textScale == b.textScale
+    }
+
+    var body: some View {
+        if run.blocks.count == 1, let block = run.blocks.first {
+            MarkdownBlockView(block: block, projectPath: projectPath, textScale: textScale)
+        } else {
+            SelectableText(prose: MarkdownBlock.sharedProse(run.blocks))
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }
@@ -1187,12 +1415,8 @@ struct MarkdownBlockView: View, Equatable {
     // Sizes step down the way the app's own headers do: serif for the two big
     // levels, plain semibold below.
     private func headingSpec(_ level: Int) -> (size: CGFloat, weight: Font.Weight, design: Font.Design) {
-        switch level {
-        case 1: (18, .semibold, .serif)
-        case 2: (15.5, .semibold, .serif)
-        case 3: (14, .semibold, .default)
-        default: (13, .semibold, .default)
-        }
+        let heading = MarkdownBlock.headingStyle(level)
+        return (heading.size, .semibold, heading.design == .serif ? .serif : .default)
     }
 }
 
@@ -1224,6 +1448,43 @@ struct MarkdownProse<Code: View>: View {
         }
     }
 
+    // Adjacent prose and headings share a text view. The last block is always left on
+    // its own: a streaming turn rewrites it many times a second, and a shared view would
+    // rebuild - and drop the selection in - every paragraph above it each time.
+    private func proseRuns(_ parsed: [MarkdownBlock]) -> [ProseRun] {
+        var runs: [ProseRun] = []
+        var shared: [MarkdownBlock] = []
+
+        func flush() {
+            guard let first = shared.first else { return }
+            runs.append(ProseRun(id: first.id, blocks: shared))
+            shared = []
+        }
+
+        for (offset, block) in parsed.enumerated() {
+            let isLast = offset == parsed.count - 1
+            if block.sharesATextView, !isLast, !holdsImages(block) {
+                shared.append(block)
+            } else {
+                flush()
+                runs.append(ProseRun(id: block.id, blocks: [block]))
+            }
+        }
+        flush()
+        return runs
+    }
+
+    // A paragraph with pictures in it is laid out as text around images, so it keeps the
+    // views that needs. Resolving one reads the disk, so only a paragraph that could hold
+    // a link is asked.
+    private func holdsImages(_ block: MarkdownBlock) -> Bool {
+        guard case .paragraph(let text) = block.kind, text.contains("](") else { return false }
+        return MarkdownBlock.resolvedParts(text) {
+            TranscriptImage.resolve($0, projectPath: projectPath)
+        }
+        .contains { if case .image = $0 { true } else { false } }
+    }
+
     private var blocks: some View {
         ForEach(MessageSegment.split(text)) { segment in
             if segment.isChart {
@@ -1234,10 +1495,10 @@ struct MarkdownProse<Code: View>: View {
                 codeBlock(segment)
                     .transition(.fadeIn)
             } else {
-                ForEach(MarkdownBlock.parse(segment.text)) { block in
-                    MarkdownBlockView(block: block,
-                                      projectPath: projectPath,
-                                      textScale: textScale)
+                ForEach(proseRuns(MarkdownBlock.parse(segment.text))) { run in
+                    ProseRunView(run: run,
+                                 projectPath: projectPath,
+                                 textScale: textScale)
                         .equatable()
                         .transition(.fadeIn)
                 }

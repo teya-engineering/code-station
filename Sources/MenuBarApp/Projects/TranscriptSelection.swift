@@ -106,6 +106,26 @@ final class TranscriptSelection {
 
     // MARK: - Reading
 
+    // Blocks sharing one text view are separated by a single newline, with the gap on
+    // screen drawn rather than typed. The blank line a reader sees between them has to
+    // be put back on the way to the clipboard.
+    private func copied(_ piece: NSAttributedString) -> String {
+        var breaks: [NSRange] = []
+        piece.enumerateAttribute(.transcriptBlockBreak,
+                                 in: NSRange(location: 0, length: piece.length)) { value, range, _ in
+            if value != nil { breaks.append(range) }
+        }
+        guard !breaks.isEmpty else { return piece.string }
+
+        let text = NSMutableString(string: piece.string)
+        // Back to front, so replacing one does not move the next.
+        for range in breaks.reversed() {
+            text.replaceCharacters(in: range,
+                                   with: String(repeating: "\n\n", count: range.length))
+        }
+        return text as String
+    }
+
     // The blocks are joined by a blank line because that is the gap the transcript
     // draws between them, so pasted text keeps the shape it was read in.
     var selectedText: String? {
@@ -113,7 +133,7 @@ final class TranscriptSelection {
             let range = block.view.selectedRange()
             guard range.length > 0, let storage = block.view.textStorage,
                   NSMaxRange(range) <= storage.length else { return nil }
-            return (block.role, storage.attributedSubstring(from: range).string)
+            return (block.role, copied(storage.attributedSubstring(from: range)))
         }
         guard !taken.isEmpty else { return nil }
 
