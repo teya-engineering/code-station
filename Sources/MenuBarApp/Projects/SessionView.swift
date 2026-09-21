@@ -9,13 +9,13 @@ struct TranscriptWindow: Equatable {
     // What a session opens with. Every row is built eagerly, so this is what opening one
     // costs, and it is kept small because it is paid before anything is on screen.
     let openingPage: Int
-    // What each request for earlier messages adds. Larger than the opening page: someone
-    // reading back through a conversation asked for the wait, and should not have to keep
-    // asking a page at a time.
+    // What each request for earlier messages adds. Every loaded message stays built and
+    // laid out, and scrolling costs the whole loaded window rather than the part on
+    // screen, so a page is kept small enough that reading back stays smooth.
     let step: Int
     private(set) var visibleCount: Int
 
-    init(openingPage: Int = 20, step: Int = 80) {
+    init(openingPage: Int = 20, step: Int = 25) {
         self.openingPage = max(1, openingPage)
         self.step = max(1, step)
         visibleCount = self.openingPage
