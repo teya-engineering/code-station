@@ -23,6 +23,14 @@ struct PermissionRequestTests {
     "tool_use_id":"toolu_01DV","requires_user_interaction":true}}
     """
 
+    private let planRequest = """
+    {"type":"control_request","request_id":"3fa0b21c","request":{"subtype":"can_use_tool",\
+    "tool_name":"ExitPlanMode","display_name":"ExitPlanMode","input":{\
+    "planFilePath":"/tmp/p/plan.md",\
+    "plan":"# Merge the prose\\n\\n## Context\\n\\nScrolling is slow.\\n"},\
+    "tool_use_id":"toolu_01Pl","requires_user_interaction":true}}
+    """
+
     private func parsed(_ line: String) throws -> PermissionRequest {
         let events = StreamEvent.parse(line, projectPath: "/tmp/p")
         guard case .permissionRequest(let request)? = events.first else {
@@ -200,6 +208,20 @@ struct PermissionRequestTests {
 
     @Test func showsTheAnswersInTheTranscript() {
         let text = PermissionRequest.transcript(of: ["Tabs or spaces?": "Tabs"])
-        #expect(text == "Tabs or spaces?\nTabs")
+        #expect(text == "Tabs or spaces?\n\u{2192} Tabs")
+    }
+
+    @Test func keepsEachAnsweredQuestionApart() {
+        let text = PermissionRequest.transcript(of: ["Indent?": "Tabs", "Quotes?": "Double"])
+        #expect(text == "Indent?\n\u{2192} Tabs\n\nQuotes?\n\u{2192} Double")
+    }
+
+    // The plan is the whole of what the answer is about, and it is written as markdown.
+    // Left to the general path it would arrive as its own JSON, escapes and all.
+    @Test func readsAPlanAsThePageItIs() throws {
+        let request = try parsed(planRequest)
+
+        #expect(request.subjectIsMarkdown)
+        #expect(request.subject == "# Merge the prose\n\n## Context\n\nScrolling is slow.")
     }
 }

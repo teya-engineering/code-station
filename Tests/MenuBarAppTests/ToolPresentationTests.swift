@@ -163,6 +163,26 @@ struct ToolPresentationTests {
         #expect(presentation.notesResultLineCount)
     }
 
+    // A plan is a page of markdown. The row names it by the heading it opens with, since
+    // the document itself would run over the whole spine.
+    @Test func namesAPlanByItsHeading() {
+        let tool = ToolUse(id: "plan", name: "ExitPlanMode",
+                           input: ##"{"plan":"# Merge the prose\n\n## Context\n\nSlow."}"##)
+
+        let presentation = ToolPresentation(tool: tool, projectPath: "/tmp/project")
+
+        #expect(presentation.argument == "Merge the prose")
+    }
+
+    @Test func namesAPlanWithNoHeadingByItsFirstLine() {
+        let tool = ToolUse(id: "plan", name: "ExitPlanMode",
+                           input: #"{"plan":"\nRewrite the parser.\nThen the view."}"#)
+
+        let presentation = ToolPresentation(tool: tool, projectPath: "/tmp/project")
+
+        #expect(presentation.argument == "Rewrite the parser.")
+    }
+
     @Test func foldsAMultilineCodexShellCommandOntoOneLine() {
         let tool = ToolUse(id: "codex-script", name: "Bash",
                            input: "swift build\n  swift test")

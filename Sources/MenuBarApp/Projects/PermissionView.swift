@@ -5,10 +5,14 @@ import SwiftUI
 // one is a yes or no about something about to happen, the other is a choice being asked
 // for, so each gets its own card.
 struct PermissionCard: View {
+    @Environment(\.textScale) private var textScale
+
     let request: PermissionRequest
     // The folders the session already has a view of, which is what says whether this call
     // is being asked about because of where it reaches rather than what it does.
     var workingDirectories: [String] = []
+    // Where a subject written as markdown resolves the files it links to.
+    var projectPath: String = ""
     let onAnswer: (PermissionAnswer) -> Void
 
     var body: some View {
@@ -25,6 +29,26 @@ struct PermissionCard: View {
     // which is where the reader checks it is the folder they think it is.
     private func name(of directory: String) -> String {
         URL(fileURLWithPath: directory).lastPathComponent
+    }
+
+    // A plan is a page to read before answering, so it is drawn in the same type the
+    // transcript draws prose in rather than as a line of JSON. It is capped and scrolls,
+    // because a plan long enough to fill the window would push its own buttons off it.
+    private var document: some View {
+        ScrollView {
+            MarkdownProse(text: request.subject,
+                          projectPath: projectPath,
+                          textScale: textScale) { segment in
+                MarkdownCodeBlock(segment: segment)
+                    .equatable()
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(12)
+        }
+        .frame(maxHeight: 340 * textScale)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .surface(Theme.card, cornerRadius: 8, border: Theme.border)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 
     private var approval: some View {
@@ -47,7 +71,9 @@ struct PermissionCard: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            if !request.subject.isEmpty {
+            if request.subjectIsMarkdown {
+                document
+            } else if !request.subject.isEmpty {
                 Text(request.subject)
                     .font(.mono(12))
                     .textSelection(.enabled)

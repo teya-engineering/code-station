@@ -1483,7 +1483,7 @@ struct SessionView: View {
 
             handoff(state: state)
 
-            pendingQuestion
+            pendingQuestion(projectPath: projectPath)
                 .transition(.fadeIn)
 
             if showsThinking(state: state) {
@@ -1658,11 +1658,12 @@ struct SessionView: View {
 
     // Whatever the agent is waiting on sits under the transcript, where the next thing to
     // happen belongs. The turn is parked until it is answered.
-    @ViewBuilder private var pendingQuestion: some View {
+    @ViewBuilder private func pendingQuestion(projectPath: String) -> some View {
         if let request = runner.question(sessionID) {
             PermissionCard(request: request,
                            workingDirectories: store.session(sessionID)
-                               .map(store.workingDirectories(for:)) ?? []) { answer in
+                               .map(store.workingDirectories(for:)) ?? [],
+                           projectPath: projectPath) { answer in
                 runner.answer(request, with: answer, sessionID: sessionID, store: store)
             }
             .id(request.id)

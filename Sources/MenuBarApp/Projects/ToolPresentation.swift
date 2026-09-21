@@ -138,6 +138,8 @@ struct ToolPresentation: Sendable {
                 .joined(separator: " · ")
         case "Workflow":
             argument = Self.workflowName(input)
+        case "ExitPlanMode":
+            argument = Self.planTitle(input)
         case "TodoWrite":
             if let todos = input["todos"] as? [Any] {
                 argument = counted(todos.count, "item")
@@ -400,6 +402,20 @@ struct ToolPresentation: Sendable {
         else { return "workflow" }
         let name = head[range].drop { $0 != "'" && $0 != "\"" }.dropFirst()
         return name.isEmpty ? "workflow" : String(name)
+    }
+
+    // What a plan goes by: the heading it opens with, or its first line when it has no
+    // heading. The plan itself is a page of markdown, and a row that took it whole would
+    // carry the entire document as its argument.
+    private static func planTitle(_ input: [String: Any]) -> String {
+        let plan = input["plan"] as? String ?? ""
+        for line in plan.split(whereSeparator: \.isNewline) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty else { continue }
+            guard trimmed.hasPrefix("#") else { return trimmed }
+            return trimmed.drop(while: { $0 == "#" }).trimmingCharacters(in: .whitespaces)
+        }
+        return "plan"
     }
 
     private static func relativize(_ path: String, to projectPath: String) -> String {
