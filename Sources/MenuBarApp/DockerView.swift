@@ -436,6 +436,7 @@ private struct DockerRowButton: View {
                 .contentShape(RoundedRectangle(cornerRadius: size * 0.65))
         }
         .buttonStyle(.plain)
+        .hoverLift()
         .disabled(busy)
         .appTooltip(tooltip)
     }

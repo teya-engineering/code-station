@@ -103,7 +103,6 @@ private struct IconTile: View {
     let selected: Bool
     let choose: () -> Void
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var hovering = false
 
     var body: some View {
@@ -116,11 +115,10 @@ private struct IconTile: View {
                 .surface(background, cornerRadius: 7, border: border)
                 .shadow(color: Theme.accent.opacity(hovering ? 0.35 : 0),
                         radius: hovering ? 5 : 0)
-                .scaleEffect(hovering && !reduceMotion ? 1.1 : 1)
                 .contentShape(RoundedRectangle(cornerRadius: 7))
         }
         .buttonStyle(.plain)
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: hovering)
+        .hoverLift(hovering, amount: Motion.smallLift)
         .onHover { hovering = $0 }
         .appTooltip(label)
         .accessibilityLabel(label)

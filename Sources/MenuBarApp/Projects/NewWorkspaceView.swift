@@ -98,6 +98,7 @@ struct NewWorkspaceView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .hoverLift(amount: Motion.smallLift)
                 .accessibilityLabel("Clear project filter")
                 .appTooltip("Clear filter")
             }

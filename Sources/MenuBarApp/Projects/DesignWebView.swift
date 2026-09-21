@@ -47,6 +47,7 @@ struct DesignWebView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .hoverLift()
                 .accessibilityLabel("Fit design to canvas")
             }
             .font(.system(size: 10.5, weight: .medium))

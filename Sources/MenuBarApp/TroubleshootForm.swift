@@ -243,6 +243,7 @@ struct TroubleshootProblemEditor: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .hoverLift()
             }
             .padding(10)
         }

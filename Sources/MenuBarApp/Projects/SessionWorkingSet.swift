@@ -81,6 +81,7 @@ struct SessionWorkingSet: View {
                     .contentShape(RoundedRectangle(cornerRadius: 6))
             }
             .buttonStyle(.plain)
+            .hoverLift(amount: Motion.smallLift)
             .appTooltip("Close working set")
             .accessibilityLabel("Close working set")
         }
@@ -349,6 +350,7 @@ struct SessionWorkingSet: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .hoverFill(cornerRadius: 8)
         .appTooltip("Open \(file.change.path) in Changes")
         .accessibilityLabel("Open \(file.change.path) in Changes")
         .accessibilityValue("last touched by \(file.author.name)")
@@ -464,7 +466,7 @@ private struct WorkingSetVisibilityRow: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
-        .animation(.easeOut(duration: 0.12), value: hovering)
+        .motion(Motion.hover, value: hovering)
         .accessibilityLabel(accessibilityLabel)
     }
 }
@@ -508,7 +510,7 @@ private struct WorkingSetTimelineRow: View {
         .buttonStyle(.plain)
         .background(FrameAnchorView(anchor: anchor))
         .onHover { hovering = $0 }
-        .animation(.easeOut(duration: 0.12), value: hovering)
+        .motion(Motion.hover, value: hovering)
         .onChange(of: call) { _, call in
             details.refresh(call, projectPath: projectPath)
         }

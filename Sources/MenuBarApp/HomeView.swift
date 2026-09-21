@@ -513,7 +513,7 @@ private struct RunningRow: View {
             .contentShape(RoundedRectangle(cornerRadius: 11))
         }
         .buttonStyle(.plain)
-        .animation(.easeOut(duration: 0.12), value: hovering)
+        .motion(Motion.hover, value: hovering)
         .onHover { hovering = $0 }
     }
 }
@@ -563,7 +563,7 @@ private struct ResumeCard: View {
             .contentShape(RoundedRectangle(cornerRadius: 11))
         }
         .buttonStyle(.plain)
-        .animation(.easeOut(duration: 0.12), value: hovering)
+        .hoverLift(hovering)
         .onHover { hovering = $0 }
     }
 }

@@ -30,6 +30,7 @@ struct ConfigManagerView: View {
                         }
                     }
                     .buttonStyle(.plain)
+                    .hoverLift()
                     .underline()
                 }
             }
@@ -70,6 +71,7 @@ struct ConfigManagerView: View {
                     .font(.system(size: 15, weight: .medium))
             }
             .buttonStyle(.plain)
+            .hoverLift(amount: Motion.smallLift)
             .appTooltip("Reload from disk")
 
             HStack(spacing: 6) {
@@ -242,6 +244,7 @@ struct ConfigManagerView: View {
                     .contentShape(RoundedRectangle(cornerRadius: 10))
             }
             .buttonStyle(.plain)
+            .hoverLift()
             .disabled(busy)
         }
     }
@@ -370,6 +373,7 @@ private struct AgentConfiguredGroupHeader: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .hoverFill(cornerRadius: 8)
         .padding(.horizontal, 12)
         .padding(.top, 10)
         .padding(.bottom, 2)
@@ -405,6 +409,7 @@ private struct GrafanaGroupHeader: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .hoverLift()
 
             Spacer()
 
@@ -417,6 +422,7 @@ private struct GrafanaGroupHeader: View {
                     .background(Capsule().fill(Color.black.opacity(0.05)))
             }
             .buttonStyle(.plain)
+            .hoverLift()
         }
         .padding(.horizontal, 12)
         .padding(.top, 6)

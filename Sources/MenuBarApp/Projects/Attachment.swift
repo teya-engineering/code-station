@@ -180,6 +180,7 @@ struct AttachmentChip: View {
                         .contentShape(RoundedRectangle(cornerRadius: 4))
                 }
                 .buttonStyle(.plain)
+                .hoverLift(amount: Motion.smallLift)
                 .appTooltip("View full image")
                 .accessibilityLabel("View \(url.lastPathComponent)")
                 .imageContextMenu(url)
@@ -207,6 +208,7 @@ struct AttachmentChip: View {
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
+                .hoverLift(amount: Motion.smallLift)
                 .appTooltip("Remove")
             }
         }
@@ -262,6 +264,7 @@ struct InlineImageView: View {
                         .contentShape(RoundedRectangle(cornerRadius: 8))
                 }
                 .buttonStyle(.plain)
+                .hoverLift()
                 .appTooltip { Tooltip(title: label ?? url.lastPathComponent, subtitle: url.path) }
                 .accessibilityLabel("View \(label ?? url.lastPathComponent)")
                 .imageContextMenu(url)

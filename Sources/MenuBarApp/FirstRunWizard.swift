@@ -326,6 +326,7 @@ struct FirstRunWizard: View {
             .contentShape(RoundedRectangle(cornerRadius: 11))
         }
         .buttonStyle(.plain)
+        .hoverLift()
     }
 
     private var setupCard: some View {

@@ -288,6 +288,7 @@ struct SessionFactsChip: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .hoverLift()
             .appTooltip("Opens Changes.")
         }
     }
@@ -319,6 +320,7 @@ struct SessionFactsChip: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .hoverLift()
             .appTooltip {
                 Tooltip(title: "Pull request #\(pullRequest.number)",
                         subtitle: pullRequest.url,

@@ -144,6 +144,7 @@ struct ExplorerView: View {
                 Image(systemName: "arrow.clockwise").font(.system(size: 12, weight: .semibold))
             }
             .buttonStyle(.plain)
+            .hoverLift(amount: Motion.smallLift)
             .foregroundStyle(Theme.accent)
             .appTooltip("Refresh")
         }
@@ -258,6 +259,7 @@ struct ExplorerView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .hoverFill(cornerRadius: 6)
         .appContextMenu {
             [.item("Copy") { copy(node) },
              .item("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([node.url]) },
@@ -489,6 +491,7 @@ struct ExplorerView: View {
                 .contentShape(RoundedRectangle(cornerRadius: 7))
         }
         .buttonStyle(.plain)
+        .hoverLift(amount: Motion.smallLift)
         .disabled(disabled)
         .appTooltip(help)
         .accessibilityLabel(help)

@@ -968,6 +968,7 @@ struct SessionView: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .hoverLift()
                 }
                 ForEach(store.checkoutProjects(for: session)) { checkout in
                     if let project = store.project(checkout.projectID) {
@@ -1004,6 +1005,7 @@ struct SessionView: View {
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
+                        .hoverLift()
                     }
                 }
             }
@@ -1455,6 +1457,7 @@ struct SessionView: View {
                     .contentShape(RoundedRectangle(cornerRadius: 8))
                 }
                 .buttonStyle(.plain)
+                .hoverLift()
                 .frame(maxWidth: .infinity)
                 .accessibilityLabel("Load earlier messages, \(hiddenCount) hidden")
             }
@@ -1943,6 +1946,7 @@ struct SessionView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .hoverLift(amount: Motion.smallLift)
                 .appTooltip("Hide this until the window is dealt with")
             }
             .foregroundStyle(Theme.attention)
@@ -2039,6 +2043,7 @@ struct SessionView: View {
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
+                        .hoverLift(amount: Motion.smallLift)
                         .appTooltip("Take it back into the composer to rework")
                         Button {
                             runner.unqueue(item.id, sessionID: sessionID)
@@ -2050,6 +2055,7 @@ struct SessionView: View {
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
+                        .hoverLift(amount: Motion.smallLift)
                         .appTooltip("Remove from the queue")
                     }
                     .padding(.horizontal, 14)

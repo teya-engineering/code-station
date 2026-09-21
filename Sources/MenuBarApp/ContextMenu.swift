@@ -530,6 +530,7 @@ private struct SearchableMenuItemsView: View {
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .hoverLift(amount: Motion.smallLift)
                 }
             }
             .padding(.horizontal, 10)
@@ -639,6 +640,7 @@ private struct MenuCardItemView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .hoverLift(hovering)
         .onHover { hovering = $0 }
     }
 }

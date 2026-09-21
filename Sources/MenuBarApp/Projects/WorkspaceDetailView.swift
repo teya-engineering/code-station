@@ -72,6 +72,7 @@ struct WorkspaceDetailView: View {
                     .contentShape(RoundedRectangle(cornerRadius: 7))
             }
             .buttonStyle(.plain)
+            .hoverLift(amount: Motion.smallLift)
             .accessibilityLabel("Change \(workspace.name) icon")
             .appTooltip("Change icon")
 
@@ -152,6 +153,7 @@ struct WorkspaceDetailView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .hoverLift()
         .appTooltip("\(project.name) is the working directory here. Open it.")
     }
 

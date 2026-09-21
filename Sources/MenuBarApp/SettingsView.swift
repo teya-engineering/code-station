@@ -402,6 +402,7 @@ struct SettingsView: View {
                             .contentShape(Circle())
                     }
                     .buttonStyle(.plain)
+                    .hoverLift(amount: Motion.smallLift)
                 }
             }
             .padding(.horizontal, 9)
@@ -1267,6 +1268,7 @@ struct SettingsView: View {
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
+        .hoverLift(amount: Motion.smallLift)
         .accessibilityLabel("Default bot: \(avatar.personality.title)")
         .accessibilityValue(selected ? "Selected" : "Not selected")
 
@@ -1345,6 +1347,7 @@ struct SettingsView: View {
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
+        .hoverLift(amount: Motion.smallLift)
         .appTooltip("Add bot")
         .accessibilityLabel("Add bot")
     }
@@ -1541,6 +1544,7 @@ private struct SettingsSearchResultItem: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .hoverFill(cornerRadius: 9)
     }
 }
 
@@ -1580,6 +1584,7 @@ private struct SettingsThemeChoice: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .hoverLift()
         .focused($focused)
         .accessibilityLabel("\(appearance.label) theme")
         .accessibilityValue(selected ? "Selected" : "Not selected")
@@ -1713,6 +1718,7 @@ private struct PersonalityPicker: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .hoverLift()
             }
         }
         .padding(.top, 4)

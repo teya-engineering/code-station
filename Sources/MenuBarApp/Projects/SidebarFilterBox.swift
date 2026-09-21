@@ -115,6 +115,7 @@ struct SidebarFilterBar: View {
             .contentShape(RoundedRectangle(cornerRadius: 9))
         }
         .buttonStyle(.plain)
+        .hoverLift()
         .accessibilityLabel("Filter projects, sessions, and actions")
         .appTooltip("Filter Code Station (command-K)")
     }
@@ -142,6 +143,7 @@ struct SidebarFilterBar: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .hoverLift(amount: Motion.smallLift)
             .appTooltip(box.text.isEmpty ? "Close project filter" : "Clear filter")
         }
         .padding(.horizontal, 10)

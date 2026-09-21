@@ -101,6 +101,7 @@ struct Composer<Above: View, Accessory: View>: View {
                             .contentShape(Circle())
                     }
                     .buttonStyle(.plain)
+                    .hoverLift(amount: Motion.smallLift)
                     .appTooltip(busy ? "Queue this for when the turn ends"
                                      : "Send (shift-return for a new line)")
                     .transition(.fadeIn)
@@ -123,6 +124,7 @@ struct Composer<Above: View, Accessory: View>: View {
                             .contentShape(Circle())
                     }
                     .buttonStyle(.plain)
+                    .hoverLift(amount: Motion.smallLift)
                     .appTooltip("Stop this turn (esc)")
                 } else if !canSend {
                     // The button keeps its place so the field does not change width as

@@ -72,6 +72,7 @@ struct TaskDetailView: View {
                     .contentShape(RoundedRectangle(cornerRadius: 7))
             }
             .buttonStyle(.plain)
+            .hoverLift(amount: Motion.smallLift)
             .accessibilityLabel("Change \(task.name) icon")
             .appTooltip("Change icon")
             Text(task.name)
@@ -155,6 +156,7 @@ struct TaskDetailView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .hoverLift()
         .appTooltip("Open the latest run")
     }
 

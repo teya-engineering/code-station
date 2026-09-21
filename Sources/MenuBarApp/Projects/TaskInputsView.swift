@@ -61,6 +61,7 @@ struct TaskInputsCard: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .hoverFill(cornerRadius: 8)
 
             if open {
                 VStack(alignment: .leading, spacing: 0) {

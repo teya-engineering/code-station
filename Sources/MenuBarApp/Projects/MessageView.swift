@@ -266,7 +266,6 @@ private struct DescendantCopyHoverKey: PreferenceKey {
 }
 
 private struct TranscriptCopyButton: ViewModifier {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var hovering = false
     @State private var descendantHovering = false
 
@@ -290,8 +289,8 @@ private struct TranscriptCopyButton: ViewModifier {
                 }
             }
             .onHover { hovering = $0 }
-            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: hovering)
-            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: descendantHovering)
+            .motion(Motion.hover, value: hovering)
+            .motion(Motion.hover, value: descendantHovering)
             .accessibilityAction(named: tooltip) { Pasteboard.copy(text) }
             .transformPreference(DescendantCopyHoverKey.self) { $0 = $0 || hovering }
     }

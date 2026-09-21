@@ -111,6 +111,7 @@ struct ToolCallDetailHost: View {
                     .contentShape(RoundedRectangle(cornerRadius: 6))
             }
             .buttonStyle(.plain)
+            .hoverLift(amount: Motion.smallLift)
             .appTooltip("Close tool call details")
             .accessibilityLabel("Close tool call details")
         }

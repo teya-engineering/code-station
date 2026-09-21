@@ -241,6 +241,7 @@ struct PromptSuggestionStrip: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .hoverFill(cornerRadius: 8)
             .appTooltip("Put this in the composer to change before sending")
             .accessibilityHidden(true)
 
@@ -269,6 +270,7 @@ struct PromptSuggestionStrip: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .hoverLift(amount: Motion.smallLift)
             .appTooltip("Cancel this suggestion")
             .accessibilityLabel("Cancel the suggested prompt")
         }

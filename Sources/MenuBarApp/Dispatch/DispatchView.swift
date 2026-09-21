@@ -566,6 +566,7 @@ private struct RequestDetail: View {
                         .opacity(sendable || running ? 1 : 0.45)
                 }
                 .buttonStyle(.plain)
+                .hoverLift()
                 .disabled(!running && !sendable)
 
                 Rectangle()
@@ -935,6 +936,7 @@ private struct TabButton: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .hoverLift()
     }
 }
 
@@ -992,6 +994,7 @@ private struct HeaderRow: View {
                     Image(systemName: "trash").font(.system(size: 11))
                 }
                 .buttonStyle(.plain)
+                .hoverLift(amount: Motion.smallLift)
                 .foregroundStyle(.secondary)
             }
 

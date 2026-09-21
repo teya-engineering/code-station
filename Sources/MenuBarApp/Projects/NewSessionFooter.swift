@@ -74,6 +74,7 @@ struct NewSessionFooter: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .hoverLift()
                 .keyboardShortcut(.defaultAction)
 
                 if runner.availableAgents.count > 1 {

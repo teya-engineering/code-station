@@ -158,6 +158,7 @@ struct NewWorkspaceSessionView: View {
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .hoverLift(amount: Motion.smallLift)
                     .appTooltip("Detach from this session")
                 }
             }

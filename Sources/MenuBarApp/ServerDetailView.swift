@@ -353,6 +353,7 @@ struct ServerDetailView: View {
                 Image(systemName: "trash").font(.system(size: 12))
             }
             .buttonStyle(.plain)
+            .hoverLift(amount: Motion.smallLift)
             .foregroundStyle(.secondary)
         }
         .padding(.horizontal, 16)
@@ -435,6 +436,7 @@ private struct CredentialCard: View {
                         Image(systemName: "trash").font(.system(size: 12))
                     }
                     .buttonStyle(.plain)
+                    .hoverLift(amount: Motion.smallLift)
                     .foregroundStyle(.secondary)
                 }
             }

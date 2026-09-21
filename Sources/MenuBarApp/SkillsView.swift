@@ -76,6 +76,7 @@ struct SkillsView: View {
                         .contentShape(RoundedRectangle(cornerRadius: 8))
                 }
                 .buttonStyle(.plain)
+                .hoverLift()
                 .disabled(manager.isUpdatingAll || manager.isRefreshing)
             }
             ActionButton(title: "Configure",
@@ -292,6 +293,7 @@ struct SkillsView: View {
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .hoverLift(amount: Motion.smallLift)
                     .appTooltip("Clear filter")
                 }
             }
@@ -427,6 +429,7 @@ struct SkillsView: View {
                         .appTooltip("Update to \(latest)")
                 }
                 .buttonStyle(.plain)
+                .hoverLift()
                 .disabled(!manageable || manager.isUpdatingAll)
             }
         }

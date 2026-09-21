@@ -605,6 +605,7 @@ private struct SiteConfigurationEditorView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .hoverLift()
             }
             ForEach(Array(values.indices), id: \.self) { valueIndex in
                 let value = presetValueBinding(at: presetIndex,
@@ -737,6 +738,7 @@ private struct SiteConfigurationEditorView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .hoverLift(amount: Motion.smallLift)
         .padding(.top, 17)
     }
 

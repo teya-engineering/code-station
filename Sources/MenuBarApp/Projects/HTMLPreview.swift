@@ -133,12 +133,14 @@ struct HTMLPreview: View {
                     Text("Reload").contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .hoverLift()
                 if let document {
                     Button { expand(document) } label: {
                         Label("Expand", systemImage: "arrow.up.left.and.arrow.down.right")
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .hoverLift()
                 }
             }
             .scaledText(11, .medium)

@@ -310,7 +310,6 @@ struct ShortcutChip: View {
     let open: Bool
     let activate: () -> Void
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var hovering = false
 
     var body: some View {
@@ -350,11 +349,10 @@ struct ShortcutChip: View {
             .surface(backgroundColour, cornerRadius: 7, border: borderColour)
             .shadow(color: emphasisColour.opacity(hovering ? 0.32 : 0),
                     radius: hovering ? 6 : 0)
-            .scaleEffect(hovering && !reduceMotion ? 1.04 : 1)
             .contentShape(RoundedRectangle(cornerRadius: 7))
         }
         .buttonStyle(.plain)
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: hovering)
+        .hoverLift(hovering)
         .onHover { hovering = $0 }
         .accessibilityLabel(state.isActive
             ? "Show the output of \(shortcut.name)"
@@ -428,7 +426,6 @@ struct ShortcutCountChip: View {
     let badge: Color?
     let menu: () -> [MenuEntry]
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var hovering = false
 
     var body: some View {
@@ -455,10 +452,9 @@ struct ShortcutCountChip: View {
                  cornerRadius: 7,
                  border: hovering ? Theme.accent.opacity(0.75) : Theme.border)
         .shadow(color: Theme.accent.opacity(hovering ? 0.32 : 0), radius: hovering ? 6 : 0)
-        .scaleEffect(hovering && !reduceMotion ? 1.04 : 1)
         .contentShape(RoundedRectangle(cornerRadius: 7))
         .appMenu(edge: .top, menu)
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: hovering)
+        .hoverLift(hovering)
         .onHover { hovering = $0 }
         .appTooltip(label)
         .accessibilityLabel(label)
@@ -713,6 +709,7 @@ struct ShortcutOutputDrawer: View {
                 .contentShape(RoundedRectangle(cornerRadius: 7))
         }
         .buttonStyle(.plain)
+        .hoverLift()
         .disabled(!enabled)
         .opacity(enabled ? 1 : 0.4)
     }

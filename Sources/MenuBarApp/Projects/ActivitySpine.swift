@@ -244,6 +244,7 @@ private struct CallReceipt: View {
             if canExpand {
                 Button(action: onToggle) { row }
                     .buttonStyle(.plain)
+                    .hoverFill(cornerRadius: 8)
             } else {
                 row
             }
@@ -523,6 +524,7 @@ private struct ActivityLink: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .hoverLift()
     }
 }
 

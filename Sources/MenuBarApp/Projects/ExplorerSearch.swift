@@ -303,6 +303,7 @@ struct ExplorerSearchDialog: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .hoverFill(cornerRadius: 6)
         .simultaneousGesture(TapGesture(count: 2).onEnded { onOpen(node) })
     }
 

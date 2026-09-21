@@ -364,6 +364,7 @@ struct TroubleshootView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .hoverLift(amount: Motion.smallLift)
                 .appTooltip("Clear filter")
             }
         }
@@ -451,6 +452,7 @@ struct TroubleshootView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .hoverLift()
                 .disabled(!canDiagnose)
 
                 Rectangle()

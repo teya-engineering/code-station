@@ -67,6 +67,7 @@ struct SessionAgentIndicator: View {
                 .contentShape(Capsule())
             }
             .buttonStyle(.plain)
+            .hoverLift()
             .fixedSize()
             .accessibilityLabel(label)
             .accessibilityHint("Shows delegated work in the transcript")
@@ -120,6 +121,7 @@ struct TranscriptAgentGroup: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .hoverFill(cornerRadius: 10)
             .accessibilityLabel("Delegated to \(counted(agents.count, "agent")), \(TranscriptAgents.summary(agents))")
             .accessibilityValue(isExpanded ? "expanded" : "collapsed")
 
@@ -227,6 +229,7 @@ private struct TranscriptAgentRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .hoverFill(cornerRadius: 8)
             .accessibilityLabel("\(activity.title), \(activity.state.label)")
             .accessibilityValue(expanded ? "expanded" : "collapsed")
 

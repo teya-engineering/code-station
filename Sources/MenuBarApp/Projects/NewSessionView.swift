@@ -298,6 +298,7 @@ struct FreshnessNotice: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .hoverFill(cornerRadius: 6)
         .padding(.leading, 19)
     }
 

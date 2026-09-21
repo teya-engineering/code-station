@@ -226,6 +226,7 @@ struct ChangesView: View {
                 Image(systemName: "arrow.clockwise").font(.system(size: 12, weight: .semibold))
             }
             .buttonStyle(.plain)
+            .hoverLift(amount: Motion.smallLift)
             .foregroundStyle(Theme.accent)
             .disabled(busy)
             .appTooltip("Refresh")
@@ -313,6 +314,7 @@ struct ChangesView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .hoverLift()
         .foregroundStyle(Theme.accent)
         .disabled(busy)
         .opacity(busy ? 0.4 : 1)
@@ -524,6 +526,7 @@ struct ChangesView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .hoverFill(cornerRadius: 8)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .appContextMenu {
             let targets = fileSelection.contextMenuFiles(for: file, in: files)
@@ -583,6 +586,7 @@ struct ChangesView: View {
                     Image(systemName: "xmark").font(.system(size: 11, weight: .semibold))
                 }
                 .buttonStyle(.plain)
+                .hoverLift(amount: Motion.smallLift)
                 .foregroundStyle(.secondary)
             }
             .padding(.horizontal, 20)
@@ -685,6 +689,7 @@ struct ChangesView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .hoverFill(cornerRadius: 8)
         .appContextMenu {
             [.item("Copy Hash") { Pasteboard.copy(commit.hash) }]
         }

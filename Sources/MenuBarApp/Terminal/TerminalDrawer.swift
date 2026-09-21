@@ -56,6 +56,7 @@ struct TerminalDrawer: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .hoverLift(amount: Motion.smallLift)
             .appTooltip("New shell")
             .cursorOnHover(.arrow)
 
@@ -109,7 +110,7 @@ struct TerminalDrawer: View {
             .contentShape(RoundedRectangle(cornerRadius: 7))
         }
         .buttonStyle(.plain)
-        .animation(.easeOut(duration: 0.12), value: hoveringClose)
+        .motion(Motion.hover, value: hoveringClose)
         .onHover { hoveringClose = $0 }
     }
 
@@ -150,6 +151,7 @@ struct TerminalDrawer: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .hoverLift()
         .onTapGesture(count: 2) { startRename(terminal) }
         .appContextMenu {
             var entries: [MenuEntry] = [

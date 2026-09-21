@@ -342,6 +342,7 @@ struct TranscriptChartView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .hoverLift()
             }
         }
 

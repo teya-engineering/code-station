@@ -102,6 +102,7 @@ struct ProjectDetailView: View {
                     .contentShape(RoundedRectangle(cornerRadius: 7))
             }
             .buttonStyle(.plain)
+            .hoverLift(amount: Motion.smallLift)
             .accessibilityLabel("Change \(project.name) icon")
             .appTooltip("Change icon")
             Text(project.name)
@@ -195,6 +196,7 @@ struct ProjectDetailView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .hoverLift()
         .appTooltip(driftSentence(git))
     }
 
@@ -744,7 +746,7 @@ struct SessionRow: View {
         .onTapGesture(perform: onOpen)
         .appContextMenu(menu)
         .accessibilityAction(named: "Open session", onOpen)
-        .animation(.easeOut(duration: 0.12), value: hovering)
+        .motion(Motion.hover, value: hovering)
         .onHover { hovering = $0 }
     }
 

@@ -102,6 +102,8 @@ private struct EnvironmentPill: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .hoverLift(hovering)
         .onHover { hovering = $0 }
+        .motion(Motion.hover, value: hovering)
     }
 }

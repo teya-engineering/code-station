@@ -223,6 +223,7 @@ struct AppSidebar: View {
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .hoverLift()
                     .sidebarFocusRing()
                     .appTooltip("Clear filter and reveal \(current.name)")
                 }
@@ -1195,6 +1196,7 @@ private struct SidebarDisclosure: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .hoverLift(amount: Motion.smallLift)
         .sidebarFocusRing()
         .accessibilityLabel("\(expanded ? "Collapse" : "Expand") \(name) sessions")
         .accessibilityValue(expanded ? "Expanded" : "Collapsed")
@@ -1238,6 +1240,7 @@ private struct SettingsButton: View {
             }
             .contentShape(RoundedRectangle(cornerRadius: 9))
             .appTooltip("Tools and settings")
+            .hoverLift(hovering, amount: Motion.smallLift)
             .onHover { hovering = $0 }
             .accessibilityLabel("Tools and settings")
     }
@@ -1264,6 +1267,7 @@ private struct ArrangementChip: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .hoverLift()
         .appTooltip(hint)
     }
 }
@@ -1643,7 +1647,6 @@ private struct ProjectHeaderRow: View {
 // A hover action on the project row: the glyph with its word beside it, so what the
 // button does is read rather than guessed.
 private struct RowAction: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let icon: String
     let title: String
     var compact = false
@@ -1670,7 +1673,7 @@ private struct RowAction: View {
         .buttonStyle(.plain)
         .accessibilityLabel(title)
         .sidebarFocusRing()
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: hovering)
+        .hoverLift(hovering)
         .onHover { hovering = $0 }
     }
 }

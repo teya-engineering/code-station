@@ -205,6 +205,7 @@ private struct QuestionCard: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .hoverLift()
         .accessibilityLabel("Question \(index + 1): \(tabTitle(for: question, at: index))")
         .accessibilityValue(complete ? "Answered" : "Not answered")
     }
@@ -270,6 +271,7 @@ private struct QuestionCard: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .hoverFill(cornerRadius: 8)
     }
 
     private func marker(question: AgentQuestion, chosen: Bool) -> String {
@@ -354,5 +356,6 @@ private struct CardButton: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .hoverLift()
     }
 }

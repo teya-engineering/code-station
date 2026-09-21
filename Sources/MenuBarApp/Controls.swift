@@ -28,13 +28,27 @@ struct HeaderTabToggle<Selection: Hashable>: View {
     }
 
     private func segment(_ option: (label: String, value: Selection)) -> some View {
-        let active = selection == option.value
-        return Button { selection = option.value } label: {
-            Text(option.label)
+        HeaderTabSegment(label: option.label,
+                         active: selection == option.value,
+                         pill: pill) { selection = option.value }
+    }
+}
+
+private struct HeaderTabSegment: View {
+    let label: String
+    let active: Bool
+    let pill: Namespace.ID
+    let choose: () -> Void
+
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: choose) {
+            Text(label)
                 .font(.system(size: 12, weight: .semibold))
                 .lineLimit(1)
                 .fixedSize()
-                .foregroundStyle(active ? Color.primary : Color.secondary)
+                .foregroundStyle(active || hovering ? Color.primary : Color.secondary)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 5)
                 .background {
@@ -43,11 +57,18 @@ struct HeaderTabToggle<Selection: Hashable>: View {
                             .fill(Theme.card)
                             .shadow(color: .black.opacity(0.08), radius: 1, y: 0.5)
                             .matchedGeometryEffect(id: "selected", in: pill)
+                    } else if hovering {
+                        // The seat the chosen segment wears, at a fraction of its weight,
+                        // so pointing at one reads as a preview of picking it.
+                        RoundedRectangle(cornerRadius: 8).fill(Theme.card.opacity(0.5))
                     }
                 }
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .hoverLift(hovering)
+        .onHover { hovering = $0 }
+        .motion(Motion.hover, value: hovering)
     }
 }
 
@@ -56,14 +77,28 @@ struct HeaderTabToggle<Selection: Hashable>: View {
 // the app, so everything interactive is drawn here with the shared palette instead.
 
 // A switch trails its label, the way a row of settings expects.
+//
+// A style cannot hold state of its own, so the drawing lives in a view below it. That is
+// what lets the whole row, label included, be the thing the pointer is tested against
+// while only the switch answers.
 struct AppSwitchStyle: ToggleStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        AppSwitch(configuration: configuration)
+    }
+}
+
+private struct AppSwitch: View {
+    let configuration: ToggleStyleConfiguration
+
     private static let trackWidth: CGFloat = 34
     private static let trackHeight: CGFloat = 20
     private static let knob: CGFloat = 16
     private static let inset: CGFloat = 2
     private static var travel: CGFloat { trackWidth - knob - inset * 2 }
 
-    func makeBody(configuration: Configuration) -> some View {
+    @State private var hovering = false
+
+    var body: some View {
         Button {
             configuration.isOn.toggle()
         } label: {
@@ -82,10 +117,14 @@ struct AppSwitchStyle: ToggleStyle {
                             .shadow(color: .black.opacity(0.15), radius: 1, y: 1)
                             .offset(x: Self.inset + (configuration.isOn ? Self.travel : 0))
                     }
+                    // Only the switch lifts. A label that grew with it would drag the
+                    // sentence beside it around every time the pointer crossed the row.
+                    .hoverLift(hovering, amount: Motion.smallLift)
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .onHover { hovering = $0 }
         .motion(Motion.control, value: configuration.isOn)
     }
 }
@@ -93,6 +132,16 @@ struct AppSwitchStyle: ToggleStyle {
 // A checkbox leads its label, the way a tickable line expects.
 struct AppCheckboxStyle: ToggleStyle {
     func makeBody(configuration: Configuration) -> some View {
+        AppCheckbox(configuration: configuration)
+    }
+}
+
+private struct AppCheckbox: View {
+    let configuration: ToggleStyleConfiguration
+
+    @State private var hovering = false
+
+    var body: some View {
         Button {
             configuration.isOn.toggle()
         } label: {
@@ -112,11 +161,13 @@ struct AppCheckboxStyle: ToggleStyle {
                             .scaleEffect(configuration.isOn ? 1 : 0.4)
                             .opacity(configuration.isOn ? 1 : 0)
                     }
+                    .hoverLift(hovering, amount: Motion.smallLift)
                 configuration.label
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .onHover { hovering = $0 }
         .motion(Motion.control, value: configuration.isOn)
     }
 }
@@ -217,6 +268,7 @@ struct DisclosureHeader<Label: View>: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .hoverLift()
         .motion(Motion.control, value: isExpanded)
         .appTooltip(isExpanded ? hide : show)
     }
@@ -323,6 +375,7 @@ struct CopyButton: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .hoverLift(amount: Motion.smallLift)
         .animation(.easeOut(duration: 0.12), value: copied)
     }
 }
@@ -438,8 +491,9 @@ private struct HeaderTabDeckItem: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .hoverLift(hovering)
         .onHover { hovering = $0 }
-        .animation(.easeOut(duration: 0.12), value: hovering)
+        .motion(Motion.hover, value: hovering)
         .accessibilityLabel(accessibilityLabel)
         .accessibilityAddTraits(tab.selected ? [.isSelected] : [])
     }
@@ -545,9 +599,10 @@ struct HeaderRailButton: View {
                 shape
             }
         }
+        .hoverLift(hovering, amount: Motion.smallLift)
         .onHover { hovering = $0 }
-        .animation(.easeOut(duration: 0.12), value: hovering)
-        .animation(.easeOut(duration: 0.12), value: state)
+        .motion(Motion.hover, value: hovering)
+        .motion(Motion.hover, value: state)
         .appTooltip(delay: .zero) { Tooltip(title: label, subtitle: hint) }
         .accessibilityLabel(label)
     }

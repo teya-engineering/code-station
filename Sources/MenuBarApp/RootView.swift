@@ -465,6 +465,7 @@ private struct AttentionBanner: View {
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)
+            .hoverLift(amount: Motion.smallLift)
             .appTooltip("Dismiss")
             .accessibilityLabel("Dismiss \(title)")
         }
@@ -549,6 +550,7 @@ private struct AppUpdateBanner: View {
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)
+            .hoverLift(amount: Motion.smallLift)
             .appTooltip("Dismiss")
             .accessibilityLabel("Dismiss update \(release.version)")
         }

@@ -18,7 +18,6 @@ struct CleanupStrip: View {
     var isWorking = false
     let action: () -> Void
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var hovering = false
 
     var body: some View {
@@ -55,7 +54,7 @@ struct CleanupStrip: View {
         .buttonStyle(.plain)
         .disabled(isWorking)
         .opacity(isWorking ? 0.55 : 1)
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: hovering)
+        .motion(Motion.hover, value: hovering)
         .onHover { hovering = $0 }
         .accessibilityLabel(label)
     }

@@ -225,6 +225,7 @@ struct ChoicePill: View {
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
+        .hoverLift(hovering)
         .onHover { hovering = $0 }
         .motion(Motion.control, value: selected)
         .motion(Motion.hover, value: hovering)
