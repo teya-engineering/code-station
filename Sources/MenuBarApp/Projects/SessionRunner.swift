@@ -146,6 +146,13 @@ final class SessionRunner {
         case .copilot: "No session, task, or name matched"
         }
     }
+    // How each CLI refuses a flag or config value it does not know, which is how an
+    // install older than the app needs usually shows itself. Copilot's prompt mode takes
+    // an unknown flag for an unquoted prompt and says so instead.
+    nonisolated static func rejectedArguments(_ message: String) -> Bool {
+        ["unknown option '", "unexpected argument '", "unknown variant `", "Invalid command format."]
+            .contains { message.contains($0) }
+    }
     static let recoveryPrompt = """
     Inspect the current state and continue only the unfinished parts of the previous request. Do not repeat work or side effects that are already complete.
     """
@@ -2990,6 +2997,9 @@ final class SessionRunner {
             parts.append(missingCompletion
                 ? "\(turn.agent.title) ended before completing the turn."
                 : "\(turn.agent.title) exited with code \(status).")
+        }
+        if Self.rejectedArguments(parts.joined(separator: "\n")) {
+            parts.append("\(turn.agent.title) did not accept what the app passed to it. The app needs version \(turn.agent.minimumVersion) or newer, so updating the CLI may fix this.")
         }
         let message = parts.joined(separator: "\n\n")
         SessionLog.note(

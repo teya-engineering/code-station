@@ -48,6 +48,36 @@ enum AgentKind: String, CaseIterable, Codable, Sendable, Identifiable {
         }
     }
 
+    // The oldest release that accepts every argument the app passes. Each one is set by
+    // the newest thing the app relies on, noted beside it, so it has to rise when the app
+    // starts passing something newer.
+    var minimumVersion: String {
+        switch self {
+        case .claudeCode: "2.1.154" // --prompt-suggestions
+        case .codex: "0.147.0" // --approve-for-me
+        case .copilot: "1.0.32" // --session-id
+        }
+    }
+
+    // Nil when the version cannot be read, so an unfamiliar format never raises a false
+    // alarm about a CLI that may well be fine.
+    func isOutdated(_ version: String) -> Bool? {
+        guard var installed = Self.versionNumbers(version),
+              var minimum = Self.versionNumbers(minimumVersion) else { return nil }
+        let length = max(installed.count, minimum.count)
+        installed += Array(repeating: 0, count: length - installed.count)
+        minimum += Array(repeating: 0, count: length - minimum.count)
+        return installed.lexicographicallyPrecedes(minimum)
+    }
+
+    // "0.153.4-alpha.2" reads as 0.153.4: a prerelease counts as the release it leads to.
+    private static func versionNumbers(_ version: String) -> [Int]? {
+        let core = version.prefix { $0.isNumber || $0 == "." }
+        let numbers = core.split(separator: ".", omittingEmptySubsequences: false).map { Int($0) }
+        guard numbers.count >= 2, !numbers.contains(nil) else { return nil }
+        return numbers.compactMap { $0 }
+    }
+
     // What signing in means for each CLI, typed into a shell as-is.
     var loginCommand: String {
         switch self {

@@ -424,7 +424,7 @@ struct AgentSettingsView: View {
                     if profile.path == nil {
                         missingCard(agent)
                     } else {
-                        details(profile)
+                        details(profile, agent: agent)
                     }
                     SettingsRowDivider()
                     signInRow(agent)
@@ -444,9 +444,19 @@ struct AgentSettingsView: View {
         }
     }
 
-    private func details(_ profile: AgentProfile) -> some View {
+    private func details(_ profile: AgentProfile, agent: AgentKind) -> some View {
         Group {
             detailRow("Version", profile.version ?? "…")
+            // A warning, not a block: the minimum is the app's best reading of each CLI's
+            // history, and most of an older CLI may still work.
+            if let version = profile.version, agent.isOutdated(version) == true {
+                Text("The app needs \(agent.title) \(agent.minimumVersion) or newer. Some sessions may fail until the CLI is updated.")
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .warningCard()
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 10)
+            }
             SettingsRowDivider()
             detailRow("Account", profile.account ?? "Signed out.")
             if let plan = profile.plan {
