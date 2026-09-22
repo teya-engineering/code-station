@@ -1729,12 +1729,12 @@ final class ProjectStore {
         sessions[i].messages.append(message)
         sessions[i].summary.lastMessageAt = message.date
         if message.role == .user {
-            sessions[i].retitleIfNeeded(from: message.text)
+            sessions[i].retitleIfNeeded(from: message)
             // A Design companion is named "Design" and has no row. The first thing asked
             // of it is what names the session it sits behind, which is the row the user
             // reads.
             if let sourceID = sessions[i].designSourceSessionID, let source = index(sourceID) {
-                sessions[source].retitleIfNeeded(from: message.text)
+                sessions[source].retitleIfNeeded(from: message)
             }
         }
         // The sidebar has its own lightweight copy, so activity must be published here
