@@ -14,14 +14,14 @@ struct AppUpdateCheckerTests {
         #expect(AppVersion("1..0") == nil)
     }
 
-    @Test func waitsFiveDaysBetweenAutomaticChecks() {
+    @Test func waitsADayBetweenAutomaticChecks() {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
 
         #expect(AppUpdateChecker.shouldCheck(lastCheck: nil, now: now))
         #expect(!AppUpdateChecker.shouldCheck(
-            lastCheck: now.addingTimeInterval(-5 * 86_400 + 1), now: now))
+            lastCheck: now.addingTimeInterval(-86_400 + 1), now: now))
         #expect(AppUpdateChecker.shouldCheck(
-            lastCheck: now.addingTimeInterval(-5 * 86_400), now: now))
+            lastCheck: now.addingTimeInterval(-86_400), now: now))
     }
 
     @MainActor

@@ -78,7 +78,7 @@ struct AppVersion: Comparable, Equatable, Sendable {
 @MainActor
 @Observable
 final class AppUpdateChecker {
-    nonisolated static let checkInterval: TimeInterval = 5 * 86_400
+    nonisolated static let checkInterval: TimeInterval = 86_400
 
     private(set) var availableRelease: AppUpdateRelease?
     private(set) var isChecking = false
