@@ -35,6 +35,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var mobileAccess = MobileAccessController(store: projects, runner: runner,
                                                            gitStats: gitStats)
     private let workingTrees = WorkingTreeWatch()
+    // Named after the store's own transcript folder, so a second copy of the app reads
+    // the conversations it actually owns.
+    private lazy var sessionTimes = SessionTimeWatch(transcripts: projects.transcriptsURL)
     private let orphanedWorktrees = OrphanedWorktreeMonitor()
     private let gitStats = GitStatsCache()
     private let terminals = TerminalStore()
@@ -136,6 +139,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     .environment(projects)
                     .environment(runner)
                     .environment(workingTrees)
+                    .environment(sessionTimes)
                     .environment(orphanedWorktrees)
                     .environment(gitStats)
                     .environment(terminals)

@@ -11,6 +11,11 @@ struct HomeView: View {
     @Environment(SessionRunner.self) private var runner
     @Environment(AppSettings.self) private var appSettings
     @Environment(WorkingTreeWatch.self) private var workingTrees
+    @Environment(SessionTimeWatch.self) private var sessionTimes
+
+    // Which stretch the time breakdown reads. It is not saved: Home is opened to see
+    // where things stand now, and the day is what that question means most of the time.
+    @State private var ribbonRange: RibbonRange = .day
 
     // Recomputed once per redraw and handed down, because every section below counts over
     // the same list of sessions.
@@ -23,6 +28,10 @@ struct HomeView: View {
         var sessionsToday = 0
         var worktrees = 0
         var worktreeSessions = 0
+        // Every session the time breakdown could have something to draw for, and the
+        // scans that back them.
+        var timeline: [RibbonSession] = []
+        var timeRequests: [SessionTimeWatch.Request] = []
     }
 
     var body: some View {
@@ -73,6 +82,7 @@ struct HomeView: View {
                 stats(standing)
                 if !standing.waiting.isEmpty { needsYou(standing.waiting) }
                 if !standing.running.isEmpty { runningNow(standing.running) }
+                timeSpent(standing)
                 if !standing.resumable.isEmpty { resume(standing.resumable) }
                 if !oldSessions.isEmpty { cleanup() }
             }
@@ -107,6 +117,22 @@ struct HomeView: View {
                         ? "Nothing checked out on the side"
                         : "across \(counted(standing.worktreeSessions, "session"))")
         }
+    }
+
+    // MARK: - Where the day went
+
+    private func timeSpent(_ standing: Standing) -> some View {
+        DayRibbonSection(
+            ribbon: DayRibbon.build(standing.timeline,
+                                    spans: sessionTimes.spans(for:),
+                                    range: ribbonRange,
+                                    now: Date()),
+            scanned: standing.timeRequests.allSatisfy { sessionTimes.hasScanned($0.id) },
+            range: $ribbonRange,
+            onOpen: { store.selectSession($0) })
+            .task(id: standing.timeRequests) {
+                sessionTimes.refresh(standing.timeRequests)
+            }
     }
 
     // The projects behind the count, each named once however many sessions it is running.
@@ -218,9 +244,15 @@ struct HomeView: View {
             .filter { !runner.isBusy($0.id, store: store) }
     }
 
+    // A session whose last message falls outside the band can still hold a turn whose
+    // calls reported in after it, so the net is cast a little wider than the band itself.
+    private static let timelineGrace: TimeInterval = 6 * 3_600
+
     private var standing: Standing {
         var standing = Standing()
         let calendar = Calendar.current
+        let timelineStart = (DayRibbon.bandWindows(for: ribbonRange, now: Date()).first?.start
+                                ?? Date()).addingTimeInterval(-Self.timelineGrace)
 
         for session in store.sidebarSessions.sorted(by: { $0.lastActivity > $1.lastActivity }) {
             // A Design conversation has no row of its own, so while it is the side
@@ -229,8 +261,30 @@ struct HomeView: View {
             let busy = runner.state(live.id).isBusy
             let permission = runner.question(live.id)
             let finished = store.hasFinished(session.id)
-            let card = describe(session, live: live, busy: busy,
+            let identity = identity(of: session)
+            let card = describe(session, identity: identity, live: live, busy: busy,
                                 permission: permission, finished: finished)
+
+            if session.lastActivity > timelineStart || busy {
+                // A session and the Design conversation working beside it are one piece
+                // of work, so their turns land on one block rather than two.
+                let sources = live.id == session.id ? [session.id] : [session.id, live.id]
+                standing.timeline.append(
+                    RibbonSession(id: session.id,
+                                  title: session.title,
+                                  subject: RibbonSubject(name: identity.name,
+                                                         tint: identity.tint),
+                                  sources: sources,
+                                  isOpen: busy))
+                standing.timeRequests.append(
+                    SessionTimeWatch.Request(id: session.id, mark: session.summary,
+                                             isRunning: busy && live.id == session.id))
+                if live.id != session.id {
+                    standing.timeRequests.append(
+                        SessionTimeWatch.Request(id: live.id, mark: live.summary,
+                                                 isRunning: busy))
+                }
+            }
 
             if permission != nil || finished || card.tone == .needsYou {
                 standing.waiting.append(card)
@@ -253,13 +307,18 @@ struct HomeView: View {
         return standing
     }
 
-    private func describe(_ session: ChatSession, live: ChatSession, busy: Bool,
-                          permission: PermissionRequest?, finished: Bool) -> HomeLive {
-        let waiting = runner.state(live.id) == .waiting
+    // What a session is called and what colour it wears, worked out once so a row, a
+    // resume card and a block on the band cannot disagree about either.
+    private struct Identity {
+        let name: String
+        let tint: Theme.ProjectTint
+        let avatar: SidebarAvatar
+    }
+
+    private func identity(of session: ChatSession) -> Identity {
         let workspace = session.workspaceID.flatMap(store.workspace)
         let project = store.project(session.projectID)
         let name = workspace?.name ?? project?.name ?? "Unknown project"
-        let checkouts = store.checkoutProjects(for: session)
         let avatar = if let workspace {
             workspace.sidebarAvatar
         } else if let project {
@@ -267,19 +326,30 @@ struct HomeView: View {
         } else {
             SidebarAvatar(subject: .project, id: session.projectID)
         }
+        // A workspace is not one repository, so it sits outside the project wheel rather
+        // than being split across the projects it holds.
         let fallbackTint = workspace == nil
             ? Theme.projectTint(for: name)
             : Theme.workspaceTint
-        let tint = avatar.identityTint(
-            iconSet: appSettings.sidebarIconSet,
-            style: appSettings.diceBearAvatarStyle,
+        return Identity(
             name: name,
-            monogramTint: fallbackTint)
+            tint: avatar.identityTint(iconSet: appSettings.sidebarIconSet,
+                                      style: appSettings.diceBearAvatarStyle,
+                                      name: name,
+                                      monogramTint: fallbackTint),
+            avatar: avatar)
+    }
+
+    private func describe(_ session: ChatSession, identity: Identity, live: ChatSession,
+                          busy: Bool, permission: PermissionRequest?,
+                          finished: Bool) -> HomeLive {
+        let waiting = runner.state(live.id) == .waiting
+        let checkouts = store.checkoutProjects(for: session)
         return HomeLive(
             session: session,
-            containerName: name,
-            tint: tint,
-            avatar: avatar,
+            containerName: identity.name,
+            tint: identity.tint,
+            avatar: identity.avatar,
             tone: SessionTone(busy: busy, needsInput: permission != nil, finished: finished,
                               waiting: waiting, waitIsStale: runner.waitIsStale(live.id)),
             activity: SessionActivity.line(
