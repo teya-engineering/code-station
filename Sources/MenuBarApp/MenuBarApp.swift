@@ -37,7 +37,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let workingTrees = WorkingTreeWatch()
     // Named after the store's own transcript folder, so a second copy of the app reads
     // the conversations it actually owns.
-    private lazy var sessionTimes = SessionTimeWatch(transcripts: projects.transcriptsURL)
+    private lazy var sessionTimes = SessionTimeWatch(
+        transcripts: projects.transcriptsURL,
+        loaded: { [projects] in projects.loadedTranscript(of: $0) })
     private let orphanedWorktrees = OrphanedWorktreeMonitor()
     private let gitStats = GitStatsCache()
     private let terminals = TerminalStore()

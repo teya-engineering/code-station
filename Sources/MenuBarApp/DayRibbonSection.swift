@@ -10,36 +10,21 @@ struct DayRibbonSection: View {
     // card claims an empty day for the moment between opening Home and the first scan
     // landing, which is the one moment the claim is most likely to be wrong.
     let scanned: Bool
-    @Binding var range: RibbonRange
     let onOpen: (UUID) -> Void
 
     // The project the pointer picked out of the legend, which is how the same colour is
     // proved to mean the same project everywhere on the page. Nil means show everything.
     @State private var focused: String?
 
-    private static let dayBandHeight: CGFloat = 30
-    private static let weekBandHeight: CGFloat = 18
-    private static let dayLabelWidth: CGFloat = 58
-    private static let dayTotalWidth: CGFloat = 52
-    private static let rowSpacing: CGFloat = 12
+    private static let bandHeight: CGFloat = 30
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             SectionRule(title: "WHERE THE DAY WENT") {
-                HStack(spacing: 10) {
-                    if !ribbon.isEmpty { headline }
-                    HStack(spacing: 6) {
-                        ForEach(RibbonRange.allCases) { option in
-                            ChoicePill(title: option.title, selected: range == option) {
-                                range = option
-                            }
-                        }
-                    }
-                }
+                if !ribbon.isEmpty { headline }
             }
             card
         }
-        .onChange(of: range) { focused = nil }
     }
 
     private var headline: some View {
@@ -54,10 +39,7 @@ struct DayRibbonSection: View {
 
     private var card: some View {
         VStack(alignment: .leading, spacing: 0) {
-            switch range {
-            case .day: dayBand
-            case .week: weekBands
-            }
+            band
             if !ribbon.isEmpty {
                 legend
             } else if scanned {
@@ -71,92 +53,46 @@ struct DayRibbonSection: View {
         .cardSurface(cornerRadius: 12)
     }
 
-    // MARK: - Bands
+    // MARK: - Band
 
-    @ViewBuilder private var dayBand: some View {
-        if let band = ribbon.bands.first {
-            VStack(alignment: .leading, spacing: 6) {
-                track(band, height: Self.dayBandHeight)
-                RibbonAxis(axis: band.axis, step: 3, namesDays: true, endsAtNow: true)
-            }
+    private var band: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            track
+            RibbonAxis(axis: ribbon.axis)
         }
     }
 
-    private var weekBands: some View {
-        VStack(spacing: 5) {
-            ForEach(ribbon.bands) { band in
-                HStack(spacing: Self.rowSpacing) {
-                    dayLabel(band)
-                    track(band, height: Self.weekBandHeight)
-                    Text(DayRibbon.total(band.spent))
-                        .font(.mono(10.5))
-                        .foregroundStyle(band.spent > 0 ? .secondary : .tertiary)
-                        .frame(width: Self.dayTotalWidth, alignment: .trailing)
-                }
-            }
-            // One axis under the stack rather than one per row: every row is a calendar
-            // day, so they all read against the same hours.
-            if let today = ribbon.bands.last {
-                HStack(spacing: Self.rowSpacing) {
-                    Color.clear.frame(width: Self.dayLabelWidth, height: 1)
-                    RibbonAxis(axis: today.axis, step: 4, namesDays: false, endsAtNow: false)
-                    Color.clear.frame(width: Self.dayTotalWidth, height: 1)
-                }
-            }
-        }
-    }
-
-    private func dayLabel(_ band: DayRibbon.Band) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(band.axis.start.formatted(.dateTime.weekday(.abbreviated)).uppercased())
-                .font(.mono(10, .semibold))
-                .kerning(0.6)
-                .foregroundStyle(band.isToday ? Color.primary : .secondary)
-            Text(band.axis.start.formatted(.dateTime.day().month(.abbreviated)))
-                .font(.mono(10))
-                .foregroundStyle(.tertiary)
-        }
-        .lineLimit(1)
-        .frame(width: Self.dayLabelWidth, alignment: .leading)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(band.axis.start.formatted(.dateTime.weekday(.wide).day().month(.wide))
-                            + ", " + spokenTotal(band.spent))
-    }
-
-    private func track(_ band: DayRibbon.Band, height: CGFloat) -> some View {
+    private var track: some View {
         GeometryReader { geometry in
             ZStack(alignment: .topLeading) {
-                if band.isToday, range == .day {
-                    dayBreak(in: band, width: geometry.size.width, height: height)
-                }
-                ForEach(band.blocks) { block in
+                dayBreak(width: geometry.size.width)
+                ForEach(ribbon.blocks) { block in
                     RibbonBlock(block: block,
-                                axis: band.axis,
+                                axis: ribbon.axis,
                                 width: geometry.size.width,
-                                height: height,
-                                showsDay: range == .week,
+                                height: Self.bandHeight,
                                 dimmed: dimmed(block.subject.name),
                                 open: { onOpen(block.sessionID) })
                 }
             }
-            .frame(width: geometry.size.width, height: height, alignment: .topLeading)
+            .frame(width: geometry.size.width, height: Self.bandHeight,
+                   alignment: .topLeading)
         }
-        .frame(height: height)
+        .frame(height: Self.bandHeight)
         .background(RoundedRectangle(cornerRadius: 6).fill(Theme.sunken))
         .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 
     // Midnight inside a rolling 24 hours, so the half of the band that belongs to
     // yesterday is not read as part of today.
-    @ViewBuilder private func dayBreak(in band: DayRibbon.Band, width: CGFloat,
-                                       height: CGFloat) -> some View {
-        let midnight = Calendar.current.startOfDay(for: band.axis.end)
-        if band.axis.contains(midnight) {
-            let scale = width / max(band.axis.duration, 1)
+    @ViewBuilder private func dayBreak(width: CGFloat) -> some View {
+        let midnight = Calendar.current.startOfDay(for: ribbon.axis.end)
+        if ribbon.axis.contains(midnight) {
+            let scale = width / max(ribbon.axis.duration, 1)
             Rectangle()
                 .fill(Theme.chartGrid)
-                .frame(width: 1, height: height)
-                .offset(x: midnight.timeIntervalSince(band.axis.start) * scale)
+                .frame(width: 1, height: Self.bandHeight)
+                .offset(x: midnight.timeIntervalSince(ribbon.axis.start) * scale)
         }
     }
 
@@ -177,7 +113,7 @@ struct DayRibbonSection: View {
     }
 
     private var emptyNote: some View {
-        Text(range.emptyLine)
+        Text("No sessions ran in the last 24 hours")
             .font(.system(size: 11.5))
             .foregroundStyle(.secondary)
             .padding(.top, 13)
@@ -193,10 +129,6 @@ struct DayRibbonSection: View {
     private func focus(_ name: String) {
         focused = focused == name ? nil : name
     }
-
-    private func spokenTotal(_ seconds: TimeInterval) -> String {
-        seconds > 0 ? DayRibbon.duration(seconds) : "nothing ran"
-    }
 }
 
 // MARK: - Block
@@ -208,7 +140,6 @@ private struct RibbonBlock: View {
     let axis: DateInterval
     let width: CGFloat
     let height: CGFloat
-    let showsDay: Bool
     let dimmed: Bool
     let open: () -> Void
 
@@ -258,10 +189,7 @@ private struct RibbonBlock: View {
     private var clock: String {
         let from = block.start.formatted(date: .omitted, time: .shortened)
         let to = block.isOpen ? "now" : block.end.formatted(date: .omitted, time: .shortened)
-        let day = showsDay
-            ? block.start.formatted(.dateTime.weekday(.abbreviated).day()) + ", "
-            : ""
-        return day + from + " - " + to
+        return from + " - " + to
     }
 
     private var spoken: String {
@@ -312,12 +240,9 @@ private struct RibbonChip: View {
 // band at either end, so the first and last readings are not half cut off by the card.
 private struct RibbonAxis: View {
     let axis: DateInterval
-    let step: Int
-    // Midnight is named by its date rather than by "00:00", which is the only thing
-    // saying which half of a rolling day a block sits in.
-    let namesDays: Bool
-    let endsAtNow: Bool
 
+    // Hours between readings.
+    private static let step = 3
     private static let height: CGFloat = 15
     private static let labelWidth: CGFloat = 72
     // Room the NOW stamp needs at the right edge. A tick whose reading would run into
@@ -339,7 +264,7 @@ private struct RibbonAxis: View {
             ZStack(alignment: .topLeading) {
                 ForEach(ticks) { tick in
                     let position = tick.date.timeIntervalSince(axis.start) * scale
-                    let crowded = endsAtNow && position > width - Self.nowRoom
+                    let crowded = position > width - Self.nowRoom
                     if tick.isDayBreak {
                         Rectangle()
                             .fill(Theme.chartGrid)
@@ -355,14 +280,12 @@ private struct RibbonAxis: View {
                             .offset(x: clamp(position - Self.labelWidth / 2, in: width))
                     }
                 }
-                if endsAtNow {
-                    Text("NOW")
-                        .font(.mono(9.5))
-                        .kerning(0.6)
-                        .foregroundStyle(.tertiary)
-                        .frame(width: Self.labelWidth, alignment: .trailing)
-                        .offset(x: max(0, width - Self.labelWidth))
-                }
+                Text("NOW")
+                    .font(.mono(9.5))
+                    .kerning(0.6)
+                    .foregroundStyle(.tertiary)
+                    .frame(width: Self.labelWidth, alignment: .trailing)
+                    .offset(x: max(0, width - Self.labelWidth))
             }
             .frame(width: width, height: Self.height, alignment: .topLeading)
         }
@@ -381,22 +304,24 @@ private struct RibbonAxis: View {
             .map { calendar.date(bySetting: .second, value: 0, of: $0) ?? $0 }
             ?? axis.start
         while cursor <= axis.start { cursor.addTimeInterval(3_600) }
-        while calendar.component(.hour, from: cursor) % step != 0 {
+        while calendar.component(.hour, from: cursor) % Self.step != 0 {
             cursor.addTimeInterval(3_600)
         }
         while cursor < axis.end {
+            // Midnight is named by its date rather than by "00:00", which is the only
+            // thing saying which half of a rolling day a block sits in.
             let midnight = calendar.component(.hour, from: cursor) == 0
             result.append(Tick(date: cursor,
-                               label: midnight && namesDays
+                               label: midnight
                                    ? cursor.formatted(.dateTime.weekday(.abbreviated).day()).uppercased()
                                    : cursor.formatted(date: .omitted, time: .shortened),
-                               isDayBreak: midnight && namesDays))
-            cursor.addTimeInterval(TimeInterval(step) * 3_600)
+                               isDayBreak: midnight))
+            cursor.addTimeInterval(TimeInterval(Self.step) * 3_600)
         }
         // A band that opens mid-hour carries no reading at its left edge, which is where
         // the day starts being read from. It only gets one when there is room: a stamp
         // pressed up against the first tick is two readings and neither is legible.
-        let room = TimeInterval(step) * 3_600
+        let room = TimeInterval(Self.step) * 3_600
         if result.first.map({ $0.date.timeIntervalSince(axis.start) >= room }) ?? true {
             result.insert(Tick(date: axis.start,
                                label: axis.start.formatted(date: .omitted, time: .shortened),
