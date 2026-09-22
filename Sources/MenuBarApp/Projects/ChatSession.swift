@@ -191,12 +191,27 @@ struct ChatSession: Identifiable, Codable, Equatable, Sendable {
     // The first thing the user asked makes a better title than "New session". Pasted
     // terminal output can carry long runs of spaces and tabs, which would spend the whole
     // title on blanks, so runs collapse to one space before it is cut to length.
-    mutating func retitleIfNeeded(from prompt: String) {
+    mutating func retitleIfNeeded(from message: ChatMessage) {
         guard title == "New session", titleRevision == nil else { return }
-        let line = prompt.trimmed.split(separator: "\n").first.map(String.init) ?? ""
+        let line = message.text.trimmed.split(separator: "\n").first.map(String.init) ?? ""
         let words = line.split(whereSeparator: \.isWhitespace).joined(separator: " ")
-        guard !words.isEmpty else { return }
+        guard !words.isEmpty else {
+            if let named = Self.attachmentTitle(message.attachments ?? []) { title = named }
+            return
+        }
         title = words.count > 48 ? String(words.prefix(48)) + "…" : words
+    }
+
+    // A prompt sent with files and no words at all still has something to be called. The
+    // file names say it, except for a paste, which the app writes to disk under a name of
+    // its own that means nothing to anyone.
+    private static func attachmentTitle(_ paths: [String]) -> String? {
+        guard let only = paths.first else { return nil }
+        guard paths.count == 1 else { return "\(paths.count) attachments" }
+        let name = (only as NSString).lastPathComponent
+        if name.hasPrefix("pasted-text-") { return "Pasted text" }
+        if name.hasPrefix("pasted-") || name.hasPrefix("selection-") { return "Pasted image" }
+        return name
     }
 
     // The transcript is read and written on its own, so it is not part of what a session
