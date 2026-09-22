@@ -21,6 +21,7 @@ struct DesignView: View {
     @State private var selectionEnabled = false
     @State private var snapshotRequest: DesignSnapshotRequest?
     @State private var preparingHandoff = false
+    @State private var waitNoticeDismissed = false
     @State private var designWindow = DesignWindow()
 
     var body: some View {
@@ -154,12 +155,17 @@ struct DesignView: View {
                     }
 
                     if state.isBusy, runner.question(sessionID) == nil {
-                        HStack(spacing: 8) {
-                            StateLight(tone: .running, size: 6)
-                            Text("\(session.agent.title) is shaping the canvas…")
-                                .font(.system(size: 11.5, weight: .medium))
-                                .foregroundStyle(.secondary)
-                        }
+                        designStatus(session)
+                    }
+
+                    if state == .waiting, !waitNoticeDismissed,
+                       let waitingSince = runner.waitingSince(sessionID) {
+                        WaitingNotice(since: waitingSince,
+                                      tasks: runner.backgroundTasks(sessionID),
+                                      agentTitle: session.agent.title,
+                                      command: { session.shellCommand(for: $0) },
+                                      onKeepWaiting: { waitNoticeDismissed = true },
+                                      onEnd: { runner.endWait(sessionID) })
                     }
 
                     TurnEndActions(sessionID: sessionID, state: state)
@@ -169,10 +175,60 @@ struct DesignView: View {
                 .padding(16)
             }
             .defaultScrollAnchor(.bottom)
-            // Anything new - a row, streamed text, a call, a question - sends the
-            // transcript to its end.
+            // Anything new - a row, streamed text, a call, a question, a change of state -
+            // sends the transcript to its end.
             .onChange(of: transcriptShape(session)) {
                 proxy.scrollTo("design-transcript-bottom", anchor: .bottom)
+            }
+            // A dismissed notice is dismissed for that wait only: the next one is a new
+            // turn parked on new tasks, and it has its own case to make.
+            .onChange(of: state) { _, state in
+                if state != .waiting { waitNoticeDismissed = false }
+            }
+        }
+    }
+
+    // What the agent is doing, under the transcript. A held-open turn looks exactly like
+    // a working one from the outside, so a wait names the task keeping it open instead of
+    // going on claiming the canvas is being worked on. Once the wait has gone stale the
+    // line drops the live colour too: nothing is coming back from that task, and the pane
+    // has to agree with the NEEDS YOU the header is already showing.
+    @ViewBuilder
+    private func designStatus(_ session: ChatSession) -> some View {
+        if let waitingSince = runner.waitingSince(sessionID) {
+            let stale = runner.waitIsStale(sessionID)
+            let tasks = runner.backgroundTasks(sessionID)
+            // Nothing arrives to redraw a parked turn, so the wait has to count itself up.
+            TimelineView(.periodic(from: .now, by: 1)) { _ in
+                HStack(spacing: 8) {
+                    StateLight(tone: stale ? .needsYou : .waiting, size: 6)
+                    Text(stale
+                         ? "Nothing has come back from \(BackgroundTaskPhrase.of(tasks))"
+                         : "Waiting for \(BackgroundTaskPhrase.of(tasks))")
+                        .font(.system(size: 11.5, weight: .medium))
+                        .foregroundStyle(stale ? Theme.attentionText : .secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Text(RelativeTime.duration(since: waitingSince))
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+            }
+            // Past one task the line can only carry a count, so the names live here.
+            .appTooltip {
+                Tooltip(title: stale
+                            ? "\(session.agent.title) answered, and the turn has been held open "
+                              + "long past the point where this was going to report."
+                            : "\(session.agent.title) has answered and is holding the turn open.",
+                        note: tasks.map(\.label).joined(separator: "\n"))
+            }
+        } else {
+            HStack(spacing: 8) {
+                StateLight(tone: .running, size: 6)
+                Text("\(session.agent.title) is shaping the canvas…")
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -182,13 +238,15 @@ struct DesignView: View {
         var characters: Int
         var tools: Int
         var question: String?
+        var state: SessionState
     }
 
     private func transcriptShape(_ session: ChatSession) -> TranscriptShape {
         TranscriptShape(messages: session.messages.count,
                         characters: session.messages.last?.text.count ?? 0,
                         tools: session.messages.last?.tools.count ?? 0,
-                        question: runner.question(sessionID)?.id)
+                        question: runner.question(sessionID)?.id,
+                        state: runner.state(sessionID))
     }
 
     private func splitHandle(conversationWidth: CGFloat,
