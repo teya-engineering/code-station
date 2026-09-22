@@ -19,7 +19,13 @@ The [project website](https://teya-engineering.github.io/code-station/#features)
 
 ## Download and install
 
-Download the signed and notarized app from the [latest GitHub release](https://github.com/teya-engineering/code-station/releases/latest). Open the `.dmg`, drag **Teya Code Station** to **Applications**, then launch it from there.
+Install with [Homebrew](https://brew.sh):
+
+```sh
+brew install teya-engineering/tap/teya-code-station
+```
+
+Or download the signed and notarized app from the [latest GitHub release](https://github.com/teya-engineering/code-station/releases/latest). Open the `.dmg`, drag **Teya Code Station** to **Applications**, then launch it from there.
 
 You need macOS 14 or later and at least one supported coding agent installed and signed in: `claude`, `codex` or `copilot`.
 
