@@ -218,7 +218,7 @@ private final class SidebarHarness {
             tools: ToolsMenuActions(configureServers: {}, openSkills: {}, openDocker: {},
                                     openDispatch: {}, openShortcuts: {}, openTroubleshoot: {},
                                     openSettings: {}),
-            oldSessionDeletion: nil, onReviewOldSessions: {})
+            oldSessionDeletion: nil, onReviewOldSessions: {}, fileOwnsFindShortcut: false)
             .environment(store)
             .environment(runner)
             .environment(settings)

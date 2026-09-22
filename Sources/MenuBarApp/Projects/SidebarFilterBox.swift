@@ -79,11 +79,16 @@ struct SidebarFilterBox {
 }
 
 // The visible control opens the app-wide filter. Command-F keeps the narrower tree filter
-// for someone who only wants to trim this rail without leaving its context.
+// for someone who only wants to trim this rail without leaving its context, except while a
+// file is open for reading: there the stroke searches the file and the hint says so by
+// going away.
 struct SidebarFilterBar: View {
     @Binding var box: SidebarFilterBox
     @FocusState.Binding var focused: Bool
     let openCommandPalette: () -> Void
+    // False while a file on screen answers for Command-F. Naming a stroke that lands
+    // somewhere else reads as a broken shortcut rather than as one being shared.
+    let showsShortcutHint: Bool
 
     var body: some View {
         Group {
@@ -129,9 +134,11 @@ struct SidebarFilterBar: View {
                 .textFieldStyle(.plain)
                 .font(.system(size: 12.5))
                 .focused($focused)
-            Text("⌘F")
-                .font(.mono(9.5))
-                .foregroundStyle(.tertiary)
+            if showsShortcutHint {
+                Text("⌘F")
+                    .font(.mono(9.5))
+                    .foregroundStyle(.tertiary)
+            }
             Button {
                 let wasEmpty = box.text.isEmpty
                 box.closeOrClear()

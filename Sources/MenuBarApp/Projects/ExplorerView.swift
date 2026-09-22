@@ -8,6 +8,16 @@ import SwiftUI
 // A text file opens straight into an editor: there is no read mode to leave first, and
 // nothing is written until Save. The tree itself stays read-only: nothing here creates,
 // renames or deletes anything.
+// Says that a file being read has taken Cmd+F. It travels up to the window so the sidebar
+// can stop naming that stroke as the way into its own filter while the file answers for it.
+struct FileFindShortcutKey: PreferenceKey {
+    static let defaultValue = false
+
+    static func reduce(value: inout Bool, nextValue: () -> Bool) {
+        value = value || nextValue()
+    }
+}
+
 struct ExplorerView: View {
     let root: String
 
@@ -39,6 +49,12 @@ struct ExplorerView: View {
     @State private var loadedAt: Date?
 
     @State private var findPresented = false
+    // Both of the strokes a person tries for find. Cmd+F searches whatever is being read
+    // on a Mac, and with a file open that is the file rather than the sidebar's filter.
+    // They are caught with monitors because a SwiftUI shortcut is only offered the stroke
+    // after the window's own shortcuts have had it, and the sidebar's filter takes Cmd+F.
+    @State private var findMonitor = WindowKeyMonitor(.control, "f")
+    @State private var commandFindMonitor = WindowKeyMonitor(.command, "f")
     @State private var findQuery = ""
     @State private var findResult = FileFindResult()
     @State private var findSelection = 0
@@ -77,6 +93,19 @@ struct ExplorerView: View {
             enabled: treeFocused && dialogs.current == nil && !pastingFiles,
             onCopy: copySelected,
             onPaste: pasteFiles))
+        .background(WindowAnchor(monitor: findMonitor))
+        .background(WindowAnchor(monitor: commandFindMonitor))
+        .preference(key: FileFindShortcutKey.self, value: canFind)
+        .onChange(of: canFind, initial: true) { _, canFind in
+            for monitor in findMonitors {
+                guard canFind else { monitor.stop(); continue }
+                monitor.start {
+                    showFind()
+                    return true
+                }
+            }
+        }
+        .onDisappear { findMonitors.forEach { $0.stop() } }
         .onChange(of: findQuery) {
             findSelection = 0
             refreshFind()
@@ -310,8 +339,7 @@ struct ExplorerView: View {
                     if dirty { saveButtons(node) }
                     if isEditable && !renderingMarkdown {
                         InlineLink(title: "Find", action: showFind)
-                            .keyboardShortcut("f", modifiers: .control)
-                            .appTooltip("Find in file (Ctrl+F)")
+                            .appTooltip("Find in file (Cmd+F or Ctrl+F)")
                     }
                     if node.supportsMarkdownPreview {
                         InlineLink(title: renderingMarkdown ? "Edit" : "Preview") {
@@ -497,8 +525,16 @@ struct ExplorerView: View {
         .accessibilityLabel(help)
     }
 
+    // A file worth searching is open and nothing is in front of it. While this is false
+    // both strokes are left alone, so Cmd+F still opens the sidebar's filter.
+    private var canFind: Bool {
+        isEditable && !renderingMarkdown && dialogs.current == nil
+    }
+
+    private var findMonitors: [WindowKeyMonitor] { [findMonitor, commandFindMonitor] }
+
     private func showFind() {
-        guard isEditable, !renderingMarkdown, dialogs.current == nil else { return }
+        guard canFind else { return }
         findPresented = true
         refreshFind()
         findFocused = true

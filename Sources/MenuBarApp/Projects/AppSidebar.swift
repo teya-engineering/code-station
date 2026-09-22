@@ -8,6 +8,8 @@ struct AppSidebar: View {
     let tools: ToolsMenuActions
     let oldSessionDeletion: OldSessionSweep.Deletion?
     let onReviewOldSessions: () -> Void
+    // Set while a file open in the detail pane has taken Command-F for its own find.
+    let fileOwnsFindShortcut: Bool
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(ProjectStore.self) private var store
@@ -136,7 +138,8 @@ struct AppSidebar: View {
                 SidebarNeedsYouCard(waiting: waiting, open: openNoticedSession)
             }
             SidebarFilterBar(box: $filterBox, focused: $filterFocused,
-                             openCommandPalette: commandPalette.open)
+                             openCommandPalette: commandPalette.open,
+                             showsShortcutHint: !fileOwnsFindShortcut)
             arrangementBar
         }
     }

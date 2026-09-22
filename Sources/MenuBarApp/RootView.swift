@@ -28,6 +28,8 @@ struct RootView: View {
     // An update being taken is news of its own, so putting the offer away does not also
     // hide the download it started. Each stage can be dismissed once.
     @State private var dismissedUpdateStage: AppUpdateInstallState.Stage?
+    // Raised by the file being read in the detail pane while it holds Command-F.
+    @State private var fileOwnsFindShortcut = false
 
     var body: some View {
         window
@@ -49,10 +51,12 @@ struct RootView: View {
                 AppSidebar(skills: skills,
                            tools: tools,
                            oldSessionDeletion: oldSessionDeletion,
-                           onReviewOldSessions: { sheet = .oldSessions })
+                           onReviewOldSessions: { sheet = .oldSessions },
+                           fileOwnsFindShortcut: fileOwnsFindShortcut)
                 Divider().overlay(Theme.hairline)
                 detail
             }
+            .onPreferenceChange(FileFindShortcutKey.self) { fileOwnsFindShortcut = $0 }
             ScheduledTaskRunner()
             AppUpdateRestartPrompt()
             VStack(spacing: 8) {
