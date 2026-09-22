@@ -323,6 +323,11 @@ struct ContextMenuHost: View {
             }
         }
         .motion(Motion.reveal, value: presenter.isOpen)
+        // A menu on its way out stays in the view tree until its fade has finished, and
+        // while it is there it still takes the click that lands on it without acting on
+        // it. That swallows the next click on the control the menu came from, so a closed
+        // menu is made to take no clicks at all rather than relying on it being gone.
+        .allowsHitTesting(presenter.isOpen)
     }
 
     private var content: some View {
