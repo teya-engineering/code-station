@@ -6,7 +6,7 @@ This guide covers the development workflow and the technical details behind the 
 
 You need:
 
-- macOS 14 or later
+- macOS 15 or later
 - Xcode 16 or another Swift 6 toolchain
 - Git
 

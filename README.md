@@ -21,13 +21,13 @@ The [project website](https://teya-engineering.github.io/code-station/#features)
 
 Download the signed and notarized app from the [latest GitHub release](https://github.com/teya-engineering/code-station/releases/latest). Open the `.dmg`, drag **Teya Code Station** to **Applications**, then launch it from there.
 
-You need macOS 14 or later and at least one supported coding agent installed and signed in: `claude`, `codex` or `copilot`.
+You need macOS 15 or later and at least one supported coding agent installed and signed in: `claude`, `codex` or `copilot`.
 
 ## Build from source
 
 You need:
 
-- macOS 14 or later
+- macOS 15 or later
 - Xcode 16 or another Swift 6 toolchain
 - Git
 - At least one supported coding agent installed and signed in: `claude`, `codex` or `copilot`
