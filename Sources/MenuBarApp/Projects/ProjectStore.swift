@@ -1780,6 +1780,14 @@ final class ProjectStore {
         return sessions[i].messages
     }
 
+    // The conversation as it already stands in memory, or nil when it is not held there.
+    // Unlike `transcript(of:)` this never pulls the file in, so a caller that only wants
+    // to read what is already there is not the reason a hundred of them are held.
+    func loadedTranscript(of sessionID: UUID) -> [ChatMessage]? {
+        guard let i = index(sessionID), sessions[i].transcriptLoaded else { return nil }
+        return sessions[i].messages
+    }
+
     // Mobile access compares this cheap number before building a full snapshot. A live
     // answer can change many times a second, so rebuilding the whole transcript merely to
     // discover that it stayed still would make the remote view cost more than the app view.

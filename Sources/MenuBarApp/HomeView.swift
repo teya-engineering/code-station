@@ -13,10 +13,6 @@ struct HomeView: View {
     @Environment(WorkingTreeWatch.self) private var workingTrees
     @Environment(SessionTimeWatch.self) private var sessionTimes
 
-    // Which stretch the time breakdown reads. It is not saved: Home is opened to see
-    // where things stand now, and the day is what that question means most of the time.
-    @State private var ribbonRange: RibbonRange = .day
-
     // Recomputed once per redraw and handed down, because every section below counts over
     // the same list of sessions.
     private struct Standing {
@@ -26,7 +22,10 @@ struct HomeView: View {
         var addedToday = 0
         var removedToday = 0
         var sessionsToday = 0
-        var worktrees = 0
+        var sessionsChangedToday = 0
+        // Held as paths rather than counted per session, since every session checked out
+        // into the same worktree is looking at the one directory.
+        var worktrees: Set<String> = []
         var worktreeSessions = 0
         // Every session the time breakdown could have something to draw for, and the
         // scans that back them.
@@ -107,16 +106,29 @@ struct HomeView: View {
             StatCard(label: "CHANGED TODAY",
                      value: changed ? "+\(standing.addedToday) / −\(standing.removedToday)" : "—",
                      tone: nil,
-                     note: standing.sessionsToday == 0
-                        ? "No sessions have run today"
-                        : "across \(counted(standing.sessionsToday, "session"))")
+                     note: changedNote(standing))
             StatCard(label: "WORKTREES",
-                     value: "\(standing.worktrees)",
+                     value: "\(standing.worktrees.count)",
                      tone: nil,
-                     note: standing.worktrees == 0
+                     note: standing.worktrees.isEmpty
                         ? "Nothing checked out on the side"
                         : "across \(counted(standing.worktreeSessions, "session"))")
         }
+    }
+
+    // What today's turns wrote, rather than everything the sessions that ran today have
+    // ever written. Until the scans behind it land the day is not measured, and a card
+    // saying nothing changed would be claiming an answer it does not have yet.
+    private func changedNote(_ standing: Standing) -> String {
+        guard standing.sessionsToday > 0 else { return "No sessions have run today" }
+        guard scanned(standing) else { return "Adding up today's changes" }
+        guard standing.sessionsChangedToday > 0 else { return "No files were changed" }
+        return "across \(counted(standing.sessionsChangedToday, "session"))"
+    }
+
+    // Whether every session the day covers has been read off disk yet.
+    private func scanned(_ standing: Standing) -> Bool {
+        standing.timeRequests.allSatisfy { sessionTimes.hasScanned($0.id) }
     }
 
     // MARK: - Where the day went
@@ -125,10 +137,8 @@ struct HomeView: View {
         DayRibbonSection(
             ribbon: DayRibbon.build(standing.timeline,
                                     spans: sessionTimes.spans(for:),
-                                    range: ribbonRange,
                                     now: Date()),
-            scanned: standing.timeRequests.allSatisfy { sessionTimes.hasScanned($0.id) },
-            range: $ribbonRange,
+            scanned: scanned(standing),
             onOpen: { store.selectSession($0) })
             .task(id: standing.timeRequests) {
                 sessionTimes.refresh(standing.timeRequests)
@@ -225,14 +235,14 @@ struct HomeView: View {
 
     private func cleanup() -> some View {
         let stale = oldSessions
-        let worktrees = stale.reduce(0) { count, session in
-            count + store.checkoutProjects(for: session).compactMap(\.worktreePath).count
-        }
+        let worktrees = Set(stale.flatMap {
+            store.checkoutProjects(for: $0).compactMap(\.worktreePath)
+        })
         return FooterStrip(
             title: "\(counted(stale.count, "session")) older than \(appSettings.oldSessionDays) days",
-            detail: worktrees == 0
+            detail: worktrees.isEmpty
                 ? "nothing left checked out"
-                : "\(counted(worktrees, "worktree")) still checked out") {
+                : "\(counted(worktrees.count, "worktree")) still checked out") {
             InlineLink(title: "Clean up →", size: 12.5, action: onReviewOldSessions)
         }
     }
@@ -251,8 +261,8 @@ struct HomeView: View {
     private var standing: Standing {
         var standing = Standing()
         let calendar = Calendar.current
-        let timelineStart = (DayRibbon.bandWindows(for: ribbonRange, now: Date()).first?.start
-                                ?? Date()).addingTimeInterval(-Self.timelineGrace)
+        let timelineStart = DayRibbon.axis(endingAt: Date()).start
+            .addingTimeInterval(-Self.timelineGrace)
 
         for session in store.sidebarSessions.sorted(by: { $0.lastActivity > $1.lastActivity }) {
             // A Design conversation has no row of its own, so while it is the side
@@ -269,6 +279,7 @@ struct HomeView: View {
                 // A session and the Design conversation working beside it are one piece
                 // of work, so their turns land on one block rather than two.
                 let sources = live.id == session.id ? [session.id] : [session.id, live.id]
+                let projectPath = store.workingDirectory(for: session) ?? ""
                 standing.timeline.append(
                     RibbonSession(id: session.id,
                                   title: session.title,
@@ -278,11 +289,20 @@ struct HomeView: View {
                                   isOpen: busy))
                 standing.timeRequests.append(
                     SessionTimeWatch.Request(id: session.id, mark: session.summary,
-                                             isRunning: busy && live.id == session.id))
+                                             isRunning: busy && live.id == session.id,
+                                             projectPath: projectPath))
                 if live.id != session.id {
                     standing.timeRequests.append(
                         SessionTimeWatch.Request(id: live.id, mark: live.summary,
-                                                 isRunning: busy))
+                                                 isRunning: busy, projectPath: projectPath))
+                }
+
+                let today = sources.flatMap(sessionTimes.changes(for:))
+                    .filter { calendar.isDateInToday($0.date) }
+                if !today.isEmpty {
+                    standing.addedToday += today.reduce(0) { $0 + $1.added }
+                    standing.removedToday += today.reduce(0) { $0 + $1.removed }
+                    standing.sessionsChangedToday += 1
                 }
             }
 
@@ -294,14 +314,10 @@ struct HomeView: View {
                 standing.resumable.append(card)
             }
 
-            if calendar.isDateInToday(session.lastActivity) {
-                standing.addedToday += session.summary.added
-                standing.removedToday += session.summary.removed
-                standing.sessionsToday += 1
-            }
+            if calendar.isDateInToday(session.lastActivity) { standing.sessionsToday += 1 }
 
             let worktrees = store.checkoutProjects(for: session).compactMap(\.worktreePath)
-            standing.worktrees += worktrees.count
+            standing.worktrees.formUnion(worktrees)
             if !worktrees.isEmpty { standing.worktreeSessions += 1 }
         }
         return standing

@@ -2,8 +2,8 @@ import Foundation
 import Testing
 @testable import MenuBarApp
 
-// Where the day went: how a conversation is read back as stretches of work, and how
-// those stretches land on the band Home draws.
+// Where the day went: how a conversation is read back as stretches of work and as the
+// changes it wrote, and how those stretches land on the band Home draws.
 struct DayRibbonTests {
     private let day = Date(timeIntervalSince1970: 1_758_499_200)
 
@@ -72,6 +72,80 @@ struct DayRibbonTests {
                     .isEmpty)
     }
 
+    // MARK: - What a turn wrote
+
+    private func call(_ name: String, input: String, finished: Date?,
+                      isError: Bool = false,
+                      written: WrittenChange? = nil) -> TurnTimes.Call {
+        TurnTimes.Call(name: name, input: input, isError: isError, written: written,
+                       startedAt: finished, finishedAt: finished)
+    }
+
+    // A day is asked what was written in it, so a change is dated by the call that made
+    // it rather than by the last time its session stirred.
+    @Test func datesEachChangeByTheCallThatMadeIt() {
+        let changes = SessionTime.changes(of: [
+            TurnTimes(role: .assistant, date: at(9, 0), tools: [
+                call("Edit", input: #"{"file_path":"/repo/a.swift","old_string":"one\ntwo","new_string":"one\ntwo\nthree"}"#,
+                     finished: at(9, 5)),
+                call("Write", input: #"{"file_path":"/repo/b.swift","content":"a\nb"}"#,
+                     finished: at(9, 6))
+            ])
+        ], projectPath: "/repo")
+
+        #expect(changes.map(\.date) == [at(9, 5), at(9, 6)])
+        #expect(changes.map(\.added) == [1, 2])
+        #expect(changes.allSatisfy { $0.removed == 0 })
+    }
+
+    // The input of a call still running describes a change that has not landed yet.
+    @Test func leavesOutACallThatHasNotReportedIn() {
+        let changes = SessionTime.changes(of: [
+            TurnTimes(role: .assistant, date: at(9, 0), tools: [
+                call("Write", input: #"{"file_path":"/repo/b.swift","content":"a\nb"}"#,
+                     finished: nil)
+            ])
+        ], projectPath: "/repo")
+
+        #expect(changes.isEmpty)
+    }
+
+    @Test func leavesOutACallThatFailed() {
+        let changes = SessionTime.changes(of: [
+            TurnTimes(role: .assistant, date: at(9, 0), tools: [
+                call("Write", input: #"{"file_path":"/repo/b.swift","content":"a\nb"}"#,
+                     finished: at(9, 2), isError: true)
+            ])
+        ], projectPath: "/repo")
+
+        #expect(changes.isEmpty)
+    }
+
+    // A command says nothing about what it changed, so what counts is the change
+    // measured off the working tree afterwards.
+    @Test func countsAChangeMeasuredOffTheTree() {
+        let changes = SessionTime.changes(of: [
+            TurnTimes(role: .assistant, date: at(9, 0), tools: [
+                call("Bash", input: #"{"command":"make fmt"}"#, finished: at(9, 8),
+                     written: WrittenChange(files: 2, added: 30, removed: 4))
+            ])
+        ], projectPath: "/repo")
+
+        #expect(changes.count == 1)
+        #expect(changes.first?.added == 30)
+        #expect(changes.first?.removed == 4)
+    }
+
+    @Test func ignoresCallsThatWroteNothing() {
+        let changes = SessionTime.changes(of: [
+            TurnTimes(role: .assistant, date: at(9, 0), tools: [
+                call("Read", input: #"{"file_path":"/repo/a.swift"}"#, finished: at(9, 1))
+            ])
+        ], projectPath: "/repo")
+
+        #expect(changes.isEmpty)
+    }
+
     // MARK: - Building the band
 
     private func session(_ id: UUID = UUID(), project: String,
@@ -90,13 +164,13 @@ struct DayRibbonTests {
                                          [TimeSpan(start: now.addingTimeInterval(-93_600),
                                                    end: now.addingTimeInterval(-82_800))]
                                      },
-                                     range: .day, now: now)
+                                     now: now)
 
         // Two of the three hours are older than the band, so only one is drawn.
-        #expect(ribbon.bands.first?.blocks.count == 1)
+        #expect(ribbon.blocks.count == 1)
         #expect(ribbon.spent == 3_600)
         let edge: Date = now.addingTimeInterval(-86_400)
-        #expect(ribbon.bands.first?.blocks.first?.start == edge)
+        #expect(ribbon.blocks.first?.start == edge)
     }
 
     @Test func drawsARunningSessionOutToNow() {
@@ -104,10 +178,10 @@ struct DayRibbonTests {
         let work = session(project: "Code Station", open: true)
         let ribbon = DayRibbon.build([work],
                                      spans: { _ in [TimeSpan(start: at(11, 0), end: at(11, 5))] },
-                                     range: .day, now: now)
+                                     now: now)
 
-        #expect(ribbon.bands.first?.blocks.first?.end == now)
-        #expect(ribbon.bands.first?.blocks.first?.isOpen == true)
+        #expect(ribbon.blocks.first?.end == now)
+        #expect(ribbon.blocks.first?.isOpen == true)
         #expect(ribbon.spent == 3_600)
     }
 
@@ -121,7 +195,7 @@ struct DayRibbonTests {
                                              ? [TimeSpan(start: at(9, 0), end: at(9, 30))]
                                              : [TimeSpan(start: at(10, 0), end: at(12, 0))]
                                      },
-                                     range: .day, now: now)
+                                     now: now)
 
         #expect(ribbon.legend.map(\.subject.name) == ["Code Station", "robota"])
         #expect(ribbon.legend.first?.spent == 7_200)
@@ -144,29 +218,10 @@ struct DayRibbonTests {
                                              ? [TimeSpan(start: at(9, 0), end: at(9, 30))]
                                              : [TimeSpan(start: at(9, 20), end: at(10, 0))]
                                      },
-                                     range: .day, now: now)
+                                     now: now)
 
-        #expect(ribbon.bands.first?.blocks.count == 1)
+        #expect(ribbon.blocks.count == 1)
         #expect(ribbon.spent == 3_600)
-    }
-
-    @Test func splitsTheWeekIntoSevenDays() {
-        let now = at(36, 0)
-        let work = session(project: "robota")
-        let ribbon = DayRibbon.build([work],
-                                     spans: { _ in [TimeSpan(start: at(10, 0), end: at(11, 0))] },
-                                     range: .week, now: now)
-
-        #expect(ribbon.bands.count == 7)
-        let worked = ribbon.bands.filter { $0.spent > 0 }
-        #expect(worked.count == 1)
-        #expect(ribbon.bands.last?.isToday == true)
-    }
-
-    // A day with nothing in it was never started, rather than measured and found empty.
-    @Test func readsAnEmptyDayAsADash() {
-        #expect(DayRibbon.total(0) == "-")
-        #expect(DayRibbon.total(5_400) == "1h 30m")
     }
 
     @Test func readsDurationsInHoursAndMinutes() {
@@ -180,10 +235,10 @@ struct DayRibbonTests {
     @Test func readsAnEmptyWindowAsNothingAtAll() {
         let now = at(12, 0)
         let ribbon = DayRibbon.build([session(project: "robota")],
-                                     spans: { _ in [] }, range: .day, now: now)
+                                     spans: { _ in [] }, now: now)
 
         #expect(ribbon.isEmpty)
         #expect(ribbon.spent == 0)
-        #expect(ribbon.bands.count == 1)
+        #expect(ribbon.blocks.isEmpty)
     }
 }
