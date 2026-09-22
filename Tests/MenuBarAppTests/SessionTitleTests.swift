@@ -15,6 +15,32 @@ struct SessionTitleTests {
         #expect(SessionTitle.cleaned("Here is a title and an explanation of the changes") == nil)
         #expect(SessionTitle.cleaned(String(repeating: "x", count: 61)) == nil)
     }
+
+    @Test func namesASessionAfterWhatItsFirstPromptCarries() {
+        #expect(retitled(ChatMessage(role: .user, text: "Fix the login retry"))
+            == "Fix the login retry")
+        #expect(retitled(message(text: "", attachments: ["/tmp/pasted-3dea7157.png"]))
+            == "Pasted image")
+        #expect(retitled(message(text: "", attachments: ["/tmp/pasted-text-3dea7157.txt"]))
+            == "Pasted text")
+        #expect(retitled(message(text: "", attachments: ["/tmp/crash-report.txt"]))
+            == "crash-report.txt")
+        #expect(retitled(message(text: "", attachments: ["/tmp/one.png", "/tmp/two.png"]))
+            == "2 attachments")
+        #expect(retitled(ChatMessage(role: .user, text: " \n ")) == "New session")
+    }
+
+    private func message(text: String, attachments: [String]) -> ChatMessage {
+        var message = ChatMessage(role: .user, text: text)
+        message.attachments = attachments
+        return message
+    }
+
+    private func retitled(_ message: ChatMessage) -> String {
+        var session = ChatSession(projectID: UUID())
+        session.retitleIfNeeded(from: message)
+        return session.title
+    }
 }
 
 @MainActor

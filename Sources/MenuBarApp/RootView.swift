@@ -73,11 +73,18 @@ struct RootView: View {
                 }
             }
             .padding(.top, 12)
-            if commandPalette.isPresented {
-                commandPaletteLayer
-                    .transition(.opacity)
-                    .zIndex(10)
+            ZStack {
+                if commandPalette.isPresented {
+                    commandPaletteLayer
+                        .transition(.opacity)
+                }
             }
+            // The palette stays in the view tree until its fade has finished, and while
+            // it is there the backdrop still takes the click that lands on it without
+            // acting on it. A closed palette is made to take no clicks at all rather than
+            // relying on it being gone.
+            .allowsHitTesting(commandPalette.isPresented)
+            .zIndex(10)
         }
         .background(Theme.background)
         .animation(reduceMotion ? nil : .easeOut(duration: 0.14),
