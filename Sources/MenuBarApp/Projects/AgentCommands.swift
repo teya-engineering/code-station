@@ -33,7 +33,7 @@ enum AgentCommands {
     // Everything a session on this agent can be offered, nearest first: what the app
     // answers, then what the project keeps, then what the person keeps, and last what the
     // CLI ships. A name found twice is the nearer copy's, so a file someone wrote takes
-    // the name over the CLI's own command of that name. The app's two are the exception,
+    // the name over the CLI's own command of that name. The app's own are the exception,
     // since those are answered here before a prompt is ever sent.
     static func all(for agent: AgentKind, workingDirectories: [String],
                     home: URL = FileManager.default.homeDirectoryForCurrentUser,
@@ -54,8 +54,9 @@ enum AgentCommands {
         return found
     }
 
-    // What the app intercepts rather than passing on. Compaction is Claude Code's alone:
-    // the other two make room as they go and the app says so when asked.
+    // What the app intercepts rather than passing on. Compaction and planning are Claude
+    // Code's alone: the other two make room as they go and the app says so when asked, and
+    // only Claude Code has a plan mode a headless run can start in.
     static func appCommands(for agent: AgentKind) -> [AgentCommand] {
         var commands = [AgentCommand(name: "clear",
                                      summary: "Start a fresh conversation in the same folder",
@@ -63,6 +64,9 @@ enum AgentCommands {
         if agent == .claudeCode {
             commands.append(AgentCommand(name: "compact",
                                          summary: "Summarise the conversation so far and carry on from it",
+                                         scope: .app))
+            commands.append(AgentCommand(name: "plan",
+                                         summary: "Plan the work first and change nothing until the plan is approved",
                                          scope: .app))
         }
         return commands

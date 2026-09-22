@@ -225,6 +225,39 @@ struct ClearContextTests {
         #expect(!SessionRunner.isCompactCommand("/compact-db"))
     }
 
+    // MARK: - Planning
+
+    @Test func planCarriesTheWordsTypedAfterIt() {
+        #expect(SessionRunner.planCommandPrompt("/plan") == "")
+        #expect(SessionRunner.planCommandPrompt("  /Plan  ") == "")
+        #expect(SessionRunner.planCommandPrompt("/plan move the settings") == "move the settings")
+        #expect(SessionRunner.planCommandPrompt("/plan\nmove the settings") == "move the settings")
+        #expect(SessionRunner.planCommandPrompt("/planner") == nil)
+        #expect(SessionRunner.planCommandPrompt("/plan-review") == nil)
+        #expect(SessionRunner.planCommandPrompt("plan it") == nil)
+    }
+
+    // The CLI refuses /plan in a headless run, so it never goes down the pipe. It becomes
+    // the session's mode instead, which the next turn starts in.
+    @Test func typingPlanSwitchesTheSessionToPlanMode() throws {
+        let session = try startedSession()
+
+        runner.send("/plan", sessionID: session.id, store: store)
+
+        #expect(runner.queued(session.id).isEmpty)
+        #expect(store.session(session.id)?.settings?.permissionMode == "plan")
+        #expect(store.transcript(of: session.id).last?.role == .system)
+    }
+
+    // Other agents have no plan mode to start in, and may have a command of that name.
+    @Test func planIsLeftToAgentsOtherThanClaude() throws {
+        let session = try startedSession(agent: .codex)
+
+        runner.send("/plan", sessionID: session.id, store: store)
+
+        #expect(store.session(session.id)?.settings?.permissionMode == nil)
+    }
+
     // The command travels down the pipe as a prompt, but it is not a line of the
     // conversation, so it never appears as one.
     @Test func theCompactCommandIsNotAUserMessage() {

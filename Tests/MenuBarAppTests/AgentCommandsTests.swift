@@ -92,7 +92,7 @@ struct AgentCommandsTests {
         // What the app answers itself is offered whatever the agent is, and the CLI's own
         // commands come last, minus the name a file took.
         #expect(found.map(\.name)
-            == ["clear", "compact", "review", "notes", "init", "security-review"])
+            == ["clear", "compact", "plan", "review", "notes", "init", "security-review"])
     }
 
     @Test func onlyClaudeIsOfferedTheCommandsOnlyClaudeAnswers() {

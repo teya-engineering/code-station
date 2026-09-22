@@ -404,12 +404,30 @@ final class SessionRunner {
         SessionLog.note("answered \(request.toolName) \(request.id) with \(answer.logLabel)",
                         session: sessionID)
 
-        guard let line = request.responseLine(answer), turn.write(line) else {
+        // Approving a plan ends plan mode in both places it lives: in the process that asked,
+        // and in the session's settings, which every later turn is started from.
+        var settingsAfterPlan: SessionSettings?
+        var leavingPlanFor: PermissionMode?
+        if request.toolName == "ExitPlanMode", answer != .deny,
+           let session = store.session(sessionID) {
+            var settings = session.settings ?? SessionSettings()
+            if settings.permissionMode == PermissionMode.plan.rawValue {
+                settings.permissionMode = nil
+            }
+            settingsAfterPlan = settings
+            leavingPlanFor = PermissionMode.afterPlan(
+                settings.permissionMode ?? defaults(for: session.agent).permissionMode)
+        }
+
+        guard let line = request.responseLine(answer, leavingPlanFor: leavingPlanFor),
+              turn.write(line) else {
             requestStop(
                 sessionID,
                 failure: "Could not send the answer to Claude Code. The turn has been stopped.")
             return
         }
+
+        if let settingsAfterPlan { store.setSettings(settingsAfterPlan, for: sessionID) }
 
         // The answer opened the folder for the process that asked. Keeping it on the
         // session is what carries it into every turn after this one.
@@ -825,6 +843,17 @@ final class SessionRunner {
         text.trimmed.lowercased() == "/compact"
     }
 
+    // The words typed after /plan, which may be none, or nil when the text is not the
+    // command. Unlike the other two it can carry a prompt, since "plan this" is the
+    // natural way to say it.
+    nonisolated static func planCommandPrompt(_ text: String) -> String? {
+        let line = text.trimmed
+        guard line.lowercased().hasPrefix("/plan") else { return nil }
+        let rest = line.dropFirst("/plan".count)
+        guard rest.isEmpty || rest.first?.isWhitespace == true else { return nil }
+        return String(rest).trimmed
+    }
+
     // The words behind a typed slash command, for an agent that would not recognise one.
     // Nil for everything else, which is nearly every prompt: only a line starting with a
     // slash is ever looked up, so the folders are read on the rare turn that needs them.
@@ -868,6 +897,17 @@ final class SessionRunner {
                  sessionID: sessionID, store: store)
         }
         return true
+    }
+
+    // The mode is read when a turn starts, so this takes effect from the next one. A turn
+    // already running goes on in the mode it was started in.
+    private func enterPlanMode(_ sessionID: UUID, store: ProjectStore) {
+        guard let session = store.session(sessionID) else { return }
+        var settings = session.settings ?? SessionSettings()
+        settings.permissionMode = PermissionMode.plan.rawValue
+        store.setSettings(settings, for: sessionID)
+        note("Plan mode is on. Claude Code will plan without changing anything, and the session goes back to its usual mode once you approve the plan.",
+             sessionID: sessionID, store: store)
     }
 
     private func note(_ text: String, sessionID: UUID, store: ProjectStore) {
@@ -1183,7 +1223,7 @@ final class SessionRunner {
     func send(_ prompt: String, attachments: [Attachment] = [],
               customInstructions: String? = nil, sessionID: UUID, store: ProjectStore) {
         guard !isBeingRemoved(sessionID), store.session(sessionID) != nil else { return }
-        let text = prompt.trimmed
+        var text = prompt.trimmed
         let instructions = customInstructions?.trimmed
         guard !text.isEmpty || !attachments.isEmpty || instructions?.isEmpty == false else { return }
         store.markSessionSeen(sessionID)
@@ -1195,6 +1235,15 @@ final class SessionRunner {
         if attachments.isEmpty, instructions?.isEmpty != false,
            handleWindowCommand(text, sessionID: sessionID, store: store) {
             return
+        }
+        // The CLI refuses /plan in a headless run, so the app turns it into the setting it
+        // stands for. The words after it, if any, are the prompt the plan is about.
+        if store.session(sessionID)?.agent == .claudeCode,
+           let planPrompt = Self.planCommandPrompt(text) {
+            enterPlanMode(sessionID, store: store)
+            guard !planPrompt.isEmpty || !attachments.isEmpty
+                    || instructions?.isEmpty == false else { return }
+            text = planPrompt
         }
         records[sessionID, default: SessionRecord()].queue.append(QueuedPrompt(
             text: text,

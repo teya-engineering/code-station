@@ -151,8 +151,9 @@ extension PermissionRequest {
     }
 
     // The answer as the CLI wants it: one JSON line on the process's stdin, quoting the
-    // request it belongs to.
-    func responseLine(_ answer: PermissionAnswer) -> Data? {
+    // request it belongs to. `leavingPlanFor` is the mode an approved plan hands the rest
+    // of the turn to. The CLI stays in plan mode after the approval unless it is told.
+    func responseLine(_ answer: PermissionAnswer, leavingPlanFor: PermissionMode? = nil) -> Data? {
         var decision: [String: Any]
         switch answer {
         case .deny:
@@ -174,6 +175,12 @@ extension PermissionRequest {
                 decision["updatedPermissions"] = [["type": "addDirectories",
                                                    "directories": [directory],
                                                    "destination": "session"]]
+            }
+            if let mode = leavingPlanFor {
+                let earlier = decision["updatedPermissions"] as? [Any] ?? []
+                decision["updatedPermissions"] = earlier + [["type": "setMode",
+                                                             "mode": mode.rawValue,
+                                                             "destination": "session"]]
             }
         }
 

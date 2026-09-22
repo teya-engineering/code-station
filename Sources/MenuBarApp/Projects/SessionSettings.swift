@@ -221,9 +221,20 @@ enum CopilotAccessMode: String, CaseIterable {
 // app: nothing here can turn every check off. Stored as its raw value, which is the word
 // the CLI's --permission-mode flag takes.
 enum PermissionMode: String, CaseIterable, Identifiable {
-    case acceptEdits, manual, auto
+    case acceptEdits, manual, auto, plan
 
     static let fallback: PermissionMode = .acceptEdits
+
+    // Plan mode is for one piece of work, and approving the plan ends it. As the app-wide
+    // default it would make every new session read-only, so it is not offered there.
+    static let defaultChoices = allCases.filter { $0 != .plan }
+
+    // The mode a session goes back to once its plan is approved. A stored plan mode is
+    // skipped, or approving the plan would start the next turn planning all over again.
+    static func afterPlan(_ stored: String?) -> PermissionMode {
+        let mode = PermissionMode(stored: stored)
+        return mode == .plan ? .fallback : mode
+    }
 
     // The fallback stands in for nothing chosen and for a mode the app no longer offers.
     init(stored: String?) {
@@ -237,6 +248,7 @@ enum PermissionMode: String, CaseIterable, Identifiable {
         case .acceptEdits: "Accept edits, ask about the rest"
         case .manual: "Ask about everything"
         case .auto: "Ask only about risky things"
+        case .plan: "Plan first, change nothing"
         }
     }
 
@@ -246,6 +258,7 @@ enum PermissionMode: String, CaseIterable, Identifiable {
         case .acceptEdits: "Accept edits"
         case .manual: "Ask everything"
         case .auto: "Ask risky only"
+        case .plan: "Plan"
         }
     }
 
@@ -257,6 +270,8 @@ enum PermissionMode: String, CaseIterable, Identifiable {
             "Every edit and every command waits for an answer. The slowest, and the one that shows the most."
         case .auto:
             "Claude Code judges each step and only asks about the ones that can do damage."
+        case .plan:
+            "Claude Code reads and plans but changes nothing. Approving the plan puts the session back in its usual mode."
         }
     }
 }

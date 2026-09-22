@@ -224,4 +224,34 @@ struct PermissionRequestTests {
         #expect(request.subjectIsMarkdown)
         #expect(request.subject == "# Merge the prose\n\n## Context\n\nScrolling is slow.")
     }
+
+    // The CLI stays in plan mode after an approval unless the answer moves it on, and the
+    // rest of the turn would then plan again instead of doing the work.
+    @Test func approvingAPlanMovesTheTurnOutOfPlanMode() throws {
+        let request = try parsed(planRequest)
+        let decision = try decision(request.responseLine(.allowOnce, leavingPlanFor: .manual))
+        let permissions = try #require(decision["updatedPermissions"] as? [[String: Any]])
+
+        #expect(decision["behavior"] as? String == "allow")
+        #expect(permissions.count == 1)
+        #expect(permissions.first?["type"] as? String == "setMode")
+        #expect(permissions.first?["mode"] as? String == "manual")
+        #expect(permissions.first?["destination"] as? String == "session")
+    }
+
+    @Test func rejectingAPlanLeavesTheModeAlone() throws {
+        let request = try parsed(planRequest)
+        let decision = try decision(request.responseLine(.deny, leavingPlanFor: .manual))
+
+        #expect(decision["behavior"] as? String == "deny")
+        #expect(decision["updatedPermissions"] == nil)
+    }
+
+    // A stored plan mode is never where an approved plan goes back to.
+    @Test func anApprovedPlanGoesBackToAWorkingMode() {
+        #expect(PermissionMode.afterPlan("manual") == .manual)
+        #expect(PermissionMode.afterPlan(nil) == .fallback)
+        #expect(PermissionMode.afterPlan("plan") == .fallback)
+        #expect(!PermissionMode.defaultChoices.contains(.plan))
+    }
 }

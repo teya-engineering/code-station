@@ -526,7 +526,7 @@ struct AgentSettingsView: View {
     private var claudePermissions: some View {
         ChoiceBlock("PERMISSIONS") {
             SettingsCard {
-                let modes = PermissionMode.allCases
+                let modes = PermissionMode.defaultChoices
                 ForEach(modes.indices, id: \.self) { index in
                     let choice = modes[index]
                     OptionRow(title: choice.title,
