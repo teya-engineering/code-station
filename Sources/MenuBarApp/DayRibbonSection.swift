@@ -168,13 +168,15 @@ private struct RibbonBlock: View {
         }
         .buttonStyle(.plain)
         .opacity(dimmed ? 0.16 : 1)
-        .offset(x: offset)
         .onHover { hovering = $0 }
         .motion(Motion.hover, value: hovering)
         .motion(Motion.reveal, value: dimmed)
         .appTooltip(delay: .milliseconds(120)) { tooltip }
         .accessibilityLabel(spoken)
         .accessibilityHint("Opens this session")
+        // Placed by layout rather than by an offset: an offset only moves the drawing,
+        // so the hint would be anchored to where the block would sit without it.
+        .padding(.leading, offset)
     }
 
     private var tooltip: Tooltip {
