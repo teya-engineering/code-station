@@ -166,7 +166,15 @@
 <section class="band band--light band--flat" id="get-started">
   <div class="pitch">
     <h2 data-reveal>Install it.<br><em>On your Mac.</em></h2>
-    <p class="reveal--delay-1" data-reveal>Open the latest release on GitHub and download the signed and notarized DMG. Open it, drag Teya Code Station to Applications, and launch the app - no toolchain, no build step.</p>
+    <p class="reveal--delay-1" data-reveal>Install it with Homebrew, or download the signed and notarized DMG from the latest release on GitHub, drag Teya Code Station to Applications, and launch the app - no toolchain, no build step.</p>
+    <div class="terminal terminal--inline reveal--delay-2" data-reveal>
+      <header>
+        <span class="lights"><i style="background:#e0655b"></i><i style="background:#e0b155"></i><i style="background:#5fb85f"></i></span>
+        Homebrew
+        <button type="button" data-copy>Copy</button>
+      </header>
+<pre><code><span class="sigil">$ </span>brew install teya-engineering/tap/teya-code-station</code></pre>
+    </div>
     <div class="actions reveal--delay-2" data-reveal>
       <a class="btn btn--primary" href="https://github.com/teya-engineering/code-station/releases/latest">View the latest release</a>
     </div>
@@ -176,8 +184,8 @@
     <div data-reveal="left">
       <p class="eyebrow">What you need</p>
       <ul class="checklist">
-        <li>macOS 14 or later</li>
-        <li>At least one agent installed and signed in: <code>codex</code> or <code>claude</code></li>
+        <li>macOS 15 or later</li>
+        <li>At least one agent installed and signed in: <code>claude</code>, <code>codex</code> or <code>copilot</code></li>
       </ul>
       <p class="eyebrow" style="margin-top:36px">For contributors</p>
       <p>Building from source needs Xcode 16 (or another Swift 6 toolchain) and Git. The script makes a double-clickable bundle you can drop in Applications.</p>
@@ -282,7 +290,7 @@
     requestParallaxUpdate();
   });
 
-  document.querySelector('[data-copy]')?.addEventListener('click', async (event) => {
+  document.querySelectorAll('[data-copy]').forEach((copyButton) => copyButton.addEventListener('click', async (event) => {
     const button = event.currentTarget;
     const lines = button.closest('.terminal').querySelector('code').innerText;
     try {
@@ -292,7 +300,7 @@
     } catch {
       button.textContent = 'Press Cmd C';
     }
-  });
+  }));
 
 </script>
 
