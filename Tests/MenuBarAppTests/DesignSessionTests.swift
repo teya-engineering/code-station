@@ -119,6 +119,25 @@ struct DesignSessionTests {
         #expect(!FileManager.default.fileExists(atPath: artifact.path))
     }
 
+    @Test func designPresenceTracksCompanionArtifactsBeingCreatedAndRemoved() throws {
+        let source = store.newSession(in: project.id)
+        let design = try store.startDesign(for: source.id).get()
+        let directory = try #require(store.designFilesURL(for: design))
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        #expect(!store.hasDesignArtifacts(for: source))
+
+        let handoff = directory.appendingPathComponent("handoff.md")
+        try Data("Design notes".utf8).write(to: handoff)
+        #expect(store.hasDesignArtifacts(for: source))
+        #expect(store.hasDesignArtifacts(for: design))
+
+        try FileManager.default.removeItem(at: handoff)
+        #expect(!store.hasDesignArtifacts(for: source))
+        #expect(!store.hasDesignArtifacts(for: design))
+        try FileManager.default.removeItem(at: directory)
+        #expect(!store.hasDesignArtifacts(for: source))
+    }
+
     @Test func approvedRevisionPreservesScreensHandoffAndSourceRevision() throws {
         let design = store.newSession(in: project.id, seed: .init(mode: .design))
         let directory = try writeDesign(for: design, in: store,

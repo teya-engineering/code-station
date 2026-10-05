@@ -143,19 +143,23 @@ extension View {
 
     // The one-line form, for a control whose icon does not say what it does.
     func appTooltip(_ text: String,
+                    isFocused: Bool = false,
                     delay: Duration = TooltipPresenter.hoverDelay) -> some View {
-        modifier(AppTooltip(delay: delay, tooltip: { Tooltip(title: text) }))
+        modifier(AppTooltip(delay: delay, isFocused: isFocused, text: text, tooltip: { Tooltip(title: text) }))
     }
 }
 
 private struct AppTooltip: ViewModifier {
     @Environment(TooltipPresenter.self) private var presenter
     let delay: Duration
+    var isFocused = false
+    var text: String?
     let tooltip: () -> Tooltip
 
     @State private var id = UUID()
     @State private var anchor = FrameAnchor()
     @State private var pending: Task<Void, Never>?
+    @State private var hovering = false
 
     func body(content: Content) -> some View {
         content
@@ -163,8 +167,10 @@ private struct AppTooltip: ViewModifier {
             // A hint belongs to the pointer resting on something. Rows sliding past
             // under a scroll are not that, and a hint is taken down by a scroll anyway.
             .onPointerHover { inside in
+                hovering = inside
                 pending?.cancel()
                 guard inside else {
+                    if isFocused { return }
                     presenter.hide(owner: id)
                     return
                 }
@@ -178,6 +184,17 @@ private struct AppTooltip: ViewModifier {
                     guard !Task.isCancelled else { return }
                     showTooltip()
                 }
+            }
+            .onChange(of: isFocused) { _, focused in
+                pending?.cancel()
+                if focused {
+                    showTooltip()
+                } else if !hovering {
+                    presenter.hide(owner: id)
+                }
+            }
+            .onChange(of: text) { _, _ in
+                if isFocused || hovering { showTooltip() }
             }
             .onDisappear {
                 pending?.cancel()

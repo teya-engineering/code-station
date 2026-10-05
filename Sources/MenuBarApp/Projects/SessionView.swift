@@ -187,6 +187,7 @@ struct SessionView: View {
     // as tools finish, so the numbers track the run rather than only its end and are
     // already there the next time this session opens.
     @State private var statsTask: Task<Void, Never>?
+    @State private var designHasContent: Bool?
 
     private let bottomAnchor = "transcript-bottom"
     private var terminalScope: TerminalScope { .session(sessionID) }
@@ -317,6 +318,20 @@ struct SessionView: View {
             }
             .background(terminalShortcut(directory: workingDirectory))
             .background(tabShortcuts(headerTabs(for: session)))
+            .task(id: designFilesURL) {
+                // Agents and external editors write artifacts without changing the store.
+                while !Task.isCancelled {
+                    if let current = store.session(sessionID) {
+                        let presence = store.hasDesignArtifacts(for: current)
+                        if presence != designHasContent { designHasContent = presence }
+                    }
+                    do {
+                        try await Task.sleep(for: .milliseconds(400))
+                    } catch {
+                        return
+                    }
+                }
+            }
             .background(recapShortcut)
             .background(stopShortcut)
             .background(WindowAnchor(monitor: findMonitor))
@@ -764,11 +779,15 @@ struct SessionView: View {
                         icon: "bubble.left.and.bubble.right",
                         value: .conversation)
         ]
-        if !session.isActivelyDesigning {
+        let hasContent = designHasContent ?? store.hasDesignArtifacts(for: session)
+        if session.isActivelyDesigning {
+            tabs[0].hasContent = hasContent
+        } else {
             tabs.append(HeaderTab(
                 label: "Design",
                 icon: "paintbrush.pointed",
                 selected: tab == .design,
+                hasContent: hasContent,
                 activate: { openDesign(for: session) }))
         }
         tabs.append(destination("Troubleshoot", icon: "stethoscope", value: .troubleshoot))

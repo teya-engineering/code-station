@@ -54,6 +54,21 @@ struct HeaderTabDeckRoomTests {
         #expect(counted.fittingSize.width > bare.fittingSize.width)
     }
 
+    @Test func designContentAndSelectionKeepTheSameWidth() {
+        let widths = [false, true].flatMap { hasContent in
+            ["Chat", "Design"].map { selected in
+                var destinations = tabs(selecting: selected,
+                                        diffOnChanges: .init(added: 258, removed: 89))
+                destinations[1].hasContent = hasContent
+                let deck = NSHostingView(rootView: HeaderTabDeck(tabs: destinations)
+                    .environment(TooltipPresenter()))
+                draw(deck)
+                return deck.fittingSize.width
+            }
+        }
+        #expect(widths.allSatisfy { $0 == widths.first })
+    }
+
     private func draw(_ view: NSView) {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 40),
                               styleMask: [.borderless], backing: .buffered, defer: false)

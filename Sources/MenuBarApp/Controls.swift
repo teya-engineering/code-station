@@ -392,6 +392,8 @@ struct HeaderTab: Identifiable {
     // Counts the destination carries for itself. They sit on the tab that opens them,
     // where they say what has changed rather than only that something has.
     var diff: Diff?
+    // Nil leaves ordinary tabs unchanged; false keeps the content indicator slot empty.
+    var hasContent: Bool?
     let activate: () -> Void
 
     var id: String { label }
@@ -460,8 +462,18 @@ private struct HeaderTabDeckItem: View {
     let height: CGFloat
 
     @State private var hovering = false
+    @FocusState private var focused: Bool
 
     var body: some View {
+        if let hasContent = tab.hasContent {
+            button.appTooltip(hasContent ? "\(tab.label) has content" : "No design content",
+                              isFocused: focused)
+        } else {
+            button
+        }
+    }
+
+    private var button: some View {
         Button(action: tab.activate) {
             HStack(spacing: 7) {
                 Image(systemName: tab.icon)
@@ -471,6 +483,15 @@ private struct HeaderTabDeckItem: View {
                     .font(.system(size: Self.wordSize, weight: .semibold))
                     .fixedSize()
                     .frame(width: Self.width(of: tab.label), alignment: .leading)
+                if let hasContent = tab.hasContent {
+                    Circle()
+                        .fill(Theme.dotOnText)
+                        .frame(width: 6, height: 6)
+                        .opacity(hasContent ? 1 : 0)
+                        .padding(.leading, 1)
+                        .accessibilityHidden(true)
+                        .transaction { $0.animation = nil }
+                }
                 if let diff = tab.diff {
                     DiffPair(added: diff.added, removed: diff.removed,
                              size: Self.countSize, spacing: Self.countSpacing)
@@ -494,6 +515,7 @@ private struct HeaderTabDeckItem: View {
         .hoverLift(hovering)
         .onHover { hovering = $0 }
         .motion(Motion.hover, value: hovering)
+        .focused($focused)
         .accessibilityLabel(accessibilityLabel)
         .accessibilityAddTraits(tab.selected ? [.isSelected] : [])
     }
@@ -501,8 +523,9 @@ private struct HeaderTabDeckItem: View {
     // The counts are read out with the destination rather than left as two numbers beside
     // it, so the tab says the same thing whether it is seen or heard.
     private var accessibilityLabel: String {
-        guard let diff = tab.diff else { return tab.label }
-        return "\(tab.label), \(diff.added) added, \(diff.removed) removed"
+        let label = tab.hasContent == true ? "\(tab.label), has content" : tab.label
+        guard let diff = tab.diff else { return label }
+        return "\(label), \(diff.added) added, \(diff.removed) removed"
     }
 
     private static let wordSize: CGFloat = 12.5
