@@ -175,6 +175,11 @@ struct DesignConversationViewTests {
         let observer = try #require(descendants(hosting.view).compactMap {
             $0 as? DesignConversationDismissal.ObserverView
         }.first)
+        #expect(observer.minimized)
+        let openingTab = observer.convert(observer.bounds, to: nil)
+        try click(CGPoint(x: openingTab.midX, y: openingTab.midY))
+        try await settle()
+        #expect(!observer.minimized)
         #expect(!observer.expanded)
         #expect(observer.bounds.size == CGSize(width: 880, height: 326))
         let composer = try #require(descendants(hosting.view).compactMap { $0 as? NSTextView }.first { $0.isEditable })
@@ -258,6 +263,67 @@ struct DesignConversationViewTests {
             #expect(panel.minX >= canvas.minX && panel.maxX <= canvas.maxX)
             #expect(panel.minY >= canvas.minY && panel.maxY <= canvas.maxY)
         }
+    }
+
+    @Test func anEmptyDesignKeepsTheConversationOpenUntilTheFirstDesignArrives() async throws {
+        let (store, scratch) = TestStore.make()
+        let project = try TestStore.project(in: store)
+        let session = store.newSession(in: project.id, seed: .init(agent: .codex, mode: .design))
+        let artifact = try #require(store.designArtifactURL(for: session))
+        let runner = SessionRunner(paths: [.codex: "/usr/bin/true"])
+        let preferences = try #require(UserDefaults(suiteName: "design-empty-\(UUID().uuidString)"))
+        let hosting = NSHostingController(rootView:
+            DesignView(sessionID: session.id)
+                .environment(store)
+                .environment(runner)
+                .environment(AppSettings(agentAvatarURL: scratch.path("avatar.png"), preferences: preferences))
+                .environment(ShortcutStore(storageURL: scratch.path("shortcuts.json"), siteDefaults: SiteDefaults()))
+                .environment(GlobalCommandPaletteController())
+                .background(Theme.background)
+                .appOverlays())
+        hosting.sizingOptions = []
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 1000, height: 800),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentViewController = hosting
+        window.setContentSize(NSSize(width: 1000, height: 800))
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            window.orderOut(nil)
+            window.contentViewController = nil
+            runner.stopAll()
+        }
+        func descendants(_ view: NSView) -> [NSView] {
+            view.subviews + view.subviews.flatMap(descendants)
+        }
+        func settle() async throws {
+            for _ in 0..<40 {
+                try await Task.sleep(for: .milliseconds(20))
+                hosting.view.layoutSubtreeIfNeeded()
+            }
+        }
+        try await settle()
+        let observer = try #require(descendants(hosting.view).compactMap {
+            $0 as? DesignConversationDismissal.ObserverView
+        }.first)
+        #expect(observer.expanded)
+        #expect(!observer.minimized)
+        #expect(!observer.enabled)
+        let escape = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero,
+            modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,
+            context: nil, characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}",
+            isARepeat: false, keyCode: 53))
+        #expect(observer.handle(escape, frontmost: window) === escape)
+        try await settle()
+        #expect(observer.expanded)
+
+        try FileManager.default.createDirectory(at: artifact.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "<!doctype html><html><body><h1>First design</h1></body></html>"
+            .write(to: artifact, atomically: true, encoding: .utf8)
+        try await settle()
+        #expect(!observer.expanded)
+        #expect(!observer.minimized)
+        #expect(observer.enabled)
     }
 
     // Starting a turn swaps the empty canvas for a "Building" one. The panel over it has to

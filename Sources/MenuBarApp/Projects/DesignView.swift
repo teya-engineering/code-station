@@ -19,6 +19,7 @@ struct DesignView: View {
     @FocusState private var conversationToggleFocused: Bool
     @State private var conversationExpanded = false
     @State private var conversationMinimized = false
+    @State private var designEmpty = false
     @State private var hasOpenedConversation = false
     @State private var transcriptAtBottom = true
     @State private var transcriptPosition = ScrollPosition(edge: .bottom)
@@ -43,13 +44,25 @@ struct DesignView: View {
                     sessionID: store.userFacingSessionID(for: sessionID))
                 // A design that already exists is what the user came back to look at,
                 // so the panel starts as a small tab instead of covering it.
-                if DesignArtifactRevision.read(directory) != nil {
-                    var transaction = Transaction()
-                    transaction.disablesAnimations = true
-                    withTransaction(transaction) { conversationMinimized = true }
-                } else {
+                // With nothing on the canvas yet, the conversation is all there is to show,
+                // so it fills the pane.
+                designEmpty = DesignArtifactRevision.read(directory) == nil
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                if designEmpty {
+                    withTransaction(transaction) { conversationExpanded = true }
                     composerFocused = true
+                } else {
+                    withTransaction(transaction) { conversationMinimized = true }
                 }
+            }
+            // The canvas starts unread, so only a change against what was on disk when the
+            // pane opened counts: the first design folds the panel to make room for it.
+            .onChange(of: canvas.revision == nil) { _, empty in
+                guard empty != designEmpty else { return }
+                designEmpty = empty
+                conversationMinimized = false
+                conversationExpanded = empty
             }
             .onDisappear {
                 store.release(sessionID, for: .open)
@@ -81,7 +94,7 @@ struct DesignView: View {
         return VStack(spacing: 0) {
             HStack(spacing: 0) {
                 Button {
-                    conversationExpanded.toggle()
+                    if !designEmpty { conversationExpanded.toggle() }
                 } label: {
                     HStack(spacing: 9) {
                         Image(systemName: "bubble.left")
@@ -95,11 +108,13 @@ struct DesignView: View {
                         } else if runner.state(sessionID).isBusy {
                             StateLight(tone: .running, size: 6)
                             Text("Working").foregroundStyle(.secondary)
-                        } else {
+                        } else if !designEmpty {
                             Text(conversationExpanded ? "Collapse" : "Expand")
                                 .foregroundStyle(.secondary)
                         }
-                        Image(systemName: conversationExpanded ? "chevron.down" : "arrow.up.left.and.arrow.down.right")
+                        if !designEmpty {
+                            Image(systemName: conversationExpanded ? "chevron.down" : "arrow.up.left.and.arrow.down.right")
+                        }
                     }
                     .font(.system(size: 11))
                     .padding(.horizontal, 18)
@@ -111,7 +126,7 @@ struct DesignView: View {
                 .focused($conversationToggleFocused)
                 .focusEffectDisabled()
                 .onKeyPress(keys: [.space, .return]) { _ in
-                    conversationExpanded.toggle()
+                    if !designEmpty { conversationExpanded.toggle() }
                     return .handled
                 }
                 .overlay {
@@ -123,7 +138,8 @@ struct DesignView: View {
                 .accessibilityLabel("Conversation")
                 .accessibilityValue((conversationExpanded ? "Expanded" : "Collapsed")
                     + (needsYou ? ", needs you" : runner.state(sessionID).isBusy ? ", working" : ""))
-                .accessibilityHint(conversationExpanded ? "Collapse the transcript" : "Expand the transcript")
+                .accessibilityHint(designEmpty ? ""
+                    : conversationExpanded ? "Collapse the transcript" : "Expand the transcript")
             }
 
             transcript(session, width: panelSize.width)
@@ -166,7 +182,7 @@ struct DesignView: View {
             expanded: conversationExpanded,
             minimized: conversationMinimized,
             footerHeight: footerHeight,
-            enabled: dialogs.current == nil && !menus.isOpen,
+            enabled: dialogs.current == nil && !menus.isOpen && !designEmpty,
             collapse: { keyboard in
                 conversationExpanded = false
                 // A press outside shrinks the panel to a small tab, so the canvas gets back
