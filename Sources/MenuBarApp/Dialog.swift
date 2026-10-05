@@ -39,6 +39,7 @@ struct Dialog: Identifiable {
         var subject: Subject?
         let rows: [Row]
         var warning: String?
+        var compact = false
     }
 
     let id = UUID()
@@ -75,11 +76,11 @@ extension Dialog {
     // A confirmation for a deletion with more than one consequence. The rows make the
     // dialog wider than a plain question, so the details do not wrap into a column.
     static func impact(_ title: String, message: String? = nil, subject: Impact.Subject? = nil,
-                       rows: [Impact.Row], warning: String? = nil, action: String,
+                       rows: [Impact.Row], warning: String? = nil, compact: Bool = false, action: String,
                        handler: @escaping () -> Void) -> Dialog {
         var dialog = confirm(title, message: message, action: action, handler: handler)
-        dialog.width = 500
-        dialog.impact = Impact(subject: subject, rows: rows, warning: warning)
+        dialog.width = compact ? 420 : 500
+        dialog.impact = Impact(subject: subject, rows: rows, warning: warning, compact: compact)
         return dialog
     }
 }
@@ -219,18 +220,20 @@ private struct ImpactDialogCard: View {
     @Environment(DialogPresenter.self) private var presenter
     @FocusState private var focusedAction: UUID?
 
+    private var compact: Bool { dialog.impact?.compact == true }
+
     var body: some View {
         VStack(spacing: 0) {
-            MenuContentScrollView(maxHeight: max(0, maxHeight - 76)) {
-                VStack(alignment: .leading, spacing: 20) {
+            MenuContentScrollView(maxHeight: max(0, maxHeight - (compact ? 56 : 76))) {
+                VStack(alignment: .leading, spacing: compact ? 14 : 20) {
                     if let impact = dialog.impact {
                         if let subject = impact.subject {
-                            HStack(spacing: 10) {
+                            HStack(spacing: compact ? 8 : 10) {
                                 ProjectTileView(name: subject.name,
                                                 tint: subject.kind == .workspace
                                                     ? Theme.workspaceTint
                                                     : Theme.projectTint(for: subject.name),
-                                                side: 29,
+                                                side: compact ? 22 : 29,
                                                 dashed: subject.kind == .task,
                                                 stacked: subject.kind == .workspace)
                                     .accessibilityHidden(true)
@@ -239,24 +242,24 @@ private struct ImpactDialogCard: View {
                                     .foregroundStyle(.secondary)
                             }
                         }
-                        VStack(alignment: .leading, spacing: 10) {
+                        VStack(alignment: .leading, spacing: compact ? 8 : 10) {
                             Text(dialog.title)
-                                .font(.serif(26, .regular))
+                                .font(.serif(compact ? 17 : 26, compact ? .semibold : .regular))
                                 .accessibilityAddTraits(.isHeader)
                             if let message = dialog.message {
                                 Text(message)
-                                    .font(.system(size: 13))
+                                    .font(.system(size: compact ? 12 : 13))
                                     .foregroundStyle(.secondary)
                             }
                         }
                         VStack(spacing: 0) {
                             ForEach(Array(impact.rows.enumerated()), id: \.offset) { _, row in
                                 Rectangle().fill(Theme.border).frame(height: 1)
-                                HStack(alignment: .center, spacing: 14) {
+                                HStack(alignment: compact ? .top : .center, spacing: compact ? 10 : 14) {
                                     Image(systemName: row.kept ? "checkmark" : "minus")
-                                        .font(.system(size: 19, weight: .medium))
+                                        .font(.system(size: compact ? 13 : 19, weight: .medium))
                                         .foregroundStyle(row.kept ? Theme.accent : Theme.deletion)
-                                        .frame(width: 34, height: 34)
+                                        .frame(width: compact ? 22 : 34, height: compact ? 22 : 34)
                                         .background(row.kept ? Theme.accent.opacity(0.10) : Theme.warningBackground,
                                                     in: Circle())
                                         .accessibilityHidden(true)
@@ -268,7 +271,7 @@ private struct ImpactDialogCard: View {
                                     }
                                     Spacer(minLength: 0)
                                 }
-                                .padding(.vertical, 17)
+                                .padding(.vertical, compact ? 12 : 17)
                                 .accessibilityElement(children: .combine)
                             }
                             Rectangle().fill(Theme.border).frame(height: 1)
@@ -282,15 +285,15 @@ private struct ImpactDialogCard: View {
                 }
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(28)
+                .padding(compact ? 20 : 28)
             }
             .scrollBounceBehavior(.basedOnSize)
-            HStack(spacing: 9) {
+            HStack(spacing: compact ? 8 : 9) {
                 Spacer(minLength: 0)
                 ForEach(dialog.actions.reversed()) { action in
                     ActionButton(title: action.label,
                                  tone: action.kind == .destructive ? .danger : .sunken,
-                                 height: 36, size: 12,
+                                 height: compact ? 32 : 36, size: 12,
                                  keyboardShortcut: action.kind == .cancel ? .cancelAction : .defaultAction) {
                         presenter.run(action)
                     }
@@ -301,13 +304,16 @@ private struct ImpactDialogCard: View {
                         .padding(-3))
                 }
             }
-            .padding(20)
+            .padding(.horizontal, compact ? 16 : 20)
+            .padding(.vertical, compact ? 12 : 20)
             .background(Theme.field)
         }
-        .clipShape(RoundedRectangle(cornerRadius: 18))
-        .floatingCard(cornerRadius: 18)
+        .clipShape(RoundedRectangle(cornerRadius: compact ? 14 : 18))
+        .floatingCard(cornerRadius: compact ? 14 : 18)
         .accessibilityElement(children: .contain)
         .accessibilityAddTraits(.isModal)
+        .accessibilityLabel(dialog.title)
+        .accessibilityValue(dialog.message ?? "")
         .onKeyPress(keys: [.tab]) { press in
             let actions = dialog.actions.reversed().filter { $0.isEnabled() }
             guard !actions.isEmpty else { return .handled }

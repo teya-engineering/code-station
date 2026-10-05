@@ -24,7 +24,10 @@ struct SessionRemovalTests {
         let dialog = SessionRemoval.confirmation(for: store.session(session.id)!, in: store,
                                                  workingTrees: WorkingTreeWatch()) {}
 
-        #expect(dialog.title == "Delete \"Fix the parser\"?")
+        #expect(dialog.title == "Delete this session?")
+        #expect(dialog.message == "Fix the parser")
+        #expect(dialog.width == 420)
+        #expect(dialog.impact?.compact == true)
         #expect(dialog.impact?.subject?.name == project.name)
         #expect(dialog.impact?.rows.first?.title == "Conversation history")
         #expect(dialog.impact?.rows.last?.title == "Project folder stays")

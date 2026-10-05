@@ -83,13 +83,13 @@ enum SessionRemoval {
         } else {
             worktrees.isEmpty ? "Delete session" : "Delete session and worktrees"
         }
-        return .impact("Delete \"\(session.title)\"?",
-                       message: "This \(isTaskRun ? "run" : "session") will leave Code Station.",
+        return .impact(isTaskRun ? "Delete this run?" : "Delete this session?",
+                       message: session.title,
                        subject: subject, rows: rows,
                        warning: dirty > 0
                            ? "Uncommitted changes and conversation history cannot be restored."
                            : "Conversation history cannot be restored.",
-                       action: deleteLabel, handler: onConfirm)
+                       compact: true, action: deleteLabel, handler: onConfirm)
     }
 
     // Removes each session, keeping going after one refuses so that a single session still
