@@ -407,9 +407,12 @@ struct ChangesView: View {
                                     collapsedRepositories.remove(repository.root)
                                 }
                             } label: {
-                                Image(systemName: collapsedRepositories.contains(repository.root) ? "chevron.right" : "chevron.down")
-                                    .font(.system(size: 10)).frame(width: 20, height: 30).contentShape(Rectangle())
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 10))
+                                    .rotationEffect(.degrees(collapsedRepositories.contains(repository.root) ? 0 : 90))
+                                    .frame(width: 20, height: 30).contentShape(Rectangle())
                             }.buttonStyle(.plain)
+                                .motion(Motion.control, value: collapsedRepositories.contains(repository.root))
                                 .accessibilityLabel("\(collapsedRepositories.contains(repository.root) ? "Expand" : "Collapse") \(repository.name)")
                             Button { selectRepository(repository.root, nil) } label: {
                                 HStack(spacing: 7) {
@@ -442,9 +445,11 @@ struct ChangesView: View {
                                         .focused($navigatorFocus, equals: ChangesNavigatorItem(root: repository.root, path: file.id))
                                 }
                             }
+                            .transition(.fold)
                         }
                     }
                 }.padding(10)
+                .smoothlyResizes(when: collapsedRepositories)
             }
             .background(Theme.card)
             .accessibilityLabel("Workspace repositories and changed files")
