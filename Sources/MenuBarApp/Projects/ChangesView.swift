@@ -74,6 +74,23 @@ enum RowStep {
     }
 }
 
+struct ChangesNavigatorItem: Hashable {
+    let root: String
+    let path: String?
+
+    static func next(after current: Self?, step: Int, in items: [Self]) -> Self? {
+        guard let index = RowStep.destination(from: current.flatMap { items.firstIndex(of: $0) },
+                                              step: step, count: items.count) else { return nil }
+        return items[index]
+    }
+}
+
+struct ChangesRepository: Identifiable {
+    let root: String
+    let name: String
+    var id: String { root }
+}
+
 // The uncommitted changes in a session's folder: the project directory itself, or the
 // session's worktree. Sessions edit the real files there, so this screen is how you
 // see what the agent did before you keep it. The diffs themselves never touch the tree;
@@ -81,6 +98,12 @@ enum RowStep {
 struct ChangesView: View {
     let root: String
     let initiallySelectedPath: String?
+    let repositories: [ChangesRepository]
+    let requestedPath: String?
+    let selectRepository: (String, String?) -> Void
+    @State private var collapsedRepositories: Set<String> = []
+    @State private var navigatorVisible = true
+    @FocusState private var navigatorFocus: ChangesNavigatorItem?
 
     private enum Mode: Hashable { case changes, history }
 
@@ -134,21 +157,37 @@ struct ChangesView: View {
         return snapshot.upstream == nil || snapshot.ahead > 0
     }
 
-    init(root: String, initiallySelectedPath: String? = nil) {
+    init(root: String, initiallySelectedPath: String? = nil,
+         repositories: [ChangesRepository] = [], requestedPath: String? = nil,
+         selectRepository: @escaping (String, String?) -> Void = { _, _ in }) {
         self.root = root
         self.initiallySelectedPath = initiallySelectedPath
+        self.repositories = repositories.isEmpty
+            ? [ChangesRepository(root: root, name: (root as NSString).lastPathComponent)] : repositories
+        self.requestedPath = requestedPath
+        self.selectRepository = selectRepository
     }
 
     var body: some View {
         VStack(spacing: 0) {
             header
             if committing && mode == .changes { commitBar }
-            content
+            GeometryReader { geometry in
+                HStack(spacing: 0) {
+                    if navigatorVisible && (geometry.size.width >= 650 || committing) {
+                        workspaceNavigator.frame(width: 280)
+                        Divider().overlay(Theme.hairline)
+                    }
+                    content
+                }
+            }
             if let checkedAt {
                 HStack {
-                    Text(feedback.isEmpty ? "Git status checked" : feedback)
+                    Text(feedback.isEmpty ? (mode == .changes ? "Last commit → Working tree" : "Commit history") : feedback)
                     Spacer()
+                    if let working { Text(working) }
                     Text(checkedAt, style: .relative)
+                    refreshButton
                 }
                 .font(.system(size: 11)).foregroundStyle(.secondary)
                 .padding(.horizontal, 20).padding(.vertical, 8)
@@ -161,6 +200,11 @@ struct ChangesView: View {
         .task(id: root) {
             if snapshot == nil { snapshot = gitStats.snapshot(at: root) }
             await reload()
+        }
+        .onChange(of: requestedPath) { _, path in
+            guard let file = files.first(where: { $0.id == path }) else { return }
+            mode = .changes
+            select(file)
         }
         .onChange(of: mode) { _, _ in switchedMode() }
         // The open diff is one attributed string built when the file was picked, so its
@@ -232,23 +276,7 @@ struct ChangesView: View {
 
     private func copyButton(_ version: GitInspector.CopyVersion, file: GitChange, label: String) -> some View {
         Button {
-            Task {
-                let result = await GitInspector.copyText(for: file, root: repoRoot, version: version)
-                switch result {
-                case .success(let text):
-                    guard Pasteboard.copy(text) else {
-                        dialogs.show(.notice("Could not copy", message: "The clipboard is unavailable. Try Copy again."))
-                        return
-                    }
-                    copied = version
-                    copiedPath = file.id
-                    announce("Copied " + file.fileName)
-                    try? await Task.sleep(for: .seconds(2))
-                    copied = nil
-                case .failure(let error):
-                    dialogs.show(.notice("Could not copy", message: error.message + " Try refreshing or open the file in an editor."))
-                }
-            }
+            copy(version, file: file)
         } label: {
             Label(copied == version && copiedPath == file.id ? "Copied" : label, systemImage: "doc.on.doc")
                 .font(.system(size: 12)).padding(8)
@@ -257,186 +285,189 @@ struct ChangesView: View {
         .accessibilityLabel(version == .patch ? "Copy unified diff" : version == .before ? "Copy last commit version" : "Copy working tree version")
     }
 
+    private func copy(_ version: GitInspector.CopyVersion, file: GitChange) {
+        Task {
+            let result = await GitInspector.copyText(for: file, root: repoRoot, version: version)
+            switch result {
+            case .success(let text):
+                guard Pasteboard.copy(text) else {
+                    dialogs.show(.notice("Could not copy", message: "The clipboard is unavailable. Try Copy again."))
+                    return
+                }
+                copied = version
+                copiedPath = file.id
+                announce("Copied " + file.fileName)
+                try? await Task.sleep(for: .seconds(2))
+                copied = nil
+            case .failure(let error):
+                dialogs.show(.notice("Could not copy", message: error.message + " Try refreshing or open the file in an editor."))
+            }
+        }
+    }
+
     // MARK: - Header
 
-    // The header is always one row. A narrow pane gives things up in a fixed order instead
-    // of wrapping, so Commit never lands on a line of its own.
     private var header: some View {
-        Group {
+        HStack(spacing: 12) {
+            Image(systemName: "sidebar.left")
+                .padding(7).contentShape(Rectangle())
+                .appMenu { navigatorMenu }
+                .accessibilityLabel("Workspace navigator")
+            VStack(alignment: .leading, spacing: 3) {
+                Text(repositories.count > 1 ? "Workspace changes" : "Project changes")
+                    .font(.system(size: 14, weight: .semibold))
+                Text(repositories.first { $0.root == root }?.name ?? root)
+                    .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+            }
+            Spacer(minLength: 0)
             if let snapshot, snapshot.state == .ready {
-                ViewThatFits(in: .horizontal) {
-                    headerRow(snapshot, fit: HeaderFit())
-                    headerRow(snapshot, fit: HeaderFit(showsStatus: false))
-                    headerRow(snapshot, fit: HeaderFit(showsStatus: false, shortLabels: true))
-                    headerRow(snapshot, fit: HeaderFit(showsStatus: false, shortLabels: true,
-                                                       branchFloor: 120))
-                    headerRow(snapshot, fit: HeaderFit(showsStatus: false, shortLabels: true,
-                                                       branchFloor: 84, showsLabels: false))
+                Text(snapshot.branch).font(.mono(11)).foregroundStyle(.secondary)
+                    .lineLimit(1).truncationMode(.middle).frame(maxWidth: 140)
+                    .accessibilityHint(syncStatus)
+                InlineLink(title: mode == .history ? "Back to changes" : "History") {
+                    mode = mode == .history ? .changes : .history
                 }
-            } else {
-                HStack(spacing: 14) {
-                    Text((root as NSString).lastPathComponent).font(.system(size: 13, weight: .medium))
-                    Spacer(minLength: 0)
-                    joinedControl { refreshButton }
+                Image(systemName: "ellipsis").padding(8).contentShape(Rectangle())
+                    .appMenu { repositoryMenu(snapshot) }
+                    .accessibilityLabel("Repository actions for \(repositories.first { $0.root == root }?.name ?? root)")
+                    .disabled(busy)
+                if !files.isEmpty && mode == .changes {
+                    ActionButton(title: "Commit…", height: 30, size: 12) {
+                        if committing { committing = false } else { beginCommit() }
+                    }.disabled(busy)
                 }
             }
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 12)
+        .padding(.horizontal, 20).padding(.vertical, 12)
         .background(Theme.card)
         .overlay(alignment: .bottom) { Rectangle().fill(Theme.hairline).frame(height: 1) }
     }
 
-    private func headerRow(_ snapshot: GitSnapshot, fit: HeaderFit) -> some View {
-        HStack(spacing: 14) {
-            HeaderTabToggle(selection: $mode,
-                            options: [("Changes", .changes), ("History", .history)])
-                .fixedSize()
-            branchAndRemote(snapshot, fit: fit)
-                .layoutPriority(1)
-            Spacer(minLength: 0)
-            if !files.isEmpty && mode == .changes {
-                ActionButton(title: "Commit", height: 30, size: 12, icon: "checkmark.circle") {
-                    if committing {
-                        committing = false
-                    } else {
-                        beginCommit()
+    private func repositoryMenu(_ snapshot: GitSnapshot) -> [MenuEntry] {
+        var entries = snapshot.remoteActions.map { action -> MenuEntry in
+            switch action {
+            case .pull(let count):
+                return .item("Pull \(counted(count, "commit"))", icon: "arrow.down") { pull() }
+            case .push(let count):
+                return .item("Push \(counted(count, "commit"))", icon: "arrow.up") { confirmPush(snapshot) }
+            case .publish:
+                return .item("Publish branch", icon: "arrow.up") { confirmPush(snapshot) }
+            }
+        }
+        if !entries.isEmpty { entries.append(.separator) }
+        entries.append(contentsOf: branchMenu(snapshot))
+        return entries
+    }
+
+    private var navigatorMenu: [MenuEntry] {
+        [.item(navigatorVisible ? "Hide navigator" : "Show navigator") { navigatorVisible.toggle() }, .separator]
+        + repositories.flatMap { repository -> [MenuEntry] in
+            let changes = repository.root == root ? files : gitStats.snapshot(at: repository.root)?.files ?? []
+            return [.item(repository.name, checked: repository.root == root) {
+                selectRepository(repository.root, nil)
+            }] + changes.map { file in
+                .item(file.fileName, subtitle: file.path) {
+                    if repository.root == root { mode = .changes; select(file) }
+                    else { selectRepository(repository.root, file.id) }
+                }
+            }
+        }
+    }
+
+    private var navigatorItems: [ChangesNavigatorItem] {
+        repositories.flatMap { repository in
+            let changes = repository.root == root ? files : gitStats.snapshot(at: repository.root)?.files ?? []
+            return [ChangesNavigatorItem(root: repository.root, path: nil)]
+                + (collapsedRepositories.contains(repository.root) ? [] : changes.map {
+                    ChangesNavigatorItem(root: repository.root, path: $0.id)
+                })
+        }
+    }
+
+    private func moveNavigator(_ direction: MoveCommandDirection) {
+        guard direction == .up || direction == .down,
+              let next = ChangesNavigatorItem.next(after: navigatorFocus,
+                  step: direction == .up ? -1 : 1, in: navigatorItems) else { return }
+        navigatorFocus = next
+        if next.root == root, let file = files.first(where: { $0.id == next.path }) {
+            mode = .changes
+            select(file)
+        }
+    }
+
+    private var workspaceNavigator: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 3) {
+                    ForEach(repositories) { repository in
+                        let changes = repository.root == root ? files : gitStats.snapshot(at: repository.root)?.files ?? []
+                        HStack(spacing: 6) {
+                            Button {
+                                if !collapsedRepositories.insert(repository.root).inserted {
+                                    collapsedRepositories.remove(repository.root)
+                                }
+                            } label: {
+                                Image(systemName: collapsedRepositories.contains(repository.root) ? "chevron.right" : "chevron.down")
+                                    .font(.system(size: 10)).frame(width: 20, height: 30).contentShape(Rectangle())
+                            }.buttonStyle(.plain)
+                                .accessibilityLabel("\(collapsedRepositories.contains(repository.root) ? "Expand" : "Collapse") \(repository.name)")
+                            Button { selectRepository(repository.root, nil) } label: {
+                                HStack(spacing: 7) {
+                                    ProjectDot(tint: Theme.projectTint(for: repository.name), size: 8)
+                                    Text(repository.name).font(.system(size: 12, weight: .semibold)).lineLimit(1)
+                                    Spacer(minLength: 0)
+                                    Text(changes.isEmpty ? (gitStats.snapshot(at: repository.root) == nil ? "Unknown" : "Clean") : "\(changes.count)")
+                                        .font(.system(size: 10)).foregroundStyle(.secondary)
+                                }.padding(.vertical, 10).contentShape(Rectangle())
+                            }.buttonStyle(.plain)
+                                .id(ChangesNavigatorItem(root: repository.root, path: nil))
+                                .focused($navigatorFocus, equals: ChangesNavigatorItem(root: repository.root, path: nil))
+                                .accessibilityAddTraits(repository.root == root ? .isSelected : [])
+                        }
+                        if !collapsedRepositories.contains(repository.root) {
+                            ForEach(changes) { file in
+                                if repository.root == root {
+                                    row(file)
+                                        .id(ChangesNavigatorItem(root: root, path: file.id))
+                                        .focused($navigatorFocus, equals: ChangesNavigatorItem(root: root, path: file.id))
+                                } else {
+                                    Button { selectRepository(repository.root, file.id) } label: {
+                                        HStack {
+                                            StatusChip(kind: file.kind)
+                                            fileName(file)
+                                            counts(file)
+                                        }.padding(10).contentShape(Rectangle())
+                                    }.buttonStyle(.plain)
+                                        .id(ChangesNavigatorItem(root: repository.root, path: file.id))
+                                        .focused($navigatorFocus, equals: ChangesNavigatorItem(root: repository.root, path: file.id))
+                                }
+                            }
+                        }
                     }
-                }
-                .disabled(busy)
+                }.padding(10)
+            }
+            .background(Theme.card)
+            .accessibilityLabel("Workspace repositories and changed files")
+            .onMoveCommand(perform: moveNavigator)
+            .onChange(of: navigatorFocus) { _, item in
+                if let item { proxy.scrollTo(item) }
+            }
+            .onChange(of: fileSelection.activeID) { _, path in
+                if let path { proxy.scrollTo(ChangesNavigatorItem(root: root, path: path)) }
             }
         }
     }
 
-    // Publish, push and pull are things done to the branch, so they sit inside the same
-    // control as its name. What the remote needs is then shown by the action itself, and
-    // a branch with nothing to send or fetch says so in the same place.
-    private func branchAndRemote(_ snapshot: GitSnapshot, fit: HeaderFit) -> some View {
-        joinedControl {
-            branchControl(snapshot, fit: fit)
-            joinedDivider
-            if let working {
-                HStack(spacing: 6) {
-                    ProgressView().controlSize(.mini)
-                    if fit.showsLabels {
-                        Text(working).font(.system(size: 12)).foregroundStyle(.secondary).fixedSize()
-                    }
-                }
-                .padding(.horizontal, 11)
-                .fixedSize(horizontal: true, vertical: false)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(working)
-            } else if snapshot.remoteActions.isEmpty {
-                remoteStatus(snapshot, fit: fit)
-            } else {
-                ForEach(Array(snapshot.remoteActions.enumerated()), id: \.element) { index, action in
-                    if index > 0 { joinedDivider }
-                    remoteButton(action, snapshot: snapshot, fit: fit)
-                }
+    private func fileName(_ file: GitChange) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(file.fileName).font(.system(size: 12, weight: .medium)).lineLimit(1)
+            Text((file.path as NSString).deletingLastPathComponent)
+                .font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
+            if let original = file.originalPath {
+                Text("was \(original)").font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
             }
-            joinedDivider
-            refreshButton
-        }
-    }
-
-    private func joinedControl<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
-        let shape = RoundedRectangle(cornerRadius: 7.5)
-        return HStack(spacing: 0, content: content)
-            .frame(height: 30)
-            .clipShape(shape)
-            .overlay(shape.strokeBorder(Theme.border))
-    }
-
-    private var joinedDivider: some View {
-        Rectangle().fill(Theme.border).frame(width: 1)
-    }
-
-    private func branchControl(_ snapshot: GitSnapshot, fit: HeaderFit) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: "arrow.triangle.branch").font(.system(size: 12))
-            let name = Text(snapshot.branch).font(.mono(13, .medium)).lineLimit(1).truncationMode(.middle)
-            if let floor = fit.branchFloor {
-                ShrinkableWidth(floor: floor) { name }
-            } else {
-                name.fixedSize()
-            }
-            Image(systemName: "chevron.down")
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundStyle(.secondary)
-        }
-        .foregroundStyle(.primary)
-        .modifier(JoinedSegment())
-        .appMenu { branchMenu(snapshot) }
-        .appTooltip("Switch branch")
-        .accessibilityLabel("Branch \(snapshot.branch)")
-        .accessibilityHint(syncStatus)
-    }
-
-    private func remoteButton(_ action: GitRemoteAction, snapshot: GitSnapshot, fit: HeaderFit) -> some View {
-        let upstream = snapshot.upstream ?? "the remote"
-        let (label, short, icon, count, tooltip) = switch action {
-        case .pull(let count):
-            ("Pull", "Pull", "arrow.down", count, "Pull \(counted(count, "commit")) from \(upstream)")
-        case .push(let count):
-            ("Push", "Push", "arrow.up", count, "Push \(counted(count, "commit")) to \(upstream)")
-        case .publish:
-            ("Publish branch", "Publish", "arrow.up", 0, "Publish this branch to the remote")
-        }
-        return Button {
-            if case .pull = action { pull() } else { confirmPush(snapshot) }
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: icon).font(.system(size: 11, weight: .semibold))
-                if fit.showsLabels { Text(fit.shortLabels ? short : label).fixedSize() }
-                if count > 0 {
-                    Text("\(count)")
-                        .font(.mono(10, .semibold))
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background(Capsule().fill(Theme.field))
-                        .overlay(Capsule().stroke(Theme.border))
-                }
-            }
-            .modifier(JoinedSegment())
-            .fixedSize(horizontal: true, vertical: false)
-        }
-        .buttonStyle(.plain)
-        .disabled(busy)
-        .appTooltip(tooltip)
-        .accessibilityLabel(count > 0 ? "\(label), \(counted(count, "commit"))" : label)
-    }
-
-    // Shown in place of an action when the remote needs nothing, or when its state is
-    // not known. The words can give way; the icon, tooltip and spoken label keep them.
-    private func remoteStatus(_ snapshot: GitSnapshot, fit: HeaderFit) -> some View {
-        let (icon, text, tint): (String, String, Color) =
-            if refreshFailed {
-                ("exclamationmark.triangle", "Remote unavailable", Theme.attentionText)
-            } else if !snapshot.hasCommits {
-                ("circle.dashed", "No commits yet", .secondary)
-            } else if !snapshot.trackingKnown {
-                ("questionmark.circle", "Remote status unknown", .secondary)
-            } else {
-                ("checkmark", "In sync with " + remoteName(of: snapshot.upstream), Theme.dotOn)
-            }
-        return HStack(spacing: 6) {
-            Image(systemName: icon).font(.system(size: 11, weight: .semibold)).foregroundStyle(tint)
-            if fit.showsStatus {
-                Text(text).font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary).fixedSize()
-            }
-        }
-        .padding(.horizontal, 11)
-        .fixedSize(horizontal: true, vertical: false)
-        .frame(maxHeight: .infinity)
-        .contentShape(Rectangle())
-        .appTooltip(syncStatus)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(syncStatus)
-    }
-
-    private func remoteName(of upstream: String?) -> String {
-        guard let upstream, let slash = upstream.firstIndex(of: "/") else { return "the remote" }
-        return String(upstream[..<slash])
+        }.frame(maxWidth: .infinity, alignment: .leading)
+        .appTooltip(file.path)
     }
 
     private var refreshButton: some View {
@@ -456,7 +487,7 @@ struct ChangesView: View {
                 }
             }
             .foregroundStyle(.secondary)
-            .modifier(JoinedSegment(padding: 9))
+            .padding(9)
             .fixedSize(horizontal: true, vertical: false)
         }
         .buttonStyle(.plain)
@@ -621,22 +652,10 @@ struct ChangesView: View {
                 cleanContent
             } else {
                 HStack(spacing: 0) {
-                    VStack(spacing: 0) {
-                        HStack {
-                            Text("\(counted(files.count, "changed file"))").font(.system(size: 12, weight: .semibold))
-                            Spacer()
-                            DiffPair(added: snapshot?.totalAdded ?? 0, removed: snapshot?.totalRemoved ?? 0, size: 11)
-                        }.padding(20)
-                        list(files, isOpen: false, activeID: fileSelection.activeID, row: row)
-                    }
-                    .frame(width: selected == nil ? nil : 300)
-                    .background(Theme.card)
                     if let file = selected {
-                        Divider().overlay(Theme.hairline)
                         diffPane(truncationHint: "Open the file to see the rest.",
                                  reveal: { reveal(file) }) {
-                            Text(file.fileName).font(.serif(15, .semibold)).lineLimit(1)
-                            Text(file.kind.label).font(.system(size: 11)).foregroundStyle(.secondary)
+                            fileName(file)
                             counts(file)
                             if fileSelection.ids.count > 1 {
                                 Text("\(fileSelection.ids.count) files selected")
@@ -644,6 +663,9 @@ struct ChangesView: View {
                                     .foregroundStyle(.secondary)
                             }
                         }
+                    } else {
+                        PaneMessage(icon: "doc.text", title: "Select a file",
+                                    detail: "Choose a changed file in the workspace navigator.")
                     }
                 }
             }
@@ -695,7 +717,7 @@ struct ChangesView: View {
     private func row(_ file: GitChange) -> some View {
         let isSelected = fileSelection.ids.contains(file.id)
         return Button {
-            listFocused = true
+            mode = .changes
             select(file)
         } label: {
             HStack(spacing: 10) {
@@ -714,22 +736,7 @@ struct ChangesView: View {
 
                 StatusChip(kind: file.kind)
 
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(file.path)
-                        .font(.mono(12))
-                        .lineLimit(1)
-                        .truncationMode(.head)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    Text(file.kind.label).font(.system(size: 11)).foregroundStyle(.secondary)
-                    if let original = file.originalPath {
-                        Text("was \(original)")
-                            .font(.mono(10))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.head)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                }
+                fileName(file)
 
                 if file.isStaged && file.isUnstaged {
                     Text("partly staged").font(.system(size: 10)).foregroundStyle(.secondary)
@@ -765,6 +772,7 @@ struct ChangesView: View {
         if let chosen {
             excluded = Set(files.map(\.id)).subtracting(chosen.map(\.id))
         }
+        navigatorVisible = true
         committing = true
         commitFocused = true
     }
@@ -793,7 +801,23 @@ struct ChangesView: View {
                 title()
                 Spacer()
                 if loadingDiff { ProgressView().controlSize(.small) }
-                if let reveal {
+                if mode == .changes, let file = selected {
+                    Image(systemName: "ellipsis").padding(8).contentShape(Rectangle())
+                        .appMenu {
+                            var entries: [MenuEntry] = []
+                            if !file.isBinary && diff?.images == nil {
+                                entries = ["Unified diff", "Side by side"].map { layout in
+                                    .item(layout, checked: appSettings.changesDiffLayout == layout) {
+                                        appSettings.changesDiffLayout = layout
+                                    }
+                                }
+                                entries += [.separator, .item("Copy diff") { copy(.patch, file: file) }]
+                            }
+                            if let reveal { entries.append(.item("Reveal in Finder", action: reveal)) }
+                            return entries
+                        }
+                        .accessibilityLabel("Diff options")
+                } else if let reveal {
                     InlineLink(title: "Reveal in Finder", action: reveal)
                 }
                 Button {
@@ -810,22 +834,6 @@ struct ChangesView: View {
             .padding(.vertical, 10)
 
             if mode == .changes, let file = selected, !file.isBinary, diff?.images == nil {
-                HStack {
-                    Text("Last commit → Working tree").font(.system(size: 11)).foregroundStyle(.secondary)
-                    Spacer()
-                    HStack {
-                        Text(appSettings.changesDiffLayout)
-                        Image(systemName: "chevron.down")
-                    }
-                    .font(.system(size: 12)).padding(8).background(Theme.field, in: RoundedRectangle(cornerRadius: 7))
-                    .appMenu {
-                        ["Unified diff", "Side by side"].map { layout in
-                            .item(MenuItem(label: layout, checked: appSettings.changesDiffLayout == layout, handler: { appSettings.changesDiffLayout = layout }))
-                        }
-                    }
-                    .accessibilityLabel("Diff layout: \(appSettings.changesDiffLayout)")
-                    if appSettings.changesDiffLayout == "Unified diff" { copyButton(.patch, file: file, label: "Copy diff") }
-                }.padding(.horizontal, 20).padding(.vertical, 8)
                 if appSettings.changesDiffLayout == "Side by side" {
                     HStack {
                         versionHeader("Last commit", version: .before, file: file)
@@ -1216,7 +1224,7 @@ struct ChangesView: View {
         fileSelection.retain(Set(orderedIDs), in: orderedIDs)
         if !appliedInitialSelection {
             appliedInitialSelection = true
-            if let initial = initiallySelectedPath.flatMap({ path in fresh.files.first { $0.id == path } }) ?? fresh.files.first {
+            if let initial = (requestedPath ?? initiallySelectedPath).flatMap({ path in fresh.files.first { $0.id == path } }) ?? fresh.files.first {
                 fileSelection.select(initial.id, in: orderedIDs,
                                      extendingRange: false, toggling: false)
             }
@@ -1503,54 +1511,5 @@ private struct StatusChip: View {
             .frame(width: 18, height: 18)
             .background(RoundedRectangle(cornerRadius: 5).fill(color.opacity(0.16)))
             .appTooltip(kind.label)
-    }
-}
-
-// What the header row still shows. Each step down gives up one more thing, so the row
-// keeps to one line at any pane width.
-private struct HeaderFit {
-    var showsStatus = true
-    var shortLabels = false
-    // When set, the branch name may shorten down to this width.
-    var branchFloor: CGFloat?
-    var showsLabels = true
-}
-
-// One part of the joined branch control. The parts share one outline, so a part shows
-// hover as a fill rather than lifting out of the outline.
-private struct JoinedSegment: ViewModifier {
-    var padding: CGFloat = 11
-
-    @Environment(\.isEnabled) private var isEnabled
-    @State private var hovering = false
-
-    func body(content: Content) -> some View {
-        content
-            .font(.system(size: 12, weight: .semibold))
-            .padding(.horizontal, padding)
-            .frame(maxHeight: .infinity)
-            .background(hovering && isEnabled ? Theme.field : .clear)
-            .contentShape(Rectangle())
-            .opacity(isEnabled ? 1 : 0.4)
-            .onHover { hovering = $0 }
-    }
-}
-
-// Lets a line of text shorten, but no further than a floor. Its ideal width is the floor,
-// so `ViewThatFits` picks the row with a shortened name before it drops any labels.
-private struct ShrinkableWidth: Layout {
-    let floor: CGFloat
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let natural = subviews[0].sizeThatFits(.unspecified)
-        let lowest = min(floor, natural.width)
-        guard let width = proposal.width else { return CGSize(width: lowest, height: natural.height) }
-        let fitted = max(lowest, min(width, natural.width))
-        return CGSize(width: fitted, height: subviews[0].sizeThatFits(ProposedViewSize(width: fitted, height: nil)).height)
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        subviews[0].place(at: CGPoint(x: bounds.minX, y: bounds.midY), anchor: .leading,
-                          proposal: ProposedViewSize(width: bounds.width, height: nil))
     }
 }
