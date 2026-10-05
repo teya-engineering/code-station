@@ -6,16 +6,23 @@ struct EnvironmentsView: View {
     @Environment(DialogPresenter.self) private var dialogs
     @Environment(\.dismiss) private var dismiss
 
-    // Nil until a tab is clicked, so the sheet opens on whichever environment the
+    // Nil until an environment is chosen, so the sheet opens on whichever environment the
     // Dispatch sheet behind it is using.
     @State private var parentSize: CGSize? = NSApp.keyWindow?.contentLayoutRect.size
     @State private var selected: ApiEnvironment?
     private var shown: ApiEnvironment { selected ?? auth.active }
 
     // Edits land in a draft per environment and only reach the store on Save, so a
-    // half-typed credential is never what a send signs in with. Switching tabs keeps
+    // half-typed credential is never what a send signs in with. Switching environments keeps
     // every draft.
     @State private var propertiesSelected = true
+    @State private var previewExpanded = true
+    @FocusState private var focusedTab: Bool?
+    @FocusState private var focusedEnvironment: String?
+    @State private var hoveredEnvironment: String?
+    @FocusState private var previewFocused: Bool
+    @FocusState private var focusedProperty: UUID?
+    @Namespace private var tabPanels
     @State private var propertyDrafts: [ApiEnvironment: [EnvironmentProperty]] = [:]
     var previewRequest: SavedRequest? = nil
     @State private var drafts: [ApiEnvironment: OAuthConfig] = [:]
@@ -26,96 +33,48 @@ struct EnvironmentsView: View {
             header
             Divider().overlay(Theme.hairline)
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    tabs
-                    Text("Editing settings does not change the send environment.")
-                        .font(.system(size: 11)).foregroundStyle(.secondary)
-                    HStack {
-                        ChoicePill(title: "Properties", selected: propertiesSelected) { propertiesSelected = true }
-                            .accessibilityAddTraits(propertiesSelected ? [.isSelected] : [])
-                        ChoicePill(title: "Authentication", selected: !propertiesSelected) { propertiesSelected = false }
-                            .accessibilityAddTraits(propertiesSelected ? [] : [.isSelected])
-                    }
-                    if propertiesSelected {
-                        if sheetSize.width >= 980 {
-                            HStack(alignment: .top, spacing: 20) {
-                                VStack(alignment: .leading, spacing: 16) {
-                                    propertiesEditor
-                                    envRow
-                                }
-                                    .frame(maxWidth: .infinity)
-                                requestPreview.frame(width: 320)
-                            }
-                        } else {
-                            propertiesEditor
-                            envRow
-                            requestPreview
-                        }
-                    } else {
-                        grantRow
-
-                        if config.wrappedValue.grant.usesBrowser {
-                            field("AUTH URL", "https://id.example/oauth/authorize", config.authURL)
-                            field("CALLBACK URL", "http://127.0.0.1:8234/callback", config.callbackURL)
-                            Text(config.wrappedValue.usesLoopback
-                                 ? "The browser is sent back here when you sign in, so the identity provider has to allow this exact URL for the client. If it refuses, put the callback it does allow here instead and paste the code back by hand."
-                                 : "This callback is not on your machine, so the browser cannot hand the code back on its own. Sign in, then paste the address the browser ends on.")
-                                .font(.system(size: 11))
-                                .foregroundStyle(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-
-                        field("ACCESS TOKEN URL", "https://id.example/oauth/token", config.tokenURL)
-                        field("CLIENT ID", "client id", config.clientID)
-                        LabeledField("CLIENT SECRET") {
-                            SecretField(placeholder: "kept in the Keychain, empty for a public client",
-                                        text: config.clientSecret,
-                                        accent: shown.accent)
-                        }
-                        field("SCOPE", "space separated", config.scope)
-                        if config.wrappedValue.grant.usesBrowser {
-                            field("STATE", "generated when left blank", config.state)
-                        }
-
-                        field("HEADER PREFIX", "Bearer", config.headerPrefix)
-                            .frame(width: 220)
-
-                        OptionMenu(caption: "CLIENT AUTHENTICATION",
-                                   value: config.wrappedValue.clientAuth.label,
-                                   options: ClientAuthentication.allCases.map { choice in
-                                       (choice.label, choice == config.wrappedValue.clientAuth,
-                                        { config.wrappedValue.clientAuth = choice })
+            HStack(spacing: 0) {
+                if !compact {
+                    environmentSidebar
+                    Divider().overlay(Theme.hairline)
+                }
+                VStack(alignment: .leading, spacing: 0) {
+                    if compact {
+                        OptionMenu(caption: "EDIT ENVIRONMENT", value: shown.label,
+                                   options: auth.environments.map { env in
+                                       (env.label, env == shown, { selected = env })
                                    })
-                        Text("How the app proves which OAuth client it is on the token call. This is not about your requests; they always send the token with the prefix above.")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-
-                        // Signing in reads the stored config, so unsaved edits are saved
-                        // first rather than silently signing in with the old values.
-                        EnvironmentTokenControls(env: shown, beforeAuthenticate: {
-                            guard removedProperties.isEmpty else { save(); return false }
-                            return performSave()
-                        })
-
-                        Text("Every environment holds the same fields; only the values differ. Choose the send environment in Dispatch to use its saved setup and property values.")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.bottom, 12)
+                        sendEnvironmentNote.padding(.bottom, 16)
+                    }
+                    if !compact {
+                        contentHeading
+                        sectionTabs.padding(.top, 20)
+                    }
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 0) {
+                            if compact {
+                                contentHeading
+                                sectionTabs.padding(.top, 20)
+                            }
+                            settingsPanel
+                        }
                     }
                 }
-                .padding(20)
+                .padding(.horizontal, compact ? 20 : 28)
+                .padding(.top, 24)
             }
 
-            SheetFooter(primary: SheetAction(title: "Save", enabled: hasChanges && validation == nil,
+            SheetFooter(primary: SheetAction(title: "Save changes", enabled: hasChanges && validation == nil,
                                              shortcut: KeyboardShortcut("s", modifiers: .command),
                                              action: save),
                         dismiss: { dismiss() }) {
                 VStack(alignment: .leading, spacing: 5) {
                     if let validation { Text(validation).foregroundStyle(Theme.deletion) }
                     if let error = auth.saveError { Text(error).foregroundStyle(Theme.deletion) }
-                    InlineLink(title: "Discard changes", size: 11) { drafts = [:]; propertyDrafts = [:] }
+                    if hasChanges {
+                        InlineLink(title: "Discard changes", size: 11) { drafts = [:]; propertyDrafts = [:] }
+                    }
                     Text(hasChanges
                          ? "Unsaved changes. Cancel leaves without keeping them."
                          : "Secrets are stored in the Keychain, never in the request file.")
@@ -129,11 +88,29 @@ struct EnvironmentsView: View {
         .background(ParentWindowSize(size: $parentSize))
     }
 
+    private var settingsPanel: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            if propertiesSelected {
+                propertiesEditor
+                envRow
+                previewSection
+            } else {
+                authenticationEditor
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 20)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("\(shown.label) \(propertiesSelected ? "Properties" : "Authentication")")
+        .accessibilityLabeledPair(role: .content, id: propertiesSelected, in: tabPanels)
+    }
+
     private func field(_ label: String, _ placeholder: String,
                        _ text: Binding<String>) -> some View {
         LabeledField(label) {
             TextField(placeholder, text: text)
                 .appTextField(size: 11)
+                .accessibilityLabel(label)
         }
     }
 
@@ -190,7 +167,7 @@ struct EnvironmentsView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Environments").font(.serif(16))
-            Text("One set of requests, with separate properties and credentials for every configured environment. The switch at the top of Dispatch picks which one a send uses.")
+            Text("Manage properties and credentials for your requests.")
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -201,9 +178,199 @@ struct EnvironmentsView: View {
         .background(Theme.card)
     }
 
-    private var tabs: some View {
-        EnvironmentPills(environments: auth.environments, selected: shown, wraps: true) {
-            selected = $0
+    private var compact: Bool { sheetSize.width < 700 }
+
+    private var environmentSidebar: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Environments").font(.system(size: 12)).foregroundStyle(.secondary)
+                .padding(.horizontal, 11)
+            ScrollView {
+                VStack(spacing: 3) {
+                    ForEach(auth.environments) { env in
+                        Button { selected = env } label: {
+                            HStack(spacing: 9) {
+                                Circle().fill(env.brightAccent).frame(width: 6, height: 6)
+                                Text(env.label)
+                                    .font(.system(size: 13, weight: env == shown ? .semibold : .medium))
+                                    .lineLimit(1)
+                                Spacer(minLength: 0)
+                            }
+                            .foregroundStyle(env == shown ? env.accent : Color.primary)
+                            .padding(.horizontal, 11)
+                            .frame(height: 34)
+                            .background(env == shown ? env.accent.opacity(0.09)
+                                        : hoveredEnvironment == env.name ? Theme.field : .clear,
+                                        in: RoundedRectangle(cornerRadius: 6))
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .focusable()
+                        .focused($focusedEnvironment, equals: env.name)
+                        .focusEffectDisabled()
+                        .overlay(RoundedRectangle(cornerRadius: 6)
+                            .stroke(focusedEnvironment == env.name ? Theme.accent : .clear, lineWidth: 2))
+                        .onKeyPress(keys: [.space, .return]) { _ in selected = env; return .handled }
+                        .accessibilityAddTraits(env == shown ? [.isSelected] : [])
+                        .accessibilityLabel(env.label + (env.isDangerous ? ", live environment" : ""))
+                        .onHover { hoveredEnvironment = $0 ? env.name : nil }
+                        .help(env.label)
+                    }
+                }.padding(2)
+            }
+            Divider().overlay(Theme.hairline)
+            sendEnvironmentNote.padding(.horizontal, 11)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 24)
+        .frame(width: sheetSize.width < 850 ? 150 : 190)
+        .background(Theme.sidebar)
+    }
+
+    private var sendEnvironmentNote: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text("Dispatch sends to \(auth.active.label)")
+                .font(.system(size: 12, weight: .medium))
+            Text("Choosing an environment here only changes what you edit.")
+                .font(.system(size: 12)).foregroundStyle(.secondary)
+        }
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var contentHeading: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(spacing: 12) {
+                Text(shown.label).font(.serif(27))
+                Text(shown.name).font(.mono(12)).foregroundStyle(.secondary)
+                    .padding(.horizontal, 8).padding(.vertical, 5)
+                    .background(Theme.field, in: RoundedRectangle(cornerRadius: 5))
+            }
+            Text("Properties and credentials used by requests sent to \(shown.label).")
+                .font(.system(size: 13)).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var sectionTabs: some View {
+        HStack(spacing: 27) {
+            sectionTab("Properties", properties: true)
+            sectionTab("Authentication", properties: false)
+            Spacer(minLength: 0)
+        }
+        .overlay(alignment: .bottom) { Theme.border.frame(height: 1) }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Environment settings tabs")
+    }
+
+    private func sectionTab(_ title: String, properties: Bool) -> some View {
+        Button { propertiesSelected = properties } label: {
+            Text(title)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(propertiesSelected == properties ? Theme.accent : Color.secondary)
+                .padding(.vertical, 13)
+                .overlay(alignment: .bottom) {
+                    Rectangle().fill(propertiesSelected == properties ? Theme.accent : .clear)
+                        .frame(height: 3)
+                }
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .focusable()
+        .focused($focusedTab, equals: properties)
+        .focusEffectDisabled()
+        .overlay(RoundedRectangle(cornerRadius: 4)
+            .stroke(focusedTab == properties ? Theme.accent : .clear, lineWidth: 2).padding(2))
+        .onKeyPress(keys: [.leftArrow, .rightArrow, .home, .end]) { press in
+            propertiesSelected = press.key == .home ? true : press.key == .end ? false : !properties
+            focusedTab = propertiesSelected
+            return .handled
+        }
+        .onKeyPress(keys: [.space, .return]) { _ in propertiesSelected = properties; return .handled }
+        .accessibilityLabel("\(title) tab")
+        .accessibilityAddTraits(propertiesSelected == properties ? [.isSelected] : [])
+        .accessibilityLabeledPair(role: .label, id: properties, in: tabPanels)
+    }
+
+    private var previewSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Divider().overlay(Theme.hairline)
+            Button { previewExpanded.toggle() } label: {
+                HStack {
+                    Image(systemName: previewExpanded ? "chevron.down" : "chevron.right")
+                    Text("Preview in a request").fontWeight(.semibold)
+                    Spacer()
+                    Text("Nothing is sent").foregroundStyle(.secondary)
+                }
+                .font(.system(size: 12))
+                .padding(.vertical, 8)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .focusable()
+            .focused($previewFocused)
+            .focusEffectDisabled()
+            .overlay(RoundedRectangle(cornerRadius: 4)
+                .stroke(previewFocused ? Theme.accent : .clear, lineWidth: 2))
+            .onKeyPress(keys: [.space, .return]) { _ in previewExpanded.toggle(); return .handled }
+            .accessibilityValue(previewExpanded ? "Expanded" : "Collapsed")
+            if previewExpanded { requestPreview }
+        }
+    }
+
+    private var authenticationEditor: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            grantRow
+
+            if config.wrappedValue.grant.usesBrowser {
+                field("AUTH URL", "https://id.example/oauth/authorize", config.authURL)
+                field("CALLBACK URL", "http://127.0.0.1:8234/callback", config.callbackURL)
+                Text(config.wrappedValue.usesLoopback
+                     ? "The browser is sent back here when you sign in, so the identity provider has to allow this exact URL for the client. If it refuses, put the callback it does allow here instead and paste the code back by hand."
+                     : "This callback is not on your machine, so the browser cannot hand the code back on its own. Sign in, then paste the address the browser ends on.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            field("ACCESS TOKEN URL", "https://id.example/oauth/token", config.tokenURL)
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 17),
+                                     count: sheetSize.width >= 850 ? 2 : 1),
+                      alignment: .leading, spacing: 17) {
+                field("CLIENT ID", "client id", config.clientID)
+                LabeledField("CLIENT SECRET") {
+                    SecretField(placeholder: "kept in the Keychain, empty for a public client",
+                                text: config.clientSecret,
+                                accent: shown.accent)
+                        .accessibilityLabel("Client secret")
+                }
+                field("SCOPE", "space separated", config.scope)
+                field("HEADER PREFIX", "Bearer", config.headerPrefix)
+            }
+            if config.wrappedValue.grant.usesBrowser {
+                field("STATE", "generated when left blank", config.state)
+            }
+
+            OptionMenu(caption: "CLIENT AUTHENTICATION",
+                       value: config.wrappedValue.clientAuth.label,
+                       options: ClientAuthentication.allCases.map { choice in
+                           (choice.label, choice == config.wrappedValue.clientAuth,
+                            { config.wrappedValue.clientAuth = choice })
+                       })
+            Text("How the app proves which OAuth client it is on the token call. This is not about your requests; they always send the token with the prefix above.")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            // Signing in reads the stored config, so unsaved edits are saved
+            // first rather than silently signing in with the old values.
+            EnvironmentTokenControls(env: shown, beforeAuthenticate: {
+                guard removedProperties.isEmpty else { save(); return false }
+                return performSave()
+            })
+
+            Text("Every environment holds the same fields; only the values differ. Choose the send environment in Dispatch to use its saved setup and property values.")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -245,12 +412,14 @@ struct EnvironmentsView: View {
     private var propertiesEditor: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("Environment properties").font(.serif(18))
-                    Text("Use a property as {{property_name}}.").font(.system(size: 12)).foregroundStyle(.secondary)
-                }
+                Text("Use a property as {{property_name}}.")
+                    .font(.system(size: 12)).foregroundStyle(.secondary)
                 Spacer()
-                InlineLink(title: "+ Add property") { rows.wrappedValue.append(EnvironmentProperty()) }
+                InlineLink(title: "+ Add property") {
+                    let property = EnvironmentProperty()
+                    rows.wrappedValue.append(property)
+                    focusedProperty = property.id
+                }
             }
             if rows.wrappedValue.isEmpty {
                 Text("No properties yet. Add a value for this environment to reuse in your requests.")
@@ -261,6 +430,7 @@ struct EnvironmentsView: View {
                     LabeledField("NAME") {
                         TextField("property_name", text: row.name).appTextField(size: 11)
                             .accessibilityLabel("Property name")
+                            .focused($focusedProperty, equals: row.wrappedValue.id)
                     }.frame(width: min(170, sheetSize.width * 0.24))
                     LabeledField("VALUE") {
                         if row.wrappedValue.isSecret {
@@ -291,7 +461,6 @@ struct EnvironmentsView: View {
         let resolved = DispatchRunner.resolve(request, environment: shown, authorization: nil,
                                               properties: rows.wrappedValue, masked: true)
         return VStack(alignment: .leading, spacing: 10) {
-            Text("See it in a request").font(.serif(18))
             Text("Preview uses your draft values. Nothing is sent.").font(.system(size: 11)).foregroundStyle(.secondary)
             Text("\(request.method.rawValue) \(request.name)").font(.mono(11, .bold))
             Text(request.url).font(.mono(11)).foregroundStyle(.secondary)
