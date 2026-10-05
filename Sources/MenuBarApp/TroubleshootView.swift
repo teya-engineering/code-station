@@ -147,6 +147,7 @@ struct TroubleshootView: View {
     @Environment(CopilotCodeManager.self) private var copilot
     @Environment(ConfigStore.self) private var configs
     @Environment(DialogPresenter.self) private var dialogs
+    @Environment(AppSettings.self) private var appSettings
 
     let skills: SkillsManager
     let initialWorkspaceID: UUID?
@@ -159,6 +160,9 @@ struct TroubleshootView: View {
     @State private var selectedSkills = Preferences.troubleshootSkills()
     @State private var mcpServersEnabled = true
     @State private var agent: AgentKind?
+    @State private var selectedAvatarName = AgentAvatarSelection.defaultName
+    @State private var sessionID = UUID()
+    @State private var skillsExpanded = false
     @State private var isStarting = false
     @State private var showingSkills = false
     @State private var showingNewWorkspace = false
@@ -177,22 +181,26 @@ struct TroubleshootView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider().overlay(Theme.hairline)
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    skillsBar
-                    if environment.isDangerous { dangerNotice }
                     problemSection
                     optionsSection
+                    if environment.isDangerous { dangerNotice }
                     projectsSection
+                    skillsSection
                 }
-                .padding(20)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 20)
             }
+            .frame(maxHeight: 560)
             footer
         }
-        .frame(width: 760, height: 680)
+        .frame(minWidth: 520, idealWidth: 780, maxWidth: 780)
+        .disabled(isStarting)
+        .interactiveDismissDisabled(isStarting)
         .background(Theme.background)
         .onAppear {
+            selectedAvatarName = appSettings.defaultAgentAvatarName
             refreshMCPConfiguration()
             problemFocused = true
         }
@@ -213,22 +221,16 @@ struct TroubleshootView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "stethoscope")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(Theme.accent)
-                .frame(width: 34, height: 34)
-                .background(RoundedRectangle(cornerRadius: 9).fill(Theme.accent.opacity(0.10)))
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Troubleshoot").font(.serif(19))
-                Text("Give an agent the problem, evidence, and project context.")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Troubleshoot")
+                .font(.serif(22, .semibold))
+            Text("Start a diagnosis with the problem, evidence, and project context.")
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(.horizontal, 20)
-        .headerBand()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(20)
     }
 
     // Named after the environment rather than after production, since a file can mark
@@ -249,9 +251,20 @@ struct TroubleshootView: View {
         .surface(Theme.deletion.opacity(0.09), cornerRadius: 10, border: Theme.deletion.opacity(0.18))
     }
 
-    private var skillsBar: some View {
-        TroubleshootSkillsBar(skills: skills, agent: selectedAgent,
-                              selected: $selectedSkills, showingSkills: $showingSkills)
+    private var skillsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            DisclosureHeader(isExpanded: $skillsExpanded, show: "Show skills", hide: "Hide skills") {
+                Text("Skills")
+                Text(chosenSkills.isEmpty ? "None selected" : "\(chosenSkills.count) selected")
+            }
+            .font(.system(size: 12))
+            .foregroundStyle(.secondary)
+            .accessibilityValue(skillsExpanded ? "Expanded" : "Collapsed")
+            if skillsExpanded {
+                TroubleshootSkillsBar(skills: skills, agent: selectedAgent,
+                                      selected: $selectedSkills, showingSkills: $showingSkills)
+            }
+        }
     }
 
     private var chosenSkills: [String] {
@@ -260,39 +273,47 @@ struct TroubleshootView: View {
 
     private var problemSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            SectionLabel("PROBLEM AND EVIDENCE")
+            Text("Problem and evidence").font(.system(size: 13, weight: .semibold))
             TroubleshootProblemEditor(problem: $problem, attachments: $attachments,
                                       focused: $problemFocused)
         }
     }
 
     private var optionsSection: some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 8) {
-                SectionLabel("ENVIRONMENT")
-                TroubleshootEnvironmentPills(environment: $environment)
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .top, spacing: 22) {
+                environmentSection.fixedSize(horizontal: true, vertical: false)
+                mcpSection
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            VStack(alignment: .leading, spacing: 8) {
-                SectionLabel("MCP SERVERS")
-                TroubleshootMCPOptions(agent: selectedAgent,
-                                       environment: environment,
-                                       managedServers: configs.servers,
-                                       environmentServers: environmentMCPServers,
-                                       state: mcpConfigurationState,
-                                       enabled: $mcpServersEnabled)
+            VStack(alignment: .leading, spacing: 18) {
+                environmentSection
+                mcpSection
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(14)
-        .cardSurface(cornerRadius: 11)
+    }
+
+    private var environmentSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Environment").font(.system(size: 13, weight: .semibold))
+            TroubleshootEnvironmentPills(environment: $environment)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var mcpSection: some View {
+        TroubleshootMCPOptions(agent: selectedAgent,
+                               environment: environment,
+                               managedServers: configs.servers,
+                               environmentServers: environmentMCPServers,
+                               state: mcpConfigurationState,
+                               enabled: $mcpServersEnabled)
+            .frame(minWidth: 250, maxWidth: .infinity, alignment: .leading)
     }
 
     private var projectsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                SectionLabel("PROJECTS")
+                Text("Projects").font(.system(size: 13, weight: .semibold))
                 Spacer()
                 if !selectedProjects.isEmpty {
                     Text("\(selectedProjects.count) selected")
@@ -360,6 +381,7 @@ struct TroubleshootView: View {
             TextField("Filter projects by name or path", text: $projectFilter)
                 .textFieldStyle(.plain)
                 .font(.system(size: 12.5))
+                .accessibilityLabel("Search projects by name or path")
             if !projectFilter.isEmpty {
                 Button { projectFilter = "" } label: {
                     Image(systemName: "xmark.circle.fill")
@@ -370,6 +392,7 @@ struct TroubleshootView: View {
                 .buttonStyle(.plain)
                 .hoverLift(amount: Motion.smallLift)
                 .appTooltip("Clear filter")
+                .accessibilityLabel("Clear project filter")
             }
         }
         .padding(.horizontal, 10)
@@ -404,27 +427,49 @@ struct TroubleshootView: View {
     private var footer: some View {
         VStack(spacing: 0) {
             Divider().overlay(Theme.hairline)
-            HStack(alignment: .top, spacing: 10) {
-                Group {
-                    if !runner.isAvailable(selectedAgent) {
-                        Text("\(selectedAgent.title) CLI was not found on PATH.")
-                            .font(.system(size: 11.5))
-                            .foregroundStyle(Theme.deletion)
-                    } else {
-                        Text(diagnosisDestinationText)
-                            .font(.system(size: 11.5))
-                            .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 8) {
+                    if isStarting { ProgressView().controlSize(.small) }
+                    Text(runner.isAvailable(selectedAgent)
+                         ? diagnosisDestinationText
+                         : "\(selectedAgent.title) CLI was not found on PATH.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(runner.isAvailable(selectedAgent) ? Theme.accent : Theme.deletion)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityAddTraits(.updatesFrequently)
+                }
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .bottom, spacing: 12) {
+                        selectors
+                        Spacer(minLength: 12)
+                        actions
+                    }
+                    VStack(alignment: .leading, spacing: 12) {
+                        selectors
+                        HStack { Spacer(); actions }
                     }
                 }
-                .padding(.top, 9)
-                Spacer(minLength: 12)
-                ActionButton(title: "Cancel", height: 34, size: 13,
-                             keyboardShortcut: .cancelAction) { dismiss() }
-                diagnoseButton
             }
             .padding(.horizontal, 20)
-            .padding(.vertical, 12)
+            .padding(.vertical, 10)
             .background(Theme.card)
+        }
+    }
+
+    private var selectors: some View {
+        AgentAndBotPicker(avatars: appSettings.agentAvatars,
+                          selectedAvatarName: $selectedAvatarName, sessionID: sessionID,
+                          agentTitle: selectedAgent.title, agentMenu: agentMenu)
+    }
+
+    private var actions: some View {
+        HStack(spacing: 9) {
+            ActionButton(title: "Cancel", tone: .outlined, height: 38, size: 13,
+                         keyboardShortcut: .cancelAction) { dismiss() }
+            ActionButton(title: isStarting ? "Preparing diagnosis" : "Diagnose problem",
+                         tone: .green, height: 38, size: 13,
+                         keyboardShortcut: .defaultAction) { diagnose() }
+                .disabled(!canDiagnose)
         }
     }
 
@@ -436,48 +481,9 @@ struct TroubleshootView: View {
         case 0:
             "Select a project for the diagnosis."
         case 1:
-            "The diagnosis opens as a session in the selected project."
+            "The diagnosis opens as a session in \(orderedSelectedProjects.first?.name ?? "the selected project")."
         default:
             "Create a workspace for the selected projects before the diagnosis starts."
-        }
-    }
-
-    private var diagnoseButton: some View {
-        VStack(alignment: .trailing, spacing: 3) {
-            HStack(spacing: 0) {
-                Button { diagnose() } label: {
-                    HStack(spacing: 7) {
-                        if isStarting { ProgressView().controlSize(.small) }
-                        Text(isStarting ? "Preparing diagnosis" : "Diagnose problem")
-                    }
-                    .font(.system(size: 13, weight: .semibold))
-                    .padding(.horizontal, 18)
-                    .frame(height: 34)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .hoverLift()
-                .disabled(!canDiagnose)
-
-                Rectangle()
-                    .fill(.white.opacity(0.35))
-                    .frame(width: 1, height: 17)
-
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .bold))
-                    .frame(width: 34, height: 34)
-                    .contentShape(Rectangle())
-                    .appMenu { agentMenu }
-                    .accessibilityLabel("Choose coding agent")
-            }
-            .foregroundStyle(.white)
-            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.accentFill))
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-            .opacity(canDiagnose ? 1 : 0.45)
-
-            Text("Will use \(selectedAgent.title)")
-                .font(.system(size: 10.5))
-                .foregroundStyle(.secondary)
         }
     }
 
@@ -571,6 +577,7 @@ struct TroubleshootView: View {
         guard let lead = projects.first else { return }
         isStarting = true
         let chosenAgent = selectedAgent
+        let chosenAvatarName = selectedAvatarName
         let chosenEnvironment = environment
         let chosenSkillNames = chosenSkills
         let enableMCPServers = mcpServersEnabled
@@ -590,8 +597,9 @@ struct TroubleshootView: View {
                 }
             }
 
-            let seed = ProjectStore.SessionSeed(agent: chosenAgent,
+            let seed = ProjectStore.SessionSeed(id: sessionID, agent: chosenAgent,
                                                 model: runner.defaults(for: chosenAgent).model,
+                                                agentAvatarName: chosenAvatarName,
                                                 isTroubleshooting: true)
             let sessionResult: Result<ChatSession, PersistenceFailure>
             if let workspace {
@@ -627,7 +635,7 @@ struct TroubleshootView: View {
                 skills: chosenSkillNames,
                 mcpServersEnabled: enableMCPServers,
                 mcpServerNames: enableMCPServers ? selectedServers.map(\.name) : [],
-                agent: selectedAgent)
+                agent: chosenAgent)
             runner.send(request.userInput,
                         attachments: attachments,
                         customInstructions: request.customInstructions,

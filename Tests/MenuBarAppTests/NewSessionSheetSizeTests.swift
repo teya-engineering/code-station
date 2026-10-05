@@ -57,4 +57,39 @@ struct NewSessionSheetSizeTests {
         host.layoutSubtreeIfNeeded()
         #expect(measured.value <= 200)
     }
+
+    @MainActor
+    @Test func troubleshootKeepsItsFooterWithinAShortWindow() throws {
+        let (store, scratch) = TestStore.make()
+        defer { withExtendedLifetime(scratch) {} }
+        let project = try TestStore.project(in: store, named: "payments-api")
+        let settings = AppSettings(
+            agentAvatarURL: scratch.url.appendingPathComponent("avatar.png"),
+            preferences: UserDefaults(suiteName: "troubleshoot-size-\(UUID().uuidString)")!)
+        let measured = MeasuredHeight()
+        let host = NSHostingView(rootView: HeightProbe(report: { measured.value = $0 }) {
+            TroubleshootView(skills: SkillsManager(), initialProjectIDs: [project.id])
+                .environment(store)
+                .environment(SessionRunner(paths: [:]))
+                .environment(ClaudeCodeManager())
+                .environment(CodexCodeManager())
+                .environment(CopilotCodeManager())
+                .environment(ConfigStore(configURL: scratch.url.appendingPathComponent("config.json")))
+                .environment(DialogPresenter())
+                .environment(MenuPresenter())
+                .environment(TooltipPresenter())
+                .environment(settings)
+        })
+
+        host.frame = NSRect(x: 0, y: 0, width: 780, height: 850)
+        host.layoutSubtreeIfNeeded()
+        #expect(measured.value > 300)
+
+        for width: CGFloat in [780, 520] {
+            host.frame = NSRect(x: 0, y: 0, width: width, height: 300)
+            host.layoutSubtreeIfNeeded()
+            #expect(measured.value <= 300)
+        }
+    }
+
 }

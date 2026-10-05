@@ -422,10 +422,13 @@ struct TroubleshootProjectTests {
         let session = try #require(store.newSession(in: workspace.id, projects: [
                 SessionProject(projectID: first.id, worktreePath: nil, worktreeBranch: nil),
                 SessionProject(projectID: second.id, worktreePath: nil, worktreeBranch: nil),
-            ], seed: .init(isTroubleshooting: true)))
+            ], seed: .init(agentAvatarName: "agent-avatar-2.png", isTroubleshooting: true)))
 
         #expect(session.projectID == first.id)
         #expect(session.workspaceID == workspace.id)
+        #expect(session.agentAvatarName == "agent-avatar-2.png")
+        let restored = try #require(ProjectStore(storeURL: store.storeURL).session(session.id))
+        #expect(restored.agentAvatarName == "agent-avatar-2.png")
         #expect(session.isTroubleshooting)
         #expect(store.workspaces == [workspace])
         #expect(store.workingDirectories(for: session) == [first.path, second.path])

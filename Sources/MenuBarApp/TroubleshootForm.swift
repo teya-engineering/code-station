@@ -251,7 +251,7 @@ struct TroubleshootProblemEditor: View {
         }
         .background(RoundedRectangle(cornerRadius: 11).fill(Theme.card))
         .overlay(RoundedRectangle(cornerRadius: 11)
-            .stroke(dropTargeted || (isBrief && focused.wrappedValue) ? Theme.accent : Theme.border,
+            .stroke(dropTargeted || focused.wrappedValue ? Theme.accent : Theme.border,
                     lineWidth: dropTargeted ? 2 : 1))
         .dropDestination(for: URL.self) { urls, _ in
             attach(Attachments.fromDrop(urls))
@@ -261,7 +261,7 @@ struct TroubleshootProblemEditor: View {
         // text field would otherwise steal a path pasted into it as a file.
         .pasteAttachments(enabled: focused.wrappedValue) { attach($0) }
         .onChange(of: attachments) { old, new in
-            guard isBrief, let window = NSApp?.keyWindow else { return }
+            guard let window = NSApp?.keyWindow else { return }
             let added = new.filter { item in !old.contains { $0.id == item.id } }
             let removed = old.filter { item in !new.contains { $0.id == item.id } }
             let message = [
