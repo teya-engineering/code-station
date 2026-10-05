@@ -16,7 +16,10 @@ struct DispatchView: View {
     @State private var dropSlot: RequestDropSlot?
     @State private var rowHeights: [UUID: CGFloat] = [:]
     @State private var expanded = false
-    @State private var parentSize: CGSize?
+    // The sheet only learns its parent a moment after it opens, so start from the window
+    // that is key while the sheet is being built. Without this the first frame uses a
+    // fallback size and the sheet visibly jumps once the real size arrives.
+    @State private var parentSize: CGSize? = NSApp.keyWindow?.contentLayoutRect.size
 
     private var environment: ApiEnvironment { auth.active }
 
