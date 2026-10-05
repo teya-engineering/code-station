@@ -227,7 +227,6 @@ struct FreshnessNotice: View {
     let forWorktree: Bool
     @Binding var startPoint: SessionStartPoint
     let onChoose: () -> Void
-    @State private var expanded = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -253,56 +252,24 @@ struct FreshnessNotice: View {
                 }
             }
             if report.isStale {
-                DisclosureHeader(isExpanded: $expanded, show: "Change start point", hide: "Hide start choices") {
-                    HStack {
-                        Text(selectedTitle).font(.system(size: 13, weight: .semibold))
-                        Spacer()
-                        Text("Change").font(.system(size: 12)).foregroundStyle(Theme.accent)
+                VStack(alignment: .leading, spacing: 8) {
+                    if forWorktree, let remote = report.remoteRef {
+                        choice(.remote,
+                               title: "Start from \(remote)",
+                               detail: remoteDetail)
                     }
-                }
-                .accessibilityValue(expanded ? "Expanded" : "Collapsed")
-                Text(selectedDetail)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                if expanded {
-                    VStack(alignment: .leading, spacing: 8) {
-                        if forWorktree, let remote = report.remoteRef {
-                            choice(.remote,
-                                   title: "Start from \(remote)",
-                                   detail: remoteDetail)
-                        }
-                        if report.canUpdateCheckout, let title = updateTitle {
-                            choice(.updateCheckout, title: title, detail: updateDetail)
-                        }
-                        choice(.currentCheckout, title: currentTitle, detail: currentDetail)
+                    if report.canUpdateCheckout, let title = updateTitle {
+                        choice(.updateCheckout, title: title, detail: updateDetail)
                     }
-                    .transition(.fold)
+                    choice(.currentCheckout, title: currentTitle, detail: currentDetail)
                 }
             }
         }
-        .smoothlyResizes(when: expanded)
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
         .background(Theme.sunken)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Checkout start point")
-    }
-
-    private var selectedTitle: String {
-        switch startPoint {
-        case .remote: "Start from \(report.remoteRef ?? "the remote branch")"
-        case .updateCheckout: updateTitle ?? currentTitle
-        case .currentCheckout: currentTitle
-        }
-    }
-
-    private var selectedDetail: String {
-        switch startPoint {
-        case .remote: remoteDetail
-        case .updateCheckout: updateDetail
-        case .currentCheckout: currentDetail
-        }
     }
 
     private func choice(_ value: SessionStartPoint, title: String, detail: String) -> some View {
