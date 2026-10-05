@@ -170,11 +170,13 @@ struct DesignView: View {
             collapse: { keyboard in
                 conversationExpanded = false
                 // A press outside shrinks the panel to a small tab, so the canvas gets back
-                // as much room as it can. Escape only steps back one level.
+                // as much room as it can. Escape only steps back one level. While picking
+                // elements, a press on the canvas is a pick headed for the composer, so the
+                // panel stays open.
                 if keyboard {
                     composerFocused = false
                     conversationToggleFocused = true
-                } else {
+                } else if !selectionEnabled {
                     composerFocused = false
                     conversationMinimized = true
                 }
@@ -501,6 +503,8 @@ struct DesignView: View {
                     GlyphButton(icon: selectionEnabled ? "scope" : "cursorarrow", side: 28,
                                 active: selectionEnabled, tint: Theme.accent) {
                         selectionEnabled.toggle()
+                        // A pick lands in the composer, so the panel has to be open to show it.
+                        if selectionEnabled { conversationMinimized = false }
                     }
                     .appTooltip(selectionEnabled
                         ? "Stop selecting canvas elements"
@@ -615,6 +619,7 @@ struct DesignView: View {
         }
         snapshotRequest = DesignSnapshotRequest(purpose: .selection,
                                                 rect: selection.rect.insetBy(dx: -8, dy: -8))
+        conversationMinimized = false
         composerFocused = true
     }
 
