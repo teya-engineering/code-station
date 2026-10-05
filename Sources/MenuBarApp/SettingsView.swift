@@ -125,10 +125,6 @@ final class AppSettings {
         didSet { Preferences.setTextSize(textSize, in: preferences) }
     }
 
-    var designEnabled: Bool {
-        didSet { Preferences.setDesignEnabled(designEnabled, in: preferences) }
-    }
-
     var mobileAccessEnabled: Bool {
         didSet { Preferences.setMobileAccessEnabled(mobileAccessEnabled, in: preferences) }
     }
@@ -183,7 +179,6 @@ final class AppSettings {
         opensWorkingSetByDefault = Preferences.opensWorkingSetByDefault(in: preferences)
         diceBearAvatarStyle = Preferences.diceBearAvatarStyle(in: preferences)
         textSize = Preferences.textSize(in: preferences)
-        designEnabled = Preferences.designEnabled(in: preferences)
         mobileAccessEnabled = Preferences.mobileAccessEnabled(in: preferences)
         sessionRecapsEnabled = Preferences.sessionRecapsEnabled(in: preferences)
         sessionTitlesEnabled = Preferences.sessionTitlesEnabled(in: preferences)
@@ -552,9 +547,6 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 20) {
                 SiteConfigurationSection(skills: skills)
             }
-            .transition(.fadeIn)
-        case .design:
-            designWorkspace.id(SettingsSearchTarget.designWorkspace.id)
             .transition(.fadeIn)
         case .experimental:
             experimentalFeatures.id(SettingsSearchTarget.experimentalFeatures.id)
@@ -1113,20 +1105,6 @@ struct SettingsView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var designWorkspace: some View {
-        @Bindable var settings = settings
-        return ChoiceBlock("DESIGN") {
-            SettingsCard {
-                SettingsToggleRow(
-                    "Design",
-                    detail: "Adds a Design workspace to sessions for visual ideas and prototypes.",
-                    isOn: $settings.designEnabled)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 13)
-            }
-        }
     }
 
     private var experimentalFeatures: some View {
@@ -1782,7 +1760,6 @@ enum SettingsSearchTarget: String, Hashable {
     case agentFiles
     case advancedConfiguration
     case advancedReset
-    case designWorkspace
     case experimentalFeatures
 
     var id: String { rawValue }
@@ -1870,8 +1847,6 @@ enum SettingsSearchIndex {
                "json environments api access credentials oauth shared defaults starter requests mcp presets skills marketplace shortcuts"),
         result("Reset from file", .advanced, .advancedReset,
                "repository url github load choose file restore aspects"),
-        result("Design", .design, .designWorkspace,
-               "visual ideas prototypes workspace feature"),
         result("Mobile access", .experimental, .experimentalFeatures,
                "qr code phone wifi experimental")
     ]
@@ -1924,7 +1899,6 @@ enum SettingsTab: CaseIterable, Hashable {
     case appearance
     case keyboard
     case agents
-    case design
     case advanced
     case experimental
 
@@ -1934,7 +1908,6 @@ enum SettingsTab: CaseIterable, Hashable {
         case .appearance: "Appearance"
         case .keyboard: "Keyboard"
         case .agents: "Agents"
-        case .design: "Design"
         case .advanced: "Advanced"
         case .experimental: "Experimental"
         }
@@ -1946,7 +1919,6 @@ enum SettingsTab: CaseIterable, Hashable {
         case .appearance: "paintpalette"
         case .keyboard: "keyboard"
         case .agents: "cpu"
-        case .design: "paintbrush"
         case .advanced: "gearshape"
         case .experimental: "flask"
         }
@@ -1958,7 +1930,6 @@ enum SettingsTab: CaseIterable, Hashable {
         case .appearance: "Make Code Station comfortable to read and easy to recognise at a glance."
         case .keyboard: "Every key Code Station answers, and what it does."
         case .agents: "Choose an agent and set how it runs."
-        case .design: "Give sessions a Design workspace for visual ideas and prototypes."
         case .advanced: "Manage shared configuration and other advanced settings."
         case .experimental: "Try features that are still in development."
         }

@@ -219,16 +219,6 @@ struct AppPathsTests {
         #expect(Preferences.sidebarSessionLimit(in: defaults) == 10)
     }
 
-    @Test func designStaysOffUntilItIsEnabled() throws {
-        let suite = "code-station-design-setting-tests-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
-
-        #expect(!Preferences.designEnabled(in: defaults))
-        defaults.set(true, forKey: "designEnabled")
-        #expect(Preferences.designEnabled(in: defaults))
-    }
-
     @Test @MainActor func sessionRecapsDefaultOffAndPersist() throws {
         let suite = "code-station-recap-tests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
@@ -311,7 +301,6 @@ struct AppPathsTests {
         Preferences.setTerminalBundleID("com.example.FirstTerminal", in: firstDefaults)
         Preferences.setAppearance(.dark, in: firstDefaults)
         Preferences.setTextSize(.larger, in: firstDefaults)
-        Preferences.setDesignEnabled(true, in: firstDefaults)
         Preferences.setMobileAccessEnabled(true, in: firstDefaults)
         Preferences.setShowCost(false, for: .codex, in: firstDefaults)
 
@@ -325,7 +314,6 @@ struct AppPathsTests {
         #expect(first.terminalBundleID == "com.example.FirstTerminal")
         #expect(first.appearance == .dark)
         #expect(first.textSize == .larger)
-        #expect(first.designEnabled)
         #expect(first.mobileAccessEnabled)
         #expect(!first.showsCost(for: .codex))
 
@@ -336,7 +324,6 @@ struct AppPathsTests {
         #expect(second.terminalBundleID == nil)
         #expect(second.appearance == .system)
         #expect(second.textSize == .standard)
-        #expect(!second.designEnabled)
         #expect(!second.mobileAccessEnabled)
         #expect(second.showsCost(for: .codex))
 
@@ -347,7 +334,6 @@ struct AppPathsTests {
         first.terminalBundleID = "com.example.UpdatedTerminal"
         first.appearance = .light
         first.textSize = .small
-        first.designEnabled = false
         first.mobileAccessEnabled = false
         first.setShowsCost(true, for: .codex)
 
@@ -359,7 +345,6 @@ struct AppPathsTests {
                 == "com.example.UpdatedTerminal")
         #expect(Preferences.appearance(in: firstDefaults) == .light)
         #expect(Preferences.textSize(in: firstDefaults) == .small)
-        #expect(!Preferences.designEnabled(in: firstDefaults))
         #expect(!Preferences.mobileAccessEnabled(in: firstDefaults))
         #expect(Preferences.showCost(for: .codex, in: firstDefaults))
 
@@ -371,7 +356,6 @@ struct AppPathsTests {
         #expect(restoredSecond.terminalBundleID == nil)
         #expect(restoredSecond.appearance == .system)
         #expect(restoredSecond.textSize == .standard)
-        #expect(!restoredSecond.designEnabled)
         #expect(!restoredSecond.mobileAccessEnabled)
         #expect(restoredSecond.showsCost(for: .codex))
     }

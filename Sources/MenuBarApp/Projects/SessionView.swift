@@ -763,8 +763,7 @@ struct SessionView: View {
                         icon: "bubble.left.and.bubble.right",
                         value: .conversation)
         ]
-        if !session.isActivelyDesigning,
-           appSettings.designEnabled || store.isDesignMode(session) {
+        if !session.isActivelyDesigning {
             tabs.append(HeaderTab(
                 label: "Design",
                 icon: "paintbrush.pointed",

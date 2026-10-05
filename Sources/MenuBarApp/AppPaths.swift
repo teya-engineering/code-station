@@ -524,14 +524,6 @@ enum Preferences {
         store.set(textSize.rawValue, forKey: "textSize")
     }
 
-    static func designEnabled(in store: UserDefaults = .standard) -> Bool {
-        store.bool(forKey: "designEnabled")
-    }
-
-    static func setDesignEnabled(_ enabled: Bool, in store: UserDefaults = .standard) {
-        store.set(enabled, forKey: "designEnabled")
-    }
-
     // The old catch-up preference maps directly to automatic recaps, so an existing opt-out
     // remains respected after the feature changes shape.
     static func sessionRecapsEnabled(in store: UserDefaults = .standard) -> Bool {
