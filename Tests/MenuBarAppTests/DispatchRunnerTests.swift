@@ -100,6 +100,36 @@ struct DispatchRunnerTests {
         #expect(result.body == "ok")
     }
 
+    @MainActor
+    @Test func missingPropertiesStopBeforeAnyNetworkRequest() async throws {
+        StubURLProtocol.prepare(body: Data("never sent".utf8))
+        let runner = DispatchRunner(sessionConfiguration: stubConfiguration())
+        let request = SavedRequest(name: "missing", url: "https://example.test",
+                                   headers: [HeaderField(key: "X-ID", value: "{{merchant_id}}")])
+        await runner.send(request, environment: testEnvironment)
+        let result = try #require(runner.result(request.id, in: testEnvironment))
+        #expect(result.failure?.contains("merchant_id") == true)
+        #expect(StubURLProtocol.lastRequest == nil)
+    }
+
+    @MainActor
+    @Test func sendsResolvedValuesAndExplicitAuthorizationWins() async throws {
+        StubURLProtocol.prepare(body: Data("ok".utf8))
+        let runner = DispatchRunner(sessionConfiguration: stubConfiguration())
+        let request = SavedRequest(name: "values", method: .post, url: "https://example.test/:id",
+                                   headers: [HeaderField(key: "Authorization", value: "{{key}}")],
+                                   queryParams: [HeaderField(key: "q", value: "{{value}}")],
+                                   pathParams: [HeaderField(key: "id", value: "{{value}}")],
+                                   bodyType: .json, body: #"{"value":"{{value}}"}"#)
+        await runner.send(request, environment: testEnvironment, authorization: "ignored",
+                          properties: [EnvironmentProperty(name: "value", value: "a/b&c"),
+                                       EnvironmentProperty(name: "key", value: "secret", isSecret: true)])
+        let sent = try #require(StubURLProtocol.lastRequest)
+        #expect(sent.url?.absoluteString == "https://example.test/a%2Fb%26c?q=a/b%26c")
+        #expect(sent.value(forHTTPHeaderField: "Authorization") == "secret")
+        #expect(runner.result(request.id, in: testEnvironment)?.failure == nil)
+    }
+
     private func stubConfiguration() -> URLSessionConfiguration {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [StubURLProtocol.self]
@@ -112,12 +142,14 @@ private final class StubURLProtocol: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) private static var responseDelay: TimeInterval = 0
     nonisolated(unsafe) private static var responseChunkSize: Int?
     nonisolated(unsafe) private static var stopped = false
+    nonisolated(unsafe) private static var receivedRequest: URLRequest?
     private static let stateLock = NSLock()
 
     private let instanceLock = NSLock()
     private var responseWork: DispatchWorkItem?
     private var isStopped = false
 
+    static var lastRequest: URLRequest? { stateLock.withLock { receivedRequest } }
     static var wasStopped: Bool { stateLock.withLock { stopped } }
     static func prepare(body: Data, delay: TimeInterval = 0, chunkSize: Int? = nil) {
         stateLock.withLock {
@@ -125,6 +157,7 @@ private final class StubURLProtocol: URLProtocol, @unchecked Sendable {
             responseDelay = delay
             responseChunkSize = chunkSize
             stopped = false
+            receivedRequest = nil
         }
     }
 
@@ -133,6 +166,7 @@ private final class StubURLProtocol: URLProtocol, @unchecked Sendable {
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
+        Self.stateLock.withLock { Self.receivedRequest = request }
         let (body, delay, chunkSize) = Self.stateLock.withLock {
             (Self.responseBody, Self.responseDelay, Self.responseChunkSize)
         }

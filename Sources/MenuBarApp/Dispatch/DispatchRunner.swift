@@ -56,12 +56,12 @@ final class DispatchRunner {
     }
 
     func send(_ request: SavedRequest, environment: ApiEnvironment,
-              authorization: String? = nil) async {
+              authorization: String? = nil, properties: [EnvironmentProperty] = []) async {
         let key = Key(request: request.id, environment: environment)
         guard !inFlight.contains(key) else { return }
 
         let urlRequest: URLRequest
-        switch Self.build(request, environment: environment, authorization: authorization) {
+        switch Self.build(request, environment: environment, authorization: authorization, properties: properties) {
         case .success(let built):
             urlRequest = built
         case .failure(let problem):
@@ -155,13 +155,24 @@ final class DispatchRunner {
         var url: String
         var headers: [HeaderField]
         var body: String?
+        var problems: [String] = []
     }
 
     nonisolated static func resolve(_ request: SavedRequest, environment: ApiEnvironment,
-                                    authorization: String?) -> ResolvedRequest {
+                                    authorization: String?, properties: [EnvironmentProperty] = [],
+                                    masked: Bool = false) -> ResolvedRequest {
+        var resolver = RequestPropertyResolver(environment: environment, properties: properties)
+        let actual = resolver.resolve(request)
+        let problems = resolver.problems
+        var resolvedRequest = actual
+        if masked {
+            var previewResolver = RequestPropertyResolver(environment: environment, properties: properties, masked: true)
+            resolvedRequest = previewResolver.resolve(request)
+        }
+        let request = resolvedRequest
         // {{env}} is substituted at the last moment, so the saved request stays a
         // template and the same list serves every environment.
-        let url = environment.resolve(request.expandedURL).trimmed
+        let url = request.expandedURL.trimmed
 
         var headers: [HeaderField] = []
         // Setting a header twice replaces it rather than sending it twice, the way
@@ -202,17 +213,19 @@ final class DispatchRunner {
                 set("Content-Type", contentType)
             }
         }
-        return ResolvedRequest(url: url, headers: headers, body: body)
+        return ResolvedRequest(url: url, headers: headers, body: body, problems: problems)
     }
 
     // What stops a request before it is sent. Each case carries its own wording, since
     // "check the URL" and "check that header" send you looking in different places.
     enum Problem: Error {
         case url
+        case properties(String)
         case headerName(String)
 
         var message: String {
             switch self {
+            case .properties(let message): message
             case .url:
                 "That URL is not valid."
             case .headerName(let name):
@@ -226,8 +239,9 @@ final class DispatchRunner {
     }
 
     private static func build(_ request: SavedRequest, environment: ApiEnvironment,
-                              authorization: String?) -> Result<URLRequest, Problem> {
-        let resolved = resolve(request, environment: environment, authorization: authorization)
+                              authorization: String?, properties: [EnvironmentProperty]) -> Result<URLRequest, Problem> {
+        let resolved = resolve(request, environment: environment, authorization: authorization, properties: properties)
+        if !resolved.problems.isEmpty { return .failure(.properties(resolved.problems.joined(separator: "\n"))) }
         guard let url = URL(string: resolved.url), url.scheme != nil, url.host != nil else {
             return .failure(.url)
         }

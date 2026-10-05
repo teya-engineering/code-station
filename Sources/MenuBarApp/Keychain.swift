@@ -36,6 +36,10 @@ enum Keychain {
             Account(name: environmentPrefix + environment + ".token")
         }
 
+        static func dispatchProperty(_ id: UUID, environment: String) -> Account {
+            Account(name: "dispatch.property." + environment + "." + id.uuidString)
+        }
+
         static func basicPassword(for requestID: UUID) -> Account {
             Account(name: requestPrefix + requestID.uuidString + passwordSuffix)
         }

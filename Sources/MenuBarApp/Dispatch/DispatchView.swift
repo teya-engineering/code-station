@@ -44,7 +44,7 @@ struct DispatchView: View {
         .frame(width: sheetSize.width, height: sheetSize.height)
         .background(Theme.background)
         .background(ParentWindowSize(size: $parentSize))
-        .sheet(isPresented: $showingEnvironments) { EnvironmentsView() }
+        .sheet(isPresented: $showingEnvironments) { EnvironmentsView(previewRequest: store.requests.first { $0.id == store.selectedID }) }
         .onAppear { store.selectedID = nil }
     }
 
@@ -591,21 +591,6 @@ private struct MethodTag: View {
     }
 }
 
-// The template with every {{env}} swapped for what it resolves to, the resolved parts
-// picked out in the environment's colour.
-private func resolvedText(_ template: String, env: ApiEnvironment,
-                          size: CGFloat, base: Color) -> Text {
-    let parts = template.components(separatedBy: "{{env}}")
-    var text = Text(verbatim: "")
-    for (index, part) in parts.enumerated() {
-        if index > 0 {
-            text = text + Text(env.name).font(.mono(size, .bold)).foregroundStyle(env.brightAccent)
-        }
-        text = text + Text(part).font(.mono(size)).foregroundStyle(base)
-    }
-    return text
-}
-
 // MARK: - Editing one request
 
 private struct RequestDetail: View {
@@ -746,13 +731,20 @@ private struct RequestDetail: View {
     // What the URL becomes on send, so the template stays editable above while the
     // real address is always in sight.
     private var resolvedLine: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Text("→")
-                .font(.mono(10))
-                .foregroundStyle(.tertiary)
-            resolvedText(draft.expandedURL, env: environment, size: 10, base: .secondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
+        let resolved = DispatchRunner.resolve(draft, environment: environment, authorization: nil,
+                                              properties: auth.properties(for: environment), masked: true)
+        return VStack(alignment: .leading, spacing: 5) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text("→").font(.mono(10)).foregroundStyle(.tertiary)
+                Text(resolved.url).font(.mono(10)).foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            if !resolved.problems.isEmpty {
+                Text(resolved.problems.joined(separator: "\n"))
+                    .font(.system(size: 11)).foregroundStyle(Theme.deletion)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .padding(.horizontal, 20)
         .padding(.bottom, 12)
@@ -1002,14 +994,21 @@ private struct RequestDetail: View {
         // the store, so the run is built from it rather than from the saved copy.
         let request = draft
         let env = environment
+        let properties = auth.properties(for: env)
+        let resolved = DispatchRunner.resolve(request, environment: env, authorization: nil, properties: properties, masked: true)
+        guard resolved.problems.isEmpty else {
+            dialogs.show(Dialog(title: "Cannot send to \(env.label)", message: resolved.problems.joined(separator: "\n"),
+                                actions: [Dialog.Action(label: "OK", kind: .cancel)]))
+            return
+        }
         guard env.isDangerous else {
-            fire(request, in: env)
+            fire(request, in: env, properties: properties)
             return
         }
         // A live environment asks once per send. There is no way to stop it asking; the
         // prompt is the guard.
         var actions = [
-            Dialog.Action(label: "Send", kind: .destructive) { fire(request, in: env) }
+            Dialog.Action(label: "Send", kind: .destructive) { fire(request, in: env, properties: properties) }
         ]
         if let safe = auth.environments.first(where: { !$0.isDangerous }) {
             actions.append(Dialog.Action(label: "Switch to \(safe.label)") {
@@ -1020,15 +1019,15 @@ private struct RequestDetail: View {
         dialogs.show(Dialog(
             title: "Send to \(env.label)?",
             message: consequence(of: request.method),
-            content: AnyView(ResolvedRequestBox(request: request, environment: env)),
+            content: AnyView(ResolvedRequestBox(request: request, environment: env, properties: properties)),
             actions: actions,
             width: 400))
     }
 
-    private func fire(_ request: SavedRequest, in env: ApiEnvironment) {
+    private func fire(_ request: SavedRequest, in env: ApiEnvironment, properties: [EnvironmentProperty]) {
         Task {
             await runner.send(request, environment: env,
-                              authorization: authorization(for: request, in: env))
+                              authorization: authorization(for: request, in: env), properties: properties)
         }
     }
 
@@ -1036,6 +1035,7 @@ private struct RequestDetail: View {
     // instead of failing the call.
     private func authorization(for request: SavedRequest,
                                in env: ApiEnvironment) async -> String? {
+        if request.headers.contains(where: { $0.enabled && $0.key.caseInsensitiveCompare("Authorization") == .orderedSame }) { return nil }
         switch request.authMode {
         case .none:
             return nil
@@ -1053,12 +1053,17 @@ private struct RequestDetail: View {
     private func copyAsCurl() {
         let request = draft
         let env = environment
+        let properties = auth.properties(for: env)
+        let resolved = DispatchRunner.resolve(request, environment: env, authorization: nil,
+                                              properties: properties, masked: true)
+        guard resolved.problems.isEmpty else {
+            dialogs.show(.notice("Cannot export this request", message: resolved.problems.joined(separator: "\n")))
+            return
+        }
         Task {
-            // Built the same way a send does, so the copied command carries a token that
-            // is live rather than one that expired while the window sat open.
-            let authorization = await authorization(for: request, in: env)
             Pasteboard.copy(CurlCommand.text(for: request, environment: env,
-                                             authorization: authorization))
+                                             authorization: request.authMode == .none ? nil : "REDACTED",
+                                             properties: properties))
             copiedCurl = true
             try? await Task.sleep(for: .seconds(2))
             copiedCurl = false
@@ -1080,13 +1085,15 @@ private struct RequestDetail: View {
 private struct ResolvedRequestBox: View {
     let request: SavedRequest
     let environment: ApiEnvironment
+    var properties: [EnvironmentProperty] = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(request.method.rawValue)
                 .font(.mono(11, .bold))
                 .foregroundStyle(Theme.deletion)
-            resolvedText(request.expandedURL, env: environment, size: 11, base: .primary)
+            Text(DispatchRunner.resolve(request, environment: environment, authorization: nil,
+                                        properties: properties, masked: true).url).font(.mono(11))
                 .lineLimit(2)
                 .truncationMode(.middle)
         }
@@ -1374,7 +1381,7 @@ private struct ResponsePane: View {
 
 // Reports the size of the window a sheet hangs off, and keeps reporting it as that
 // window is resized, so the sheet can grow with it.
-private struct ParentWindowSize: NSViewRepresentable {
+struct ParentWindowSize: NSViewRepresentable {
     @Binding var size: CGSize?
 
     func makeNSView(context: Context) -> NSView {

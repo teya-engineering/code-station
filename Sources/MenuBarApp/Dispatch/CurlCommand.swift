@@ -5,9 +5,10 @@ import Foundation
 // from the same resolved request that a send uses, token and all, so the two agree.
 enum CurlCommand {
     static func text(for request: SavedRequest, environment: ApiEnvironment,
-                     authorization: String?) -> String {
+                     authorization: String?, properties: [EnvironmentProperty] = []) -> String {
         let resolved = DispatchRunner.resolve(request, environment: environment,
-                                              authorization: authorization)
+                                              authorization: authorization, properties: properties, masked: true)
+        guard resolved.problems.isEmpty else { return resolved.problems.joined(separator: "\n") }
         var parts = ["curl"]
         // curl sends GET on its own, so naming it is only noise.
         if request.method != .get {

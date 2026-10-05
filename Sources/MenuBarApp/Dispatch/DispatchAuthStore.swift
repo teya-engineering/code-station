@@ -13,6 +13,7 @@ final class DispatchAuthStore {
     var active: ApiEnvironment { didSet { if active != oldValue { saver.schedule() } } }
     private(set) var environments: [ApiEnvironment]
     private var configurations: [ApiEnvironment: OAuthConfig]
+    private var environmentProperties: [String: [EnvironmentProperty]] = [:]
     private var siteOAuth: OAuthConfig
 
     private(set) var tokens: [ApiEnvironment: OAuthToken] = [:]
@@ -39,6 +40,7 @@ final class DispatchAuthStore {
     private struct Persisted: Codable {
         var active: String
         var configurations: [String: OAuthConfig]
+        var properties: [String: [EnvironmentProperty]]?
     }
 
     private struct LegacyPersisted: Codable {
@@ -146,8 +148,49 @@ final class DispatchAuthStore {
                 passwords[requestID] = entry.value
             }
         }
+        environmentProperties = saved?.properties ?? [:]
+        for name in environmentProperties.keys {
+            for index in environmentProperties[name]!.indices where environmentProperties[name]![index].isSecret {
+                let id = environmentProperties[name]![index].id
+                environmentProperties[name]![index].value = keychainValues[.dispatchProperty(id, environment: name)] ?? ""
+            }
+        }
         storedKeychainValues = keychainValues
         loadError = loadFailures.isEmpty ? nil : loadFailures.joined(separator: "\n")
+    }
+
+    func properties(for environment: ApiEnvironment) -> [EnvironmentProperty] {
+        environmentProperties[environment.name] ?? []
+    }
+
+    @discardableResult
+    func setProperties(_ drafts: [ApiEnvironment: [EnvironmentProperty]],
+                       configurations configDrafts: [ApiEnvironment: OAuthConfig] = [:]) -> Bool {
+        for (env, rows) in drafts {
+            if let problem = EnvironmentProperty.validation(rows) {
+                saveError = "\(env.label): \(problem)"
+                return false
+            }
+        }
+        let previous = environmentProperties
+        let previousConfigurations = configurations
+        let previousSecrets = storedKeychainValues
+        for (env, rows) in drafts { environmentProperties[env.name] = rows }
+        for (env, config) in configDrafts { configurations[env] = config }
+        guard save() else {
+            environmentProperties = previous
+            configurations = previousConfigurations
+            if storedKeychainValues != previousSecrets {
+                do {
+                    try keychain.write(previousSecrets)
+                    storedKeychainValues = previousSecrets
+                } catch {
+                    saveError = [saveError, error.localizedDescription].compactMap { $0 }.joined(separator: "\n")
+                }
+            }
+            return false
+        }
+        return true
     }
 
     private static func defaultStoreURL() -> URL {
@@ -558,6 +601,15 @@ final class DispatchAuthStore {
             keychainValues[.basicPassword(for: requestID)] = password
         }
 
+        keychainValues = keychainValues.filter { !$0.key.name.hasPrefix("dispatch.property.") }
+        var cleanProperties = environmentProperties
+        for (name, rows) in environmentProperties {
+            for (index, row) in rows.enumerated() where row.isSecret {
+                keychainValues[.dispatchProperty(row.id, environment: name)] = row.value.isEmpty ? nil : row.value
+                cleanProperties[name]![index].value = ""
+            }
+        }
+
         var encodingFailures: [String] = []
         for env in environments {
             let secret = config(for: env).clientSecret
@@ -595,7 +647,7 @@ final class DispatchAuthStore {
             config.clientSecret = ""
             result[entry.key.name] = config
         }
-        let onDisk = Persisted(active: active.name, configurations: cleanConfigurations)
+        let onDisk = Persisted(active: active.name, configurations: cleanConfigurations, properties: cleanProperties)
         do {
             try PersistentFile.saveJSON(onDisk, to: storeURL, encoder: encoder)
             saveError = nil

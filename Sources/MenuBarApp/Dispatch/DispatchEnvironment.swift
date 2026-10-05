@@ -55,45 +55,46 @@ struct ApiEnvironment: Identifiable, Hashable, Sendable {
 struct EnvironmentPills: View {
     let environments: [ApiEnvironment]
     let selected: ApiEnvironment
-    // The Environments sheet also shows what {{env}} resolves to, beside a label that
-    // differs from it.
-    var showsNames = false
+    var wraps = false
     let choose: (ApiEnvironment) -> Void
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 2) {
-                ForEach(environments) { env in
-                    EnvironmentPill(env: env, selected: env == selected, showsName: showsNames) {
-                        choose(env)
-                    }
+        Group {
+            if wraps {
+                FlowRow(spacing: 4) { pills }
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 2) { pills }
                 }
             }
-            .padding(3)
         }
+        .padding(3)
         .background(RoundedRectangle(cornerRadius: 10).fill(Color.black.opacity(0.05)))
+    }
+
+    private var pills: some View {
+        ForEach(environments) { env in
+            EnvironmentPill(env: env, selected: env == selected) { choose(env) }
+        }
     }
 }
 
 private struct EnvironmentPill: View {
     let env: ApiEnvironment
     let selected: Bool
-    let showsName: Bool
     let action: () -> Void
 
     @State private var hovering = false
+    @FocusState private var focused: Bool
 
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: 6) {
-                Text(env.label)
-                    .font(.system(size: 12, weight: .semibold))
-                if showsName, env.label != env.name {
-                    Text(env.name)
-                        .font(.mono(10, .medium))
-                        .opacity(0.72)
-                }
-            }
+        Button {
+            focused = true
+            action()
+        } label: {
+            Text(env.label)
+                .font(.system(size: 12, weight: .semibold))
+                .fixedSize()
             .foregroundStyle(selected ? Color.white : Color.secondary)
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
@@ -102,6 +103,14 @@ private struct EnvironmentPill: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .focusable()
+        .focused($focused)
+        .focusEffectDisabled()
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(focused ? Theme.accent : .clear, lineWidth: 2))
+        .onKeyPress(keys: [.space, .return]) { _ in action(); return .handled }
+        .help("Environment key: \(env.name)")
+        .accessibilityLabel("\(env.label), environment key: \(env.name)" + (env.isDangerous ? ", live environment" : ""))
+        .accessibilityAddTraits(selected ? [.isSelected] : [])
         .hoverLift(hovering)
         .onHover { hovering = $0 }
         .motion(Motion.hover, value: hovering)
