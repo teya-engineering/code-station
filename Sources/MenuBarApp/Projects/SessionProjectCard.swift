@@ -49,7 +49,7 @@ struct SessionProjectCard: View {
             }
             .padding(16)
             if let report, report.isStale || report.dirty || (report.fetchAttempted && !report.fetched) {
-                Divider().overlay(Theme.hairline)
+                Rectangle().fill(Theme.attention.opacity(0.38)).frame(height: 1)
                 FreshnessNotice(report: report, forWorktree: usesWorktree,
                                 startPoint: $startPoint, onChoose: onChoose)
             }

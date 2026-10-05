@@ -267,7 +267,7 @@ struct FreshnessNotice: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
-        .background(Theme.sunken)
+        .background(Theme.attention.opacity(0.10))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Checkout start point")
     }
