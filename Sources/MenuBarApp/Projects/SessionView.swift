@@ -1918,12 +1918,10 @@ struct SessionView: View {
     // prompt is, and docking them here keeps them off a status strip that has to stay one
     // glance wide however many commands a project collects.
     @ViewBuilder private func runChoices(_ session: ChatSession, project: Project) -> some View {
-        let agent = session.agent
         HStack(spacing: 10) {
             if session.settings?.mcpServersEnabled == false {
                 MonoChip(text: "MCP off", size: 10.5, bordered: true)
             }
-            pinnedSetting(agent.title, help: "This session always runs on \(agent.title).")
             SessionRunSettingsControls(sessionID: sessionID)
 
             // Ad-hoc tasks run in a private folder the app made for one prompt, so there
@@ -1956,14 +1954,6 @@ struct SessionView: View {
                     availableNames: appSettings.agentAvatars.map { $0.url.lastPathComponent })
             },
             set: { store.setAgentAvatarName($0, for: sessionID) })
-    }
-
-    private func pinnedSetting(_ label: String, help: String) -> some View {
-        Text(label)
-            .font(.system(size: 11))
-            .foregroundStyle(.secondary)
-            .fixedSize()
-            .appTooltip(help)
     }
 
     // Manual compaction is a Claude Code action. Clearing remains available for either

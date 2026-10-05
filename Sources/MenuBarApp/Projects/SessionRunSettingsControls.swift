@@ -15,6 +15,11 @@ struct SessionRunSettingsControls: View {
             let agent = session.agent
             let layout = wraps ? AnyLayout(FlowRow(spacing: 10)) : AnyLayout(HStackLayout(spacing: 10))
             layout {
+                Text(agent.title)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .fixedSize()
+                    .appTooltip("This session always runs on \(agent.title).")
                 modelControl(session, lastRan: session.usage?.model(for: agent))
                 effortMenu(agent: agent)
                 switch agent {
