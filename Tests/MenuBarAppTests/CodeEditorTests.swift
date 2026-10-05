@@ -254,6 +254,17 @@ struct CodeEditorTests {
         #expect(pane.colour(of: "plain") == NSColor.labelColor)
     }
 
+    // A link to "File.kt:2" opens the file with that line picked out, ready to read.
+    @Test func aFileOpenedAtALineSelectsThatLine() {
+        let pane = Pane("first\n")
+        pane.coordinator.apply(CodeEditorView(documentID: "linked.swift",
+                                              text: .constant("one\ntwo\nthree\n"),
+                                              language: nil, matches: [], currentMatch: nil,
+                                              revealLine: 2))
+
+        #expect(pane.textView.selectedRange() == NSRange(location: 4, length: 4))
+    }
+
     // The gutter has to be wide enough for the biggest number it will draw, or the numbers
     // on the longest files run under the code.
     @Test func theGutterGrowsWithTheLineCount() {

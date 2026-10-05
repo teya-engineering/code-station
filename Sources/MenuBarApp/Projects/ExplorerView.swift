@@ -18,8 +18,17 @@ struct FileFindShortcutKey: PreferenceKey {
     }
 }
 
+// A file another pane wants shown, with the line to land on when it names one.
+struct ExplorerReveal: Equatable {
+    let path: String
+    let line: Int?
+}
+
 struct ExplorerView: View {
     let root: String
+    // Taken and cleared once the file is shown, so coming back to the pane later
+    // finds it where it was left rather than back on this file.
+    var reveal: Binding<ExplorerReveal?> = .constant(nil)
 
     @Environment(DialogPresenter.self) private var dialogs
     @Environment(ExplorerMemory.self) private var memory
@@ -30,6 +39,8 @@ struct ExplorerView: View {
     @State private var expanded: Set<String> = []
     @State private var loadingFolders: Set<String> = []
     @State private var selected: FileNode?
+    // The line the open file should scroll to, when it was opened from a link to one.
+    @State private var lineToReveal: Int?
     @State private var preview: FilePreview?
     @State private var loadingPreview = false
     @State private var renderingMarkdown = false
@@ -132,6 +143,9 @@ struct ExplorerView: View {
         // text as it stands now.
         .onChange(of: draft) { if findPresented { refreshFind() } }
         .task(id: root) { await openRoot() }
+        .onChange(of: reveal.wrappedValue) {
+            if openedRoot == root { Task { await showRequestedFile() } }
+        }
     }
 
     private func splitHandle(treeWidth: CGFloat, availableWidth: CGFloat) -> some View {
@@ -515,6 +529,7 @@ struct ExplorerView: View {
                                matches: findPresented ? findResult.matches : [],
                                currentMatch: findPresented ? currentFindMatch : nil,
                                findQuery: findQuery,
+                               revealLine: lineToReveal,
                                onFind: showFind)
             }
         case .image(let data):
@@ -945,6 +960,25 @@ struct ExplorerView: View {
         treeWidth = place.treeWidth
         await load(root)
         await restore(place)
+        await showRequestedFile()
+    }
+
+    private func showRequestedFile() async {
+        guard let request = reveal.wrappedValue,
+              request.path.pathRelative(to: root) != nil else { return }
+        reveal.wrappedValue = nil
+
+        let url = URL(fileURLWithPath: request.path)
+        let ancestors = FileTree.ancestorDirectories(of: url, beneath: rootURL)
+        for path in ancestors {
+            expanded.insert(path)
+            if children[path] == nil { await load(path) }
+        }
+        guard !Task.isCancelled,
+              let node = children[ancestors.last ?? root]?.first(where: { $0.path == url.path })
+        else { return }
+        requestSelect(node, line: request.line)
+        treeFocused = true
     }
 
     private func rememberPlace() {
@@ -1049,13 +1083,16 @@ struct ExplorerView: View {
 
     // Moving to another file throws the draft away, so unsaved work is worth a question
     // first. A clean pane just moves, and a click on the file already open leaves it alone.
-    private func requestSelect(_ node: FileNode) {
-        if node.path == selected?.path { return }
-        guard dirty else {
-            select(node)
+    private func requestSelect(_ node: FileNode, line: Int? = nil) {
+        if node.path == selected?.path {
+            if line != nil { lineToReveal = line }
             return
         }
-        confirmDiscard { select(node) }
+        guard dirty else {
+            select(node, line: line)
+            return
+        }
+        confirmDiscard { select(node, line: line) }
     }
 
     private func revert() {
@@ -1104,9 +1141,10 @@ struct ExplorerView: View {
         }
     }
 
-    private func select(_ node: FileNode) {
+    private func select(_ node: FileNode, line: Int? = nil) {
         resetFind()
         selected = node
+        lineToReveal = line
         preview = nil
         renderingMarkdown = false
         language = nil

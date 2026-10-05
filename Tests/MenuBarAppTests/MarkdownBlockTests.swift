@@ -352,6 +352,39 @@ struct MarkdownBlockTests {
         #expect(TranscriptLink.finderTarget(for: url) == nil)
     }
 
+    @Test func showsAFileInsideTheSessionInTheExplorerAtItsLine() {
+        let url = URL(fileURLWithPath: "/work/app/src/Login.kt:355:12")
+
+        let target = TranscriptLink.explorerTarget(for: url, roots: ["/work/app"]) {
+            $0 == "/work/app/src/Login.kt"
+        }
+
+        #expect(target == .init(root: "/work/app", path: "/work/app/src/Login.kt", line: 355))
+    }
+
+    @Test func picksTheDeepestFolderThatHoldsTheFile() {
+        let url = URL(fileURLWithPath: "/work/app/.worktrees/one/README.md")
+
+        let target = TranscriptLink.explorerTarget(
+            for: url, roots: ["/work/app", "/work/app/.worktrees/one"], fileExists: { _ in true })
+
+        #expect(target == .init(root: "/work/app/.worktrees/one",
+                                path: "/work/app/.worktrees/one/README.md", line: nil))
+    }
+
+    @Test func leavesFilesOutsideTheSessionAndMissingFilesToFinder() {
+        let outside = URL(fileURLWithPath: "/tmp/result.png")
+        let missing = URL(fileURLWithPath: "/work/app/gone.swift")
+        let root = URL(fileURLWithPath: "/work/app")
+
+        #expect(TranscriptLink.explorerTarget(
+            for: outside, roots: ["/work/app"], fileExists: { _ in true }) == nil)
+        #expect(TranscriptLink.explorerTarget(
+            for: missing, roots: ["/work/app"], fileExists: { _ in false }) == nil)
+        #expect(TranscriptLink.explorerTarget(
+            for: root, roots: ["/work/app"], fileExists: { _ in true }) == nil)
+    }
+
     @Test @MainActor func givesWrappedLinkedListTextItsFullHeight() throws {
         let wrappedItem = MarkdownListItem(
             depth: 0,

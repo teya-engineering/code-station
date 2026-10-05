@@ -167,6 +167,7 @@ struct SessionView: View {
     @State private var recapNeedsAttention = false
     @State private var workingSetVisible: Bool
     @State private var requestedChange: RequestedChange?
+    @State private var explorerReveal: ExplorerReveal?
     // False until this session's transcript has been scrolled to its end. The pane is
     // rebuilt per session, so it starts false on every switch without being reset.
     @State private var opened = false
@@ -277,7 +278,7 @@ struct SessionView: View {
                         .id(requestedChange)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 case .explorer:
-                    ExplorerView(root: explorerDirectory)
+                    ExplorerView(root: explorerDirectory, reveal: $explorerReveal)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
 
@@ -1440,6 +1441,7 @@ struct SessionView: View {
                 }
                     .environment(\.transcriptSelection, transcriptSelection)
                     .environment(\.transcriptFind, transcriptFind)
+                    .environment(\.explorerRoots, explorerRoots(for: session))
                     .padding(.horizontal, 26)
                     .padding(.vertical, 22)
                     // Capped so prose keeps a readable line length, and centered so a
@@ -1591,6 +1593,7 @@ struct SessionView: View {
                             runInShell: { command in
                                 runInShell(command, directory: projectPath)
                             },
+                            showInExplorer: showInExplorer,
                             promptMenu: promptMenu(for: message))
                     // Every message is on screen now, and a streaming turn rewrites
                     // the last one many times a second. Without this, each of those
@@ -1725,6 +1728,27 @@ struct SessionView: View {
         }
         requestedChange = target
         tab = .changes
+    }
+
+    private func explorerRoots(for session: ChatSession) -> [String] {
+        store.workingDirectories(for: session) + [store.designFilesURL(for: session)?.path].compactMap { $0 }
+    }
+
+    private func showInExplorer(_ url: URL) -> Bool {
+        guard let session = store.session(sessionID),
+              let target = TranscriptLink.explorerTarget(for: url,
+                                                         roots: explorerRoots(for: session))
+        else { return false }
+
+        explorerShowsDesignFiles = target.root == store.designFilesURL(for: session)?.path
+        if let checkout = store.checkoutProjects(for: session).first(where: { checkout in
+            (checkout.worktreePath ?? store.project(checkout.projectID)?.path) == target.root
+        }) {
+            selectedProjectID = checkout.projectID
+        }
+        explorerReveal = ExplorerReveal(path: target.path, line: target.line)
+        tab = .explorer
+        return true
     }
 
     // The shell a command ran in belongs to the agent and is gone by the time its output

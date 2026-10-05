@@ -62,6 +62,8 @@ struct CodeEditorView: NSViewRepresentable {
     let matches: [NSRange]
     let currentMatch: Int?
     var findQuery = ""
+    // A 1-based line to scroll to and select. Applied once for each new value or file.
+    var revealLine: Int?
     var onFind: (() -> Void)?
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -94,6 +96,7 @@ struct CodeEditorView: NSViewRepresentable {
         // typing above a match moves it.
         private var revealed: Int?
         private var revealedQuery = ""
+        private var revealedLine: Int?
 
         // The state each line starts in, read as far down the file as the highlighter has
         // got. An edit drops everything from that line on, so the tail is read again only
@@ -224,7 +227,37 @@ struct CodeEditorView: NSViewRepresentable {
                     textView.scrollRangeToVisible(matches[index])
                 }
             }
+            if parent.revealLine != revealedLine {
+                revealedLine = parent.revealLine
+                if let line = parent.revealLine { reveal(line: line, in: textView) }
+            }
             colourViewport()
+        }
+
+        private func reveal(line: Int, in textView: CodeDocumentView) {
+            let index = min(max(line - 1, 0), lineIndex.count - 1)
+            let start = lineIndex.start(of: index)
+            let end = index + 1 < lineIndex.count
+                ? lineIndex.start(of: index + 1)
+                : (textView.string as NSString).length
+            let range = NSRange(location: start, length: max(0, end - start))
+            textView.setSelectedRange(range)
+            // A pane that has just been built has no size until SwiftUI lays it out, and
+            // scrolling before then goes nowhere. The line is centred so the code above
+            // it, which is usually what explains it, is on screen too.
+            DispatchQueue.main.async { [weak textView] in
+                guard let textView,
+                      let layoutManager = textView.layoutManager,
+                      let container = textView.textContainer,
+                      let clip = textView.enclosingScrollView?.contentView else { return }
+                let glyphs = layoutManager.glyphRange(forCharacterRange: range,
+                                                      actualCharacterRange: nil)
+                let lineRect = layoutManager.boundingRect(forGlyphRange: glyphs, in: container)
+                let top = lineRect.midY + textView.textContainerOrigin.y - clip.bounds.height / 2
+                let maxTop = max(0, textView.frame.height - clip.bounds.height)
+                clip.scroll(to: NSPoint(x: clip.bounds.minX, y: min(max(0, top), maxTop)))
+                textView.enclosingScrollView?.reflectScrolledClipView(clip)
+            }
         }
 
         private func load(_ text: String, into textView: CodeDocumentView) {
@@ -244,6 +277,7 @@ struct CodeEditorView: NSViewRepresentable {
             states = [.normal]
             changedFrom = nil
             revealed = nil
+            revealedLine = nil
         }
 
         private func reindex(_ text: String) {

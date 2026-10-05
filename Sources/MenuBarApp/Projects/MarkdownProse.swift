@@ -464,8 +464,21 @@ extension AttributedString {
     }
 }
 
+extension EnvironmentValues {
+    // The folders whose files a transcript link opens in the explorer. Empty wherever
+    // there is no explorer to send them to, so those links keep going to Finder.
+    @Entry var explorerRoots: [String] = []
+}
+
 enum TranscriptLink {
     static let finderToolTip = "Open in Finder"
+    static let explorerToolTip = "Show in Explorer"
+
+    struct ExplorerTarget: Equatable {
+        let root: String
+        let path: String
+        let line: Int?
+    }
 
     struct Hovered: Equatable {
         let url: URL
@@ -485,6 +498,27 @@ enum TranscriptLink {
 
         let file = URL(fileURLWithPath: String(url.path[..<suffix.lowerBound]))
         return fileExists(file.path) ? file : url
+    }
+
+    // A file inside one of the session's folders is shown in the app's own explorer
+    // instead of Finder. When folders nest, the deepest one wins, so a worktree inside
+    // its project opens as itself.
+    static func explorerTarget(
+        for url: URL,
+        roots: [String],
+        fileExists: (String) -> Bool = FileManager.default.fileExists(atPath:)
+    ) -> ExplorerTarget? {
+        guard let file = finderTarget(for: url, fileExists: fileExists),
+              fileExists(file.path) else { return nil }
+        let root = roots
+            .filter { root in file.path.pathRelative(to: root).map { !$0.isEmpty } ?? false }
+            .max { $0.count < $1.count }
+        guard let root else { return nil }
+
+        let line = file.path == url.path
+            ? nil
+            : Int(url.path.dropFirst(file.path.count + 1).prefix(while: \.isNumber))
+        return ExplorerTarget(root: root, path: file.path, line: line)
     }
 
     // NSTextView fills the available row even when its link is only a few words. Use
@@ -614,6 +648,7 @@ struct SelectableText: View {
     @Environment(\.transcriptSelection) private var transcriptSelection
     @Environment(\.transcriptFind) private var transcriptFind
     @Environment(\.transcriptMessageID) private var transcriptMessageID
+    @Environment(\.explorerRoots) private var explorerRoots
 
     private let attributed: AttributedString
     private let size: CGFloat
@@ -769,10 +804,16 @@ struct SelectableText: View {
             try? await Task.sleep(for: TooltipPresenter.hoverDelay)
             guard !Task.isCancelled else { return }
             tooltipPresenter.show(
-                Tooltip(title: TranscriptLink.finderToolTip) { openLink(hovered.url) },
+                Tooltip(title: linkToolTip(for: hovered.url)) { openLink(hovered.url) },
                 from: hovered.frame,
                 owner: owner)
         }
+    }
+
+    private func linkToolTip(for url: URL) -> String {
+        TranscriptLink.explorerTarget(for: url, roots: explorerRoots) == nil
+            ? TranscriptLink.finderToolTip
+            : TranscriptLink.explorerToolTip
     }
 
     private func hideLinkTooltip() {
