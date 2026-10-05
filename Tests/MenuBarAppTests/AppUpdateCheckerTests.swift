@@ -54,11 +54,36 @@ struct AppUpdateCheckerTests {
     }
 
     @MainActor
-    @Test func aFailedAttemptAlsoWaitsFiveDaysBeforeRetrying() async throws {
+    @Test func aFailedAttemptIsTriedAgainWithoutWaitingADay() async throws {
         let (preferences, suite) = try preferences()
         defer { preferences.removePersistentDomain(forName: suite) }
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         AppUpdateURLProtocol.prepare(status: 503, body: Data())
+        let checker = AppUpdateChecker(installedVersion: "1.0.0",
+                                       preferences: preferences,
+                                       session: stubSession(),
+                                       now: { now },
+                                       releaseEndpoint: URL(string: "https://example.test/latest")!)
+
+        await checker.checkIfNeeded()
+
+        #expect(Preferences.appUpdateLastCheck(in: preferences) == nil)
+        #expect(checker.availableRelease == nil)
+
+        AppUpdateURLProtocol.prepare(status: 200, body: release(version: "v1.1.0"))
+        await checker.checkIfNeeded()
+
+        #expect(AppUpdateURLProtocol.requestCount == 1)
+        #expect(Preferences.appUpdateLastCheck(in: preferences) == now)
+        #expect(checker.availableRelease?.version == "1.1.0")
+    }
+
+    @MainActor
+    @Test func anAnswerWithNoUsableReleaseStillWaitsADay() async throws {
+        let (preferences, suite) = try preferences()
+        defer { preferences.removePersistentDomain(forName: suite) }
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        AppUpdateURLProtocol.prepare(status: 200, body: Data("{}".utf8))
         let checker = AppUpdateChecker(installedVersion: "1.0.0",
                                        preferences: preferences,
                                        session: stubSession(),

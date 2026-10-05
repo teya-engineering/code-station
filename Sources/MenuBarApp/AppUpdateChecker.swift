@@ -79,6 +79,10 @@ struct AppVersion: Comparable, Equatable, Sendable {
 @Observable
 final class AppUpdateChecker {
     nonisolated static let checkInterval: TimeInterval = 86_400
+    // The app can stay open for days, so it keeps looking while it runs. Waking often
+    // costs nothing, since a day still has to pass between checks that worked, and it lets
+    // a check that failed try again within the hour.
+    nonisolated static let wakeInterval: Duration = .seconds(3_600)
 
     private(set) var availableRelease: AppUpdateRelease?
     private(set) var isChecking = false
@@ -127,6 +131,13 @@ final class AppUpdateChecker {
             to: self.installedVersion)
     }
 
+    func keepChecking() async {
+        while !Task.isCancelled {
+            await checkIfNeeded()
+            try? await Task.sleep(for: Self.wakeInterval)
+        }
+    }
+
     func checkIfNeeded() async {
         guard installedVersion != nil, !isChecking else { return }
         let checkedAt = now()
@@ -134,7 +145,6 @@ final class AppUpdateChecker {
             lastCheck: Preferences.appUpdateLastCheck(in: preferences),
             now: checkedAt) else { return }
 
-        Preferences.setAppUpdateLastCheck(checkedAt, in: preferences)
         isChecking = true
         defer { isChecking = false }
 
@@ -146,8 +156,11 @@ final class AppUpdateChecker {
 
             let (data, response) = try await session.data(for: request)
             guard let response = response as? HTTPURLResponse,
-                  response.statusCode == 200,
-                  let release = Self.decodeRelease(data) else { return }
+                  response.statusCode == 200 else { return }
+            // GitHub answered, so the day starts now even if there is no release worth
+            // offering. Only a check that never got an answer is tried again sooner.
+            Preferences.setAppUpdateLastCheck(checkedAt, in: preferences)
+            guard let release = Self.decodeRelease(data) else { return }
 
             Preferences.setCachedAppUpdateRelease(release, in: preferences)
             availableRelease = Self.available(release, to: installedVersion)

@@ -134,7 +134,7 @@ struct RootView: View {
                 store.applicationDidBecomeActive()
             }
             .task { await resumePendingSessionRemovals() }
-            .task { await appUpdates.checkIfNeeded() }
+            .task { await appUpdates.keepChecking() }
             .task(id: skillsRefreshRule) { await refreshSkillsAutomatically() }
             .task(id: sweepRule) { await deleteOldSessionsAutomatically() }
             .task(id: settings.autoPruneOrphanedWorktrees) { await monitorOrphanedWorktrees() }
