@@ -81,15 +81,13 @@ struct NewSessionSheetSizeTests {
                 .environment(settings)
         })
 
-        host.frame = NSRect(x: 0, y: 0, width: 780, height: 850)
+        host.frame = NSRect(x: 0, y: 0, width: 760, height: 850)
         host.layoutSubtreeIfNeeded()
         #expect(measured.value > 300)
 
-        for width: CGFloat in [780, 520] {
-            host.frame = NSRect(x: 0, y: 0, width: width, height: 300)
-            host.layoutSubtreeIfNeeded()
-            #expect(measured.value <= 300)
-        }
+        host.frame = NSRect(x: 0, y: 0, width: 760, height: 300)
+        host.layoutSubtreeIfNeeded()
+        #expect(measured.value <= 300)
     }
 
 }
