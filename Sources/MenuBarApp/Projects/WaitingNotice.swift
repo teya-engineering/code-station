@@ -31,71 +31,76 @@ struct WaitingNotice: View {
     }
 
     private var title: String {
-        tasks.count == 1 ? "Waiting on a background task" : "Waiting on background tasks"
+        tasks.count == 1 ? "Waiting on a background task" : "Waiting on \(tasks.count) background tasks"
     }
 
     private var consequence: String {
         tasks.count == 1 ? "Ending the turn also stops this task." : "Ending the turn also stops these tasks."
     }
 
+    private var explainer: String {
+        tasks.count == 1
+            ? "\(agentTitle) has replied and will resume when this finishes. Ending the turn stops it. You can also send a message."
+            : "\(agentTitle) has replied and will resume when these finish. Ending the turn stops them. You can also send a message."
+    }
+
+    // The icon column the task rows and the explainer line up under.
+    private var indent: CGFloat { 24 * textScale }
+
+    // Sized like a tool-call group rather than a dialog: the card sits in the transcript
+    // for as long as the wait lasts, and anything louder pulls the eye off the reply above.
     private var card: some View {
-        VStack(spacing: 16) {
-            VStack(alignment: .leading, spacing: 20) {
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 14) {
+        VStack(alignment: .leading, spacing: 6) {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 10) {
+                    heading
+                    elapsed.fixedSize()
+                    Spacer(minLength: 12)
+                    actions
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 10) {
                         heading
-                        Spacer(minLength: 12)
                         elapsed.fixedSize()
                     }
-                    VStack(alignment: .leading, spacing: 8) {
-                        heading
-                        elapsed.padding(.leading, 52)
-                    }
+                    actions.padding(.leading, indent)
                 }
-                Text("\(agentTitle) has replied. The turn stays open so it can resume when "
-                     + (tasks.count == 1 ? "the task finishes." : "the tasks finish."))
-                    .font(.system(size: 14 * textScale))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: 8) {
+                    heading
+                    elapsed.padding(.leading, indent)
+                    actions.padding(.leading, indent)
+                }
+            }
+            .frame(minHeight: 28 * textScale)
+            VStack(alignment: .leading, spacing: 0) {
                 ForEach(tasks) { task in
                     WaitingTaskRow(task: task, command: command(task))
                 }
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 24) {
-                        stopConsequence.fixedSize()
-                        Spacer(minLength: 0)
-                        actions
-                    }
-                    VStack(alignment: .leading, spacing: 16) {
-                        stopConsequence
-                        HStack {
-                            Spacer(minLength: 0)
-                            actions
-                        }
-                    }
-                }
             }
-            .padding(24)
-            .cardSurface(cornerRadius: 14)
-            Label("You can also send a message to continue in this turn.", systemImage: "bubble.left")
+            .padding(.leading, indent)
+            Text(explainer)
                 .font(.system(size: 12 * textScale))
                 .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
+                .padding(.leading, indent)
         }
+        .padding(.vertical, 10)
+        .padding(.leading, 14)
+        .padding(.trailing, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .cardSurface()
         .onAppear { AccessibilityNotification.Announcement(title).post() }
     }
 
     private var heading: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 10) {
             Image(systemName: "clock")
-                .font(.system(size: 20 * textScale))
+                .font(.system(size: 13 * textScale, weight: .medium))
                 .foregroundStyle(Theme.attentionText)
-                .frame(width: 38 * textScale, height: 38 * textScale)
-                .background(Theme.attentionText.opacity(0.1), in: Circle())
+                .frame(width: 14 * textScale)
                 .accessibilityHidden(true)
             Text(title)
-                .font(.system(size: 19 * textScale, weight: .semibold))
+                .font(.system(size: 13 * textScale, weight: .semibold))
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityAddTraits(.isHeader)
         }
@@ -107,86 +112,87 @@ struct WaitingNotice: View {
             .foregroundStyle(.secondary)
     }
 
-    private var stopConsequence: some View {
-        Text(consequence)
-            .font(.system(size: 12 * textScale))
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-    }
-
     private var actions: some View {
         HStack(spacing: 8) {
             ActionButton(title: "End turn", tone: .outlined,
-                         height: 36 * textScale, size: 12 * textScale, action: onEnd)
+                         height: 26 * textScale, size: 12 * textScale, action: onEnd)
+                .help(consequence)
                 .accessibilityHint(consequence)
             ActionButton(title: "Keep waiting", tone: .dark,
-                         height: 36 * textScale, size: 12 * textScale, action: onKeepWaiting)
+                         height: 26 * textScale, size: 12 * textScale, action: onKeepWaiting)
                 .accessibilityHint("Dismiss this notice for the current wait.")
         }
+        .fixedSize()
     }
 }
 
 private struct WaitingTaskRow: View {
     @Environment(\.textScale) private var textScale
     @State private var expanded = false
-    @FocusState private var disclosureFocused: Bool
+    @State private var hovering = false
+    @FocusState private var focused: Bool
     let task: BackgroundTask
     let command: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: "terminal")
-                    .foregroundStyle(.secondary)
-                    .accessibilityHidden(true)
-                Text(task.label)
-                    .fontWeight(.medium)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: 6) {
-                    Circle().fill(Theme.attentionText).frame(width: 5, height: 5)
-                        .accessibilityHidden(true)
-                    Text("Pending")
-                }
-                .font(.system(size: 11 * textScale))
-                .foregroundStyle(Theme.attentionText)
-                .fixedSize()
-            }
-            if let command {
-                VStack(alignment: .leading, spacing: 12) {
-                    Button { expanded.toggle() } label: {
-                        HStack(spacing: 5) {
-                            Image(systemName: expanded ? "chevron.down" : "chevron.right")
-                                .font(.system(size: 9 * textScale, weight: .semibold))
-                            Text(expanded ? "Hide command" : "Show command")
-                        }
-                        .font(.system(size: 12 * textScale))
-                        .foregroundStyle(.secondary)
-                        .padding(4)
-                        .contentShape(Rectangle())
-                    }
+        VStack(alignment: .leading, spacing: 2) {
+            if command != nil {
+                Button { expanded.toggle() } label: { row }
                     .buttonStyle(.plain)
-                    .focused($disclosureFocused)
-                    .overlay(RoundedRectangle(cornerRadius: 4)
-                        .stroke(disclosureFocused ? Theme.accent : .clear, lineWidth: 2))
+                    .focused($focused)
+                    .onHover { hovering = $0 }
+                    .overlay(RoundedRectangle(cornerRadius: 6)
+                        .stroke(focused ? Theme.accent : .clear, lineWidth: 2))
+                    .accessibilityElement(children: .combine)
                     .accessibilityValue(expanded ? "Expanded" : "Collapsed")
-                    .accessibilityHint("Command for \(task.label)")
-                    if expanded {
-                        Text(command)
-                            .font(.mono(11 * textScale))
-                            .textSelection(.enabled)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(12)
-                            .cardSurface(cornerRadius: 6)
-                    }
-                }
-                .padding(.leading, 26)
+                    .accessibilityHint("Shows the command for \(task.label)")
+            } else {
+                row.accessibilityElement(children: .combine)
+            }
+            if expanded, let command {
+                (Text("$ ").foregroundStyle(Theme.terminalDim)
+                    + Text(command).foregroundStyle(Theme.terminalText))
+                    .font(.mono(11.5 * textScale))
+                    .lineSpacing(3)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    .background(Theme.terminal, in: RoundedRectangle(cornerRadius: 6))
+                    .padding(.leading, 14 * textScale)
+                    .padding(.bottom, 4)
             }
         }
-        .font(.system(size: 14 * textScale))
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.sunken, in: RoundedRectangle(cornerRadius: 9))
+    }
+
+    private var row: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "chevron.right")
+                .font(.system(size: 8 * textScale, weight: .semibold))
+                .foregroundStyle(.tertiary)
+                .rotationEffect(.degrees(expanded ? 90 : 0))
+                .frame(width: 8 * textScale)
+                .opacity(command == nil ? 0 : 1)
+                .accessibilityHidden(true)
+            Text(task.label)
+                .font(.mono(12.5 * textScale))
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 5) {
+                Circle().fill(Theme.attention).frame(width: 5, height: 5)
+                    .accessibilityHidden(true)
+                Text("Pending")
+            }
+            .font(.system(size: 11 * textScale))
+            .foregroundStyle(Theme.attentionText)
+            .fixedSize()
+        }
+        .padding(.horizontal, 6)
+        .frame(minHeight: 26 * textScale)
+        .background(hovering ? Theme.sunken : .clear, in: RoundedRectangle(cornerRadius: 6))
+        .contentShape(Rectangle())
+        .padding(.leading, -6)
     }
 }
