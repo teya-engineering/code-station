@@ -204,7 +204,7 @@ struct TroubleshootProblemEditor: View {
                         .font(.system(size: 13))
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 15)
-                        .padding(.vertical, 18)
+                        .padding(.vertical, 10)
                         .allowsHitTesting(false)
                 }
             }
