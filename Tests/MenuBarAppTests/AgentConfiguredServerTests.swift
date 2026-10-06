@@ -264,6 +264,14 @@ struct AgentConfiguredServerTests {
                 == ["mcp", "enable", "playwright"])
     }
 
+    @Test func takesTerminalCodesOutOfASignInFailure() {
+        let said = "^DStarting authentication…\r\n"
+            + "Visit:\r\n  \u{1B}]8;;https://auth.example/a\u{07}https://auth.example/a\u{1B}]8;;\u{07}\r\n"
+            + "\u{1B}[1G\u{1B}[0JOr paste the redirect URL here: \u{1B}[33G"
+        #expect(AgentServerWork.withoutTerminalCodes(said)
+                == "Starting authentication…\nVisit:\n  https://auth.example/a\nOr paste the redirect URL here:")
+    }
+
     // MARK: - Detail
 
     @Test func saysHowLongAgoTheServerWasChecked() {

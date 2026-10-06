@@ -113,10 +113,12 @@ final class ClaudeCodeManager {
         }
     }
 
-    // Claude Code opens the browser itself and waits for the sign-in to come back.
+    // Claude Code opens the browser itself and waits for the sign-in to come back, but
+    // only on a terminal: without one it quits at once.
     func signIn(_ name: String) {
         serverWork.perform(.signingIn, on: name) {
-            try await AgentServerWork.output("claude", ["mcp", "login", name], timeout: .seconds(300))
+            try await AgentServerWork.terminalOutput("claude", ["mcp", "login", name],
+                                                     timeout: .seconds(300))
         } then: { [weak self] _ in
             self?.checkHealth(of: name)
         }

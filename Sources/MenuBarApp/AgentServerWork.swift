@@ -70,4 +70,31 @@ final class AgentServerWork {
         }
         return result.output
     }
+
+    // The same, but on a pseudo terminal, for a CLI that gives up when stdin is not a
+    // terminal. `script` opens the terminal and runs the command inside it. The command
+    // then sees a tty and waits, so its colours, links and prompts come back in the
+    // output, and those are taken out before the output is shown as an error.
+    nonisolated static func terminalOutput(_ command: String, _ arguments: [String],
+                                           timeout: Duration) async throws -> String {
+        guard let executable = ProcessManager.resolve(command) else {
+            throw Failure(message: "\(command) not found on PATH.")
+        }
+        do {
+            return try await output("/usr/bin/script", ["-q", "/dev/null", executable] + arguments,
+                                    timeout: timeout)
+        } catch let failure as Failure {
+            throw Failure(message: withoutTerminalCodes(failure.message))
+        }
+    }
+
+    nonisolated static func withoutTerminalCodes(_ text: String) -> String {
+        let csi = /\u{1B}\[[0-?]*[ -\/]*[@-~]/
+        let osc = /\u{1B}\][^\u{07}\u{1B}]*(\u{07}|\u{1B}\\)/
+        // `script` passes the end of its empty input on to the terminal, which echoes it.
+        var cleaned = text.replacing(osc, with: "").replacing(csi, with: "")
+            .replacing("\r\n", with: "\n").replacing("\r", with: "")
+        if cleaned.hasPrefix("^D") { cleaned.removeFirst(2) }
+        return cleaned.trimmed
+    }
 }
