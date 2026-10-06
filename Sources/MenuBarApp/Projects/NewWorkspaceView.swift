@@ -12,6 +12,11 @@ struct NewWorkspaceView: View {
     @State private var projectFilter = ""
     @State private var selected: [UUID] = []
     @State private var leadProjectID: UUID?
+    @State private var listHeight: CGFloat?
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private static let maxListHeight: CGFloat = 390
 
     init(initialProjectIDs: [UUID] = [], onCreate: @escaping (ProjectWorkspace) -> Void) {
         var seen: Set<UUID> = []
@@ -69,8 +74,17 @@ struct NewWorkspaceView: View {
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 20)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+                    // The first height is taken as it is, so the sheet opens at its
+                    // final size instead of growing into it.
+                    guard listHeight != nil, !reduceMotion else { listHeight = height; return }
+                    withAnimation(Motion.reveal) { listHeight = height }
+                }
             }
-            .frame(maxHeight: 390)
+            .modifier(AnimatedHeight(height: min(listHeight ?? Self.maxListHeight, Self.maxListHeight)))
+            // Keyed on the rows rather than the typed text, so a keystroke that leaves the
+            // list as it was does not start an animation.
+            .motion(Motion.reveal, value: filteredProjects.map(\.id))
 
             SheetFooter(title: "Projects can belong to several workspaces.",
                         primary: SheetAction(title: "Create", enabled: canCreate,
@@ -192,5 +206,21 @@ struct NewWorkspaceView: View {
                                                  leadProjectID: leadProjectID) else { return }
         onCreate(workspace)
         dismiss()
+    }
+}
+
+// The sheet's window takes the size of its content but jumps straight to a new size, even
+// inside an animation. Being animatable makes SwiftUI lay the list out again at every step
+// of the curve, so the window is handed each height in turn and glides to the new one.
+nonisolated private struct AnimatedHeight: ViewModifier, Animatable {
+    var height: CGFloat
+
+    var animatableData: CGFloat {
+        get { height }
+        set { height = newValue }
+    }
+
+    func body(content: Content) -> some View {
+        content.frame(height: height)
     }
 }
