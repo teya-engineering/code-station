@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Observation
 
@@ -8,7 +9,13 @@ struct SkillMarketplace: Decodable, Equatable, Sendable {
         let version: String?
         let category: String?
 
-        var id: String { name }
+        var marketplace = ""
+
+        enum CodingKeys: String, CodingKey {
+            case name, description, version, category
+        }
+
+        var id: String { marketplace.isEmpty ? name : "\(name)@\(marketplace)" }
     }
 
     let name: String
@@ -159,7 +166,6 @@ enum SkillActionProgress: String, Equatable, Sendable {
 @MainActor
 @Observable
 final class SkillsManager {
-    private(set) var marketplace: SkillMarketplace?
     // Sorted when the catalogue arrives rather than on every read: the sidebar and the
     // tools menu both reach for this while they draw, and the compare is not free.
     private(set) var plugins: [SkillMarketplace.Plugin] = []
@@ -175,35 +181,52 @@ final class SkillsManager {
     private let cacheURLOverride: URL?
     @ObservationIgnored private let preferences: UserDefaults
 
-    private var configuration: SkillMarketplaceConfiguration? {
-        if let selected = Preferences.skillsMarketplace(in: preferences), selected.isValid {
-            return selected
+    private var configurationRevision = 0
+
+    var marketplaceConfigurations: [SkillMarketplaceConfiguration] {
+        _ = configurationRevision
+        var saved = Preferences.skillsMarketplaces(in: preferences).filter(\.isValid)
+        if let selected = Preferences.skillsMarketplace(in: preferences), selected.isValid,
+           !saved.contains(where: { $0.marketplace == selected.marketplace }) {
+            saved.append(selected)
         }
-        guard let skills = SiteDefaults.current.skills else { return nil }
-        let siteDefault = SkillMarketplaceConfiguration.siteDefault(skills)
-        return siteDefault.isValid ? siteDefault : nil
+        if let skills = SiteDefaults.current.skills {
+            let site = SkillMarketplaceConfiguration.siteDefault(skills)
+            if site.isValid, !saved.contains(where: { $0.marketplace == site.marketplace }) {
+                saved.insert(site, at: 0)
+            }
+        }
+        return saved
     }
 
-    var marketplaceName: String { configuration?.marketplace ?? "" }
+    var isBusy: Bool { isRefreshing || isUpdatingAll || !actionProgress.isEmpty }
 
-    var marketplaceConfiguration: SkillMarketplaceConfiguration? { configuration }
-
-    // What the marketplace is called on screen. A build with no marketplace still has to
-    // put something under the Skills heading.
-    var marketplaceLabel: String { configuration?.label ?? "No marketplace" }
-
-    var isConfigured: Bool { configuration != nil }
-
-    private var cacheURL: URL {
-        cacheURL(custom: Preferences.skillsMarketplace(in: preferences) != nil)
+    var marketplaceLabel: String {
+        let configurations = marketplaceConfigurations
+        return configurations.count == 1 ? configurations[0].label : "\(configurations.count) marketplaces"
     }
 
-    // Where a Git marketplace is checked out. A marketplace chosen by hand always uses
-    // the same folder, so switching between repositories cannot leave clones behind.
-    private func cacheURL(custom: Bool) -> URL {
-        if let cacheURLOverride { return cacheURLOverride }
-        return AppPaths.directory("marketplaces", backedUp: false)
-            .appendingPathComponent(custom ? "custom" : marketplaceName, isDirectory: true)
+    var isConfigured: Bool { !marketplaceConfigurations.isEmpty }
+
+    func cacheURL(source: String) -> URL {
+        let key = SHA256.hash(data: Data(source.utf8)).map { String(format: "%02x", $0) }.joined()
+        return (cacheURLOverride ?? AppPaths.directory("marketplaces", backedUp: false))
+            .appendingPathComponent(key, isDirectory: true)
+    }
+
+    func saveMarketplace(_ configuration: SkillMarketplaceConfiguration) throws {
+        guard configuration.isValid else { throw ImportError("The marketplace must have a name and source.") }
+        var saved = marketplaceConfigurations
+        if let existing = saved.first(where: { $0.marketplace == configuration.marketplace }),
+           existing.source != configuration.source || existing.sourceKind != configuration.sourceKind {
+            throw ImportError("A marketplace named \(configuration.marketplace) is already added from another source.")
+        }
+        if !saved.contains(where: { $0.marketplace == configuration.marketplace }) {
+            saved.append(configuration)
+        }
+        Preferences.setSkillsMarketplaces(saved, in: preferences)
+        configurationRevision += 1
+        actionFailures = [:]
     }
 
     struct Action: Hashable, Sendable {
@@ -216,11 +239,32 @@ final class SkillsManager {
         self.preferences = preferences
     }
 
-    private func setMarketplace(_ catalogue: SkillMarketplace?) {
-        marketplace = catalogue
-        plugins = catalogue?.plugins.sorted {
-            $0.name.localizedStandardCompare($1.name) == .orderedAscending
-        } ?? []
+    func applyCatalogues(_ loads: [String: CatalogueLoad],
+                         configurations: [SkillMarketplaceConfiguration]) {
+        var combined: [SkillMarketplace.Plugin] = []
+        var notices: [String] = []
+        for configuration in configurations {
+            guard let load = loads[configuration.marketplace] else { continue }
+            if let notice = load.notice { notices.append("\(configuration.label): \(notice)") }
+            guard let catalogue = load.marketplace else { continue }
+            guard catalogue.name == configuration.marketplace else {
+                notices.append("\(configuration.label): The manifest names a different marketplace (\(catalogue.name)).")
+                continue
+            }
+            combined += catalogue.plugins.map { plugin in
+                var plugin = plugin
+                plugin.marketplace = configuration.marketplace
+                return plugin
+            }
+            if load.didRefresh {
+                preferences.set(Date(), forKey: "skillsLastRefresh.\(configuration.marketplace)")
+            }
+        }
+        plugins = combined.sorted {
+            let order = $0.name.localizedStandardCompare($1.name)
+            return order == .orderedSame ? $0.marketplace < $1.marketplace : order == .orderedAscending
+        }
+        catalogueNotice = notices.isEmpty ? nil : notices.joined(separator: "\n")
     }
 
     var updateCount: Int {
@@ -235,7 +279,13 @@ final class SkillsManager {
         }
     }
 
-    var lastRefresh: Date? { Preferences.skillsLastRefresh(in: preferences) }
+    var lastRefresh: Date? {
+        let configurations = marketplaceConfigurations
+        let dates = configurations.compactMap {
+            preferences.object(forKey: "skillsLastRefresh.\($0.marketplace)") as? Date
+        }
+        return dates.count == configurations.count ? dates.min() : nil
+    }
 
     func isAvailable(_ host: SkillHost) -> Bool {
         ProcessManager.resolve(host.command) != nil
@@ -251,11 +301,7 @@ final class SkillsManager {
 
     func installation(of plugin: SkillMarketplace.Plugin,
                       on host: SkillHost) -> SkillInstallation? {
-        installation(named: plugin.name, on: host)
-    }
-
-    func installation(named plugin: String, on host: SkillHost) -> SkillInstallation? {
-        installations[host]?[plugin]
+        installations[host]?[plugin.id]
     }
 
     func isOutdated(_ plugin: SkillMarketplace.Plugin, on host: SkillHost) -> Bool {
@@ -271,28 +317,27 @@ final class SkillsManager {
 
     func progress(of plugin: SkillMarketplace.Plugin,
                   on host: SkillHost) -> SkillActionProgress? {
-        actionProgress[Action(host: host, plugin: plugin.name)]
+        actionProgress[Action(host: host, plugin: plugin.id)]
     }
 
     func actionFailure(_ plugin: SkillMarketplace.Plugin, on host: SkillHost) -> String? {
-        actionFailures[Action(host: host, plugin: plugin.name)]
+        actionFailures[Action(host: host, plugin: plugin.id)]
     }
 
     func configure(localFile url: URL) async throws {
-        guard !isRefreshing else { return }
+        guard !isBusy else { return }
         let (configuration, catalogue) = try Self.localConfiguration(at: url)
 
+        try saveMarketplace(configuration)
         isRefreshing = true
         catalogueNotice = nil
         hostFailures = [:]
-        Preferences.setSkillsMarketplace(configuration, in: preferences)
-        await finishLoad(marketplace: configuration.marketplace) {
-            CatalogueLoad(marketplace: catalogue, notice: nil, didRefresh: true)
-        }
+        await finishLoad(preloaded: [configuration.marketplace:
+            CatalogueLoad(marketplace: catalogue, notice: nil, didRefresh: true)])
     }
 
     func configure(gitRepository source: String) async throws {
-        guard !isRefreshing else { return }
+        guard !isBusy else { return }
         let source = source.trimmed
         guard !source.isEmpty else { throw ImportError("Enter a Git repository.") }
 
@@ -303,7 +348,7 @@ final class SkillsManager {
 
         // The repository is read before anything is saved: its manifest names the
         // marketplace, and that name is what the installation lookups are keyed by.
-        let load = await Self.loadGitCatalogue(source: source, at: cacheURL(custom: true),
+        let load = await Self.loadGitCatalogue(source: source, at: cacheURL(source: source),
                                                forceClone: true)
         guard let catalogue = load.marketplace else {
             throw ImportError(load.notice ?? "The marketplace could not be loaded.")
@@ -313,39 +358,45 @@ final class SkillsManager {
             sourceKind: .gitRepository,
             marketplace: catalogue.name,
             label: catalogue.name)
-        Preferences.setSkillsMarketplace(configuration, in: preferences)
-        await finishLoad(marketplace: configuration.marketplace) { load }
+        try saveMarketplace(configuration)
+        await finishLoad(preloaded: [configuration.marketplace: load])
     }
 
     func refresh() async {
-        guard !isRefreshing else { return }
+        guard !isBusy else { return }
         isRefreshing = true
         catalogueNotice = nil
         hostFailures = [:]
 
-        let selected = configuration
-        await finishLoad(marketplace: selected?.marketplace ?? "") {
-            await Self.loadCatalogue(configuration: selected, at: cacheURL)
-        }
+        await finishLoad()
     }
 
-    // The tail every load shares. Every host is asked what it has installed while the
-    // catalogue is still arriving, and the catalogue, its notice and the installations
-    // are published together so the list never shows one without the others.
-    private func finishLoad(marketplace: String,
-                            catalogue: () async -> CatalogueLoad) async {
-        async let hostLoads = Self.loadInstallations(marketplace: marketplace)
-        let load = await catalogue()
-        let loads = await hostLoads
-
-        setMarketplace(load.marketplace)
-        catalogueNotice = load.notice
-        if load.didRefresh {
-            Preferences.setSkillsLastRefresh(Date(), in: preferences)
+    private func finishLoad(cachedOnly: Bool = false,
+                            preloaded: [String: CatalogueLoad] = [:]) async {
+        let configurations = marketplaceConfigurations
+        let names = Set(configurations.map(\.marketplace))
+        async let hostLoads = Self.loadInstallations(marketplaces: names)
+        let loads = await withTaskGroup(of: (String, CatalogueLoad).self) { group in
+            for configuration in configurations {
+                let cache = cacheURL(source: configuration.source)
+                group.addTask {
+                    let load: CatalogueLoad
+                    if let existing = preloaded[configuration.marketplace] {
+                        load = existing
+                    } else if cachedOnly {
+                        load = Self.loadCachedCatalogue(configuration: configuration, at: cache)
+                    } else {
+                        load = await Self.loadCatalogue(configuration: configuration, at: cache)
+                    }
+                    return (configuration.marketplace, load)
+                }
+            }
+            var result: [String: CatalogueLoad] = [:]
+            for await (name, load) in group { result[name] = load }
+            return result
         }
-        for host in SkillHost.allCases {
-            apply(loads[host] ?? InstallationLoad(installations: [:], failure: nil), to: host)
-        }
+        applyCatalogues(loads, configurations: configurations)
+        for (host, load) in await hostLoads { apply(load, to: host) }
         isRefreshing = false
         hasLoaded = true
     }
@@ -368,27 +419,27 @@ final class SkillsManager {
 
     func setInstalled(_ installed: Bool, plugin: SkillMarketplace.Plugin,
                       on host: SkillHost) async {
-        let action = Action(host: host, plugin: plugin.name)
-        guard actionProgress[action] == nil, canManage(host) else { return }
+        let action = Action(host: host, plugin: plugin.id)
+        guard !isRefreshing, actionProgress[action] == nil, canManage(host) else { return }
         actionProgress[action] = installed ? .checkingMarketplace : .uninstalling
         actionFailures[action] = nil
         defer { actionProgress[action] = nil }
 
         let result: CommandResult
         if installed {
-            let ready = await prepareMarketplace(for: host, action: action)
+            let ready = await prepareMarketplace(for: host, plugin: plugin, action: action)
             if ready.ok {
                 actionProgress[action] = .installing
                 result = await Self.run(host.command,
                                         host.installArguments(plugin: plugin.name,
-                                                              marketplace: marketplaceName))
+                                                              marketplace: plugin.marketplace))
             } else {
                 result = ready
             }
         } else {
             result = await Self.run(host.command,
                                     host.removeArguments(plugin: plugin.name,
-                                                         marketplace: marketplaceName))
+                                                         marketplace: plugin.marketplace))
         }
 
         if result.ok {
@@ -400,19 +451,19 @@ final class SkillsManager {
     }
 
     func update(_ plugin: SkillMarketplace.Plugin, on host: SkillHost) async {
-        let action = Action(host: host, plugin: plugin.name)
-        guard actionProgress[action] == nil, canManage(host) else { return }
+        let action = Action(host: host, plugin: plugin.id)
+        guard !isRefreshing, actionProgress[action] == nil, canManage(host) else { return }
         actionProgress[action] = .checkingMarketplace
         actionFailures[action] = nil
         defer { actionProgress[action] = nil }
 
-        let ready = await prepareMarketplace(for: host, action: action)
+        let ready = await prepareMarketplace(for: host, plugin: plugin, action: action)
         let result: CommandResult
         if ready.ok {
             actionProgress[action] = .updating
             result = await Self.run(host.command,
                                     host.updateArguments(plugin: plugin.name,
-                                                         marketplace: marketplaceName))
+                                                         marketplace: plugin.marketplace))
         } else {
             result = ready
         }
@@ -440,10 +491,10 @@ final class SkillsManager {
     }
 
     private func refreshInstallations(for host: SkillHost) async {
-        apply(await Self.loadInstallations(for: host, marketplace: marketplaceName), to: host)
+        apply(await Self.loadInstallations(for: host, marketplaces: Set(marketplaceConfigurations.map(\.marketplace))), to: host)
     }
 
-    private func apply(_ load: InstallationLoad, to host: SkillHost) {
+    func apply(_ load: InstallationLoad, to host: SkillHost) {
         installations[host] = load.installations
         hostFailures[host] = load.failure
     }
@@ -487,13 +538,10 @@ final class SkillsManager {
     }
 
     private func loadCachedState() async {
-        guard !hasLoaded, !isRefreshing else { return }
+        guard !hasLoaded, !isBusy else { return }
         isRefreshing = true
 
-        let selected = configuration
-        await finishLoad(marketplace: selected?.marketplace ?? "") {
-            Self.loadCachedCatalogue(configuration: selected, at: cacheURL)
-        }
+        await finishLoad(cachedOnly: true)
     }
 
     private nonisolated static func loadCachedCatalogue(
@@ -628,6 +676,15 @@ final class SkillsManager {
     nonisolated static func installedPlugins(from output: String, for host: SkillHost,
                                              marketplace: String)
         -> [String: SkillInstallation] {
+        let installations = installedPlugins(from: output, for: host, marketplaces: [marketplace])
+        let suffix = "@\(marketplace)"
+        return Dictionary(uniqueKeysWithValues: installations.map {
+            (String($0.key.dropLast(suffix.count)), $0.value)
+        })
+    }
+
+    nonisolated static func installedPlugins(from output: String, for host: SkillHost,
+                                             marketplaces: Set<String>) -> [String: SkillInstallation] {
         guard let root = jsonObject(from: output) else { return [:] }
         let rows: [[String: Any]]
         if let array = root as? [[String: Any]] {
@@ -655,11 +712,11 @@ final class SkillsManager {
                     source.hasPrefix("marketplace:") ? String(source.dropFirst("marketplace:".count)) : nil
                 }
                 ?? (pieces.count == 2 ? pieces[1] : "")
-            guard !name.isEmpty, marketplaceName == marketplace else { continue }
+            guard !name.isEmpty, marketplaces.contains(marketplaceName) else { continue }
             if host == .claude, let scope = row["scope"] as? String, scope != "user" { continue }
             if let installed = row["installed"] as? Bool, !installed { continue }
 
-            result[name] = SkillInstallation(
+            result["\(name)@\(marketplaceName)"] = SkillInstallation(
                 version: row["version"] as? String ?? "unknown",
                 enabled: row["enabled"] as? Bool ?? true)
         }
@@ -692,11 +749,11 @@ final class SkillsManager {
         return Set(rows.compactMap { $0["name"] as? String })
     }
 
-    private nonisolated static func loadInstallations(marketplace: String) async
+    private nonisolated static func loadInstallations(marketplaces: Set<String>) async
         -> [SkillHost: InstallationLoad] {
         await withTaskGroup(of: (SkillHost, InstallationLoad).self) { group in
             for host in SkillHost.allCases {
-                group.addTask { (host, await loadInstallations(for: host, marketplace: marketplace)) }
+                group.addTask { (host, await loadInstallations(for: host, marketplaces: marketplaces)) }
             }
             var loads: [SkillHost: InstallationLoad] = [:]
             for await (host, load) in group { loads[host] = load }
@@ -705,9 +762,9 @@ final class SkillsManager {
     }
 
     private nonisolated static func loadInstallations(for host: SkillHost,
-                                                      marketplace: String) async
+                                                      marketplaces: Set<String>) async
         -> InstallationLoad {
-        guard !marketplace.isEmpty, ProcessManager.resolve(host.command) != nil else {
+        guard !marketplaces.isEmpty, ProcessManager.resolve(host.command) != nil else {
             return InstallationLoad(installations: [:], failure: nil)
         }
         let result = await run(host.command, host.listArguments)
@@ -716,12 +773,13 @@ final class SkillsManager {
         }
         return InstallationLoad(installations: installedPlugins(from: result.output,
                                                                 for: host,
-                                                                marketplace: marketplace),
+                                                                marketplaces: marketplaces),
                                 failure: nil)
     }
 
-    private func prepareMarketplace(for host: SkillHost, action: Action) async -> CommandResult {
-        guard let configuration else {
+    private func prepareMarketplace(for host: SkillHost, plugin: SkillMarketplace.Plugin,
+                                    action: Action) async -> CommandResult {
+        guard let configuration = marketplaceConfigurations.first(where: { $0.marketplace == plugin.marketplace }) else {
             return CommandResult(errorText: "No skills marketplace is set up.",
                                  status: 1)
         }

@@ -423,6 +423,21 @@ enum Preferences {
         return try? JSONDecoder().decode(SkillMarketplaceConfiguration.self, from: data)
     }
 
+    static func skillsMarketplaces(in store: UserDefaults = .standard)
+        -> [SkillMarketplaceConfiguration] {
+        if let data = store.data(forKey: "skillsMarketplaces"),
+           let saved = try? JSONDecoder().decode([SkillMarketplaceConfiguration].self, from: data) {
+            return saved
+        }
+        return skillsMarketplace(in: store).map { [$0] } ?? []
+    }
+
+    static func setSkillsMarketplaces(_ marketplaces: [SkillMarketplaceConfiguration],
+                                      in store: UserDefaults = .standard) {
+        guard let data = try? JSONEncoder().encode(marketplaces) else { return }
+        store.set(data, forKey: "skillsMarketplaces")
+    }
+
     static func setSkillsMarketplace(_ marketplace: SkillMarketplaceConfiguration?,
                                      in store: UserDefaults = .standard) {
         guard let marketplace, let data = try? JSONEncoder().encode(marketplace) else {

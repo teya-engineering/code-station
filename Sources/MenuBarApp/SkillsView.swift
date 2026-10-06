@@ -35,7 +35,7 @@ struct SkillsView: View {
             header
             content
             SheetFooter(dismiss: { dismiss() }) {
-                Text("Versions are compared with the marketplace manifest on every refresh.")
+                Text("Versions are compared with each marketplace manifest on every refresh.")
                     .font(.system(size: 11.5))
                     .foregroundStyle(.secondary)
             }
@@ -79,20 +79,17 @@ struct SkillsView: View {
                 .hoverLift()
                 .disabled(manager.isUpdatingAll || manager.isRefreshing)
             }
-            ActionButton(title: "Configure",
+            ActionButton(title: "Add marketplace",
                          tone: .outlined,
                          height: 30,
                          size: 11.5,
-                         icon: "gearshape") {
-                let configuration = manager.marketplaceConfiguration
-                repositorySource = configuration?.sourceKind == .gitRepository
-                    ? configuration?.source ?? ""
-                    : ""
+                         icon: "plus") {
+                repositorySource = ""
                 setupFailure = nil
                 configuringMarketplace = true
             }
-            .disabled(manager.isRefreshing || manager.isUpdatingAll)
-            .appTooltip("Configure marketplace location")
+            .disabled(manager.isBusy)
+            .appTooltip("Add a marketplace")
             if manager.isConfigured {
                 ActionButton(title: manager.isRefreshing ? "Refreshing…" : "Refresh",
                              tone: .sunken,
@@ -101,8 +98,8 @@ struct SkillsView: View {
                              icon: "arrow.clockwise") {
                     Task { await manager.refresh() }
                 }
-                .disabled(manager.isRefreshing || manager.isUpdatingAll)
-                .appTooltip("Refresh marketplace and installed versions")
+                .disabled(manager.isBusy)
+                .appTooltip("Refresh all marketplaces and installed versions")
             }
         }
         .padding(.horizontal, 20)
@@ -110,7 +107,7 @@ struct SkillsView: View {
     }
 
     @ViewBuilder private var content: some View {
-        if !manager.hasLoaded && manager.plugins.isEmpty {
+        if (!manager.hasLoaded || manager.isRefreshing) && manager.plugins.isEmpty {
             PaneMessage(icon: "shippingbox",
                         title: "Fetching repertoire",
                         detail: "Reading the marketplace and each agent's installations.")
@@ -182,8 +179,8 @@ struct SkillsView: View {
     private var marketplaceConfiguration: some View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 3) {
-                Text("Marketplace location").font(.serif(16))
-                Text("Choose where Repertoire loads its skills marketplace.")
+                Text("Add marketplace").font(.serif(16))
+                Text("Add a Git repository or local file to your marketplaces.")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
             }
@@ -191,7 +188,8 @@ struct SkillsView: View {
             .headerBand()
 
             VStack(alignment: .leading, spacing: 18) {
-                currentMarketplaceLocation
+                ScrollView { currentMarketplaceLocation }
+                    .frame(maxHeight: 150)
                 marketplaceChoices
                 if let setupFailure {
                     SourceFailure(setupFailure)
@@ -210,8 +208,8 @@ struct SkillsView: View {
 
     private var currentMarketplaceLocation: some View {
         VStack(alignment: .leading, spacing: 6) {
-            SectionLabel("CURRENT LOCATION", style: .field)
-            if let configuration = manager.marketplaceConfiguration {
+            SectionLabel("ADDED MARKETPLACES", style: .field)
+            ForEach(manager.marketplaceConfigurations, id: \.marketplace) { configuration in
                 HStack(spacing: 8) {
                     Image(systemName: configuration.isLocalFile
                           ? "doc.text" : "arrow.triangle.branch")
@@ -223,7 +221,8 @@ struct SkillsView: View {
                         .truncationMode(.middle)
                         .textSelection(.enabled)
                 }
-            } else {
+            }
+            if manager.marketplaceConfigurations.isEmpty {
                 Text("No marketplace is configured.")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
@@ -365,6 +364,10 @@ struct SkillsView: View {
                                 .foregroundStyle(Theme.accent)
                         }
                     }
+                    Text(plugin.marketplace)
+                        .font(.mono(9.5))
+                        .foregroundStyle(Theme.accent)
+                        .lineLimit(1)
                     Text(plugin.description)
                         .font(.system(size: 11.5))
                         .foregroundStyle(.secondary)
@@ -412,7 +415,7 @@ struct SkillsView: View {
                                outdated: outdated, progress: progress)
                 }
                 .toggleStyle(.appCheckbox)
-                .disabled(!manageable || working || manager.isUpdatingAll)
+                .disabled(!manageable || working || manager.isUpdatingAll || manager.isRefreshing)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             if outdated, progress == nil, let latest = plugin.version {
@@ -430,7 +433,7 @@ struct SkillsView: View {
                 }
                 .buttonStyle(.plain)
                 .hoverLift()
-                .disabled(!manageable || manager.isUpdatingAll)
+                .disabled(!manageable || manager.isUpdatingAll || manager.isRefreshing)
             }
         }
         .padding(.horizontal, 8)
@@ -506,7 +509,8 @@ struct SkillsView: View {
             guard matchesFilter else { return false }
             let term = query.trimmed
             guard !term.isEmpty else { return true }
-            return plugin.name.localizedCaseInsensitiveContains(term)
+            return plugin.marketplace.localizedCaseInsensitiveContains(term)
+                || plugin.name.localizedCaseInsensitiveContains(term)
                 || plugin.description.localizedCaseInsensitiveContains(term)
                 || plugin.category?.localizedCaseInsensitiveContains(term) == true
         }

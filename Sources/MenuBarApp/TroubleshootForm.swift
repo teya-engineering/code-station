@@ -19,8 +19,10 @@ enum TroubleshootSkills {
 
     static func available(_ manager: SkillsManager,
                           for agent: AgentKind) -> [SkillMarketplace.Plugin] {
-        manager.plugins.filter {
+        var names = Set<String>()
+        return manager.plugins.filter {
             manager.installation(of: $0, on: host(for: agent))?.enabled == true
+                && names.insert($0.name).inserted
         }
     }
 
