@@ -123,17 +123,22 @@ struct DiceBearAvatarView<Placeholder: View>: View {
         self.placeholder = placeholder()
     }
 
+    // The still artwork stays under the animated one. A web view shows nothing until its
+    // page has painted, which is a frame or more after a tile scrolls into view, and a
+    // blank tile is what that gap looks like. The animated styles all draw a full-bleed
+    // background, so the page hides the still copy completely once it is up.
     var body: some View {
         ZStack {
             placeholder
             if let artwork = SidebarAvatarArt.artwork(for: avatar, style: style) {
-                if style.usesWebAnimation(for: motion) {
-                    AnimatedDiceBearAvatarImage(key: artwork.key, source: artwork.source)
-                } else if let image = artwork.image {
+                if let image = artwork.image {
                     Image(nsImage: image)
                         .resizable()
                         .interpolation(.high)
                         .aspectRatio(contentMode: .fit)
+                }
+                if style.usesWebAnimation(for: motion) {
+                    AnimatedDiceBearAvatarImage(key: artwork.key, source: artwork.source)
                 }
             }
         }
@@ -422,7 +427,8 @@ enum DiceBearAvatarDocument {
               <meta http-equiv="Content-Security-Policy"
                     content="default-src 'none'; style-src 'unsafe-inline'">
               <style>
-                html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+                html, body { width: 100%; height: 100%; margin: 0; overflow: hidden;
+                             background: transparent; }
                 svg { display: block; width: 100%; height: 100%; }
                 \(motionStyle)
               </style>
@@ -444,6 +450,11 @@ private struct AnimatedDiceBearAvatarImage: NSViewRepresentable {
 
         let webView = AnimatedAvatarWebView(frame: .zero, configuration: configuration)
         webView.underPageBackgroundColor = .clear
+        // WebKit paints a white base behind every page until told not to. The setter is
+        // not public, so it is only called when this build of WebKit still has it.
+        if webView.responds(to: Selector(("_setDrawsBackground:"))) {
+            webView.setValue(false, forKey: "drawsBackground")
+        }
         webView.allowsMagnification = false
         webView.setAccessibilityElement(false)
         return webView
