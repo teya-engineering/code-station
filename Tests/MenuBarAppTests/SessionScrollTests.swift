@@ -5,6 +5,43 @@ import Testing
 
 @MainActor
 struct SessionScrollTests {
+    @Test func findRefreshesWhenTextStreamsIntoAnExistingMessage() async throws {
+        let find = TranscriptFind()
+        let pane = try Pane(find: find)
+        defer { pane.harness.tearDown() }
+        _ = try await pane.transcript()
+        let sessionID = pane.harness.session.id
+        let messages = pane.harness.store.transcript(of: sessionID)
+        let message = try #require(messages.last)
+        let state = pane.harness.runner.state(sessionID)
+        find.open(query: "parser", in: messages)
+        await pane.settle()
+        #expect(find.summary == "No matches")
+        let jump = find.jumpRequest
+
+        pane.harness.store.updateMessage(message.id, in: sessionID) {
+            $0.text += "\n\nThe **parser** is ready."
+        }
+        await pane.settle()
+        #expect(find.summary == "1 of 1")
+        #expect(find.currentMatch?.messageID == message.id)
+        #expect(find.jumpRequest == jump + 1)
+
+        let selected = find.currentMatch
+        let firstJump = find.jumpRequest
+        pane.harness.store.updateMessage(message.id, in: sessionID) {
+            $0.text += " The parser tests pass."
+        }
+        await pane.settle()
+        #expect(find.summary == "1 of 2")
+        #expect(find.currentMatch == selected)
+        #expect(find.jumpRequest == firstJump)
+        find.move(by: 1)
+        #expect(find.currentMatch?.occurrence == 1)
+        #expect(pane.harness.store.transcript(of: sessionID).count == messages.count)
+        #expect(pane.harness.runner.state(sessionID) == state)
+    }
+
     @Test func theAgentIndicatorRevealsDelegationOutsideTheLoadedMessages() async throws {
         let pane = try Pane(includesAgent: true)
         defer {
@@ -87,7 +124,7 @@ struct SessionScrollTests {
         let window: NSWindow
         let view: NSView
 
-        init(includesAgent: Bool = false) throws {
+        init(includesAgent: Bool = false, find: TranscriptFind = TranscriptFind()) throws {
             harness = try RunnerHarness(agent: .claudeCode, script: """
             IFS= read -r input
             printf '%s\n' '{"type":"system","subtype":"init","session_id":"scroll-fixture"}'
@@ -111,7 +148,7 @@ struct SessionScrollTests {
             let settings = AppSettings(agentAvatarURL: harness.scratch.path("avatar.png"),
                                        preferences: preferences)
             let hosting = NSHostingController(rootView:
-                SessionView(sessionID: harness.session.id)
+                SessionView(sessionID: harness.session.id, transcriptFind: find)
                     .environment(harness.store)
                     .environment(harness.runner)
                     .environment(TerminalStore())

@@ -612,6 +612,8 @@ struct SelectableText: View {
     @Environment(TooltipPresenter.self) private var tooltipPresenter
     @Environment(\.textScale) private var textScale
     @Environment(\.transcriptSelection) private var transcriptSelection
+    @Environment(\.transcriptFind) private var transcriptFind
+    @Environment(\.transcriptMessageID) private var transcriptMessageID
 
     private let attributed: AttributedString
     private let size: CGFloat
@@ -735,6 +737,8 @@ struct SelectableText: View {
             width: width,
             role: role,
             selection: transcriptSelection,
+            find: transcriptFind,
+            messageID: transcriptMessageID,
             openLink: openLink,
             linkHoverChanged: linkHoverChanged)
             // NSViewRepresentable does not pass NSTextView's baseline to SwiftUI.
@@ -815,6 +819,7 @@ private final class LinkTextView: NSTextView {
     // Absent for a text view outside a transcript, such as one in a file preview,
     // which selects on its own exactly as AppKit intends.
     var selection: TranscriptSelection?
+    weak var find: TranscriptFind?
     var reflows = true
 
     private var linkTrackingArea: NSTrackingArea?
@@ -955,17 +960,30 @@ private final class LinkTextView: NSTextView {
     // transcript can hold that, so a selection over several would otherwise fade
     // everywhere but the block the drag started in.
     override func draw(_ dirtyRect: NSRect) {
+        drawFindHighlights()
         drawSelectionHighlight()
         super.draw(dirtyRect)
     }
 
+    private func drawFindHighlights() {
+        guard let find else { return }
+        let highlights = find.highlights(in: self)
+        for range in highlights.all {
+            fill(range, with: range == highlights.current
+                    ? CodeEditorStyle.currentMatch : CodeEditorStyle.match)
+        }
+    }
+
     private func drawSelectionHighlight() {
         let characters = selectedRange()
-        guard selection != nil, characters.length > 0,
-              let layoutManager, let textContainer else { return }
+        guard selection != nil, characters.length > 0 else { return }
+        fill(characters, with: Theme.accentNSColor.withAlphaComponent(0.28))
+    }
 
+    private func fill(_ characters: NSRange, with color: NSColor) {
+        guard let layoutManager, let textContainer else { return }
         let origin = textContainerOrigin
-        Theme.accentNSColor.withAlphaComponent(0.28).setFill()
+        color.setFill()
         let glyphs = layoutManager.glyphRange(forCharacterRange: characters,
                                               actualCharacterRange: nil)
         layoutManager.enumerateEnclosingRects(forGlyphRange: glyphs,
@@ -1050,6 +1068,8 @@ private struct LinkAwareText: NSViewRepresentable {
     let width: TextWidth
     let role: TranscriptTextRole
     let selection: TranscriptSelection?
+    let find: TranscriptFind?
+    let messageID: UUID?
     let openLink: (URL) -> Void
     let linkHoverChanged: (TranscriptLink.Hovered?) -> Void
 
@@ -1091,6 +1111,8 @@ private struct LinkAwareText: NSViewRepresentable {
         view.linkHoverChanged = linkHoverChanged
         view.selection = selection
         selection?.register(view, role: role)
+        view.find = find
+        if let messageID { find?.register(view, messageID: messageID) }
         return view
     }
 
@@ -1102,6 +1124,8 @@ private struct LinkAwareText: NSViewRepresentable {
         // Unconditional: this is how a block joins the selection that runs across the
         // page, and a view that stopped re-registering would drop out of it.
         selection?.register(view, role: role)
+        (view as? LinkTextView)?.find = find
+        if let messageID { find?.register(view, messageID: messageID) }
 
         // Handing the view a new string throws away the layout it has already done and
         // the range it is holding, and every block in the transcript is asked to update
@@ -1121,6 +1145,7 @@ private struct LinkAwareText: NSViewRepresentable {
 
     static func dismantleNSView(_ view: NSTextView, coordinator: Coordinator) {
         (view as? LinkTextView)?.selection?.unregister(view)
+        (view as? LinkTextView)?.find?.unregister(view)
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, nsView view: NSTextView, context: Context) -> CGSize? {

@@ -574,69 +574,16 @@ struct ExplorerView: View {
     }
 
     private var findBar: some View {
-        HStack(spacing: 8) {
-            HStack(spacing: 7) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                TextField("Find in file", text: $findQuery)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 12))
-                    .focused($findFocused)
-                    .onSubmit { moveFind(by: 1) }
-                    .onExitCommand(perform: closeFind)
-            }
-            .padding(.horizontal, 10)
-            .frame(minWidth: 90, idealWidth: 260, maxWidth: 260)
-            .frame(height: 28)
-            .fieldSurface(cornerRadius: 7)
-
-            Text(findSummary)
-                .font(.mono(10))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-                .frame(minWidth: 55, idealWidth: 82, alignment: .trailing)
-
-            findButton("chevron.up", help: "Previous match", disabled: findResult.matches.isEmpty) {
-                moveFind(by: -1)
-            }
-            findButton("chevron.down", help: "Next match", disabled: findResult.matches.isEmpty) {
-                moveFind(by: 1)
-            }
-            findButton("xmark", help: "Close find") { closeFind() }
-
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 7)
-        .background(Theme.card)
-        .overlay(alignment: .bottom) { Rectangle().fill(Theme.hairline).frame(height: 1) }
-        .onAppear { findFocused = true }
-    }
-
-    private var findSummary: String {
-        guard !findQuery.isEmpty else { return "" }
-        guard !findResult.matches.isEmpty else { return "No matches" }
-        let total = "\(findResult.matches.count)\(findResult.hasMore ? "+" : "")"
-        return "\(findSelection + 1) of \(total)"
-    }
-
-    private func findButton(_ systemName: String, help: String, disabled: Bool = false,
-                            action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: systemName)
-                .font(.system(size: 9, weight: .bold))
-                .foregroundStyle(Theme.accent.opacity(disabled ? 0.3 : 1))
-                .frame(width: 26, height: 26)
-                .fieldSurface(cornerRadius: 7)
-                .contentShape(RoundedRectangle(cornerRadius: 7))
-        }
-        .buttonStyle(.plain)
-        .hoverLift(amount: Motion.smallLift)
-        .disabled(disabled)
-        .appTooltip(help)
-        .accessibilityLabel(help)
+        FindBar(placeholder: "Find in file",
+                query: $findQuery,
+                summary: FindSummary.text(query: findQuery,
+                                          matchCount: findResult.matches.count,
+                                          hasMore: findResult.hasMore,
+                                          selection: findSelection),
+                hasMatches: !findResult.matches.isEmpty,
+                focused: $findFocused,
+                move: { moveFind(by: $0) },
+                close: closeFind)
     }
 
     // A file worth searching is open and nothing is in front of it. While this is false

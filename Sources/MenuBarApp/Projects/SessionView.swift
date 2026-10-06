@@ -156,6 +156,11 @@ struct SessionView: View {
     // Held by the pane rather than by any one message, since the whole point of it is
     // to carry a selection from a paragraph in one message into a paragraph in another.
     @State private var transcriptSelection = TranscriptSelection()
+    @State private var transcriptFind: TranscriptFind
+    // Caught with a monitor for the same reason as the file view's find: a SwiftUI
+    // shortcut only gets the stroke after the sidebar's filter has taken it.
+    @State private var findMonitor = WindowKeyMonitor(.command, "f")
+    @FocusState private var findFocused: Bool
     @State private var transcriptScrollRequest = 0
     @State private var agentFocus: AgentTranscriptFocus?
     @State private var recapOpen = false
@@ -191,8 +196,10 @@ struct SessionView: View {
         let path: String
     }
 
-    init(sessionID: UUID, opening: SessionDestination = .conversation) {
+    init(sessionID: UUID, opening: SessionDestination = .conversation,
+         transcriptFind: TranscriptFind = TranscriptFind()) {
         self.sessionID = sessionID
+        _transcriptFind = State(initialValue: transcriptFind)
         switch opening {
         case .conversation:
             _tab = State(initialValue: .conversation)
@@ -311,6 +318,15 @@ struct SessionView: View {
             .background(tabShortcuts(headerTabs(for: session)))
             .background(recapShortcut)
             .background(stopShortcut)
+            .background(WindowAnchor(monitor: findMonitor))
+            .onChange(of: canFindInChat(session), initial: true) { _, canFind in
+                guard canFind else { findMonitor.stop(); return }
+                findMonitor.start { findShortcut() }
+            }
+            .onDisappear { findMonitor.stop() }
+            .onChange(of: transcriptFind.isPresented ? session.messages : []) {
+                transcriptFind.refresh(in: session.messages)
+            }
             .onChange(of: terminalFocused) { _, focused in
                 if focused { composerFocused = false }
             }
@@ -600,6 +616,25 @@ struct SessionView: View {
                                     directory: directory)
                 }
             workingSetToggle
+            if !session.isActivelyDesigning {
+                findToggle
+            }
+        }
+    }
+
+    private var findToggle: some View {
+        let isOpen = tab == .conversation && transcriptFind.isPresented
+        return HeaderRailButton(icon: "magnifyingglass",
+                                state: isOpen ? .open : .rest,
+                                label: isOpen ? "Close find" : "Find in chat",
+                                hint: isOpen ? nil : "Or select text in the chat and press Cmd+F") {
+            if isOpen {
+                closeFind()
+            } else {
+                tab = .conversation
+                transcriptFind.open(in: currentMessages)
+                findFocused = true
+            }
         }
     }
 
@@ -1107,6 +1142,59 @@ struct SessionView: View {
         .opacity(0)
     }
 
+    // MARK: - Find in chat
+
+    private var currentMessages: [ChatMessage] {
+        store.session(sessionID)?.messages ?? []
+    }
+
+    // Only the conversation is searched: the other tabs are either a file view with a
+    // find of its own or a pane with no transcript in it.
+    private func canFindInChat(_ session: ChatSession) -> Bool {
+        tab == .conversation && !session.isActivelyDesigning && dialogs.current == nil
+    }
+
+    // Cmd+F searches the chat when some of it is selected, starting from the selection.
+    // With nothing selected the stroke is left for the sidebar's filter, unless find is
+    // already open, in which case it goes back to the search field.
+    private func findShortcut() -> Bool {
+        if let query = transcriptSelection.selectedText.flatMap(TranscriptSearch.query(fromSelection:)) {
+            transcriptFind.open(query: query, in: currentMessages)
+        } else if !transcriptFind.isPresented {
+            return false
+        }
+        findFocused = true
+        return true
+    }
+
+    private func closeFind() {
+        transcriptFind.close()
+        findFocused = false
+        composerFocused = true
+    }
+
+    private func revealFindMatch(in session: ChatSession, proxy: ScrollViewProxy) async {
+        guard let match = transcriptFind.currentMatch else { return }
+        transcriptPinnedToBottom = false
+        transcriptWindow.reveal(match.messageID, in: session.messages)
+        await Task.yield()
+        guard !Task.isCancelled else { return }
+        proxy.scrollTo(match.messageID, anchor: .center)
+
+        // Folded thinking opens on a later pass, and its text only joins the find once it
+        // has been drawn, so the match is looked for again until it is there.
+        var attempts = 0
+        while !transcriptFind.currentIsFullyDrawn, attempts < 10 {
+            attempts += 1
+            try? await Task.sleep(for: .milliseconds(40))
+            guard !Task.isCancelled else { return }
+        }
+        // Opening folded text animates its height, so the match is still moving.
+        if attempts > 0 { try? await Task.sleep(for: .milliseconds(220)) }
+        guard !Task.isCancelled, let placed = transcriptFind.placeCurrent() else { return }
+        placed.view.revealCentered(placed.range)
+    }
+
     // Escape calls off the running turn, so a run can be stopped without reaching for
     // the button in the composer. It only takes the key while there is a turn to stop
     // and nothing else on screen has a better claim on it: a dialog and a menu both
@@ -1116,7 +1204,7 @@ struct SessionView: View {
         let target = visibleConversationID
         let state = runner.state(target)
         if state.isBusy, state != .stopping, dialogs.current == nil, !menus.isOpen,
-           !terminalFocused, !recapOpen, !commandPalette.isPresented {
+           !terminalFocused, !recapOpen, !commandPalette.isPresented, !findFocused {
             Button("") { runner.stop(target) }
                 .keyboardShortcut(.escape, modifiers: [])
                 .opacity(0)
@@ -1126,7 +1214,7 @@ struct SessionView: View {
     // The visible card has the first claim on Escape. In particular, closing a recap that
     // is being refreshed must not also stop the agent turn doing the refresh.
     @ViewBuilder private var recapShortcut: some View {
-        if recapOpen, dialogs.current == nil, !menus.isOpen, !terminalFocused {
+        if recapOpen, dialogs.current == nil, !menus.isOpen, !terminalFocused, !findFocused {
             Button("") { closeRecap() }
                 .keyboardShortcut(.escape, modifiers: [])
                 .opacity(0)
@@ -1290,6 +1378,16 @@ struct SessionView: View {
 
     private func conversationContent(session: ChatSession, project: Project) -> some View {
         VStack(spacing: 0) {
+            if transcriptFind.isPresented {
+                FindBar(placeholder: "Find in chat",
+                        query: Binding(get: { transcriptFind.query },
+                                       set: { transcriptFind.search($0, in: session.messages) }),
+                        summary: transcriptFind.summary,
+                        hasMatches: !transcriptFind.result.matches.isEmpty,
+                        focused: $findFocused,
+                        move: { transcriptFind.move(by: $0) },
+                        close: closeFind)
+            }
             transcript(session)
             Divider().overlay(Theme.hairline)
             composer(session: session, project: project)
@@ -1342,6 +1440,7 @@ struct SessionView: View {
                     }
                 }
                     .environment(\.transcriptSelection, transcriptSelection)
+                    .environment(\.transcriptFind, transcriptFind)
                     .padding(.horizontal, 26)
                     .padding(.vertical, 22)
                     // Capped so prose keeps a readable line length, and centered so a
@@ -1411,6 +1510,9 @@ struct SessionView: View {
                     proxy.scrollTo(bottomAnchor, anchor: .bottom)
                 }
                 withAnimation(reduceMotion ? nil : .easeOut(duration: 0.16)) { opened = true }
+            }
+            .task(id: transcriptFind.jumpRequest) {
+                await revealFindMatch(in: session, proxy: proxy)
             }
             .task(id: agentFocus?.requestID) {
                 guard opened, let agentFocus else { return }
