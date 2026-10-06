@@ -649,6 +649,8 @@ struct SelectableText: View {
     @Environment(\.transcriptFind) private var transcriptFind
     @Environment(\.transcriptMessageID) private var transcriptMessageID
     @Environment(\.explorerRoots) private var explorerRoots
+    // Optional because a text view can sit in a sheet that has no menu layer of its own.
+    @Environment(MenuPresenter.self) private var menus: MenuPresenter?
 
     private let attributed: AttributedString
     private let size: CGFloat
@@ -775,7 +777,8 @@ struct SelectableText: View {
             find: transcriptFind,
             messageID: transcriptMessageID,
             openLink: openLink,
-            linkHoverChanged: linkHoverChanged)
+            linkHoverChanged: linkHoverChanged,
+            showMenu: menus.map { menus in { entries, point in menus.show(entries, at: point) } })
             // NSViewRepresentable does not pass NSTextView's baseline to SwiftUI.
             // The font metric keeps this text on the baseline of whatever it sits
             // beside, such as the marker on a list row.
@@ -857,6 +860,7 @@ struct SelectableText: View {
 private final class LinkTextView: NSTextView {
     var openLink: ((URL) -> Void)?
     var linkHoverChanged: ((TranscriptLink.Hovered?) -> Void)?
+    var showMenu: (([MenuEntry], CGPoint) -> Void)?
     // Absent for a text view outside a transcript, such as one in a file preview,
     // which selects on its own exactly as AppKit intends.
     var selection: TranscriptSelection?
@@ -869,6 +873,10 @@ private final class LinkTextView: NSTextView {
     private var linkMouseDown: NSEvent?
 
     override func mouseDown(with event: NSEvent) {
+        if event.modifierFlags.contains(.control), showMenu != nil {
+            openMenu(for: event)
+            return
+        }
         pressedLink = nil
         linkMouseDown = nil
         let point = convert(event.locationInWindow, from: nil)
@@ -974,9 +982,47 @@ private final class LinkTextView: NSTextView {
     }
 
     // AppKit asks a text view for a menu on right-click and would put up its own, which
-    // is a piece of another program in the middle of the page. The transcript's own menu
-    // is an overlay above this view and still gets the click.
+    // is a piece of another program in the middle of the page. The app's own menu takes
+    // its place. A row with a menu of its own, such as a sent prompt, lays a catcher
+    // over this view and still gets the click first.
     override func menu(for event: NSEvent) -> NSMenu? { nil }
+
+    override func rightMouseDown(with event: NSEvent) {
+        guard showMenu != nil else { return super.rightMouseDown(with: event) }
+        openMenu(for: event)
+    }
+
+    // The click leaves the selection alone, so text picked out before the menu opened
+    // is still what Copy takes.
+    private func openMenu(for event: NSEvent) {
+        guard let showMenu, let content = window?.contentView else { return }
+        var entries: [MenuEntry] = []
+        let point = convert(event.locationInWindow, from: nil)
+        if let link = TranscriptLink.hoveredLink(in: self, at: point) {
+            let address = link.url.isFileURL ? link.url.path : link.url.absoluteString
+            entries.append(.item(link.url.isFileURL ? "Copy path" : "Copy link", icon: "link") {
+                Pasteboard.copy(address)
+            })
+        }
+        if let text = selectedTextForMenu {
+            entries.append(.item("Copy", icon: "doc.on.doc") { Pasteboard.copy(text) })
+        }
+        if !entries.isEmpty { entries.append(.separator) }
+        entries.append(.item("Select all", icon: "text.cursor") { [weak self] in
+            self?.window?.makeFirstResponder(self)
+            self?.selectAll(nil)
+        })
+        showMenu(entries, FrameAnchor.fromTop(content.convert(event.locationInWindow, from: nil),
+                                              in: content))
+    }
+
+    private var selectedTextForMenu: String? {
+        if let selection { return selection.selectedText }
+        let range = selectedRange()
+        guard range.length > 0, let storage = textStorage,
+              NSMaxRange(range) <= storage.length else { return nil }
+        return storage.attributedSubstring(from: range).string
+    }
 
     // MARK: - Selection
 
@@ -1113,6 +1159,7 @@ private struct LinkAwareText: NSViewRepresentable {
     let messageID: UUID?
     let openLink: (URL) -> Void
     let linkHoverChanged: (TranscriptLink.Hovered?) -> Void
+    let showMenu: (([MenuEntry], CGPoint) -> Void)?
 
     func makeCoordinator() -> Coordinator { Coordinator(openLink: openLink) }
 
@@ -1150,6 +1197,7 @@ private struct LinkAwareText: NSViewRepresentable {
         view.selectedTextAttributes = [.backgroundColor: NSColor.clear]
         view.openLink = openLink
         view.linkHoverChanged = linkHoverChanged
+        view.showMenu = showMenu
         view.selection = selection
         selection?.register(view, role: role)
         view.find = find
@@ -1161,6 +1209,7 @@ private struct LinkAwareText: NSViewRepresentable {
         context.coordinator.openLink = openLink
         (view as? LinkTextView)?.openLink = openLink
         (view as? LinkTextView)?.linkHoverChanged = linkHoverChanged
+        (view as? LinkTextView)?.showMenu = showMenu
         (view as? LinkTextView)?.selection = selection
         // Unconditional: this is how a block joins the selection that runs across the
         // page, and a view that stopped re-registering would drop out of it.
