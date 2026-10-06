@@ -46,7 +46,7 @@ struct FindBar: View {
         .padding(.vertical, 7)
         .background(Theme.card)
         .overlay(alignment: .bottom) { Rectangle().fill(Theme.hairline).frame(height: 1) }
-        .onAppear { focused.wrappedValue = true }
+        .onAppear { focused.request() }
     }
 
     private func button(_ systemName: String, help: String, disabled: Bool = false,
@@ -72,5 +72,15 @@ enum FindSummary {
         guard !query.isEmpty else { return "" }
         guard matchCount > 0 else { return "No matches" }
         return "\(selection + 1) of \(matchCount)\(hasMore ? "+" : "")"
+    }
+}
+
+extension FocusState<Bool>.Binding {
+    // SwiftUI can go on believing a field is focused after the caret has left it, and
+    // then setting the flag to true again changes nothing. Clearing it first and setting
+    // it on the next pass makes every request a real change.
+    @MainActor func request() {
+        wrappedValue = false
+        DispatchQueue.main.async { wrappedValue = true }
     }
 }

@@ -614,7 +614,7 @@ struct ExplorerView: View {
         guard canFind else { return }
         findPresented = true
         refreshFind()
-        findFocused = true
+        $findFocused.request()
     }
 
     private func closeFind() {

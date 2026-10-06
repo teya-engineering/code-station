@@ -658,7 +658,7 @@ struct SessionView: View {
             } else {
                 tab = .conversation
                 transcriptFind.open(in: currentMessages)
-                findFocused = true
+                $findFocused.request()
             }
         }
     }
@@ -1192,7 +1192,7 @@ struct SessionView: View {
         } else if !transcriptFind.isPresented {
             transcriptFind.open(in: currentMessages)
         }
-        findFocused = true
+        $findFocused.request()
     }
 
     private func closeFind() {
