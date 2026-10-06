@@ -441,6 +441,120 @@ struct BackgroundTaskTests {
         #expect(await waitUntil { fixture.runner.state(fixture.session.id) == .idle })
     }
 
+    // MARK: - Waiting for a wakeup
+
+    @Test func readsWhenAWakeupIsDue() {
+        let line = """
+        {"type":"user","message":{"role":"user","content":[{"tool_use_id":"w1","type":"tool_result",\
+        "content":"Next wakeup scheduled"}]},"tool_use_result":\
+        {"scheduledFor":1791323580000,"clampedDelaySeconds":60,"wasClamped":false}}
+        """
+        let events = StreamEvent.parse(line)
+        guard case .wakeup(let due)? = events.last else {
+            Issue.record("expected a wakeup, got \(events)")
+            return
+        }
+        #expect(due == Date(timeIntervalSince1970: 1_791_323_580))
+        #expect(events.count == 2)
+    }
+
+    @Test func readsAWakeupBeingCalledOff() {
+        let line = """
+        {"type":"user","message":{"role":"user","content":[{"tool_use_id":"w1","type":"tool_result",\
+        "content":"stopped"}]},"tool_use_result":{"scheduledFor":0,"clampedDelaySeconds":0,\
+        "wasClamped":false,"stopped":true,"cancelledWakeups":1}}
+        """
+        guard case .wakeup(let due)? = StreamEvent.parse(line).last else {
+            Issue.record("expected a wakeup")
+            return
+        }
+        #expect(due == nil)
+    }
+
+    @Test func otherToolResultsSayNothingAboutAWakeup() {
+        let line = """
+        {"type":"user","message":{"role":"user","content":[{"tool_use_id":"b1","type":"tool_result",\
+        "content":"ok"}]},"tool_use_result":{"stdout":"ok","stderr":""}}
+        """
+        #expect(StreamEvent.parse(line).count == 1)
+    }
+
+    // The CLI keeps the wakeup timer in its own process, so a turn that answers with a
+    // wakeup pending has to stay open or the wakeup never fires.
+    @MainActor @Test func holdsTheTurnOpenForAWakeup() async throws {
+        let fixture = try turn(script: Self.schedulesWakeup(at: Self.farFuture) + """
+        cat > /dev/null
+        """)
+        defer { fixture.tearDown() }
+
+        #expect(await waitUntil { fixture.runner.state(fixture.session.id) == .waiting })
+        #expect(BackgroundTaskPhrase.of(fixture.runner.backgroundTasks(fixture.session.id))
+                .hasPrefix("a check-in at "))
+    }
+
+    // Once the turn the wakeup starts has begun, there is nothing left to hold the process
+    // open for, so that turn's own result ends it.
+    @MainActor @Test func theTurnAWakeupStartsEndsTheWait() async throws {
+        let fixture = try turn(script: Self.schedulesWakeup(at: Date()) + """
+        wait_for "$folder/fire"
+        printf '%s\\n' '{"type":"system","subtype":"init","session_id":"abc-123"}'
+        printf '%s\\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"checked"}]}}'
+        printf '%s\\n' '{"type":"result","subtype":"success","is_error":false,"result":"checked"}'
+        cat > /dev/null
+        """)
+        defer { fixture.tearDown() }
+        #expect(await waitUntil { fixture.runner.state(fixture.session.id) == .waiting })
+
+        try Data().write(to: fixture.scratch.path("fire"))
+
+        #expect(await waitUntil { fixture.runner.state(fixture.session.id) == .idle })
+        #expect(fixture.store.transcript(of: fixture.session.id).contains { $0.text == "checked" })
+    }
+
+    @MainActor @Test func aCalledOffWakeupHoldsNothingOpen() async throws {
+        let fixture = try turn(script: """
+        printf '%s\\n' '\(Self.wakeupLine(scheduledFor: Self.farFuture))'
+        printf '%s\\n' '{"type":"user","message":{"role":"user","content":[]},"tool_use_result":{"scheduledFor":0,"clampedDelaySeconds":0,"stopped":true}}'
+        printf '%s\\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"done"}]}}'
+        printf '%s\\n' '{"type":"result","subtype":"success","is_error":false,"result":"done"}'
+        cat > /dev/null
+        """)
+        defer { fixture.tearDown() }
+
+        #expect(await waitUntil { fixture.runner.state(fixture.session.id) == .idle })
+    }
+
+    // A wakeup stays quiet until it is due by design, so that silence is not a wait that
+    // has stopped coming back.
+    @MainActor @Test func aWakeupNotYetDueIsNeverCalledStale() async throws {
+        let fixture = try turn(script: Self.schedulesWakeup(at: Self.farFuture) + """
+        cat > /dev/null
+        """, waitingStaleAfter: 0.2)
+        defer { fixture.tearDown() }
+        #expect(await waitUntil { fixture.runner.state(fixture.session.id) == .waiting })
+
+        try? await Task.sleep(for: .milliseconds(400))
+        #expect(!fixture.runner.waitIsStale(fixture.session.id))
+    }
+
+    private static let farFuture = Date().addingTimeInterval(3600)
+
+    private static func wakeupLine(scheduledFor due: Date) -> String {
+        "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[]},"
+            + "\"tool_use_result\":{\"scheduledFor\":\(Int(due.timeIntervalSince1970 * 1000)),"
+            + "\"clampedDelaySeconds\":60,\"wasClamped\":false}}"
+    }
+
+    // A fake CLI turn that schedules a wakeup, says so, and ends.
+    private static func schedulesWakeup(at due: Date) -> String {
+        """
+        printf '%s\\n' '\(wakeupLine(scheduledFor: due))'
+        printf '%s\\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"will check back"}]}}'
+        printf '%s\\n' '{"type":"result","subtype":"success","is_error":false,"result":"will check back"}'
+
+        """
+    }
+
     // A fake CLI that reports two tasks, answers, and then waits on its input the way the
     // real one does while a task of its own is still running.
     @MainActor

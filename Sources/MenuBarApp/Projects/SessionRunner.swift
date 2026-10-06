@@ -2436,6 +2436,14 @@ final class SessionRunner {
                     turn.agentSessionID = claudeSessionID
                     store.setAgentSessionID(claudeSessionID, agent: turn.agent, for: sessionID)
                 }
+                // Every turn the CLI runs opens like this, the one a wakeup starts included.
+                // Once that one has begun there is nothing left to hold the process for.
+                if let wakeup = turn.wakeup, wakeup.due.timeIntervalSinceNow < 5 {
+                    turn.wakeup = nil
+                }
+
+            case .wakeup(let due):
+                turn.wakeup = due.map { (task: BackgroundTask.wakeup(at: $0), due: $0) }
 
             case .turnStarted:
                 freshReply(turn, sessionID: sessionID, store: store)
@@ -2537,7 +2545,7 @@ final class SessionRunner {
                     recordAgentTask(completedAgent, turn: turn, sessionID: sessionID, store: store)
                     turn.pendingTasks.removeAll { $0.id == completedAgent.task.id }
                     records[sessionID]?.agentsAtWork.remove(completedAgent.task.id)
-                    if turn.waitingOnTasks { records[sessionID]?.wait?.tasks = turn.pendingTasks }
+                    if turn.waitingOnTasks { records[sessionID]?.wait?.tasks = turn.holdsFor }
                 }
                 if !instantEditIDs.contains(id) || id == firstInstantEditID {
                     noteWhatWasWritten(
@@ -2625,7 +2633,7 @@ final class SessionRunner {
                     turn.pendingTasks[index] = record.task
                 }
                 if record.state == .running { records[sessionID]?.agentsAtWork.insert(task.id) }
-                if turn.waitingOnTasks { records[sessionID]?.wait?.tasks = turn.pendingTasks }
+                if turn.waitingOnTasks { records[sessionID]?.wait?.tasks = turn.holdsFor }
 
             case .agentTaskFinished(let id, let state, let report):
                 guard var record = turn.agentTasks[id] else { continue }
@@ -2635,7 +2643,7 @@ final class SessionRunner {
                 recordAgentTask(record, turn: turn, sessionID: sessionID, store: store)
                 turn.pendingTasks.removeAll { $0.id == id }
                 records[sessionID]?.agentsAtWork.remove(id)
-                if turn.waitingOnTasks { records[sessionID]?.wait?.tasks = turn.pendingTasks }
+                if turn.waitingOnTasks { records[sessionID]?.wait?.tasks = turn.holdsFor }
 
             case .backgroundTasks(let tasks):
                 let started = Dictionary(turn.pendingTasks.map { ($0.id, $0.startedAt) },
@@ -2671,7 +2679,7 @@ final class SessionRunner {
                     turn.agentTasks.values.filter { $0.state == .running }.map { $0.task.id })
                 // A wait can outlast the task that started it: one of several ending is
                 // not the end of the wait, and the row has to say what is left.
-                if turn.waitingOnTasks { records[sessionID]?.wait?.tasks = named }
+                if turn.waitingOnTasks { records[sessionID]?.wait?.tasks = turn.holdsFor }
 
             case .streamError(let message):
                 turn.lastStreamError = message
@@ -2712,15 +2720,15 @@ final class SessionRunner {
                 // turn: the CLI runs a follow-up turn when a task finishes, but only
                 // while its process is alive, so the input pipe is held open until the
                 // last task is done and the turn after it has answered.
-                if !isError, turn.summary == nil, !turn.pendingTasks.isEmpty {
-                    SessionLog.note("holding turn open for background tasks \(turn.pendingTasks.map(\.id).sorted())",
+                if !isError, turn.summary == nil, !turn.holdsFor.isEmpty {
+                    SessionLog.note("holding turn open for background tasks \(turn.holdsFor.map(\.id).sorted())",
                                     session: sessionID)
                     let alreadyWaiting = turn.waitingOnTasks
                     turn.waitingOnTasks = true
                     if alreadyWaiting {
-                        records[sessionID]?.wait?.tasks = turn.pendingTasks
+                        records[sessionID]?.wait?.tasks = turn.holdsFor
                     } else {
-                        records[sessionID]?.wait = Wait(tasks: turn.pendingTasks, since: Date())
+                        records[sessionID]?.wait = Wait(tasks: turn.holdsFor, since: Date())
                     }
                     turn.needsFreshReply = true
                     setState(.waiting, for: sessionID)
@@ -2858,7 +2866,10 @@ final class SessionRunner {
     // work nobody asked to stop would be worse than a row that says it needs someone.
     private func startWaitWatchdog(_ sessionID: UUID, token: UUID, store: ProjectStore) {
         waitWatchdogs.removeValue(forKey: sessionID)?.cancel()
-        let deadline = waitingStaleAfter
+        // A wakeup is known to stay quiet until it is due, so the wait is only judged
+        // from that moment on.
+        let quietUntilWakeup = records[sessionID]?.turn?.wakeup.map { max(0, $0.due.timeIntervalSinceNow) } ?? 0
+        let deadline = waitingStaleAfter + quietUntilWakeup
         waitWatchdogs[sessionID] = Task { [weak self] in
             try? await Task.sleep(for: .seconds(deadline))
             guard !Task.isCancelled else { return }
@@ -3344,6 +3355,10 @@ final class SessionRunner {
         var exitStatus: Int32?
         // The background tasks the CLI says are still running, in the order it sent them.
         var pendingTasks: [BackgroundTask] = []
+        // The wakeup the agent has scheduled, kept until the turn it starts begins.
+        var wakeup: (task: BackgroundTask, due: Date)?
+        // What a turn that has answered stays open for: the CLI's own tasks and any wakeup.
+        var holdsFor: [BackgroundTask] { pendingTasks + (wakeup.map { [$0.task] } ?? []) }
         var agentTasks: [String: AgentTaskRecord] = [:]
         var agentTaskMessages: [String: UUID] = [:]
         // True from a result that left tasks running until the CLI moves again or a

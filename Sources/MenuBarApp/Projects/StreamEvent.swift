@@ -37,6 +37,10 @@ enum StreamEvent: Sendable {
     // changes. A turn that ends while this is not empty is not really over: the CLI runs
     // a follow-up turn when a task finishes, but only if its process is still alive.
     case backgroundTasks([BackgroundTask])
+    // When the agent asked to be woken next, or nil once it has called that off. The CLI
+    // keeps the timer inside its own process, so a wakeup only fires while the turn is
+    // held open.
+    case wakeup(Date?)
     // Starts carry the agent's identity; later live lists may only carry its task id.
     case agentTaskStarted(BackgroundTask)
     case agentTaskFinished(id: String, state: AgentTaskRecord.State, report: String?)
@@ -67,6 +71,13 @@ struct BackgroundTask: Identifiable, Codable, Equatable, Sendable {
     var startedAt = Date()
     var toolUseID: String?
     var command: String?
+
+    // A wakeup the agent scheduled for itself. The CLI does not report it as a task, but
+    // it holds the turn open in the same way, so it is waited on and shown like one.
+    static func wakeup(at due: Date) -> BackgroundTask {
+        BackgroundTask(id: "wakeup", kind: "wakeup",
+                       description: "a check-in at \(due.formatted(date: .omitted, time: .shortened))")
+    }
 
     var isAgent: Bool {
         agentName?.isBlank == false || kind == "local_agent" || kind == "local_workflow"
@@ -138,6 +149,8 @@ extension StreamEvent {
             // The descriptions are the CLI's own words about what it is running and can
             // name files or commands, so only how many there are goes in the log.
             "background tasks count=\(tasks.count)"
+        case .wakeup(let due):
+            due.map { "wakeup scheduled in=\(Int($0.timeIntervalSinceNow))s" } ?? "wakeup cancelled"
         case .agentTaskStarted(let task):
             "agent task started id=\(task.id)"
         case .agentTaskFinished(let id, let state, _):
@@ -267,7 +280,9 @@ extension StreamEvent {
             return events
 
         case "user":
-            return contentBlocks(of: object).compactMap(toolResultEvent)
+            var events = contentBlocks(of: object).compactMap(toolResultEvent)
+            if let wakeup = wakeupEvent(object) { events.append(wakeup) }
+            return events
 
         case "rate_limit_event":
             guard let info = object["rate_limit_info"] as? [String: Any],
@@ -396,6 +411,16 @@ extension StreamEvent {
         default:
             return nil
         }
+    }
+
+    // ScheduleWakeup only says when it will fire in the structured result that travels
+    // beside the tool's text. Calling it off comes back with no time and "stopped" set.
+    private static func wakeupEvent(_ object: [String: Any]) -> StreamEvent? {
+        guard let result = object["tool_use_result"] as? [String: Any],
+              let scheduledFor = result["scheduledFor"] as? Double,
+              result["clampedDelaySeconds"] != nil else { return nil }
+        if result["stopped"] as? Bool == true || scheduledFor <= 0 { return .wakeup(nil) }
+        return .wakeup(Date(timeIntervalSince1970: scheduledFor / 1000))
     }
 
     private static func toolResultEvent(_ block: [String: Any]) -> StreamEvent? {
