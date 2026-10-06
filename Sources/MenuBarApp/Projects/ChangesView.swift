@@ -103,7 +103,10 @@ struct ChangesView: View {
     let selectRepository: (String, String?) -> Void
     @State private var collapsedRepositories: Set<String> = []
     @State private var navigatorVisible = true
-    @FocusState private var navigatorFocus: ChangesNavigatorItem?
+    // The navigator keeps its own cursor instead of focusing each row, since a plain
+    // button only takes keyboard focus when Full Keyboard Access is on.
+    @State private var navigatorCursor: ChangesNavigatorItem?
+    @FocusState private var navigatorFocused: Bool
 
     private enum Mode: Hashable { case changes, history }
 
@@ -386,9 +389,9 @@ struct ChangesView: View {
 
     private func moveNavigator(_ direction: MoveCommandDirection) {
         guard direction == .up || direction == .down,
-              let next = ChangesNavigatorItem.next(after: navigatorFocus,
+              let next = ChangesNavigatorItem.next(after: navigatorCursor,
                   step: direction == .up ? -1 : 1, in: navigatorItems) else { return }
-        navigatorFocus = next
+        navigatorCursor = next
         if next.root == root, let file = files.first(where: { $0.id == next.path }) {
             mode = .changes
             select(file)
@@ -414,17 +417,23 @@ struct ChangesView: View {
                             }.buttonStyle(.plain)
                                 .motion(Motion.control, value: collapsedRepositories.contains(repository.root))
                                 .accessibilityLabel("\(collapsedRepositories.contains(repository.root) ? "Expand" : "Collapse") \(repository.name)")
-                            Button { selectRepository(repository.root, nil) } label: {
+                            Button {
+                                navigatorCursor = ChangesNavigatorItem(root: repository.root, path: nil)
+                                navigatorFocused = true
+                                selectRepository(repository.root, nil)
+                            } label: {
                                 HStack(spacing: 7) {
                                     ProjectDot(tint: Theme.projectTint(for: repository.name), size: 8)
                                     Text(repository.name).font(.system(size: 12, weight: .semibold)).lineLimit(1)
                                     Spacer(minLength: 0)
                                     Text(changes.isEmpty ? (gitStats.snapshot(at: repository.root) == nil ? "Unknown" : "Clean") : "\(changes.count)")
                                         .font(.system(size: 10)).foregroundStyle(.secondary)
-                                }.padding(.vertical, 10).contentShape(Rectangle())
+                                }.padding(.vertical, 10)
+                                .surface(.clear, cornerRadius: 8,
+                                         border: showsCursor(ChangesNavigatorItem(root: repository.root, path: nil)) ? Theme.border : .clear)
+                                .contentShape(Rectangle())
                             }.buttonStyle(.plain)
                                 .id(ChangesNavigatorItem(root: repository.root, path: nil))
-                                .focused($navigatorFocus, equals: ChangesNavigatorItem(root: repository.root, path: nil))
                                 .accessibilityAddTraits(repository.root == root ? .isSelected : [])
                         }
                         if !collapsedRepositories.contains(repository.root) {
@@ -432,17 +441,22 @@ struct ChangesView: View {
                                 if repository.root == root {
                                     row(file)
                                         .id(ChangesNavigatorItem(root: root, path: file.id))
-                                        .focused($navigatorFocus, equals: ChangesNavigatorItem(root: root, path: file.id))
                                 } else {
-                                    Button { selectRepository(repository.root, file.id) } label: {
+                                    let item = ChangesNavigatorItem(root: repository.root, path: file.id)
+                                    Button {
+                                        navigatorCursor = item
+                                        navigatorFocused = true
+                                        selectRepository(repository.root, file.id)
+                                    } label: {
                                         HStack {
                                             StatusChip(kind: file.kind)
                                             fileName(file)
                                             counts(file)
-                                        }.padding(10).contentShape(Rectangle())
+                                        }.padding(10)
+                                        .surface(.clear, cornerRadius: 8, border: showsCursor(item) ? Theme.border : .clear)
+                                        .contentShape(Rectangle())
                                     }.buttonStyle(.plain)
-                                        .id(ChangesNavigatorItem(root: repository.root, path: file.id))
-                                        .focused($navigatorFocus, equals: ChangesNavigatorItem(root: repository.root, path: file.id))
+                                        .id(item)
                                 }
                             }
                             .transition(.fold)
@@ -453,14 +467,31 @@ struct ChangesView: View {
             }
             .background(Theme.card)
             .accessibilityLabel("Workspace repositories and changed files")
+            .focusable()
+            .focused($navigatorFocused)
+            .focusEffectDisabled()
             .onMoveCommand(perform: moveNavigator)
-            .onChange(of: navigatorFocus) { _, item in
+            .onKeyPress(.return) {
+                guard let item = navigatorCursor, item.root != root || item.path == nil else { return .ignored }
+                selectRepository(item.root, item.path)
+                return .handled
+            }
+            .onChange(of: navigatorCursor) { _, item in
                 if let item { proxy.scrollTo(item) }
             }
             .onChange(of: fileSelection.activeID) { _, path in
-                if let path { proxy.scrollTo(ChangesNavigatorItem(root: root, path: path)) }
+                guard let path else { return }
+                let item = ChangesNavigatorItem(root: root, path: path)
+                navigatorCursor = item
+                proxy.scrollTo(item)
             }
         }
+    }
+
+    // Rows of the open repository already show the selection, so the outline only
+    // marks a header or another repository's file that the arrow keys have reached.
+    private func showsCursor(_ item: ChangesNavigatorItem) -> Bool {
+        navigatorFocused && navigatorCursor == item && (item.root != root || item.path == nil)
     }
 
     private func fileName(_ file: GitChange) -> some View {
@@ -722,6 +753,8 @@ struct ChangesView: View {
     private func row(_ file: GitChange) -> some View {
         let isSelected = fileSelection.ids.contains(file.id)
         return Button {
+            navigatorCursor = ChangesNavigatorItem(root: root, path: file.id)
+            navigatorFocused = true
             mode = .changes
             select(file)
         } label: {
