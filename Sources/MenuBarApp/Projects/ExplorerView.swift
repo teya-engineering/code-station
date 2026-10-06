@@ -8,9 +8,10 @@ import SwiftUI
 // A text file opens straight into an editor: there is no read mode to leave first, and
 // nothing is written until Save. The tree itself can create, copy, paste, rename, drag to
 // move and move items to the Trash.
-// Says that a file being read has taken Cmd+F. It travels up to the window so the sidebar
-// can stop naming that stroke as the way into its own filter while the file answers for it.
-struct FileFindShortcutKey: PreferenceKey {
+// Says that a pane with a find of its own, a file or the chat, has taken Cmd+F. It travels
+// up to the window so the sidebar can stop naming that stroke as the way into its own
+// filter while the pane answers for it.
+struct PaneFindShortcutKey: PreferenceKey {
     static let defaultValue = false
 
     static func reduce(value: inout Bool, nextValue: () -> Bool) {
@@ -121,7 +122,7 @@ struct ExplorerView: View {
             onRename: renameSelected))
         .background(WindowAnchor(monitor: findMonitor))
         .background(WindowAnchor(monitor: commandFindMonitor))
-        .preference(key: FileFindShortcutKey.self, value: canFind)
+        .preference(key: PaneFindShortcutKey.self, value: canFind)
         .onChange(of: canFind, initial: true) { _, canFind in
             for monitor in findMonitors {
                 guard canFind else { monitor.stop(); continue }

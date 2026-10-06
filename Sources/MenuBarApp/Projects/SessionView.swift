@@ -157,9 +157,11 @@ struct SessionView: View {
     // to carry a selection from a paragraph in one message into a paragraph in another.
     @State private var transcriptSelection = TranscriptSelection()
     @State private var transcriptFind: TranscriptFind
-    // Caught with a monitor for the same reason as the file view's find: a SwiftUI
-    // shortcut only gets the stroke after the sidebar's filter has taken it.
-    @State private var findMonitor = WindowKeyMonitor(.command, "f")
+    // Both strokes a person tries for find, caught with monitors for the same reason as
+    // the file view's find: a SwiftUI shortcut only gets the stroke after the sidebar's
+    // filter has taken it.
+    @State private var findMonitor = WindowKeyMonitor(.control, "f")
+    @State private var commandFindMonitor = WindowKeyMonitor(.command, "f")
     @FocusState private var findFocused: Bool
     @State private var transcriptScrollRequest = 0
     @State private var agentFocus: AgentTranscriptFocus?
@@ -335,11 +337,18 @@ struct SessionView: View {
             .background(recapShortcut)
             .background(stopShortcut)
             .background(WindowAnchor(monitor: findMonitor))
+            .background(WindowAnchor(monitor: commandFindMonitor))
+            .preference(key: PaneFindShortcutKey.self, value: canFindInChat(session))
             .onChange(of: canFindInChat(session), initial: true) { _, canFind in
-                guard canFind else { findMonitor.stop(); return }
-                findMonitor.start { findShortcut() }
+                for monitor in findMonitors {
+                    guard canFind else { monitor.stop(); continue }
+                    monitor.start {
+                        findShortcut()
+                        return true
+                    }
+                }
             }
-            .onDisappear { findMonitor.stop() }
+            .onDisappear { findMonitors.forEach { $0.stop() } }
             .onChange(of: transcriptFind.isPresented ? session.messages : []) {
                 transcriptFind.refresh(in: session.messages)
             }
@@ -643,7 +652,7 @@ struct SessionView: View {
         return HeaderRailButton(icon: "magnifyingglass",
                                 state: isOpen ? .open : .rest,
                                 label: isOpen ? "Close find" : "Find in chat",
-                                hint: isOpen ? nil : "Or select text in the chat and press Cmd+F") {
+                                hint: isOpen ? nil : "Cmd+F or Ctrl+F") {
             if isOpen {
                 closeFind()
             } else {
@@ -1173,17 +1182,17 @@ struct SessionView: View {
         tab == .conversation && !session.isActivelyDesigning && dialogs.current == nil
     }
 
-    // Cmd+F searches the chat when some of it is selected, starting from the selection.
-    // With nothing selected the stroke is left for the sidebar's filter, unless find is
-    // already open, in which case it goes back to the search field.
-    private func findShortcut() -> Bool {
+    private var findMonitors: [WindowKeyMonitor] { [findMonitor, commandFindMonitor] }
+
+    // A selection in the chat becomes the search. Without one, find opens on the last
+    // search, or goes back to the search field when it is already open.
+    private func findShortcut() {
         if let query = transcriptSelection.selectedText.flatMap(TranscriptSearch.query(fromSelection:)) {
             transcriptFind.open(query: query, in: currentMessages)
         } else if !transcriptFind.isPresented {
-            return false
+            transcriptFind.open(in: currentMessages)
         }
         findFocused = true
-        return true
     }
 
     private func closeFind() {
