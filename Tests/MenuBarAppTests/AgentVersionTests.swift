@@ -52,4 +52,22 @@ struct AgentVersionTests {
         #expect(!SessionRunner.rejectedArguments("Claude Code exited with code 1."))
         #expect(!SessionRunner.rejectedArguments(""))
     }
+
+    @Test func anExpiredLoginIsRecognisedForEachAgent() {
+        #expect(SessionRunner.signedOut(.claudeCode,
+            message: "Failed to authenticate: OAuth session expired and could not be refreshed"))
+        #expect(SessionRunner.signedOut(.claudeCode, message: "Invalid API key · Please run /login"))
+        #expect(SessionRunner.signedOut(.codex,
+            message: "Your ChatGPT login has expired. Run codex login to sign in again."))
+        #expect(SessionRunner.signedOut(.copilot,
+            message: "Not authenticated. Run copilot login to sign in to GitHub."))
+    }
+
+    @Test func otherFailuresDoNotOfferSignIn() {
+        #expect(!SessionRunner.signedOut(.claudeCode, message: "Claude Code exited with code 1."))
+        #expect(!SessionRunner.signedOut(.claudeCode, message: "No conversation found with session ID abc"))
+        #expect(!SessionRunner.signedOut(.codex, message: "stream disconnected before completion"))
+        #expect(!SessionRunner.signedOut(.copilot, message: "Error: No session, task, or name matched 'abc'."))
+        #expect(!SessionRunner.signedOut(.codex, message: ""))
+    }
 }

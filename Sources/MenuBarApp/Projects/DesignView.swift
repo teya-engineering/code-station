@@ -480,7 +480,7 @@ struct DesignView: View {
                               onEnd: { runner.endWait(sessionID) })
             }
 
-            TurnEndActions(sessionID: sessionID, state: state)
+            TurnEndActions(sessionID: sessionID, agent: session.agent, state: state)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, question != nil || waiting != nil || hasTurnEndAction(state) ? 10 : 0)

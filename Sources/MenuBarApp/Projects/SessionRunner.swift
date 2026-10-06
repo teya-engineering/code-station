@@ -162,6 +162,21 @@ final class SessionRunner {
         case .copilot: "No session, task, or name matched"
         }
     }
+    // How each CLI says its login has lapsed. Matched loosely and without case, since the
+    // wording shifts between releases; a miss only costs the shortcut, because the account
+    // is also read again after every failed turn.
+    nonisolated static func signedOut(_ agent: AgentKind, message: String) -> Bool {
+        let phrases = switch agent {
+        case .claudeCode: ["failed to authenticate", "oauth token has expired",
+                           "invalid api key", "please run /login"]
+        case .codex: ["codex login", "not logged in", "login has expired",
+                      "refresh token", "401 unauthorized"]
+        case .copilot: ["copilot login", "not authenticated", "not logged in",
+                        "no authentication information"]
+        }
+        let lowered = message.lowercased()
+        return phrases.contains { lowered.contains($0) }
+    }
     // How each CLI refuses a flag or config value it does not know, which is how an
     // install older than the app needs usually shows itself. Copilot's prompt mode takes
     // an unknown flag for an unquoted prompt and says so instead.

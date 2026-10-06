@@ -249,6 +249,59 @@ final class CopilotAgentInfo {
     }
 }
 
+// One agent's account, read through the same info object the Agents pane uses, for a
+// screen that only cares about the agent its session runs on.
+@MainActor
+enum AgentAccount {
+    case claudeCode(ClaudeAgentInfo)
+    case codex(CodexAgentInfo)
+    case copilot(CopilotAgentInfo)
+
+    init(_ agent: AgentKind) {
+        switch agent {
+        case .claudeCode: self = .claudeCode(ClaudeAgentInfo())
+        case .codex: self = .codex(CodexAgentInfo())
+        case .copilot: self = .copilot(CopilotAgentInfo())
+        }
+    }
+
+    func refresh() {
+        switch self {
+        case .claudeCode(let info): info.refresh()
+        case .codex(let info): info.refresh()
+        case .copilot(let info): info.refresh()
+        }
+    }
+
+    // Nil until the answer is in. Copilot has to be asked, and a check that could not
+    // reach it says nothing either way about the sign-in.
+    var signedIn: Bool? {
+        switch self {
+        case .claudeCode(let info): info.path == nil ? nil : info.account != nil
+        case .codex(let info): info.path == nil ? nil : info.account != nil
+        case .copilot(let info):
+            info.path == nil || info.isCheckingAccount || info.accountCheckFailed
+                ? nil : info.account != nil
+        }
+    }
+
+    // Who it is signed in as, worded the way the Agents pane words it.
+    var summary: String? {
+        switch self {
+        case .claudeCode(let info):
+            info.account.map { account in
+                account.name.map { "\($0) · \(account.email)" } ?? account.email
+            }
+        case .codex(let info):
+            info.account.map { account in
+                account.email.map { "\(account.method) · \($0)" } ?? account.method
+            }
+        case .copilot(let info):
+            info.account?.summary
+        }
+    }
+}
+
 private nonisolated func cliVersion(at path: String, searchPath: String) async -> String? {
     var env = ProcessInfo.processInfo.environment
     env["PATH"] = searchPath
@@ -391,9 +444,7 @@ struct AgentSettingsView: View {
                 heading: "CLAUDE CODE",
                 path: claude.path,
                 version: claude.version,
-                account: claude.account.map { account in
-                    account.name.map { "\($0) · \(account.email)" } ?? account.email
-                },
+                account: AgentAccount.claudeCode(claude).summary,
                 signedIn: claude.account != nil,
                 plan: claude.account?.plan,
                 usage: claudeUsage,
@@ -409,9 +460,7 @@ struct AgentSettingsView: View {
                 heading: "CODEX",
                 path: codex.path,
                 version: codex.version,
-                account: codex.account.map { account in
-                    account.email.map { "\(account.method) · \($0)" } ?? account.method
-                },
+                account: AgentAccount.codex(codex).summary,
                 signedIn: codex.account != nil,
                 plan: codex.account?.plan,
                 usage: codex.usage?.windows ?? [],
@@ -836,7 +885,7 @@ struct AgentCommandSheet: View {
     }
 }
 
-private struct AgentLoginSheet: View {
+struct AgentLoginSheet: View {
     let agent: AgentKind
 
     var body: some View {
