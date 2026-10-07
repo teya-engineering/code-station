@@ -158,7 +158,7 @@ struct CommitHistoryView: View {
                 }
                 .onChange(of: selection.commit?.id) { _, id in if let id { proxy.scrollTo(id) } }
             }
-            .focusable().focused($focus, equals: .commits)
+            .focusable().focused($focus, equals: .commits).focusEffectDisabled()
             .onMoveCommand { direction in
                 guard direction == .up || direction == .down,
                       let index = RowStep.destination(from: filtered.firstIndex { $0.id == selection.commit?.id },
@@ -235,7 +235,7 @@ struct CommitHistoryView: View {
                         }
                     }.padding(8)
                 }.onChange(of: selection.fileID) { _, id in if let id { proxy.scrollTo(id) } }
-            }.focusable().focused($focus, equals: .files)
+            }.focusable().focused($focus, equals: .files).focusEffectDisabled()
                 .onMoveCommand { direction in
                     if direction == .up { moveFile(-1) }
                     if direction == .down { moveFile(1) }
