@@ -105,6 +105,12 @@ struct ExplorerView: View {
     @State private var findResult = FileFindResult()
     @State private var findSelection = 0
     @FocusState private var findFocused: Bool
+    // Cmd+H hides the app on a Mac, so find in files takes Ctrl+H, next to Ctrl+F.
+    @State private var findInFilesMonitor = WindowKeyMonitor(.control, "h")
+    @State private var findInFilesQuery = ""
+    // The query marked on the line a find in files result opened at. It goes once the
+    // text is edited, since the marks would no longer sit on the words they were for.
+    @State private var revealedMatches: [NSRange] = []
 
     private var rootURL: URL { URL(fileURLWithPath: root) }
 
@@ -146,6 +152,7 @@ struct ExplorerView: View {
             onRename: renameSelected))
         .background(WindowAnchor(monitor: findMonitor))
         .background(WindowAnchor(monitor: commandFindMonitor))
+        .background(WindowAnchor(monitor: findInFilesMonitor))
         .preference(key: PaneFindShortcutKey.self, value: canFind)
         .onChange(of: canFind, initial: true) { _, canFind in
             for monitor in findMonitors {
@@ -156,8 +163,16 @@ struct ExplorerView: View {
                 }
             }
         }
+        .onChange(of: dialogs.current == nil, initial: true) { _, free in
+            guard free else { findInFilesMonitor.stop(); return }
+            findInFilesMonitor.start {
+                showFindInFiles()
+                return true
+            }
+        }
         .onDisappear {
             findMonitors.forEach { $0.stop() }
+            findInFilesMonitor.stop()
             rememberPlace()
         }
         .onChange(of: findQuery) {
@@ -166,7 +181,10 @@ struct ExplorerView: View {
         }
         // Typing moves every match after the caret, so the results are only right for the
         // text as it stands now.
-        .onChange(of: draft) { if findPresented { refreshFind() } }
+        .onChange(of: draft) {
+            if findPresented { refreshFind() }
+            if draft != original { revealedMatches = [] }
+        }
         .task(id: root) { await openRoot() }
         .onChange(of: reveal.wrappedValue) {
             if openedRoot == root { Task { await showRequestedFile() } }
@@ -205,6 +223,9 @@ struct ExplorerView: View {
                 .font(.system(size: 12))
                 .onChange(of: showHidden) { Task { await reopenFolders() } }
 
+            headerIcon("magnifyingglass", tooltip: "Find in files (Ctrl+H)", label: "Find in files") {
+                showFindInFiles()
+            }
             headerIcon("doc.badge.plus", tooltip: "New file") {
                 create(folder: false, in: newItemDestination())
             }
@@ -226,7 +247,7 @@ struct ExplorerView: View {
         .headerBand(height: repositories.isEmpty ? Theme.subHeaderHeight : Theme.headerHeight)
     }
 
-    private func headerIcon(_ symbol: String, tooltip: String,
+    private func headerIcon(_ symbol: String, tooltip: String, label: String? = nil,
                             action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol).font(.system(size: 12, weight: .semibold))
@@ -236,6 +257,7 @@ struct ExplorerView: View {
         .hoverLift(amount: Motion.smallLift)
         .foregroundStyle(Theme.accent)
         .appTooltip(tooltip)
+        .accessibilityLabel(label ?? tooltip)
     }
 
     // MARK: - Tree
@@ -574,10 +596,16 @@ struct ExplorerView: View {
                         .font(.system(size: 26, weight: .light))
                         .foregroundStyle(.secondary)
                     Text("Pick a file").font(.serif(17, .semibold))
-                    HStack(spacing: 6) {
-                        Image(systemName: "shift")
-                            .font(.system(size: 12, weight: .medium))
-                        Text("Tap shift key twice to search")
+                    VStack(spacing: 6) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "shift")
+                                .font(.system(size: 12, weight: .medium))
+                            Text("Tap shift key twice to search")
+                        }
+                        HStack(spacing: 6) {
+                            Text("⌃ H").font(.mono(11, .semibold))
+                            Text("Find text in files")
+                        }
                     }
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
@@ -606,7 +634,7 @@ struct ExplorerView: View {
                 CodeEditorView(documentID: node.path,
                                text: $draft,
                                language: language,
-                               matches: findPresented ? findResult.matches : [],
+                               matches: findPresented ? findResult.matches : revealedMatches,
                                currentMatch: findPresented ? currentFindMatch : nil,
                                findQuery: findQuery,
                                revealLine: lineToReveal,
@@ -720,6 +748,7 @@ struct ExplorerView: View {
         findQuery = ""
         findResult = FileFindResult()
         findSelection = 0
+        revealedMatches = []
     }
 
     // MARK: - File search
@@ -743,13 +772,35 @@ struct ExplorerView: View {
             width: 560))
     }
 
-    private func revealAndSelect(_ node: FileNode) {
+    private func showFindInFiles() {
+        guard dialogs.current == nil else { return }
+        let model = FindInFilesModel(root: root, includeHidden: showHidden, query: findInFilesQuery)
+        let open: (FindInFilesMatch) -> Void = { match in
+            dialogs.dismiss()
+            revealAndSelect(match.file, line: match.line.number, marking: model.query)
+        }
+        dialogs.show(Dialog(
+            title: "Find in files",
+            content: AnyView(FindInFilesDialog(model: model, rememberedQuery: $findInFilesQuery,
+                                               onOpen: open)),
+            actions: [
+                .init(label: "Open", kind: .primary, handler: {
+                    if let match = model.selected {
+                        revealAndSelect(match.file, line: match.line.number, marking: model.query)
+                    }
+                }, isEnabled: { model.selected != nil }),
+                .init(label: "Cancel", kind: .cancel)
+            ],
+            width: 560))
+    }
+
+    private func revealAndSelect(_ node: FileNode, line: Int? = nil, marking query: String? = nil) {
         Task {
             for path in FileTree.ancestorDirectories(of: node.url, beneath: rootURL) {
                 expanded.insert(path)
                 if children[path] == nil { await load(path) }
             }
-            requestSelect(node)
+            requestSelect(node, line: line, marking: query)
             treeFocused = true
         }
     }
@@ -1198,7 +1249,7 @@ struct ExplorerView: View {
 
     // Moving to another file throws the draft away, so unsaved work is worth a question
     // first. A clean pane just moves, and a click on the file already open leaves it alone.
-    private func requestSelect(_ node: FileNode, line: Int? = nil) {
+    private func requestSelect(_ node: FileNode, line: Int? = nil, marking query: String? = nil) {
         if let owner = projectRoots.filter({ isInside(node.path, $0.root) }).max(by: { $0.root.count < $1.root.count }),
            owner.root != root {
             reveal.wrappedValue = ExplorerReveal(path: node.path, line: line)
@@ -1206,14 +1257,19 @@ struct ExplorerView: View {
             return
         }
         if node.path == selected?.path {
-            if line != nil { lineToReveal = line }
+            if let line {
+                lineToReveal = line
+                if let query, !findPresented {
+                    revealedMatches = FileTextSearch.hits(of: query, onLine: line, in: draft)
+                }
+            }
             return
         }
         guard dirty else {
-            select(node, line: line)
+            select(node, line: line, marking: query)
             return
         }
-        confirmDiscard { select(node, line: line) }
+        confirmDiscard { select(node, line: line, marking: query) }
     }
 
     private func revert() {
@@ -1262,7 +1318,7 @@ struct ExplorerView: View {
         }
     }
 
-    private func select(_ node: FileNode, line: Int? = nil) {
+    private func select(_ node: FileNode, line: Int? = nil, marking query: String? = nil) {
         resetFind()
         selected = node
         lineToReveal = line
@@ -1288,6 +1344,9 @@ struct ExplorerView: View {
             if case .text(let text) = loaded {
                 draft = text
                 original = text
+                if let query, let line {
+                    revealedMatches = FileTextSearch.hits(of: query, onLine: line, in: text)
+                }
             }
         }
     }

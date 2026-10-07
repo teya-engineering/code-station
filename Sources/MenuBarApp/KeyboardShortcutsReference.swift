@@ -57,7 +57,9 @@ enum KeyboardShortcutsReference {
             KeyboardShortcutHelp(keys: "⌘ S", title: "Save the file",
                                  detail: "Save the file being edited in the Explorer."),
             KeyboardShortcutHelp(keys: "⌃ F", title: "Find in the file",
-                                 detail: "Search the file being edited in the Explorer.")
+                                 detail: "Search the file being edited in the Explorer."),
+            KeyboardShortcutHelp(keys: "⌃ H", title: "Find in files",
+                                 detail: "Search the text of every file in the Explorer's folder.")
         ]),
         KeyboardShortcutGroup(title: "The app", shortcuts: [
             KeyboardShortcutHelp(keys: "⌘ ,", title: "Settings",
