@@ -4,6 +4,25 @@ import Testing
 @testable import MenuBarApp
 
 struct ChangesNavigatorTests {
+    @Test func onlyReadyEmptyRepositoriesAreClean() {
+        #expect(ChangesRepository.statusLabel(for: nil) == "Checking")
+        for state: GitRepoState in [.notARepo, .missingFolder, .gitMissing, .failed("Cannot read status")] {
+            #expect(ChangesRepository.statusLabel(for: GitSnapshot(state: state)) == "Unavailable")
+        }
+        #expect(ChangesRepository.statusLabel(for: GitSnapshot(state: .ready)) == "Clean")
+    }
+
+    @Test func projectSelectionContrastInBothAppearances() throws {
+        for appearance in try appearances() {
+            let accent = try swatch(Theme.accent, in: appearance)
+            let card = try swatch(Theme.card, in: appearance)
+            let selectedProject = accent.faded(to: 0.1).over(card)
+            let selectedFile = accent.faded(to: 0.06).over(card)
+            #expect(accent.contrast(against: selectedProject) >= 4.5)
+            #expect(accent.contrast(against: selectedFile) >= 3)
+        }
+    }
+
     @Test func identicalPathsInDifferentRepositoriesRemainDistinct() {
         let first = ChangesNavigatorItem(root: "/first", path: "README.md")
         let second = ChangesNavigatorItem(root: "/second", path: "README.md")

@@ -89,6 +89,12 @@ struct ChangesRepository: Identifiable {
     let root: String
     let name: String
     var id: String { root }
+
+    static func statusLabel(for snapshot: GitSnapshot?) -> String {
+        guard let snapshot else { return "Checking" }
+        guard snapshot.state == .ready else { return "Unavailable" }
+        return snapshot.files.isEmpty ? "Clean" : "\(snapshot.files.count)"
+    }
 }
 
 // The uncommitted changes in a session's folder: the project directory itself, or the
@@ -152,6 +158,7 @@ struct ChangesView: View {
     private var selectedFiles: [GitChange] { files.filter { !excluded.contains($0.id) } }
     private var repoRoot: String { snapshot?.root ?? root }
     private var busy: Bool { loading || working != nil }
+    private var repositoryName: String { repositories.first { $0.root == root }?.name ?? root }
 
     // Amending rewrites the last commit, which is only safe while nothing else has it:
     // an unpublished branch, or one that is ahead of its upstream.
@@ -232,7 +239,7 @@ struct ChangesView: View {
     private var cleanContent: some View {
         VStack(spacing: 16) {
             PaneMessage(icon: "checkmark.seal", title: "No uncommitted changes",
-                        detail: "The working tree has no pending changes.\n" + syncStatus) {
+                        detail: "\(repositoryName) has no pending changes.\n" + syncStatus) {
                 ActionButton(title: "View commit history") { mode = .history }
             }
             .frame(maxHeight: 260)
@@ -319,8 +326,11 @@ struct ChangesView: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(repositories.count > 1 ? "Workspace changes" : "Project changes")
                     .font(.system(size: 14, weight: .semibold))
-                Text(repositories.first { $0.root == root }?.name ?? root)
-                    .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                HStack(spacing: 7) {
+                    ProjectDot(tint: Theme.projectTint(for: repositoryName), size: 8)
+                    Text(repositoryName)
+                        .font(.system(size: 11)).foregroundStyle(Theme.accent).lineLimit(1)
+                }
             }
             Spacer(minLength: 0)
             if let snapshot, snapshot.state == .ready {
@@ -360,6 +370,12 @@ struct ChangesView: View {
         if !entries.isEmpty { entries.append(.separator) }
         entries.append(contentsOf: branchMenu(snapshot))
         return entries
+    }
+
+    private func repositoryStatus(_ repository: ChangesRepository) -> String {
+        if repository.root == root, loading { return "Checking" }
+        let status = repository.root == root ? snapshot : gitStats.snapshot(at: repository.root)
+        return ChangesRepository.statusLabel(for: status)
     }
 
     private var navigatorMenu: [MenuEntry] {
@@ -405,18 +421,23 @@ struct ChangesView: View {
                     ForEach(repositories) { repository in
                         let changes = repository.root == root ? files : gitStats.snapshot(at: repository.root)?.files ?? []
                         HStack(spacing: 6) {
-                            Button {
-                                if !collapsedRepositories.insert(repository.root).inserted {
-                                    collapsedRepositories.remove(repository.root)
-                                }
-                            } label: {
-                                Image(systemName: "chevron.right")
-                                    .font(.system(size: 10))
-                                    .rotationEffect(.degrees(collapsedRepositories.contains(repository.root) ? 0 : 90))
-                                    .frame(width: 20, height: 30).contentShape(Rectangle())
-                            }.buttonStyle(.plain)
-                                .motion(Motion.control, value: collapsedRepositories.contains(repository.root))
-                                .accessibilityLabel("\(collapsedRepositories.contains(repository.root) ? "Expand" : "Collapse") \(repository.name)")
+                            if !changes.isEmpty {
+                                Button {
+                                    if !collapsedRepositories.insert(repository.root).inserted {
+                                        collapsedRepositories.remove(repository.root)
+                                    }
+                                } label: {
+                                    Image(systemName: "chevron.right")
+                                        .font(.system(size: 10))
+                                        .rotationEffect(.degrees(collapsedRepositories.contains(repository.root) ? 0 : 90))
+                                        .frame(width: 20, height: 30).contentShape(Rectangle())
+                                }.buttonStyle(.plain)
+                                    .motion(Motion.control, value: collapsedRepositories.contains(repository.root))
+                                    .accessibilityLabel("\(collapsedRepositories.contains(repository.root) ? "Expand" : "Collapse") \(repository.name)")
+                                    .accessibilityValue(collapsedRepositories.contains(repository.root) ? "Collapsed" : "Expanded")
+                            } else {
+                                Color.clear.frame(width: 20, height: 30).accessibilityHidden(true)
+                            }
                             Button {
                                 navigatorCursor = ChangesNavigatorItem(root: repository.root, path: nil)
                                 navigatorFocused = true
@@ -426,39 +447,54 @@ struct ChangesView: View {
                                     ProjectDot(tint: Theme.projectTint(for: repository.name), size: 8)
                                     Text(repository.name).font(.system(size: 12, weight: .semibold)).lineLimit(1)
                                     Spacer(minLength: 0)
-                                    Text(changes.isEmpty ? (gitStats.snapshot(at: repository.root) == nil ? "Unknown" : "Clean") : "\(changes.count)")
-                                        .font(.system(size: 10)).foregroundStyle(.secondary)
-                                }.padding(.vertical, 10)
+                                    Text(repositoryStatus(repository))
+                                        .font(.system(size: 10))
+                                        .fixedSize()
+                                }.foregroundStyle(repository.root == root ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(.primary))
+                                .padding(.vertical, 10).padding(.trailing, 8)
                                 .surface(.clear, cornerRadius: 8,
-                                         border: showsCursor(ChangesNavigatorItem(root: repository.root, path: nil)) ? Theme.border : .clear)
+                                         border: showsCursor(ChangesNavigatorItem(root: repository.root, path: nil)) ? Theme.accent : .clear)
                                 .contentShape(Rectangle())
                             }.buttonStyle(.plain)
                                 .id(ChangesNavigatorItem(root: repository.root, path: nil))
                                 .accessibilityAddTraits(repository.root == root ? .isSelected : [])
                         }
-                        if !collapsedRepositories.contains(repository.root) {
-                            ForEach(changes) { file in
-                                if repository.root == root {
-                                    row(file)
-                                        .id(ChangesNavigatorItem(root: root, path: file.id))
-                                } else {
-                                    let item = ChangesNavigatorItem(root: repository.root, path: file.id)
-                                    Button {
-                                        navigatorCursor = item
-                                        navigatorFocused = true
-                                        selectRepository(repository.root, file.id)
-                                    } label: {
-                                        HStack {
-                                            StatusChip(kind: file.kind)
-                                            fileName(file)
-                                            counts(file)
-                                        }.padding(10)
-                                        .surface(.clear, cornerRadius: 8, border: showsCursor(item) ? Theme.border : .clear)
-                                        .contentShape(Rectangle())
-                                    }.buttonStyle(.plain)
-                                        .id(item)
+                        .background(repository.root == root ? Theme.accent.opacity(0.1) : .clear,
+                                    in: RoundedRectangle(cornerRadius: 7))
+                        .overlay(alignment: .leading) {
+                            if repository.root == root {
+                                RoundedRectangle(cornerRadius: 2).fill(Theme.accent)
+                                    .frame(width: 3).padding(.vertical, 10)
+                            }
+                        }
+                        if !changes.isEmpty && !collapsedRepositories.contains(repository.root) {
+                            VStack(spacing: 3) {
+                                ForEach(changes) { file in
+                                    if repository.root == root {
+                                        row(file)
+                                            .id(ChangesNavigatorItem(root: root, path: file.id))
+                                    } else {
+                                        let item = ChangesNavigatorItem(root: repository.root, path: file.id)
+                                        Button {
+                                            navigatorCursor = item
+                                            navigatorFocused = true
+                                            selectRepository(repository.root, file.id)
+                                        } label: {
+                                            HStack {
+                                                StatusChip(kind: file.kind)
+                                                fileName(file)
+                                                counts(file)
+                                            }.padding(10)
+                                            .surface(.clear, cornerRadius: 8, border: showsCursor(item) ? Theme.accent : .clear)
+                                            .contentShape(Rectangle())
+                                        }.buttonStyle(.plain)
+                                            .id(item)
+                                    }
                                 }
                             }
+                            .padding(.leading, 9)
+                            .overlay(alignment: .leading) { Rectangle().fill(Theme.border).frame(width: 1) }
+                            .padding(.leading, 21)
                             .transition(.fold)
                         }
                     }
@@ -488,10 +524,8 @@ struct ChangesView: View {
         }
     }
 
-    // Rows of the open repository already show the selection, so the outline only
-    // marks a header or another repository's file that the arrow keys have reached.
     private func showsCursor(_ item: ChangesNavigatorItem) -> Bool {
-        navigatorFocused && navigatorCursor == item && (item.root != root || item.path == nil)
+        navigatorFocused && navigatorCursor == item
     }
 
     private func fileName(_ file: GitChange) -> some View {
@@ -784,8 +818,12 @@ struct ChangesView: View {
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
-            .surface(isSelected ? Theme.accent.opacity(0.1) : .clear, cornerRadius: 8,
-                     border: isSelected ? Theme.border : .clear)
+            .surface(isSelected ? Theme.accent.opacity(0.06) : .clear, cornerRadius: 8,
+                     border: isSelected ? Theme.accent.opacity(0.25) : .clear)
+            .overlay {
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(showsCursor(ChangesNavigatorItem(root: root, path: file.id)) ? Theme.accent : .clear, lineWidth: 2)
+            }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
