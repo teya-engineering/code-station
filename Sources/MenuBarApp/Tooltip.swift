@@ -21,6 +21,9 @@ struct Tooltip {
     var note: String?
     var rows: [Row] = []
     var action: (() -> Void)?
+    var persistsOnHover = false
+
+    var acceptsHover: Bool { action != nil || persistsOnHover }
 
     // A hint that is only words needs no panel around it, so it is drawn as a plain line
     // instead.
@@ -69,9 +72,9 @@ final class TooltipPresenter {
     // Only the row that put a hint up can take it down. Moving the pointer from one row
     // to the next ends the old row's hover after the new one has begun, so a hide that
     // did not check would clear the hint that has just arrived.
-    func hide(owner: UUID) {
+    func hide(owner: UUID, immediately: Bool = false) {
         guard self.owner == owner else { return }
-        guard current?.action != nil else {
+        guard !immediately, current?.acceptsHover == true else {
             hideAll()
             return
         }
@@ -92,13 +95,13 @@ final class TooltipPresenter {
     }
 
     func keepInteractiveTooltipVisible() {
-        guard current?.action != nil else { return }
+        guard current?.acceptsHover == true else { return }
         pendingHide?.cancel()
         pendingHide = nil
     }
 
     func hideInteractiveTooltip() {
-        guard current?.action != nil else { return }
+        guard current?.acceptsHover == true else { return }
         hideAll()
     }
 
@@ -119,16 +122,24 @@ final class TooltipPresenter {
     private func watchForDismissal() {
         guard dismissal == nil else { return }
         dismissal = NSEvent.addLocalMonitorForEvents(
-            matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel]
+            matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel, .keyDown]
         ) { [weak self] event in
-            MainActor.assumeIsolated {
+            let consumed = MainActor.assumeIsolated {
+                if event.type == .keyDown {
+                    if event.keyCode == 53, self?.current != nil {
+                        self?.hideAll()
+                        return true
+                    }
+                    return false
+                }
                 // Removing an interactive hint on mouse-down also removes its button
                 // before mouse-up can perform the action.
                 if event.type != .leftMouseDown || self?.current?.action == nil {
                     self?.hideAll()
                 }
+                return false
             }
-            return event
+            return consumed ? nil : event
         }
     }
 }
@@ -144,8 +155,12 @@ extension View {
     // The one-line form, for a control whose icon does not say what it does.
     func appTooltip(_ text: String,
                     isFocused: Bool = false,
-                    delay: Duration = TooltipPresenter.hoverDelay) -> some View {
-        modifier(AppTooltip(delay: delay, isFocused: isFocused, text: text, tooltip: { Tooltip(title: text) }))
+                    delay: Duration = TooltipPresenter.hoverDelay,
+                    persistsOnHover: Bool = false,
+                    activation: Int = 0) -> some View {
+        modifier(AppTooltip(delay: delay, isFocused: isFocused, text: text,
+                            activation: activation,
+                            tooltip: { Tooltip(title: text, persistsOnHover: persistsOnHover) }))
     }
 }
 
@@ -154,6 +169,7 @@ private struct AppTooltip: ViewModifier {
     let delay: Duration
     var isFocused = false
     var text: String?
+    var activation = 0
     let tooltip: () -> Tooltip
 
     @State private var id = UUID()
@@ -164,6 +180,7 @@ private struct AppTooltip: ViewModifier {
     func body(content: Content) -> some View {
         content
             .background(FrameAnchorView(anchor: anchor))
+            .onChange(of: activation) { _, _ in showTooltip() }
             // A hint belongs to the pointer resting on something. Rows sliding past
             // under a scroll are not that, and a hint is taken down by a scroll anyway.
             .onPointerHover { inside in
@@ -190,15 +207,19 @@ private struct AppTooltip: ViewModifier {
                 if focused {
                     showTooltip()
                 } else if !hovering {
-                    presenter.hide(owner: id)
+                    presenter.hide(owner: id, immediately: true)
                 }
             }
             .onChange(of: text) { _, _ in
                 if isFocused || hovering { showTooltip() }
             }
+            .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { _ in
+                pending?.cancel()
+                presenter.hide(owner: id, immediately: true)
+            }
             .onDisappear {
                 pending?.cancel()
-                presenter.hide(owner: id)
+                presenter.hide(owner: id, immediately: true)
             }
     }
 
@@ -238,7 +259,7 @@ struct TooltipHost: View {
                             presenter.hideInteractiveTooltip()
                         }
                     }
-                    .allowsHitTesting(tooltip.action != nil)
+                    .allowsHitTesting(tooltip.acceptsHover)
             }
             .ignoresSafeArea()
         }

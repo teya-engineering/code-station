@@ -34,6 +34,7 @@ struct SkillsView: View {
     @State private var sourceFilter: String?
     @State private var hoveredControl: String?
     @FocusState private var focusedUninstall: String?
+    @FocusState private var focusedDescription: String?
 
     init(manager: SkillsManager) {
         _manager = State(initialValue: manager)
@@ -68,8 +69,8 @@ struct SkillsView: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .frame(width: min(1160, (NSScreen.main?.visibleFrame.width ?? 1200) - 80),
-               height: min(780, (NSScreen.main?.visibleFrame.height ?? 860) - 80))
+        .frame(width: min(1080, (NSScreen.main?.visibleFrame.width ?? 1200) - 80),
+               height: min(720, (NSScreen.main?.visibleFrame.height ?? 860) - 80))
         .background(Theme.background)
         .task { await manager.refresh() }
         .onChange(of: manager.marketplaceConfigurations) { _, sources in
@@ -257,6 +258,12 @@ struct SkillsView: View {
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel("Details for \(plugin.name)")
+                        .accessibilityValue(plugin.description)
+                        .focused($focusedDescription, equals: plugin.id + "-name")
+                        .appTooltip(plugin.description,
+                                    isFocused: focusedDescription == plugin.id + "-name",
+                                    persistsOnHover: true)
+                        SkillDescriptionButton(plugin: plugin)
                         if let version = plugin.version {
                             Text(version)
                                 .font(.mono(10))
@@ -273,10 +280,6 @@ struct SkillsView: View {
                         .font(.mono(9.5))
                         .foregroundStyle(Theme.accent)
                         .lineLimit(1)
-                    Text(plugin.description)
-                        .scaledText(11.5)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -329,7 +332,7 @@ struct SkillsView: View {
                 .buttonStyle(.plain)
                 .disabled(!manageable || manager.isUpdatingAll || manager.isRefreshing)
                 .accessibilityLabel("Uninstall \(plugin.name) from \(host.title)")
-                .help("Uninstall from \(host.title)")
+                .appTooltip("Uninstall from \(host.title)")
                 .focused($focusedUninstall, equals: controlID)
                 .opacity(hoveredControl == controlID || focusedUninstall == controlID ? 1 : 0)
             }
@@ -485,5 +488,27 @@ struct SkillsView: View {
 
     private func versionText(_ version: String) -> String {
         version == "unknown" ? "Installed" : version
+    }
+}
+
+private struct SkillDescriptionButton: View {
+    let plugin: SkillMarketplace.Plugin
+    @FocusState private var isFocused: Bool
+    @State private var activation = 0
+
+    var body: some View {
+        Button { activation += 1 } label: {
+            Image(systemName: "info.circle")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .padding(2)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Description for \(plugin.name)")
+        .accessibilityValue(plugin.description)
+        .focused($isFocused)
+        .appTooltip(plugin.description, isFocused: isFocused,
+                    persistsOnHover: true, activation: activation)
     }
 }
