@@ -35,7 +35,12 @@ struct ExplorerView: View {
     var designFilesRoot: String?
     @Binding var collapsedProjects: Set<String>
     var selectRoot: (String) -> Void = { _ in }
+    // The project row the keyboard is on. The keyboard lands on a file by selecting it,
+    // so with this nil the cursor sits on the selected file.
     @State private var projectCursor: String?
+    // A click already highlights the row it picks, so the cursor ring only shows while
+    // the keyboard is driving the tree.
+    @State private var treeCursorVisible = false
 
     init(root: String, reveal: Binding<ExplorerReveal?> = .constant(nil),
          repositories: [ChangesRepository] = [], designFilesRoot: String? = nil,
@@ -197,23 +202,23 @@ struct ExplorerView: View {
 
     // MARK: - Header
 
+    // In a workspace the navigator row names the folder and carries its item count, so
+    // the header holds only the actions.
     private var header: some View {
         HStack(spacing: repositories.isEmpty ? 14 : 8) {
-            HStack(spacing: 6) {
-                if repositories.isEmpty {
+            if repositories.isEmpty {
+                HStack(spacing: 6) {
                     Image(systemName: "folder").font(.system(size: 12))
-                } else {
-                    ProjectDot(tint: Theme.projectTint(for: projectRoots.first { $0.root == root }?.name ?? rootURL.lastPathComponent), size: 8)
+                    Text(rootURL.lastPathComponent)
+                        .font(.mono(13, .medium)).lineLimit(1).truncationMode(.middle)
+                        .appTooltip(rootURL.lastPathComponent)
                 }
-                Text(projectRoots.first { $0.root == root }?.name ?? rootURL.lastPathComponent)
-                    .font(.mono(13, .medium)).lineLimit(1).truncationMode(.middle)
-                    .appTooltip(projectRoots.first { $0.root == root }?.name ?? rootURL.lastPathComponent)
-            }
 
-            if let count = children[root]?.count {
-                Text(counted(count, "item"))
-                    .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
+                if let count = children[root]?.count {
+                    Text(counted(count, "item"))
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                }
             }
 
             Spacer()
@@ -243,7 +248,7 @@ struct ExplorerView: View {
             .foregroundStyle(Theme.accent)
             .appTooltip("Refresh")
         }
-        .padding(.horizontal, repositories.isEmpty ? 20 : 12)
+        .padding(.horizontal, 20)
         .headerBand(height: repositories.isEmpty ? Theme.subHeaderHeight : Theme.headerHeight)
     }
 
@@ -294,47 +299,18 @@ struct ExplorerView: View {
     }
 
     private func projectRow(_ project: ChangesRepository) -> some View {
-        let collapsed = collapsedProjects.contains(project.root)
-        return HStack(spacing: 6) {
-            if children[project.root]?.isEmpty == false {
-                Button {
-                    if !collapsedProjects.insert(project.root).inserted { collapsedProjects.remove(project.root) }
-                } label: {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 10))
-                        .rotationEffect(.degrees(collapsed ? 0 : 90))
-                        .frame(width: 20, height: 30).contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("\(collapsed ? "Expand" : "Collapse") \(project.name)")
-                .accessibilityValue(collapsed ? "Collapsed" : "Expanded")
-            } else {
-                Color.clear.frame(width: 20, height: 30).accessibilityHidden(true)
-            }
-            Button {
-                projectCursor = project.root
-                treeFocused = true
-                selectRoot(project.root)
-            } label: {
-                HStack(spacing: 7) {
-                    ProjectDot(tint: Theme.projectTint(for: project.name), size: 8)
-                    Text(project.name).font(.system(size: 12, weight: .semibold)).lineLimit(1)
-                    Spacer(minLength: 0)
-                }
-                .foregroundStyle(project.root == root ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(.primary))
-                .padding(.vertical, 10).padding(.trailing, 8)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .appTooltip(project.name)
-            .accessibilityAddTraits(project.root == root ? .isSelected : [])
-        }
-        .surface(project.root == root ? Theme.accent.opacity(0.1) : .clear, cornerRadius: 7,
-                 border: treeFocused && projectCursor == project.root ? Theme.accent : .clear)
-        .overlay(alignment: .leading) {
-            if project.root == root {
-                RoundedRectangle(cornerRadius: 2).fill(Theme.accent).frame(width: 3).padding(.vertical, 10)
-            }
+        WorkspaceProjectRow(name: project.name,
+                            detail: children[project.root].map { counted($0.count, "item") },
+                            selected: project.root == root,
+                            showsCursor: treeFocused && treeCursorVisible && projectCursor == project.root,
+                            hasChildren: children[project.root]?.isEmpty == false,
+                            collapsed: collapsedProjects.contains(project.root)) {
+            if !collapsedProjects.insert(project.root).inserted { collapsedProjects.remove(project.root) }
+        } select: {
+            projectCursor = project.root
+            treeCursorVisible = false
+            treeFocused = true
+            selectRoot(project.root)
         }
     }
 
@@ -392,7 +368,10 @@ struct ExplorerView: View {
         .focusable()
         .focused($treeFocused)
         .onChange(of: treeFocused) { _, focused in
-            if focused && !repositories.isEmpty && selected == nil && projectCursor == nil { projectCursor = root }
+            if focused && !repositories.isEmpty && selected == nil && projectCursor == nil {
+                projectCursor = root
+                treeCursorVisible = true
+            }
         }
         .focusEffectDisabled()
         .onMoveCommand(perform: moveTreeSelection)
@@ -421,6 +400,7 @@ struct ExplorerView: View {
         return Button {
             treeFocused = true
             projectCursor = nil
+            treeCursorVisible = false
             requestSelect(node)
             if node.isDirectory { toggle(node) }
         } label: {
@@ -460,8 +440,12 @@ struct ExplorerView: View {
             .padding(.leading, CGFloat(row.depth) * 13 + 6)
             .surface(isDropTarget ? Theme.accent.opacity(0.12) : (isSelected ? Theme.card : .clear),
                      cornerRadius: 6,
-                     border: isDropTarget ? Theme.accent.opacity(0.65)
-                         : (isSelected && treeFocused && projectCursor == nil ? Theme.accent : (isSelected ? Theme.border : .clear)))
+                     border: isDropTarget ? Theme.accent.opacity(0.65) : (isSelected ? Theme.border : .clear))
+            .overlay {
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(isSelected && treeFocused && treeCursorVisible && projectCursor == nil ? Theme.accent : .clear,
+                            lineWidth: 2)
+            }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -1194,6 +1178,7 @@ struct ExplorerView: View {
 
     private func moveTreeSelection(_ direction: MoveCommandDirection) {
         guard dialogs.current == nil else { return }
+        treeCursorVisible = true
         let items = projectRoots.flatMap { project in
             (repositories.isEmpty ? [] : [project.root])
                 + (collapsedProjects.contains(project.root) ? [] : rows(in: project.root).map(\.id))

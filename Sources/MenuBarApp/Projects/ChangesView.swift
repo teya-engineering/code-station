@@ -103,7 +103,7 @@ struct ChangesRepository: Identifiable {
     static func statusLabel(for snapshot: GitSnapshot?) -> String {
         guard let snapshot else { return "Checking" }
         guard snapshot.state == .ready else { return "Unavailable" }
-        return snapshot.files.isEmpty ? "Clean" : "\(snapshot.files.count)"
+        return snapshot.files.isEmpty ? "Clean" : "\(snapshot.files.count) changed"
     }
 }
 
@@ -218,41 +218,45 @@ struct ChangesView: View {
         self.selectRepository = selectRepository
     }
 
+    // In a session the Workspace band sits over the navigator and the actions band over
+    // the content, so the two rules meet as one line and the navigator row is the only
+    // thing that names the project. A single project has no Workspace band, so its
+    // header spans the pane as before.
     var body: some View {
         VStack(spacing: 0) {
             GeometryReader { geometry in
-                header(compact: geometry.size.width < 700)
-            }.frame(height: Theme.headerHeight)
-            if committing && mode == .changes { commitBar }
-            GeometryReader { geometry in
+                let navigatorVisible = showsNavigator(width: geometry.size.width)
                 let width = navigation == nil ? 280
                     : ExplorerSplitLayout.treeWidth(treeWidth, availableWidth: geometry.size.width)
-                HStack(spacing: 0) {
-                    if mode == .changes && (navigation != nil || geometry.size.width >= 650 || committing) {
+                let headerWidth = navigatorVisible
+                    ? geometry.size.width - width - ExplorerSplitLayout.dividerWidth : geometry.size.width
+                VStack(spacing: 0) {
+                    if navigation == nil {
+                        header(compact: headerWidth < 700, namesProject: !navigatorVisible)
+                        if committing && mode == .changes { commitBar }
+                    }
+                    HStack(spacing: 0) {
+                        if navigatorVisible {
+                            VStack(spacing: 0) {
+                                if navigation != nil { workspaceBand }
+                                workspaceNavigator
+                            }.frame(width: width).clipped()
+                            Rectangle().fill(Theme.hairline).frame(width: ExplorerSplitLayout.dividerWidth)
+                        }
                         VStack(spacing: 0) {
                             if navigation != nil {
-                                HStack {
-                                    Text("Workspace").font(.system(size: 13, weight: .semibold))
-                                    Spacer()
-                                    Text(counted(repositories.count, "project"))
-                                        .font(.system(size: 11)).foregroundStyle(.secondary)
-                                }
-                                .padding(.horizontal, 20)
-                                .headerBand(height: Theme.headerHeight)
+                                header(compact: headerWidth < 600, namesProject: false)
+                                if committing && mode == .changes { commitBar }
                             }
-                            workspaceNavigator
-                        }.frame(width: width).clipped()
-                        Rectangle().fill(Theme.hairline).frame(width: ExplorerSplitLayout.dividerWidth)
+                            content
+                        }.frame(maxWidth: .infinity).clipped()
                     }
-                    VStack(spacing: 0) {
-                        content
-                    }.frame(maxWidth: .infinity).clipped()
-                }
-                .overlay(alignment: .leading) {
-                    if mode == .changes && navigation != nil {
-                        WorkspaceSplitHandle(width: Binding(get: { treeWidth }, set: { treeWidth = $0 }), displayedWidth: width,
-                                             availableWidth: geometry.size.width)
-                            .offset(x: width + (ExplorerSplitLayout.dividerWidth - ExplorerSplitLayout.handleWidth) / 2)
+                    .overlay(alignment: .leading) {
+                        if navigatorVisible && navigation != nil {
+                            WorkspaceSplitHandle(width: Binding(get: { treeWidth }, set: { treeWidth = $0 }), displayedWidth: width,
+                                                 availableWidth: geometry.size.width)
+                                .offset(x: width + (ExplorerSplitLayout.dividerWidth - ExplorerSplitLayout.handleWidth) / 2)
+                        }
                     }
                 }
             }
@@ -384,18 +388,28 @@ struct ChangesView: View {
 
     // MARK: - Header
 
-    private func header(compact: Bool = false) -> some View {
+    // A session's navigator is always there. A single project only shows its navigator
+    // where it fits, and then only for changes, since the history has a list of its own.
+    private func showsNavigator(width: CGFloat) -> Bool {
+        navigation != nil || (mode == .changes && (width >= 650 || committing))
+    }
+
+    private var workspaceBand: some View {
+        HStack {
+            Text("Workspace").font(.system(size: 13, weight: .semibold))
+            Spacer()
+            Text(counted(repositories.count, "project"))
+                .font(.system(size: 11)).foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 20)
+        .headerBand()
+    }
+
+    // The header names the project only while the navigator is hidden, so the name is
+    // never shown twice.
+    private func header(compact: Bool, namesProject: Bool) -> some View {
         HStack(spacing: compact ? 8 : 12) {
-            HStack(spacing: 7) {
-                ProjectDot(tint: Theme.projectTint(for: repositoryName), size: 8)
-                Text(repositoryName).font(.system(size: 13, weight: .semibold)).lineLimit(1)
-                Image(systemName: "chevron.down").font(.system(size: 10))
-            }.padding(7).surface(Theme.field, cornerRadius: 7).contentShape(Rectangle())
-                .appMenu {
-                    repositories.map { repository in
-                        .item(repository.name, checked: repository.root == root) { selectRepository(repository.root, nil) }
-                    }
-                }.accessibilityLabel("Select project, \(repositoryName)")
+            if namesProject { projectLabel }
             HStack(spacing: 4) {
                 ChoicePill(title: "Changes \(files.count)", selected: mode == .changes) { mode = .changes }
                 ChoicePill(title: "History", selected: mode == .history) { mode = .history }
@@ -419,9 +433,26 @@ struct ChangesView: View {
             }
         }
         .padding(.horizontal, compact ? 12 : 20)
-        .frame(height: Theme.headerHeight)
-        .background(Theme.card)
-        .overlay(alignment: .bottom) { Rectangle().fill(Theme.hairline).frame(height: 1) }
+        .headerBand()
+    }
+
+    // A menu when there is a choice to make, a plain name when there is not.
+    @ViewBuilder private var projectLabel: some View {
+        let label = HStack(spacing: 7) {
+            ProjectDot(tint: Theme.projectTint(for: repositoryName), size: 8)
+            Text(repositoryName).font(.system(size: 13, weight: .semibold)).lineLimit(1)
+            if repositories.count > 1 { Image(systemName: "chevron.down").font(.system(size: 10)) }
+        }
+        if repositories.count > 1 {
+            label.padding(7).surface(Theme.field, cornerRadius: 7).contentShape(Rectangle())
+                .appMenu {
+                    repositories.map { repository in
+                        .item(repository.name, checked: repository.root == root) { selectRepository(repository.root, nil) }
+                    }
+                }.accessibilityLabel("Select project, \(repositoryName)")
+        } else {
+            label.appTooltip(repositoryName)
+        }
     }
 
     private func repositoryMenu(_ snapshot: GitSnapshot) -> [MenuEntry] {
@@ -478,55 +509,23 @@ struct ChangesView: View {
                 LazyVStack(alignment: .leading, spacing: 3) {
                     ForEach(repositories) { repository in
                         let changes = repository.root == root ? files : gitStats.snapshot(at: repository.root)?.files ?? []
-                        HStack(spacing: 6) {
-                            if !changes.isEmpty {
-                                Button {
-                                    if !collapsedRepositories.insert(repository.root).inserted {
-                                        collapsedRepositories.remove(repository.root)
-                                    }
-                                } label: {
-                                    Image(systemName: "chevron.right")
-                                        .font(.system(size: 10))
-                                        .rotationEffect(.degrees(collapsedRepositories.contains(repository.root) ? 0 : 90))
-                                        .frame(width: 20, height: 30).contentShape(Rectangle())
-                                }.buttonStyle(.plain)
-                                    .motion(Motion.control, value: collapsedRepositories.contains(repository.root))
-                                    .accessibilityLabel("\(collapsedRepositories.contains(repository.root) ? "Expand" : "Collapse") \(repository.name)")
-                                    .accessibilityValue(collapsedRepositories.contains(repository.root) ? "Collapsed" : "Expanded")
-                            } else {
-                                Color.clear.frame(width: 20, height: 30).accessibilityHidden(true)
+                        let item = ChangesNavigatorItem(root: repository.root, path: nil)
+                        WorkspaceProjectRow(name: repository.name,
+                                            detail: repositoryStatus(repository),
+                                            selected: repository.root == root,
+                                            showsCursor: showsCursor(item),
+                                            hasChildren: !changes.isEmpty,
+                                            collapsed: collapsedRepositories.contains(repository.root)) {
+                            if !collapsedRepositories.insert(repository.root).inserted {
+                                collapsedRepositories.remove(repository.root)
                             }
-                            Button {
-                                navigatorCursor = ChangesNavigatorItem(root: repository.root, path: nil)
-                                navigatorCursorVisible = false
-                                navigatorFocused = true
-                                selectRepository(repository.root, nil)
-                            } label: {
-                                HStack(spacing: 7) {
-                                    ProjectDot(tint: Theme.projectTint(for: repository.name), size: 8)
-                                    Text(repository.name).font(.system(size: 12, weight: .semibold)).lineLimit(1)
-                                    Spacer(minLength: 0)
-                                    Text(repositoryStatus(repository))
-                                        .font(.system(size: 10))
-                                        .fixedSize()
-                                }.foregroundStyle(repository.root == root ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(.primary))
-                                .padding(.vertical, 10).padding(.trailing, 8)
-                                .surface(.clear, cornerRadius: 8,
-                                         border: showsCursor(ChangesNavigatorItem(root: repository.root, path: nil)) ? Theme.accent : .clear)
-                                .contentShape(Rectangle())
-                            }.buttonStyle(.plain)
-                                .id(ChangesNavigatorItem(root: repository.root, path: nil))
-                                .accessibilityAddTraits(repository.root == root ? .isSelected : [])
-                                .appTooltip(repository.name)
+                        } select: {
+                            navigatorCursor = item
+                            navigatorCursorVisible = false
+                            navigatorFocused = true
+                            selectRepository(repository.root, nil)
                         }
-                        .background(repository.root == root ? Theme.accent.opacity(0.1) : .clear,
-                                    in: RoundedRectangle(cornerRadius: 7))
-                        .overlay(alignment: .leading) {
-                            if repository.root == root {
-                                RoundedRectangle(cornerRadius: 2).fill(Theme.accent)
-                                    .frame(width: 3).padding(.vertical, 10)
-                            }
-                        }
+                        .id(item)
                         if !changes.isEmpty && !collapsedRepositories.contains(repository.root) {
                             VStack(spacing: 3) {
                                 ForEach(changes) { file in
@@ -546,7 +545,10 @@ struct ChangesView: View {
                                                 fileName(file)
                                                 counts(file)
                                             }.padding(10)
-                                            .surface(.clear, cornerRadius: 8, border: showsCursor(item) ? Theme.accent : .clear)
+                                            .overlay {
+                                                RoundedRectangle(cornerRadius: 8)
+                                                    .stroke(showsCursor(item) ? Theme.accent : .clear, lineWidth: 2)
+                                            }
                                             .contentShape(Rectangle())
                                         }.buttonStyle(.plain)
                                             .id(item)

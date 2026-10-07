@@ -12,6 +12,14 @@ struct ChangesNavigatorTests {
         #expect(ChangesRepository.statusLabel(for: GitSnapshot(state: .ready)) == "Clean")
     }
 
+    @Test func changedRepositoriesCountTheirFiles() {
+        let files = ["one", "two"].map {
+            GitChange(path: $0, kind: .modified, isStaged: false, isUnstaged: true, isBinary: false)
+        }
+        #expect(ChangesRepository.statusLabel(for: GitSnapshot(state: .ready, files: [files[0]])) == "1 changed")
+        #expect(ChangesRepository.statusLabel(for: GitSnapshot(state: .ready, files: files)) == "2 changed")
+    }
+
     @Test func projectSelectionContrastInBothAppearances() throws {
         for appearance in try appearances() {
             let accent = try swatch(Theme.accent, in: appearance)
