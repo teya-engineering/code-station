@@ -91,6 +91,8 @@ final class ChangesNavigationMemory {
     var selections: [String: ChangeFileSelection] = [:]
     var collapsed: Set<String> = []
     var treeWidth = ExplorerSplitLayout.defaultTreeWidth
+    var showingHistory = false
+    var histories: [String: CommitHistorySelection] = [:]
 }
 
 struct ChangesRepository: Identifiable {
@@ -154,11 +156,17 @@ struct ChangesView: View {
     @State private var snapshot: GitSnapshot?
     @State private var loading = false
     @State private var working: String?
-    @State private var mode: Mode = .changes
+    @State private var localMode: Mode = .changes
+    private var mode: Mode {
+        get { navigation.map { $0.showingHistory ? .history : .changes } ?? localMode }
+        nonmutating set {
+            if let navigation { navigation.showingHistory = newValue == .history }
+            else { localMode = newValue }
+        }
+    }
     @State private var committing = false
     @State private var commitMessage = ""
     @FocusState private var commitFocused: Bool
-    @FocusState private var listFocused: Bool
     // Files the next commit leaves out. Tracking the exclusions rather than the picks
     // means a file that appears between refreshes starts selected, like everything else.
     @State private var excluded: Set<GitChange.ID> = []
@@ -168,7 +176,7 @@ struct ChangesView: View {
     @State private var commits: [GitCommitSummary]?
     @State private var historyNote: String?
     @State private var loadingHistory = false
-    @State private var selectedCommit: GitCommitSummary?
+    @State private var historySelection = CommitHistorySelection()
     @State private var diff: FileDiff?
     @State private var diffText: NSAttributedString?
     @State private var loadingDiff = false
@@ -196,6 +204,7 @@ struct ChangesView: View {
          navigation: ChangesNavigationMemory? = nil,
          selectRepository: @escaping (String, String?) -> Void = { _, _ in }) {
         self.navigation = navigation
+        _historySelection = State(initialValue: navigation?.histories[root] ?? CommitHistorySelection())
         _fileSelection = State(initialValue: navigation?.selections[root] ?? ChangeFileSelection())
         _appliedInitialSelection = State(initialValue: navigation?.selections[root] != nil
             && initiallySelectedPath == nil && requestedPath == nil)
@@ -209,15 +218,15 @@ struct ChangesView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if navigation == nil {
-                header()
-                if committing && mode == .changes { commitBar }
-            }
+            GeometryReader { geometry in
+                header(compact: geometry.size.width < 700)
+            }.frame(height: Theme.headerHeight)
+            if committing && mode == .changes { commitBar }
             GeometryReader { geometry in
                 let width = navigation == nil ? 280
                     : ExplorerSplitLayout.treeWidth(treeWidth, availableWidth: geometry.size.width)
                 HStack(spacing: 0) {
-                    if navigatorVisible && (navigation != nil || geometry.size.width >= 650 || committing) {
+                    if mode == .changes && navigatorVisible && (navigation != nil || geometry.size.width >= 650 || committing) {
                         VStack(spacing: 0) {
                             if navigation != nil {
                                 HStack {
@@ -234,15 +243,11 @@ struct ChangesView: View {
                         Rectangle().fill(Theme.hairline).frame(width: ExplorerSplitLayout.dividerWidth)
                     }
                     VStack(spacing: 0) {
-                        if navigation != nil {
-                            header(compact: geometry.size.width - (navigatorVisible ? width : 0) < 500)
-                            if committing && mode == .changes { commitBar }
-                        }
                         content
                     }.frame(maxWidth: .infinity).clipped()
                 }
                 .overlay(alignment: .leading) {
-                    if navigatorVisible && navigation != nil {
+                    if mode == .changes && navigatorVisible && navigation != nil {
                         WorkspaceSplitHandle(width: Binding(get: { treeWidth }, set: { treeWidth = $0 }), displayedWidth: width,
                                              availableWidth: geometry.size.width)
                             .offset(x: width + (ExplorerSplitLayout.dividerWidth - ExplorerSplitLayout.handleWidth) / 2)
@@ -263,6 +268,7 @@ struct ChangesView: View {
             }
         }
         .background(Theme.background)
+        .onAppear { navigation?.histories[root] = historySelection }
         .onChange(of: fileSelection) { _, selection in navigation?.selections[root] = selection }
         // The screen opens on the last snapshot taken of this tree while a fresh one
         // is fetched, so the file list is there at first glance instead of after git.
@@ -378,25 +384,23 @@ struct ChangesView: View {
 
     private func header(compact: Bool = false) -> some View {
         HStack(spacing: compact ? 8 : 12) {
-            Image(systemName: "sidebar.left")
-                .padding(7).contentShape(Rectangle())
-                .appMenu { navigatorMenu }
-                .accessibilityLabel("Workspace navigator")
-            if navigation != nil {
-                HStack(spacing: 7) {
-                    ProjectDot(tint: Theme.projectTint(for: repositoryName), size: 8)
-                    Text(repositoryName).font(.system(size: 13, weight: .semibold)).lineLimit(1)
-                }.appTooltip(repositoryName)
-            } else {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(repositories.count > 1 ? "Workspace changes" : "Project changes")
-                        .font(.system(size: 14, weight: .semibold))
-                    HStack(spacing: 7) {
-                        ProjectDot(tint: Theme.projectTint(for: repositoryName), size: 8)
-                        Text(repositoryName)
-                            .font(.system(size: 11)).foregroundStyle(Theme.accent).lineLimit(1)
+            HStack(spacing: 4) {
+                ChoicePill(title: "Changes \(files.count)", selected: mode == .changes) { mode = .changes }
+                ChoicePill(title: "History", selected: mode == .history) { mode = .history }
+            }
+            HStack(spacing: 7) {
+                ProjectDot(tint: Theme.projectTint(for: repositoryName), size: 8)
+                Text(repositoryName).font(.system(size: 13, weight: .semibold)).lineLimit(1)
+                Image(systemName: "chevron.down").font(.system(size: 10))
+            }.padding(7).surface(Theme.field, cornerRadius: 7).contentShape(Rectangle())
+                .appMenu {
+                    repositories.map { repository in
+                        .item(repository.name, checked: repository.root == root) { selectRepository(repository.root, nil) }
                     }
-                }
+                }.accessibilityLabel("Select project, \(repositoryName)")
+            if mode == .changes {
+                Image(systemName: "sidebar.left").padding(7).contentShape(Rectangle())
+                    .appMenu { navigatorMenu }.accessibilityLabel("Workspace navigator")
             }
             Spacer(minLength: 0)
             if let snapshot, snapshot.state == .ready {
@@ -404,9 +408,6 @@ struct ChangesView: View {
                     Text(snapshot.branch).font(.mono(11)).foregroundStyle(.secondary)
                         .lineLimit(1).truncationMode(.middle).frame(maxWidth: 140)
                         .accessibilityHint(syncStatus)
-                }
-                InlineLink(title: mode == .history ? "Back to changes" : "History") {
-                    mode = mode == .history ? .changes : .history
                 }
                 Image(systemName: "ellipsis").padding(8).contentShape(Rectangle())
                     .appMenu { repositoryMenu(snapshot) }
@@ -420,8 +421,7 @@ struct ChangesView: View {
             }
         }
         .padding(.horizontal, compact ? 12 : 20)
-        .padding(.vertical, navigation == nil ? 12 : 0)
-        .frame(height: navigation == nil ? nil : Theme.headerHeight)
+        .frame(height: Theme.headerHeight)
         .background(Theme.card)
         .overlay(alignment: .bottom) { Rectangle().fill(Theme.hairline).frame(height: 1) }
     }
@@ -836,34 +836,6 @@ struct ChangesView: View {
         }
     }
 
-    // File and history lists share selection and keyboard behavior.
-    private func list<Item: Identifiable, Row: View>(
-        _ items: [Item], isOpen: Bool, activeID: Item.ID?,
-        @ViewBuilder row: @escaping (Item) -> Row) -> some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(spacing: 2) {
-                    ForEach(items) { item in
-                        row(item).id(item.id)
-                    }
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-            }
-            .onChange(of: activeID) { _, id in
-                guard let id else { return }
-                withAnimation(.easeOut(duration: 0.12)) { proxy.scrollTo(id, anchor: .center) }
-            }
-        }
-        .frame(maxHeight: isOpen ? 260 : .infinity)
-        .contentShape(Rectangle())
-        .focusable()
-        .focused($listFocused)
-        .focusEffectDisabled()
-        .onMoveCommand(perform: moveSelection)
-        .task { listFocused = true }
-    }
-
     private func row(_ file: GitChange) -> some View {
         let isSelected = fileSelection.ids.contains(file.id)
         return Button {
@@ -1048,60 +1020,10 @@ struct ChangesView: View {
                 PaneMessage(icon: "clock", title: "No commits yet",
                             detail: "This branch has no history to show.")
             } else {
-                list(commits, isOpen: selectedCommit != nil,
-                     activeID: selectedCommit?.id, row: commitRow)
-                if let commit = selectedCommit {
-                    Divider().overlay(Theme.hairline)
-                    diffPane(truncationHint: "Run git show in a terminal to see the rest.") {
-                        Text(commit.subject).font(.serif(15, .semibold)).lineLimit(1)
-                        Text(commit.shortHash)
-                            .font(.mono(11, .medium))
-                            .foregroundStyle(.secondary)
-                        Text("\(commit.author), \(commit.relativeDate)")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                }
+                CommitHistoryView(root: repoRoot, commits: commits, selection: historySelection)
             }
         } else {
-            Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-    }
-
-    private func commitRow(_ commit: GitCommitSummary) -> some View {
-        let isSelected = commit.id == selectedCommit?.id
-        return Button {
-            listFocused = true
-            select(commit)
-        } label: {
-            HStack(spacing: 10) {
-                Text(commit.shortHash)
-                    .font(.mono(11, .medium))
-                    .foregroundStyle(.secondary)
-                Text(commit.subject)
-                    .font(.system(size: 12))
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                Text(commit.author)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                Text(commit.relativeDate)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-            .surface(isSelected ? Theme.card : .clear, cornerRadius: 8,
-                     border: isSelected ? Theme.border : .clear)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .hoverFill(cornerRadius: 8)
-        .appContextMenu {
-            [.item("Copy Hash") { Pasteboard.copy(commit.hash) }]
+            ProgressView("Loading history…").frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
@@ -1395,11 +1317,10 @@ struct ChangesView: View {
 
     private func switchedMode() {
         clearDiffContent()
-        selectedCommit = nil
         if mode == .history {
             Task {
                 await loadHistory()
-                if openLatestCommit, let commit = commits?.first { select(commit) }
+                if openLatestCommit, let commit = commits?.first { historySelection.select(commit) }
                 openLatestCommit = false
             }
         } else if let selected {
@@ -1417,41 +1338,10 @@ struct ChangesView: View {
         historyNote = history.note
         loadingHistory = false
 
-        // Keep the open commit open across a refresh, but only while it is still in
-        // the list; an amend or rebase can have rewritten it away.
-        if let current = selectedCommit {
-            if history.commits.contains(where: { $0.id == current.id }) {
-                await loadCommitDiff(current)
-            } else {
-                closeDiff()
-            }
-        }
-    }
-
-    // The arrow keys walk the list the way a click would, so a review can go through the
-    // files one at a time without reaching for the mouse. While nothing is open, the first
-    // press opens the end of the list the key points away from.
-    private func moveSelection(_ direction: MoveCommandDirection) {
-        guard dialogs.current == nil else { return }
-        let step: Int
-        switch direction {
-        case .up: step = -1
-        case .down: step = 1
-        default: return
-        }
-
-        if mode == .history {
-            guard let commits,
-                  let next = RowStep.destination(from: commits.firstIndex { $0.id == selectedCommit?.id },
-                                                 step: step, count: commits.count)
-            else { return }
-            select(commits[next])
-        } else {
-            guard let next = RowStep.destination(from: files.firstIndex { $0.id == fileSelection.activeID },
-                                                 step: step, count: files.count)
-            else { return }
-            select(files[next])
-        }
+        if let current = historySelection.commit,
+           history.commits.contains(where: { $0.id == current.id }) { return }
+        if let first = history.commits.first { historySelection.select(first) }
+        else { historySelection.commit = nil }
     }
 
     private func select(_ file: GitChange) {
@@ -1467,28 +1357,6 @@ struct ChangesView: View {
               let selected = files.first(where: { $0.id == selectedID }) else { return }
         let root = snapshot?.root ?? root
         Task { await loadDiff(selected, root: root) }
-    }
-
-    private func select(_ commit: GitCommitSummary) {
-        guard selectedCommit?.id != commit.id else {
-            closeDiff()
-            return
-        }
-        closeDiff()
-        selectedCommit = commit
-        Task { await loadCommitDiff(commit) }
-    }
-
-    private func loadCommitDiff(_ commit: GitCommitSummary) async {
-        loadingDiff = true
-        let loaded = await GitInspector.commitDiff(commit.hash, root: repoRoot)
-        guard !Task.isCancelled, mode == .history, selectedCommit?.id == commit.id else { return }
-        diffScroll = .top
-        diff = loaded
-        diffText = loaded.lines.isEmpty
-            ? nil
-            : DiffText.attributed(loaded.lines, scale: appSettings.textSize.scale, numbered: mode == .changes)
-        loadingDiff = false
     }
 
     // Built again from the lines already in hand rather than by asking git a second time:
@@ -1544,7 +1412,6 @@ struct ChangesView: View {
 
     private func closeDiff() {
         if mode == .changes { fileSelection.clear() }
-        selectedCommit = nil
         clearDiffContent()
     }
 

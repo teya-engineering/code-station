@@ -465,6 +465,71 @@ enum GitInspector {
         }
     }
 
+    struct CommitFiles: Sendable {
+        var parents: [String] = []
+        var files: [GitChange] = []
+        var note: String?
+    }
+
+    static func commitFiles(_ hash: String, parent: String? = nil, root: String) async -> CommitFiles {
+        guard let tool = await tool() else { return CommitFiles(note: "Could not find git on PATH.") }
+        return await offMain(lane: .interactive) {
+            let url = URL(fileURLWithPath: root)
+            let ancestry = run(tool, ["rev-list", "--parents", "-n", "1", hash], in: url)
+            guard ancestry.ok else { return CommitFiles(note: ancestry.failureMessage) }
+            let parents = ancestry.text.split(whereSeparator: \.isWhitespace).dropFirst().map(String.init)
+            let base = parent ?? parents.first
+            let command = base.map { ["diff", $0, hash] } ?? ["show", "--format=", hash]
+            let options = ["--no-ext-diff", "--no-textconv", "-M"]
+            let names = run(tool, command + options + ["--name-status", "-z"], in: url)
+            let stats = run(tool, command + options + ["--numstat", "-z"], in: url)
+            guard names.ok, stats.ok, !names.truncated, !stats.truncated else {
+                return CommitFiles(parents: parents, note: "Could not read all changed files. " + (names.ok ? stats.failureMessage : names.failureMessage))
+            }
+            let counts = Dictionary(uniqueKeysWithValues: parseNumstat(stats.text).map { ($0.path, ($0.added, $0.removed)) })
+            let records = names.text.components(separatedBy: "\0")
+            var files: [GitChange] = []
+            var i = 0
+            while i + 1 < records.count {
+                let status = records[i]; i += 1
+                let first = records[i]; i += 1
+                var path = first
+                var original: String?
+                if status.hasPrefix("R") || status.hasPrefix("C") {
+                    guard i < records.count else { break }
+                    original = first; path = records[i]; i += 1
+                }
+                let count = counts[path]
+                let kind: GitStatusKind = original != nil ? .renamed
+                    : status == "A" ? .added : status == "D" ? .deleted : .modified
+                files.append(GitChange(path: path, originalPath: original, kind: kind,
+                                       isStaged: false, isUnstaged: false,
+                                       added: count?.0, removed: count?.1,
+                                       isBinary: count != nil && count?.0 == nil))
+            }
+            return CommitFiles(parents: parents, files: files)
+        }
+    }
+
+    static func commitFileDiff(_ hash: String, parent: String?, file: GitChange,
+                               root: String, limit: Int = diffLineLimit) async -> FileDiff {
+        if file.isBinary { return FileDiff(note: "Preview unavailable for binary file: \(file.path)") }
+        guard let tool = await tool() else { return FileDiff(note: "Could not find git on PATH.") }
+        return await offMain(lane: .interactive) {
+            let command = parent.map { ["diff", $0, hash] } ?? ["show", "--format=", hash]
+            let paths = [file.originalPath, file.path].compactMap { $0 }
+            let output = run(tool, ["--literal-pathspecs"] + command
+                             + ["--no-color", "--no-ext-diff", "--no-textconv", "-M", "--"] + paths,
+                             in: URL(fileURLWithPath: root))
+            guard output.ok else { return FileDiff(note: output.failureMessage) }
+            let parsed = parse(output.text, startingAt: 0, limit: limit,
+                               revision: .commit(hash), path: file.path)
+            return FileDiff(lines: parsed.lines, truncated: parsed.truncated || output.truncated,
+                            totalLines: parsed.total, revealed: parsed.extra,
+                            note: parsed.lines.isEmpty ? "No content changes in this file." : nil)
+        }
+    }
+
     // MARK: - Per-file diff
 
     static func diff(for change: GitChange, root: String, limit: Int = diffLineLimit) async -> FileDiff {
@@ -724,7 +789,7 @@ enum GitInspector {
         var entries: [(String, Int?, Int?)] = []
         var i = 0
         while i < records.count {
-            let parts = records[i].components(separatedBy: "\t")
+            let parts = records[i].split(separator: "\t", maxSplits: 2, omittingEmptySubsequences: false).map(String.init)
             i += 1
             guard parts.count >= 3 else { continue }
             // git writes "-" for both counts when the file is binary.
