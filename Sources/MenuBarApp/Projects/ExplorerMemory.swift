@@ -34,4 +34,41 @@ final class ExplorerMemory {
     func remember(_ place: Place, for root: String) {
         places[root] = place
     }
+    func unsavedEdit(inside path: String) -> UnsavedEdit? {
+        places.values.compactMap(\.unsaved).first {
+            $0.path == path || $0.path.hasPrefix(path + "/")
+        }
+    }
+
+    func moved(from old: String, to new: String) {
+        for root in Array(places.keys) {
+            guard var place = places[root] else { continue }
+            place.expanded = Set(place.expanded.map { FileTree.path($0, afterMoving: old, to: new) })
+            if var node = place.selected {
+                node.url = URL(fileURLWithPath: FileTree.path(node.path, afterMoving: old, to: new))
+                node.name = node.url.lastPathComponent
+                place.selected = node
+            }
+            if let edit = place.unsaved {
+                place.unsaved = UnsavedEdit(path: FileTree.path(edit.path, afterMoving: old, to: new),
+                                           preview: edit.preview, draft: edit.draft,
+                                           original: edit.original, loadedAt: edit.loadedAt)
+            }
+            places[root] = place
+        }
+    }
+
+    func removed(_ path: String) {
+        for root in Array(places.keys) {
+            guard var place = places[root] else { continue }
+            place.expanded = place.expanded.filter { $0 != path && !$0.hasPrefix(path + "/") }
+            if let selected = place.selected,
+               selected.path == path || selected.path.hasPrefix(path + "/") {
+                place.selected = nil
+                place.unsaved = nil
+            }
+            places[root] = place
+        }
+    }
+
 }

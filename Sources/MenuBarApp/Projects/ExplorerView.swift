@@ -31,6 +31,28 @@ struct ExplorerView: View {
     // finds it where it was left rather than back on this file.
     var reveal: Binding<ExplorerReveal?> = .constant(nil)
 
+    var repositories: [ChangesRepository] = []
+    var designFilesRoot: String?
+    @Binding var collapsedProjects: Set<String>
+    var selectRoot: (String) -> Void = { _ in }
+    @State private var projectCursor: String?
+
+    init(root: String, reveal: Binding<ExplorerReveal?> = .constant(nil),
+         repositories: [ChangesRepository] = [], designFilesRoot: String? = nil,
+         collapsedProjects: Binding<Set<String>> = .constant([]),
+         selectRoot: @escaping (String) -> Void = { _ in }) {
+        self.root = root
+        self.reveal = reveal
+        self.repositories = repositories
+        self.designFilesRoot = designFilesRoot
+        self._collapsedProjects = collapsedProjects
+        self.selectRoot = selectRoot
+    }
+
+    private var projectRoots: [ChangesRepository] {
+        repositories.isEmpty ? [ChangesRepository(root: root, name: rootURL.lastPathComponent)] : repositories
+    }
+
     @Environment(DialogPresenter.self) private var dialogs
     @Environment(ExplorerMemory.self) private var memory
 
@@ -49,7 +71,6 @@ struct ExplorerView: View {
     @State private var language: CodeLanguage?
     @State private var pastingFiles = false
     @State private var treeWidth = ExplorerSplitLayout.defaultTreeWidth
-    @State private var dragStartTreeWidth: CGFloat?
     @FocusState private var treeFocused: Bool
     // The row being renamed, by path. The name is edited in place, the way Finder does it.
     @State private var renaming: String?
@@ -89,7 +110,7 @@ struct ExplorerView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header
+            if repositories.isEmpty { header }
             GeometryReader { geometry in
                 let width = ExplorerSplitLayout.treeWidth(
                     treeWidth, availableWidth: geometry.size.width)
@@ -100,7 +121,10 @@ struct ExplorerView: View {
                         .clipped()
                     Rectangle().fill(Theme.hairline)
                         .frame(width: ExplorerSplitLayout.dividerWidth)
-                    detail
+                    VStack(spacing: 0) {
+                        if !repositories.isEmpty { header }
+                        detail
+                    }
                         .frame(width: max(0, geometry.size.width - width
                                           - ExplorerSplitLayout.dividerWidth))
                         .clipped()
@@ -115,7 +139,7 @@ struct ExplorerView: View {
         .background(Theme.background)
         .background(ExplorerSearchShortcut { showFileSearch() })
         .background(ExplorerFileShortcuts(
-            enabled: treeFocused && dialogs.current == nil && !pastingFiles,
+            enabled: treeFocused && projectCursor == nil && dialogs.current == nil && !pastingFiles,
             onCopy: copySelected,
             onPaste: { pasteFiles(at: selected) },
             onTrash: trashSelected,
@@ -150,41 +174,22 @@ struct ExplorerView: View {
     }
 
     private func splitHandle(treeWidth: CGFloat, availableWidth: CGFloat) -> some View {
-        Color.clear
-            .frame(width: ExplorerSplitLayout.handleWidth)
-            .contentShape(Rectangle())
-            .gesture(
-                DragGesture(minimumDistance: 0, coordinateSpace: .global)
-                    .onChanged { value in
-                        let start = dragStartTreeWidth ?? treeWidth
-                        dragStartTreeWidth = start
-                        self.treeWidth = ExplorerSplitLayout.treeWidth(
-                            start + value.translation.width, availableWidth: availableWidth)
-                    }
-                    .onEnded { _ in dragStartTreeWidth = nil })
-            .cursorOnHover(.resizeLeftRight)
-            .appTooltip("Drag to resize")
-            .accessibilityElement()
-            .accessibilityLabel("Resize file explorer")
-            .accessibilityValue("\(Int(treeWidth)) points wide")
-            .accessibilityAdjustableAction { direction in
-                let change: CGFloat = switch direction {
-                case .increment: 32
-                case .decrement: -32
-                @unknown default: 0
-                }
-                self.treeWidth = ExplorerSplitLayout.treeWidth(
-                    treeWidth + change, availableWidth: availableWidth)
-            }
+        WorkspaceSplitHandle(width: $treeWidth, displayedWidth: treeWidth, availableWidth: availableWidth)
     }
 
     // MARK: - Header
 
     private var header: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: repositories.isEmpty ? 14 : 8) {
             HStack(spacing: 6) {
-                Image(systemName: "folder").font(.system(size: 12))
-                Text(rootURL.lastPathComponent).font(.mono(13, .medium))
+                if repositories.isEmpty {
+                    Image(systemName: "folder").font(.system(size: 12))
+                } else {
+                    ProjectDot(tint: Theme.projectTint(for: projectRoots.first { $0.root == root }?.name ?? rootURL.lastPathComponent), size: 8)
+                }
+                Text(projectRoots.first { $0.root == root }?.name ?? rootURL.lastPathComponent)
+                    .font(.mono(13, .medium)).lineLimit(1).truncationMode(.middle)
+                    .appTooltip(projectRoots.first { $0.root == root }?.name ?? rootURL.lastPathComponent)
             }
 
             if let count = children[root]?.count {
@@ -217,8 +222,8 @@ struct ExplorerView: View {
             .foregroundStyle(Theme.accent)
             .appTooltip("Refresh")
         }
-        .padding(.horizontal, 20)
-        .headerBand(height: Theme.subHeaderHeight)
+        .padding(.horizontal, repositories.isEmpty ? 20 : 12)
+        .headerBand(height: repositories.isEmpty ? Theme.subHeaderHeight : Theme.headerHeight)
     }
 
     private func headerIcon(_ symbol: String, tooltip: String,
@@ -248,7 +253,7 @@ struct ExplorerView: View {
         var id: String { node.path }
     }
 
-    private var rows: [Row] {
+    private func rows(in directory: String) -> [Row] {
         var out: [Row] = []
         func walk(_ path: String, depth: Int) {
             for node in children[path] ?? [] {
@@ -258,37 +263,100 @@ struct ExplorerView: View {
                 }
             }
         }
-        walk(root, depth: 0)
+        walk(directory, depth: repositories.isEmpty ? 0 : 1)
         return out
+    }
+
+    private var rows: [Row] {
+        projectRoots.filter { !collapsedProjects.contains($0.root) }.flatMap { rows(in: $0.root) }
+    }
+
+    private func projectRow(_ project: ChangesRepository) -> some View {
+        let collapsed = collapsedProjects.contains(project.root)
+        return HStack(spacing: 6) {
+            if children[project.root]?.isEmpty == false {
+                Button {
+                    if !collapsedProjects.insert(project.root).inserted { collapsedProjects.remove(project.root) }
+                } label: {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10))
+                        .rotationEffect(.degrees(collapsed ? 0 : 90))
+                        .frame(width: 20, height: 30).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(collapsed ? "Expand" : "Collapse") \(project.name)")
+                .accessibilityValue(collapsed ? "Collapsed" : "Expanded")
+            } else {
+                Color.clear.frame(width: 20, height: 30).accessibilityHidden(true)
+            }
+            Button {
+                projectCursor = project.root
+                treeFocused = true
+                selectRoot(project.root)
+            } label: {
+                HStack(spacing: 7) {
+                    ProjectDot(tint: Theme.projectTint(for: project.name), size: 8)
+                    Text(project.name).font(.system(size: 12, weight: .semibold)).lineLimit(1)
+                    Spacer(minLength: 0)
+                }
+                .foregroundStyle(project.root == root ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(.primary))
+                .padding(.vertical, 10).padding(.trailing, 8)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .appTooltip(project.name)
+            .accessibilityAddTraits(project.root == root ? .isSelected : [])
+        }
+        .surface(project.root == root ? Theme.accent.opacity(0.1) : .clear, cornerRadius: 7,
+                 border: treeFocused && projectCursor == project.root ? Theme.accent : .clear)
+        .overlay(alignment: .leading) {
+            if project.root == root {
+                RoundedRectangle(cornerRadius: 2).fill(Theme.accent).frame(width: 3).padding(.vertical, 10)
+            }
+        }
     }
 
     @ViewBuilder private var tree: some View {
         VStack(spacing: 0) {
-            if children[root]?.isEmpty == true {
-                PaneMessage(icon: "folder", title: "Empty folder",
-                            detail: showHidden ? "" : "Hidden files are off.")
-            } else {
+            if !repositories.isEmpty {
+                HStack {
+                    Text("Workspace").font(.system(size: 13, weight: .semibold))
+                    Spacer()
+                    Text(counted(projectRoots.filter { $0.root != designFilesRoot }.count, "project"))
+                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 20)
+                .headerBand(height: Theme.headerHeight)
+            }
+            if repositories.isEmpty && children[root]?.isEmpty == true {
+                PaneMessage(icon: "folder", title: "Empty folder", detail: showHidden ? "" : "Hidden files are off.")
+            }
+            if !repositories.isEmpty || children[root]?.isEmpty != true {
                 ScrollViewReader { proxy in
                     ScrollView {
-                        LazyVStack(spacing: 1) {
-                            ForEach(rows) { row in
-                                treeRow(row)
-                                    .id(row.id)
+                        LazyVStack(spacing: repositories.isEmpty ? 1 : 3) {
+                            ForEach(projectRoots) { project in
+                                if !repositories.isEmpty { projectRow(project).id(project.root) }
+                                if !collapsedProjects.contains(project.root) {
+                                    ForEach(rows(in: project.root)) { row in
+                                        treeRow(row).id(row.id)
+                                    }
+                                }
                             }
-                        }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 8)
+                        }.padding(repositories.isEmpty ? 8 : 10)
                     }
                     .onChange(of: selected?.path) {
                         if let path = selected?.path {
-                            withAnimation(.easeOut(duration: 0.12)) {
-                                proxy.scrollTo(path, anchor: .center)
-                            }
+                            withAnimation(.easeOut(duration: 0.12)) { proxy.scrollTo(path, anchor: .center) }
                         }
+                    }
+                    .onChange(of: projectCursor) { _, path in
+                        if let path { proxy.scrollTo(path) }
                     }
                 }
             }
         }
+        .background(repositories.isEmpty ? Theme.background : Theme.card)
         .overlay {
             if dropHover?.folder == root {
                 RoundedRectangle(cornerRadius: 6).stroke(Theme.accent.opacity(0.65), lineWidth: 1.5)
@@ -301,8 +369,16 @@ struct ExplorerView: View {
         } isTargeted: { hoverDrop(key: root, folder: root, $0) }
         .focusable()
         .focused($treeFocused)
+        .onChange(of: treeFocused) { _, focused in
+            if focused && !repositories.isEmpty && selected == nil && projectCursor == nil { projectCursor = root }
+        }
         .focusEffectDisabled()
         .onMoveCommand(perform: moveTreeSelection)
+        .onKeyPress(.return) {
+            guard let projectCursor else { return .ignored }
+            selectRoot(projectCursor)
+            return .handled
+        }
     }
 
     @ViewBuilder private func treeRow(_ row: Row) -> some View {
@@ -322,6 +398,7 @@ struct ExplorerView: View {
 
         return Button {
             treeFocused = true
+            projectCursor = nil
             requestSelect(node)
             if node.isDirectory { toggle(node) }
         } label: {
@@ -362,11 +439,13 @@ struct ExplorerView: View {
             .surface(isDropTarget ? Theme.accent.opacity(0.12) : (isSelected ? Theme.card : .clear),
                      cornerRadius: 6,
                      border: isDropTarget ? Theme.accent.opacity(0.65)
-                         : (isSelected ? Theme.border : .clear))
+                         : (isSelected && treeFocused && projectCursor == nil ? Theme.accent : (isSelected ? Theme.border : .clear)))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .hoverFill(cornerRadius: 6)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityValue(node.isDirectory ? (isOpen ? "Expanded" : "Collapsed") : "")
         .draggable(node.url)
         .dropDestination(for: URL.self) { urls, _ in
             drop(urls, into: folder)
@@ -737,11 +816,12 @@ struct ExplorerView: View {
     }
 
     private func confirmTrash(_ node: FileNode) {
-        let losesEdits = dirty && selected.map { contains(node, $0.path) } == true
+        let rememberedEdit = isInside(node.path, root) ? nil : memory.unsavedEdit(inside: node.path)
+        let losesEdits = (dirty && selected.map { contains(node, $0.path) } == true) || rememberedEdit != nil
         var rows: [Dialog.Impact.Row] = []
         if losesEdits {
             rows.append(.init(title: "Unsaved edits",
-                              detail: "Edits to \(selected?.name ?? "the open file") are lost."))
+                              detail: "Edits to \(rememberedEdit.map { ($0.path as NSString).lastPathComponent } ?? selected?.name ?? "the open file") are lost."))
         }
         rows.append(.init(title: node.isDirectory ? "Folder can be restored" : "File can be restored",
                           detail: "Put it back from the Trash in Finder.", kept: true))
@@ -758,6 +838,7 @@ struct ExplorerView: View {
             }
             guard root == rootAtStart else { return }
 
+            memory.removed(node.path)
             expanded = expanded.filter { !contains(node, $0) }
             children = children.filter { !contains(node, $0.key) }
             if let selected, contains(node, selected.path) {
@@ -799,7 +880,7 @@ struct ExplorerView: View {
                 else { return }
                 // A new file opens at once, ready to type into. With unsaved edits in the
                 // pane it is only named, so the edits are not put at risk.
-                if !dirty { select(node) }
+                if !dirty { requestSelect(node) }
                 startRename(node)
             }
         }
@@ -857,6 +938,7 @@ struct ExplorerView: View {
     // stay open and an open file keeps its unsaved edits.
     private func moved(from old: String, to url: URL) async {
         let new = url.path
+        memory.moved(from: old, to: new)
         expanded = Set(expanded.map { FileTree.path($0, afterMoving: old, to: new) })
         children = children.filter { !isInside($0.key, old) }
         if var current = selected, isInside(current.path, old) {
@@ -890,9 +972,10 @@ struct ExplorerView: View {
     private func drop(_ urls: [URL], into folder: URL) -> Bool {
         dropHover = nil
         guard !urls.isEmpty else { return false }
-        let rootPath = rootURL.standardizedFileURL.path
-        let local = urls.filter { isInside($0.standardizedFileURL.path, rootPath) }
-        let outside = urls.filter { !isInside($0.standardizedFileURL.path, rootPath) }
+        let destinationRoot = projectRoots.filter { isInside(folder.path, $0.root) }
+            .max { $0.root.count < $1.root.count }?.root ?? root
+        let local = urls.filter { isInside($0.standardizedFileURL.path, destinationRoot) }
+        let outside = urls.filter { !isInside($0.standardizedFileURL.path, destinationRoot) }
 
         let rootAtStart = root
         Task {
@@ -940,14 +1023,16 @@ struct ExplorerView: View {
 
     // MARK: - Actions
 
-    // The pane is reused as the session changes, so everything the last folder left behind
-    // has to go before the new one is read.
+    // Keep the workspace tree open while swapping the editor and its unsaved draft.
     private func openRoot() async {
         rememberPlace()
         openedRoot = root
         let place = memory.place(for: root) ?? ExplorerMemory.Place()
-        children = [:]
-        expanded = []
+        if children.isEmpty {
+            for project in projectRoots {
+                expanded.formUnion(memory.place(for: project.root)?.expanded ?? [])
+            }
+        }
         selected = nil
         preview = nil
         loadingPreview = false
@@ -959,7 +1044,8 @@ struct ExplorerView: View {
         resetFind()
         showHidden = place.showHidden
         treeWidth = place.treeWidth
-        await load(root)
+        for project in projectRoots { await load(project.root) }
+        for path in expanded.sorted(by: { $0.count < $1.count }) { await load(path) }
         await restore(place)
         await showRequestedFile()
     }
@@ -968,6 +1054,7 @@ struct ExplorerView: View {
         guard let request = reveal.wrappedValue,
               request.path.pathRelative(to: root) != nil else { return }
         reveal.wrappedValue = nil
+        collapsedProjects.remove(root)
 
         let url = URL(fileURLWithPath: request.path)
         let ancestors = FileTree.ancestorDirectories(of: url, beneath: rootURL)
@@ -989,7 +1076,12 @@ struct ExplorerView: View {
             unsaved = .init(path: selected.path, preview: preview, draft: draft,
                             original: original, loadedAt: loadedAt)
         }
-        memory.remember(.init(expanded: expanded,
+        for project in projectRoots where project.root != openedRoot {
+            var place = memory.place(for: project.root) ?? ExplorerMemory.Place()
+            place.expanded = Set(expanded.filter { isInside($0, project.root) })
+            memory.remember(place, for: project.root)
+        }
+        memory.remember(.init(expanded: Set(expanded.filter { isInside($0, openedRoot) }),
                               selected: selected,
                               showHidden: showHidden,
                               treeWidth: treeWidth,
@@ -1035,7 +1127,7 @@ struct ExplorerView: View {
     // Everything already open is read again. Anything still shut is left alone: it will be
     // read when it is opened, which is late enough to pick the change up anyway.
     private func reopenFolders() async {
-        for path in ([root] + expanded) where children[path] != nil {
+        for path in (projectRoots.map(\.root) + expanded) where children[path] != nil {
             await load(path)
         }
     }
@@ -1051,6 +1143,28 @@ struct ExplorerView: View {
 
     private func moveTreeSelection(_ direction: MoveCommandDirection) {
         guard dialogs.current == nil else { return }
+        let items = projectRoots.flatMap { project in
+            (repositories.isEmpty ? [] : [project.root])
+                + (collapsedProjects.contains(project.root) ? [] : rows(in: project.root).map(\.id))
+        }
+        if direction == .up || direction == .down {
+            let cursor = projectCursor ?? selected?.path
+            guard let next = RowStep.destination(from: cursor.flatMap { items.firstIndex(of: $0) },
+                                                 step: direction == .up ? -1 : 1, count: items.count) else { return }
+            let path = items[next]
+            if projectRoots.contains(where: { $0.root == path }) {
+                projectCursor = path
+            } else if let row = rows.first(where: { $0.id == path }) {
+                projectCursor = nil
+                requestSelect(row.node)
+            }
+            return
+        }
+        if let projectCursor {
+            if direction == .left { collapsedProjects.insert(projectCursor) }
+            if direction == .right { collapsedProjects.remove(projectCursor) }
+            return
+        }
         let navigationDirection: FileTreeNavigation.Direction
         switch direction {
         case .up: navigationDirection = .up
@@ -1085,6 +1199,12 @@ struct ExplorerView: View {
     // Moving to another file throws the draft away, so unsaved work is worth a question
     // first. A clean pane just moves, and a click on the file already open leaves it alone.
     private func requestSelect(_ node: FileNode, line: Int? = nil) {
+        if let owner = projectRoots.filter({ isInside(node.path, $0.root) }).max(by: { $0.root.count < $1.root.count }),
+           owner.root != root {
+            reveal.wrappedValue = ExplorerReveal(path: node.path, line: line)
+            selectRoot(owner.root)
+            return
+        }
         if node.path == selected?.path {
             if line != nil { lineToReveal = line }
             return

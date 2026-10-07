@@ -148,6 +148,8 @@ struct SessionView: View {
     @State private var terminalFocused = false
     @State private var composerFocused = false
     @State private var selectedProjectID: UUID?
+    @State private var collapsedExplorerProjects: Set<String> = []
+    @State private var changesNavigation = ChangesNavigationMemory()
     @State private var explorerShowsDesignFiles = false
     @State private var shortcutEditor: ShortcutEditorRequest?
     @State private var exportingDesignMaterials = false
@@ -252,9 +254,6 @@ struct SessionView: View {
                 if store.designHasUpdated(for: session) {
                     designUpdateStrip(session)
                 }
-                if showsDirectoryBar(for: session, designFilesURL: designFilesURL) {
-                    sessionDirectoryBar(session, designFilesURL: designFilesURL)
-                }
                 switch tab {
                 case .conversation:
                     if session.isActivelyDesigning {
@@ -277,11 +276,22 @@ struct SessionView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 case .changes:
                     WorkspaceChangesView(session: session, initialRoot: requestedChange?.root ?? projectDirectory,
-                                         initialPath: requestedChange?.path)
-                        .id(requestedChange)
+                                         initialPath: requestedChange?.path,
+                                         selectedRoot: Binding(get: { projectDirectory }, set: { root in
+                                             selectWorkspaceRoot(root, in: session)
+                                         }), navigation: changesNavigation)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 case .explorer:
-                    ExplorerView(root: explorerDirectory, reveal: $explorerReveal)
+                    ExplorerView(root: explorerDirectory, reveal: $explorerReveal,
+                                 repositories: workspaceRepositories(session) + (designFilesURL.map {
+                                     [ChangesRepository(root: $0.path, name: "Design files")]
+                                 } ?? []),
+                                 designFilesRoot: designFilesURL?.path,
+                                 collapsedProjects: $collapsedExplorerProjects,
+                                 selectRoot: { root in
+                                     explorerShowsDesignFiles = root == designFilesURL?.path
+                                     if !explorerShowsDesignFiles { selectWorkspaceRoot(root, in: session) }
+                                 })
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
 
@@ -357,6 +367,7 @@ struct SessionView: View {
             }
             .onChange(of: tab, initial: true) {
                 store.noteSessionTab(openedDestination, for: sessionID)
+                if tab != .changes { requestedChange = nil }
             }
             .task(id: sessionID) {
                 selectedProjectID = requestedChange.flatMap { change in
@@ -366,6 +377,7 @@ struct SessionView: View {
                     }?.projectID
                 } ?? session.projectID
                 explorerShowsDesignFiles = designFilesURL != nil
+                collapsedExplorerProjects = Set(workingDirectories.dropFirst())
                 sampleMissingFolders()
                 refreshStats(workingDirectories, reusingRecent: true)
                 runner.refreshContext(sessionID, store: store)
@@ -1016,85 +1028,21 @@ struct SessionView: View {
         .background(RoundedRectangle(cornerRadius: 7).fill(tone.colour.opacity(0.12)))
     }
 
-    private func showsDirectoryBar(for session: ChatSession, designFilesURL: URL?) -> Bool {
-        switch tab {
-        case .conversation, .design, .troubleshoot, .changes: false
-        case .explorer:
-            designFilesURL != nil || store.checkoutProjects(for: session).count > 1
+    private func workspaceRepositories(_ session: ChatSession) -> [ChangesRepository] {
+        store.checkoutProjects(for: session).compactMap { checkout in
+            guard let project = store.project(checkout.projectID) else { return nil }
+            return ChangesRepository(root: checkout.worktreePath ?? project.path, name: project.name)
         }
     }
 
-    private func sessionDirectoryBar(_ session: ChatSession, designFilesURL: URL?) -> some View {
-        ScrollView(.horizontal) {
-            HStack(spacing: 6) {
-                if designFilesURL != nil {
-                    Button { explorerShowsDesignFiles = true } label: {
-                        HStack(spacing: 7) {
-                            Image(systemName: "paintbrush.pointed.fill")
-                                .font(.system(size: 10, weight: .semibold))
-                                .foregroundStyle(Theme.accent)
-                                .frame(width: 9)
-                            Text("Design files")
-                                .font(.system(size: 12.5, weight: .semibold))
-                                .lineLimit(1)
-                        }
-                        .padding(.horizontal, 12)
-                        .frame(height: 36)
-                        .background(explorerShowsDesignFiles ? Theme.card : Color.clear)
-                        .overlay(alignment: .bottom) {
-                            Rectangle()
-                                .fill(explorerShowsDesignFiles ? Theme.accent : Color.clear)
-                                .frame(height: 2)
-                        }
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .hoverLift()
-                }
-                ForEach(store.checkoutProjects(for: session)) { checkout in
-                    if let project = store.project(checkout.projectID) {
-                        let root = checkout.worktreePath ?? project.path
-                        let snapshot = gitStats.snapshot(at: root)
-                        let selected = selectedProjectID == project.id
-                            && !explorerShowsDesignFiles
-                        Button {
-                            selectedProjectID = project.id
-                            requestedChange = nil
-                            explorerShowsDesignFiles = false
-                        } label: {
-                            HStack(spacing: 7) {
-                                RoundedRectangle(cornerRadius: 3)
-                                    .fill(project.id == session.projectID
-                                          ? Theme.accent : Theme.secret)
-                                    .frame(width: 9, height: 9)
-                                Text(project.name)
-                                    .font(.system(size: 12.5, weight: .semibold))
-                                    .lineLimit(1)
-                                if let snapshot, !snapshot.files.isEmpty {
-                                    DiffPair(added: snapshot.totalAdded,
-                                             removed: snapshot.totalRemoved, size: 10.5)
-                                }
-                            }
-                            .padding(.horizontal, 12)
-                            .frame(height: 36)
-                            .background(selected ? Theme.card : Color.clear)
-                            .overlay(alignment: .bottom) {
-                                Rectangle()
-                                    .fill(selected ? Theme.accent : Color.clear)
-                                    .frame(height: 2)
-                            }
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .hoverLift()
-                    }
-                }
-            }
-            .padding(.horizontal, 20)
+    private func selectWorkspaceRoot(_ root: String, in session: ChatSession) {
+        if let checkout = store.checkoutProjects(for: session).first(where: {
+            ($0.worktreePath ?? store.project($0.projectID)?.path) == root
+        }) {
+            selectedProjectID = checkout.projectID
+            explorerShowsDesignFiles = false
+            requestedChange = nil
         }
-        .scrollIndicators(.hidden)
-        .background(Theme.card)
-        .overlay(alignment: .bottom) { Divider().overlay(Theme.hairline) }
     }
 
     // Completed tool calls in the turn that is streaming right now. Each one may have
@@ -1746,14 +1694,8 @@ struct SessionView: View {
                 }
                 .max { $0.root.count < $1.root.count }
             if let containingDirectory { target = containingDirectory }
-
-            if let checkout = store.checkoutProjects(for: session).first(where: { checkout in
-                let directory = checkout.worktreePath ?? store.project(checkout.projectID)?.path
-                return directory == target.root
-            }) {
-                selectedProjectID = checkout.projectID
-            }
         }
+        if let session = store.session(sessionID) { selectWorkspaceRoot(target.root, in: session) }
         requestedChange = target
         tab = .changes
     }

@@ -5,14 +5,15 @@ struct WorkspaceChangesView: View {
     let initialRoot: String
     let initialPath: String?
     @Environment(ProjectStore.self) private var store
-    @State private var selectedRoot: String?
+    @Binding var selectedRoot: String
+    let navigation: ChangesNavigationMemory
     @State private var selectedPath: String?
 
     private var roots: [String] {
         let directories = store.workingDirectories(for: session)
         return directories.contains(initialRoot) ? directories : [initialRoot] + directories
     }
-    private var selected: String { selectedRoot ?? initialRoot }
+    private var selected: String { selectedRoot }
 
     var body: some View {
         ZStack {
@@ -20,7 +21,8 @@ struct WorkspaceChangesView: View {
                 ChangesView(root: root,
                             initiallySelectedPath: root == initialRoot ? initialPath : nil,
                             repositories: roots.map { ChangesRepository(root: $0, name: name($0)) },
-                            requestedPath: selectedRoot == root ? selectedPath : nil) { root, path in
+                            requestedPath: selectedRoot == root ? selectedPath ?? (root == initialRoot ? initialPath : nil) : nil,
+                            navigation: navigation) { root, path in
                     selectedPath = path
                     selectedRoot = root
                 }
@@ -29,6 +31,9 @@ struct WorkspaceChangesView: View {
                 .disabled(root != selected)
                 .accessibilityHidden(root != selected)
             }
+        }
+        .onChange(of: ChangesNavigatorItem(root: initialRoot, path: initialPath)) { _, request in
+            if let path = request.path { selectedPath = path }
         }
     }
 

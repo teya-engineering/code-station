@@ -85,6 +85,14 @@ struct ChangesNavigatorItem: Hashable {
     }
 }
 
+@MainActor
+@Observable
+final class ChangesNavigationMemory {
+    var selections: [String: ChangeFileSelection] = [:]
+    var collapsed: Set<String> = []
+    var treeWidth = ExplorerSplitLayout.defaultTreeWidth
+}
+
 struct ChangesRepository: Identifiable {
     let root: String
     let name: String
@@ -106,9 +114,25 @@ struct ChangesView: View {
     let initiallySelectedPath: String?
     let repositories: [ChangesRepository]
     let requestedPath: String?
+    let navigation: ChangesNavigationMemory?
     let selectRepository: (String, String?) -> Void
-    @State private var collapsedRepositories: Set<String> = []
+    @State private var localCollapsedRepositories: Set<String> = []
+    private var collapsedRepositories: Set<String> {
+        get { navigation?.collapsed ?? localCollapsedRepositories }
+        nonmutating set {
+            if let navigation { navigation.collapsed = newValue }
+            else { localCollapsedRepositories = newValue }
+        }
+    }
     @State private var navigatorVisible = true
+    @State private var localTreeWidth = ExplorerSplitLayout.defaultTreeWidth
+    private var treeWidth: CGFloat {
+        get { navigation?.treeWidth ?? localTreeWidth }
+        nonmutating set {
+            if let navigation { navigation.treeWidth = newValue }
+            else { localTreeWidth = newValue }
+        }
+    }
     // The navigator keeps its own cursor instead of focusing each row, since a plain
     // button only takes keyboard focus when Full Keyboard Access is on.
     @State private var navigatorCursor: ChangesNavigatorItem?
@@ -169,7 +193,12 @@ struct ChangesView: View {
 
     init(root: String, initiallySelectedPath: String? = nil,
          repositories: [ChangesRepository] = [], requestedPath: String? = nil,
+         navigation: ChangesNavigationMemory? = nil,
          selectRepository: @escaping (String, String?) -> Void = { _, _ in }) {
+        self.navigation = navigation
+        _fileSelection = State(initialValue: navigation?.selections[root] ?? ChangeFileSelection())
+        _appliedInitialSelection = State(initialValue: navigation?.selections[root] != nil
+            && initiallySelectedPath == nil && requestedPath == nil)
         self.root = root
         self.initiallySelectedPath = initiallySelectedPath
         self.repositories = repositories.isEmpty
@@ -180,15 +209,44 @@ struct ChangesView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header
-            if committing && mode == .changes { commitBar }
+            if navigation == nil {
+                header()
+                if committing && mode == .changes { commitBar }
+            }
             GeometryReader { geometry in
+                let width = navigation == nil ? 280
+                    : ExplorerSplitLayout.treeWidth(treeWidth, availableWidth: geometry.size.width)
                 HStack(spacing: 0) {
-                    if navigatorVisible && (geometry.size.width >= 650 || committing) {
-                        workspaceNavigator.frame(width: 280)
-                        Divider().overlay(Theme.hairline)
+                    if navigatorVisible && (navigation != nil || geometry.size.width >= 650 || committing) {
+                        VStack(spacing: 0) {
+                            if navigation != nil {
+                                HStack {
+                                    Text("Workspace").font(.system(size: 13, weight: .semibold))
+                                    Spacer()
+                                    Text(counted(repositories.count, "project"))
+                                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                                }
+                                .padding(.horizontal, 20)
+                                .headerBand(height: Theme.headerHeight)
+                            }
+                            workspaceNavigator
+                        }.frame(width: width).clipped()
+                        Rectangle().fill(Theme.hairline).frame(width: ExplorerSplitLayout.dividerWidth)
                     }
-                    content
+                    VStack(spacing: 0) {
+                        if navigation != nil {
+                            header(compact: geometry.size.width - (navigatorVisible ? width : 0) < 500)
+                            if committing && mode == .changes { commitBar }
+                        }
+                        content
+                    }.frame(maxWidth: .infinity).clipped()
+                }
+                .overlay(alignment: .leading) {
+                    if navigatorVisible && navigation != nil {
+                        WorkspaceSplitHandle(width: Binding(get: { treeWidth }, set: { treeWidth = $0 }), displayedWidth: width,
+                                             availableWidth: geometry.size.width)
+                            .offset(x: width + (ExplorerSplitLayout.dividerWidth - ExplorerSplitLayout.handleWidth) / 2)
+                    }
                 }
             }
             if let checkedAt {
@@ -205,6 +263,7 @@ struct ChangesView: View {
             }
         }
         .background(Theme.background)
+        .onChange(of: fileSelection) { _, selection in navigation?.selections[root] = selection }
         // The screen opens on the last snapshot taken of this tree while a fresh one
         // is fetched, so the file list is there at first glance instead of after git.
         .task(id: root) {
@@ -317,26 +376,35 @@ struct ChangesView: View {
 
     // MARK: - Header
 
-    private var header: some View {
-        HStack(spacing: 12) {
+    private func header(compact: Bool = false) -> some View {
+        HStack(spacing: compact ? 8 : 12) {
             Image(systemName: "sidebar.left")
                 .padding(7).contentShape(Rectangle())
                 .appMenu { navigatorMenu }
                 .accessibilityLabel("Workspace navigator")
-            VStack(alignment: .leading, spacing: 3) {
-                Text(repositories.count > 1 ? "Workspace changes" : "Project changes")
-                    .font(.system(size: 14, weight: .semibold))
+            if navigation != nil {
                 HStack(spacing: 7) {
                     ProjectDot(tint: Theme.projectTint(for: repositoryName), size: 8)
-                    Text(repositoryName)
-                        .font(.system(size: 11)).foregroundStyle(Theme.accent).lineLimit(1)
+                    Text(repositoryName).font(.system(size: 13, weight: .semibold)).lineLimit(1)
+                }.appTooltip(repositoryName)
+            } else {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(repositories.count > 1 ? "Workspace changes" : "Project changes")
+                        .font(.system(size: 14, weight: .semibold))
+                    HStack(spacing: 7) {
+                        ProjectDot(tint: Theme.projectTint(for: repositoryName), size: 8)
+                        Text(repositoryName)
+                            .font(.system(size: 11)).foregroundStyle(Theme.accent).lineLimit(1)
+                    }
                 }
             }
             Spacer(minLength: 0)
             if let snapshot, snapshot.state == .ready {
-                Text(snapshot.branch).font(.mono(11)).foregroundStyle(.secondary)
-                    .lineLimit(1).truncationMode(.middle).frame(maxWidth: 140)
-                    .accessibilityHint(syncStatus)
+                if !compact {
+                    Text(snapshot.branch).font(.mono(11)).foregroundStyle(.secondary)
+                        .lineLimit(1).truncationMode(.middle).frame(maxWidth: 140)
+                        .accessibilityHint(syncStatus)
+                }
                 InlineLink(title: mode == .history ? "Back to changes" : "History") {
                     mode = mode == .history ? .changes : .history
                 }
@@ -345,13 +413,15 @@ struct ChangesView: View {
                     .accessibilityLabel("Repository actions for \(repositories.first { $0.root == root }?.name ?? root)")
                     .disabled(busy)
                 if !files.isEmpty && mode == .changes {
-                    ActionButton(title: "Commit…", height: 30, size: 12) {
+                    ActionButton(title: compact ? "Commit" : "Commit…", height: 30, size: 12) {
                         if committing { committing = false } else { beginCommit() }
                     }.disabled(busy)
                 }
             }
         }
-        .padding(.horizontal, 20).padding(.vertical, 12)
+        .padding(.horizontal, compact ? 12 : 20)
+        .padding(.vertical, navigation == nil ? 12 : 0)
+        .frame(height: navigation == nil ? nil : Theme.headerHeight)
         .background(Theme.card)
         .overlay(alignment: .bottom) { Rectangle().fill(Theme.hairline).frame(height: 1) }
     }
@@ -404,6 +474,10 @@ struct ChangesView: View {
     }
 
     private func moveNavigator(_ direction: MoveCommandDirection) {
+        if let item = navigatorCursor, item.path == nil {
+            if direction == .left { collapsedRepositories.insert(item.root); return }
+            if direction == .right { collapsedRepositories.remove(item.root); return }
+        }
         guard direction == .up || direction == .down,
               let next = ChangesNavigatorItem.next(after: navigatorCursor,
                   step: direction == .up ? -1 : 1, in: navigatorItems) else { return }
@@ -458,6 +532,7 @@ struct ChangesView: View {
                             }.buttonStyle(.plain)
                                 .id(ChangesNavigatorItem(root: repository.root, path: nil))
                                 .accessibilityAddTraits(repository.root == root ? .isSelected : [])
+                                .appTooltip(repository.name)
                         }
                         .background(repository.root == root ? Theme.accent.opacity(0.1) : .clear,
                                     in: RoundedRectangle(cornerRadius: 7))
@@ -505,6 +580,11 @@ struct ChangesView: View {
             .accessibilityLabel("Workspace repositories and changed files")
             .focusable()
             .focused($navigatorFocused)
+            .onChange(of: navigatorFocused) { _, focused in
+                if focused && navigatorCursor == nil {
+                    navigatorCursor = ChangesNavigatorItem(root: root, path: nil)
+                }
+            }
             .focusEffectDisabled()
             .onMoveCommand(perform: moveNavigator)
             .onKeyPress(.return) {

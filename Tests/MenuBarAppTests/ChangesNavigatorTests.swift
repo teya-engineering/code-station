@@ -47,6 +47,32 @@ struct ChangesNavigatorTests {
 
 @MainActor
 struct ChangesLayoutTests {
+    @Test func returningToChangesKeepsTheSelectedFile() async throws {
+        let repo = try GitRepo()
+        try repo.write("first.txt", "First change")
+        try repo.write("second.txt", "Second change")
+        let snapshot = await GitInspector.snapshot(at: repo.path, comparingToLastCommit: true)
+        let selected = try #require(snapshot.files.last)
+        let navigation = ChangesNavigationMemory()
+        var selection = ChangeFileSelection()
+        selection.select(selected.id, in: snapshot.files.map(\.id), extendingRange: false, toggling: false)
+        navigation.selections[repo.path] = selection
+        let cache = GitStatsCache()
+        let scratch = ScratchDirectory(prefix: "changes-selection")
+        let settings = AppSettings(agentAvatarURL: scratch.path("avatar.png"),
+                                   preferences: UserDefaults(suiteName: "changes-selection-\(UUID())")!)
+        let view = ChangesView(root: repo.path, navigation: navigation)
+            .environment(cache).environment(settings).environment(DialogPresenter()).appOverlays()
+        let hosting = NSHostingController(rootView: view)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 700),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentViewController = hosting
+        window.center()
+        window.layoutIfNeeded()
+        #expect(await waitUntil { cache.snapshot(at: repo.path) != nil })
+        #expect(navigation.selections[repo.path]?.activeID == selected.id)
+    }
+
     @Test func longRepositoryAndBranchNamesFitNarrowAndWidePanes() async throws {
         let repo = try GitRepo()
         try repo.git("switch", "-c", "feature/a-long-branch-name-for-workspace-review")
@@ -58,7 +84,7 @@ struct ChangesLayoutTests {
         let view = ChangesView(root: repo.path, repositories: [
             ChangesRepository(root: repo.path, name: "a-long-workspace-repository-name"),
             ChangesRepository(root: "/clean", name: "clean-repository")
-        ])
+        ], navigation: ChangesNavigationMemory())
         .environment(cache)
         .environment(settings)
         .environment(DialogPresenter())
@@ -73,6 +99,14 @@ struct ChangesLayoutTests {
         #expect(await waitUntil { cache.snapshot(at: repo.path) != nil })
         for width: CGFloat in [600, 1000] {
             #expect(hosting.sizeThatFits(in: CGSize(width: width, height: 700)).width <= width)
+            if let destination = ProcessInfo.processInfo.environment["WORKSPACE_REVIEW_DIRECTORY"] {
+                hosting.view.frame = NSRect(x: 0, y: 0, width: width, height: 700)
+                hosting.view.layoutSubtreeIfNeeded()
+                let bitmap = try #require(hosting.view.bitmapImageRepForCachingDisplay(in: hosting.view.bounds))
+                hosting.view.cacheDisplay(in: hosting.view.bounds, to: bitmap)
+                try #require(bitmap.representation(using: .png, properties: [:]))
+                    .write(to: URL(fileURLWithPath: destination).appendingPathComponent("changes-\(Int(width)).png"))
+            }
         }
     }
 }
