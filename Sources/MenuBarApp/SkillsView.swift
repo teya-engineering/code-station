@@ -32,7 +32,7 @@ struct SkillsView: View {
     @State private var filter = RepertoireFilter.all
     @State private var showingMarketplaces = false
     @State private var sourceFilter: String?
-    @State private var hoveredPlugin: String?
+    @State private var hoveredControl: String?
     @FocusState private var focusedUninstall: String?
 
     init(manager: SkillsManager) {
@@ -293,7 +293,6 @@ struct SkillsView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .onHover { hoveredPlugin = $0 ? plugin.id : nil }
         .padding(.horizontal, 12)
         .padding(.vertical, 14)
         .background(RoundedRectangle(cornerRadius: 9).fill(Theme.card))
@@ -309,6 +308,7 @@ struct SkillsView: View {
         let progress = manager.progress(of: plugin, on: host)
         let working = progress != nil
         let manageable = manager.canManage(host)
+        let controlID = "\(plugin.id)-\(host.id)"
 
         return HStack(spacing: 7) {
             hostStatus(installation, latestVersion: plugin.version,
@@ -330,8 +330,8 @@ struct SkillsView: View {
                 .disabled(!manageable || manager.isUpdatingAll || manager.isRefreshing)
                 .accessibilityLabel("Uninstall \(plugin.name) from \(host.title)")
                 .help("Uninstall from \(host.title)")
-                .focused($focusedUninstall, equals: "\(plugin.id)-\(host.id)")
-                .opacity(hoveredPlugin == plugin.id || focusedUninstall == "\(plugin.id)-\(host.id)" ? 1 : 0)
+                .focused($focusedUninstall, equals: controlID)
+                .opacity(hoveredControl == controlID || focusedUninstall == controlID ? 1 : 0)
             }
 
             if outdated, progress == nil, let latest = plugin.version {
@@ -356,6 +356,14 @@ struct SkillsView: View {
         .frame(height: 34)
         .background(RoundedRectangle(cornerRadius: 8)
             .fill(installation == nil ? Color.clear : Theme.field))
+        .contentShape(Rectangle())
+        .onHover { hovering in
+            if hovering {
+                hoveredControl = controlID
+            } else if hoveredControl == controlID {
+                hoveredControl = nil
+            }
+        }
         .opacity(!manageable && installation == nil ? 0.58 : 1)
     }
 
