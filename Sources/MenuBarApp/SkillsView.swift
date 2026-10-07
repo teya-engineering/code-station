@@ -88,8 +88,10 @@ struct SkillsView: View {
                     .scaledText(13).foregroundStyle(.secondary)
             }
             Spacer(minLength: 12)
-            ActionButton(title: "Add marketplace", tone: .dark, icon: "plus", action: addMarketplace)
-                .disabled(manager.isBusy)
+            if showingMarketplaces {
+                ActionButton(title: "Add marketplace", tone: .dark, icon: "plus", action: addMarketplace)
+                    .disabled(manager.isBusy)
+            }
             if manager.isConfigured {
                 ActionButton(title: manager.isRefreshing ? "Refreshing…" : "Refresh",
                              tone: .sunken,
