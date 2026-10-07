@@ -138,6 +138,9 @@ struct ChangesView: View {
     // button only takes keyboard focus when Full Keyboard Access is on.
     @State private var navigatorCursor: ChangesNavigatorItem?
     @FocusState private var navigatorFocused: Bool
+    // A click already highlights the row it picks, so the cursor outline only shows
+    // while the keyboard is driving the navigator.
+    @State private var navigatorCursorVisible = false
 
     private enum Mode: Hashable { case changes, history }
 
@@ -454,6 +457,7 @@ struct ChangesView: View {
     }
 
     private func moveNavigator(_ direction: MoveCommandDirection) {
+        navigatorCursorVisible = true
         if let item = navigatorCursor, item.path == nil {
             if direction == .left { collapsedRepositories.insert(item.root); return }
             if direction == .right { collapsedRepositories.remove(item.root); return }
@@ -494,6 +498,7 @@ struct ChangesView: View {
                             }
                             Button {
                                 navigatorCursor = ChangesNavigatorItem(root: repository.root, path: nil)
+                                navigatorCursorVisible = false
                                 navigatorFocused = true
                                 selectRepository(repository.root, nil)
                             } label: {
@@ -532,6 +537,7 @@ struct ChangesView: View {
                                         let item = ChangesNavigatorItem(root: repository.root, path: file.id)
                                         Button {
                                             navigatorCursor = item
+                                            navigatorCursorVisible = false
                                             navigatorFocused = true
                                             selectRepository(repository.root, file.id)
                                         } label: {
@@ -563,6 +569,7 @@ struct ChangesView: View {
             .onChange(of: navigatorFocused) { _, focused in
                 if focused && navigatorCursor == nil {
                     navigatorCursor = ChangesNavigatorItem(root: root, path: nil)
+                    navigatorCursorVisible = true
                 }
             }
             .focusEffectDisabled()
@@ -585,7 +592,7 @@ struct ChangesView: View {
     }
 
     private func showsCursor(_ item: ChangesNavigatorItem) -> Bool {
-        navigatorFocused && navigatorCursor == item
+        navigatorFocused && navigatorCursorVisible && navigatorCursor == item
     }
 
     private func fileName(_ file: GitChange) -> some View {
@@ -820,6 +827,7 @@ struct ChangesView: View {
         let isSelected = fileSelection.ids.contains(file.id)
         return Button {
             navigatorCursor = ChangesNavigatorItem(root: root, path: file.id)
+            navigatorCursorVisible = false
             navigatorFocused = true
             mode = .changes
             select(file)
