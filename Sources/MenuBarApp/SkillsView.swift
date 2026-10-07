@@ -79,17 +79,17 @@ struct SkillsView: View {
                 .hoverLift()
                 .disabled(manager.isUpdatingAll || manager.isRefreshing)
             }
-            ActionButton(title: "Add marketplace",
+            ActionButton(title: "Manage marketplaces",
                          tone: .outlined,
                          height: 30,
                          size: 11.5,
-                         icon: "plus") {
+                         icon: "slider.horizontal.3") {
                 repositorySource = ""
                 setupFailure = nil
                 configuringMarketplace = true
             }
             .disabled(manager.isBusy)
-            .appTooltip("Add a marketplace")
+            .appTooltip("Manage marketplaces")
             if manager.isConfigured {
                 ActionButton(title: manager.isRefreshing ? "Refreshing…" : "Refresh",
                              tone: .sunken,
@@ -177,60 +177,10 @@ struct SkillsView: View {
     }
 
     private var marketplaceConfiguration: some View {
-        VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Add marketplace").font(.serif(16))
-                Text("Add a Git repository or local file to your marketplaces.")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 20)
-            .headerBand()
-
-            VStack(alignment: .leading, spacing: 18) {
-                ScrollView { currentMarketplaceLocation }
-                    .frame(maxHeight: 150)
-                marketplaceChoices
-                if let setupFailure {
-                    SourceFailure(setupFailure)
-                }
-                Text("Git repositories must contain .claude-plugin/marketplace.json. Local sources must be marketplace JSON files.")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-            }
-            .padding(20)
-
-            SheetFooter { configuringMarketplace = false }
+        MarketplaceManagementView(manager: manager, failure: setupFailure,
+                                  dismiss: { configuringMarketplace = false }) {
+            marketplaceChoices
         }
-        .frame(width: 720)
-        .background(Theme.background)
-    }
-
-    private var currentMarketplaceLocation: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            SectionLabel("ADDED MARKETPLACES", style: .field)
-            ForEach(manager.marketplaceConfigurations, id: \.marketplace) { configuration in
-                HStack(spacing: 8) {
-                    Image(systemName: configuration.isLocalFile
-                          ? "doc.text" : "arrow.triangle.branch")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Theme.accent)
-                    Text(configuration.source)
-                        .font(.mono(11.5))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .textSelection(.enabled)
-                }
-            }
-            if manager.marketplaceConfigurations.isEmpty {
-                Text("No marketplace is configured.")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .fieldSurface(cornerRadius: 9)
     }
 
     private var marketplaceChoices: some View {
@@ -241,7 +191,7 @@ struct SkillsView: View {
                      fileTitle: "Local file",
                      fileDetail: "Read a marketplace JSON file already on this Mac.",
                      fileButton: "Choose marketplace file",
-                     isLoading: manager.isRefreshing,
+                     isLoading: manager.isBusy,
                      loadRepository: loadRepository,
                      chooseFile: chooseMarketplaceFile)
             .frame(maxWidth: 680)

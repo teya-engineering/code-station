@@ -23,6 +23,9 @@ struct SheetAction {
 // is the line of small print at the other end of the bar, saying what the actions will
 // do or where the edits will land.
 struct SheetFooter<Leading: View>: View {
+    var horizontalInset: CGFloat = 20
+    var verticalInset: CGFloat = 12
+
     private let title: String?
     private let primary: SheetAction?
     private let secondary: SheetAction?
@@ -83,8 +86,8 @@ struct SheetFooter<Leading: View>: View {
                                                      ? "Done" : "Cancel"),
                              size: 13, keyboardShortcut: .cancelAction, action: dismiss)
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 12)
+            .padding(.horizontal, horizontalInset)
+            .padding(.vertical, verticalInset)
             .background(Theme.card)
         }
     }

@@ -11,6 +11,93 @@ struct SkillsManagerTests {
         return url
     }
 
+    @Test @MainActor func removalPersistsWithoutChangingFilesOrInstallations() throws {
+        let suite = "remove-marketplace-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let url = try file(#"{"name":"removable","plugins":[{"name":"skill","description":"A skill"}]}"#)
+        let (source, catalogue) = try SkillsManager.localConfiguration(at: url)
+        Preferences.setSkillsMarketplace(source, in: defaults)
+        let manager = SkillsManager(preferences: defaults)
+        manager.applyCatalogues([source.marketplace: .init(marketplace: catalogue, notice: nil, didRefresh: true)],
+                                configurations: [source])
+        let installed = SkillInstallation(version: "1", enabled: true)
+        for host in SkillHost.allCases {
+            manager.apply(.init(installations: ["skill@removable": installed], failure: nil), to: host)
+        }
+        #expect(manager.installedPackageCount(for: source.marketplace) == 1)
+        try manager.removeMarketplace(source)
+        #expect(manager.plugins.isEmpty)
+        #expect(manager.installations[.claude]?["skill@removable"] == installed)
+        #expect(FileManager.default.fileExists(atPath: url.path))
+        #expect(!SkillsManager(preferences: defaults).marketplaceConfigurations.contains(source))
+        #expect(Preferences.skillsMarketplace(in: defaults) == source)
+        try manager.saveMarketplace(source)
+        #expect(SkillsManager(preferences: defaults).marketplaceConfigurations.contains(source))
+    }
+
+    @Test @MainActor func removalExcludesGitSourcesAndKeepsOtherSources() throws {
+        let suite = "remove-git-marketplace-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let first = SkillMarketplaceConfiguration(source: "https://example.com/first.git", sourceKind: .gitRepository,
+                                                  marketplace: "first", label: "First")
+        let second = SkillMarketplaceConfiguration(source: "/tmp/second.json", sourceKind: .localFile,
+                                                   marketplace: "second", label: "Second")
+        let manager = SkillsManager(preferences: defaults)
+        try manager.saveMarketplace(first)
+        try manager.saveMarketplace(second)
+        try manager.removeMarketplace(first)
+        let restored = SkillsManager(preferences: defaults)
+        #expect(!restored.marketplaceConfigurations.contains(first))
+        #expect(restored.marketplaceConfigurations.contains(second))
+        try restored.removeMarketplace(second)
+        #expect(!restored.marketplaceConfigurations.contains(second))
+    }
+
+    @Test @MainActor func removingSiteDefaultLeavesAnEmptyRepertoireAfterRestart() throws {
+        let suite = "remove-default-marketplace-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let site = SiteDefaults.Skills(name: "Team", marketplace: "team", repository: "https://example.com/team.git")
+        let source = SkillMarketplaceConfiguration.siteDefault(site)
+        let manager = SkillsManager(preferences: defaults, siteSkills: { site })
+        #expect(manager.marketplaceConfigurations == [source])
+        try manager.removeMarketplace(source)
+        let restored = SkillsManager(preferences: defaults, siteSkills: { site })
+        #expect(!restored.isConfigured)
+        #expect(restored.marketplaceConfigurations.isEmpty)
+        try restored.saveMarketplace(source)
+        #expect(restored.marketplaceConfigurations == [source])
+    }
+
+    @Test @MainActor func failedRemovalKeepsSourceAndPackages() throws {
+        let suite = "failed-marketplace-removal-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let url = try file(#"{"name":"retained","plugins":[{"name":"skill","description":"A skill"}]}"#)
+        let (source, catalogue) = try SkillsManager.localConfiguration(at: url)
+        Preferences.setSkillsMarketplace(source, in: defaults)
+        let manager = SkillsManager(preferences: defaults, persistExclusions: { _ in throw ImportError("Disk failure") })
+        manager.applyCatalogues([source.marketplace: .init(marketplace: catalogue, notice: nil, didRefresh: false)],
+                                configurations: [source])
+        #expect(throws: ImportError.self) { try manager.removeMarketplace(source) }
+        #expect(manager.marketplaceConfigurations.contains(source))
+        #expect(manager.plugins.count == 1)
+        #expect(SkillsManager(preferences: defaults).marketplaceConfigurations.contains(source))
+    }
+
+    @Test @MainActor func failedOrPendingInstallationLookupIsNotZero() {
+        let manager = SkillsManager()
+        #expect(manager.installedPackageCount(for: "example") == nil)
+        for host in SkillHost.allCases {
+            manager.apply(.init(installations: [:], failure: nil), to: host)
+        }
+        #expect(manager.installedPackageCount(for: "example") == 0)
+        manager.apply(.init(installations: [:], failure: "Could not query agent"), to: .codex)
+        #expect(manager.installedPackageCount(for: "example") == nil)
+    }
+
     @Test @MainActor func keepsMarketplacesAcrossAdditionsAndRestarts() throws {
         let suite = "multiple-marketplaces-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))

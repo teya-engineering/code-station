@@ -182,6 +182,13 @@ final class SkillsManager {
     @ObservationIgnored private let preferences: UserDefaults
 
     private var configurationRevision = 0
+    private let siteSkills: () -> SiteDefaults.Skills?
+    private let persistExclusions: ([String]) throws -> Void
+
+    // Exclusions also cover legacy and site-provided sources, which can return on relaunch.
+    private var excludedMarketplaces: Set<String> {
+        Set(preferences.stringArray(forKey: "skillsExcludedMarketplaces") ?? [])
+    }
 
     var marketplaceConfigurations: [SkillMarketplaceConfiguration] {
         _ = configurationRevision
@@ -190,13 +197,13 @@ final class SkillsManager {
            !saved.contains(where: { $0.marketplace == selected.marketplace }) {
             saved.append(selected)
         }
-        if let skills = SiteDefaults.current.skills {
+        if let skills = siteSkills() {
             let site = SkillMarketplaceConfiguration.siteDefault(skills)
             if site.isValid, !saved.contains(where: { $0.marketplace == site.marketplace }) {
                 saved.insert(site, at: 0)
             }
         }
-        return saved
+        return saved.filter { !excludedMarketplaces.contains($0.marketplace) }
     }
 
     var isBusy: Bool { isRefreshing || isUpdatingAll || !actionProgress.isEmpty }
@@ -224,6 +231,9 @@ final class SkillsManager {
         if !saved.contains(where: { $0.marketplace == configuration.marketplace }) {
             saved.append(configuration)
         }
+        if excludedMarketplaces.contains(configuration.marketplace) {
+            try persistExclusions(Array(excludedMarketplaces.subtracting([configuration.marketplace])))
+        }
         Preferences.setSkillsMarketplaces(saved, in: preferences)
         configurationRevision += 1
         actionFailures = [:]
@@ -234,9 +244,52 @@ final class SkillsManager {
         let plugin: String
     }
 
-    init(cacheURL: URL? = nil, preferences: UserDefaults = .standard) {
+    init(cacheURL: URL? = nil, preferences: UserDefaults = .standard,
+         persistExclusions: (([String]) throws -> Void)? = nil,
+         siteSkills: @escaping () -> SiteDefaults.Skills? = { SiteDefaults.current.skills }) {
         cacheURLOverride = cacheURL
         self.preferences = preferences
+        self.siteSkills = siteSkills
+        self.persistExclusions = persistExclusions ?? { names in
+            let key = "skillsExcludedMarketplaces"
+            let previous = preferences.object(forKey: key)
+            preferences.set(names, forKey: key)
+            guard preferences.synchronize() else {
+                preferences.set(previous, forKey: key)
+                throw ImportError("The marketplace change could not be saved. Please try again.")
+            }
+        }
+    }
+
+    func removeMarketplace(_ configuration: SkillMarketplaceConfiguration) throws {
+        guard !isBusy else { throw ImportError("Wait for the current marketplace operation to finish, then try again.") }
+        try persistExclusions(Array(excludedMarketplaces.union([configuration.marketplace])))
+        configurationRevision += 1
+        plugins.removeAll { $0.marketplace == configuration.marketplace }
+        actionFailures = actionFailures.filter { !$0.key.plugin.hasSuffix("@\(configuration.marketplace)") }
+        if let notice = catalogueNotice {
+            let remaining = notice.components(separatedBy: "\n")
+                .filter { !$0.hasPrefix("\(configuration.label):") }.joined(separator: "\n")
+            catalogueNotice = remaining.isEmpty ? nil : remaining
+        }
+    }
+
+    func installedPackageCount(for marketplace: String) -> Int? {
+        guard SkillHost.allCases.allSatisfy({ installations[$0] != nil && hostFailures[$0] == nil }) else {
+            return nil
+        }
+        return Set(installations.values.flatMap { $0.keys }
+            .filter { $0.hasSuffix("@\(marketplace)") }).count
+    }
+
+    func checkInstallationsForRemoval() async {
+        guard !isBusy else { return }
+        isRefreshing = true
+        defer { isRefreshing = false }
+        let names = Set(marketplaceConfigurations.map(\.marketplace))
+        for (host, load) in await Self.loadInstallations(marketplaces: names) {
+            apply(load, to: host)
+        }
     }
 
     func applyCatalogues(_ loads: [String: CatalogueLoad],
@@ -770,6 +823,9 @@ final class SkillsManager {
         let result = await run(host.command, host.listArguments)
         guard result.ok else {
             return InstallationLoad(installations: [:], failure: result.failureMessage)
+        }
+        guard jsonObject(from: result.output) != nil else {
+            return InstallationLoad(installations: [:], failure: "The agent returned an unreadable installation list.")
         }
         return InstallationLoad(installations: installedPlugins(from: result.output,
                                                                 for: host,
