@@ -126,7 +126,6 @@ struct ChangesView: View {
             else { localCollapsedRepositories = newValue }
         }
     }
-    @State private var navigatorVisible = true
     @State private var localTreeWidth = ExplorerSplitLayout.defaultTreeWidth
     private var treeWidth: CGFloat {
         get { navigation?.treeWidth ?? localTreeWidth }
@@ -226,7 +225,7 @@ struct ChangesView: View {
                 let width = navigation == nil ? 280
                     : ExplorerSplitLayout.treeWidth(treeWidth, availableWidth: geometry.size.width)
                 HStack(spacing: 0) {
-                    if mode == .changes && navigatorVisible && (navigation != nil || geometry.size.width >= 650 || committing) {
+                    if mode == .changes && (navigation != nil || geometry.size.width >= 650 || committing) {
                         VStack(spacing: 0) {
                             if navigation != nil {
                                 HStack {
@@ -247,7 +246,7 @@ struct ChangesView: View {
                     }.frame(maxWidth: .infinity).clipped()
                 }
                 .overlay(alignment: .leading) {
-                    if mode == .changes && navigatorVisible && navigation != nil {
+                    if mode == .changes && navigation != nil {
                         WorkspaceSplitHandle(width: Binding(get: { treeWidth }, set: { treeWidth = $0 }), displayedWidth: width,
                                              availableWidth: geometry.size.width)
                             .offset(x: width + (ExplorerSplitLayout.dividerWidth - ExplorerSplitLayout.handleWidth) / 2)
@@ -398,10 +397,6 @@ struct ChangesView: View {
                         .item(repository.name, checked: repository.root == root) { selectRepository(repository.root, nil) }
                     }
                 }.accessibilityLabel("Select project, \(repositoryName)")
-            if mode == .changes {
-                Image(systemName: "sidebar.left").padding(7).contentShape(Rectangle())
-                    .appMenu { navigatorMenu }.accessibilityLabel("Workspace navigator")
-            }
             Spacer(minLength: 0)
             if let snapshot, snapshot.state == .ready {
                 if !compact {
@@ -446,21 +441,6 @@ struct ChangesView: View {
         if repository.root == root, loading { return "Checking" }
         let status = repository.root == root ? snapshot : gitStats.snapshot(at: repository.root)
         return ChangesRepository.statusLabel(for: status)
-    }
-
-    private var navigatorMenu: [MenuEntry] {
-        [.item(navigatorVisible ? "Hide navigator" : "Show navigator") { navigatorVisible.toggle() }, .separator]
-        + repositories.flatMap { repository -> [MenuEntry] in
-            let changes = repository.root == root ? files : gitStats.snapshot(at: repository.root)?.files ?? []
-            return [.item(repository.name, checked: repository.root == root) {
-                selectRepository(repository.root, nil)
-            }] + changes.map { file in
-                .item(file.fileName, subtitle: file.path) {
-                    if repository.root == root { mode = .changes; select(file) }
-                    else { selectRepository(repository.root, file.id) }
-                }
-            }
-        }
     }
 
     private var navigatorItems: [ChangesNavigatorItem] {
@@ -900,7 +880,6 @@ struct ChangesView: View {
         if let chosen {
             excluded = Set(files.map(\.id)).subtracting(chosen.map(\.id))
         }
-        navigatorVisible = true
         committing = true
         commitFocused = true
     }
