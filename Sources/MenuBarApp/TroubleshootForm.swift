@@ -400,24 +400,47 @@ struct TroubleshootMCPOptions: View {
     let state: TroubleshootMCPState
     @Binding var enabled: Bool
     var showsServerDetails = false
+    var usesSetupLayout = false
+
+    private var setupHelper: String {
+        if !enabled { return "Use project files and attached evidence." }
+        if managedServers.isEmpty { return "Use any servers configured for the selected agent." }
+        return "\(counted(environmentServers.count, "managed server")) available for \(environment.title)."
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Toggle(isOn: $enabled) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(showsServerDetails ? "Logs, metrics & traces" : "Enable MCP servers")
-                        .font(.system(size: 13, weight: .medium))
-                    Text(showsServerDetails && !enabled
-                         ? "MCP servers are off. Use project files and attached evidence."
-                         : managedServers.isEmpty
-                         ? "Use any servers configured for the selected agent."
-                         : "\(counted(environmentServers.count, "managed server")) available for \(environment.title).")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
+            if usesSetupLayout {
+                Text("MCP servers").font(.system(size: 13, weight: .semibold))
+                Toggle(isOn: $enabled) {
+                    Text(enabled ? "Enabled for this diagnosis" : "Disabled for this diagnosis")
+                        .font(.system(size: 13))
                 }
+                .toggleStyle(.appSwitch)
+                .frame(height: 39, alignment: .leading)
+                .accessibilityLabel("Enable MCP servers")
+                .accessibilityHint(setupHelper)
+                Text(setupHelper)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Toggle(isOn: $enabled) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(showsServerDetails ? "Logs, metrics & traces" : "Enable MCP servers")
+                            .font(.system(size: 13, weight: .medium))
+                        Text(showsServerDetails && !enabled
+                             ? "MCP servers are off. Use project files and attached evidence."
+                             : managedServers.isEmpty
+                             ? "Use any servers configured for the selected agent."
+                             : "\(counted(environmentServers.count, "managed server")) available for \(environment.title).")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .toggleStyle(.appSwitch)
+                .accessibilityLabel("Enable MCP servers")
             }
-            .toggleStyle(.appSwitch)
-            .accessibilityLabel("Enable MCP servers")
 
             if showsServerDetails && enabled {
                 ForEach(environmentServers, id: \.name) { server in

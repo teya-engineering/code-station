@@ -59,7 +59,8 @@ struct NewSessionSheetSizeTests {
     }
 
     @MainActor
-    @Test func troubleshootKeepsItsFooterWithinAShortWindow() throws {
+    @Test(arguments: [CGFloat(560), CGFloat(760)])
+    func troubleshootKeepsItsActionsWithinAShortWindow(width: CGFloat) throws {
         let (store, scratch) = TestStore.make()
         defer { withExtendedLifetime(scratch) {} }
         let project = try TestStore.project(in: store, named: "payments-api")
@@ -81,11 +82,11 @@ struct NewSessionSheetSizeTests {
                 .environment(settings)
         })
 
-        host.frame = NSRect(x: 0, y: 0, width: 760, height: 850)
+        host.frame = NSRect(x: 0, y: 0, width: width, height: 850)
         host.layoutSubtreeIfNeeded()
         #expect(measured.value > 300)
 
-        host.frame = NSRect(x: 0, y: 0, width: 760, height: 300)
+        host.frame = NSRect(x: 0, y: 0, width: width, height: 300)
         host.layoutSubtreeIfNeeded()
         #expect(measured.value <= 300)
     }

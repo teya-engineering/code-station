@@ -190,12 +190,12 @@ struct TroubleshootView: View {
                     skillsSection
                 }
                 .padding(.horizontal, 20)
-                .padding(.bottom, 20)
+                .padding(.vertical, 20)
             }
             .frame(maxHeight: 560)
             footer
         }
-        .frame(width: 760)
+        .frame(minWidth: 560, idealWidth: 760, maxWidth: 760)
         .disabled(isStarting)
         .interactiveDismissDisabled(isStarting)
         .background(Theme.background)
@@ -208,10 +208,10 @@ struct TroubleshootView: View {
         .onChange(of: selectedSkills) { _, chosen in
             Preferences.setTroubleshootSkills(chosen)
         }
-        .sheet(isPresented: $showingSkills) {
+        .sheet(isPresented: $showingSkills, onDismiss: { problemFocused = true }) {
             SkillsView(manager: skills).appOverlays()
         }
-        .sheet(isPresented: $showingNewWorkspace) {
+        .sheet(isPresented: $showingNewWorkspace, onDismiss: { problemFocused = true }) {
             NewWorkspaceView(initialProjectIDs: orderedSelectedProjects.map(\.id)) { workspace in
                 showingNewWorkspace = false
                 startDiagnosis(in: workspace)
@@ -221,34 +221,73 @@ struct TroubleshootView: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Troubleshoot")
-                .font(.serif(22, .semibold))
-            Text("Start a diagnosis with the problem, evidence, and project context.")
-                .font(.system(size: 13))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+        VStack(spacing: 0) {
+            HStack(alignment: .top, spacing: 20) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Troubleshoot")
+                        .font(.serif(22, .semibold))
+                    Text("Investigate a problem with evidence and project context.")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+                VStack(alignment: .trailing, spacing: 8) {
+                    actions
+                    Text(readinessText)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.trailing)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityAddTraits(.updatesFrequently)
+                }
+                .frame(width: 320, alignment: .trailing)
+            }
+            .padding(20)
+            Divider().overlay(Theme.hairline)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(20)
+        .onChange(of: readinessText) { _, message in
+            guard let window = NSApp?.keyWindow else { return }
+            NSAccessibility.post(element: window, notification: .announcementRequested,
+                                 userInfo: [.announcement: message,
+                                            .priority: NSAccessibilityPriorityLevel.low.rawValue])
+        }
+    }
+
+    private var readinessText: String {
+        if isStarting { return "Preparing diagnosis…" }
+        if problem.isBlank && attachments.isEmpty {
+            return selectedProjects.isEmpty
+                ? "Describe the problem or attach evidence, and select a project."
+                : "Describe the problem or attach evidence to continue."
+        }
+        if selectedProjects.isEmpty { return "Select a project to continue." }
+        if !runner.isAvailable(selectedAgent) {
+            return "\(selectedAgent.title) CLI was not found on PATH."
+        }
+        if mcpConfigurationState == .checking {
+            return "Checking \(selectedAgent.title) MCP configuration…"
+        }
+        if let message = mcpConfigurationState.message(for: selectedAgent) { return message }
+        return "Ready in \(environment.title). " + diagnosisDestinationText
     }
 
     // Named after the environment rather than after production, since a file can mark
     // anything a mistake would be felt in.
     private var dangerNotice: some View {
         HStack(spacing: 9) {
-            Circle().fill(Theme.deletion).frame(width: 7, height: 7)
+            Circle().fill(Theme.attentionText).frame(width: 7, height: 7)
             Text(environment.title.uppercased())
                 .font(.mono(10.5, .bold))
                 .kerning(0.8)
-                .foregroundStyle(Theme.deletion)
+                .foregroundStyle(Theme.attentionText)
             Text("The agent is told to keep all checks read-only.")
                 .font(.system(size: 12))
             Spacer()
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .surface(Theme.deletion.opacity(0.09), cornerRadius: 10, border: Theme.deletion.opacity(0.18))
+        .surface(Theme.attention.opacity(0.10), cornerRadius: 10, border: Theme.attention.opacity(0.45))
     }
 
     private var skillsSection: some View {
@@ -276,15 +315,18 @@ struct TroubleshootView: View {
             Text("Problem and evidence").font(.system(size: 13, weight: .semibold))
             TroubleshootProblemEditor(problem: $problem, attachments: $attachments,
                                       focused: $problemFocused)
+                .accessibilityHint("Describe the problem or attach evidence, then select at least one project.")
         }
     }
 
     private var optionsSection: some View {
         ViewThatFits(in: .horizontal) {
             HStack(alignment: .top, spacing: 22) {
-                environmentSection.fixedSize(horizontal: true, vertical: false)
+                environmentSection
+                Rectangle().fill(Theme.border).frame(width: 1, height: 86)
                 mcpSection
             }
+            .frame(minWidth: 710)
             VStack(alignment: .leading, spacing: 18) {
                 environmentSection
                 mcpSection
@@ -296,6 +338,11 @@ struct TroubleshootView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Environment").font(.system(size: 13, weight: .semibold))
             TroubleshootEnvironmentPills(environment: $environment)
+                .fixedSize(horizontal: true, vertical: false)
+                .frame(height: 39, alignment: .leading)
+            Text("Choose where the problem is happening.")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -306,7 +353,8 @@ struct TroubleshootView: View {
                                managedServers: configs.servers,
                                environmentServers: environmentMCPServers,
                                state: mcpConfigurationState,
-                               enabled: $mcpServersEnabled)
+                               enabled: $mcpServersEnabled,
+                               usesSetupLayout: true)
             .frame(minWidth: 250, maxWidth: .infinity, alignment: .leading)
     }
 
@@ -315,8 +363,8 @@ struct TroubleshootView: View {
             HStack {
                 Text("Projects").font(.system(size: 13, weight: .semibold))
                 Spacer()
-                if !selectedProjects.isEmpty {
-                    Text("\(selectedProjects.count) selected")
+                Group {
+                    Text(selectedProjects.isEmpty ? "Select at least one" : "\(selectedProjects.count) selected")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }
@@ -358,6 +406,8 @@ struct TroubleshootView: View {
                                     .toggleStyle(.appCheckbox)
                                     .padding(.horizontal, 12)
                                     .padding(.vertical, 9)
+                                    .background(selectedProjects.contains(project.id)
+                                                ? Theme.accent.opacity(0.07) : .clear)
 
                                     if project.id != filteredProjects.last?.id {
                                         Divider().overlay(Theme.hairline).padding(.leading, 36)
@@ -427,28 +477,15 @@ struct TroubleshootView: View {
     private var footer: some View {
         VStack(spacing: 0) {
             Divider().overlay(Theme.hairline)
-            VStack(alignment: .leading, spacing: 14) {
-                HStack(spacing: 8) {
-                    if isStarting { ProgressView().controlSize(.small) }
-                    Text(runner.isAvailable(selectedAgent)
-                         ? diagnosisDestinationText
-                         : "\(selectedAgent.title) CLI was not found on PATH.")
-                        .font(.system(size: 12))
-                        .foregroundStyle(runner.isAvailable(selectedAgent) ? Theme.accent : Theme.deletion)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .accessibilityAddTraits(.updatesFrequently)
-                }
-                ViewThatFits(in: .horizontal) {
-                    HStack(alignment: .bottom, spacing: 12) {
-                        selectors
-                        Spacer(minLength: 12)
-                        actions
-                    }
-                    VStack(alignment: .leading, spacing: 12) {
-                        selectors
-                        HStack { Spacer(); actions }
-                    }
-                }
+            HStack(spacing: 10) {
+                Text("Run with")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                selectors
+                Spacer(minLength: 8)
+                Text("Diagnosis starts with read-only checks.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 10)
@@ -466,10 +503,11 @@ struct TroubleshootView: View {
         HStack(spacing: 9) {
             ActionButton(title: "Cancel", tone: .outlined, height: 38, size: 13,
                          keyboardShortcut: .cancelAction) { dismiss() }
-            ActionButton(title: isStarting ? "Preparing diagnosis" : "Diagnose problem",
+            ActionButton(title: isStarting ? "Preparing diagnosis" : "Start diagnosis",
                          tone: .green, height: 38, size: 13,
                          keyboardShortcut: .defaultAction) { diagnose() }
                 .disabled(!canDiagnose)
+                .accessibilityHint(readinessText)
         }
     }
 
