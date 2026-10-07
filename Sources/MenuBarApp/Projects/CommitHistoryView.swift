@@ -215,8 +215,6 @@ struct CommitHistoryView: View {
                                     Text(file.kind.letter).font(.mono(10, .bold)).foregroundStyle(Theme.accent)
                                     VStack(alignment: .leading, spacing: 5) {
                                         Text(file.fileName).font(.system(size: 11, weight: .semibold)).lineLimit(1)
-                                        Text((file.path as NSString).deletingLastPathComponent).font(.system(size: 10))
-                                            .foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                                         if file.isBinary { Text("Binary").font(.system(size: 10)) }
                                         else {
                                             HStack {
