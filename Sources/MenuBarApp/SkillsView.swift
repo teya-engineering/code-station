@@ -1,7 +1,6 @@
 import SwiftUI
-import UniformTypeIdentifiers
 
-private enum RepertoireFilter: CaseIterable, Identifiable {
+enum RepertoireFilter: CaseIterable, Identifiable {
     case all
     case installed
     case outdated
@@ -12,19 +11,29 @@ private enum RepertoireFilter: CaseIterable, Identifiable {
         switch self {
         case .all: "All"
         case .installed: "Installed"
-        case .outdated: "Outdated"
+        case .outdated: "Updates"
         }
     }
+    func matches(_ plugin: SkillMarketplace.Plugin, query: String, source: String?, installed: Bool, outdated: Bool) -> Bool {
+        guard source == nil || plugin.marketplace == source else { return false }
+        guard self != .installed || installed, self != .outdated || outdated else { return false }
+        let term = query.trimmed
+        return term.isEmpty || [plugin.name, plugin.description, plugin.marketplace, plugin.category ?? ""]
+            .contains { $0.localizedCaseInsensitiveContains(term) }
+    }
+
 }
 
 struct SkillsView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(DialogPresenter.self) private var dialogs
     @State private var manager: SkillsManager
     @State private var query = ""
     @State private var filter = RepertoireFilter.all
-    @State private var repositorySource = ""
-    @State private var setupFailure: String?
-    @State private var configuringMarketplace = false
+    @State private var showingMarketplaces = false
+    @State private var sourceFilter: String?
+    @State private var hoveredPlugin: String?
+    @FocusState private var focusedUninstall: String?
 
     init(manager: SkillsManager) {
         _manager = State(initialValue: manager)
@@ -33,18 +42,40 @@ struct SkillsView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            content
+            HStack(spacing: 12) {
+                ChoicePill(title: "Skills \(manager.plugins.count)", selected: !showingMarketplaces) { showingMarketplaces = false }
+                ChoicePill(title: "Marketplaces \(manager.marketplaceConfigurations.count)", selected: showingMarketplaces) { showingMarketplaces = true }
+                Spacer()
+                TimelineView(.periodic(from: .now, by: 60)) { context in
+                    Text(marketplaceStatus(at: context.date)).font(.mono(10.5)).foregroundStyle(.secondary)
+                }
+            }
+            .padding(.horizontal, 24).padding(.vertical, 16)
+            Divider().overlay(Theme.border)
+            if showingMarketplaces {
+                MarketplaceManagementView(manager: manager, add: addMarketplace) { source in
+                    sourceFilter = source.marketplace
+                    query = ""
+                    filter = .all
+                    showingMarketplaces = false
+                }
+            } else {
+                content
+            }
             SheetFooter(dismiss: { dismiss() }) {
-                Text("Versions are compared with each marketplace manifest on every refresh.")
+                Text("Installs apply to your user account across projects. Agents are managed separately.")
                     .font(.system(size: 11.5))
                     .foregroundStyle(.secondary)
             }
         }
-        .frame(width: 960, height: 660)
+        .frame(width: min(1160, (NSScreen.main?.visibleFrame.width ?? 1200) - 80),
+               height: min(780, (NSScreen.main?.visibleFrame.height ?? 860) - 80))
         .background(Theme.background)
         .task { await manager.refresh() }
-        .sheet(isPresented: $configuringMarketplace) {
-            marketplaceConfiguration.appOverlays()
+        .onChange(of: manager.marketplaceConfigurations) { _, sources in
+            if let sourceFilter, !sources.contains(where: { $0.marketplace == sourceFilter }) {
+                self.sourceFilter = nil
+            }
         }
     }
 
@@ -52,44 +83,13 @@ struct SkillsView: View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
                 Text("Repertoire")
-                    .font(.serif(18, .semibold))
-                TimelineView(.periodic(from: .now, by: 60)) { context in
-                    Text(marketplaceStatus(at: context.date))
-                        .font(.mono(10.5))
-                        .foregroundStyle(.secondary)
-                }
+                    .scaledSerif(28)
+                Text("Find skills for your agents. Keep them up to date.")
+                    .scaledText(13).foregroundStyle(.secondary)
             }
             Spacer(minLength: 12)
-            if manager.updateCount > 0 {
-                Button {
-                    Task { await manager.updateAll() }
-                } label: {
-                    Text(manager.isUpdatingAll
-                         ? "Updating…"
-                         : "Update all \(manager.updateCount)")
-                        .font(.system(size: 11.5, weight: .semibold))
-                        .foregroundStyle(Theme.attentionText)
-                        .padding(.horizontal, 12)
-                        .frame(height: 30)
-                        .surface(Theme.secret.opacity(0.09), cornerRadius: 8,
-                                 border: Theme.secret.opacity(0.48))
-                        .contentShape(RoundedRectangle(cornerRadius: 8))
-                }
-                .buttonStyle(.plain)
-                .hoverLift()
-                .disabled(manager.isUpdatingAll || manager.isRefreshing)
-            }
-            ActionButton(title: "Manage marketplaces",
-                         tone: .outlined,
-                         height: 30,
-                         size: 11.5,
-                         icon: "slider.horizontal.3") {
-                repositorySource = ""
-                setupFailure = nil
-                configuringMarketplace = true
-            }
-            .disabled(manager.isBusy)
-            .appTooltip("Manage marketplaces")
+            ActionButton(title: "Add marketplace", tone: .dark, icon: "plus", action: addMarketplace)
+                .disabled(manager.isBusy)
             if manager.isConfigured {
                 ActionButton(title: manager.isRefreshing ? "Refreshing…" : "Refresh",
                              tone: .sunken,
@@ -103,7 +103,7 @@ struct SkillsView: View {
             }
         }
         .padding(.horizontal, 20)
-        .headerBand()
+        .headerBand(Theme.background, height: 100)
     }
 
     @ViewBuilder private var content: some View {
@@ -124,6 +124,21 @@ struct SkillsView: View {
                     }
                 }
                 filterBar
+                if manager.updateCount > 0 {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("\(outdatedPluginCount) packages have updates").font(.system(size: 13, weight: .semibold))
+                            Text("Update installed copies across your agents.").font(.system(size: 11)).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        ActionButton(title: manager.isUpdatingAll ? "Updating…" : "Update all", tone: .outlined) {
+                            Task { await manager.updateAll() }
+                        }.disabled(manager.isBusy)
+                    }
+                    .padding(14)
+                    .surface(Theme.secret.opacity(0.09), cornerRadius: 10, border: Theme.secret.opacity(0.4))
+                    .padding(.horizontal, 20).padding(.bottom, 16)
+                }
                 columnHeadings
                 ScrollView {
                     if filteredPlugins.isEmpty {
@@ -143,86 +158,17 @@ struct SkillsView: View {
     }
 
     private var marketplaceSetup: some View {
-        VStack(spacing: 18) {
-            VStack(spacing: 8) {
-                Image(systemName: manager.isConfigured
-                      ? "exclamationmark.triangle"
-                      : "shippingbox")
-                    .font(.system(size: 26, weight: .light))
-                    .foregroundStyle(.secondary)
-                Text(manager.isConfigured
-                     ? "Repertoire could not be loaded"
-                     : "Add a skills marketplace")
-                    .font(.serif(17, .semibold))
-                Text(setupFailure
-                     ?? manager.catalogueNotice
-                     ?? (manager.isConfigured
-                         ? "The marketplace returned no packages."
-                         : "Load a marketplace from a Git repository or a local manifest file."))
-                    .font(.system(size: 13))
-                    .foregroundStyle(setupFailure == nil ? Color.secondary : Theme.deletion)
-                    .multilineTextAlignment(.center)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: 560)
-            }
-
-            marketplaceChoices
-
-            Text("Repository sources must contain .claude-plugin/marketplace.json.")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-        }
-        .padding(40)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private var marketplaceConfiguration: some View {
-        MarketplaceManagementView(manager: manager, failure: setupFailure,
-                                  dismiss: { configuringMarketplace = false }) {
-            marketplaceChoices
+        PaneMessage(icon: "shippingbox", title: manager.isConfigured ? "No packages available" : "Your repertoire starts here",
+                    detail: manager.catalogueNotice ?? "Add a marketplace to browse and install skill packages.") {
+            ActionButton(title: "Add marketplace", tone: .dark, action: addMarketplace)
         }
     }
 
-    private var marketplaceChoices: some View {
-        SourcePicker(repositoryURL: $repositorySource,
-                     repositoryTitle: "Git repository",
-                     repositoryDetail: "Clone a repository and refresh it with Git.",
-                     placeholder: "https://github.com/org/marketplace.git",
-                     fileTitle: "Local file",
-                     fileDetail: "Read a marketplace JSON file already on this Mac.",
-                     fileButton: "Choose marketplace file",
-                     isLoading: manager.isBusy,
-                     loadRepository: loadRepository,
-                     chooseFile: chooseMarketplaceFile)
-            .frame(maxWidth: 680)
-    }
-
-    private func loadRepository() {
-        let repository = repositorySource.trimmed
-        guard !manager.isRefreshing, !repository.isEmpty else { return }
-        configure { try await manager.configure(gitRepository: repository) }
-    }
-
-    private func chooseMarketplaceFile() {
-        guard !manager.isRefreshing,
-              let url = FilePicker.chooseFile(prompt: "Load",
-                                              message: "Choose a marketplace JSON file.",
-                                              types: [.json]) else { return }
-        configure { try await manager.configure(localFile: url) }
-    }
-
-    // The setup form closes only once the marketplace is in place; a failure keeps it
-    // open with the reason under the cards.
-    private func configure(_ work: @escaping () async throws -> Void) {
-        setupFailure = nil
-        Task {
-            do {
-                try await work()
-                configuringMarketplace = false
-            } catch {
-                setupFailure = error.localizedDescription
-            }
-        }
+    private func addMarketplace() {
+        dialogs.show(Dialog(title: "Add marketplace",
+                            message: "Connect a source, then choose which packages to install.",
+                            content: AnyView(AddMarketplaceView(manager: manager)),
+                            actions: [.init(label: "Cancel", kind: .cancel)], width: 620, isModal: true))
     }
 
     private var filterBar: some View {
@@ -260,9 +206,13 @@ struct SkillsView: View {
             }
 
             Spacer(minLength: 12)
-            Text("User-scoped installs")
-                .font(.system(size: 11.5))
-                .foregroundStyle(.secondary)
+            OptionMenu(value: manager.marketplaceConfigurations.first { $0.marketplace == sourceFilter }?.label ?? "All marketplaces") {
+                [.item("All marketplaces", checked: sourceFilter == nil) { sourceFilter = nil }]
+                + manager.marketplaceConfigurations.map { source in
+                    .item(source.label, checked: sourceFilter == source.marketplace) { sourceFilter = source.marketplace }
+                }
+            }
+            .frame(maxWidth: 230)
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 13)
@@ -299,9 +249,12 @@ struct SkillsView: View {
             HStack(alignment: .center, spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 7) {
-                        Text(plugin.name)
-                            .font(.system(size: 13.5, weight: .semibold))
-                            .textSelection(.enabled)
+                        Button { showDetails(plugin) } label: {
+                            Text(plugin.name).scaledText(13.5, .semibold)
+                                .foregroundStyle(Theme.accent).contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Details for \(plugin.name)")
                         if let version = plugin.version {
                             Text(version)
                                 .font(.mono(10))
@@ -319,10 +272,9 @@ struct SkillsView: View {
                         .foregroundStyle(Theme.accent)
                         .lineLimit(1)
                     Text(plugin.description)
-                        .font(.system(size: 11.5))
+                        .scaledText(11.5)
                         .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -339,8 +291,9 @@ struct SkillsView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
+        .onHover { hoveredPlugin = $0 ? plugin.id : nil }
         .padding(.horizontal, 12)
-        .padding(.vertical, 9)
+        .padding(.vertical, 14)
         .background(RoundedRectangle(cornerRadius: 9).fill(Theme.card))
         .overlay(RoundedRectangle(cornerRadius: 9)
             .stroke(outdated ? Theme.secret.opacity(0.52) : Theme.border,
@@ -356,17 +309,28 @@ struct SkillsView: View {
         let manageable = manager.canManage(host)
 
         return HStack(spacing: 7) {
-            Toggle(isOn: Binding(
-                get: { installation != nil },
-                set: { selected in
-                    Task { await manager.setInstalled(selected, plugin: plugin, on: host) }
-                })) {
-                    hostStatus(installation, latestVersion: plugin.version,
-                               outdated: outdated, progress: progress)
-                }
-                .toggleStyle(.appCheckbox)
-                .disabled(!manageable || working || manager.isUpdatingAll || manager.isRefreshing)
+            hostStatus(installation, latestVersion: plugin.version,
+                       outdated: outdated, progress: progress)
                 .frame(maxWidth: .infinity, alignment: .leading)
+            if installation == nil, !working {
+                ActionButton(title: "Install", tone: .outlined, height: 26, size: 10.5) {
+                    Task { await manager.setInstalled(true, plugin: plugin, on: host) }
+                }
+                .disabled(!manageable || manager.isUpdatingAll || manager.isRefreshing)
+                .accessibilityLabel("Install \(plugin.name) in \(host.title)")
+            }
+            if installation != nil, !working, !outdated {
+                Button { confirmUninstall(plugin, host: host) } label: {
+                    Image(systemName: "minus.circle").foregroundStyle(Theme.deletion)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(!manageable || manager.isUpdatingAll || manager.isRefreshing)
+                .accessibilityLabel("Uninstall \(plugin.name) from \(host.title)")
+                .help("Uninstall from \(host.title)")
+                .focused($focusedUninstall, equals: "\(plugin.id)-\(host.id)")
+                .opacity(hoveredPlugin == plugin.id || focusedUninstall == "\(plugin.id)-\(host.id)" ? 1 : 0)
+            }
 
             if outdated, progress == nil, let latest = plugin.version {
                 Button {
@@ -432,6 +396,16 @@ struct SkillsView: View {
         }
     }
 
+    private func showDetails(_ plugin: SkillMarketplace.Plugin) {
+        dialogs.show(Dialog(title: plugin.name, message: "\(plugin.marketplace) · Skill package",
+            content: AnyView(SkillPackageDetails(manager: manager, plugin: plugin)),
+            actions: [.init(label: "Done", kind: .cancel)], width: 620, isModal: true))
+    }
+
+    private func confirmUninstall(_ plugin: SkillMarketplace.Plugin, host: SkillHost) {
+        dialogs.show(uninstallDialog(manager: manager, plugin: plugin, host: host))
+    }
+
     private var emptyResults: some View {
         VStack(spacing: 7) {
             Image(systemName: "line.3.horizontal.decrease.circle")
@@ -439,6 +413,11 @@ struct SkillsView: View {
                 .foregroundStyle(.secondary)
             Text("No matching packages")
                 .font(.serif(15, .semibold))
+            ActionButton(title: "Clear filters", tone: .outlined) {
+                query = ""
+                filter = .all
+                sourceFilter = nil
+            }
             Text("Try another search or filter.")
                 .font(.system(size: 11.5))
                 .foregroundStyle(.secondary)
@@ -449,20 +428,9 @@ struct SkillsView: View {
 
     private var filteredPlugins: [SkillMarketplace.Plugin] {
         manager.plugins.filter { plugin in
-            let matchesFilter = switch filter {
-            case .all: true
-            case .installed:
-                SkillHost.allCases.contains { manager.installation(of: plugin, on: $0) != nil }
-            case .outdated:
-                SkillHost.allCases.contains { manager.isOutdated(plugin, on: $0) }
-            }
-            guard matchesFilter else { return false }
-            let term = query.trimmed
-            guard !term.isEmpty else { return true }
-            return plugin.marketplace.localizedCaseInsensitiveContains(term)
-                || plugin.name.localizedCaseInsensitiveContains(term)
-                || plugin.description.localizedCaseInsensitiveContains(term)
-                || plugin.category?.localizedCaseInsensitiveContains(term) == true
+            filter.matches(plugin, query: query, source: sourceFilter,
+                           installed: SkillHost.allCases.contains { manager.installation(of: plugin, on: $0) != nil },
+                           outdated: SkillHost.allCases.contains { manager.isOutdated(plugin, on: $0) })
         }
     }
 

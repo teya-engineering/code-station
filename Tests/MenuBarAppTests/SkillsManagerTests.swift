@@ -11,6 +11,41 @@ struct SkillsManagerTests {
         return url
     }
 
+    @Test func combinesPackageSearchSourceAndInstallationFilters() {
+        var plugin = SkillMarketplace.Plugin(name: "backend", description: "Java conventions", version: "2", category: "Engineering")
+        plugin.marketplace = "team"
+        #expect(RepertoireFilter.installed.matches(plugin, query: " JAVA ", source: "team", installed: true, outdated: false))
+        #expect(!RepertoireFilter.installed.matches(plugin, query: "Java", source: "other", installed: true, outdated: false))
+        #expect(!RepertoireFilter.installed.matches(plugin, query: "", source: nil, installed: false, outdated: false))
+        #expect(!RepertoireFilter.outdated.matches(plugin, query: "", source: nil, installed: true, outdated: false))
+        #expect(RepertoireFilter.outdated.matches(plugin, query: "Engineering", source: "team", installed: true, outdated: true))
+        #expect(!RepertoireFilter.all.matches(plugin, query: "missing", source: nil, installed: true, outdated: true))
+        #expect(RepertoireFilter.all.matches(plugin, query: "", source: nil, installed: false, outdated: false))
+    }
+
+    @Test @MainActor func sourcePreviewDoesNotConnectOrInstallPackages() async throws {
+        let repository = try GitRepo(initialCommit: false)
+        try repository.write(".claude-plugin/marketplace.json", #"{"name":"preview","plugins":[{"name":"tools","description":"Tools"}]}"#)
+        try repository.commit("Add marketplace")
+        let suite = "preview-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let manager = SkillsManager(cacheURL: scratch.path("preview-cache"), preferences: defaults, siteSkills: { nil })
+        let (source, catalogue) = try await manager.previewMarketplace(gitRepository: repository.path)
+        #expect(source.marketplace == "preview")
+        #expect(catalogue.plugins.count == 1)
+        #expect(manager.marketplaceConfigurations.isEmpty)
+        #expect(manager.plugins.isEmpty)
+        #expect(manager.installations.isEmpty)
+        #expect(!manager.isBusy)
+        try manager.saveMarketplace(source)
+        await #expect(throws: ImportError.self) {
+            try await manager.addPreviewedMarketplace(source, catalogue: catalogue)
+        }
+        #expect(manager.marketplaceConfigurations.count == 1)
+        #expect(manager.installations.isEmpty)
+    }
+
     @Test @MainActor func removalPersistsWithoutChangingFilesOrInstallations() throws {
         let suite = "remove-marketplace-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))

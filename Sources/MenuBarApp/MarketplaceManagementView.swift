@@ -1,82 +1,52 @@
 import AppKit
 import SwiftUI
 
-struct MarketplaceManagementView<AddContent: View>: View {
+struct MarketplaceManagementView: View {
+    @Environment(AppSettings.self) private var settings
     @Environment(DialogPresenter.self) private var dialogs
     let manager: SkillsManager
-    let failure: String?
-    let dismiss: () -> Void
-    @ViewBuilder let addContent: () -> AddContent
+    let add: () -> Void
+    let browse: (SkillMarketplaceConfiguration) -> Void
     @State private var removalFailure: String?
     @State private var status: String?
     @State private var checking: String?
-    @State private var contentHeight: CGFloat = 560
-
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 20) {
-                VStack(alignment: .leading, spacing: 7) {
-                    Text("Manage marketplaces").font(.serif(20, .semibold))
-                    Text("Choose the sources for your Repertoire.")
-                        .font(.system(size: 12)).foregroundStyle(.secondary)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Your marketplaces").scaledSerif(22)
+                Text("Sources you trust, available across your projects.").scaledText(12).foregroundStyle(.secondary)
+                if let notice = manager.catalogueNotice { SourceFailure(notice, lineLimit: nil) }
+                ForEach(manager.marketplaceConfigurations, id: \.marketplace) { source in
+                    sourceCard(source)
                 }
-                Spacer()
-                ActionButton(title: "Back to Repertoire", tone: .outlined, size: 12, action: dismiss)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 32)
-            .padding(.vertical, 28)
-            .background(Theme.card)
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    HStack {
-                        SectionLabel("ADDED MARKETPLACES · \(manager.marketplaceConfigurations.count)", style: .field)
-                        Spacer()
-                        Text("Available across your projects")
-                            .font(.system(size: 11)).foregroundStyle(.secondary)
+                if manager.marketplaceConfigurations.isEmpty {
+                    PaneMessage(icon: "shippingbox", title: "No marketplaces yet",
+                                detail: "Add a Git repository or local JSON file to get started.") {
+                        ActionButton(title: "Add marketplace", tone: .dark, action: add)
                     }
-                    ForEach(manager.marketplaceConfigurations, id: \.marketplace) { source in
-                        sourceCard(source)
+                }
+                Text("Removing a source keeps its installed packages and agent settings. Add the source again to manage those packages here.")
+                    .scaledText(12).foregroundStyle(.secondary).padding(.vertical, 12)
+                if let removalFailure { SourceFailure(removalFailure, lineLimit: nil) }
+                if let status { Text(status).scaledText(12).foregroundStyle(Theme.accent) }
+                Divider().overlay(Theme.border)
+                HStack {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("Check for skill updates").scaledText(13, .semibold)
+                        Text("Refresh marketplace versions automatically.").scaledText(12).foregroundStyle(.secondary)
                     }
-                    if manager.marketplaceConfigurations.isEmpty {
-                        VStack(spacing: 7) {
-                            Text("No marketplaces added").font(.serif(17, .semibold))
-                            Text("Add a source below to browse and install skills.")
-                                .font(.system(size: 12)).foregroundStyle(.secondary)
+                    Spacer()
+                    ForEach(SkillsRefreshInterval.allCases) { interval in
+                        ChoicePill(title: interval == .never ? "Manually" : interval.title,
+                                   selected: settings.skillsRefreshInterval == interval) {
+                            settings.skillsRefreshInterval = interval
                         }
-                        .frame(maxWidth: .infinity).padding(22)
-                        .surface(Theme.card, cornerRadius: 12, border: Theme.border)
                     }
-                    Text("Removing a marketplace keeps its installed skills in your agents.")
-                        .font(.system(size: 11)).foregroundStyle(.secondary)
-                    if let removalFailure { SourceFailure(removalFailure) }
-                    if let status {
-                        Text(status).font(.system(size: 12)).foregroundStyle(Theme.accent)
-                    }
-                    Divider().overlay(Theme.border)
-                    Text("Add a marketplace").font(.serif(17, .semibold))
-                    addContent()
-                    if let failure { SourceFailure(failure) }
-                    Text("Repositories must contain .claude-plugin/marketplace.json. Local files must use the marketplace JSON format.")
-                        .font(.system(size: 11)).foregroundStyle(.secondary)
-                }
-                .padding(.horizontal, 32)
-                .padding(.vertical, 28)
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
+                }.padding(.vertical, 12)
             }
-            .frame(height: min(contentHeight, 560))
-            footer
+            .padding(24)
         }
-        .frame(width: 780)
-        .background(Theme.background)
-    }
-
-    private var footer: some View {
-        var footer = SheetFooter(title: "Installed skills are managed separately in Repertoire.", dismiss: dismiss)
-        footer.horizontalInset = 32
-        footer.verticalInset = 22
-        return footer
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func sourceCard(_ source: SkillMarketplaceConfiguration) -> some View {
@@ -87,32 +57,39 @@ struct MarketplaceManagementView<AddContent: View>: View {
                 .surface(Theme.field, cornerRadius: 11)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 7) {
-                Text(source.label).font(.system(size: 14, weight: .semibold))
+                HStack {
+                    Text(source.label).scaledText(14, .semibold)
+                    Text(source.isLocalFile ? "Local file" : "Git repository")
+                        .font(.system(size: 10)).foregroundStyle(.secondary)
+                        .padding(4).background(Theme.field, in: RoundedRectangle(cornerRadius: 5))
+                }
                 Text(source.source).font(.mono(11))
                     .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(1).truncationMode(.middle)
+                    .help(source.source)
                     .textSelection(.enabled)
-                Text("\(source.isLocalFile ? "Local file" : "Git repository") · \(manager.plugins.count { $0.marketplace == source.marketplace }) packages")
-                    .font(.system(size: 11)).foregroundStyle(Theme.accent)
-                Text(manager.installedPackageCount(for: source.marketplace).map { "\($0) installed packages" }
-                     ?? "Installation status unavailable")
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("\(manager.plugins.count { $0.marketplace == source.marketplace }) packages")
+                Text(manager.installedPackageCount(for: source.marketplace).map { "\($0) installed" }
+                     ?? "Status unavailable").foregroundStyle(.secondary)
+            }.font(.system(size: 11))
+            ActionButton(title: "Browse packages", tone: .outlined, height: 32, size: 12) { browse(source) }
             Button { confirmRemoval(source) } label: {
                 Text(checking == source.marketplace ? "Checking…" : "Remove…")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(Theme.deletion)
                     .padding(.horizontal, 12)
                     .frame(height: 32)
-                    .surface(Theme.card, cornerRadius: 8, border: Theme.border)
+                    .surface(Theme.card, cornerRadius: 8, border: Theme.deletion.opacity(0.3))
                     .contentShape(RoundedRectangle(cornerRadius: 8))
             }
             .buttonStyle(.plain)
                 .disabled(manager.isBusy || checking != nil)
                 .accessibilityLabel("Remove \(source.label)")
         }
-        .padding(20)
+        .padding(18)
         .surface(Theme.card, cornerRadius: 12, border: Theme.border)
     }
 

@@ -24,8 +24,8 @@ private struct AppOverlays: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .disabled(dialogs.current?.impact != nil)
-            .accessibilityHidden(dialogs.current?.impact != nil)
+            .disabled(dialogs.current?.impact != nil || dialogs.current?.isModal == true)
+            .accessibilityHidden(dialogs.current?.impact != nil || dialogs.current?.isModal == true)
             .overlay { ToolCallDetailHost() }
             .overlay { TooltipHost() }
             .overlay { DialogHost() }

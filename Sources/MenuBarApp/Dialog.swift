@@ -53,6 +53,7 @@ struct Dialog: Identifiable {
     var onCancel: () -> Void = {}
     var width: CGFloat = 340
     var impact: Impact?
+    var isModal = false
 }
 
 extension Dialog {
@@ -96,7 +97,7 @@ final class DialogPresenter {
     private weak var presentingWindow: NSWindow?
 
     func show(_ dialog: Dialog) {
-        if current == nil, dialog.impact != nil {
+        if current == nil, dialog.impact != nil || dialog.isModal {
             presentingWindow = NSApp?.keyWindow
             previousResponder = presentingWindow?.firstResponder
         }
@@ -126,6 +127,7 @@ final class DialogPresenter {
 
 struct DialogHost: View {
     @Environment(DialogPresenter.self) private var presenter
+    @FocusState private var focusedAction: UUID?
 
     var body: some View {
         if let dialog = presenter.current {
@@ -176,12 +178,20 @@ struct DialogHost: View {
             VStack(spacing: 8) {
                 ForEach(dialog.actions) { action in
                     button(action)
+                        .focused($focusedAction, equals: action.id)
                 }
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 20)
         }
         .floatingCard(cornerRadius: 14)
+        .accessibilityElement(children: .contain)
+        .accessibilityAddTraits(dialog.isModal ? [.isModal] : [])
+        .accessibilityLabel(dialog.title)
+        .onAppear {
+            if dialog.isModal { focusedAction = dialog.actions.first { $0.kind == .cancel }?.id }
+        }
+        .onDisappear { if dialog.isModal { presenter.restoreFocus() } }
     }
 
     // The buttons are the app's own pills, so the action a dialog confirms wears the

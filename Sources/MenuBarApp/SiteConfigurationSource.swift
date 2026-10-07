@@ -73,6 +73,12 @@ struct SourcePicker: View {
     let loadRepository: () -> Void
     let chooseFile: () -> Void
     var showsOneSource = false
+    var repositoryButton = "Load settings"
+    var repositoryHelp = "A root-level site-defaults.json, teya-defaults.json, or one JSON file. Uses your existing Git access. Personal tokens and passwords stay outside this file."
+    var localFileHelp = "Choose a settings file on this Mac."
+    var repositoryChoice = "GitHub repository"
+    var fileChoice = "JSON file"
+    var onSourceChange: () -> Void = {}
 
     @State private var source = Source.repository
     @State private var showsRepositoryHelp = false
@@ -88,11 +94,11 @@ struct SourcePicker: View {
     private var selectedSource: some View {
         VStack(alignment: .leading, spacing: 13) {
             HStack(spacing: 7) {
-                ChoicePill(title: "GitHub repository", selected: source == .repository,
-                           enabled: !isLoading) { source = .repository }
+                ChoicePill(title: repositoryChoice, selected: source == .repository,
+                           enabled: !isLoading) { source = .repository; onSourceChange() }
                     .accessibilityAddTraits(source == .repository ? [.isSelected] : [])
-                ChoicePill(title: "JSON file", selected: source == .file,
-                           enabled: !isLoading) { source = .file }
+                ChoicePill(title: fileChoice, selected: source == .file,
+                           enabled: !isLoading) { source = .file; onSourceChange() }
                     .accessibilityAddTraits(source == .file ? [.isSelected] : [])
             }
             .accessibilityElement(children: .contain)
@@ -102,7 +108,7 @@ struct SourcePicker: View {
                 Text("Repository URL").font(.system(size: 11, weight: .semibold))
                 HStack(spacing: 9) {
                     repositoryField
-                    ActionButton(title: isLoading ? "Loading…" : "Load settings",
+                    ActionButton(title: isLoading ? "Loading…" : repositoryButton,
                                  tone: .outlined, action: loadRepository)
                         .disabled(isLoading || repositoryURL.isBlank)
                 }
@@ -111,7 +117,7 @@ struct SourcePicker: View {
                            size: 11) { showsRepositoryHelp.toggle() }
                     .accessibilityValue(showsRepositoryHelp ? "Expanded" : "Collapsed")
                 if showsRepositoryHelp {
-                    Text("A root-level site-defaults.json, teya-defaults.json, or one JSON file. Uses your existing Git access. Personal tokens and passwords stay outside this file.")
+                    Text(repositoryHelp)
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -121,7 +127,7 @@ struct SourcePicker: View {
                     ActionButton(title: fileButton, tone: .outlined, icon: "folder",
                                  action: chooseFile)
                         .disabled(isLoading)
-                    Text("Choose a settings file on this Mac.")
+                    Text(localFileHelp)
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }

@@ -157,9 +157,9 @@ enum SkillActionProgress: String, Equatable, Sendable {
     case checkingMarketplace = "Checking marketplace…"
     case addingMarketplace = "Adding marketplace…"
     case refreshingMarketplace = "Refreshing marketplace…"
-    case installing = "Installing skill…"
-    case uninstalling = "Uninstalling skill…"
-    case updating = "Updating skill…"
+    case installing = "Installing package…"
+    case uninstalling = "Uninstalling package…"
+    case updating = "Updating package…"
     case checkingInstallation = "Checking installation…"
 }
 
@@ -387,6 +387,33 @@ final class SkillsManager {
         hostFailures = [:]
         await finishLoad(preloaded: [configuration.marketplace:
             CatalogueLoad(marketplace: catalogue, notice: nil, didRefresh: true)])
+    }
+
+    func previewMarketplace(gitRepository source: String) async throws -> (SkillMarketplaceConfiguration, SkillMarketplace) {
+        guard !isBusy else { throw ImportError("Wait for the current operation to finish.") }
+        let source = source.trimmed
+        guard !source.isEmpty else { throw ImportError("Enter a Git repository.") }
+        guard !marketplaceConfigurations.contains(where: { $0.source == source }) else {
+            throw ImportError("This marketplace is already connected. Find it in Marketplaces.")
+        }
+        isRefreshing = true
+        defer { isRefreshing = false }
+        let load = await Self.loadGitCatalogue(source: source, at: cacheURL(source: source), forceClone: true)
+        guard let catalogue = load.marketplace, !catalogue.name.isBlank else {
+            throw ImportError(load.notice ?? "The marketplace must contain a name and packages.")
+        }
+        return (.init(source: source, sourceKind: .gitRepository,
+                      marketplace: catalogue.name, label: catalogue.name), catalogue)
+    }
+
+    func addPreviewedMarketplace(_ source: SkillMarketplaceConfiguration, catalogue: SkillMarketplace) async throws {
+        guard !isBusy else { throw ImportError("Wait for the current operation to finish.") }
+        guard !marketplaceConfigurations.contains(where: { $0.marketplace == source.marketplace || $0.source == source.source }) else {
+            throw ImportError("This marketplace is already connected. Find it in Marketplaces.")
+        }
+        try saveMarketplace(source)
+        isRefreshing = true
+        await finishLoad(preloaded: [source.marketplace: .init(marketplace: catalogue, notice: nil, didRefresh: true)])
     }
 
     func configure(gitRepository source: String) async throws {
