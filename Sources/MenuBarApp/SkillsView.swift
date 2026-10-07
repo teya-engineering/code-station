@@ -34,7 +34,6 @@ struct SkillsView: View {
     @State private var sourceFilter: String?
     @State private var hoveredControl: String?
     @FocusState private var focusedUninstall: String?
-    @FocusState private var focusedDescription: String?
 
     init(manager: SkillsManager) {
         _manager = State(initialValue: manager)
@@ -252,17 +251,7 @@ struct SkillsView: View {
             HStack(alignment: .center, spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 7) {
-                        Button { showDetails(plugin) } label: {
-                            Text(plugin.name).scaledText(13.5, .semibold)
-                                .foregroundStyle(Theme.accent).contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Details for \(plugin.name)")
-                        .accessibilityValue(plugin.description)
-                        .focused($focusedDescription, equals: plugin.id + "-name")
-                        .appTooltip(plugin.description,
-                                    isFocused: focusedDescription == plugin.id + "-name",
-                                    persistsOnHover: true)
+                        Text(plugin.name).scaledText(13.5, .semibold)
                         SkillDescriptionButton(plugin: plugin)
                         if let version = plugin.version {
                             Text(version)
@@ -407,12 +396,6 @@ struct SkillsView: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
         }
-    }
-
-    private func showDetails(_ plugin: SkillMarketplace.Plugin) {
-        dialogs.show(Dialog(title: plugin.name, message: "\(plugin.marketplace) · Skill package",
-            content: AnyView(SkillPackageDetails(manager: manager, plugin: plugin)),
-            actions: [.init(label: "Done", kind: .cancel)], width: 620, isModal: true))
     }
 
     private func confirmUninstall(_ plugin: SkillMarketplace.Plugin, host: SkillHost) {
