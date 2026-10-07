@@ -383,10 +383,6 @@ struct ChangesView: View {
 
     private func header(compact: Bool = false) -> some View {
         HStack(spacing: compact ? 8 : 12) {
-            HStack(spacing: 4) {
-                ChoicePill(title: "Changes \(files.count)", selected: mode == .changes) { mode = .changes }
-                ChoicePill(title: "History", selected: mode == .history) { mode = .history }
-            }
             HStack(spacing: 7) {
                 ProjectDot(tint: Theme.projectTint(for: repositoryName), size: 8)
                 Text(repositoryName).font(.system(size: 13, weight: .semibold)).lineLimit(1)
@@ -397,6 +393,10 @@ struct ChangesView: View {
                         .item(repository.name, checked: repository.root == root) { selectRepository(repository.root, nil) }
                     }
                 }.accessibilityLabel("Select project, \(repositoryName)")
+            HStack(spacing: 4) {
+                ChoicePill(title: "Changes \(files.count)", selected: mode == .changes) { mode = .changes }
+                ChoicePill(title: "History", selected: mode == .history) { mode = .history }
+            }
             Spacer(minLength: 0)
             if let snapshot, snapshot.state == .ready {
                 if !compact {
