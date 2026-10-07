@@ -345,7 +345,16 @@ struct MessageSegment: Identifiable, Equatable {
             // Odd chunks sit between a pair of fences, so they are the code.
             let isCode = !index.isMultiple(of: 2)
             if !isCode {
-                let prose = part.trimmed
+                var prose = part
+                // The quote markers a fence opens on would draw as empty quote lines.
+                if index < parts.count - 1, quoteDepth(lastLineOf: part) > 0 {
+                    var lines = prose.components(separatedBy: "\n")
+                    while let last = lines.last, quoteDepth(lastLineOf: last) > 0 || last.trimmed.isEmpty {
+                        lines.removeLast()
+                    }
+                    prose = lines.joined(separator: "\n")
+                }
+                prose = prose.trimmed
                 if !prose.isEmpty {
                     segments.append(MessageSegment(id: index, text: prose, isCode: false))
                 }
@@ -362,13 +371,43 @@ struct MessageSegment: Identifiable, Equatable {
                     body = String(part[part.index(after: newline)...])
                 }
             }
+            let depth = quoteDepth(lastLineOf: parts[index - 1])
+            if depth > 0 {
+                body = body.components(separatedBy: "\n")
+                    .map { unquoted($0, depth: depth) }
+                    .joined(separator: "\n")
+            }
             let code = body.trimmingCharacters(in: .newlines)
-            if !code.isEmpty {
+            let isOpen = index == parts.count - 1
+            // An empty suggestion is how a GitHub review comment asks to delete the lines.
+            if !code.isEmpty || (language == suggestionLanguage && !isOpen) {
                 segments.append(MessageSegment(id: index, text: code, isCode: true,
                                                language: language,
-                                               isOpen: index == parts.count - 1))
+                                               isOpen: isOpen))
             }
         }
         return segments
+    }
+
+    static let suggestionLanguage = "suggestion"
+
+    var isDeletion: Bool { isCode && language == Self.suggestionLanguage && text.isEmpty }
+
+    // How many quote levels the text's last line opens, when that line holds nothing but
+    // quote markers. That is the shape of the line a fence starts on inside a quote.
+    private static func quoteDepth(lastLineOf text: String) -> Int {
+        let line = text.split(separator: "\n", omittingEmptySubsequences: false).last ?? ""
+        guard line.allSatisfy({ $0 == ">" || $0 == " " || $0 == "\t" }) else { return 0 }
+        return line.filter { $0 == ">" }.count
+    }
+
+    private static func unquoted(_ line: String, depth: Int) -> String {
+        var rest = Substring(line)
+        for _ in 0..<depth {
+            let trimmed = rest.drop(while: { $0 == " " || $0 == "\t" })
+            guard trimmed.first == ">" else { break }
+            rest = trimmed.dropFirst()
+        }
+        return String(rest.first == " " ? rest.dropFirst() : rest)
     }
 }

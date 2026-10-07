@@ -33,6 +33,18 @@ struct MobileAccessTests {
         ])
     }
 
+    @Test func mobilePageStripsQuoteMarkersFromAFenceInsideAQuote() throws {
+        let segments = try mobileFencedSegments(
+            "> looks off\n>\n> ```suggestion\n>     let value = 1\n> ```\n> unused\n>\n> ```suggestion\n>\n> ```")
+
+        #expect(segments == [
+            ["kind": "prose", "text": "> looks off"],
+            ["kind": "code", "text": "    let value = 1", "language": "suggestion"],
+            ["kind": "prose", "text": "> unused"],
+            ["kind": "code", "text": "", "language": "suggestion"],
+        ])
+    }
+
     @Test func mobilePageRendersQueuedMessageDetails() throws {
         let url = try #require(AppResources.bundle.url(
             forResource: "mobile-session", withExtension: "html"))

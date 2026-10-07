@@ -1678,10 +1678,16 @@ struct MarkdownCodeBlock: View, Equatable {
                     .kerning(0.6)
                     .foregroundStyle(.secondary)
             }
-            ScrollView(.horizontal, showsIndicators: false) {
-                SelectableText(code: CodeHighlight.highlight(segment.text, tag: segment.language),
-                               size: 12)
-                    .padding(.trailing, 32)
+            if segment.isDeletion {
+                Text("Deletes the commented lines")
+                    .scaledText(12)
+                    .foregroundStyle(.secondary)
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    SelectableText(code: CodeHighlight.highlight(segment.text, tag: segment.language),
+                                   size: 12)
+                        .padding(.trailing, 32)
+                }
             }
         }
         .padding(12)

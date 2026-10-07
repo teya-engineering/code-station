@@ -345,6 +345,11 @@
       font: 700 10px var(--mono);
       letter-spacing: .8px;
     }
+    .code-deletion {
+      padding: 10px 11px;
+      color: var(--faint);
+      font: 12px/1.5 var(--sans);
+    }
     .prose-code pre {
       margin: 0;
       overflow-x: auto;
@@ -1388,9 +1393,16 @@
       // Fenced code stays source text on the phone, matching the transcript on the Mac.
       // The last segment may still be open while an answer streams, so an unmatched fence
       // is treated as code until its closing fence arrives.
-      const fencedSegments = text => text.split('```').flatMap((part, index) => {
+      const fencedSegments = text => text.split('```').flatMap((part, index, parts) => {
         if (index % 2 === 0) {
-          const prose = part.trim();
+          let prose = part;
+          // The quote markers a fence opens on would draw as empty quote lines.
+          if (index < parts.length - 1 && quoteDepth(part) > 0) {
+            const lines = prose.split('\n');
+            while (lines.length && /^[> \t]*$/.test(lines[lines.length - 1])) lines.pop();
+            prose = lines.join('\n');
+          }
+          prose = prose.trim();
           return prose ? [{ kind: 'prose', text: prose }] : [];
         }
 
@@ -1404,9 +1416,28 @@
             code = part.slice(newline + 1);
           }
         }
+        const depth = quoteDepth(parts[index - 1]);
+        if (depth > 0) code = code.split('\n').map(line => unquoted(line, depth)).join('\n');
         code = code.replace(/^\n+|\n+$/g, '');
-        return code ? [{ kind: 'code', text: code, language }] : [];
+        // An empty suggestion is how a GitHub review comment asks to delete the lines.
+        if (!code && (language !== 'suggestion' || index === parts.length - 1)) return [];
+        return [{ kind: 'code', text: code, language }];
       });
+
+      // A fence opened inside a quote sits on a line of bare quote markers, and every line
+      // of its code starts with the same markers.
+      const quoteDepth = text => {
+        const line = text.slice(text.lastIndexOf('\n') + 1);
+        return /^[>\s]*$/.test(line) ? (line.match(/>/g) || []).length : 0;
+      };
+      const unquoted = (line, depth) => {
+        for (let level = 0; level < depth; level += 1) {
+          const trimmed = line.replace(/^[ \t]*/, '');
+          if (!trimmed.startsWith('>')) break;
+          line = trimmed.slice(1);
+        }
+        return line.startsWith(' ') ? line.slice(1) : line;
+      };
 
       const renderProse = (text, showCursor) => {
         const prose = element('div', 'prose');
@@ -1419,7 +1450,9 @@
           if (segment.language) {
             code.append(element('div', 'code-language', segment.language.toUpperCase()));
           }
-          code.append(element('pre', '', segment.text));
+          code.append(segment.language === 'suggestion' && !segment.text
+            ? element('div', 'code-deletion', 'Deletes the commented lines')
+            : element('pre', '', segment.text));
           prose.append(code);
         }
         if (showCursor) prose.append(element('span', 'cursor'));
