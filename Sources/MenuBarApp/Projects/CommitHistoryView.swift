@@ -7,7 +7,6 @@ final class CommitHistorySelection {
     var commit: GitCommitSummary?
     var fileID: String?
     var parent: String?
-    var search = ""
     var showingDetail = false
 
     func select(_ value: GitCommitSummary) {
@@ -20,81 +19,94 @@ final class CommitHistorySelection {
     }
 }
 
-struct CommitHistoryView: View {
-    let root: String
-    let commits: [GitCommitSummary]
-    @Bindable var selection: CommitHistorySelection
-    @Environment(AppSettings.self) private var settings
-    @State private var loadedFiles: GitInspector.CommitFiles?
-    @State private var filesRequest: String?
-    @State private var diffRequest: String?
-    @State private var loadedDiff: FileDiff?
-    @State private var text: NSAttributedString?
-    @State private var filesVisible = false
-    @State private var expanding: Set<String> = []
-    @State private var scroll = DiffTextView.Scroll.top
-    @FocusState private var focus: Focus?
-    private enum Focus { case commits, files }
+struct CommitDayGroup: Identifiable, Equatable {
+    let id: Int
+    let title: String
+    var commits: [GitCommitSummary]
+}
 
-    private var filtered: [GitCommitSummary] {
-        commits.filter { selection.search.isEmpty || $0.subject.localizedCaseInsensitiveContains(selection.search)
-            || $0.hash.localizedCaseInsensitiveContains(selection.search) }
+// The quiet labels the navigator groups commits under. Groups follow the order git gave,
+// so a commit dated out of step with its neighbours starts a group of its own instead of
+// being moved away from where it sits in the history.
+enum CommitDay {
+    static func title(for date: Date?, now: Date = Date(), calendar: Calendar = .current) -> String {
+        guard let date else { return "Older" }
+        if calendar.isDate(date, inSameDayAs: now) { return "Today" }
+        if let yesterday = calendar.date(byAdding: .day, value: -1, to: now),
+           calendar.isDate(date, inSameDayAs: yesterday) { return "Yesterday" }
+        if date < now, calendar.isDate(date, equalTo: now, toGranularity: .weekOfYear) { return "Earlier this week" }
+        return "Older"
     }
-    private var result: GitInspector.CommitFiles? { filesRequest == request ? loadedFiles : nil }
-    private var fileRequest: String { request + "/" + (file?.id ?? "") }
-    private var diff: FileDiff? { diffRequest == fileRequest ? loadedDiff : nil }
-    private var file: GitChange? { result?.files.first { $0.id == selection.fileID } }
-    private var comparison: String { "\(selection.parent.map { String($0.prefix(8)) } ?? "Empty tree") → \(selection.commit?.shortHash ?? "")" }
-    private var request: String { "\(selection.commit?.hash ?? "")/\(selection.parent ?? "")" }
 
-    var body: some View {
-        GeometryReader { geometry in
-            let narrow = geometry.size.width < 850
-            HStack(spacing: 0) {
-                if !narrow || !selection.showingDetail {
-                    historyList
-                        .frame(width: narrow ? nil : 270)
-                    if !narrow { Rectangle().fill(Theme.border).frame(width: 1) }
-                }
-                if !narrow || selection.showingDetail {
-                    VStack(spacing: 0) {
-                        if narrow {
-                            HStack {
-                                InlineLink(title: "Back to history") { selection.showingDetail = false }
-                                Spacer()
-                                InlineLink(title: filesVisible ? "Hide files" : "Show files") { filesVisible.toggle() }
-                            }.padding(12)
-                        }
-                        if let commit = selection.commit {
-                            summary(commit)
-                            if let result {
-                                if let note = result.note {
-                                    PaneMessage(icon: "exclamationmark.triangle", title: "Could not read commit", detail: note)
-                                } else if result.files.isEmpty {
-                                    PaneMessage(icon: "doc", title: "No file changes", detail: "This commit has no file changes against the selected parent.")
-                                } else {
-                                    HStack(spacing: 0) {
-                                        if !narrow || filesVisible {
-                                            fileList(result.files).frame(width: narrow ? nil : 230)
-                                            Rectangle().fill(Theme.border).frame(width: 1)
-                                        }
-                                        if !narrow || !filesVisible { fileDiff }
-                                    }
-                                }
-                            } else {
-                                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
-                            }
-                        } else {
-                            PaneMessage(icon: "clock", title: "Select a commit", detail: "Choose a commit to review its files.")
-                        }
-                    }.frame(maxWidth: .infinity).background(Theme.card)
-                }
+    static func groups(_ commits: [GitCommitSummary], now: Date = Date(),
+                       calendar: Calendar = .current) -> [CommitDayGroup] {
+        var groups: [CommitDayGroup] = []
+        for commit in commits {
+            let title = title(for: commit.date, now: now, calendar: calendar)
+            if groups.last?.title == title {
+                groups[groups.count - 1].commits.append(commit)
+            } else {
+                groups.append(CommitDayGroup(id: groups.count, title: title, commits: [commit]))
             }
         }
-        .background(Theme.background)
+        return groups
+    }
+}
+
+// One commit read top to bottom: what it is, which files it touched, then every file's
+// diff in its own card. The project is named once, in the navigator, so this page never
+// repeats it.
+struct CommitHistoryView: View {
+    let root: String
+    @Bindable var selection: CommitHistorySelection
+    var back: (() -> Void)?
+    @State private var loadedFiles: GitInspector.CommitFiles?
+    @State private var filesRequest: String?
+    @State private var collapsed: Set<String> = []
+    @State private var copied = false
+
+    private var request: String { "\(selection.commit?.hash ?? "")/\(selection.parent ?? "")" }
+    private var result: GitInspector.CommitFiles? { filesRequest == request ? loadedFiles : nil }
+    private var comparison: String {
+        "\(selection.parent.map { String($0.prefix(8)) } ?? "Empty tree") → \(selection.commit?.shortHash ?? "")"
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if let back {
+                HStack {
+                    InlineLink(title: "Back to history", action: back)
+                    Spacer()
+                }.padding(.horizontal, 28).padding(.top, 14)
+            }
+            if let commit = selection.commit {
+                summary(commit)
+                if let result {
+                    if let note = result.note {
+                        PaneMessage(icon: "exclamationmark.triangle", title: "Could not read commit", detail: note)
+                    } else if result.files.isEmpty {
+                        PaneMessage(icon: "doc", title: "No file changes",
+                                    detail: "This commit has no file changes against the selected parent.")
+                    } else {
+                        page(commit, result.files)
+                    }
+                } else {
+                    ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            } else {
+                PaneMessage(icon: "clock", title: "Select a commit",
+                            detail: "Pick a commit under a project in the Workspace navigator.")
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.card)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Commit")
         .task(id: request) {
             guard let commit = selection.commit else { return }
-            loadedFiles = nil; loadedDiff = nil; text = nil
+            loadedFiles = nil
+            collapsed = []
+            copied = false
             let loaded = await GitInspector.commitFiles(commit.hash, parent: selection.parent, root: root)
             guard !Task.isCancelled else { return }
             if selection.parent == nil, let parent = loaded.parents.first {
@@ -103,198 +115,290 @@ struct CommitHistoryView: View {
             }
             filesRequest = request
             loadedFiles = loaded
-            if !loaded.files.contains(where: { $0.id == selection.fileID }) {
-                selection.fileID = loaded.files.first?.id
+            if !loaded.files.contains(where: { $0.id == selection.fileID }) { selection.fileID = nil }
+        }
+    }
+
+    // MARK: - Summary
+
+    private func summary(_ commit: GitCommitSummary) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(commit.subject).font(.serif(22)).textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 12) {
+                Text("\(commit.author) · \(commit.relativeDate)").lineLimit(1)
+                Button { copyHash(commit) } label: {
+                    Label(copied ? "Copied" : commit.shortHash, systemImage: copied ? "checkmark" : "doc.on.doc")
+                        .font(.mono(11)).foregroundStyle(.primary)
+                        .padding(.horizontal, 8).padding(.vertical, 5)
+                        .background(Theme.field, in: RoundedRectangle(cornerRadius: 6))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .appTooltip(commit.hash)
+                .accessibilityLabel("Copy full commit hash")
+                .accessibilityValue(copied ? "Copied" : commit.shortHash)
+                Spacer(minLength: 0)
+                parentPicker
+            }
+            .font(.system(size: 11)).foregroundStyle(.secondary)
+            HStack(spacing: 10) {
+                if let result, result.note == nil, !result.files.isEmpty {
+                    let added = result.files.compactMap(\.added).reduce(0, +)
+                    let removed = result.files.compactMap(\.removed).reduce(0, +)
+                    Text(counted(result.files.count, "file") + " changed")
+                    Text("+\(added)").foregroundStyle(Theme.addition)
+                    Text("-\(removed)").foregroundStyle(Theme.deletion)
+                    proportion(added: added, removed: removed)
+                }
+                Spacer(minLength: 0)
+                // Split diffs come later; the pill keeps their place so the layout does
+                // not shift when they arrive.
+                HStack(spacing: 4) {
+                    ChoicePill(title: "Unified", selected: true) {}
+                    ChoicePill(title: "Split", selected: false, enabled: false) {}
+                        .appTooltip("Split diffs are not available yet")
+                }
+            }
+            .font(.system(size: 11))
+        }
+        .padding(.horizontal, 28).padding(.top, 22).padding(.bottom, 18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(alignment: .bottom) { Rectangle().fill(Theme.border).frame(height: 1) }
+    }
+
+    // A menu when the commit is a merge and there is a parent to choose, plain text when not.
+    @ViewBuilder private var parentPicker: some View {
+        let parents = result?.parents ?? []
+        let label = HStack(spacing: 5) {
+            Text(comparison).font(.mono(10))
+            if parents.count > 1 { Image(systemName: "chevron.down").font(.system(size: 9)) }
+        }.padding(6).contentShape(Rectangle())
+        if parents.count > 1 {
+            label
+                .appMenu {
+                    parents.enumerated().map { index, parent in
+                        .item("Parent \(index + 1): \(parent.prefix(8))", checked: selection.parent == parent) {
+                            selection.parent = parent
+                            selection.fileID = nil
+                        }
+                    }
+                }
+                .accessibilityLabel("Comparison parent: \(comparison)")
+        } else {
+            label.accessibilityLabel("Compared with \(comparison)")
+        }
+    }
+
+    private func proportion(added: Int, removed: Int) -> some View {
+        let cells = 10
+        let total = added + removed
+        let green = total == 0 ? 0 : Int((Double(added) / Double(total) * Double(cells)).rounded())
+        let red = total == 0 ? 0 : cells - green
+        return HStack(spacing: 1) {
+            ForEach(0..<cells, id: \.self) { cell in
+                RoundedRectangle(cornerRadius: 1)
+                    .fill(cell < green ? Theme.addition : cell < green + red ? Theme.deletion : Theme.sunken)
+                    .frame(width: 7, height: 9)
+            }
+        }.accessibilityHidden(true)
+    }
+
+    // MARK: - Files
+
+    private func page(_ commit: GitCommitSummary, _ files: [GitChange]) -> some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
+                    fileSummary(files) { file in
+                        selection.fileID = file.id
+                        collapsed.remove(file.id)
+                        withAnimation(Motion.control) { proxy.scrollTo(file.id, anchor: .top) }
+                        announce("Showing \(file.path)")
+                    }
+                    .padding(.bottom, 20)
+                    ForEach(Array(files.enumerated()), id: \.element.id) { index, file in
+                        Section {
+                            VStack(spacing: 0) {
+                                if !collapsed.contains(file.id) {
+                                    CommitFileDiff(root: root, hash: commit.hash, parent: selection.parent, file: file)
+                                        .background(Theme.card)
+                                        .clipShape(OpenTopCard(radius: 9))
+                                        .overlay(OpenTopCard(radius: 9).stroke(Theme.border))
+                                }
+                            }.padding(.bottom, 16)
+                        } header: {
+                            cardHeader(file, position: index + 1, of: files.count).id(file.id)
+                        }
+                    }
+                }
+                .padding(.horizontal, 28).padding(.top, 18).padding(.bottom, 12)
             }
         }
-        .task(id: fileRequest) {
-            loadedDiff = nil; text = nil; scroll = .top
-            guard let commit = selection.commit, let file else { return }
-            let loaded = await GitInspector.commitFileDiff(commit.hash, parent: selection.parent, file: file, root: root)
+        .accessibilityLabel("Changed files and diffs")
+    }
+
+    private func fileSummary(_ files: [GitChange], jump: @escaping (GitChange) -> Void) -> some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Changed files").font(.system(size: 12, weight: .semibold))
+                Spacer()
+                Text("Click a file to jump to it").font(.system(size: 10.5)).foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 14).frame(height: 36)
+            Rectangle().fill(Theme.hairline).frame(height: 1)
+            ForEach(files) { file in
+                let current = selection.fileID == file.id
+                Button { jump(file) } label: {
+                    HStack(spacing: 10) {
+                        kindLetter(file).frame(width: 20, alignment: .leading)
+                        HStack(spacing: 8) {
+                            Text(file.fileName).font(.system(size: 11.5, weight: .semibold))
+                            let folder = (file.path as NSString).deletingLastPathComponent
+                            if !folder.isEmpty {
+                                Text(folder).font(.mono(10.5)).foregroundStyle(.secondary).truncationMode(.head)
+                            }
+                        }.lineLimit(1)
+                        Spacer(minLength: 8)
+                        counts(file)
+                    }
+                    .padding(.horizontal, 14).frame(height: 30)
+                    .background(current ? Theme.accent.opacity(0.1) : .clear)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .hoverFill(cornerRadius: 0)
+                .appTooltip(file.path)
+                .accessibilityLabel("\(file.path), \(file.kind.label)")
+                .accessibilityHint("Scrolls to this file's diff")
+                .accessibilityAddTraits(current ? .isSelected : [])
+            }
+        }
+        .background(Theme.background)
+        .clipShape(RoundedRectangle(cornerRadius: 9))
+        .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
+    }
+
+    private func cardHeader(_ file: GitChange, position: Int, of count: Int) -> some View {
+        let isCollapsed = collapsed.contains(file.id)
+        let shape = UnevenRoundedRectangle(topLeadingRadius: 9, bottomLeadingRadius: isCollapsed ? 9 : 0,
+                                           bottomTrailingRadius: isCollapsed ? 9 : 0, topTrailingRadius: 9)
+        return HStack(spacing: 8) {
+            Button {
+                if !collapsed.insert(file.id).inserted { collapsed.remove(file.id) }
+            } label: {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 10))
+                    .rotationEffect(.degrees(isCollapsed ? 0 : 90))
+                    .frame(width: 24, height: 30).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .motion(Motion.control, value: isCollapsed)
+            .accessibilityLabel("\(isCollapsed ? "Expand" : "Collapse") \(file.fileName)")
+            .accessibilityValue(isCollapsed ? "Collapsed" : "Expanded")
+            kindLetter(file).frame(width: 20, alignment: .leading)
+            Text(file.fileName).font(.system(size: 12, weight: .semibold)).lineLimit(1).layoutPriority(1)
+            Text(file.originalPath.map { "\($0) → \(file.path)" } ?? file.path)
+                .font(.mono(10.5)).foregroundStyle(.secondary)
+                .lineLimit(1).truncationMode(.head)
+                .textSelection(.enabled)
+            Spacer(minLength: 8)
+            counts(file)
+            Text("\(position) of \(count)").font(.system(size: 10.5)).foregroundStyle(.tertiary)
+                .padding(.leading, 8)
+        }
+        .padding(.leading, 6).padding(.trailing, 12)
+        .frame(height: 42)
+        .background(Theme.card, in: shape)
+        .overlay(shape.stroke(Theme.border))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("\(file.path), file \(position) of \(count)")
+    }
+
+    private func kindLetter(_ file: GitChange) -> some View {
+        Text(file.kind.letter).font(.mono(10, .bold))
+            .foregroundStyle(file.kind == .added ? Theme.addition : file.kind == .deleted ? Theme.deletion : Theme.accent)
+            .accessibilityHidden(true)
+    }
+
+    @ViewBuilder private func counts(_ file: GitChange) -> some View {
+        if file.isBinary {
+            Text("binary").font(.system(size: 10.5)).foregroundStyle(.secondary)
+        } else {
+            HStack(spacing: 10) {
+                Text("+\(file.added ?? 0)").foregroundStyle(Theme.addition)
+                Text("-\(file.removed ?? 0)").foregroundStyle(Theme.deletion)
+            }.font(.mono(10.5))
+        }
+    }
+
+    private func copyHash(_ commit: GitCommitSummary) {
+        guard Pasteboard.copy(commit.hash) else { return }
+        copied = true
+        announce("Commit hash copied")
+        Task {
+            try? await Task.sleep(for: .seconds(2))
+            copied = false
+        }
+    }
+
+    private func announce(_ message: String) {
+        NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested,
+                             userInfo: [.announcement: message, .priority: NSAccessibilityPriorityLevel.medium.rawValue])
+    }
+}
+
+// The body of a file card. Each card reads its own diff, and only once the page scrolls
+// it into view, so a large commit opens as fast as a small one.
+private struct CommitFileDiff: View {
+    let root: String
+    let hash: String
+    let parent: String?
+    let file: GitChange
+    @Environment(AppSettings.self) private var settings
+    @State private var diff: FileDiff?
+    @State private var text: NSAttributedString?
+    @State private var expanding: Set<String> = []
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if let note = diff?.note {
+                Text(note).font(.system(size: 11)).foregroundStyle(.secondary)
+                    .padding(.horizontal, 14).padding(.vertical, 18)
+            } else if let text {
+                DiffTextView(text: text, scroll: .hold, onExpand: expand, fitsContent: true)
+            } else {
+                ProgressView().controlSize(.small).frame(maxWidth: .infinity).padding(18)
+            }
+            if let diff, diff.truncated {
+                Text("Showing the first \(diff.lines.count - diff.revealed) lines of \(diff.totalLines). Run git show to see the rest.")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                    .padding(.horizontal, 14).padding(.vertical, 8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Theme.field)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .task(id: "\(hash)/\(parent ?? "")/\(file.id)") {
+            diff = nil
+            text = nil
+            let loaded = await GitInspector.commitFileDiff(hash, parent: parent, file: file, root: root)
             guard !Task.isCancelled else { return }
-            diffRequest = fileRequest
-            loadedDiff = loaded
+            diff = loaded
             render()
         }
         .onChange(of: settings.textSize) { _, _ in render() }
     }
 
-    private var historyList: some View {
-        VStack(spacing: 0) {
-            TextField("Search commits", text: $selection.search).appTextField().padding(12)
-                .accessibilityLabel("Search commits by title or hash")
-            Text("Recent commits").font(.system(size: 11)).foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20)
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(spacing: 2) {
-                        ForEach(filtered) { commit in
-                            Button {
-                                focus = .commits
-                                selection.select(commit)
-                                announce(commit.subject)
-                            } label: {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(commit.subject).font(.system(size: 12, weight: .medium)).lineLimit(1)
-                                    HStack {
-                                        Text(commit.shortHash).font(.mono(10))
-                                        Spacer(minLength: 4)
-                                        Text(commit.relativeDate).font(.system(size: 10)).lineLimit(1)
-                                    }.foregroundStyle(.secondary)
-                                }
-                                .padding(.horizontal, 11).frame(height: 53)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .surface(selection.commit?.id == commit.id ? Theme.card : .clear, cornerRadius: 6,
-                                         border: selection.commit?.id == commit.id ? Theme.accent.opacity(0.4) : .clear)
-                                .overlay(alignment: .leading) {
-                                    if selection.commit?.id == commit.id { Rectangle().fill(Theme.accent).frame(width: 3).padding(.vertical, 8) }
-                                }.contentShape(Rectangle())
-                            }.buttonStyle(.plain).id(commit.id)
-                                .appTooltip(commit.subject)
-                                .accessibilityAddTraits(selection.commit?.id == commit.id ? .isSelected : [])
-                        }
-                        if filtered.isEmpty { Text("No matching commits").foregroundStyle(.secondary).padding() }
-                    }.padding(8)
-                }
-                .onChange(of: selection.commit?.id) { _, id in if let id { proxy.scrollTo(id) } }
-            }
-            .focusable().focused($focus, equals: .commits).focusEffectDisabled()
-            .onMoveCommand { direction in
-                guard direction == .up || direction == .down,
-                      let index = RowStep.destination(from: filtered.firstIndex { $0.id == selection.commit?.id },
-                                                      step: direction == .up ? -1 : 1, count: filtered.count) else { return }
-                selection.select(filtered[index]); announce(filtered[index].subject)
-            }
-        }.accessibilityLabel("Commit history")
-    }
-
-    private func summary(_ commit: GitCommitSummary) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(commit.subject).font(.serif(22, .semibold)).textSelection(.enabled)
-            HStack {
-                Text("\(commit.author) · \(commit.relativeDate)").font(.system(size: 11)).foregroundStyle(.secondary)
-                Button { Pasteboard.copy(commit.hash); announce("Commit hash copied") } label: {
-                    Label(commit.shortHash, systemImage: "doc.on.doc").font(.mono(11)).padding(6)
-                        .surface(Theme.field, cornerRadius: 6).contentShape(Rectangle())
-                }.buttonStyle(.plain).accessibilityLabel("Copy full commit hash")
-                Spacer(minLength: 0)
-            }
-            HStack(spacing: 12) {
-                if let result, result.note == nil {
-                    Text(counted(result.files.count, "file") + " changed")
-                    Text("+\(result.files.compactMap(\.added).reduce(0, +))").foregroundStyle(Theme.addition)
-                    Text("-\(result.files.compactMap(\.removed).reduce(0, +))").foregroundStyle(Theme.deletion)
-                }
-                Spacer(minLength: 0)
-                HStack(spacing: 5) {
-                    Text(comparison).font(.mono(10))
-                    if (result?.parents.count ?? 0) > 1 { Image(systemName: "chevron.down").font(.system(size: 10)) }
-                }.foregroundStyle(.secondary).padding(6).contentShape(Rectangle())
-                    .appMenu {
-                        (result?.parents ?? []).enumerated().map { index, parent in
-                            .item("Parent \(index + 1): \(parent.prefix(8))", checked: selection.parent == parent) {
-                                selection.parent = parent; selection.fileID = nil
-                            }
-                        }
-                    }.accessibilityLabel("Comparison parent: \(comparison)")
-            }.font(.system(size: 11))
-        }.padding(20).frame(maxWidth: .infinity, alignment: .leading)
-            .overlay(alignment: .bottom) { Rectangle().fill(Theme.border).frame(height: 1) }
-    }
-
-    private func fileList(_ files: [GitChange]) -> some View {
-        VStack(spacing: 0) {
-            Text("Changed files · \(files.count)").font(.system(size: 12, weight: .semibold))
-                .frame(maxWidth: .infinity, alignment: .leading).padding(16)
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(spacing: 4) {
-                        ForEach(files) { file in
-                            Button { focus = .files; selectFile(file) } label: {
-                                HStack(alignment: .top, spacing: 8) {
-                                    Text(file.kind.letter).font(.mono(10, .bold)).foregroundStyle(Theme.accent)
-                                    VStack(alignment: .leading, spacing: 5) {
-                                        Text(file.fileName).font(.system(size: 11, weight: .semibold)).lineLimit(1)
-                                        if file.isBinary { Text("Binary").font(.system(size: 10)) }
-                                        else {
-                                            HStack {
-                                                Text("+\(file.added ?? 0)").foregroundStyle(Theme.addition)
-                                                Text("-\(file.removed ?? 0)").foregroundStyle(Theme.deletion)
-                                            }.font(.mono(10))
-                                        }
-                                    }.frame(maxWidth: .infinity, alignment: .leading)
-                                }.padding(10)
-                                    .surface(selection.fileID == file.id ? Theme.accent.opacity(0.1) : .clear, cornerRadius: 7,
-                                             border: selection.fileID == file.id ? Theme.accent.opacity(0.3) : .clear)
-                                    .contentShape(Rectangle())
-                            }.buttonStyle(.plain).id(file.id).appTooltip(file.path)
-                                .accessibilityLabel("\(file.path), \(file.kind.label)")
-                                .accessibilityAddTraits(selection.fileID == file.id ? .isSelected : [])
-                        }
-                    }.padding(8)
-                }.onChange(of: selection.fileID) { _, id in if let id { proxy.scrollTo(id) } }
-            }.focusable().focused($focus, equals: .files).focusEffectDisabled()
-                .onMoveCommand { direction in
-                    if direction == .up { moveFile(-1) }
-                    if direction == .down { moveFile(1) }
-                }
-        }.background(Theme.background).accessibilityLabel("Files in selected commit")
-    }
-
-    private var fileDiff: some View {
-        VStack(spacing: 0) {
-            if let file {
-                HStack {
-                    Text(file.fileName).font(.system(size: 12, weight: .semibold)).lineLimit(1)
-                    Spacer()
-                    let index = result?.files.firstIndex { $0.id == file.id } ?? 0
-                    Text("\(index + 1) / \(result?.files.count ?? 0)").font(.system(size: 11)).foregroundStyle(.secondary)
-                    Button { moveFile(-1) } label: { Image(systemName: "arrow.up").padding(7).contentShape(Rectangle()) }
-                        .buttonStyle(.plain).disabled(index == 0).accessibilityLabel("Previous file")
-                    Button { moveFile(1) } label: { Image(systemName: "arrow.down").padding(7).contentShape(Rectangle()) }
-                        .buttonStyle(.plain).disabled(index + 1 == result?.files.count).accessibilityLabel("Next file")
-                }.padding(.horizontal, 16).frame(height: 49)
-                Text(file.originalPath.map { "\($0) → \(file.path)" } ?? file.path)
-                    .font(.mono(10)).foregroundStyle(.secondary).textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading).padding(12)
-                if let note = diff?.note {
-                    PaneMessage(icon: "doc", title: "Preview unavailable", detail: note)
-                } else if diff != nil, let text {
-                    DiffTextView(text: text, scroll: scroll, onExpand: expand)
-                } else { ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity) }
-                if let diff, diff.truncated {
-                    Text("Showing the first \(diff.lines.count - diff.revealed) lines of \(diff.totalLines). Run git show to see the rest.")
-                        .font(.system(size: 11)).padding(8)
-                }
-                HStack {
-                    Text("Unified diff")
-                    Spacer()
-                    Text("Read-only commit snapshot")
-                }.font(.system(size: 10)).foregroundStyle(.secondary).padding(10).background(Theme.statusBand)
-            }
-        }.frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private func selectFile(_ file: GitChange) {
-        selection.fileID = file.id
-        filesVisible = false
-        announce("Selected \(file.path)")
-    }
-
-    private func moveFile(_ step: Int) {
-        guard let files = result?.files,
-              let index = RowStep.destination(from: files.firstIndex { $0.id == selection.fileID }, step: step, count: files.count) else { return }
-        selectFile(files[index])
-    }
-
     private func expand(_ key: String, _ direction: DiffExpandDirection) {
         guard !expanding.contains(key), let gap = diff?.lines.first(where: { $0.gap?.key == key })?.gap else { return }
-        let identity = request + (selection.fileID ?? "")
+        let identity = "\(hash)/\(parent ?? "")"
         expanding.insert(key)
         Task {
             let expansion = await GitInspector.expand(gap, direction, root: root)
             expanding.remove(key)
-            guard identity == request + (selection.fileID ?? ""), var opened = diff,
+            guard identity == "\(hash)/\(parent ?? "")", var opened = diff,
                   let index = opened.lines.firstIndex(where: { $0.gap?.key == key }) else { return }
             if let remaining = expansion.gap {
                 opened.lines[index].gap = remaining
@@ -305,20 +409,33 @@ struct CommitHistoryView: View {
                 opened.revealed += expansion.lines.count - 1
             }
             for i in opened.lines.indices { opened.lines[i].id = i }
-            loadedDiff = opened
-            scroll = direction == .down ? .follow : .hold
+            diff = opened
             render()
         }
     }
 
     private func render() {
-        guard let diff else { return }
-        text = DiffText.attributed(diff.lines, language: file.flatMap { CodeLanguage(fileExtension: ($0.path as NSString).pathExtension) },
+        guard let diff, diff.note == nil else { return }
+        text = DiffText.attributed(diff.lines, language: CodeLanguage(fileExtension: (file.path as NSString).pathExtension),
                                    scale: settings.textSize.scale, numbered: true)
     }
+}
 
-    private func announce(_ message: String) {
-        NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested,
-                             userInfo: [.announcement: message, .priority: NSAccessibilityPriorityLevel.medium.rawValue])
+// A card body that hangs under its pinned header: the sides and bottom are drawn, the top
+// edge is left to the header so the two never stack into a double line.
+private struct OpenTopCard: Shape {
+    let radius: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY - radius))
+        path.addArc(tangent1End: CGPoint(x: rect.minX, y: rect.maxY),
+                    tangent2End: CGPoint(x: rect.minX + radius, y: rect.maxY), radius: radius)
+        path.addLine(to: CGPoint(x: rect.maxX - radius, y: rect.maxY))
+        path.addArc(tangent1End: CGPoint(x: rect.maxX, y: rect.maxY),
+                    tangent2End: CGPoint(x: rect.maxX, y: rect.maxY - radius), radius: radius)
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+        return path
     }
 }

@@ -93,6 +93,10 @@ final class ChangesNavigationMemory {
     var treeWidth = ExplorerSplitLayout.defaultTreeWidth
     var showingHistory = false
     var histories: [String: CommitHistorySelection] = [:]
+    // Every project's commits, so each project's navigator can list the others' too.
+    var commits: [String: [GitCommitSummary]] = [:]
+    var collapsedHistories: Set<String> = []
+    var historyFilter = ""
 }
 
 struct ChangesRepository: Identifiable {
@@ -124,6 +128,24 @@ struct ChangesView: View {
         nonmutating set {
             if let navigation { navigation.collapsed = newValue }
             else { localCollapsedRepositories = newValue }
+        }
+    }
+    @State private var localCollapsedHistories: Set<String> = []
+    // The history folds its projects apart from the changes, so closing a project's
+    // commits leaves its changed files open and the other way round.
+    private var collapsedHistories: Set<String> {
+        get { navigation?.collapsedHistories ?? localCollapsedHistories }
+        nonmutating set {
+            if let navigation { navigation.collapsedHistories = newValue }
+            else { localCollapsedHistories = newValue }
+        }
+    }
+    @State private var localHistoryFilter = ""
+    private var historyFilter: String {
+        get { navigation?.historyFilter ?? localHistoryFilter }
+        nonmutating set {
+            if let navigation { navigation.historyFilter = newValue }
+            else { localHistoryFilter = newValue }
         }
     }
     @State private var localTreeWidth = ExplorerSplitLayout.defaultTreeWidth
@@ -225,7 +247,10 @@ struct ChangesView: View {
     var body: some View {
         VStack(spacing: 0) {
             GeometryReader { geometry in
-                let navigatorVisible = showsNavigator(width: geometry.size.width)
+                // A narrow history has no room for two columns, so the navigator and the
+                // commit page take turns.
+                let narrowHistory = mode == .history && geometry.size.width < 850
+                let navigatorVisible = showsNavigator(width: geometry.size.width) && !narrowHistory
                 let width = navigation == nil ? 280
                     : ExplorerSplitLayout.treeWidth(treeWidth, availableWidth: geometry.size.width)
                 let headerWidth = navigatorVisible
@@ -248,7 +273,7 @@ struct ChangesView: View {
                                 header(compact: headerWidth < 600, namesProject: false)
                                 if committing && mode == .changes { commitBar }
                             }
-                            content
+                            content(narrowHistory: narrowHistory)
                         }.frame(maxWidth: .infinity).clipped()
                     }
                     .overlay(alignment: .leading) {
@@ -388,10 +413,10 @@ struct ChangesView: View {
 
     // MARK: - Header
 
-    // A session's navigator is always there. A single project only shows its navigator
-    // where it fits, and then only for changes, since the history has a list of its own.
+    // A session's navigator is always there, and so is the history's, since the commits
+    // live in it. A single project's changes only show the navigator where it fits.
     private func showsNavigator(width: CGFloat) -> Bool {
-        navigation != nil || (mode == .changes && (width >= 650 || committing))
+        navigation != nil || mode == .history || width >= 650 || committing
     }
 
     private var workspaceBand: some View {
@@ -478,7 +503,15 @@ struct ChangesView: View {
     }
 
     private var navigatorItems: [ChangesNavigatorItem] {
-        repositories.flatMap { repository in
+        if mode == .history {
+            return repositories.flatMap { repository in
+                [ChangesNavigatorItem(root: repository.root, path: nil)]
+                    + (collapsedHistories.contains(repository.root) ? [] : shownCommits(repository.root).map {
+                        ChangesNavigatorItem(root: repository.root, path: $0.hash)
+                    })
+            }
+        }
+        return repositories.flatMap { repository in
             let changes = repository.root == root ? files : gitStats.snapshot(at: repository.root)?.files ?? []
             return [ChangesNavigatorItem(root: repository.root, path: nil)]
                 + (collapsedRepositories.contains(repository.root) ? [] : changes.map {
@@ -489,107 +522,284 @@ struct ChangesView: View {
 
     private func moveNavigator(_ direction: MoveCommandDirection) {
         navigatorCursorVisible = true
-        if let item = navigatorCursor, item.path == nil {
-            if direction == .left { collapsedRepositories.insert(item.root); return }
-            if direction == .right { collapsedRepositories.remove(item.root); return }
+        if let item = navigatorCursor, item.path == nil, direction == .left || direction == .right {
+            if mode == .history {
+                if direction == .left { collapsedHistories.insert(item.root) } else { collapsedHistories.remove(item.root) }
+            } else {
+                if direction == .left { collapsedRepositories.insert(item.root) } else { collapsedRepositories.remove(item.root) }
+            }
+            return
         }
         guard direction == .up || direction == .down,
               let next = ChangesNavigatorItem.next(after: navigatorCursor,
                   step: direction == .up ? -1 : 1, in: navigatorItems) else { return }
         navigatorCursor = next
-        if next.root == root, let file = files.first(where: { $0.id == next.path }) {
+        if mode == .history {
+            if next.root == root, let commit = commits?.first(where: { $0.hash == next.path }) {
+                historySelection.select(commit)
+                announce(commit.subject)
+            }
+        } else if next.root == root, let file = files.first(where: { $0.id == next.path }) {
             mode = .changes
             select(file)
         }
     }
 
     private var workspaceNavigator: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 3) {
-                    ForEach(repositories) { repository in
-                        let changes = repository.root == root ? files : gitStats.snapshot(at: repository.root)?.files ?? []
-                        let item = ChangesNavigatorItem(root: repository.root, path: nil)
-                        WorkspaceProjectRow(name: repository.name,
-                                            detail: repositoryStatus(repository),
-                                            selected: repository.root == root,
-                                            showsCursor: showsCursor(item),
-                                            hasChildren: !changes.isEmpty,
-                                            collapsed: collapsedRepositories.contains(repository.root)) {
-                            if !collapsedRepositories.insert(repository.root).inserted {
-                                collapsedRepositories.remove(repository.root)
-                            }
-                        } select: {
+        VStack(spacing: 0) {
+            if mode == .history { historyFilterField }
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 3) {
+                        ForEach(repositories) { repository in
+                            if mode == .history { historyProject(repository) } else { changesProject(repository) }
+                        }
+                    }.padding(10)
+                    .smoothlyResizes(when: mode == .history ? collapsedHistories : collapsedRepositories)
+                }
+                .accessibilityLabel(mode == .history ? "Workspace projects and commits"
+                                                     : "Workspace repositories and changed files")
+                .focusable()
+                .focused($navigatorFocused)
+                .onChange(of: navigatorFocused) { _, focused in
+                    if focused && navigatorCursor == nil {
+                        navigatorCursor = ChangesNavigatorItem(root: root, path: nil)
+                        navigatorCursorVisible = true
+                    }
+                }
+                .focusEffectDisabled()
+                .onMoveCommand(perform: moveNavigator)
+                .onKeyPress(.return) {
+                    if mode == .history, let item = navigatorCursor {
+                        if let commit = projectCommits(item.root)?.first(where: { $0.hash == item.path }) {
+                            openCommit(commit, in: item.root)
+                        } else if item.path == nil {
+                            openProjectHistory(item.root)
+                        }
+                        return .handled
+                    }
+                    guard let item = navigatorCursor, item.root != root || item.path == nil else { return .ignored }
+                    selectRepository(item.root, item.path)
+                    return .handled
+                }
+                .onChange(of: navigatorCursor) { _, item in
+                    if let item { proxy.scrollTo(item) }
+                }
+                .onChange(of: fileSelection.activeID) { _, path in
+                    guard let path else { return }
+                    let item = ChangesNavigatorItem(root: root, path: path)
+                    navigatorCursor = item
+                    proxy.scrollTo(item)
+                }
+                .onChange(of: historySelection.commit?.id) { _, hash in
+                    guard mode == .history, let hash else { return }
+                    let item = ChangesNavigatorItem(root: root, path: hash)
+                    navigatorCursor = item
+                    proxy.scrollTo(item)
+                }
+            }
+        }
+        .background(Theme.card)
+    }
+
+    @ViewBuilder private func changesProject(_ repository: ChangesRepository) -> some View {
+        let changes = repository.root == root ? files : gitStats.snapshot(at: repository.root)?.files ?? []
+        let item = ChangesNavigatorItem(root: repository.root, path: nil)
+        WorkspaceProjectRow(name: repository.name,
+                            detail: repositoryStatus(repository),
+                            selected: repository.root == root,
+                            showsCursor: showsCursor(item),
+                            hasChildren: !changes.isEmpty,
+                            collapsed: collapsedRepositories.contains(repository.root)) {
+            if !collapsedRepositories.insert(repository.root).inserted {
+                collapsedRepositories.remove(repository.root)
+            }
+        } select: {
+            navigatorCursor = item
+            navigatorCursorVisible = false
+            navigatorFocused = true
+            selectRepository(repository.root, nil)
+        }
+        .id(item)
+        if !changes.isEmpty && !collapsedRepositories.contains(repository.root) {
+            VStack(spacing: 3) {
+                ForEach(changes) { file in
+                    if repository.root == root {
+                        row(file)
+                            .id(ChangesNavigatorItem(root: root, path: file.id))
+                    } else {
+                        let item = ChangesNavigatorItem(root: repository.root, path: file.id)
+                        Button {
                             navigatorCursor = item
                             navigatorCursorVisible = false
                             navigatorFocused = true
-                            selectRepository(repository.root, nil)
-                        }
-                        .id(item)
-                        if !changes.isEmpty && !collapsedRepositories.contains(repository.root) {
-                            VStack(spacing: 3) {
-                                ForEach(changes) { file in
-                                    if repository.root == root {
-                                        row(file)
-                                            .id(ChangesNavigatorItem(root: root, path: file.id))
-                                    } else {
-                                        let item = ChangesNavigatorItem(root: repository.root, path: file.id)
-                                        Button {
-                                            navigatorCursor = item
-                                            navigatorCursorVisible = false
-                                            navigatorFocused = true
-                                            selectRepository(repository.root, file.id)
-                                        } label: {
-                                            HStack {
-                                                StatusChip(kind: file.kind)
-                                                fileName(file)
-                                                counts(file)
-                                            }.padding(10)
-                                            .overlay {
-                                                RoundedRectangle(cornerRadius: 8)
-                                                    .stroke(showsCursor(item) ? Theme.accent : .clear, lineWidth: 2)
-                                            }
-                                            .contentShape(Rectangle())
-                                        }.buttonStyle(.plain)
-                                            .id(item)
-                                    }
-                                }
+                            selectRepository(repository.root, file.id)
+                        } label: {
+                            HStack {
+                                StatusChip(kind: file.kind)
+                                fileName(file)
+                                counts(file)
+                            }.padding(10)
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(showsCursor(item) ? Theme.accent : .clear, lineWidth: 2)
                             }
-                            .padding(.leading, 9)
-                            .overlay(alignment: .leading) { Rectangle().fill(Theme.border).frame(width: 1) }
-                            .padding(.leading, 21)
-                            .transition(.fold)
-                        }
+                            .contentShape(Rectangle())
+                        }.buttonStyle(.plain)
+                            .id(item)
                     }
-                }.padding(10)
-                .smoothlyResizes(when: collapsedRepositories)
-            }
-            .background(Theme.card)
-            .accessibilityLabel("Workspace repositories and changed files")
-            .focusable()
-            .focused($navigatorFocused)
-            .onChange(of: navigatorFocused) { _, focused in
-                if focused && navigatorCursor == nil {
-                    navigatorCursor = ChangesNavigatorItem(root: root, path: nil)
-                    navigatorCursorVisible = true
                 }
             }
-            .focusEffectDisabled()
-            .onMoveCommand(perform: moveNavigator)
-            .onKeyPress(.return) {
-                guard let item = navigatorCursor, item.root != root || item.path == nil else { return .ignored }
-                selectRepository(item.root, item.path)
-                return .handled
+            .padding(.leading, 9)
+            .overlay(alignment: .leading) { Rectangle().fill(Theme.border).frame(width: 1) }
+            .padding(.leading, 21)
+            .transition(.fold)
+        }
+    }
+
+    // MARK: - History navigator
+
+    private var historyFilterField: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+            TextField("Filter commits by title or hash",
+                      text: Binding(get: { historyFilter }, set: { historyFilter = $0 }))
+                .textFieldStyle(.plain)
+                .font(.system(size: 12.5))
+                .accessibilityLabel("Filter commits by title or hash")
+                .onMoveCommand { direction in
+                    if direction == .up || direction == .down { moveNavigator(direction) }
+                }
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 32)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.field))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
+        .padding(.horizontal, 12).padding(.top, 12).padding(.bottom, 2)
+    }
+
+    private func projectCommits(_ repositoryRoot: String) -> [GitCommitSummary]? {
+        repositoryRoot == root ? commits : navigation?.commits[repositoryRoot]
+    }
+
+    private func shownCommits(_ repositoryRoot: String) -> [GitCommitSummary] {
+        (projectCommits(repositoryRoot) ?? []).filter { $0.matches(historyFilter) }
+    }
+
+    private func historyDetail(_ repositoryRoot: String) -> String {
+        if repositoryRoot == root, historyNote != nil { return "Unavailable" }
+        guard let all = projectCommits(repositoryRoot) else { return "Loading" }
+        if historyFilter.trimmingCharacters(in: .whitespaces).isEmpty { return counted(all.count, "commit") }
+        return "\(shownCommits(repositoryRoot).count) of \(all.count)"
+    }
+
+    // Commits sit under their project the way files sit under it in the Explorer, so the
+    // navigator is the one place that names the project and the one control that picks it.
+    @ViewBuilder private func historyProject(_ repository: ChangesRepository) -> some View {
+        let all = projectCommits(repository.root) ?? []
+        let shown = shownCommits(repository.root)
+        let item = ChangesNavigatorItem(root: repository.root, path: nil)
+        let isCollapsed = collapsedHistories.contains(repository.root)
+        WorkspaceProjectRow(name: repository.name,
+                            detail: historyDetail(repository.root),
+                            selected: repository.root == root,
+                            showsCursor: showsCursor(item),
+                            hasChildren: !all.isEmpty,
+                            collapsed: isCollapsed) {
+            if !collapsedHistories.insert(repository.root).inserted {
+                collapsedHistories.remove(repository.root)
             }
-            .onChange(of: navigatorCursor) { _, item in
-                if let item { proxy.scrollTo(item) }
+        } select: {
+            navigatorCursor = item
+            navigatorCursorVisible = false
+            navigatorFocused = true
+            openProjectHistory(repository.root)
+        }
+        .id(item)
+        if !all.isEmpty && !isCollapsed {
+            VStack(alignment: .leading, spacing: 1) {
+                if shown.isEmpty {
+                    Text("No matching commits")
+                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                        .padding(.leading, 36).padding(.vertical, 6)
+                }
+                ForEach(CommitDay.groups(shown)) { group in
+                    Text(group.title)
+                        .font(.system(size: 10)).foregroundStyle(.tertiary)
+                        .padding(.leading, 36).padding(.top, 8).padding(.bottom, 2)
+                        .accessibilityAddTraits(.isHeader)
+                    ForEach(group.commits) { commit in
+                        commitRow(commit, in: repository.root)
+                    }
+                }
             }
-            .onChange(of: fileSelection.activeID) { _, path in
-                guard let path else { return }
-                let item = ChangesNavigatorItem(root: root, path: path)
-                navigatorCursor = item
-                proxy.scrollTo(item)
+            .transition(.fold)
+        }
+    }
+
+    private func commitRow(_ commit: GitCommitSummary, in repositoryRoot: String) -> some View {
+        let item = ChangesNavigatorItem(root: repositoryRoot, path: commit.hash)
+        let isSelected = repositoryRoot == root && historySelection.commit?.id == commit.id
+        return Button {
+            navigatorCursor = item
+            navigatorCursorVisible = false
+            navigatorFocused = true
+            openCommit(commit, in: repositoryRoot)
+        } label: {
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(isSelected ? Theme.accent : Color.secondary.opacity(0.45))
+                    .frame(width: 6, height: 6)
+                Text(commit.subject)
+                    .font(.system(size: 12))
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Text(commit.date.map(RelativeTime.short) ?? commit.relativeDate)
+                    .font(.system(size: 10)).foregroundStyle(.secondary)
+                    .fixedSize()
             }
+            .padding(.leading, 22).padding(.trailing, 8)
+            .frame(height: 28)
+            .background(isSelected ? Theme.card : .clear, in: RoundedRectangle(cornerRadius: 6))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(isSelected ? Theme.accent.opacity(0.3) : .clear))
+            .overlay(alignment: .leading) {
+                if isSelected {
+                    RoundedRectangle(cornerRadius: 2).fill(Theme.accent).frame(width: 3).padding(.vertical, 6)
+                }
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 6).stroke(showsCursor(item) ? Theme.accent : .clear, lineWidth: 2)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .hoverFill(cornerRadius: 6)
+        .id(item)
+        .appTooltip(commit.subject)
+        .accessibilityLabel("\(commit.subject), \(commit.relativeDate)")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private func openCommit(_ commit: GitCommitSummary, in repositoryRoot: String) {
+        if repositoryRoot == root {
+            historySelection.select(commit)
+        } else {
+            navigation?.histories[repositoryRoot]?.select(commit)
+            selectRepository(repositoryRoot, nil)
+        }
+        announce(commit.subject)
+    }
+
+    // Picking a project opens it on its newest commit, so the page is never left empty.
+    private func openProjectHistory(_ repositoryRoot: String) {
+        collapsedHistories.remove(repositoryRoot)
+        if let newest = projectCommits(repositoryRoot)?.first {
+            openCommit(newest, in: repositoryRoot)
+        } else if repositoryRoot != root {
+            selectRepository(repositoryRoot, nil)
         }
     }
 
@@ -782,11 +992,11 @@ struct ChangesView: View {
 
     // MARK: - Content
 
-    @ViewBuilder private var content: some View {
+    @ViewBuilder private func content(narrowHistory: Bool) -> some View {
         switch snapshot?.state {
         case .ready:
             if mode == .history {
-                historyContent
+                historyContent(narrow: narrowHistory)
             } else if files.isEmpty {
                 cleanContent
             } else {
@@ -1000,8 +1210,10 @@ struct ChangesView: View {
 
     // MARK: - History
 
-    @ViewBuilder private var historyContent: some View {
-        if let historyNote {
+    @ViewBuilder private func historyContent(narrow: Bool) -> some View {
+        if narrow && !historySelection.showingDetail {
+            workspaceNavigator
+        } else if let historyNote {
             PaneMessage(icon: "exclamationmark.triangle", title: "Could not read the history",
                         detail: historyNote, mono: true)
         } else if let commits {
@@ -1009,7 +1221,8 @@ struct ChangesView: View {
                 PaneMessage(icon: "clock", title: "No commits yet",
                             detail: "This branch has no history to show.")
             } else {
-                CommitHistoryView(root: repoRoot, commits: commits, selection: historySelection)
+                CommitHistoryView(root: repoRoot, selection: historySelection,
+                                  back: narrow ? { historySelection.showingDetail = false } : nil)
             }
         } else {
             ProgressView("Loading history…").frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1325,6 +1538,7 @@ struct ChangesView: View {
         guard !Task.isCancelled else { return }
         commits = history.commits
         historyNote = history.note
+        navigation?.commits[root] = history.commits
         loadingHistory = false
 
         if let current = historySelection.commit,

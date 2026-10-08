@@ -104,4 +104,43 @@ struct CommitHistoryTests {
         #expect(selection.fileID == nil)
         #expect(selection.parent == nil)
     }
+
+    @Test func recentCommitsCarryTheirDate() async throws {
+        let repo = try GitRepo()
+        let history = await GitInspector.recentCommits(at: repo.path)
+        let commit = try #require(history.commits.first)
+        let date = try #require(commit.date)
+        #expect(abs(date.timeIntervalSinceNow) < 600)
+    }
+
+    @Test func filterMatchesSubjectWordsOrHashPrefix() {
+        let commit = GitCommitSummary(hash: "cffbf35abc", shortHash: "cffbf35", author: "Test",
+                                      relativeDate: "now", subject: "Pick the project from the navigator")
+        #expect(commit.matches(""))
+        #expect(commit.matches("PROJECT"))
+        #expect(commit.matches("cffb"))
+        #expect(commit.matches("CFFB"))
+        #expect(!commit.matches("35abc"))
+        #expect(!commit.matches("explorer"))
+    }
+
+    @Test func groupsCommitsUnderDayLabelsInGitOrder() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(TimeZone(identifier: "UTC"))
+        calendar.firstWeekday = 2
+        // A Thursday, so Monday to Wednesday are earlier this week.
+        let now = try #require(calendar.date(from: DateComponents(year: 2026, month: 10, day: 8, hour: 15)))
+        func commit(_ name: String, daysAgo: Int?) -> GitCommitSummary {
+            GitCommitSummary(hash: name, shortHash: name, author: "Test", relativeDate: "", subject: name,
+                             date: daysAgo.flatMap { calendar.date(byAdding: .day, value: -$0, to: now) })
+        }
+        let groups = CommitDay.groups([commit("a", daysAgo: 0), commit("b", daysAgo: 0),
+                                       commit("c", daysAgo: 1), commit("d", daysAgo: 2),
+                                       commit("e", daysAgo: 9), commit("f", daysAgo: 0),
+                                       commit("g", daysAgo: nil)],
+                                      now: now, calendar: calendar)
+        #expect(groups.map(\.title) == ["Today", "Yesterday", "Earlier this week", "Older", "Today", "Older"])
+        #expect(groups.map { $0.commits.map(\.hash) } == [["a", "b"], ["c"], ["d"], ["e"], ["f"], ["g"]])
+        #expect(Set(groups.map(\.id)).count == groups.count)
+    }
 }

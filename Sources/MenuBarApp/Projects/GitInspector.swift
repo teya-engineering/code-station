@@ -205,8 +205,16 @@ struct GitCommitSummary: Identifiable, Sendable, Equatable {
     var author: String
     var relativeDate: String
     var subject: String
+    var date: Date? = nil
 
     var id: String { hash }
+
+    // A query names a commit by words from its subject or by the start of its hash.
+    func matches(_ query: String) -> Bool {
+        let query = query.trimmingCharacters(in: .whitespaces)
+        return query.isEmpty || subject.localizedCaseInsensitiveContains(query)
+            || hash.lowercased().hasPrefix(query.lowercased())
+    }
 }
 
 // Read-only git inspection for a project folder.
@@ -417,7 +425,7 @@ enum GitInspector {
             // Tabs separate the fields because git strips them from the subject line,
             // so the record splits cleanly whatever the subject says.
             let output = run(tool, ["log", "--no-color", "-n", "\(limit)",
-                                    "--format=%H%x09%h%x09%an%x09%cr%x09%s"], in: url)
+                                    "--format=%H%x09%h%x09%an%x09%cr%x09%ct%x09%s"], in: url)
             guard output.ok else {
                 // A repository with no commits yet has an empty history, not a broken one.
                 if output.errorText.lowercased().contains("does not have any commits") {
@@ -426,12 +434,13 @@ enum GitInspector {
                 return ([], output.failureMessage)
             }
             let commits: [GitCommitSummary] = output.text.split(separator: "\n").compactMap { line in
-                let fields = line.split(separator: "\t", maxSplits: 4,
+                let fields = line.split(separator: "\t", maxSplits: 5,
                                         omittingEmptySubsequences: false)
-                guard fields.count == 5 else { return nil }
+                guard fields.count == 6 else { return nil }
                 return GitCommitSummary(hash: String(fields[0]), shortHash: String(fields[1]),
                                         author: String(fields[2]), relativeDate: String(fields[3]),
-                                        subject: String(fields[4]))
+                                        subject: String(fields[5]),
+                                        date: TimeInterval(fields[4]).map(Date.init(timeIntervalSince1970:)))
             }
             return (commits, nil)
         }

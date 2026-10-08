@@ -23,6 +23,9 @@ struct DiffTextView: NSViewRepresentable {
     var scroll: Scroll = .top
     // The gap row a press landed on, named by DiffGap.key, and the end of it to open.
     var onExpand: ((String, DiffExpandDirection) -> Void)?
+    // Grow to the height of the whole diff instead of scrolling it, for a diff that sits
+    // in a page with others and scrolls along with that page.
+    var fitsContent = false
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -54,11 +57,12 @@ struct DiffTextView: NSViewRepresentable {
                                   height: CGFloat.greatestFiniteMagnitude)
         textView.autoresizingMask = []
 
-        let scrollView = NSScrollView()
+        let scrollView = DiffScrollView()
+        scrollView.passesVerticalScroll = fitsContent
         scrollView.documentView = textView
         scrollView.drawsBackground = false
         scrollView.borderType = .noBorder
-        scrollView.hasVerticalScroller = true
+        scrollView.hasVerticalScroller = !fitsContent
         scrollView.hasHorizontalScroller = true
         scrollView.autohidesScrollers = true
         scrollView.scrollerStyle = .overlay
@@ -88,8 +92,28 @@ struct DiffTextView: NSViewRepresentable {
         scrollView.reflectScrolledClipView(scrollView.contentView)
     }
 
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView scrollView: NSScrollView,
+                      context: Context) -> CGSize? {
+        guard fitsContent, let textView = scrollView.documentView else { return nil }
+        return CGSize(width: proposal.width ?? textView.frame.width, height: textView.frame.height)
+    }
+
     final class Coordinator {
         var shown: NSAttributedString?
+    }
+}
+
+// A diff that fits its content still scrolls sideways on its own, but a vertical swipe
+// over it belongs to the page around it.
+private final class DiffScrollView: NSScrollView {
+    var passesVerticalScroll = false
+
+    override func scrollWheel(with event: NSEvent) {
+        if passesVerticalScroll && abs(event.scrollingDeltaY) > abs(event.scrollingDeltaX) {
+            nextResponder?.scrollWheel(with: event)
+        } else {
+            super.scrollWheel(with: event)
+        }
     }
 }
 
