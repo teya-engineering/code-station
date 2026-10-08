@@ -152,13 +152,6 @@ struct CommitHistoryView: View {
                     proportion(added: added, removed: removed)
                 }
                 Spacer(minLength: 0)
-                // Split diffs come later; the pill keeps their place so the layout does
-                // not shift when they arrive.
-                HStack(spacing: 4) {
-                    ChoicePill(title: "Unified", selected: true) {}
-                    ChoicePill(title: "Split", selected: false, enabled: false) {}
-                        .appTooltip("Split diffs are not available yet")
-                }
             }
             .font(.system(size: 11))
         }
