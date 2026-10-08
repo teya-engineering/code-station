@@ -65,17 +65,17 @@ struct OldSessionsStripTests {
     }
 
     // The threshold moves to the detail line, since the top line gave up naming it.
-    @Test func theDetailPicksUpTheThresholdAndWhatIsBeingKept() {
+    @Test func theDetailPicksUpTheThresholdAndWhatIsLeftForLater() {
         let detail = OldSessionsStrip.detail(summary(sessions: 9), deleting: 4, days: 30)
 
-        #expect(detail == "Older than 30 days · 5 kept for review")
+        #expect(detail == "Older than 30 days · 5 not in this round")
     }
 
     @Test func aSnoozeStillGetsALineUnderAPromise() {
         let detail = OldSessionsStrip.detail(summary(sessions: 9, snoozedProjects: 1),
                                              deleting: 4, days: 30)
 
-        #expect(detail == "Older than 30 days · 5 kept for review · 1 project snoozed")
+        #expect(detail == "Older than 30 days · 5 not in this round · 1 project snoozed")
     }
 
     // Nothing held back means nothing to say about it.
@@ -87,7 +87,7 @@ struct OldSessionsStripTests {
 
     // The summary runs on its own slower clock, so it can still be counting sessions the
     // cohort has already lost. A subtraction that went negative would read as
-    // "-1 kept for review".
+    // "-1 not in this round".
     @Test func aSummaryLaggingBehindTheCohortNeverReportsNegativeLeftovers() {
         let detail = OldSessionsStrip.detail(summary(sessions: 2), deleting: 5, days: 30)
 

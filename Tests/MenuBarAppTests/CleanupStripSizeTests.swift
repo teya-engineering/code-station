@@ -27,7 +27,7 @@ struct CleanupStripSizeTests {
     @Test func theWordiestStripStillFitsTheSidebarColumnInOneRow() {
         let wordy = strip(
             title: "128 sessions will be deleted",
-            detail: "Older than 30 days · 96 kept for review · 12 projects snoozed",
+            detail: "Older than 30 days · 96 not in this round · 12 projects snoozed",
             isUrgent: true,
             countdownAt: Date().addingTimeInterval(59 * 60))
 

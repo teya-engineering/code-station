@@ -117,7 +117,10 @@ struct OldSessionsStrip: View {
     }
 
     // Under a promise the detail carries the threshold the top line gave up naming and
-    // says what the cohort is leaving behind. With no cohort waiting the strip is only an
+    // says what the cohort is leaving behind. Those sessions are not safe: one that went
+    // stale during the countdown is taken by the next cohort, and one held back for its
+    // saved work stays only while that work is there. So the line says they are outside
+    // this round, not that they are kept. With no cohort waiting the strip is only an
     // offer to review, so the detail counts what accepting it would cost.
     static func detail(_ summary: OldSessionsWatch.Summary, deleting: Int?, days: Int) -> String {
         guard let deleting else { return reviewDetail(summary) }
@@ -125,8 +128,8 @@ struct OldSessionsStrip: View {
         // The summary is refreshed on its own slower clock, so it can lag a cohort that
         // has just lost a member and count fewer sessions than the cohort takes. There is
         // nothing left for review when it does.
-        let kept = summary.sessions - deleting
-        if kept > 0 { parts.append("\(kept) kept for review") }
+        let leftOver = summary.sessions - deleting
+        if leftOver > 0 { parts.append("\(leftOver) not in this round") }
         if summary.snoozedProjects > 0 {
             parts.append("\(counted(summary.snoozedProjects, "project")) snoozed")
         }
