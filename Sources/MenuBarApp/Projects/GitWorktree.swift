@@ -374,10 +374,22 @@ enum GitHead {
 
     // A detached head holds a sha rather than a ref, which is nothing a row can use.
     private static func read(_ path: String) -> String? {
-        guard let head = try? String(contentsOfFile: path + "/.git/HEAD", encoding: .utf8) else { return nil }
+        guard let head = try? String(contentsOfFile: gitDirectory(of: path) + "/HEAD", encoding: .utf8) else { return nil }
         let reference = "ref: refs/heads/"
         let line = head.trimmed
         guard line.hasPrefix(reference) else { return nil }
         return String(line.dropFirst(reference.count))
+    }
+
+    // In a linked worktree or a submodule, .git is a file that points at the real git
+    // directory, and a submodule's pointer is relative to the checkout.
+    private static func gitDirectory(of path: String) -> String {
+        let dotGit = path + "/.git"
+        guard let pointer = try? String(contentsOfFile: dotGit, encoding: .utf8) else { return dotGit }
+        let prefix = "gitdir:"
+        let line = pointer.trimmed
+        guard line.hasPrefix(prefix) else { return dotGit }
+        let target = line.dropFirst(prefix.count).trimmingCharacters(in: .whitespaces)
+        return target.hasPrefix("/") ? target : path + "/" + target
     }
 }
