@@ -179,6 +179,9 @@ struct DialogHost: View {
                 ForEach(dialog.actions) { action in
                     button(action)
                         .focused($focusedAction, equals: action.id)
+                        .overlay(RoundedRectangle(cornerRadius: 8)
+                            .stroke(dialog.isModal && focusedAction == action.id ? Theme.accent : .clear,
+                                    lineWidth: 2))
                 }
             }
             .padding(.horizontal, 20)
@@ -188,6 +191,15 @@ struct DialogHost: View {
         .accessibilityElement(children: .contain)
         .accessibilityAddTraits(dialog.isModal ? [.isModal] : [])
         .accessibilityLabel(dialog.title)
+        .onKeyPress(keys: [.tab]) { press in
+            guard dialog.isModal else { return .ignored }
+            let actions = dialog.actions.filter { $0.isEnabled() }
+            guard !actions.isEmpty else { return .handled }
+            let index = actions.firstIndex { $0.id == focusedAction } ?? 0
+            let step = press.modifiers.contains(.shift) ? -1 : 1
+            focusedAction = actions[(index + step + actions.count) % actions.count].id
+            return .handled
+        }
         .onAppear {
             if dialog.isModal { focusedAction = dialog.actions.first { $0.kind == .cancel }?.id }
         }

@@ -191,6 +191,7 @@ struct ChangesView: View {
     @State private var committing = false
     @State private var commitMessage = ""
     @FocusState private var commitFocused: Bool
+    @FocusState private var pushFocused: Bool
     // Files the next commit leaves out. Tracking the exclusions rather than the picks
     // means a file that appears between refreshes starts selected, like everything else.
     @State private var excluded: Set<GitChange.ID> = []
@@ -313,6 +314,7 @@ struct ChangesView: View {
             select(file)
         }
         .onChange(of: mode) { _, _ in switchedMode() }
+        .onChange(of: syncStatus) { _, status in announce(status) }
         // The open diff is one attributed string built when the file was picked, so its
         // font is baked in and a new reading size only reaches it by building it again.
         .onChange(of: appSettings.textSize) { _, _ in reopenDiff() }
@@ -450,6 +452,7 @@ struct ChangesView: View {
                     .appMenu { repositoryMenu(snapshot) }
                     .accessibilityLabel("Repository actions for \(repositories.first { $0.root == root }?.name ?? root)")
                     .disabled(busy)
+                pushButton(snapshot, compact: compact)
                 if !files.isEmpty && mode == .changes {
                     ActionButton(title: compact ? "Commit" : "Commit…", height: 30, size: 12) {
                         if committing { committing = false } else { beginCommit() }
@@ -480,16 +483,40 @@ struct ChangesView: View {
         }
     }
 
-    private func repositoryMenu(_ snapshot: GitSnapshot) -> [MenuEntry] {
-        var entries = snapshot.remoteActions.map { action -> MenuEntry in
-            switch action {
-            case .pull(let count):
-                return .item("Pull \(counted(count, "commit"))", icon: "arrow.down") { pull() }
-            case .push(let count):
-                return .item("Push \(counted(count, "commit"))", icon: "arrow.up") { confirmPush(snapshot) }
-            case .publish:
-                return .item("Publish branch", icon: "arrow.up") { confirmPush(snapshot) }
+    private func pushButton(_ snapshot: GitSnapshot, compact: Bool) -> some View {
+        let action = snapshot.remoteActions.first {
+            switch $0 {
+            case .push, .publish: true
+            case .pull: false
             }
+        }
+        let title: String
+        switch action {
+        case .push(let count): title = compact ? "Push \(count)" : "Push \(counted(count, "commit"))"
+        case .publish: title = "Publish branch"
+        default:
+            if !snapshot.hasCommits { title = "No commits" }
+            else if snapshot.upstream != nil && !snapshot.trackingKnown { title = "Status unknown" }
+            else { title = "Up to date" }
+        }
+        return ActionButton(title: working ?? title, tone: action == nil ? .outlined : .green,
+                            height: 30, size: 12, icon: action == nil ? "checkmark" : "arrow.up") {
+            pushFocused = true
+            confirmPush(snapshot)
+        }
+        .focused($pushFocused)
+        .overlay(RoundedRectangle(cornerRadius: 8)
+            .stroke(pushFocused ? Theme.accent : .clear, lineWidth: 2))
+        .accessibilityLabel(working ?? title)
+        .accessibilityHint("\(repositoryName). \(syncStatus)")
+        .disabled(busy || action == nil)
+        .layoutPriority(1)
+    }
+
+    private func repositoryMenu(_ snapshot: GitSnapshot) -> [MenuEntry] {
+        var entries = snapshot.remoteActions.compactMap { action -> MenuEntry? in
+            guard case .pull(let count) = action else { return nil }
+            return .item("Pull \(counted(count, "commit"))", icon: "arrow.down") { pull() }
         }
         if !entries.isEmpty { entries.append(.separator) }
         entries.append(contentsOf: branchMenu(snapshot))
@@ -1326,11 +1353,12 @@ struct ChangesView: View {
     }
 
     private func confirmPush(_ snapshot: GitSnapshot) {
+        guard !busy else { return }
+        working = "Checking commits…"
         let root = snapshot.root
         let upstream = snapshot.upstream
         let hasUpstream = upstream != nil
         Task {
-            working = "Checking commits…"
             let preview = await GitActions.commitsToPush(hasUpstream: hasUpstream, at: root)
             working = nil
             switch preview {
@@ -1369,9 +1397,9 @@ struct ChangesView: View {
                         await GitActions.push(hasUpstream: hasUpstream, at: root)
                     }
                 },
-                .init(label: "Cancel", kind: .cancel)
+                .init(label: "Cancel", kind: .cancel) { pushFocused = true }
             ],
-            width: 520)
+            onCancel: { pushFocused = true }, width: 520, isModal: true)
     }
 
     // Origin refuses a push from a branch that trails it, so the screen says so instead of
@@ -1390,9 +1418,9 @@ struct ChangesView: View {
                 .init(label: "Pull, then push", kind: .primary) {
                     pullThenPush(hasUpstream: hasUpstream, root: root)
                 },
-                .init(label: "Cancel", kind: .cancel)
+                .init(label: "Cancel", kind: .cancel) { pushFocused = true }
             ],
-            width: 520)
+            onCancel: { pushFocused = true }, width: 520, isModal: true)
     }
 
     // Only a pull that fails stops the push: a stash that came back badly leaves conflict
