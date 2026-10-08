@@ -13,7 +13,7 @@ struct FindInFilesTests {
             number: 2,
             text: "let monitor = WindowKeyMonitor(.control, \"h\") // windowkeymonitor",
             hits: [NSRange(location: 14, length: 16), NSRange(location: 49, length: 16)])])
-        #expect(!found.hasMore)
+        #expect(found.next == nil)
     }
 
     @Test func numbersLinesFromOneAndCountsBlankLines() {
@@ -63,16 +63,54 @@ struct FindInFilesTests {
         #expect(result == FileTextSearchResult())
     }
 
-    @Test func stopsAtTheMatchLimitAndSaysThereIsMore() {
-        let text = Array(repeating: "hit", count: FileFind.matchLimit).joined(separator: "\n")
-        let documents = [document("/project/A.txt", text), document("/project/B.txt", "hit")]
+    @Test func stopsAfterAPageAndSaysWhereTheNextOneStarts() {
+        let text = Array(repeating: "hit", count: FileTextSearch.pageSize).joined(separator: "\n")
+        let documents = [document("/project/A.txt", text), document("/project/B.txt", "no\nhit")]
 
         let result = FileTextSearch.matches("hit", in: documents)
 
-        #expect(result.lineCount == FileFind.matchLimit)
+        #expect(result.lineCount == FileTextSearch.pageSize)
         #expect(result.files.count == 1)
-        #expect(result.hasMore)
-        #expect(result.summary.hasPrefix("\(FileFind.matchLimit) matches+"))
+        #expect(result.next == FileTextSearchCursor(document: 1, location: 3))
+        #expect(result.summary == "\(FileTextSearch.pageSize)+ matches in 1+ file")
+    }
+
+    @Test func endsWithoutANextPageWhenTheLastMatchFillsThePage() {
+        let text = Array(repeating: "hit", count: FileTextSearch.pageSize).joined(separator: "\n")
+
+        let result = FileTextSearch.matches("hit", in: [document("/project/A.txt", text),
+                                                       document("/project/B.txt", "nothing")])
+
+        #expect(result.lineCount == FileTextSearch.pageSize)
+        #expect(!result.hasMore)
+    }
+
+    @Test func pagesTogetherListEveryLineOnceAndKeepACutFileInOneGroup() {
+        let documents = [
+            document("/project/A.txt", "a1\nx\na2\na3 a\na4"),
+            document("/project/B.txt", "a5")
+        ]
+
+        var result = FileTextSearch.matches("a", in: documents, limit: 2)
+        #expect(result.lineCount == 2)
+        while let next = result.next {
+            result.append(FileTextSearch.matches("a", in: documents, from: next, limit: 2))
+        }
+
+        #expect(result.files.map(\.file.name) == ["A.txt", "B.txt"])
+        #expect(result.files.map { $0.lines.map(\.text) } == [["a1", "a2", "a3 a", "a4"], ["a5"]])
+        #expect(result.files[0].lines[2].hits.count == 2)
+        #expect(result.summary == "5 matches in 2 files")
+    }
+
+    @Test func aFileWithManyHitsDoesNotEndTheSearch() {
+        let text = String(repeating: "a", count: 20_000)
+        let documents = [document("/project/A.txt", text), document("/project/B.txt", "a")]
+
+        let result = FileTextSearch.matches("a", in: documents)
+
+        #expect(result.files.map(\.file.name) == ["A.txt", "B.txt"])
+        #expect(!result.hasMore)
     }
 
     @Test func marksHitsOnOneLineAsRangesIntoTheWholeText() {

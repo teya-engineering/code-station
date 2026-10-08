@@ -24,80 +24,122 @@ struct FileTextMatches: Equatable, Sendable, Identifiable {
     var id: String { file.path }
 }
 
+// Where the next page of a search starts: a document, and a UTF-16 offset into its text
+// that falls at the start of a line holding a match.
+struct FileTextSearchCursor: Equatable, Sendable {
+    var document: Int
+    var location: Int
+}
+
 struct FileTextSearchResult: Equatable, Sendable {
     var files: [FileTextMatches] = []
-    var hasMore = false
+    // Set while there are matches left that have not been listed yet.
+    var next: FileTextSearchCursor?
 
+    var hasMore: Bool { next != nil }
     var lineCount: Int { files.reduce(0) { $0 + $1.lines.count } }
 
     var summary: String {
         guard !files.isEmpty else { return "No matches" }
-        let matches = counted(lineCount, "match", plural: "matches")
-        return "\(matches)\(hasMore ? "+" : "") in \(counted(files.count, "file"))"
+        guard hasMore else {
+            return "\(counted(lineCount, "match", plural: "matches")) in \(counted(files.count, "file"))"
+        }
+        return "\(lineCount)+ matches in \(files.count)+ \(files.count == 1 ? "file" : "files")"
+    }
+
+    // A page that carries on from this one. A file cut at the page break goes on in the
+    // same group rather than showing up twice.
+    mutating func append(_ page: FileTextSearchResult) {
+        var pageFiles = page.files[...]
+        if let first = pageFiles.first, let last = files.last, first.file.path == last.file.path {
+            files[files.count - 1] = FileTextMatches(file: last.file, lines: last.lines + first.lines)
+            pageFiles = pageFiles.dropFirst()
+        }
+        files += pageFiles
+        next = page.next
     }
 }
 
 // The same rule as find in the open file: a plain substring, case ignored. A line with
 // several hits is listed once, since opening it lands on the line either way.
+//
+// Results come in pages, the way IntelliJ lists them: the first page is cheap even when
+// the query is a single letter, and the next one is read only when the reader scrolls
+// down to it.
 enum FileTextSearch {
+    static let pageSize = 200
     static let excerptLength = 240
     // How much of the line before the first hit stays in view when a long line is cut.
     private static let leadIn = 40
 
-    static func matches(_ query: String, in documents: [FileTextDocument]) -> FileTextSearchResult {
+    static func matches(_ query: String, in documents: [FileTextDocument],
+                        from cursor: FileTextSearchCursor = FileTextSearchCursor(document: 0, location: 0),
+                        limit: Int = pageSize) -> FileTextSearchResult {
         guard !query.isBlank else { return FileTextSearchResult() }
 
         var result = FileTextSearchResult()
-        var remaining = FileFind.matchLimit
-        for (index, document) in documents.enumerated() {
+        var remaining = limit
+        for index in documents.indices where index >= cursor.document {
             if Task.isCancelled { return result }
-            let found = lines(matching: query, in: document.text, limit: remaining)
-            guard !found.lines.isEmpty else { continue }
-            result.files.append(FileTextMatches(file: document.file, lines: found.lines))
-            remaining -= found.lines.count
-            if found.hasMore {
-                result.hasMore = true
-                return result
+            let document = documents[index]
+            let from = index == cursor.document ? cursor.location : 0
+            let found = lines(matching: query, in: document.text, from: from, limit: remaining)
+            if !found.lines.isEmpty {
+                result.files.append(FileTextMatches(file: document.file, lines: found.lines))
+                remaining -= found.lines.count
             }
-            if remaining == 0 {
-                result.hasMore = documents[(index + 1)...].contains {
-                    $0.text.range(of: query, options: .caseInsensitive) != nil
-                }
+            if let next = found.next {
+                result.next = FileTextSearchCursor(document: index, location: next)
                 return result
             }
         }
         return result
     }
 
-    static func matches(_ query: String, in documents: [FileTextDocument]) async -> FileTextSearchResult {
+    static func matches(_ query: String, in documents: [FileTextDocument],
+                        from cursor: FileTextSearchCursor) async -> FileTextSearchResult {
         let task = Task.detached(priority: .userInitiated) { () -> FileTextSearchResult in
-            matches(query, in: documents)
+            matches(query, in: documents, from: cursor)
         }
         return await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
     }
 
-    static func lines(matching query: String, in text: String,
-                      limit: Int = FileFind.matchLimit) -> (lines: [FileTextLine], hasMore: Bool) {
-        let found = FileFind.search(query, in: text)
-        guard !found.matches.isEmpty, limit > 0 else { return ([], !found.matches.isEmpty) }
+    // The lines holding the query, from an offset on. Once `limit` lines are listed, `next`
+    // is where the following match sits, or nil when there is none.
+    static func lines(matching query: String, in text: String, from start: Int = 0,
+                      limit: Int = pageSize) -> (lines: [FileTextLine], next: Int?) {
+        guard !query.isEmpty else { return ([], nil) }
 
         let document = text as NSString
-        let index = LineIndex(document)
+        var index: LineIndex?
         var lines: [FileTextLine] = []
-        var current: (line: Int, hits: [NSRange])?
-        for match in found.matches {
-            let line = index.line(at: match.location)
-            if let open = current, open.line != line {
-                lines.append(excerpt(of: open.line, hits: open.hits, index: index, in: document))
-                current = nil
-                if lines.count == limit { return (lines, true) }
+        var location = start
+        while location < document.length {
+            let hit = document.range(of: query, options: .caseInsensitive,
+                                     range: NSRange(location: location, length: document.length - location))
+            guard hit.location != NSNotFound, hit.length > 0 else { break }
+            let lineIndex = index ?? LineIndex(document)
+            index = lineIndex
+            let line = lineIndex.line(at: hit.location)
+            let lineRange = lineIndex.range(of: line, length: document.length)
+            if lines.count == limit { return (lines, lineRange.location) }
+
+            // Hits past the excerpt could never be seen, so a huge minified line is not
+            // searched to its end.
+            let end = min(NSMaxRange(lineRange), hit.location + excerptLength)
+            var hits = [hit]
+            var after = NSMaxRange(hit)
+            while after < end {
+                let more = document.range(of: query, options: .caseInsensitive,
+                                          range: NSRange(location: after, length: end - after))
+                guard more.location != NSNotFound, more.length > 0 else { break }
+                hits.append(more)
+                after = NSMaxRange(more)
             }
-            current = (line, (current?.hits ?? []) + [match])
+            lines.append(excerpt(of: line, hits: hits, index: lineIndex, in: document))
+            location = max(NSMaxRange(lineRange), NSMaxRange(hit))
         }
-        if let open = current {
-            lines.append(excerpt(of: open.line, hits: open.hits, index: index, in: document))
-        }
-        return (lines, found.hasMore)
+        return (lines, nil)
     }
 
     // The hits of the query on one line of the text, as ranges into the whole text. Used to
@@ -184,12 +226,14 @@ final class FindInFilesModel {
     private(set) var matches: [FindInFilesMatch] = []
     private(set) var selectedIndex: Int?
     private(set) var loading = true
+    private(set) var loadingMore = false
     // The query the result belongs to. Typing runs ahead of the search for a moment, and
     // the old result stays on screen meanwhile rather than flashing empty.
     private(set) var searchedQuery: String?
 
     private var documents: [FileTextDocument] = []
     private var searchTask: Task<Void, Never>?
+    private var moreTask: Task<Void, Never>?
 
     init(root: String, includeHidden: Bool, query: String = "") {
         self.root = root
@@ -222,8 +266,24 @@ final class FindInFilesModel {
         selectedIndex = min(max((selectedIndex ?? 0) + offset, 0), matches.count - 1)
     }
 
+    func loadMore() {
+        guard !loadingMore, let next = result.next, let query = searchedQuery, query == self.query else { return }
+        loadingMore = true
+        let documents = documents
+        moreTask = Task {
+            let page = await FileTextSearch.matches(query, in: documents, from: next)
+            guard !Task.isCancelled else { return }
+            loadingMore = false
+            var result = result
+            result.append(page)
+            apply(result, for: query)
+        }
+    }
+
     private func search() {
         searchTask?.cancel()
+        moreTask?.cancel()
+        loadingMore = false
         guard !loading else { return }
         let query = query
         guard !query.isBlank else {
@@ -232,7 +292,8 @@ final class FindInFilesModel {
         }
         let documents = documents
         searchTask = Task {
-            let result = await FileTextSearch.matches(query, in: documents)
+            let result = await FileTextSearch.matches(
+                query, in: documents, from: FileTextSearchCursor(document: 0, location: 0))
             guard !Task.isCancelled else { return }
             apply(result, for: query)
         }
@@ -341,6 +402,12 @@ struct FindInFilesDialog: View {
                                     .id(starts[group] + offset)
                             }
                         }
+                        if model.result.hasMore {
+                            loadingMoreRow
+                                // Keyed on the count, so a page too short to push this row
+                                // out of view still asks for the one after it.
+                                .task(id: model.matches.count) { model.loadMore() }
+                        }
                     }
                     .padding(5)
                 }
@@ -403,6 +470,17 @@ struct FindInFilesDialog: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(matches.file.name), \(counted(matches.lines.count, "match", plural: "matches"))")
         .accessibilityAddTraits(.isHeader)
+    }
+
+    private var loadingMoreRow: some View {
+        HStack(spacing: 8) {
+            ProgressView().controlSize(.small)
+            Text("Finding more...")
+        }
+        .font(.system(size: 11))
+        .foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity)
+        .frame(height: 30)
     }
 
     private func matchRow(_ line: FileTextLine, in file: FileNode, index: Int) -> some View {
