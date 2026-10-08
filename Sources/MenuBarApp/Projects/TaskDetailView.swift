@@ -526,15 +526,15 @@ struct TaskDetailView: View {
         let appDefault = runner.validEffort(runner.defaults(for: agent).effort,
                                             for: agent, model: model)
         let chosen = override ?? appDefault
+        let inheritedEffort = appDefault.map { runner.effortTitle($0, for: agent, model: model) }
+            ?? "\(agent.title) settings"
         return RunChoice(
             badge: "EFFORT",
             label: chosen.map { "\(runner.effortTitle($0, for: agent, model: model)) effort" }
-                ?? "Default effort",
+                ?? "\(agent.title) default effort",
             overridden: override != nil,
-            help: "How long the model thinks before it answers.",
-            defaultTitle: defaultTitle(appDefault.map {
-                runner.effortTitle($0, for: agent, model: model)
-            }),
+            help: "How long the model thinks before it answers. Inherit Code Station's default, or choose a level for this run.",
+            defaultTitle: "Use Code Station default (\(inheritedEffort))",
             options: runner.effortOptions(for: agent, model: model).compactMap { choice in
                 choice.id.map { (id: $0, title: choice.title) }
             },

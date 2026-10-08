@@ -584,7 +584,7 @@ struct AgentSettingsView: View {
     }
 
     private func effort(for agent: AgentKind) -> some View {
-        ChoiceBlock("EFFORT", note: "How long the model thinks before it answers. More effort costs more tokens and more time, so it is the first thing to turn down when a limit is close.") {
+        ChoiceBlock("EFFORT", note: "How long the model thinks before it answers. More effort costs more tokens and more time. Default uses \(agent.title)'s own effort settings for the selected model.") {
             SettingsCard {
                 HStack(spacing: 4) {
                     ForEach(runner.effortOptions(for: agent, model: defaults.model),
