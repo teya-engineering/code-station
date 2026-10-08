@@ -258,7 +258,7 @@ struct ChangesView: View {
                     ? geometry.size.width - width - ExplorerSplitLayout.dividerWidth : geometry.size.width
                 VStack(spacing: 0) {
                     if navigation == nil {
-                        header(compact: headerWidth < 700, namesProject: !navigatorVisible)
+                        header(compact: geometry.size.width < 700, namesProject: !navigatorVisible)
                         if committing && mode == .changes { commitBar }
                     }
                     HStack(spacing: 0) {
@@ -445,7 +445,7 @@ struct ChangesView: View {
             if let snapshot, snapshot.state == .ready {
                 if !compact {
                     Text(snapshot.branch).font(.mono(11)).foregroundStyle(.secondary)
-                        .lineLimit(1).truncationMode(.middle).frame(maxWidth: 140)
+                        .lineLimit(1).truncationMode(.middle).frame(maxWidth: 140, alignment: .trailing)
                         .accessibilityHint(syncStatus)
                 }
                 Image(systemName: "ellipsis").padding(8).contentShape(Rectangle())
