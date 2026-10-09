@@ -30,6 +30,10 @@ struct ComposerField<TrailingAccessory: View>: View {
     // The arrows, return, tab and escape while the command menu is open above the box.
     // It is asked before anything else those keys mean, and answers the same way.
     var onCommandKey: ((CommandKey) -> Bool)? = nil
+    // Files dropped on the text itself, and whether such a drag is over it. Nil when the
+    // box takes no files, so a drag over it does nothing.
+    var onDropFiles: (([URL]) -> Void)? = nil
+    var onFileDragTargeted: ((Bool) -> Void)? = nil
 
     // Past this the box stops growing and the text scrolls inside it, so a long prompt
     // can never push the transcript off the screen.
@@ -48,6 +52,8 @@ struct ComposerField<TrailingAccessory: View>: View {
          commandNames: Set<String> = [],
          onSuggestionKey: ((SuggestionKey) -> Bool)? = nil,
          onCommandKey: ((CommandKey) -> Bool)? = nil,
+         onDropFiles: (([URL]) -> Void)? = nil,
+         onFileDragTargeted: ((Bool) -> Void)? = nil,
          minimumLines: Int = 1,
          @ViewBuilder trailingAccessory: () -> TrailingAccessory) {
         _text = text
@@ -62,6 +68,8 @@ struct ComposerField<TrailingAccessory: View>: View {
         self.commandNames = commandNames
         self.onSuggestionKey = onSuggestionKey
         self.onCommandKey = onCommandKey
+        self.onDropFiles = onDropFiles
+        self.onFileDragTargeted = onFileDragTargeted
         self.trailingAccessory = trailingAccessory()
         self.minimumLines = minimumLines
     }
@@ -82,6 +90,8 @@ struct ComposerField<TrailingAccessory: View>: View {
                  commandNames: commandNames,
                  onSuggestionKey: onSuggestionKey,
                  onCommandKey: onCommandKey,
+                 onDropFiles: onDropFiles,
+                 onFileDragTargeted: onFileDragTargeted,
                  animatesKeyword: !reduceMotion,
                  onHeightChange: { height = $0 })
             .frame(height: min(max(height, line * CGFloat(minimumLines)), line * CGFloat(maxLines)))
@@ -132,6 +142,8 @@ struct TextArea: NSViewRepresentable {
     var commandNames: Set<String> = []
     let onSuggestionKey: ((SuggestionKey) -> Bool)?
     let onCommandKey: ((CommandKey) -> Bool)?
+    var onDropFiles: (([URL]) -> Void)? = nil
+    var onFileDragTargeted: ((Bool) -> Void)? = nil
     let animatesKeyword: Bool
     let onHeightChange: (CGFloat) -> Void
 
@@ -428,6 +440,48 @@ struct TextArea: NSViewRepresentable {
                 return true
             }
             return super.performKeyEquivalent(with: event)
+        }
+
+        // A text view is a drop target of its own and would take a file as its path in
+        // the text, so only the padding around it ever reached the composer's drop. Files
+        // are taken here instead and handed on as attachments; text drags stay AppKit's.
+        private func droppedFiles(_ drag: NSDraggingInfo?) -> [URL] {
+            guard let drag, coordinator?.parent.onDropFiles != nil else { return [] }
+            return Pasteboard.fileURLs(from: drag.draggingPasteboard)
+        }
+
+        override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+            guard !droppedFiles(sender).isEmpty else { return super.draggingEntered(sender) }
+            coordinator?.parent.onFileDragTargeted?(true)
+            return .copy
+        }
+
+        override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+            guard !droppedFiles(sender).isEmpty else { return super.draggingUpdated(sender) }
+            return .copy
+        }
+
+        override func draggingExited(_ sender: NSDraggingInfo?) {
+            guard !droppedFiles(sender).isEmpty else { return super.draggingExited(sender) }
+            coordinator?.parent.onFileDragTargeted?(false)
+        }
+
+        override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
+            guard !droppedFiles(sender).isEmpty else { return super.prepareForDragOperation(sender) }
+            return true
+        }
+
+        override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+            let files = droppedFiles(sender)
+            guard !files.isEmpty else { return super.performDragOperation(sender) }
+            coordinator?.parent.onFileDragTargeted?(false)
+            coordinator?.parent.onDropFiles?(files)
+            return true
+        }
+
+        override func concludeDragOperation(_ sender: NSDraggingInfo?) {
+            guard droppedFiles(sender).isEmpty else { return }
+            super.concludeDragOperation(sender)
         }
 
         override func paste(_ sender: Any?) {

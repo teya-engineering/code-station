@@ -91,6 +91,8 @@ struct Composer<Above: View, Accessory: View>: View {
                               commandNames: Set(commands.map { $0.name.lowercased() }),
                               onSuggestionKey: onSuggestionKey,
                               onCommandKey: commandKey,
+                              onDropFiles: blocked ? nil : { attach(Attachments.fromDrop($0)) },
+                              onFileDragTargeted: { dropTargeted = $0 },
                               minimumLines: minimumLines) {
                     accessory
                 }
