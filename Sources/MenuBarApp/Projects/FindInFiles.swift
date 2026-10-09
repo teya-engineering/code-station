@@ -208,9 +208,11 @@ enum FileTextSearch {
     }
 }
 
-struct FindInFilesMatch: Equatable {
+struct FindInFilesMatch: Equatable, Identifiable {
     let file: FileNode
     let line: FileTextLine
+
+    var id: String { "\(file.path):\(line.number)" }
 }
 
 @MainActor
@@ -397,9 +399,12 @@ struct FindInFilesDialog: View {
                         ForEach(Array(model.result.files.enumerated()), id: \.element.id) { group, matches in
                             fileRow(matches)
                                 .padding(.top, group == 0 ? 0 : 4)
-                            ForEach(Array(matches.lines.enumerated()), id: \.element.number) { offset, line in
-                                matchRow(line, in: matches.file, index: starts[group] + offset)
-                                    .id(starts[group] + offset)
+                            // Rows are keyed by file and line, not by place in the list. The lazy
+                            // stack keeps rows by key, and a place reused by the next query would
+                            // show the old query's line.
+                            let rows = starts[group]..<(starts[group] + matches.lines.count)
+                            ForEach(Array(zip(rows, model.matches[rows])), id: \.1.id) { index, match in
+                                matchRow(match.line, in: match.file, index: index)
                             }
                         }
                         if model.result.hasMore {
@@ -412,9 +417,9 @@ struct FindInFilesDialog: View {
                     .padding(5)
                 }
                 .onChange(of: model.selectedIndex) {
-                    if let index = model.selectedIndex {
+                    if let selected = model.selected {
                         withAnimation(.easeOut(duration: 0.1)) {
-                            proxy.scrollTo(index, anchor: .center)
+                            proxy.scrollTo(selected.id, anchor: .center)
                         }
                     }
                 }
@@ -490,7 +495,7 @@ struct FindInFilesDialog: View {
             model.select(index)
         } label: {
             HStack(spacing: 10) {
-                Text("\(line.number)")
+                Text(verbatim: "\(line.number)")
                     .font(.mono(10, selected ? .semibold : .regular))
                     .foregroundStyle(selected ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(.secondary))
                     .frame(width: 36, alignment: .trailing)
