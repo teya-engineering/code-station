@@ -307,6 +307,7 @@ struct ChangesView: View {
         .task(id: root) {
             if snapshot == nil { snapshot = gitStats.snapshot(at: root) }
             await reload()
+            await refreshOtherProjects()
         }
         .onChange(of: requestedPath) { _, path in
             guard let file = files.first(where: { $0.id == path }) else { return }
@@ -648,40 +649,48 @@ struct ChangesView: View {
             selectRepository(repository.root, nil)
         }
         .id(item)
-        if !changes.isEmpty && !collapsedRepositories.contains(repository.root) {
-            VStack(spacing: 3) {
-                ForEach(changes) { file in
+        // Each file is a row of the lazy stack itself, not part of one block per project,
+        // so only the rows on screen are built.
+        if !collapsedRepositories.contains(repository.root) {
+            ForEach(changes) { file in
+                Group {
                     if repository.root == root {
                         row(file)
-                            .id(ChangesNavigatorItem(root: root, path: file.id))
                     } else {
-                        let item = ChangesNavigatorItem(root: repository.root, path: file.id)
-                        Button {
-                            navigatorCursor = item
-                            navigatorCursorVisible = false
-                            navigatorFocused = true
-                            selectRepository(repository.root, file.id)
-                        } label: {
-                            HStack {
-                                StatusChip(kind: file.kind)
-                                fileName(file)
-                                counts(file)
-                            }.padding(10)
-                            .overlay {
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(showsCursor(item) ? Theme.accent : .clear, lineWidth: 2)
-                            }
-                            .contentShape(Rectangle())
-                        }.buttonStyle(.plain)
-                            .id(item)
+                        otherProjectRow(file, in: repository.root)
                     }
                 }
+                .padding(.leading, 9)
+                .overlay(alignment: .leading) {
+                    // Runs into the gaps between rows so the rule down the side is unbroken.
+                    Rectangle().fill(Theme.border).frame(width: 1).padding(.vertical, -1.5)
+                }
+                .padding(.leading, 21)
+                .id(ChangesNavigatorItem(root: repository.root, path: file.id))
+                .transition(.fold)
             }
-            .padding(.leading, 9)
-            .overlay(alignment: .leading) { Rectangle().fill(Theme.border).frame(width: 1) }
-            .padding(.leading, 21)
-            .transition(.fold)
         }
+    }
+
+    private func otherProjectRow(_ file: GitChange, in repositoryRoot: String) -> some View {
+        let item = ChangesNavigatorItem(root: repositoryRoot, path: file.id)
+        return Button {
+            navigatorCursor = item
+            navigatorCursorVisible = false
+            navigatorFocused = true
+            selectRepository(repositoryRoot, file.id)
+        } label: {
+            HStack {
+                StatusChip(kind: file.kind)
+                fileName(file)
+                counts(file)
+            }.padding(10)
+            .overlay {
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(showsCursor(item) ? Theme.accent : .clear, lineWidth: 2)
+            }
+            .contentShape(Rectangle())
+        }.buttonStyle(.plain)
     }
 
     // MARK: - History navigator
@@ -814,7 +823,9 @@ struct ChangesView: View {
         if repositoryRoot == root {
             historySelection.select(commit)
         } else {
-            navigation?.histories[repositoryRoot]?.select(commit)
+            let selection = navigation?.histories[repositoryRoot] ?? CommitHistorySelection()
+            selection.select(commit)
+            navigation?.histories[repositoryRoot] = selection
             selectRepository(repositoryRoot, nil)
         }
         announce(commit.subject)
@@ -1552,9 +1563,27 @@ struct ChangesView: View {
                 await loadHistory()
                 if openLatestCommit, let commit = commits?.first { historySelection.select(commit) }
                 openLatestCommit = false
+                await refreshOtherProjects()
             }
         } else if let selected {
             Task { await loadDiff(selected, root: repoRoot) }
+        }
+    }
+
+    // The other projects in the navigator are drawn from what was last read of them.
+    // Reading them again on the background lane, after this project, keeps them current
+    // without holding up the one on screen.
+    private func refreshOtherProjects() async {
+        for repository in repositories where repository.root != root {
+            if mode == .history {
+                let history = await GitInspector.recentCommits(at: repository.root)
+                guard !Task.isCancelled else { return }
+                navigation?.commits[repository.root] = history.commits
+            } else {
+                let fresh = await GitInspector.snapshot(at: repository.root, comparingToLastCommit: true)
+                guard !Task.isCancelled else { return }
+                gitStats.store(fresh, at: repository.root)
+            }
         }
     }
 
@@ -1594,19 +1623,23 @@ struct ChangesView: View {
     // nothing about the change has moved, only the size it is drawn at.
     private func reopenDiff() {
         diffScroll = .top
-        renderDiff()
+        Task { await renderDiff() }
     }
 
     // A commit diff spans many files and takes its languages from its own section
     // headings, so only a single file's diff has a language to name here.
-    private func renderDiff() {
+    private func renderDiff() async {
         guard let diff, !diff.lines.isEmpty else { return }
-        diffText = DiffText.attributed(
-            diff.lines,
+        let lines = diff.lines
+        let text = await DiffText.build(
+            lines,
             language: (mode == .changes ? selected : nil).flatMap {
                 CodeLanguage(fileExtension: ($0.path as NSString).pathExtension)
             },
             scale: appSettings.textSize.scale, numbered: mode == .changes)
+        // Another file, or more of this one, can have opened while the text was built.
+        guard self.diff?.lines == lines else { return }
+        diffText = text
     }
 
     // A grey gap row stands for the unchanged lines the diff skipped. Pressing one of its
@@ -1637,7 +1670,7 @@ struct ChangesView: View {
             diff = opened
             // Only reading down puts lines above the row that was pressed.
             diffScroll = direction == .down ? .follow : .hold
-            renderDiff()
+            await renderDiff()
         }
     }
 
@@ -1657,12 +1690,14 @@ struct ChangesView: View {
         loadingDiff = true
         let loaded = await GitInspector.reviewDiff(for: file, root: root)
         guard !Task.isCancelled, mode == .changes, fileSelection.activeID == file.id else { return }
-        diffScroll = .top
-        diff = loaded
-        diffText = loaded.lines.isEmpty ? nil : DiffText.attributed(
+        let text = loaded.lines.isEmpty ? nil : await DiffText.build(
             loaded.lines,
             language: CodeLanguage(fileExtension: (file.path as NSString).pathExtension),
-            scale: appSettings.textSize.scale, numbered: mode == .changes)
+            scale: appSettings.textSize.scale, numbered: true)
+        guard !Task.isCancelled, mode == .changes, fileSelection.activeID == file.id else { return }
+        diffScroll = .top
+        diff = loaded
+        diffText = text
         loadingDiff = false
     }
 

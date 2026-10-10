@@ -265,8 +265,22 @@ struct DiffGapHit: Equatable {
 }
 
 // One attributed string for a whole diff.
-@MainActor
 enum DiffText {
+    // Lining up and colouring a long diff takes long enough to stall the window, so it is
+    // built away from the main thread.
+    static func build(_ lines: [DiffLine], language: CodeLanguage? = nil,
+                      scale: CGFloat = 1, numbered: Bool = false) async -> NSAttributedString {
+        await Task.detached(priority: .userInitiated) {
+            Finished(text: attributed(lines, language: language, scale: scale, numbered: numbered))
+        }.value.text
+    }
+
+    // NSAttributedString is not marked Sendable. This one is complete before it crosses
+    // to the main thread and nothing changes it after, so handing it over is safe.
+    private struct Finished: @unchecked Sendable {
+        let text: NSAttributedString
+    }
+
     static func attributed(_ lines: [DiffLine],
                            language: CodeLanguage? = nil,
                            scale: CGFloat = 1, numbered: Bool = false) -> NSAttributedString {
