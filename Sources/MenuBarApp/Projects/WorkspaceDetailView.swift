@@ -672,6 +672,7 @@ struct WorkspaceDetailView: View {
                   icon: session.isPinned ? "pin.slash" : "pin") {
                 store.setPinned(!session.isPinned, forSession: session.id)
             },
+            SessionUnread.menuEntry(for: session.id, store: store),
             .separator,
             .item("Delete session", kind: .destructive) { confirmRemove(session) }
         ]

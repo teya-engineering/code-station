@@ -23,7 +23,7 @@ struct FinishedSessionTests {
         store.noteTurnEnded(for: background.id)
 
         #expect(store.hasFinished(background.id))
-        #expect(store.finishedCount(in: project.id) == 1)
+        #expect(store.unreadCount(in: project.id) == 1)
     }
 
     // The result of the session being read is already on screen, so there is nothing to
@@ -35,7 +35,7 @@ struct FinishedSessionTests {
         store.noteTurnEnded(for: open.id)
 
         #expect(store.hasFinished(open.id) == false)
-        #expect(store.finishedCount(in: project.id) == 0)
+        #expect(store.unreadCount(in: project.id) == 0)
     }
 
     @Test func marksTheSelectedSessionWhenTheAppIsInactive() {
@@ -45,7 +45,7 @@ struct FinishedSessionTests {
         store.noteTurnEnded(for: open.id)
 
         #expect(store.hasFinished(open.id))
-        #expect(store.finishedCount(in: project.id) == 1)
+        #expect(store.unreadCount(in: project.id) == 1)
     }
 
     @Test func openingTheSessionClearsIt() {
@@ -57,7 +57,7 @@ struct FinishedSessionTests {
         store.selection = .session(background.id)
 
         #expect(store.hasFinished(background.id) == false)
-        #expect(store.finishedCount(in: project.id) == 0)
+        #expect(store.unreadCount(in: project.id) == 0)
     }
 
     @Test func openingAReviewCarriesItsDestination() {
@@ -89,7 +89,7 @@ struct FinishedSessionTests {
         store.noteTurnEnded(for: session.id)
 
         #expect(store.hasFinished(session.id) == false)
-        #expect(store.finishedCount(in: project.id) == 0)
+        #expect(store.unreadCount(in: project.id) == 0)
     }
 
     @Test func openingTheSessionOnMobileClearsIt() {
@@ -99,7 +99,7 @@ struct FinishedSessionTests {
         store.hold(session.id, for: .remote)
 
         #expect(store.hasFinished(session.id) == false)
-        #expect(store.finishedCount(in: project.id) == 0)
+        #expect(store.unreadCount(in: project.id) == 0)
     }
 
     // Looking at another session, or at no session at all, is not reading this one.
@@ -123,6 +123,6 @@ struct FinishedSessionTests {
         store.noteTurnEnded(for: background.id)
         store.removeSession(background.id)
 
-        #expect(store.finishedCount(in: project.id) == 0)
+        #expect(store.unreadCount(in: project.id) == 0)
     }
 }

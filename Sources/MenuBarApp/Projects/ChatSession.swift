@@ -61,6 +61,9 @@ struct ChatSession: Identifiable, Codable, Equatable, Sendable {
     // Changes whenever a title is assigned, so a summary cannot replace a later rename.
     var titleRevision: UUID?
     var isPinned = false
+    // Set by the person to come back to this session later. It is saved, unlike the mark
+    // left by a turn that ended unseen, because it is a choice rather than a moment.
+    var isMarkedUnread = false
     var isTroubleshooting = false
     var agent: AgentKind
     var mode: SessionMode = .chat
@@ -222,7 +225,8 @@ struct ChatSession: Identifiable, Codable, Equatable, Sendable {
     // encodes to. It is still decoded: a file written before the split holds every
     // conversation inline, and that is what the store moves out on the first launch.
     private enum CodingKeys: String, CodingKey {
-        case id, projectID, title, titleRevision, isPinned, isTroubleshooting, agent, mode, designPhase
+        case id, projectID, title, titleRevision, isPinned, isMarkedUnread, isTroubleshooting
+        case agent, mode, designPhase
         case designRevisions, approvedDesignRevisionID, sourceDesignSessionID
         case handedOffDesignRevisionID, designSourceSessionID
         case claudeSessionID, codexSessionID, copilotSessionID, createdAt
@@ -246,6 +250,8 @@ struct ChatSession: Identifiable, Codable, Equatable, Sendable {
         title = try container.decodeIfPresent(String.self, forKey: .title) ?? "New session"
         titleRevision = try container.decodeIfPresent(UUID.self, forKey: .titleRevision)
         isPinned = try container.decodeIfPresent(Bool.self, forKey: .isPinned) ?? false
+        isMarkedUnread = try container.decodeIfPresent(Bool.self, forKey: .isMarkedUnread)
+            ?? false
         isTroubleshooting = try container.decodeIfPresent(Bool.self, forKey: .isTroubleshooting)
             ?? false
         designSourceSessionID = try container.decodeIfPresent(
@@ -298,6 +304,7 @@ struct ChatSession: Identifiable, Codable, Equatable, Sendable {
         try container.encode(title, forKey: .title)
         try container.encodeIfPresent(titleRevision, forKey: .titleRevision)
         try container.encode(isPinned, forKey: .isPinned)
+        if isMarkedUnread { try container.encode(isMarkedUnread, forKey: .isMarkedUnread) }
         try container.encode(isTroubleshooting, forKey: .isTroubleshooting)
         try container.encode(agent, forKey: .agent)
         try container.encode(mode, forKey: .mode)

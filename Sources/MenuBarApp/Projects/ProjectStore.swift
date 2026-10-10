@@ -83,6 +83,7 @@ final class ProjectStore {
             }
             if case .session(let id) = selection {
                 finished.remove(id)
+                if markedUnread.contains(id) { setMarkedUnread(false, for: id) }
                 hold(id, for: .open)
             }
         }
@@ -118,6 +119,10 @@ final class ProjectStore {
     // This is about live attention rather than the conversation, so it is not saved: a
     // relaunch is not something to catch up on.
     private(set) var finished: Set<UUID> = []
+    // Sessions the person marked as unread, mirrored from the saved flag so a row can ask
+    // without reading the whole session list. Only opening the session again or sending
+    // to it clears one; leaving it does not, since that is when it tends to be marked.
+    private(set) var markedUnread: Set<UUID> = []
     @ObservationIgnored private var applicationIsActive = true
 
     let storeURL: URL
@@ -555,16 +560,42 @@ final class ProjectStore {
 
     func hasFinished(_ sessionID: UUID) -> Bool { finished.contains(sessionID) }
 
+    // Whether the session is waiting to be read, either because a turn ended unseen or
+    // because the person marked it to come back to.
+    func isUnread(_ sessionID: UUID) -> Bool {
+        finished.contains(sessionID) || markedUnread.contains(sessionID)
+    }
+
     // A collapsed project hides its sessions, so the count is what says how much is
     // waiting behind it.
-    func finishedCount(in projectID: UUID) -> Int {
+    func unreadCount(in projectID: UUID) -> Int {
         sidebarSessions.count {
-            $0.projectID == projectID && $0.workspaceID == nil && finished.contains($0.id)
+            $0.projectID == projectID && $0.workspaceID == nil && isUnread($0.id)
         }
     }
 
-    func finishedCount(inWorkspace workspaceID: UUID) -> Int {
-        sidebarSessions.count { $0.workspaceID == workspaceID && finished.contains($0.id) }
+    func unreadCount(inWorkspace workspaceID: UUID) -> Int {
+        sidebarSessions.count { $0.workspaceID == workspaceID && isUnread($0.id) }
+    }
+
+    func setMarkedUnread(_ isMarked: Bool, for sessionID: UUID) {
+        let visibleID = userFacingSessionID(for: sessionID)
+        guard let i = index(visibleID), sessions[i].isMarkedUnread != isMarked else { return }
+        sessions[i].isMarkedUnread = isMarked
+        if isMarked {
+            markedUnread.insert(visibleID)
+        } else {
+            markedUnread.remove(visibleID)
+        }
+        publishSidebarSessions()
+        saveIndex()
+    }
+
+    // Marking as read clears both kinds of unread, so the row stops asking for the person
+    // without them having to open it.
+    func markRead(_ sessionID: UUID) {
+        clearFinished(sessionID)
+        setMarkedUnread(false, for: sessionID)
     }
 
     // MARK: - Projects
@@ -1590,6 +1621,7 @@ final class ProjectStore {
 
     private func clearSessionMemory(_ sessionID: UUID) {
         finished.remove(sessionID)
+        markedUnread.remove(sessionID)
         holds[sessionID] = nil
         transcriptLoads[sessionID]?.cancel()
         transcriptLoads[sessionID] = nil
@@ -2318,6 +2350,9 @@ final class ProjectStore {
         } else if let id = Preferences.selectedWorkspaceID, workspace(id) != nil {
             selection = .workspace(id)
         }
+        // Filled in after the selection is restored, so the session that was open when it
+        // was marked does not count as opened again and lose its mark at launch.
+        markedUnread = Set(sessions.filter(\.isMarkedUnread).map(\.id))
         recordVisit()
     }
 

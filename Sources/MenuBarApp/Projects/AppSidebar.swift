@@ -520,7 +520,7 @@ struct AppSidebar: View {
             isMissing: store.isMissing(project),
             sessionCount: sessions.count,
             runningCount: running,
-            finishedCount: store.finishedCount(in: project.id),
+            unreadCount: store.unreadCount(in: project.id),
             needsYouCount: needsYouCount(sessions),
             // A project can hold sessions from either agent, so the total only counts
             // the ones whose agent is set to show what it spends.
@@ -583,7 +583,7 @@ struct AppSidebar: View {
                             waitIsStale: runner.waitIsStale(live.id),
                             waitingSince: runner.waitingSince(live.id),
                             needsInput: runner.question(live.id) != nil,
-                            finished: store.hasFinished(session.id),
+                            finished: store.isUnread(session.id),
                             activity: { [runner, store] in
                                 Self.activity(live, runner: runner, store: store)
                             },
@@ -618,6 +618,7 @@ struct AppSidebar: View {
                        icon: session.isPinned ? "pin.slash" : "pin") {
                      store.setPinned(!session.isPinned, forSession: session.id)
                  },
+                 SessionUnread.menuEntry(for: session.id, store: store),
                  .item("Rename…") { renamingID = session.id },
                  SessionTitle.menuEntry(for: session.id, runner: runner, store: store),
                  .separator,
@@ -651,7 +652,7 @@ struct AppSidebar: View {
             let state = runner.state(live.id)
             return SessionTone(busy: state.isBusy,
                                needsInput: runner.question(live.id) != nil,
-                               finished: store.hasFinished(session.id),
+                               finished: store.isUnread(session.id),
                                waiting: state == .waiting,
                                waitIsStale: runner.waitIsStale(live.id)) == .needsYou
         }
@@ -1528,7 +1529,7 @@ private struct ProjectHeaderRow: View {
     let isMissing: Bool
     let sessionCount: Int
     let runningCount: Int
-    let finishedCount: Int
+    let unreadCount: Int
     let needsYouCount: Int
     let cost: Double
     let canRunTask: Bool
@@ -1666,8 +1667,8 @@ private struct ProjectHeaderRow: View {
         if runningCount > 0 {
             rows.append(Tooltip.Row(label: "Running", value: "\(runningCount)"))
         }
-        if finishedCount > 0 {
-            rows.append(Tooltip.Row(label: "Finished while away", value: "\(finishedCount)"))
+        if unreadCount > 0 {
+            rows.append(Tooltip.Row(label: "Unread", value: "\(unreadCount)"))
         }
         if cost > 0 {
             rows.append(Tooltip.Row(label: "Spent", value: Money.short(cost)))

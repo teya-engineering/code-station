@@ -1274,6 +1274,7 @@ final class SessionRunner {
         let instructions = customInstructions?.trimmed
         guard !text.isEmpty || !attachments.isEmpty || instructions?.isEmpty == false else { return }
         store.markSessionSeen(sessionID)
+        store.setMarkedUnread(false, for: sessionID)
 
         // The window commands are answered by the app rather than sent on as prompts, so
         // that typing one and picking it off the meter do the same thing. Anything hanging
@@ -1304,6 +1305,7 @@ final class SessionRunner {
                         sessionID: UUID, store: ProjectStore) {
         guard !isBeingRemoved(sessionID), store.session(sessionID) != nil else { return }
         store.markSessionSeen(sessionID)
+        store.setMarkedUnread(false, for: sessionID)
         recordAddingIfMissing(sessionID).queue.append(QueuedPrompt(
             text: prompt,
             attachments: attachments,

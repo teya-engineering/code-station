@@ -393,6 +393,7 @@ struct TaskDetailView: View {
                   icon: session.isPinned ? "pin.slash" : "pin") {
                 store.setPinned(!session.isPinned, forSession: session.id)
             },
+            SessionUnread.menuEntry(for: session.id, store: store),
             .item("Reveal in Finder") {
                 NSWorkspace.shared.activateFileViewerSelecting([task.url])
             },

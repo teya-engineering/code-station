@@ -494,7 +494,7 @@ struct GlobalCommandPalette: View {
             let container = workspace?.name ?? project?.name ?? "Missing project"
             let live = LiveConversation.id(of: session.id, store: store, runner: runner)
             let question = runner.question(live)
-            let finished = store.hasFinished(session.id)
+            let finished = store.isUnread(session.id)
             let busy = runner.state(live).isBusy
             let needsAttention = question != nil || finished
             let badge: String? = if question != nil {

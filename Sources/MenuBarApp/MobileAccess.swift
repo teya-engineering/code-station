@@ -884,7 +884,7 @@ final class MobileAccessController {
     private func conversationTone(_ sessionID: UUID) -> SessionTone {
         let state = runner.state(sessionID)
         return SessionTone(busy: state.isBusy, needsInput: runner.question(sessionID) != nil,
-                           finished: store.hasFinished(sessionID), waiting: state == .waiting,
+                           finished: store.isUnread(sessionID), waiting: state == .waiting,
                            waitIsStale: runner.waitIsStale(sessionID))
     }
 

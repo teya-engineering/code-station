@@ -229,7 +229,7 @@ struct HomeView: View {
             let live = LiveConversation.of(session.id, store: store, runner: runner) ?? session
             let busy = runner.state(live.id).isBusy
             let permission = runner.question(live.id)
-            let finished = store.hasFinished(session.id)
+            let finished = store.isUnread(session.id)
             let identity = identity(of: session)
             let card = describe(session, identity: identity, live: live, busy: busy,
                                 permission: permission, finished: finished)
