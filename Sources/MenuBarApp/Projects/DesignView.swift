@@ -287,6 +287,11 @@ struct DesignView: View {
                     Color.clear.frame(height: 1).id("design-transcript-bottom")
                 }
                 .padding(14)
+                .background {
+                    TranscriptScrollObserver { isAtBottom in
+                        transcriptAtBottom = isAtBottom
+                    }
+                }
                 .modifier(SentPromptCommands(agent: session.agent,
                                              workingDirectories: store.workingDirectories(for: session),
                                              latestPromptID: latestPromptID))
@@ -315,17 +320,25 @@ struct DesignView: View {
             .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y } action: { _, offset in
                 transcriptOffset = offset
             }
+            // Only a person scrolling unpins the transcript. Growth alone also leaves the
+            // end out of view for a moment, and reading that as "scrolled up" stopped the
+            // transcript following the reply to a prompt just sent.
             .onScrollGeometryChange(for: CGFloat.self) { $0.contentSize.height } action: { _, height in
                 transcriptHeight = height
+                if transcriptAtBottom {
+                    Task { proxy.scrollTo("design-transcript-bottom", anchor: .bottom) }
+                }
             }
-            .onScrollGeometryChange(for: Bool.self) { geometry in
-                geometry.contentSize.height - geometry.visibleRect.maxY < 28
-            } action: { _, atBottom in
-                transcriptAtBottom = atBottom
+            // The panel grows with its content and the composer shrinks once a prompt is
+            // sent, so the viewport changes height under a transcript that keeps its offset.
+            .onScrollGeometryChange(for: CGFloat.self) { $0.containerSize.height } action: { _, _ in
+                if transcriptAtBottom {
+                    Task { proxy.scrollTo("design-transcript-bottom", anchor: .bottom) }
+                }
             }
             .onChange(of: transcriptShape(session)) {
                 if transcriptAtBottom {
-                    proxy.scrollTo("design-transcript-bottom", anchor: .bottom)
+                    Task { proxy.scrollTo("design-transcript-bottom", anchor: .bottom) }
                 }
             }
             // A new prompt always goes to the end, even when the user had scrolled back

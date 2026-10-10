@@ -47,7 +47,7 @@ struct TranscriptWindow: Equatable {
 // Content growth and a person scrolling up both move the transcript's bottom marker.
 // AppKit's live-scroll notifications separate those cases, so streaming can keep its
 // place without taking the scroll position back from someone reading an earlier line.
-private struct TranscriptScrollObserver: NSViewRepresentable {
+struct TranscriptScrollObserver: NSViewRepresentable {
     let onPositionChange: (Bool) -> Void
 
     func makeNSView(context: Context) -> TranscriptScrollObserverView {
@@ -67,7 +67,7 @@ private struct TranscriptScrollObserver: NSViewRepresentable {
 }
 
 @MainActor
-private final class TranscriptScrollObserverView: NSView {
+final class TranscriptScrollObserverView: NSView {
     var onPositionChange: ((Bool) -> Void)?
     private weak var observedScrollView: NSScrollView?
 
