@@ -37,6 +37,7 @@ struct AppSidebar: View {
     @State private var renderedSessionIDs: Set<UUID> = []
     @State private var filterBox = SidebarFilterBox()
     @State private var oldSessions = OldSessionsWatch()
+    @State private var dropSlot: SidebarDropSlot?
     @FocusState private var filterFocused: Bool
 
     private struct SessionRevealTarget: Equatable {
@@ -314,6 +315,37 @@ struct AppSidebar: View {
 
     private static let listSpacing: CGFloat = 1
 
+    // Under "Last used" the order is a date, so a row dragged to a new place is given a
+    // date between its new neighbours. A-Z has nothing a drag could change.
+    private var canReorder: Bool { appSettings.projectSort == .lastUsed }
+
+    // A row only moves within its own section, among the rows drawn there.
+    private func dropItem(_ id: UUID, beside targetID: UUID, after: Bool) {
+        guard let section = sections.first(where: { $0.items.contains { $0.id == targetID } })
+        else { return }
+        let all = store.projects.map(SidebarItem.project)
+            + store.workspaces.map(SidebarItem.workspace)
+        let dates = ProjectSort.sortDates(of: all, sessions: store.sidebarSessions)
+        let pinned = ProjectSort.pinnedIDs(of: all, sessions: store.sidebarSessions)
+        let rows = section.items.map {
+            SidebarPlacement.Row(id: $0.id, isPinned: pinned.contains($0.id), date: dates[$0.id])
+        }
+        guard let date = SidebarPlacement.date(moving: id, beside: targetID, after: after,
+                                               in: rows) else { return }
+        store.placeInSidebar(id, at: date)
+    }
+
+    // A session only moves among the other sessions under the same row.
+    private func dropSession(_ id: UUID, beside targetID: UUID, after: Bool,
+                             in sessions: [ChatSession]) {
+        let rows = sessions.map {
+            SidebarPlacement.Row(id: $0.id, isPinned: $0.isPinned, date: $0.sidebarDate)
+        }
+        guard let date = SidebarPlacement.date(moving: id, beside: targetID, after: after,
+                                               in: rows) else { return }
+        store.placeInSidebar(id, at: date)
+    }
+
     private var sections: [SidebarSection] {
         appSettings.projectGrouping.sections(of: orderedItems)
     }
@@ -478,6 +510,9 @@ struct AppSidebar: View {
              }]
         }
         .sidebarRevealGlow(store.sidebarHighlight == workspace.id)
+        .sidebarReorder(workspace.id, enabled: canReorder, slot: $dropSlot) {
+            dropItem($0, beside: workspace.id, after: $1)
+        }
         .id(workspace.id)
 
         if expanded, !visible.isEmpty {
@@ -542,6 +577,9 @@ struct AppSidebar: View {
         )
         .appContextMenu { headerMenu(project) }
         .sidebarRevealGlow(store.sidebarHighlight == project.id)
+        .sidebarReorder(project.id, enabled: canReorder, slot: $dropSlot) {
+            dropItem($0, beside: project.id, after: $1)
+        }
         .id(project.id)
 
         // An expanded project with nothing under it draws no cards at all: an empty rail
@@ -603,6 +641,9 @@ struct AppSidebar: View {
                             },
                             onCancelRename: { renamingID = nil })
                     .sidebarRevealGlow(store.sidebarHighlight == session.id)
+            }
+            .sidebarReorder(session.id, enabled: canReorder, slot: $dropSlot) {
+                dropSession($0, beside: session.id, after: $1, in: sessions)
             }
             .id(session.id)
             .background {

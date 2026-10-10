@@ -1451,6 +1451,23 @@ final class ProjectStore {
         saveIndex()
     }
 
+    // Gives a session, project or workspace the date a drag in the sidebar worked out
+    // for it, so the "Last used" order keeps it where it was dropped.
+    func placeInSidebar(_ id: UUID, at date: Date, now: Date = Date()) {
+        let placement = SidebarPlacement(date: date, placedAt: now)
+        if let i = index(id) {
+            sessions[i].sidebarPlacement = placement
+            publishSidebarSessions()
+        } else if let i = projects.firstIndex(where: { $0.id == id }) {
+            projects[i].sidebarPlacement = placement
+        } else if let i = workspaces.firstIndex(where: { $0.id == id }) {
+            workspaces[i].sidebarPlacement = placement
+        } else {
+            return
+        }
+        saveIndex()
+    }
+
     func setAgentAvatarName(_ name: String?, for sessionID: UUID) {
         guard let i = index(sessionID), sessions[i].agentAvatarName != name else { return }
         sessions[i].agentAvatarName = name

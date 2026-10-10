@@ -31,6 +31,13 @@ enum SidebarItem: Identifiable {
         case .workspace(let workspace): workspace.isPinned
         }
     }
+
+    var sidebarPlacement: SidebarPlacement? {
+        switch self {
+        case .project(let project): project.sidebarPlacement
+        case .workspace(let workspace): workspace.sidebarPlacement
+        }
+    }
 }
 
 // The kinds the rail can be split into, in the order the sections are shown. The raw
@@ -93,7 +100,8 @@ enum ProjectGrouping: String, CaseIterable, Identifiable {
 }
 
 // "Last used" comes from the sessions rather than from the container: the newest
-// session shown under a project or workspace is the last time anyone worked there.
+// session shown under a project or workspace is the last time anyone worked there. A row
+// the person dragged to a new place keeps that place until it is used again.
 enum ProjectSort: String, CaseIterable, Identifiable {
     case name
     case lastUsed
@@ -115,24 +123,20 @@ enum ProjectSort: String, CaseIterable, Identifiable {
     }
 
     func apply(to items: [SidebarItem], sessions: [ChatSession]) -> [SidebarItem] {
-        let pinnedContainerIDs = Set(sessions.lazy.filter(\.isPinned).map {
-            $0.workspaceID ?? $0.projectID
-        })
+        let pinned = Self.pinnedIDs(of: items, sessions: sessions)
 
         switch self {
         case .name:
             return items.sorted { a, b in
-                let aIsPinned = a.isPinned || pinnedContainerIDs.contains(a.id)
-                let bIsPinned = b.isPinned || pinnedContainerIDs.contains(b.id)
-                if aIsPinned != bIsPinned { return aIsPinned }
+                let aIsPinned = pinned.contains(a.id)
+                if aIsPinned != pinned.contains(b.id) { return aIsPinned }
                 return byName(a, b)
             }
         case .lastUsed:
-            let latest = lastActivity(in: sessions)
+            let latest = Self.sortDates(of: items, sessions: sessions)
             return items.sorted { a, b in
-                let aIsPinned = a.isPinned || pinnedContainerIDs.contains(a.id)
-                let bIsPinned = b.isPinned || pinnedContainerIDs.contains(b.id)
-                if aIsPinned != bIsPinned { return aIsPinned }
+                let aIsPinned = pinned.contains(a.id)
+                if aIsPinned != pinned.contains(b.id) { return aIsPinned }
                 // An item with no sessions has never been used, so it falls below the ones
                 // that have. Equal times fall back to the name, so the list never wobbles.
                 switch (latest[a.id], latest[b.id]) {
@@ -145,11 +149,26 @@ enum ProjectSort: String, CaseIterable, Identifiable {
         }
     }
 
-    private func lastActivity(in sessions: [ChatSession]) -> [UUID: Date] {
-        sessions.reduce(into: [:]) { latest, session in
+    // Whether a row counts as pinned in the order `apply` gives: a pinned session pins
+    // the row it sits under.
+    static func pinnedIDs(of items: [SidebarItem], sessions: [ChatSession]) -> Set<UUID> {
+        let pinnedContainerIDs = Set(sessions.lazy.filter(\.isPinned).map {
+            $0.workspaceID ?? $0.projectID
+        })
+        return Set(items.lazy.filter { $0.isPinned || pinnedContainerIDs.contains($0.id) }.map(\.id))
+    }
+
+    // The date each row is ordered by under "Last used". The sessions' own drag places
+    // are left out: moving a session inside its row says nothing about the row.
+    static func sortDates(of items: [SidebarItem], sessions: [ChatSession]) -> [UUID: Date] {
+        let activity: [UUID: Date] = sessions.reduce(into: [:]) { latest, session in
             let containerID = session.workspaceID ?? session.projectID
             let seen = latest[containerID] ?? .distantPast
             if session.lastActivity > seen { latest[containerID] = session.lastActivity }
+        }
+        return items.reduce(into: [:]) { dates, item in
+            dates[item.id] = item.sidebarPlacement?.sortDate(activity: activity[item.id])
+                ?? activity[item.id]
         }
     }
 
@@ -161,6 +180,6 @@ enum ProjectSort: String, CaseIterable, Identifiable {
 enum SessionSort {
     static func pinnedFirstByLastActivity(_ a: ChatSession, _ b: ChatSession) -> Bool {
         if a.isPinned != b.isPinned { return a.isPinned }
-        return a.lastActivity > b.lastActivity
+        return a.sidebarDate > b.sidebarDate
     }
 }
