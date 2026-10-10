@@ -370,7 +370,6 @@ struct ExplorerView: View {
         .onChange(of: treeFocused) { _, focused in
             if focused && !repositories.isEmpty && selected == nil && projectCursor == nil {
                 projectCursor = root
-                treeCursorVisible = true
             }
         }
         .focusEffectDisabled()

@@ -14,6 +14,7 @@ struct ProjectWorkspace: Identifiable, Codable, Equatable, Sendable {
     // Each session can still override its checkout mode. These are only the choices
     // preselected when a session starts, which keeps repeated workspace setup quick.
     var worktreeProjectIDs: [UUID]
+    var sidebarPlacement: SidebarPlacement?
 
     init(id: UUID = UUID(), name: String, projectIDs: [UUID], leadProjectID: UUID,
          isPinned: Bool = false, sidebarAvatarIndex: Int? = nil,
@@ -29,7 +30,7 @@ struct ProjectWorkspace: Identifiable, Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case id, name, projectIDs, leadProjectID, isPinned, sidebarAvatarIndex
-        case worktreeProjectIDs
+        case worktreeProjectIDs, sidebarPlacement
     }
 
     init(from decoder: any Decoder) throws {
@@ -46,6 +47,8 @@ struct ProjectWorkspace: Identifiable, Codable, Equatable, Sendable {
         worktreeProjectIDs = try container.decodeIfPresent([UUID].self,
                                                             forKey: .worktreeProjectIDs)
             ?? projectIDs
+        sidebarPlacement = try container.decodeIfPresent(SidebarPlacement.self,
+                                                         forKey: .sidebarPlacement)
     }
 }
 

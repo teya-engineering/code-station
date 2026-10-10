@@ -120,6 +120,7 @@ struct ChatSession: Identifiable, Codable, Equatable, Sendable {
     // new instruction for the coding task.
     var recap: SessionRecap?
     var summary = SessionSummary()
+    var sidebarPlacement: SidebarPlacement?
 
     // Empty until the store loads it, and empty again once nothing holds this session,
     // so nothing outside ProjectStore should reach for it: ask the store instead, which
@@ -129,6 +130,10 @@ struct ChatSession: Identifiable, Codable, Equatable, Sendable {
 
     // When something last happened here, used for the sidebar's relative times.
     var lastActivity: Date { summary.lastMessageAt ?? createdAt }
+
+    // What the sidebar orders by: the activity time, unless the row was dragged to a new
+    // place since.
+    var sidebarDate: Date { sidebarPlacement?.sortDate(activity: lastActivity) ?? lastActivity }
 
     var isDesignSession: Bool { designSourceSessionID != nil }
 
@@ -235,6 +240,7 @@ struct ChatSession: Identifiable, Codable, Equatable, Sendable {
         // `pullRequest` is only read: a file written when a session could hold one
         // pull request keeps it under that key.
         case pullRequest, pullRequests, taskValues, isScheduledRun, recap, summary, messages
+        case sidebarPlacement
     }
 
     init(id: UUID = UUID(), projectID: UUID, agent: AgentKind = .claudeCode) {
@@ -287,6 +293,8 @@ struct ChatSession: Identifiable, Codable, Equatable, Sendable {
             ?? false
         recap = try container.decodeIfPresent(SessionRecap.self, forKey: .recap)
         summary = try container.decodeIfPresent(SessionSummary.self, forKey: .summary) ?? SessionSummary()
+        sidebarPlacement = try container.decodeIfPresent(SidebarPlacement.self,
+                                                         forKey: .sidebarPlacement)
         messages = try container.decodeIfPresent([ChatMessage].self, forKey: .messages) ?? []
         transcriptLoaded = !messages.isEmpty
         agent = try container.decodeIfPresent(AgentKind.self, forKey: .agent)
@@ -336,6 +344,7 @@ struct ChatSession: Identifiable, Codable, Equatable, Sendable {
         if isScheduledRun { try container.encode(isScheduledRun, forKey: .isScheduledRun) }
         try container.encodeIfPresent(recap, forKey: .recap)
         try container.encode(summary, forKey: .summary)
+        try container.encodeIfPresent(sidebarPlacement, forKey: .sidebarPlacement)
     }
 
     // Old sessions did not save their agent. Usage is the strongest signal for mixed

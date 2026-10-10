@@ -24,6 +24,7 @@ struct Project: Identifiable, Codable, Equatable, Sendable {
     // the weekend cannot extend it by accident. A deadline in the past needs no cleanup
     // pass: it simply stops matching.
     var snoozedUntil: Date?
+    var sidebarPlacement: SidebarPlacement?
 
     var url: URL { URL(fileURLWithPath: path) }
 
@@ -56,6 +57,7 @@ struct Project: Identifiable, Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case id, name, path, kind, isPinned, sidebarAvatarIndex, task, snoozedUntil
+        case sidebarPlacement
     }
 
     init(from decoder: any Decoder) throws {
@@ -70,6 +72,8 @@ struct Project: Identifiable, Codable, Equatable, Sendable {
                                                             forKey: .sidebarAvatarIndex)
         task = try container.decodeIfPresent(TaskSpec.self, forKey: .task)
         snoozedUntil = try container.decodeIfPresent(Date.self, forKey: .snoozedUntil)
+        sidebarPlacement = try container.decodeIfPresent(SidebarPlacement.self,
+                                                         forKey: .sidebarPlacement)
     }
 
     // Ad-hoc tasks created before the kind was stored can be identified by the private

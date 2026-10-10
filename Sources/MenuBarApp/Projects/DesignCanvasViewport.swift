@@ -85,6 +85,7 @@ final class DesignCanvasViewport: NSView {
     private var overflowHeight: CGFloat?
     private var eventMonitor: Any?
     private var dragPoint: CGPoint?
+    private var documentGeneration = 0
 
     override var isFlipped: Bool { true }
 
@@ -101,6 +102,7 @@ final class DesignCanvasViewport: NSView {
     required init?(coder: NSCoder) { nil }
 
     func configure(screen: DesignScreen?, reset: Bool) {
+        documentGeneration += 1
         overflowWidth = nil
         overflowHeight = nil
         self.screen = screen
@@ -216,11 +218,8 @@ final class DesignCanvasViewport: NSView {
 
         switch event.type {
         case .scrollWheel:
-            if event.hasPreciseScrollingDeltas {
-                pan(by: CGSize(width: event.scrollingDeltaX, height: event.scrollingDeltaY))
-            } else {
-                let direction: CGFloat = event.isDirectionInvertedFromDevice ? -1 : 1
-                zoom(by: exp(event.scrollingDeltaY * direction * 0.08), at: point)
+            Task { @MainActor [weak self] in
+                await self?.scroll(event, at: point, over: hit)
             }
         case .magnify:
             zoom(by: 1 + event.magnification, at: point)
@@ -240,6 +239,29 @@ final class DesignCanvasViewport: NSView {
             return event
         }
         return nil
+    }
+
+    func scroll(_ event: NSEvent, at point: CGPoint, over hit: NSView?) async {
+        if let hit, hit === webView || hit.isDescendant(of: webView) {
+            let generation = documentGeneration
+            let location = webView.convert(point, from: self)
+            let scrollsPage = try? await webView.evaluateJavaScript(
+                "window.__codeStationHasScrollContainer?.(\(location.x), \(location.y), "
+                    + "\(event.scrollingDeltaX), \(event.scrollingDeltaY))") as? Bool
+            guard generation == documentGeneration, window != nil, hit.window === window else { return }
+            if scrollsPage == true {
+                // Keep WebKit's native scrolling, including trackpad momentum. Calling
+                // the hit view directly avoids sending the event through our monitor again.
+                hit.scrollWheel(with: event)
+                return
+            }
+        }
+        if event.hasPreciseScrollingDeltas {
+            pan(by: CGSize(width: event.scrollingDeltaX, height: event.scrollingDeltaY))
+        } else {
+            let direction: CGFloat = event.isDirectionInvertedFromDevice ? -1 : 1
+            zoom(by: exp(event.scrollingDeltaY * direction * 0.08), at: point)
+        }
     }
 
     override func mouseDown(with event: NSEvent) {

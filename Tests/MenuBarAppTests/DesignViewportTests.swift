@@ -301,6 +301,89 @@ struct DesignWebViewportTests {
         #expect(try await pane.webView.evaluateJavaScript("window.clicks") as? Int == 1)
     }
 
+    @Test func scrollAreasReceiveNativeEventsWhileOtherAreasNavigateTheCanvas() async throws {
+        final class ScrollReceiver: NSView {
+            var events: [NSEvent] = []
+            override func scrollWheel(with event: NSEvent) { events.append(event) }
+        }
+
+        let pane = Pane()
+        defer { pane.close() }
+        try await pane.load("""
+            <!doctype html><style>
+            html, body { margin: 0; height: 100%; overflow: hidden; }
+            #dialog { position: absolute; left: 100px; top: 100px;
+              width: 300px; height: 200px; overflow: auto; }
+            #content { height: 1000px; }
+            </style><div id="dialog"><div id="content">Long dialog</div></div>
+            """)
+        let receiver = ScrollReceiver(frame: pane.webView.bounds)
+        pane.webView.addSubview(receiver)
+        let original = pane.view.viewport
+        let inside = pane.view.convert(CGPoint(x: 150, y: 150), from: pane.webView)
+        let outside = pane.view.convert(CGPoint(x: 800, y: 150), from: pane.webView)
+
+        for unit in [CGScrollEventUnit.line, .pixel] {
+            let cgEvent = try #require(CGEvent(scrollWheelEvent2Source: nil, units: unit,
+                                              wheelCount: 2, wheel1: -12, wheel2: 0, wheel3: 0))
+            let event = try #require(NSEvent(cgEvent: cgEvent))
+            for bottom in [false, true] {
+                _ = try await pane.webView.evaluateJavaScript(
+                    "document.getElementById('dialog').scrollTop = \(bottom ? 800 : 0)")
+                let count = receiver.events.count
+                await pane.view.scroll(event, at: inside, over: receiver)
+                #expect(receiver.events.count == count + 1)
+                #expect(receiver.events.last === event)
+                #expect(pane.view.viewport == original)
+            }
+
+            let count = receiver.events.count
+            await pane.view.scroll(event, at: outside, over: receiver)
+            #expect(receiver.events.count == count)
+            if event.hasPreciseScrollingDeltas {
+                #expect(pane.view.viewport.origin != original.origin)
+                #expect(pane.view.viewport.scale == original.scale)
+            } else {
+                #expect(pane.view.viewport.scale != original.scale)
+            }
+            pane.view.fit()
+
+            await pane.view.scroll(event, at: CGPoint(x: 10, y: 10), over: pane.view)
+            #expect(pane.view.viewport != original)
+            pane.view.fit()
+        }
+    }
+
+    @Test func scrollDetectionFollowsAncestorsAxesAndLayoutChanges() async throws {
+        let pane = Pane()
+        defer { pane.close() }
+        try await pane.load("""
+            <!doctype html><style>
+            html, body { margin: 0; height: 100%; overflow: hidden; }
+            #outer { width: 300px; height: 200px; overflow: auto; }
+            #inner { width: 600px; height: 600px; overflow: hidden; }
+            </style><div id="outer"><div id="inner"><span>Nested content</span></div></div>
+            """)
+        for delta in ["0, 12", "12, 0", "0, 0"] {
+            #expect(try await pane.webView.evaluateJavaScript(
+                "window.__codeStationHasScrollContainer(20, 20, \(delta))") as? Bool == true)
+        }
+        _ = try await pane.webView.evaluateJavaScript("document.getElementById('outer').style.overflow = 'hidden'")
+        #expect(try await pane.webView.evaluateJavaScript(
+            "window.__codeStationHasScrollContainer(20, 20, 0, 12)") as? Bool == false)
+        _ = try await pane.webView.evaluateJavaScript("""
+            document.getElementById('outer').style.overflow = 'auto';
+            document.getElementById('inner').style.height = '100px';
+            """)
+        #expect(try await pane.webView.evaluateJavaScript(
+            "window.__codeStationHasScrollContainer(20, 20, 0, 12)") as? Bool == false)
+        #expect(try await pane.webView.evaluateJavaScript(
+            "window.__codeStationHasScrollContainer(20, 20, 12, 0)") as? Bool == true)
+        _ = try await pane.webView.evaluateJavaScript("document.getElementById('inner').style.width = '100px'")
+        #expect(try await pane.webView.evaluateJavaScript(
+            "window.__codeStationHasScrollContainer(20, 20, 12, 0)") as? Bool == false)
+    }
+
     @Test(arguments: [0.5, 0.17, 2.0])
     func selectingAnElementUsesArtboardSnapshotCoordinatesAndDoesNotPan(scale: Double) async throws {
         let pane = Pane()

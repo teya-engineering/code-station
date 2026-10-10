@@ -379,9 +379,9 @@ private struct CommitFileDiff: View {
             let loaded = await GitInspector.commitFileDiff(hash, parent: parent, file: file, root: root)
             guard !Task.isCancelled else { return }
             diff = loaded
-            render()
+            await render()
         }
-        .onChange(of: settings.textSize) { _, _ in render() }
+        .onChange(of: settings.textSize) { _, _ in Task { await render() } }
     }
 
     private func expand(_ key: String, _ direction: DiffExpandDirection) {
@@ -403,14 +403,18 @@ private struct CommitFileDiff: View {
             }
             for i in opened.lines.indices { opened.lines[i].id = i }
             diff = opened
-            render()
+            await render()
         }
     }
 
-    private func render() {
+    private func render() async {
         guard let diff, diff.note == nil else { return }
-        text = DiffText.attributed(diff.lines, language: CodeLanguage(fileExtension: (file.path as NSString).pathExtension),
-                                   scale: settings.textSize.scale, numbered: true)
+        let lines = diff.lines
+        let built = await DiffText.build(lines, language: CodeLanguage(fileExtension: (file.path as NSString).pathExtension),
+                                         scale: settings.textSize.scale, numbered: true)
+        // More of the file can have opened while the text was built.
+        guard self.diff?.lines == lines else { return }
+        text = built
     }
 }
 

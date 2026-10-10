@@ -207,9 +207,9 @@ struct DesignView: View {
     // A button as well as a hover target, so the panel can be brought back by keyboard
     // and by assistive tools too.
     //
-    // While the session is alive the bubble gives way to the session's bot, ringed in the
-    // state colour, and the bot breathes while a turn is being worked on, the way its
-    // avatar does in the sidebar. An idle tab keeps the bubble, so it looks as it always has.
+    // The tab always shows the session's bot, so it is clear who is in the conversation.
+    // While the session is alive the bot is ringed in the state colour, and it breathes
+    // while a turn is being worked on, the way its avatar does in the sidebar.
     private func minimizedConversation(_ session: ChatSession, needsYou: Bool) -> some View {
         let tone: SessionTone = needsYou ? .needsYou
             : runner.waitingSince(sessionID) != nil ? .waiting
@@ -219,19 +219,14 @@ struct DesignView: View {
             conversationMinimized = false
         } label: {
             HStack(spacing: 10) {
-                if tone == .idle {
-                    Image(systemName: "bubble.left")
-                        .font(.system(size: 13))
-                        .foregroundStyle(Theme.accent)
-                } else {
-                    Breathing(active: tone == .running) { phase in
-                        AgentAvatarView(image: bot.displayImage(for: sessionID), size: 30)
-                            .opacity(1 - 0.45 * phase)
-                    }
-                    .overlay(Circle().stroke(tone.colour, lineWidth: 1.5).padding(-3))
-                    .padding(.leading, -4)
-                    .accessibilityHidden(true)
+                Breathing(active: tone == .running) { phase in
+                    AgentAvatarView(image: bot.displayImage(for: sessionID), size: 30)
+                        .opacity(1 - 0.45 * phase)
                 }
+                .overlay(Circle().stroke(tone == .idle ? Color.clear : tone.colour, lineWidth: 1.5)
+                    .padding(-3))
+                .padding(.leading, -4)
+                .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Conversation")
                         .font(.system(size: 13, weight: .semibold))
