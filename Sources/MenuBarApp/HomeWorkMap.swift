@@ -86,7 +86,6 @@ struct HomeWorkMapView: View {
     let map: HomeWorkMap
     let compact: Bool
     let open: (HomeLive) -> Void
-    @State private var listHeight: CGFloat = 0
 
     static let reflow = Animation.smooth(duration: 0.3)
 
@@ -120,14 +119,12 @@ struct HomeWorkMapView: View {
                     Text("\(map.runningCount)").font(.serif(28))
                     Text("sessions working").font(.system(size: 12)).foregroundStyle(.secondary)
                 }
-                ScrollView {
-                    LazyVStack(spacing: 12) {
-                        ForEach(map.groups) { group in groupCard(group) }
-                    }
-                    .padding(3)
-                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { listHeight = $0 }
+                // No inner scroll: the home page already scrolls, and a nested one with a height
+                // cap cut cards off halfway with no sign that more were hidden below.
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 300), spacing: 12, alignment: .top)],
+                          alignment: .leading, spacing: 12) {
+                    ForEach(map.groups) { group in groupCard(group) }
                 }
-                .frame(height: min(listHeight, 320))
             }
         }
         .padding(20)
