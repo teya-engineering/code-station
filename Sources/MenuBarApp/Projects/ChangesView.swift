@@ -592,7 +592,6 @@ struct ChangesView: View {
                 .onChange(of: navigatorFocused) { _, focused in
                     if focused && navigatorCursor == nil {
                         navigatorCursor = ChangesNavigatorItem(root: root, path: nil)
-                        navigatorCursorVisible = true
                     }
                 }
                 .focusEffectDisabled()
