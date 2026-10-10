@@ -30,6 +30,12 @@ private struct SidebarReorder: ViewModifier {
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
                 .onDrop(of: [.plainText], delegate: SidebarDropDelegate(
                     targetID: id, rowHeight: height, slot: $slot, onDrop: onDrop))
+                // A drag that is cancelled, or let go where nothing takes it, never tells
+                // the row it left, so the line would stay. Hover never fires while a drag
+                // is under way, so the first hover after one ends is a safe time to clear it.
+                .onHover { _ in
+                    if slot != nil { slot = nil }
+                }
                 .overlay(alignment: slot?.after == true ? .bottom : .top) {
                     if slot?.targetID == id {
                         // Drawn in the gap between rows, so the line sits where the row

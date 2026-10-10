@@ -193,6 +193,12 @@ struct DispatchView: View {
                 rowHeight: rowHeights[request.id] ?? 0,
                 slot: $dropSlot,
                 onDrop: { store.move($0, beside: request.id, after: $1) }))
+            // A drag that is cancelled, or let go where nothing takes it, never tells the
+            // row it left, so the line would stay. Hover never fires while a drag is under
+            // way, so the first hover after one ends is a safe time to clear it.
+            .onHover { _ in
+                if dropSlot != nil { dropSlot = nil }
+            }
             .overlay(alignment: dropSlot?.after == true ? .bottom : .top) {
                 if dropSlot?.targetID == request.id {
                     // Drawn in the gap between rows, so the line sits where the
