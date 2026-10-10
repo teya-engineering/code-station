@@ -33,7 +33,8 @@ struct DesignWebView: View {
                 Text("Scroll to zoom · Drag to pan")
                     .lineLimit(1)
                     .foregroundStyle(.secondary)
-                    .appTooltip("Mouse wheel to zoom. Drag to pan, or middle-drag over controls. "
+                    .appTooltip("Scrollable parts of the design scroll normally. Elsewhere, use the mouse wheel to zoom. "
+                        + "Drag to pan, or middle-drag over controls. "
                         + "On a trackpad, pinch to zoom and use two fingers to pan. "
                         + "Double-click the canvas background to fit.")
                 Spacer(minLength: 0)
@@ -359,6 +360,27 @@ struct DesignWebContent: NSViewRepresentable {
       window.addEventListener("load", reportViewport);
       new ResizeObserver(reportViewport).observe(document.documentElement);
       if (document.body) new ResizeObserver(reportViewport).observe(document.body);
+
+      window.__codeStationHasScrollContainer = (x, y, deltaX, deltaY) => {
+        const phaseOnly = !deltaX && !deltaY;
+        let element = document.elementFromPoint(x, y);
+        while (element?.shadowRoot?.elementFromPoint) {
+          const child = element.shadowRoot.elementFromPoint(x, y);
+          if (!child || child === element) break;
+          element = child;
+        }
+        for (; element; element = element.parentElement || element.getRootNode().host) {
+          const style = getComputedStyle(element);
+          const root = element === document.scrollingElement;
+          const scrollable = overflow => /^(auto|scroll|overlay)$/.test(overflow)
+            || (root && overflow === "visible");
+          // Keep the gesture in the page at either end of a scroll area, so reaching
+          // the bottom of a dialog cannot suddenly zoom or move the canvas.
+          if ((deltaX || phaseOnly) && scrollable(style.overflowX) && element.scrollWidth > element.clientWidth) return true;
+          if ((deltaY || phaseOnly) && scrollable(style.overflowY) && element.scrollHeight > element.clientHeight) return true;
+        }
+        return false;
+      };
 
       let drag = null;
       let suppressClick = false;
