@@ -1944,6 +1944,83 @@ final class ProjectStore {
         return fork
     }
 
+    // MARK: - Importing Claude Code sessions
+
+    // A conversation read from Claude Code's own history, ready to become a session.
+    struct ClaudeSessionImport: Sendable {
+        let candidate: ClaudeSessionCandidate
+        let messages: [ChatMessage]
+    }
+
+    // Every Claude Code conversation id the app already holds for this project: the one
+    // each session resumes from, and the ones its prompts were checkpointed at. Each turn
+    // the app runs forks a new id, so a session that has taken ten turns has left ten files
+    // in the history folder, and all of them are already here.
+    func knownClaudeSessionIDs(inProject projectID: UUID) -> Set<String> {
+        var known = Set(sessions.compactMap(\.claudeSessionID))
+        for session in sessions where session.projectID == projectID {
+            for message in transcript(of: session.id) {
+                if let id = message.checkpoint?.claudeSessionID { known.insert(id) }
+            }
+        }
+        return known
+    }
+
+    // The sessions land in the project as they were, each one resuming its conversation on
+    // the next prompt. Resuming forks, so the file Claude Code wrote is never touched and
+    // the session can still be picked up from the terminal. Nothing in the imported
+    // history carries a checkpoint, so it can be read and continued but not wound back.
+    func importClaudeSessions(_ imports: [ClaudeSessionImport], into projectID: UUID)
+        -> Result<[ChatSession], PersistenceFailure> {
+        guard let project = project(projectID) else {
+            return .failure(persistenceFailure("The project is no longer in the app."))
+        }
+        let made = imports.map { item -> ChatSession in
+            var session = ChatSession(projectID: projectID, agent: .claudeCode)
+            session.settings = SessionSettings(model: ModelChoice.valid(nil, for: .claudeCode))
+            session.claudeSessionID = item.candidate.id
+            session.createdAt = item.candidate.startedAt ?? item.messages.first?.date ?? Date()
+            session.messages = item.messages
+            session.transcriptLoaded = true
+            if let title = item.candidate.title, !title.isBlank {
+                session.title = title
+            } else if let first = item.messages.first(where: { $0.role == .user }) {
+                session.retitleIfNeeded(from: first)
+            }
+            session.summary = SessionSummary.of(item.messages, projectPath: project.path)
+            if session.summary.lastMessageAt == nil {
+                session.summary.lastMessageAt = item.candidate.lastActivity
+            }
+            return session
+        }
+        guard !made.isEmpty else { return .success([]) }
+
+        let previousSelection = selection
+        let previousProjectID = selectedProjectID
+        for session in made {
+            sessions.append(session)
+            dirtyTranscripts.insert(session.id)
+            transcriptRevisions[session.id, default: 0] &+= 1
+        }
+        publishSidebarSessions()
+        // The project page lists what arrived. Opening one of them would leave the rest
+        // out of sight.
+        selectProject(projectID)
+        markIndexDirty()
+        return saveOrRollBack(made, failure: "The imported sessions could not be saved.") {
+            let ids = Set(made.map(\.id))
+            sessions.removeAll { ids.contains($0.id) }
+            for id in ids {
+                dirtyTranscripts.remove(id)
+                clearSessionMemory(id)
+            }
+            publishSidebarSessions()
+            selection = previousSelection
+            selectedProjectID = previousProjectID
+            navigation.arrived()
+        }
+    }
+
     // A turn that fails before Claude Code produces anything leaves an empty assistant
     // message behind; without this it would sit in the transcript forever.
     func removeMessage(_ messageID: UUID, from sessionID: UUID) {

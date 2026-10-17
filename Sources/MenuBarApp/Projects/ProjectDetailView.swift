@@ -25,6 +25,10 @@ struct ProjectDetailView: View {
     @State private var orphanedWorktrees: [GitWorktree.Orphaned] = []
     @State private var pruningOrphans = false
     @State private var shortcutEditor: ShortcutEditorRequest?
+    @State private var claudeImport: ClaudeImportRequest?
+    // How many sessions Claude Code ran in this folder that the app does not hold yet. The
+    // button that brings them in only shows when there is something to bring.
+    @State private var importableCount = 0
 
     private var terminalScope: TerminalScope { .project(projectID) }
     private var shortcutScope: ShortcutScope { .project(projectID) }
@@ -63,11 +67,19 @@ struct ProjectDetailView: View {
                 git = await GitInspector.snapshot(at: project.path, lane: .interactive)
             }
             .task(id: orphanRefreshID(project)) { await refreshWorktrees(for: project) }
+            .task(id: importRefreshID(project)) {
+                importableCount = await ClaudeImportRequest.load(
+                    folder: project.path, projectID: project.id, store: store).candidates.count
+            }
             .sheet(item: $choosingSessionKind) { project in
                 NewSessionView(project: project) { choice in
                     startSession(choice, in: project)
                 }
                 .appOverlays()
+            }
+            .sheet(item: $claudeImport) { request in
+                ImportClaudeSessionsView(request: request) { _ in }
+                    .appOverlays()
             }
         } else {
             PaneMessage(icon: "folder.badge.questionmark",
@@ -121,6 +133,15 @@ struct ProjectDetailView: View {
                 }
                 .disabled(missing)
                 .opacity(missing ? 0.4 : 1)
+
+                if importableCount > 0 {
+                    ActionButton(title: "Import sessions", tone: .outlined, size: 12,
+                                 icon: "square.and.arrow.down") {
+                        requestClaudeImport(project)
+                    }
+                    .disabled(missing)
+                    .help("Bring in \(counted(importableCount, "session")) Claude Code ran in this folder")
+                }
 
                 ActionButton(title: "New session", tone: .green, size: 12) {
                     requestNewSession(in: project)
@@ -406,10 +427,18 @@ struct ProjectDetailView: View {
             Text("Start a session when you are ready to work in this project.")
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
-            ActionButton(title: "Start a new session", tone: .green) {
-                requestNewSession(in: project)
+            HStack(spacing: 14) {
+                ActionButton(title: "Start a new session", tone: .green) {
+                    requestNewSession(in: project)
+                }
+                .disabled(store.isMissing(project))
+                if importableCount > 0 {
+                    InlineLink(title: "Import \(importableCount) from Claude Code") {
+                        requestClaudeImport(project)
+                    }
+                    .disabled(store.isMissing(project))
+                }
             }
-            .disabled(store.isMissing(project))
             .padding(.top, 2)
         }
         .padding(16)
@@ -560,6 +589,19 @@ struct ProjectDetailView: View {
     private func requestNewSession(in project: Project) {
         guard !store.isMissing(project) else { return }
         choosingSessionKind = project
+    }
+
+    private func requestClaudeImport(_ project: Project) {
+        Task {
+            claudeImport = await ClaudeImportRequest.load(folder: project.path,
+                                                          projectID: project.id, store: store)
+        }
+    }
+
+    // Looked at again whenever the project's sessions change, since an import or a new
+    // turn changes what is already held.
+    private func importRefreshID(_ project: Project) -> [String] {
+        [project.path] + store.standaloneSessions(for: project.id).compactMap(\.claudeSessionID)
     }
 
     private func startSession(_ choice: NewSessionChoice, in project: Project) {

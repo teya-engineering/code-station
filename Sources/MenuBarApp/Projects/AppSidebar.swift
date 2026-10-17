@@ -33,6 +33,7 @@ struct AppSidebar: View {
     @State private var showingNewWorkspace = false
     @State private var showingNewTask = false
     @State private var askingTask: Project?
+    @State private var importingClaude: ClaudeImportRequest?
     @State private var sessionVisibility = SidebarSessionVisibility()
     @State private var renderedSessionIDs: Set<UUID> = []
     @State private var scrollPosition = ScrollPosition(edge: .top)
@@ -123,6 +124,10 @@ struct AppSidebar: View {
         }
         .sheet(isPresented: $showingNewTask) {
             NewTaskView(onCreate: createTask)
+                .appOverlays()
+        }
+        .sheet(item: $importingClaude) { request in
+            ImportClaudeSessionsView(request: request, onFinish: landOnProject)
                 .appOverlays()
         }
         .taskRunSheet($askingTask) { task, values, note in
@@ -763,6 +768,7 @@ struct AppSidebar: View {
         return [pin,
                 .item("Rename…") { renamingID = project.id },
                 .item("New session") { requestNewSession(in: project) },
+                .item("Import Claude Code sessions…") { requestClaudeImport(into: project) },
                 .separator]
             + cleanup
             + [.item("Reveal in Finder") {
@@ -1224,15 +1230,47 @@ struct AppSidebar: View {
             prompt: "Add Project",
             message: "Pick the folder Claude Code should work in.") else { return }
 
+        // Sessions Claude Code already ran in the folder are offered before the project is
+        // added, so they can come along with it. A folder that is already a project only
+        // offers the ones the app does not hold yet.
+        let existing = store.projects.first {
+            ClaudeSessionCatalog.standardized($0.path) == ClaudeSessionCatalog.standardized(url.path)
+        }
+        Task {
+            let request = await ClaudeImportRequest.load(folder: url.path, projectID: existing?.id,
+                                                         store: store)
+            if request.candidates.isEmpty {
+                addProjectNow(at: url)
+            } else {
+                if let existing { landOnProject(existing.id) }
+                importingClaude = request
+            }
+        }
+    }
+
+    private func addProjectNow(at url: URL) {
         // A folder that is already a project comes back as nil, and the store has
         // pointed itself at the existing one. Either way the rail lands on that project:
         // the list is ordered by the sort setting, so a project can be added anywhere
         // in it, including off screen.
         let added = store.addProject(at: url)
         guard let id = added?.id ?? store.selectedProjectID else { return }
+        landOnProject(id)
+    }
+
+    private func landOnProject(_ id: UUID) {
         setExpanded(true, for: id)
         filterBox.clear()
         store.selectProject(id, revealingInSidebar: true)
+    }
+
+    // Opened from the project's menu, the sheet always comes up, even with nothing found:
+    // that is where it says where it looked and offers to look somewhere else.
+    private func requestClaudeImport(into project: Project) {
+        Task {
+            importingClaude = await ClaudeImportRequest.load(folder: project.path,
+                                                             projectID: project.id, store: store)
+        }
     }
 
     // Creating a task lands on its screen rather than in a session: the task is the
