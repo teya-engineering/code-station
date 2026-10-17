@@ -78,7 +78,9 @@ struct ToolPresentation: Sendable {
     var resultUnavailable = false
 
     init(tool: ToolUse, projectPath: String) {
-        verb = tool.name
+        let grafana = GrafanaToolCall(tool: tool)
+        let trace = grafana == nil ? TraceToolCall(tool: tool) : nil
+        verb = grafana?.title ?? (trace == nil ? tool.name : TraceToolCall.title)
         let input = Self.object(from: tool.input)
 
         if let path = input["file_path"] as? String ?? input["notebook_path"] as? String {
@@ -145,7 +147,13 @@ struct ToolPresentation: Sendable {
                 argument = counted(todos.count, "item")
             }
         default:
-            if argument.isEmpty { argument = Self.singleLine(tool.input) }
+            if let grafana {
+                argument = grafana.argument
+            } else if let trace {
+                argument = trace.argument
+            } else if argument.isEmpty {
+                argument = Self.singleLine(tool.input)
+            }
         }
 
         // A call that wrote without saying so has its change measured off the working tree

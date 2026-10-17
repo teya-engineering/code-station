@@ -430,7 +430,12 @@ private struct CallDetail: View {
                                isFailure: tool.isError,
                                runInShell: rerun)
             }
-            if hasDiff {
+            if let grafana = GrafanaToolCall.rendered(tool, services: SiteDefaults.current.services ?? []) {
+                GrafanaResultView(call: grafana.call, result: grafana.result,
+                                  toolID: tool.id, service: grafana.service)
+            } else if let trace = TraceToolCall.rendered(tool) {
+                TraceCallView(rendering: trace, toolID: tool.id, output: tool.result ?? "")
+            } else if hasDiff {
                 ForEach(presentation.changes) { change in
                     EditDiffCard(
                         change: change,
@@ -474,7 +479,7 @@ private struct CallDetail: View {
     }
 }
 
-private struct ToolOutputCard: View {
+struct ToolOutputCard: View {
     @Environment(\.textScale) private var textScale
 
     let label: String

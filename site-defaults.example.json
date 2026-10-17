@@ -51,6 +51,28 @@
         }
       },
       {
+        "name": "grafana-edge-prd",
+        "title": "Grafana edge prod",
+        "serverType": "Grafana",
+        "environment": "prd",
+        "command": "mcp-grafana",
+        "env": {
+          "GRAFANA_URL": "https://grafana.edge-prd.example.com",
+          "GRAFANA_SERVICE_ACCOUNT_TOKEN": ""
+        }
+      },
+      {
+        "name": "grafana-edge-dev",
+        "title": "Grafana edge dev",
+        "serverType": "Grafana",
+        "environment": "dev",
+        "command": "mcp-grafana",
+        "env": {
+          "GRAFANA_URL": "https://grafana.edge-dev.example.com",
+          "GRAFANA_SERVICE_ACCOUNT_TOKEN": ""
+        }
+      },
+      {
         "name": "grafana-shared-shared",
         "title": "Grafana shared",
         "serverType": "Grafana",

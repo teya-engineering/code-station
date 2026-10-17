@@ -40,6 +40,8 @@ final class SessionComposerStore {
         var attachments: [Attachment] = []
         var environment = TroubleshootEnvironment.first()
         var mcpServersEnabled = true
+        var serviceName: String? = nil
+        var trace: TroubleshootTraceContext? = nil
     }
 
     func brief(_ sessionID: UUID) -> TroubleshootBrief {

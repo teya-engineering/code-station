@@ -452,10 +452,14 @@ extension StreamEvent {
         }
     }
 
+    // What a cut-down result ends with. Readers of a result's structure look for it to
+    // know the end of the text is missing.
+    static let truncationMarker = "\n… truncated"
+
     // Shared with the Codex parser, which cuts its command output the same way.
     static func truncated(_ text: String) -> String {
         guard text.count > maxToolOutput else { return text }
-        return String(text.prefix(maxToolOutput)) + "\n… truncated"
+        return String(text.prefix(maxToolOutput)) + truncationMarker
     }
 
     private static func pretty(_ value: Any?) -> String {

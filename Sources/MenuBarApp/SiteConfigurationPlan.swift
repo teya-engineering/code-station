@@ -9,6 +9,7 @@ enum SiteConfigurationAspect: String, CaseIterable, Hashable, Identifiable, Send
     case mcp
     case skills
     case shortcuts
+    case services
 
     var id: String { rawValue }
 
@@ -20,6 +21,7 @@ enum SiteConfigurationAspect: String, CaseIterable, Hashable, Identifiable, Send
         case .mcp: "MCP presets"
         case .skills: "Skills marketplace"
         case .shortcuts: "Shortcuts"
+        case .services: "Services"
         }
     }
 
@@ -31,6 +33,7 @@ enum SiteConfigurationAspect: String, CaseIterable, Hashable, Identifiable, Send
         case .mcp: "point.3.connected.trianglepath.dotted"
         case .skills: "shippingbox"
         case .shortcuts: "terminal"
+        case .services: "list.bullet.rectangle"
         }
     }
 
@@ -51,6 +54,8 @@ enum SiteConfigurationAspect: String, CaseIterable, Hashable, Identifiable, Send
             return defaults.skills?.name ?? "No marketplace"
         case .shortcuts:
             return counted(defaults.shortcuts?.count ?? 0, "shortcut")
+        case .services:
+            return counted(defaults.services?.count ?? 0, "service")
         }
     }
 }
@@ -76,6 +81,8 @@ struct SiteConfigurationPlan: Sendable {
                 defaults.skills != nil
             case .shortcuts:
                 defaults.shortcuts != nil
+            case .services:
+                defaults.services != nil
             }
         }
     }
@@ -104,6 +111,7 @@ struct SiteConfigurationPlan: Sendable {
         if chosen.contains(.mcp) { result.mcp = imported.mcp }
         if chosen.contains(.skills) { result.skills = imported.skills }
         if chosen.contains(.shortcuts) { result.shortcuts = imported.shortcuts }
+        if chosen.contains(.services) { result.services = imported.services }
 
         result.loadFailure = nil
         result.sourceURL = nil

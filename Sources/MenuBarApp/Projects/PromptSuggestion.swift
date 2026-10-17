@@ -144,39 +144,12 @@ enum PromptSuggestion {
     // failure here must never reach the session it was asked about.
     static func read(agent: AgentKind, at path: String, searchPath: String,
                      workingDirectory: String, prompt: String, model: String? = nil) async -> String? {
-        var environment = ProcessInfo.processInfo.environment
-        environment["PATH"] = searchPath
-
-        // A line handler keeps stdin open for replies. Codex drains stdin before
-        // starting even with a prompt argument, so collect its output after exit.
-        guard let output = try? await CommandRunner.run(
-            executable: path,
-            arguments: arguments(for: agent, prompt: prompt, model: model),
-            currentDirectory: URL(fileURLWithPath: workingDirectory),
-            environment: environment,
-            timeout: .seconds(45),
-            outputByteLimit: 262_144
-        ) else {
-            SessionLog.note("\(agent.command) prompt suggestion command did not complete")
-            return nil
-        }
-        guard output.succeeded, !output.outputTruncated else {
-            SessionLog.note("\(agent.command) prompt suggestion failed status=\(output.status) "
-                            + "truncated=\(output.outputTruncated)")
-            return nil
-        }
-
-        let copilot = CopilotStream()
-        var parts: [String] = []
-        for line in output.output.split(separator: "\n") {
-            let events = switch agent {
-            case .claudeCode: StreamEvent.parse(String(line))
-            case .codex: StreamEvent.parseCodex(String(line))
-            case .copilot: copilot.parse(String(line))
-            }
-            for case .text(let text) in events { parts.append(text) }
-        }
-        return cleaned(parts.joined(separator: " "))
+        cleaned(await OneShotAgent.read(agent: agent, at: path,
+                                        arguments: arguments(for: agent, prompt: prompt, model: model),
+                                        searchPath: searchPath,
+                                        workingDirectory: workingDirectory,
+                                        timeout: .seconds(45),
+                                        purpose: "prompt suggestion"))
     }
 }
 

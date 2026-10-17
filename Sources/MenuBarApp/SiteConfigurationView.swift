@@ -399,6 +399,8 @@ private struct SiteConfigurationEditorView: View {
             "Choose the skills marketplace used by both supported agents."
         case .shortcuts:
             "Keep the shared commands that should appear in the shortcuts list."
+        case .services:
+            "Services are edited in the settings file. This is what the app is using."
         }
     }
 
@@ -410,6 +412,30 @@ private struct SiteConfigurationEditorView: View {
         case .mcp: mcpEditor
         case .skills: skillsEditor
         case .shortcuts: shortcutsEditor
+        case .services: servicesList
+        }
+    }
+
+    private var servicesList: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if (draft.services ?? []).isEmpty {
+                Text("No services in this configuration.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(draft.services ?? []) { service in
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(service.name)
+                        .font(.system(size: 12.5, weight: .semibold))
+                    Text(service.lokiSelector)
+                        .scaledMono(11)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                    Text(service.scope.map { "Scope \($0)" } ?? "No scope")
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(.secondary)
+                }
+            }
         }
     }
 
@@ -887,6 +913,8 @@ private struct SiteConfigurationEditorView: View {
             break
         case .shortcuts:
             if draft.shortcuts == nil { draft.shortcuts = [] }
+        case .services:
+            break
         }
         return draft
     }
@@ -984,6 +1012,9 @@ private enum SiteConfigurationForm {
                 throw ImportError("Every shortcut needs a name and a command.")
             }
             result.shortcuts = shortcuts
+
+        case .services:
+            break
         }
 
         return result

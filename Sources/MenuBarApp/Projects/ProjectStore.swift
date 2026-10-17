@@ -25,6 +25,7 @@ enum SessionDestination: Hashable {
     // companion is the live conversation belongs.
     case design
     case troubleshoot
+    case trace
     case changes
     case change(root: String, path: String)
     case explorer

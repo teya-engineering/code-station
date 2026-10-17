@@ -3,6 +3,17 @@ import Testing
 @testable import MenuBarApp
 
 struct ToolPresentationTests {
+    @Test func namesATraceFetchByTheGrafanaItCameFrom() throws {
+        let input = try JSONSerialization.data(withJSONObject: [
+            "endpoint": "/api/datasources/proxy/uid/T1/api/traces/0af7651916cd43dd8448eb211c80319c"
+        ])
+        let tool = ToolUse(id: "trace", name: "mcp__grafana-edge-prd__grafana_api_request",
+                           input: String(decoding: input, as: UTF8.self))
+        let presentation = ToolPresentation(tool: tool, projectPath: "/tmp/project")
+        #expect(presentation.verb == "Fetched trace")
+        #expect(presentation.argument == "edge-prd")
+    }
+
     @Test func findsAChangeInsideLargeSharedSections() throws {
         let prefix = (0..<20_000).map { "shared-prefix-\($0)" }
         let suffix = (0..<10).map { "shared-suffix-\($0)" }

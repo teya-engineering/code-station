@@ -172,7 +172,7 @@ struct SessionView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let sessionID: UUID
 
-    private enum Tab: Hashable { case conversation, design, troubleshoot, changes, explorer }
+    private enum Tab: Hashable { case conversation, design, troubleshoot, trace, changes, explorer }
 
     @State private var tab: Tab = .conversation
     @State private var terminalFocused = false
@@ -259,6 +259,9 @@ struct SessionView: View {
         case .troubleshoot:
             _tab = State(initialValue: .troubleshoot)
             _requestedChange = State(initialValue: nil)
+        case .trace:
+            _tab = State(initialValue: .trace)
+            _requestedChange = State(initialValue: nil)
         case .explorer:
             _tab = State(initialValue: .explorer)
             _requestedChange = State(initialValue: nil)
@@ -319,6 +322,11 @@ struct SessionView: View {
                         }
                     case .troubleshoot:
                         TroubleshootTabView(sessionID: session.id) { tab = .conversation }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    case .trace:
+                        TraceTabView(sessionID: session.id,
+                                     openConversation: { tab = .conversation },
+                                     openTroubleshoot: { tab = .troubleshoot })
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     case .changes:
                         VStack(spacing: 0) {
@@ -967,6 +975,7 @@ struct SessionView: View {
                 activate: { openDesign(for: session) }))
         }
         tabs.append(destination("Troubleshoot", icon: "stethoscope", value: .troubleshoot))
+        tabs.append(destination("Trace", icon: "point.3.connected.trianglepath.dotted", value: .trace))
         tabs.append(changesTab(session))
         tabs.append(destination("Explorer", icon: "folder", value: .explorer))
         return tabs
@@ -983,6 +992,7 @@ struct SessionView: View {
         case .conversation: .conversation
         case .design: .design
         case .troubleshoot: .troubleshoot
+        case .trace: .trace
         case .changes: requestedChange.map { .change(root: $0.root, path: $0.path) } ?? .changes
         case .explorer: .explorer
         }
@@ -1022,7 +1032,7 @@ struct SessionView: View {
             true
         case .conversation:
             session.isActivelyDesigning
-        case .troubleshoot, .changes, .explorer:
+        case .troubleshoot, .trace, .changes, .explorer:
             false
         }
     }

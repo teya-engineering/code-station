@@ -23,7 +23,8 @@ struct SiteConfigurationPlanTests {
         ]
       },
       "skills": { "name": "Team", "marketplace": "team", "repository": "example/skills" },
-      "shortcuts": [{ "name": "Run service", "command": "./gradlew bootRun" }]
+      "shortcuts": [{ "name": "Run service", "command": "./gradlew bootRun" }],
+      "services": [{ "name": "orders", "lokiSelector": "{app=\\"orders\\"}", "logFormat": "json" }]
     }
     """
 
@@ -35,7 +36,7 @@ struct SiteConfigurationPlanTests {
         let plan = SiteConfigurationPlan(try defaults(file))
 
         #expect(plan.aspects == [.environments, .apiAccess, .requests, .mcp,
-                                 .skills, .shortcuts])
+                                 .skills, .shortcuts, .services])
         #expect(plan.everything == Set(SiteConfigurationAspect.allCases))
     }
 

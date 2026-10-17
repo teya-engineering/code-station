@@ -25,6 +25,7 @@ struct SiteDefaults: Codable, Sendable, Equatable {
     var mcp: MCP? = nil
     var skills: Skills? = nil
     var shortcuts: [ShortcutEntry]? = nil
+    var services: [Service]? = nil
 
     // Not part of the file. These tell the UI where the values came from and whether a
     // higher-priority location failed, so a fallback never looks like that file worked.
@@ -32,7 +33,7 @@ struct SiteDefaults: Codable, Sendable, Equatable {
     var sourceURL: URL? = nil
 
     private enum CodingKeys: String, CodingKey {
-        case dispatch, environments, mcp, skills, shortcuts
+        case dispatch, environments, mcp, skills, shortcuts, services
         case legacyGrafana = "grafana"
         case legacyHTTPClient = "postman"
     }
@@ -42,6 +43,7 @@ struct SiteDefaults: Codable, Sendable, Equatable {
          mcp: MCP? = nil,
          skills: Skills? = nil,
          shortcuts: [ShortcutEntry]? = nil,
+         services: [Service]? = nil,
          loadFailure: String? = nil,
          sourceURL: URL? = nil) {
         self.dispatch = dispatch
@@ -49,6 +51,7 @@ struct SiteDefaults: Codable, Sendable, Equatable {
         self.mcp = mcp
         self.skills = skills
         self.shortcuts = shortcuts
+        self.services = services
         self.loadFailure = loadFailure
         self.sourceURL = sourceURL
     }
@@ -92,6 +95,7 @@ struct SiteDefaults: Codable, Sendable, Equatable {
         skills = try values.decodeIfPresent(Skills.self, forKey: .skills)
         shortcuts = try values.decodeIfPresent([CommandShortcutRecord<ShortcutEntry>].self,
                                               forKey: .shortcuts)?.compactMap(\.value)
+        services = try values.decodeIfPresent(DecodedServices.self, forKey: .services)?.services
     }
 
     func encode(to encoder: Encoder) throws {
@@ -101,6 +105,7 @@ struct SiteDefaults: Codable, Sendable, Equatable {
         try values.encodeIfPresent(mcp, forKey: .mcp)
         try values.encodeIfPresent(skills, forKey: .skills)
         try values.encodeIfPresent(shortcuts, forKey: .shortcuts)
+        try values.encodeIfPresent(services, forKey: .services)
     }
 
     // The deployments an organisation runs. Every MCP server is tagged with one of these,

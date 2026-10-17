@@ -328,6 +328,55 @@ struct TroubleshootTests {
         }
         return arguments[index + 1]
     }
+
+    private static let payments = SiteDefaults.Service(
+        name: "payments",
+        lokiSelector: #"{app="payments"}"#,
+        logFormat: .logfmt,
+        levelField: "level",
+        levelValues: ["INFO", "WARN", "ERROR"],
+        traceField: "traceId",
+        fields: ["synthetic": "true marks smoke-test traffic", "logger": "class name"],
+        prometheusSelector: #"namespace="payments""#,
+        notes: "Card numbers are masked.")
+
+    @Test func aChosenServiceAddsItsLogContext() {
+        let request = TroubleshootRequest(
+            problem: "Errors since 10:00", environment: Self.dev, projects: ["payments"],
+            mcpServersEnabled: true, agent: .claudeCode, service: Self.payments)
+
+        let text = request.customInstructions
+        #expect(text.contains("Service log context: payments"))
+        #expect(text.contains(#"- Loki selector: {app="payments"}"#))
+        #expect(text.contains("- Log format: logfmt"))
+        #expect(text.contains("- Level field: level (INFO, WARN, ERROR)"))
+        #expect(text.contains("- Trace field: traceId"))
+        #expect(text.contains("- Fields: logger: class name; synthetic: true marks smoke-test traffic"))
+        #expect(text.contains(#"- Prometheus selector: namespace="payments""#))
+        #expect(text.contains("- Notes: Card numbers are masked."))
+    }
+
+    @Test func noServiceLeavesTheInstructionsAsTheyWere() {
+        let without = TroubleshootRequest(
+            problem: "x", environment: Self.dev, projects: ["p"],
+            mcpServersEnabled: true, agent: .claudeCode)
+        #expect(!without.customInstructions.contains("Service log context"))
+    }
+
+    @Test func aMinimalServiceListsOnlyWhatItHas() {
+        let minimal = SiteDefaults.Service(name: "m", lokiSelector: #"{a="b"}"#, logFormat: .json)
+        let text = minimal.promptContext
+        #expect(text.contains("- Log format: json"))
+        #expect(!text.contains("Trace field"))
+        #expect(!text.contains("Prometheus selector"))
+    }
+
+    @Test func aPickedServiceThatIsNoLongerConfiguredReadsAsNone() {
+        let services = [Self.payments]
+        #expect(TroubleshootServicePicker.chosen("payments", in: services) == Self.payments)
+        #expect(TroubleshootServicePicker.chosen("gone", in: services) == nil)
+        #expect(TroubleshootServicePicker.chosen(nil, in: services) == nil)
+    }
 }
 
 @MainActor
