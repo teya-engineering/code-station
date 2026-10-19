@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import CodeStationCore
 
 enum DesignConversationLayout {
     static let minimizedSize = CGSize(width: 210, height: 56)

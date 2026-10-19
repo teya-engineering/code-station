@@ -1,7 +1,7 @@
 import Darwin
 import Foundation
 import Testing
-@testable import MenuBarApp
+@testable import CodeStationCore
 
 @MainActor
 struct SessionLifecycleTests {
@@ -277,7 +277,10 @@ struct SessionLifecycleTests {
         let store = harness.store
         let session = harness.session
         let runner = harness.runner
-        // Changing the default after creation must not move this session to Codex.
+        // Changing the default after creation must not move this session to Codex. The
+        // default is a shared preference, so it is put back for the tests after this one.
+        let savedAgent = Preferences.agent
+        defer { Preferences.agent = savedAgent }
         runner.agent = .codex
         runner.send("start", sessionID: session.id, store: store)
         defer {

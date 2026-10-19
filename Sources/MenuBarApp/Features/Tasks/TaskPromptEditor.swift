@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import CodeStationCore
 
 // A task's prompt, written in place. Each {{hole}} is coloured as it is typed, so what a
 // run will ask for is visible in the sentence that asks for it. The colour is a temporary

@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import MenuBarApp
+@testable import CodeStationCore
 
 // These run real git against a real checkout. What the snapshots are for is seeing writes
 // no tool call describes, so nothing short of writing files and asking git can show that

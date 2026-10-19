@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 struct AgentTranscriptFocus: Equatable {
     let messageID: UUID

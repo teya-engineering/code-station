@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import CodeStationCore
 
 // The saved requests, kept as one JSON file next to the projects store.
 @MainActor

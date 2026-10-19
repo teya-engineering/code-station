@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 @MainActor
@@ -195,8 +196,8 @@ struct SessionScrollTests {
                     .environment(GlobalCommandPaletteController())
                     .appOverlays())
             hosting.sizingOptions = []
-            window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 700),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
+            window = testWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 700),
+                                styleMask: [.borderless], backing: .buffered, defer: false)
             window.contentViewController = hosting
             window.setContentSize(NSSize(width: width, height: 700))
             hosting.view.frame = NSRect(x: 0, y: 0, width: width, height: 700)

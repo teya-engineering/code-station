@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import MenuBarApp
+@testable import CodeStationCore
 
 // Session deletion moves a checkout aside before unlinking it in the background. These
 // tests cover the move, the later unlink, and failures that must remain visible.

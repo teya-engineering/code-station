@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 @MainActor
@@ -13,8 +14,8 @@ struct TooltipTests {
                 .environment(presenter)
         }
         let hosting = NSHostingController(rootView: source("Design has content", focused: false))
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 80),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
+        let window = testWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 80),
+                                styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentViewController = hosting
         await settle(hosting.view)
 
@@ -39,8 +40,8 @@ struct TooltipTests {
                 .environment(presenter)
         }
         let hosting = NSHostingController(rootView: source(activation: 0))
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 80),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
+        let window = testWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 80),
+                                styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentViewController = hosting
         await settle(hosting.view)
 

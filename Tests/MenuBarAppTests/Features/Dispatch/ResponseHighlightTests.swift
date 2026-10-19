@@ -1,5 +1,6 @@
 import SwiftUI
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 // The response colouring works by scanning, so what matters is that a key, a string

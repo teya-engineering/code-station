@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 // The fonts and artwork are read through one bundle, so a build that cannot find it looks

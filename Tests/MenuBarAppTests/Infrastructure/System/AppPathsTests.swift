@@ -1,5 +1,6 @@
 import AppKit
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 // Moving the files an older version wrote is the one part of the storage change that can
@@ -47,7 +48,7 @@ struct AppPathsTests {
     @Test func savesAndClearsTheSelectedSkillsMarketplace() throws {
         let suite = "skills-marketplace-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { removeScratchDefaults(suite) }
         let marketplace = SkillMarketplaceConfiguration(
             source: "/tmp/marketplace.json",
             sourceKind: .localFile,
@@ -102,7 +103,7 @@ struct AppPathsTests {
     @Test func restoresEachSidebarItemExpansionState() throws {
         let suite = "code-station-sidebar-tests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { removeScratchDefaults(suite) }
         let collapsedProject = UUID()
         let expandedWorkspace = UUID()
 
@@ -120,7 +121,7 @@ struct AppPathsTests {
     @Test func remembersWhichSidebarSectionsAreFoldedAway() throws {
         let suite = "code-station-sidebar-group-tests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { removeScratchDefaults(suite) }
 
         #expect(Preferences.collapsedSidebarGroups(in: defaults).isEmpty)
 
@@ -134,7 +135,7 @@ struct AppPathsTests {
     @Test func defaultsAndClampsOldSessionDays() throws {
         let suite = "code-station-old-session-tests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { removeScratchDefaults(suite) }
 
         #expect(Preferences.oldSessionDays(in: defaults) == 3)
 
@@ -153,7 +154,7 @@ struct AppPathsTests {
     @Test func defaultsAndMigratesTheOldSessionCleanupPolicy() throws {
         let suite = "code-station-old-session-cleanup-tests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { removeScratchDefaults(suite) }
 
         #expect(Preferences.oldSessionCleanupPolicy(in: defaults) == .deleteAll)
 
@@ -171,7 +172,7 @@ struct AppPathsTests {
     @Test @MainActor func appSettingsPersistsTheOldSessionCleanupPolicy() throws {
         let suite = "code-station-app-old-session-cleanup-tests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { removeScratchDefaults(suite) }
         let avatar = root.appendingPathComponent("avatar.png")
         let settings = AppSettings(agentAvatarURL: avatar, preferences: defaults)
 
@@ -187,7 +188,7 @@ struct AppPathsTests {
     @Test @MainActor func orphanedWorktreeAutoPruningDefaultsOffAndPersists() throws {
         let suite = "code-station-orphan-pruning-tests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { removeScratchDefaults(suite) }
         let avatar = root.appendingPathComponent("avatar.png")
         let settings = AppSettings(agentAvatarURL: avatar, preferences: defaults)
 
@@ -203,7 +204,7 @@ struct AppPathsTests {
     @Test func defaultsAndClampsTheSidebarSessionLimit() throws {
         let suite = "code-station-sidebar-session-limit-tests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { removeScratchDefaults(suite) }
 
         #expect(Preferences.sidebarSessionLimit(in: defaults) == 4)
 
@@ -222,7 +223,7 @@ struct AppPathsTests {
     @Test @MainActor func sessionRecapsDefaultOffAndPersist() throws {
         let suite = "code-station-recap-tests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { removeScratchDefaults(suite) }
         let avatar = root.appendingPathComponent("avatar.png")
         let settings = AppSettings(agentAvatarURL: avatar, preferences: defaults)
 
@@ -239,7 +240,7 @@ struct AppPathsTests {
     @Test @MainActor func sessionTitlesDefaultOffAndPersist() throws {
         let suite = "code-station-title-tests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { removeScratchDefaults(suite) }
         let avatar = root.appendingPathComponent("avatar.png")
         let settings = AppSettings(agentAvatarURL: avatar, preferences: defaults)
 
@@ -256,7 +257,7 @@ struct AppPathsTests {
     @Test func sessionRecapsRespectTheOldCatchUpOptOut() throws {
         let suite = "code-station-recap-migration-tests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { removeScratchDefaults(suite) }
         defaults.set(false, forKey: "sessionResumeBriefsEnabled")
 
         #expect(!Preferences.sessionRecapsEnabled(in: defaults))
@@ -265,7 +266,7 @@ struct AppPathsTests {
     @Test @MainActor func appSettingsPersistsTheSidebarSessionLimit() throws {
         let suite = "code-station-app-sidebar-session-limit-tests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { removeScratchDefaults(suite) }
         let avatar = root.appendingPathComponent("avatar.png")
         let settings = AppSettings(agentAvatarURL: avatar, preferences: defaults)
 
@@ -288,8 +289,8 @@ struct AppPathsTests {
         let firstDefaults = try #require(UserDefaults(suiteName: firstSuite))
         let secondDefaults = try #require(UserDefaults(suiteName: secondSuite))
         defer {
-            firstDefaults.removePersistentDomain(forName: firstSuite)
-            secondDefaults.removePersistentDomain(forName: secondSuite)
+            removeScratchDefaults(firstSuite)
+            removeScratchDefaults(secondSuite)
             Appearance.system.apply()
         }
         let avatar = root.appendingPathComponent("avatar.png")
@@ -363,7 +364,7 @@ struct AppPathsTests {
     @Test @MainActor func appSettingsPersistsSidebarAvatarChoices() throws {
         let suite = "code-station-sidebar-avatar-tests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { removeScratchDefaults(suite) }
         let avatar = root.appendingPathComponent("avatar.png")
 
         let settings = AppSettings(agentAvatarURL: avatar, preferences: defaults)
@@ -381,7 +382,7 @@ struct AppPathsTests {
     @Test @MainActor func workingSetStartsClosedAndItsDefaultPersists() throws {
         let suite = "code-station-working-set-default-tests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { removeScratchDefaults(suite) }
         let avatar = root.appendingPathComponent("avatar.png")
         let settings = AppSettings(agentAvatarURL: avatar, preferences: defaults)
 
@@ -397,7 +398,7 @@ struct AppPathsTests {
     @Test func storesAndResetsAnExternalSiteConfigurationPath() throws {
         let suite = "code-station-site-defaults-tests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { removeScratchDefaults(suite) }
         let selected = URL(fileURLWithPath: "/tmp/../tmp/team-defaults.json")
 
         Preferences.setSiteDefaultsURL(selected, in: defaults)
@@ -412,7 +413,7 @@ struct AppPathsTests {
     @Test @MainActor func onboardingIsOnlyCompletedAfterTheWizardFinishes() throws {
         let suite = "code-station-onboarding-tests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { removeScratchDefaults(suite) }
         let settings = AppSettings(agentAvatarURL: root.appendingPathComponent("avatar.png"),
                                    preferences: defaults)
 
@@ -434,7 +435,7 @@ struct AppPathsTests {
     @Test @MainActor func existingWorkDoesNotTriggerFirstRunOnboarding() throws {
         let suite = "code-station-onboarding-migration-tests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { removeScratchDefaults(suite) }
         let settings = AppSettings(agentAvatarURL: root.appendingPathComponent("avatar.png"),
                                    preferences: defaults)
 
@@ -449,8 +450,8 @@ struct AppPathsTests {
         let old = try #require(UserDefaults(suiteName: previous))
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer {
-            old.removePersistentDomain(forName: previous)
-            defaults.removePersistentDomain(forName: suite)
+            removeScratchDefaults(previous)
+            removeScratchDefaults(suite)
         }
 
         old.set("opus", forKey: "claudeDefaultModel")
@@ -470,8 +471,8 @@ struct AppPathsTests {
         let old = try #require(UserDefaults(suiteName: previous))
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer {
-            old.removePersistentDomain(forName: previous)
-            defaults.removePersistentDomain(forName: suite)
+            removeScratchDefaults(previous)
+            removeScratchDefaults(suite)
         }
 
         old.set(true, forKey: "mobileAccessEnabled")
@@ -497,4 +498,21 @@ struct AppPathsTests {
         #expect(!FileManager.default.fileExists(atPath: old.path))
     }
 
+}
+
+// Test preferences suites leave nothing behind once they are let go.
+struct ScratchDefaultsTests {
+    @Test func aScratchSuiteLeavesNoFileBehind() throws {
+        let suite = "code-station-scratch-defaults-tests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defaults.set(3, forKey: "count")
+        defaults.synchronize()
+        let file = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Preferences/\(suite).plist")
+
+        removeScratchDefaults(suite)
+
+        #expect(!FileManager.default.fileExists(atPath: file.path))
+        #expect(UserDefaults(suiteName: suite)?.integer(forKey: "count") == 0)
+    }
 }

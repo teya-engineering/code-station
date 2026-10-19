@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import CodeStationCore
 
 // The half of registering MCP servers with a coding agent's CLI that is the same for
 // every agent: running its `mcp add` and `mcp remove` steps one at a time, and keeping
@@ -48,7 +49,7 @@ final class CLIRegistrar {
     // and the CLIs start servers by name.
     nonisolated static var environment: [String: String] {
         var environment = ProcessInfo.processInfo.environment
-        environment["PATH"] = ProcessManager.searchPath
+        environment["PATH"] = ExecutableSearch.searchPath
         return environment
     }
 
@@ -57,7 +58,7 @@ final class CLIRegistrar {
     // profile, which can spawn daemons that inherit the output pipe and keep it open,
     // hanging the read forever. Steps run in order so writes to the config never race.
     func run(_ steps: [[String]], names: [String], onFinished: @escaping @MainActor () -> Void) {
-        guard let executable = ProcessManager.resolve(command) else {
+        guard let executable = ExecutableSearch.resolve(command) else {
             for name in names { errors[name] = notFoundMessage }
             return
         }

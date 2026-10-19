@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 // Both cleanup strips sit in the sidebar's bottom bar, which is 318pt wide less 14pt of
@@ -63,7 +64,7 @@ struct CleanupStripSizeTests {
         }
 
         let view = NSHostingView(rootView: column)
-        let window = NSWindow(
+        let window = testWindow(
             contentRect: NSRect(x: 0, y: 0, width: Self.column, height: 400),
             styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = view

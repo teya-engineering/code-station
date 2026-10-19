@@ -1,5 +1,5 @@
 import Testing
-@testable import MenuBarApp
+@testable import CodeStationCore
 
 // Costs sit in columns next to each other, so cents and dollars must print with the
 // same two decimals to line up.

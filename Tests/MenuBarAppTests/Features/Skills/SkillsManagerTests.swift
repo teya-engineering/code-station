@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 struct SkillsManagerTests {
@@ -29,7 +30,7 @@ struct SkillsManagerTests {
         try repository.commit("Add marketplace")
         let suite = "preview-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { removeScratchDefaults(suite) }
         let manager = SkillsManager(cacheURL: scratch.path("preview-cache"), preferences: defaults, siteSkills: { nil })
         let (source, catalogue) = try await manager.previewMarketplace(gitRepository: repository.path)
         #expect(source.marketplace == "preview")
@@ -49,7 +50,7 @@ struct SkillsManagerTests {
     @Test @MainActor func removalPersistsWithoutChangingFilesOrInstallations() throws {
         let suite = "remove-marketplace-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { removeScratchDefaults(suite) }
         let url = try file(#"{"name":"removable","plugins":[{"name":"skill","description":"A skill"}]}"#)
         let (source, catalogue) = try SkillsManager.localConfiguration(at: url)
         Preferences.setSkillsMarketplace(source, in: defaults)
@@ -74,7 +75,7 @@ struct SkillsManagerTests {
     @Test @MainActor func removalExcludesGitSourcesAndKeepsOtherSources() throws {
         let suite = "remove-git-marketplace-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { removeScratchDefaults(suite) }
         let first = SkillMarketplaceConfiguration(source: "https://example.com/first.git", sourceKind: .gitRepository,
                                                   marketplace: "first", label: "First")
         let second = SkillMarketplaceConfiguration(source: "/tmp/second.json", sourceKind: .localFile,
@@ -93,7 +94,7 @@ struct SkillsManagerTests {
     @Test @MainActor func removingSiteDefaultLeavesAnEmptyRepertoireAfterRestart() throws {
         let suite = "remove-default-marketplace-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { removeScratchDefaults(suite) }
         let site = SiteDefaults.Skills(name: "Team", marketplace: "team", repository: "https://example.com/team.git")
         let source = SkillMarketplaceConfiguration.siteDefault(site)
         let manager = SkillsManager(preferences: defaults, siteSkills: { site })
@@ -109,7 +110,7 @@ struct SkillsManagerTests {
     @Test @MainActor func failedRemovalKeepsSourceAndPackages() throws {
         let suite = "failed-marketplace-removal-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { removeScratchDefaults(suite) }
         let url = try file(#"{"name":"retained","plugins":[{"name":"skill","description":"A skill"}]}"#)
         let (source, catalogue) = try SkillsManager.localConfiguration(at: url)
         Preferences.setSkillsMarketplace(source, in: defaults)
@@ -136,7 +137,7 @@ struct SkillsManagerTests {
     @Test @MainActor func keepsMarketplacesAcrossAdditionsAndRestarts() throws {
         let suite = "multiple-marketplaces-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { removeScratchDefaults(suite) }
         let first = SkillMarketplaceConfiguration(source: "/tmp/first.json", sourceKind: .localFile,
                                                    marketplace: "first", label: "First")
         let second = SkillMarketplaceConfiguration(source: "/tmp/second.json", sourceKind: .localFile,
@@ -157,7 +158,7 @@ struct SkillsManagerTests {
     @Test @MainActor func rejectsConflictingMarketplaceNamesWithoutReplacingSavedSource() throws {
         let suite = "conflicting-marketplaces-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { removeScratchDefaults(suite) }
         let original = SkillMarketplaceConfiguration(source: "/tmp/original.json", sourceKind: .localFile,
                                                       marketplace: "shared-name", label: "Original")
         let conflict = SkillMarketplaceConfiguration(source: "/tmp/other.json", sourceKind: .localFile,
@@ -173,7 +174,7 @@ struct SkillsManagerTests {
     @Test @MainActor func isolatesRepositoryCachesAndRefreshDates() throws {
         let suite = "marketplace-state-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { removeScratchDefaults(suite) }
         let manager = SkillsManager(cacheURL: scratch.path("caches"), preferences: defaults)
         let first = SkillMarketplaceConfiguration(source: "https://example.com/first.git", sourceKind: .gitRepository,
                                                    marketplace: "first", label: "First")
@@ -191,7 +192,7 @@ struct SkillsManagerTests {
     @Test @MainActor func combinesPackagesAndKeepsSameNamesDistinct() throws {
         let suite = "combined-marketplaces-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { removeScratchDefaults(suite) }
         let manager = SkillsManager(preferences: defaults)
         let configurations = ["first", "second"].map {
             SkillMarketplaceConfiguration(source: "/tmp/\($0).json", sourceKind: .localFile,
@@ -223,7 +224,7 @@ struct SkillsManagerTests {
     @Test @MainActor func failedMarketplaceDoesNotHideOtherPackages() throws {
         let suite = "partial-marketplaces-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { removeScratchDefaults(suite) }
         let manager = SkillsManager(preferences: defaults)
         let configurations = ["working", "broken", "renamed"].map {
             SkillMarketplaceConfiguration(source: "/tmp/\($0).json", sourceKind: .localFile,

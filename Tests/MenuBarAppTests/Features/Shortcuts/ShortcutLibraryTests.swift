@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 @MainActor
@@ -123,8 +124,8 @@ struct ShortcutLibraryTests {
         let host = NSHostingView(rootView: ShortcutsView()
             .environment(store)
             .appOverlays())
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 390, height: 780),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
+        let window = testWindow(contentRect: NSRect(x: 0, y: 0, width: 390, height: 780),
+                                styleMask: [.borderless], backing: .buffered, defer: false)
         window.center()
         window.contentView = host
         window.layoutIfNeeded()
@@ -138,5 +139,29 @@ struct ShortcutLibraryTests {
             try bitmap.representation(using: .png, properties: [:])?.write(
                 to: URL(fileURLWithPath: directory).appendingPathComponent("shortcuts-command.png"))
         }
+    }
+
+    // The shortcuts a first run starts with come from the site file, and the tests run
+    // without one, so a fresh store is empty and writes nothing until it is edited.
+    @Test func startsFromTheSiteFileWhenNoFileExists() {
+        let url = scratch.path("site-start.json")
+        let store = ShortcutStore(storageURL: url)
+
+        #expect(store.shortcuts.map(\.name)
+            == SiteDefaults.current.startingShortcuts.map(\.name))
+        #expect(!FileManager.default.fileExists(atPath: url.path))
+    }
+
+    // A file can name a symbol this build cannot draw, which would leave a gap on the
+    // chip where an icon should be. The GUI's store keeps only what AppKit can draw.
+    @Test func dropsAnIconTheSystemCannotDraw() throws {
+        let store = ShortcutStore(storageURL: scratch.path("icons.json"), siteDefaults: SiteDefaults())
+
+        let id = try #require(store.add(name: "Tests", text: "swift test",
+                                        icon: "not.a.real.symbol"))
+        let kept = try #require(store.add(name: "Build", text: "swift build", icon: "hammer"))
+
+        #expect(store.shortcut(id)?.icon == nil)
+        #expect(store.shortcut(kept)?.icon == "hammer")
     }
 }

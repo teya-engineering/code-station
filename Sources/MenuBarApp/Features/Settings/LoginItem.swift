@@ -1,5 +1,6 @@
 import ServiceManagement
 import SwiftUI
+import CodeStationCore
 
 // Whether macOS launches the app when the user logs in. The system owns this state, so
 // it is read back from the service rather than stored by us.

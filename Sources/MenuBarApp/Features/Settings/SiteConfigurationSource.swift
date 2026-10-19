@@ -1,5 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import CodeStationCore
 
 // Loading a site configuration is offered twice, on the first run and in Settings, and
 // both places juggle the same things: the address being typed, the load in flight, what

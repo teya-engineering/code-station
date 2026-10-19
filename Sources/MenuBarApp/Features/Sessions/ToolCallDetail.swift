@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 struct PresentedToolCall: Equatable {
     let call: WorkingSetToolCall

@@ -1,21 +1,14 @@
 import Foundation
 import Testing
-@testable import MenuBarApp
+@testable import CodeStationCore
 
 @MainActor
+// The store lives in the core, so every station host runs shortcuts the same way; these
+// tests reach it without the GUI. What the GUI joins to it (the site file, SF Symbols) is
+// in ShortcutLibraryTests.
 struct ShortcutStoreTests {
     private let scratch = ScratchDirectory(prefix: "shortcut-store-tests")
     private var url: URL { scratch.path("shortcuts.json") }
-
-    // The shortcuts a first run starts with come from the site file, and the tests run
-    // without one, so a fresh store is empty and writes nothing until it is edited.
-    @Test func startsFromTheSiteFileWhenNoFileExists() {
-        let store = ShortcutStore(storageURL: url)
-
-        #expect(store.shortcuts.map(\.name)
-            == SiteDefaults.current.startingShortcuts.map(\.name))
-        #expect(!FileManager.default.fileExists(atPath: url.path))
-    }
 
     @Test func persistsAddsAndEdits() throws {
         let store = emptyStore(url)
@@ -358,17 +351,6 @@ struct ShortcutStoreTests {
         #expect(emptyStore(url).shortcut(id)?.icon == "checkmark.seal")
     }
 
-    // A file can name a symbol this build cannot draw, which would leave a gap on the
-    // chip where an icon should be.
-    @Test func dropsAnIconTheSystemCannotDraw() throws {
-        let store = emptyStore(url)
-
-        let id = try #require(store.add(name: "Tests", text: "swift test",
-                                        icon: "not.a.real.symbol"))
-
-        #expect(store.shortcut(id)?.icon == nil)
-    }
-
     // Giving a shortcut an icon leaves the same command, so what the last run reported
     // still describes it and the drawer stays where it was.
     @Test func keepsRunsWhenOnlyTheIconChanges() async throws {
@@ -430,7 +412,7 @@ struct ShortcutStoreTests {
     }
 
     private func emptyStore(_ url: URL) -> ShortcutStore {
-        ShortcutStore(storageURL: url, siteDefaults: SiteDefaults())
+        ShortcutStore(storageURL: url, startingShortcuts: [])
     }
 
 }

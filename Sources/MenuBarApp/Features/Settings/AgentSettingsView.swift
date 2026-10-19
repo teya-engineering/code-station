@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 // The pane is about the agents the app can run: which one sessions use, whether its CLI
 // is there, who it is signed in as, and where its own files live. The account details
@@ -26,14 +27,14 @@ final class ClaudeAgentInfo {
 
     func refresh() {
         versionTask?.cancel()
-        path = ProcessManager.resolve("claude")
+        path = ExecutableSearch.resolve("claude")
         account = Self.readAccount()
         version = nil
         isCheckingVersion = false
         versionCheckFailed = false
         guard let path else { return }
         isCheckingVersion = true
-        let searchPath = ProcessManager.searchPath
+        let searchPath = ExecutableSearch.searchPath
         versionTask = Task {
             // The CLI prints "2.1.220 (Claude Code)"; the number is the part worth keeping.
             let version = await cliVersion(at: path, searchPath: searchPath)?
@@ -103,7 +104,7 @@ final class CodexAgentInfo {
     func refresh() {
         versionTask?.cancel()
         usageTask?.cancel()
-        path = ProcessManager.resolve("codex")
+        path = ExecutableSearch.resolve("codex")
         account = Self.readAccount()
         version = nil
         isCheckingVersion = false
@@ -113,7 +114,7 @@ final class CodexAgentInfo {
         refreshID = UUID()
         guard let path else { return }
         isCheckingVersion = true
-        let searchPath = ProcessManager.searchPath
+        let searchPath = ExecutableSearch.searchPath
         let id = refreshID
         versionTask = Task {
             // The CLI prints "codex-cli 0.52.0"; the number is the part worth keeping.
@@ -208,7 +209,7 @@ final class CopilotAgentInfo {
     func refresh() {
         versionTask?.cancel()
         accountTask?.cancel()
-        path = ProcessManager.resolve("copilot")
+        path = ExecutableSearch.resolve("copilot")
         version = nil
         isCheckingVersion = false
         versionCheckFailed = false
@@ -218,7 +219,7 @@ final class CopilotAgentInfo {
         refreshID = UUID()
         guard let path else { return }
         isCheckingVersion = true
-        let searchPath = ProcessManager.searchPath
+        let searchPath = ExecutableSearch.searchPath
         let id = refreshID
         versionTask = Task {
             // The CLI prints "GitHub Copilot CLI 1.0.83." and a line about updates; the

@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 struct TranscriptAgentTests {
@@ -44,7 +45,7 @@ struct TranscriptAgentTests {
     }
 
     @Test func keepsBackgroundHistoryAndItsFailureReportAfterReload() throws {
-        let task = BackgroundTask(id: "task-1", kind: "local_agent", description: "Review the diff",
+        let task = AgentBackgroundTask(id: "task-1", kind: "local_agent", description: "Review the diff",
                                   agentName: "reviewer")
         var message = ChatMessage(role: .assistant, text: "Starting the review.")
         message.recordAgentTask(AgentTaskRecord(task: task))
@@ -62,7 +63,7 @@ struct TranscriptAgentTests {
     }
 
     @Test func mergesAnEarlyBackgroundEventWithItsLaunchReceipt() {
-        let task = BackgroundTask(id: "abc123", kind: "local_agent", description: "Review")
+        let task = AgentBackgroundTask(id: "abc123", kind: "local_agent", description: "Review")
         let record = AgentTaskRecord(task: task)
         var message = ChatMessage(role: .assistant)
         message.recordAgentTask(record)
@@ -74,7 +75,7 @@ struct TranscriptAgentTests {
     }
 
     @Test func attachesTheTaskToItsToolBeforeTheLaunchReceiptArrives() {
-        let task = BackgroundTask(id: "task-with-dashes", kind: "local_agent", description: "Review",
+        let task = AgentBackgroundTask(id: "task-with-dashes", kind: "local_agent", description: "Review",
                                   toolUseID: "launch")
         var message = ChatMessage(role: .assistant, tools: [
             ToolUse(id: "launch", name: "Agent", input: "{}")
@@ -85,7 +86,7 @@ struct TranscriptAgentTests {
     }
 
     @Test func keepsTheAgentsOwnNameWhenTheTaskOnlyNamesItsType() {
-        let task = BackgroundTask(id: "task-1", kind: "local_agent", description: "Review",
+        let task = AgentBackgroundTask(id: "task-1", kind: "local_agent", description: "Review",
                                   agentName: "general-purpose", toolUseID: "launch")
         var message = ChatMessage(role: .assistant, tools: [
             ToolUse(id: "launch", name: "Agent", input: #"{"name":"angle-a","description":"Review"}"#)
@@ -95,7 +96,7 @@ struct TranscriptAgentTests {
     }
 
     @Test func doesNotReportSuccessForAnAgentWithoutAnOutcome() {
-        let task = BackgroundTask(id: "a", kind: "local_agent", description: "Review")
+        let task = AgentBackgroundTask(id: "a", kind: "local_agent", description: "Review")
         var message = ChatMessage(role: .assistant)
         message.recordAgentTask(AgentTaskRecord(task: task))
         #expect(activities(message).first?.state == .interrupted)

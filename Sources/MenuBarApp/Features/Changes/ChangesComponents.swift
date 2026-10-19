@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import CodeStationCore
 
 struct ReviewBarLabelStyle: LabelStyle {
     func makeBody(configuration: Configuration) -> some View {

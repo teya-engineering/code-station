@@ -1,6 +1,7 @@
 import AppKit
 import SwiftTerm
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 // A local monitor sees every key press in the app, so several controls listening for the
@@ -10,8 +11,8 @@ import Testing
 @MainActor
 struct WindowKeyMonitorTests {
     private func window() -> NSWindow {
-        NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 120),
-                 styleMask: [.borderless], backing: .buffered, defer: false)
+        testWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 120),
+                   styleMask: [.borderless], backing: .buffered, defer: false)
     }
 
     @Test func onlyTheWindowInFrontActsOnTheStroke() {

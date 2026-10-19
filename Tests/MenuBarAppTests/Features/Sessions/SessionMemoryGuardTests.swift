@@ -1,7 +1,7 @@
 import Darwin
 import Foundation
 import Testing
-@testable import MenuBarApp
+@testable import CodeStationCore
 
 struct SessionMemoryGuardTests {
     private func process(_ pid: pid_t, parent: pid_t, group: pid_t,

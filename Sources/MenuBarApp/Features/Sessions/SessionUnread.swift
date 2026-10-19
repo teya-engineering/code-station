@@ -1,4 +1,5 @@
 import Foundation
+import CodeStationCore
 
 enum SessionUnread {
     // Read offers to clear either kind of unread, so a session that ended unseen can be

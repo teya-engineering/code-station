@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 struct RawJSONView: View {
     @Environment(ConfigStore.self) private var store

@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 @MainActor
@@ -38,8 +39,8 @@ struct WorkspaceExplorerTests {
         .environment(memory).environment(DialogPresenter()).appOverlays()
         let hosting = NSHostingController(rootView: view)
         hosting.sizingOptions = []
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 700),
-                              styleMask: [.titled], backing: .buffered, defer: false)
+        let window = testWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 700),
+                                styleMask: [.titled], backing: .buffered, defer: false)
         window.contentViewController = hosting
         window.center()
         hosting.view.frame = NSRect(x: 0, y: 0, width: 1000, height: 700)

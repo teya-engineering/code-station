@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 // Central palette and small style helpers so the whole UI reads as one system.
 enum Theme {

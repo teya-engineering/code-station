@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 @MainActor
@@ -256,8 +257,8 @@ private struct FindPage {
         host = NSHostingView(rootView: AnyView(content))
         host.sizingOptions = []
         host.frame = CGRect(x: 0, y: 0, width: 640, height: 480)
-        window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                          backing: .buffered, defer: false)
+        window = testWindow(contentRect: host.frame, styleMask: [.borderless],
+                            backing: .buffered, defer: false)
         window.contentView = host
         window.setFrameOrigin(CGPoint(x: -10_000, y: -10_000))
         window.orderFront(nil)

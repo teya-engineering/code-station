@@ -1,5 +1,6 @@
 import AppKit
 import UniformTypeIdentifiers
+import CodeStationCore
 
 // The file chooser is the one system surface the app keeps, since picking a path belongs
 // to the Finder rather than to this window. Every panel is modal, so a caller only has

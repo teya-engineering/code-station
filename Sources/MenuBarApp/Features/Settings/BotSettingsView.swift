@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 struct BotSettingsEntry: View {
     @Environment(AppSettings.self) private var settings

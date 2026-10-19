@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import MenuBarApp
+@testable import CodeStationCore
 
 struct ImportedTranscriptTests {
     private func line(_ value: [String: Any]) throws -> String {

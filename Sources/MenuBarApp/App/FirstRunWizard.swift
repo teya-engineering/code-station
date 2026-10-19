@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 struct FirstRunWizard: View {
     enum TerminalAction: Identifiable {

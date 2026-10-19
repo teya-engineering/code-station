@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 // Creates a reusable group of projects. The order matters because the first selected
 // project is the lead and supplies the working directory for every session.

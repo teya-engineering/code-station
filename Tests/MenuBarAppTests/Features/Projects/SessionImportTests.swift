@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import MenuBarApp
+@testable import CodeStationCore
 
 // Lines in the shape Claude Code writes to ~/.claude/projects. Only the fields the import
 // reads are filled in; the real files carry many more.

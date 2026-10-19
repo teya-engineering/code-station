@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 // A rolling day of summed session activity. Each bar opens the sessions behind it, and
 // resting on one shows which projects filled it.

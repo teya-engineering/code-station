@@ -1,5 +1,6 @@
 import Charts
 import SwiftUI
+import CodeStationCore
 
 // A chart drawn in the transcript from the data the reply carried. Everything here is the
 // app's own palette and type, so a chart reads as part of the answer rather than as a

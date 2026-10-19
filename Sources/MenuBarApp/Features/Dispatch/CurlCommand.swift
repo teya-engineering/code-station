@@ -1,4 +1,5 @@
 import Foundation
+import CodeStationCore
 
 // The request written out as a curl command, so a call that works here can be pasted
 // into a terminal or handed to someone else without being rebuilt by hand. It is built

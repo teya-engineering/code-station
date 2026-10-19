@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 // One run of a task, as a line in its history. Every run shares the task's folder and
 // a task rarely edits files, so the row leaves both out and says instead who started it,

@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import MenuBarApp
+@testable import CodeStationCore
 
 // The control protocol is the only part of the CLI the app has to answer rather than just
 // read, and a wrong answer parks a turn forever or lets a tool run that was denied. The

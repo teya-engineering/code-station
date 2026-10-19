@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import MenuBarApp
+@testable import CodeStationCore
 
 // The second opinion's control in the review bar says where things stand, and its
 // findings dialog goes through what came back in a fixed order and remembers what was

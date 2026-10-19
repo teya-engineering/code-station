@@ -1,4 +1,5 @@
 import AppKit
+import CodeStationCore
 
 // The menu bar is drawn by macOS, so it is the one piece of system chrome the app cannot
 // replace with something of its own. It is built by hand here rather than coming from a

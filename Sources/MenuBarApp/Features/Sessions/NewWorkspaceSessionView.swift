@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 // Chooses how each repository in a workspace is opened for one session. Every workspace
 // member starts attached, while extra projects can be added to this session alone. Each
@@ -251,21 +252,4 @@ struct NewWorkspaceSessionView: View {
                                         mode: .chat))
         dismiss()
     }
-}
-
-struct WorkspaceSessionChoice: Equatable {
-    var sessionID: UUID
-    var projects: [WorkspaceProjectChoice]
-    var agent: AgentKind
-    var model: String? = nil
-    var agentAvatarName: String? = nil
-    var mode: SessionMode = .chat
-}
-
-struct WorkspaceProjectChoice: Equatable {
-    var projectID: UUID
-    var useWorktree: Bool
-    // The ref this project's worktree forks from; without one it forks from whatever
-    // the project folder has checked out.
-    var base: String? = nil
 }

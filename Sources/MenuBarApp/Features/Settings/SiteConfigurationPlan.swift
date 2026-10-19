@@ -1,4 +1,5 @@
 import Foundation
+import CodeStationCore
 
 // A configuration file is useful as a baseline without being an all-or-nothing import.
 // Each aspect can be reset on its own, while everything not selected stays as it is.

@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 // Shared readiness and actions for single-project and workspace sessions.
 struct NewSessionFooter: View {

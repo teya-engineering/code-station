@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 // The workspace page sits next to the sidebar in a window the user can make narrow. If
@@ -45,8 +46,8 @@ struct WorkspaceDetailLayoutTests {
             .appOverlays()
         let hosting = NSHostingController(rootView: view)
         hosting.sizingOptions = []
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1400, height: 900),
-                              styleMask: [.titled], backing: .buffered, defer: false)
+        let window = testWindow(contentRect: NSRect(x: 0, y: 0, width: 1400, height: 900),
+                                styleMask: [.titled], backing: .buffered, defer: false)
         window.contentViewController = hosting
         window.layoutIfNeeded()
 

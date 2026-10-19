@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 // The row for a project in the Workspace navigator. It is the one place a screen names
 // the project it is showing and the one control that picks it, so Changes and Explorer

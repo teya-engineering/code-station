@@ -1,5 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import CodeStationCore
 
 struct AddMarketplaceView: View {
     @Environment(DialogPresenter.self) private var dialogs

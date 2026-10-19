@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 // Running a session on Codex: the arguments its CLI takes, its JSONL stream folded onto

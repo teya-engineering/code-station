@@ -1,6 +1,7 @@
 import AppKit
 import SwiftTerm
 import SwiftUI
+import CodeStationCore
 
 // The output of one shell, and the keyboard that drives it. The real work happens in
 // SwiftTerm; this wraps its view for SwiftUI and keeps focus behaving like the rest

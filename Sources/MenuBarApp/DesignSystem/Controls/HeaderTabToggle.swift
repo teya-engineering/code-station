@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import CodeStationCore
 
 // Segmented choices used in pane headers. Keeping the control shared means project and
 // session navigation have the same hit areas, spacing and selected state.

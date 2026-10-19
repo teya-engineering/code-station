@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 struct ChangesReviewNavigator: View {
     let review: ReviewTarget

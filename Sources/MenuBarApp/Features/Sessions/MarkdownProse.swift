@@ -1,5 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import CodeStationCore
 
 // Block-level markdown for chat prose: headings, tables, lists, quotes and rules.
 // Fenced code is split out before this runs (see MessageSegment). A small hand-rolled

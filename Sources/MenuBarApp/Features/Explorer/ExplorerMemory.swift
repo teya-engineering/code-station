@@ -1,4 +1,5 @@
 import Foundation
+import CodeStationCore
 
 // Where each explorer was left, by the folder it shows. The pane is torn down whenever
 // another tab takes its place, so without this every trip to Chat and back would shut

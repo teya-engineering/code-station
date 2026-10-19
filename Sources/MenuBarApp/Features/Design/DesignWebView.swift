@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import WebKit
+import CodeStationCore
 
 struct DesignWebView: View {
     static let toolbarHeight: CGFloat = 28

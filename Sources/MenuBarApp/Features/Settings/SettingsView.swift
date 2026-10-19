@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 struct SettingsView: View {
     @Environment(LoginItem.self) private var loginItem

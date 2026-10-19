@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 // The pieces the Settings sheet is built from, where the app-wide defaults live. A
 // session's own overrides are picked on its composer bar instead; its Usage pane still

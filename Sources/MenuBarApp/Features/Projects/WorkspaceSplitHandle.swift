@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 struct WorkspaceSplitHandle: View {
     @Binding var width: CGFloat

@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import MenuBarApp
+@testable import CodeStationCore
 
 // The log only earns its keep if it is on disk by the time someone goes looking, so what
 // is pinned here is that a note actually lands in the file the Settings sheet reveals.

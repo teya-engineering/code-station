@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 struct ActivitySpineTests {
@@ -98,8 +99,8 @@ struct ActivitySpineLayoutTests {
                 }
                 .defaultScrollAnchor(.bottom)
                 .frame(width: 700, height: viewport))
-            let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 700, height: viewport),
-                                  styleMask: [.titled], backing: .buffered, defer: false)
+            let window = testWindow(contentRect: CGRect(x: 0, y: 0, width: 700, height: viewport),
+                                    styleMask: [.titled], backing: .buffered, defer: false)
             window.contentView = hosting
             window.center()
             window.orderFront(nil)

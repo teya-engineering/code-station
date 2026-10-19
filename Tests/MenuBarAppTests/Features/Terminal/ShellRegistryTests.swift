@@ -1,7 +1,7 @@
 import Darwin
 import Foundation
 import Testing
-@testable import MenuBarApp
+@testable import CodeStationCore
 
 // The registry exists for the one case nobody can stage by hand: the app dying without
 // closing its shells. Both halves of it can still be checked - a note is kept while a

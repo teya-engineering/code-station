@@ -1,6 +1,7 @@
 import AppKit
 import Observation
 import SwiftUI
+import CodeStationCore
 
 struct TranscriptFindMatch: Equatable, Sendable {
     let messageID: UUID

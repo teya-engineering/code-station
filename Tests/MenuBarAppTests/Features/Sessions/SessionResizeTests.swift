@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 @MainActor
@@ -46,8 +47,8 @@ struct SessionResizeTests {
             .environment(GlobalCommandPaletteController())
             .appOverlays())
         hosting.sizingOptions = []
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1400, height: 700),
-                              styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        let window = testWindow(contentRect: NSRect(x: 0, y: 0, width: 1400, height: 700),
+                                styleMask: [.titled, .resizable], backing: .buffered, defer: false)
         window.contentViewController = hosting
         defer { runner.stopAll() }
 

@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import CodeStationCore
 
 // What a turn that did not end on its own leaves at the foot of the transcript. A failed
 // run belongs in the flow of the conversation, not in a dialog, so it is a card with the

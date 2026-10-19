@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import CodeStationCore
 
 enum ExplorerSplitLayout {
     static let defaultTreeWidth: CGFloat = 300

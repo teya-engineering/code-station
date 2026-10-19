@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import MenuBarApp
+@testable import CodeStationCore
 
 // A turn arrives as separate text and tool events and is stored as two flat lists, so
 // the only thing that says what came first is the offset stamped on each call.

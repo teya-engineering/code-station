@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import CodeStationCore
 
 @MainActor
 @Observable

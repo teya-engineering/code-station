@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import Testing
 import WebKit
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 struct HTMLPreviewTests {
@@ -83,8 +84,8 @@ struct HTMLPreviewWebTests {
         let coordinator = HTMLPreviewWebContent.Coordinator()
         let webView = HTMLPreviewWebContent.makeWebView(coordinator: coordinator)
         webView.frame = CGRect(x: 0, y: 0, width: 700, height: 400)
-        let window = NSWindow(contentRect: webView.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
+        let window = testWindow(contentRect: webView.frame, styleMask: [.borderless],
+                                backing: .buffered, defer: false)
         window.contentView = webView
         window.orderFront(nil)
         defer {
@@ -108,8 +109,8 @@ struct HTMLPreviewWebTests {
             </script>
             """, stylesheet: "body { margin: 0; display: flow-root; }")
         webView.loadHTMLString(document.html, baseURL: nil)
-        let deadline = ContinuousClock.now + .seconds(15)
-        while ContinuousClock.now < deadline {
+        let deadline = SuspendingClock.now + .seconds(15)
+        while SuspendingClock.now < deadline {
             if (try? await webView.evaluateJavaScript("window.ready")) as? Bool == true,
                reportedHeight > 0 { break }
             try await Task.sleep(for: .milliseconds(30))
@@ -147,8 +148,8 @@ struct HTMLPreviewTranscriptTests {
         }
         let host = NSHostingView(rootView: content(marker))
         host.frame = CGRect(x: 0, y: 0, width: 700, height: 700)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
+        let window = testWindow(contentRect: host.frame, styleMask: [.borderless],
+                                backing: .buffered, defer: false)
         window.contentView = host
         window.orderFront(nil)
         defer {
@@ -164,8 +165,8 @@ struct HTMLPreviewTranscriptTests {
             return webView(in: host) != nil
         })
         let preview = try #require(webView(in: host))
-        let deadline = ContinuousClock.now + .seconds(15)
-        while ContinuousClock.now < deadline {
+        let deadline = SuspendingClock.now + .seconds(15)
+        while SuspendingClock.now < deadline {
             if (try? await preview.evaluateJavaScript("window.ready")) as? Bool == true { break }
             try await Task.sleep(for: .milliseconds(30))
         }

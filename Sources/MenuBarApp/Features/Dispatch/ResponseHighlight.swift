@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 // The response body's little terminal: a dark ground with JSON picked out in a few
 // colours, so the eye can find a key or a value without reading the whole answer.

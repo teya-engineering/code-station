@@ -2,6 +2,7 @@ import CoreAudio
 import Foundation
 import Testing
 @testable import MenuBarApp
+@testable import CodeStationCore
 
 // Turning heard words into prompt text: marks said aloud are written, file names said
 // aloud become code spans when the project has them, and a take lands at the caret.

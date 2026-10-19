@@ -1,8 +1,10 @@
+import CodeStationCore
 import Foundation
+import CodeStationCore
 
 struct SidebarSessionVisibility {
-    static let limitRange = 2...10
-    static let defaultLimit = 4
+    static let limitRange = SidebarSessionLimit.range
+    static let defaultLimit = SidebarSessionLimit.defaultLimit
 
     private var showingAll: Set<UUID> = []
     private var pinned: [UUID: UUID] = [:]
@@ -29,7 +31,7 @@ struct SidebarSessionVisibility {
     }
 
     static func resolvedLimit(_ limit: Int) -> Int {
-        min(max(limit, limitRange.lowerBound), limitRange.upperBound)
+        SidebarSessionLimit.resolved(limit)
     }
 
     mutating func showAll(_ containerID: UUID) {

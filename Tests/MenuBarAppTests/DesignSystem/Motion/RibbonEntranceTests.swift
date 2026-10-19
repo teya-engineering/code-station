@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 // When the day ribbon earns its entrance, and how the entrance moves through time.

@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 // The colour behind a person's own messages, picked in Settings.
@@ -9,7 +10,7 @@ struct MessageColourTests {
     @Test func projectIconIsTheDefaultAndThePickIsKept() throws {
         let suite = "MessageColourTests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { removeScratchDefaults(suite) }
 
         #expect(Preferences.messageColour(in: defaults) == .projectIcon)
         Preferences.setMessageColour(.ink, in: defaults)

@@ -1,5 +1,6 @@
 import SwiftUI
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 struct SentPromptTests {

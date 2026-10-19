@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import MenuBarApp
+@testable import CodeStationCore
 
 // A diff only shows a few lines around each change. The gap rows stand for the rest, and
 // pressing one has to bring those lines back from the version the diff was made against:

@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 struct CodingAgentPicker: View {
     let title: String

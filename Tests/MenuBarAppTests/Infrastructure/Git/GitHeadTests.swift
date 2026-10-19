@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import MenuBarApp
+@testable import CodeStationCore
 
 // Reading the checked-out branch from files, for a plain clone and for the checkouts
 // whose .git is a file that points somewhere else.

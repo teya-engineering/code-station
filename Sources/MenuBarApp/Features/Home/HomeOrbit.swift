@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 // Where every shape on the orbit map sits. Worked out from the map and the width alone, so
 // it can be checked without drawing anything.

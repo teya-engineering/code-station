@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 // A task's schedule, as a quiet setting beside the prompt. Most of the time it is one
 // summary line: off, or the rule it follows and when it next runs. The editor only opens

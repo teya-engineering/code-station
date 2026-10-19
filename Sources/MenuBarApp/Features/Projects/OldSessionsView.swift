@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 // The offer to clear out sessions that have gone quiet. Everything here is a choice: the
 // sheet arrives with the harmless rows ticked and says, next to each one, exactly what
@@ -24,7 +25,7 @@ struct OldSessionsView: View {
 
     // A tick is a promise the user has read the row. Past a certain length nobody reads the
     // whole list, so the ticking stops and anything beyond it has to be asked for by hand.
-    private static let preselectLimit = 50
+    private static let preselectLimit = OldSessions.preselectLimit
 
     // The sessions come from whoever opens the sheet rather than being read once it is up,
     // because the window a sheet gets is measured on its first pass: a list that arrives
@@ -80,22 +81,21 @@ struct OldSessionsView: View {
                     // Said out loud, so a half-ticked list reads as a decision rather than
                     // a glitch.
                     if preselectCapped {
-                        notice(icon: "checklist",
-                               "Only the first \(Self.preselectLimit) sessions are ticked for you. Tick the rest by hand if you want those gone as well.")
+                        notice(icon: "checklist", OldSessions.preselectNotice())
                     }
                     // What this screen can do that cannot be undone, said before the button
                     // is reached rather than in a dialog after it. A snoozed project is out
                     // of reach, so its rows are not counted here either.
                     if unbuiltDesigns > 0 {
                         notice(icon: "paintbrush.pointed", tint: Theme.deletion,
-                               Self.unbuiltDesignCost(unbuiltDesigns))
+                               OldSessions.unbuiltDesignCost(unbuiltDesigns))
                     }
                     if dirtyWorktrees > 0 {
                         notice(icon: "exclamationmark.triangle", tint: Theme.deletion,
-                               Self.dirtyWorktreeCost(dirtyWorktrees))
+                               OldSessions.dirtyWorktreeCost(dirtyWorktrees))
                     }
                     if everythingIsSnoozed {
-                        Text("Every project is snoozed. Nothing is cleared until they come back.")
+                        Text(OldSessions.everythingSnoozedNotice)
                             .font(.system(size: 12.5))
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
@@ -266,35 +266,13 @@ struct OldSessionsView: View {
                  border: tint?.opacity(0.25) ?? Theme.border)
     }
 
-    // What deleting would cost, worded for one session or for several. Only designs that
-    // were never built are named: once a design has become code, its files are a copy of
-    // something the checkout already holds.
-    private static func unbuiltDesignCost(_ count: Int) -> String {
-        if count == 1 {
-            return "One session holds a design that was never implemented, so it is left unticked. "
-                + "Deleting it permanently removes that design's HTML and local assets."
-        }
-        return "\(count) sessions hold designs that were never implemented, so they are left unticked. "
-            + "Deleting them permanently removes those designs' HTML and local assets."
-    }
-
-    private static func dirtyWorktreeCost(_ count: Int) -> String {
-        if count == 1 {
-            return "One session has uncommitted changes in its worktree, so it is left unticked. "
-                + "Deleting it loses those changes; its branch survives if git considers that safe."
-        }
-        return "\(count) sessions have uncommitted changes in their worktrees, so they are left unticked. "
-            + "Deleting them loses those changes; their branches survive if git considers that safe."
-    }
-
     // Which one of them is being worked on, not how many are behind: a count that reads 0
     // for as long as the first session takes says nothing about whether it is moving.
     private var deleteLabel: String {
         if let progress = deletionProgress {
             return "Deleting \(min(progress.completed + 1, progress.total)) of \(progress.total)…"
         }
-        let count = tickedRows.count
-        return count == 0 ? "Delete" : "Delete \(counted(count, "session"))"
+        return OldSessions.deleteLabel(tickedRows.count)
     }
 
     // The line that explains the button while there is nothing to explain, and names what
@@ -347,27 +325,7 @@ struct OldSessionsView: View {
 
     // "last turn 9 days ago · 4 turns · ⑂ code-station/pty-test · clean"
     private func detail(_ row: Row) -> String {
-        var parts = ["last turn " + SessionAge.phrase(since: row.session.lastActivity)]
-        if let turns = row.session.usage?.turns, turns > 0 {
-            parts.append(counted(turns, "turn"))
-        }
-        let worktrees = worktreePaths(row.session)
-        if let path = worktrees.first {
-            let label = worktrees.count == 1
-                ? (row.session.worktreeBranch ?? (path as NSString).lastPathComponent)
-                : "\(worktrees.count) worktrees"
-            parts.append("⑂ " + label)
-            switch row.cost.worktree {
-            case .checking: parts.append("checking…")
-            case .checkFailed: parts.append("check failed")
-            case .wouldLoseWork(let added, let removed):
-                parts.append("+\(added) -\(removed) uncommitted")
-            default: parts.append("clean")
-            }
-        } else {
-            parts.append("no worktree")
-        }
-        return parts.joined(separator: " · ")
+        OldSessions.detail(of: row.session, worktrees: worktreePaths(row.session), cost: row.cost)
     }
 
     // MARK: - Loading
@@ -435,25 +393,12 @@ struct OldSessionsView: View {
         let chosen = tickedRows
         let unbuiltDesigns = chosen.count { $0.cost.design == .unimplemented }
         let dirtyWorktrees = chosen.count { $0.cost.worktree.losesWork }
-        guard unbuiltDesigns > 0 || dirtyWorktrees > 0 else {
+        guard let impact = OldSessions.savedWorkImpact(sessions: chosen.count, unbuiltDesigns: unbuiltDesigns,
+                                                        dirtyWorktrees: dirtyWorktrees, action: deleteLabel) else {
             delete(chosen)
             return
         }
-        var rows: [Dialog.Impact.Row] = []
-        if unbuiltDesigns > 0 {
-            rows.append(.init(title: counted(unbuiltDesigns, "design") + " never implemented",
-                              detail: "The HTML and local assets are permanently removed."))
-        }
-        if dirtyWorktrees > 0 {
-            rows.append(.init(title: counted(dirtyWorktrees, "worktree") + " with uncommitted changes",
-                              detail: "The changes are lost. Branches are kept if git considers that safe."))
-        }
-        dialogs.show(.impact(chosen.count == 1
-                                 ? "Delete a session with saved work?"
-                                 : "Delete sessions with saved work?",
-                             message: "\(counted(chosen.count, "session")) will leave Code Station, along with this work.",
-                             rows: rows, warning: "This work cannot be restored.",
-                             action: deleteLabel) {
+        dialogs.show(.impact(impact) {
             delete(chosen)
         })
     }

@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import CodeStationCore
 
 // Whether the hand-drawn focus rings should show right now.
 //

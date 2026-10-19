@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import CodeStationCore
 
 // A question asked in the middle of the window, drawn by the app rather than by AppKit.
 // The system dialog cannot be styled, so it arrives as a grey slab that looks like it
@@ -119,6 +120,12 @@ final class DialogPresenter {
         let cancel = current?.onCancel
         current = nil
         cancel?()
+    }
+
+    // Takes a question away once it no longer needs an answer, without running its cancel.
+    func withdraw(_ id: Dialog.ID) {
+        guard current?.id == id else { return }
+        current = nil
     }
 
     // Buttons run their own work after the dialog is gone, so a handler that opens

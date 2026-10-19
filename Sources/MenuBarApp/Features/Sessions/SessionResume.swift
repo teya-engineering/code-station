@@ -1,50 +1,6 @@
 import Foundation
 import SwiftUI
-
-// A readable account of where a conversation stands. Claude Code can create one with its
-// own recap command. Other agents produce the same shape from a focused prompt.
-struct SessionRecap: Codable, Equatable, Sendable {
-    enum Source: String, Codable, Equatable, Sendable {
-        case claudeCode
-        case prompt
-    }
-
-    let text: String
-    let generatedAt: Date
-    let source: Source
-
-    static func cleaned(_ text: String?) -> String? {
-        guard let text else { return nil }
-        let words = text.replacingOccurrences(of: "\u{2014}", with: "-")
-            .split(whereSeparator: \.isWhitespace).joined(separator: " ")
-        let trimmed = words.trimmingCharacters(in: CharacterSet(charactersIn: "#*>- "))
-        guard !trimmed.isEmpty else { return nil }
-        return trimmed.count > 600 ? String(trimmed.prefix(600)) + "…" : trimmed
-    }
-
-    // Claude Code returns these messages when its local recap command cannot be used.
-    // They are control results rather than recaps, so the ordinary prompt should take over.
-    static func nativeText(from text: String?) -> String? {
-        guard let cleaned = cleaned(text) else { return nil }
-        let lower = cleaned.lowercased()
-        let failures = [
-            "couldn't generate a recap",
-            "could not generate a recap",
-            "failed to generate",
-            "nothing to recap",
-            "recap cancelled",
-            "unknown command",
-            "unknown skill",
-            "unknown slash command",
-            "not available",
-            "not supported",
-            "disabled",
-        ]
-        guard !failures.contains(where: lower.contains),
-              cleaned.split(whereSeparator: \.isWhitespace).count <= 80 else { return nil }
-        return cleaned
-    }
-}
+import CodeStationCore
 
 // The trigger on the header rail. The card it opens is hung off the rail itself rather
 // than off this button, so catching up never moves the transcript away from where it was

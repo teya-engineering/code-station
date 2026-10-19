@@ -1,6 +1,7 @@
 import AppKit
 import ImageIO
 import SwiftUI
+import CodeStationCore
 
 struct AgentAvatar: Identifiable {
     let url: URL

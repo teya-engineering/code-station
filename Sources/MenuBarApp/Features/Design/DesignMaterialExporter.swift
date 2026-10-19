@@ -1,4 +1,5 @@
 import Foundation
+import CodeStationCore
 
 enum DesignMaterialExporter {
     enum ExportError: LocalizedError, Equatable {

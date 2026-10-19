@@ -1,4 +1,5 @@
 import Foundation
+import CodeStationCore
 
 struct EnvironmentProperty: Identifiable, Codable, Equatable, Sendable {
     var id = UUID()

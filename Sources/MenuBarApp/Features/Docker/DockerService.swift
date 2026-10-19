@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import CodeStationCore
 
 struct DockerContainer: Identifiable, Sendable, Equatable {
     let id: String
@@ -210,7 +211,7 @@ final class DockerService {
 
     init(runner: Runner? = nil, availability: Availability? = nil) {
         self.runner = runner ?? Self.run
-        self.availability = availability ?? { ProcessManager.resolve("docker") != nil }
+        self.availability = availability ?? { ExecutableSearch.resolve("docker") != nil }
     }
 
     func refresh() async {
@@ -299,11 +300,11 @@ final class DockerService {
     // MARK: - Running docker
 
     nonisolated private static func run(_ arguments: [String]) async -> Output {
-        guard let path = ProcessManager.resolve("docker") else {
+        guard let path = ExecutableSearch.resolve("docker") else {
             return Output(errorText: "Docker was not found on PATH.")
         }
         var environment = ProcessInfo.processInfo.environment
-        environment["PATH"] = ProcessManager.searchPath
+        environment["PATH"] = ExecutableSearch.searchPath
 
         do {
             let output = try await CommandRunner.run(

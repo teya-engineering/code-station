@@ -4,6 +4,7 @@ import SwiftUI
 import Testing
 import WebKit
 @testable import MenuBarApp
+@testable import CodeStationCore
 
 private func url(_ text: String) -> URL { URL(string: text)! }
 

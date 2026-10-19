@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import MenuBarApp
+@testable import CodeStationCore
 
 // Walking back through the prompts a session has already sent, the way a shell recalls
 // what was typed into it.

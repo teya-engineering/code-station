@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import CodeStationCore
 
 // The app is started as an AppKit one rather than through SwiftUI's App protocol. Every
 // window it shows is an AppKit window it builds itself, so the only thing a SwiftUI scene
@@ -8,15 +9,47 @@ import AppKit
 @main
 enum MenuBarApp {
     // NSApplication holds its delegate weakly, so ownership has to live somewhere else.
-    @MainActor private static var delegate: AppDelegate?
+    @MainActor private static var delegate: NSApplicationDelegate?
+    // Held for the life of the app and handed back on a normal quit. A crash leaves it to
+    // the kernel, and the next launch reclaims what the dead process left behind.
+    @MainActor static var stationLock: StationLock?
 
     @MainActor
     static func main() {
         let app = NSApplication.shared
+        // Claimed before AppDelegate is built: its stores open the station's files as
+        // they are created, and a second copy must not get that far.
+        switch StationLock.claim(.gui) {
+        case .claimed(let lock):
+            stationLock = lock
+            let appDelegate = AppDelegate()
+            delegate = appDelegate
+            app.delegate = appDelegate
+        case .refused(let holder?) where holder.kind == .daemon:
+            // The background service hands the station over (ADR-0003); the app starts
+            // once it has the station.
+            let takeover = StationTakeoverLaunch(onClaimed: { lock in startClaimed(lock) })
+            delegate = takeover
+            app.delegate = takeover
+        case .refused(let holder):
+            let refusal = StationLockRefusal(holder: holder)
+            delegate = refusal
+            app.delegate = refusal
+        }
+        app.run()
+    }
+
+    // Starts the app proper once a handover gave it the station, after the app has
+    // already finished launching under the takeover.
+    @MainActor
+    private static func startClaimed(_ lock: StationLock) {
+        stationLock = lock
         let appDelegate = AppDelegate()
         delegate = appDelegate
-        app.delegate = appDelegate
-        app.run()
+        NSApp.delegate = appDelegate
+        let launched = Notification(name: NSApplication.didFinishLaunchingNotification, object: NSApp)
+        appDelegate.applicationWillFinishLaunching(launched)
+        appDelegate.applicationDidFinishLaunching(launched)
     }
 }
 
@@ -32,7 +65,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let copilot = CopilotCodeManager()
     private let projects = ProjectStore()
     private lazy var runner: SessionRunner = {
-        let runner = SessionRunner(configs: store)
+        let runner = SessionRunner(
+            mcpConfiguration: { [store] names in
+                ConfigStore.mcpConfigurationData(from: store.servers, allowing: names,
+                                                 taggingEnvironments: false)
+            },
+            host: AppHost(),
+            defaultTroubleshootEnvironment: { TroubleshootEnvironment.first() })
+        runner.designOpinions.captureScreens = { await DesignSecondOpinion.capture($0, in: $1, to: $2) }
         // Agents usually commit at the end of a turn, so the sidebar reads the session's
         // folders again then instead of waiting for the file system to report it.
         runner.onTurnEnded = { [projects, workingTrees] sessionID in
@@ -41,8 +81,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         return runner
     }()
-    private lazy var scheduledTasks = ScheduledTaskService(
-        store: projects, runner: runner, agentAvatarName: { [appSettings] in appSettings.defaultAgentAvatarName })
+    // The station served to terminals while this app holds it (ADR-0003). The app itself
+    // keeps using the store and runner directly.
+    private lazy var stationHost = GUIStationHost(store: projects, runner: runner, shortcuts: shortcuts)
     private let dictation = Dictation()
     private lazy var mobileAccess = MobileAccessController(store: projects, runner: runner,
                                                            gitStats: gitStats)
@@ -53,6 +94,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         transcripts: projects.transcriptsURL,
         loaded: { [projects] in projects.loadedTranscript(of: $0) })
     private let orphanedWorktrees = OrphanedWorktreeMonitor()
+    // Schedules, sweeps and the rest of what the station does unasked, the same work the
+    // daemon does when it is the host.
+    private lazy var upkeep = StationUpkeep(store: projects, runner: runner,
+                                            orphanedWorktrees: orphanedWorktrees)
     private let gitStats = GitStatsCache()
     private let terminals = TerminalStore()
     private let explorerMemory = ExplorerMemory()
@@ -66,6 +111,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let dispatchAuth = DispatchAuthStore()
     private let shortcuts = ShortcutStore()
     private let appUpdates = AppUpdateChecker()
+    // The handover to a daemon as the app quits with terminals attached or sessions busy
+    // (ADR-0003), and whether it went through, so the quit starts the daemon.
+    private let handover = StationHandoverSlot()
+    private var handsOverToDaemon = false
+    private var answeredQuit = false
     private var window: NSWindow?
 
     func applicationWillFinishLaunching(_ notification: Notification) {
@@ -82,9 +132,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // A turn that was mid-flight when the app died leaves no other trace, so the log
         // needs somewhere to show that the run it belonged to ended here.
         SessionLog.note("app launched")
-        SessionLog.startMemoryMonitoring()
-        RunRegistry.shared.record(RunRegistry.launchCoalition())
-        clearUpAfterEarlierRuns()
+        StationUpkeep.launchHousekeeping()
         // A deleted project or session leaves no way back to its terminals, so they are
         // closed with it rather than kept alive by a store nothing can reach. Its open
         // shortcut output goes for the same reason.
@@ -92,14 +140,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             self?.terminals.discard(TerminalScope(owner))
             if let scope = ShortcutScope(owner) { self?.shortcuts.discard(scope) }
         }
-        Attachments.pruneOldPastes()
+        // The cleanup strips a terminal draws read the same upkeep.
+        stationHost.station.upkeep = upkeep
+        upkeep.start()
         AppNotifier.shared.activate()
         AppNotifier.shared.openSession = { [weak self] sessionID in
             self?.projects.selectSession(sessionID)
             self?.showManager()
         }
+        serveTerminals()
         showManager()
-        scheduledTasks.start()
+    }
+
+    // A terminal started while the app runs attaches to it instead of being refused: the
+    // app serves the station's socket and records it in the lock it holds. Failing to
+    // serve leaves the app as it was, with terminals refused.
+    private func serveTerminals() {
+        guard let lock = MenuBarApp.stationLock else { return }
+        do {
+            try stationHost.serve(at: StationSocketPath.beside(StationLock.defaultFile), advertisingIn: lock)
+        } catch {
+            SessionLog.note("could not serve the station to terminals: \(error)")
+        }
     }
 
     @objc func biggerText(_ sender: Any?) {
@@ -114,31 +176,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         appSettings.textSize = .standard
     }
 
-    // A terminal outlives the app that opened it. A run ending anywhere other than
-    // applicationWillTerminate - a crash, a force quit, a debug build killed from a
-    // terminal - therefore strands every shell it had open, and nothing else will ever
-    // close them. This launch is the first moment anything can. It waits on shells that
-    // are slow to hang up, so it stays off the main actor.
-    //
-    // The same goes for anything else such a run started, like a daemon a command sent
-    // off on its own. The shells and commands go first, since those have notes of their
-    // own and are closed the way they expect.
-    private func clearUpAfterEarlierRuns() {
-        Task.detached(priority: .utility) {
-            let closed = await ShellRegistry.shared.reapOrphans()
-            if !closed.isEmpty {
-                SessionLog.note("closed \(counted(closed.count, "shell")) left behind by an earlier run")
-            }
-            let stopped = await ShellRegistry.tasks.reapOrphans()
-            if !stopped.isEmpty {
-                SessionLog.note("stopped \(counted(stopped.count, "command")) left behind by an earlier run")
-            }
-            let ended = RunRegistry.shared.reapEarlierRuns()
-            guard ended > 0 else { return }
-            SessionLog.note("stopped \(counted(ended, "process", plural: "processes")) left behind by an earlier run")
-        }
-    }
-
     // The window is the app, so closing it quits rather than leaving a process with no
     // way back into it except the Dock. Waiting for the last window to close is not
     // enough: a detached Design window, minimised or on another Space, would keep the
@@ -146,8 +183,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func windowWillClose(_ notification: Notification) {
         guard notification.object as? NSWindow === window else { return }
         // Quitting from inside the close would tear the window down while AppKit is
-        // still closing it, so it waits for the close to finish.
-        DispatchQueue.main.async { NSApp.terminate(nil) }
+        // still closing it, so it waits for the close to finish. It must not wait on the
+        // main queue: see `AppQuit`.
+        AppQuit.request()
     }
 
     // Reopening only happens when the app is already running, which means the window
@@ -168,11 +206,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                     .environment(copilot)
                     .environment(projects)
                     .environment(runner)
-                    .environment(scheduledTasks)
                     .environment(dictation)
                     .environment(workingTrees)
                     .environment(sessionTimes)
                     .environment(orphanedWorktrees)
+                    .environment(upkeep)
                     .environment(gitStats)
                     .environment(terminals)
                     .environment(explorerMemory)
@@ -184,7 +222,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                     .environment(dispatchRunner)
                     .environment(dispatchAuth)
                     .environment(shortcuts)
-                    .environment(appUpdates))
+                    .environment(appUpdates)
+                    .environment(handover))
             // Let the window own its size instead of shrinking to the view's ideal size.
             hosting.sizingOptions = []
             let win = NSWindow(
@@ -207,11 +246,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window?.makeKeyAndOrderFront(nil)
     }
 
+    // Quitting with a terminal attached or a session busy hands the station to a daemon,
+    // so the terminals keep working (ADR-0003). New turns stop, running ones are waited
+    // for (or stopped, if the person says so), and the quit goes on once none is left.
+    // With nobody attached and nothing busy, the app quits as it always has.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if handover.current != nil { return .terminateCancel }
+        guard MenuBarApp.stationLock != nil, stationHost.needsSuccessor, Self.daemonExecutable != nil else {
+            return .terminateNow
+        }
+        stationHost.quitHandingOver(
+            in: handover,
+            message: "Code Station hands the station to the background service once they end, "
+                + "so your terminals keep working. Wait for them, or stop them and keep what they have done.",
+            onStarted: { [weak self] in self?.upkeep.stop() },
+            // A window closed to quit comes back to ask about turns still running.
+            bringBackWindow: { [weak self] in self?.showManager() },
+            quit: { [weak self] handedOver in
+                self?.handsOverToDaemon = handedOver
+                self?.answerQuit()
+            })
+        return .terminateLater
+    }
+
+    private func answerQuit() {
+        guard !answeredQuit else { return }
+        answeredQuit = true
+        NSApp.reply(toApplicationShouldTerminate: true)
+    }
+
+    // `code-station` ships beside the app's own binary, in the bundle and in a build folder.
+    private static var daemonExecutable: String? {
+        guard let folder = Bundle.main.executableURL?.deletingLastPathComponent() else { return nil }
+        let path = folder.appendingPathComponent("code-station").path
+        return FileManager.default.isExecutableFile(atPath: path) ? path : nil
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         // Taken first: stopping a process can orphan its children, and an orphan no
         // longer shows up as something the app started.
         let leftovers = QuitSweep.snapshot()
-        scheduledTasks.stop()
+        // Terminals are let go first, so none starts anything while the app winds down,
+        // and the upkeep next, so no schedule starts a run.
+        stationHost.stop()
+        upkeep.stop()
         processes.stopAll()
         shortcuts.stopAll()
         runner.stopAll()
@@ -230,5 +308,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         dispatchAuth.save()
         store.flushPendingSave()
         runner.reviews.flush()
+        // Last, once everything the app owns is on disk.
+        MenuBarApp.stationLock?.release()
+        MenuBarApp.stationLock = nil
+        // The daemon claims the station now that it is free, and the terminals find it
+        // there on their own.
+        if handsOverToDaemon, let executable = Self.daemonExecutable {
+            do {
+                try StationDaemon.launch(executable: executable)
+                SessionLog.note("app quitting: handed the station to the background service")
+            } catch {
+                SessionLog.note("app quitting: could not start the background service: \(error)")
+            }
+            SessionLog.flush()
+        }
     }
 }

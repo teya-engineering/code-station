@@ -1,5 +1,6 @@
 import AppKit
 import UserNotifications
+import CodeStationCore
 
 // How a session reaches someone who is not watching it: a sound when a turn ends, and a
 // system notification for a turn that ended or a question that is waiting while the app
@@ -17,8 +18,8 @@ final class AppNotifier: NSObject {
     // the centre from a bare `swift run` binary or a test runner can bring the process
     // down. The same test runner is also the last place that should start making noise,
     // so the sound follows the bundle too.
-    private let isBundled = Bundle.main.bundlePath.hasSuffix(".app")
-    private lazy var center: UNUserNotificationCenter? = isBundled ? .current() : nil
+    static let isBundled = Bundle.main.bundlePath.hasSuffix(".app")
+    private lazy var center: UNUserNotificationCenter? = Self.isBundled ? .current() : nil
 
     private enum Authorization { case unasked, asking, granted, denied }
     private var authorization: Authorization = .unasked
@@ -31,19 +32,9 @@ final class AppNotifier: NSObject {
         center?.delegate = self
     }
 
+    // The sound is the host's `playSessionSound`, so the notification carries none: one of
+    // its own would double up on it.
     func turnEnded(sessionID: UUID, sessionTitle: String, failure: String?) {
-        // Played from here rather than left to the notification, so a turn finishing is
-        // heard while the window is open on another session too, and so the chosen sound
-        // is the only one: a notification carrying its own would double up on it. It
-        // waits for the beat the sidebar's tick starts drawing on, so sound and sight
-        // land together.
-        if isBundled {
-            let sound = Preferences.sessionFinishedSound()
-            Task {
-                try? await Task.sleep(for: TurnMotion.soundBeat)
-                sound.play()
-            }
-        }
         post(identifier: "finished-\(sessionID.uuidString)",
              sessionID: sessionID,
              title: sessionTitle,
@@ -65,7 +56,7 @@ final class AppNotifier: NSObject {
     // A turn held open for a task that is never going to report. Said once, when the wait
     // passes the point of being ordinary, because the row itself gives nothing away until
     // the session is opened.
-    func waitWentStale(sessionID: UUID, sessionTitle: String, tasks: [BackgroundTask]) {
+    func waitWentStale(sessionID: UUID, sessionTitle: String, tasks: [AgentBackgroundTask]) {
         post(identifier: "stuck-\(sessionID.uuidString)",
              sessionID: sessionID,
              title: sessionTitle,

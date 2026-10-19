@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import Testing
+@testable import CodeStationCore
 
 // A colour flattened to numbers. Adaptive colours only pick a side while an appearance is
 // current, so anything measuring them has to read them in there rather than carry the

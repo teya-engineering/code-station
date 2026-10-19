@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import CodeStationCore
 
 // Dialogs and menus are drawn by the app, so they need somewhere to be drawn. Both are
 // placed at the top of whatever they belong to rather than where they were asked for, so

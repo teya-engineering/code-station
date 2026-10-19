@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import MenuBarApp
+@testable import CodeStationCore
 
 struct AgentSessionConnectionTests {
     @Test(arguments: [AgentKind.codex, .copilot])
@@ -305,7 +305,7 @@ private final class Wire {
     struct Events {
         let events: [StreamEvent]
         var finished: Bool { events.contains { if case .finished(false, _) = $0 { return true }; return false } }
-        var tasks: [BackgroundTask] {
+        var tasks: [AgentBackgroundTask] {
             events.compactMap { if case .backgroundTasks(let tasks) = $0 { return tasks }; return nil }.last ?? []
         }
     }

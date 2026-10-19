@@ -1,4 +1,5 @@
 import Foundation
+import CodeStationCore
 
 // One key and what it does. The keys themselves are declared where the action lives, so
 // this is a description of them rather than the thing that binds them: a key added to a

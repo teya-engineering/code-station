@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import MenuBarApp
+@testable import CodeStationCore
 
 struct AgentHistoryReaderTests {
     private let sourceID = "11111111-1111-4111-8111-111111111111"

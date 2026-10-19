@@ -1,4 +1,5 @@
 import Foundation
+import CodeStationCore
 
 struct SiteConfigurationSelection: Equatable, Sendable {
     let sourceName: String
@@ -61,7 +62,7 @@ enum SiteConfigurationImporter {
     @MainActor
     static func load(gitHubRepository input: String) async throws -> SiteConfigurationSelection {
         let repository = try GitHubRepository(input)
-        guard let git = ProcessManager.resolve("git") else {
+        guard let git = ExecutableSearch.resolve("git") else {
             throw ImportError("Git is not installed or could not be found on PATH.")
         }
 
@@ -71,7 +72,7 @@ enum SiteConfigurationImporter {
         defer { try? FileManager.default.removeItem(at: checkout) }
 
         var environment = ProcessInfo.processInfo.environment
-        environment["PATH"] = ProcessManager.searchPath
+        environment["PATH"] = ExecutableSearch.searchPath
         environment["GIT_TERMINAL_PROMPT"] = "0"
         environment["GIT_OPTIONAL_LOCKS"] = "0"
         let output: CommandRunner.Output

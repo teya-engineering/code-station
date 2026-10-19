@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import CodeStationCore
 
 extension EnvironmentValues {
     @Entry var sentPromptCommandNames: Set<String> = []

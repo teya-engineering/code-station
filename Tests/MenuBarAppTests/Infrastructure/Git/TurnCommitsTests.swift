@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import MenuBarApp
+@testable import CodeStationCore
 
 // What "Review changes" opens after a turn. A turn that committed everything has an empty
 // working tree, so the review has to show its commits or it shows nothing at all.

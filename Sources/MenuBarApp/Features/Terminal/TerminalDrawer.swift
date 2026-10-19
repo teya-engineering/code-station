@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import CodeStationCore
 
 // A real shell in the folder behind the current project or session. It shares the screen
 // with the main content rather than replacing it. Dragging the tab strip resizes it.

@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import CodeStationCore
 
 struct ChangeFileSelection: Equatable {
     private(set) var ids: Set<GitChange.ID> = []

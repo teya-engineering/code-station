@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import MenuBarApp
+@testable import CodeStationCore
 
 // A session's checkout folder removed outside the app. The conversation is worth keeping and
 // the folder is one the app made, so it offers to make it again - which is only worth

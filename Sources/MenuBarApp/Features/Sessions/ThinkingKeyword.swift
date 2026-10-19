@@ -1,4 +1,5 @@
 import AppKit
+import CodeStationCore
 
 // The word a prompt can carry to ask Claude to reason harder on that one turn. Claude's
 // CLI finds it in the prompt text itself and acts on it, whether the prompt was typed in

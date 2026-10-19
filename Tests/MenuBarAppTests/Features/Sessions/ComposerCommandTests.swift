@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 @MainActor
@@ -44,8 +45,8 @@ struct ComposerCommandTests {
             let scrollView = coordinator.makeField()
             view = scrollView.documentView as! TextArea.EditorView
             scrollView.frame = CGRect(x: 0, y: 0, width: 400, height: 100)
-            window = NSWindow(contentRect: scrollView.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
+            window = testWindow(contentRect: scrollView.frame, styleMask: [.borderless],
+                                backing: .buffered, defer: false)
             window.contentView = scrollView
             window.makeFirstResponder(view)
         }

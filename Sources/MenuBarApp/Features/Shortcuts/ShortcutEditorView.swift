@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 // The opening screen supplies the private scope. Sharing moves the shortcut to the
 // Mac so every project sees the same saved command.

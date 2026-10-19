@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import CodeStationCore
 
 // Every file in a session's folder, as a tree with the file itself beside it. Changes only
 // covers what git has something to say about; this is the whole working tree, which is
@@ -515,7 +516,7 @@ struct ExplorerView: View {
         // spelled out in the header once it is picked, which is where there is room for it.
         if node.isLink { return "arrow.turn.down.right" }
         if node.isDirectory { return expanded.contains(node.path) ? "folder.fill" : "folder" }
-        if FileTree.imageKinds.contains(node.kind) { return "photo" }
+        if GitInspector.imageKinds.contains(node.kind) { return "photo" }
         return switch node.kind {
         case "swift", "kt", "java", "rs", "go", "py", "rb", "js", "ts", "c", "h", "cpp": "chevron.left.forwardslash.chevron.right"
         case "json", "yml", "yaml", "toml", "xml", "plist", "lock": "curlybraces"

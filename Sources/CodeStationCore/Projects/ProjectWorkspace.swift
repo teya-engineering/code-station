@@ -1,0 +1,86 @@
+import Foundation
+
+// A workspace is a reusable group of projects. The lead project supplies the working
+// directory for every session, while the other projects are attached to the agent.
+// Membership is stored here, but each session takes its own snapshot so changing a
+// workspace never changes where an existing conversation runs.
+public struct ProjectWorkspace: Identifiable, Codable, Equatable, Sendable {
+    public var id: UUID
+    public var name: String
+    public var projectIDs: [UUID]
+    public var leadProjectID: UUID
+    public var isPinned: Bool
+    public var sidebarAvatarIndex: Int?
+    // Each session can still override its checkout mode. These are only the choices
+    // preselected when a session starts, which keeps repeated workspace setup quick.
+    public var worktreeProjectIDs: [UUID]
+    var sidebarPlacement: SidebarPlacement?
+
+    public init(id: UUID = UUID(), name: String, projectIDs: [UUID], leadProjectID: UUID,
+         isPinned: Bool = false, sidebarAvatarIndex: Int? = nil,
+         worktreeProjectIDs: [UUID]? = nil) {
+        self.id = id
+        self.name = name
+        self.projectIDs = projectIDs
+        self.leadProjectID = leadProjectID
+        self.isPinned = isPinned
+        self.sidebarAvatarIndex = sidebarAvatarIndex
+        self.worktreeProjectIDs = worktreeProjectIDs ?? projectIDs
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, projectIDs, leadProjectID, isPinned, sidebarAvatarIndex
+        case worktreeProjectIDs, sidebarPlacement
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        projectIDs = try container.decode([UUID].self, forKey: .projectIDs)
+        leadProjectID = try container.decode(UUID.self, forKey: .leadProjectID)
+        isPinned = try container.decodeIfPresent(Bool.self, forKey: .isPinned) ?? false
+        sidebarAvatarIndex = try container.decodeIfPresent(Int.self,
+                                                            forKey: .sidebarAvatarIndex)
+        // Workspaces written before checkout defaults existed already opened every Git
+        // repository as a worktree, so selecting every member preserves that behavior.
+        worktreeProjectIDs = try container.decodeIfPresent([UUID].self,
+                                                            forKey: .worktreeProjectIDs)
+            ?? projectIDs
+        sidebarPlacement = try container.decodeIfPresent(SidebarPlacement.self,
+                                                         forKey: .sidebarPlacement)
+    }
+}
+
+// One project as it was opened for a workspace session. A nil worktree path means the
+// project folder itself, which keeps plain folders useful without pretending they can
+// be isolated. The first item is always the lead project.
+public struct SessionProject: Identifiable, Codable, Equatable, Sendable {
+    public var projectID: UUID
+    public var worktreePath: String?
+    public var worktreeBranch: String?
+
+    public var id: UUID { projectID }
+
+    public init(projectID: UUID, worktreePath: String? = nil, worktreeBranch: String? = nil) {
+        self.projectID = projectID
+        self.worktreePath = worktreePath
+        self.worktreeBranch = worktreeBranch
+    }
+}
+
+// Which of a session's projects are walled off in a worktree, and which still share
+// the project folder with every other session. It carries names rather than counts so
+// the sidebar can say which half is shared.
+public struct WorktreeCoverage: Equatable {
+    public var isolated: [String] = []
+    public var shared: [String] = []
+
+    // Every checkout is a worktree, so nothing this session does can collide with
+    // another session.
+    public var isComplete: Bool { shared.isEmpty && !isolated.isEmpty }
+
+    // Some checkouts are worktrees and some are project folders. The session looks
+    // isolated and is not, which is the case worth pointing out.
+    public var isPartial: Bool { !shared.isEmpty && !isolated.isEmpty }
+}

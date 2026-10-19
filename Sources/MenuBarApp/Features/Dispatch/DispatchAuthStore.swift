@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import Observation
+import CodeStationCore
 
 // The configured environments' OAuth setups and whatever token each currently holds,
 // plus the password of every request that signs in with basic auth. A send borrows the

@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 // A transcript draws every paragraph as its own text view, so selecting across two of
@@ -842,8 +843,8 @@ private struct Page {
         self.host = host
         host.sizingOptions = []
         host.frame = CGRect(x: 0, y: 0, width: 520, height: 400)
-        window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                          backing: .buffered, defer: false)
+        window = testWindow(contentRect: host.frame, styleMask: [.borderless],
+                            backing: .buffered, defer: false)
         window.contentView = host
         window.setFrameOrigin(CGPoint(x: -10_000, y: -10_000))
         window.orderFront(nil)

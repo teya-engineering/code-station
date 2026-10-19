@@ -1,4 +1,5 @@
 import AppKit
+import CodeStationCore
 
 enum Appearance: String, CaseIterable, Identifiable {
     case system

@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 import Observation
 import SwiftTerm
+import CodeStationCore
 
 // One shell tab: a pty, the SwiftTerm surface that emulates and draws it, and the
 // little bit of state the tab strip shows. Terminals are owned by TerminalStore and
@@ -78,7 +79,7 @@ final class TerminalSession: Identifiable {
         var environment = ProcessInfo.processInfo.environment
         environment["TERM"] = "xterm-256color"
         environment["TERM_PROGRAM"] = "TeyaCodeStation"
-        environment["PATH"] = ProcessManager.searchPath
+        environment["PATH"] = ExecutableSearch.searchPath
         environment["LANG"] = environment["LANG"] ?? "en_US.UTF-8"
 
         do {

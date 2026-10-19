@@ -1,5 +1,6 @@
 import SwiftUI
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 // A switch says which way it is set by where its knob sits. The two track colours are one

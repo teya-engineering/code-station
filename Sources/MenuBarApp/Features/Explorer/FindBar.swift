@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 // The strip a find lives in, shared by every pane that can search what it shows, so
 // finding in a file and finding in a conversation look and behave the same.

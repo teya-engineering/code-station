@@ -1,22 +1,52 @@
+import AppKit
 import Foundation
+import ObjectiveC
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 // Polls until the condition holds or the timeout passes. Returns whether it held. The
 // default window is generous because these waits cover real processes, and a loaded
-// machine can take many times longer than a quiet one.
+// machine can take many times longer than a quiet one. The window is measured on the
+// suspending clock, which stops while the Mac sleeps: on the continuous clock a lid
+// closed mid-run spends every window at once, and waits fail after a second or two.
 //
 // The condition runs on the caller's actor, so a @MainActor test can read main-actor
 // state in it without the closure having to be Sendable.
 func waitUntil(timeout: Duration = .seconds(30),
                isolation: isolated (any Actor)? = #isolation,
                _ condition: () -> Bool) async -> Bool {
-    let deadline = ContinuousClock.now + timeout
-    while ContinuousClock.now < deadline {
+    let deadline = SuspendingClock.now + timeout
+    while SuspendingClock.now < deadline {
         if condition() { return true }
         try? await Task.sleep(for: .milliseconds(20))
     }
     return condition()
+}
+
+// Lets a test's own preferences suite go, file and all. Removing the domain alone
+// leaves an empty plist behind in ~/Library/Preferences, one per test run.
+func removeScratchDefaults(_ suite: String) {
+    UserDefaults.standard.removePersistentDomain(forName: suite)
+    let file = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/Preferences/\(suite).plist")
+    try? FileManager.default.removeItem(at: file)
+}
+
+// Stands in for the Trash, so tests leave nothing in the real one: what it is handed
+// is deleted, and its name kept for the test to read.
+final class TestTrash: @unchecked Sendable {
+    private let lock = NSLock()
+    private var names: [String] = []
+
+    var moved: [String] { lock.withLock { names } }
+
+    var move: FileTrash {
+        FileTrash { [self] url in
+            try FileManager.default.removeItem(at: url)
+            lock.withLock { names.append(url.lastPathComponent) }
+        }
+    }
 }
 
 final class TestPreferences {
@@ -27,7 +57,7 @@ final class TestPreferences {
         store = UserDefaults(suiteName: name)!
     }
 
-    deinit { store.removePersistentDomain(forName: name) }
+    deinit { removeScratchDefaults(name) }
 }
 
 // A throwaway folder under the temp directory, removed when the value goes away.
@@ -198,7 +228,9 @@ final class RunnerHarness {
          memoryLimit: UInt64 = SessionMemoryLimit.automatic.bytes(),
          automaticRecapsEnabled: @escaping () -> Bool = { false },
          automaticTitlesEnabled: @escaping () -> Bool = { false },
-         promptSuggestionsEnabled: @escaping () -> Bool = { false }) throws {
+         promptSuggestionsEnabled: @escaping () -> Bool = { false },
+         mcpConfiguration: (@MainActor ([String]) -> Data?)? = nil,
+         host: (any HostServices)? = nil) throws {
         scratch = ScratchDirectory(prefix: "runner-\(agent.rawValue)")
         executable = scratch.path("\(agent.rawValue)-fixture")
         try FixtureCLI.write(script, to: executable)
@@ -214,7 +246,9 @@ final class RunnerHarness {
                                memoryLimit: { memoryLimit },
                                automaticRecapsEnabled: automaticRecapsEnabled,
                                automaticTitlesEnabled: automaticTitlesEnabled,
-                               promptSuggestionsEnabled: promptSuggestionsEnabled)
+                               promptSuggestionsEnabled: promptSuggestionsEnabled,
+                               mcpConfiguration: mcpConfiguration,
+                               host: host)
     }
 
     // Snapshots only mean anything inside a repository, so a test that expects one has
@@ -248,6 +282,64 @@ enum ShellNotes {
         let found = (try? FileManager.default.contentsOfDirectory(
             at: directory, includingPropertiesForKeys: nil)) ?? []
         return found.filter { $0.pathExtension == "json" }
+    }
+}
+
+// A window for a test to lay views out in. It is real and ordered on screen like any
+// other, with the frame and backing scale the test asks for, but fully transparent and
+// deaf to the mouse, so a running suite never covers what the user is looking at or
+// takes their clicks. Pixel checks are unaffected: they capture in process with
+// cacheDisplay, not from the screen.
+@MainActor
+func testWindow(contentRect: NSRect, styleMask: NSWindow.StyleMask,
+                backing: NSWindow.BackingStoreType, defer flag: Bool) -> NSWindow {
+    HiddenWindows.install()
+    let window = NSWindow(contentRect: contentRect, styleMask: styleMask,
+                          backing: backing, defer: flag)
+    HiddenWindows.hide(window)
+    return window
+}
+
+// Keeps every window the test process puts on screen out of the user's sight, including
+// the ones the code under test opens itself: dialogs, tooltips, design windows. Every
+// way AppKit orders a window in goes through -orderWindow:relativeTo: except
+// -orderFrontRegardless, so wrapping those two catches them all. Hiding only sets the
+// window's alpha and mouse transparency: its frame, level, key status and occlusion
+// state are what they would be anyway, and since the test process is never activated,
+// ordering a window in does not take focus from the user's app.
+@MainActor
+enum HiddenWindows {
+    private static var installed = false
+
+    static func install() {
+        guard !installed else { return }
+        installed = true
+
+        let order = #selector(NSWindow.order(_:relativeTo:))
+        let orderMethod = class_getInstanceMethod(NSWindow.self, order)!
+        typealias Order = @convention(c) (NSWindow, Selector, Int, Int) -> Void
+        let originalOrder = unsafeBitCast(method_getImplementation(orderMethod), to: Order.self)
+        let hiddenOrder: @convention(block) (NSWindow, Int, Int) -> Void = { window, mode, relative in
+            MainActor.assumeIsolated { hide(window) }
+            originalOrder(window, order, mode, relative)
+        }
+        method_setImplementation(orderMethod, imp_implementationWithBlock(hiddenOrder))
+
+        let regardless = #selector(NSWindow.orderFrontRegardless)
+        let regardlessMethod = class_getInstanceMethod(NSWindow.self, regardless)!
+        typealias Regardless = @convention(c) (NSWindow, Selector) -> Void
+        let originalRegardless = unsafeBitCast(method_getImplementation(regardlessMethod),
+                                               to: Regardless.self)
+        let hiddenRegardless: @convention(block) (NSWindow) -> Void = { window in
+            MainActor.assumeIsolated { hide(window) }
+            originalRegardless(window, regardless)
+        }
+        method_setImplementation(regardlessMethod, imp_implementationWithBlock(hiddenRegardless))
+    }
+
+    static func hide(_ window: NSWindow) {
+        window.alphaValue = 0
+        window.ignoresMouseEvents = true
     }
 }
 

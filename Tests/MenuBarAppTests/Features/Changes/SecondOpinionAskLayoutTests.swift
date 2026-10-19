@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import Testing
 @testable import MenuBarApp
+@testable import CodeStationCore
 
 // The ask dialog sits centred over a tall window, so it is offered far more height than
 // it needs. It must keep to its content rather than stretch to fill it.

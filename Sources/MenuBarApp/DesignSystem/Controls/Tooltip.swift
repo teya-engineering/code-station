@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import CodeStationCore
 
 // The hint that appears when the pointer rests on something, drawn by the app rather
 // than by AppKit. The system tooltip is a yellow slab in the system's own font that

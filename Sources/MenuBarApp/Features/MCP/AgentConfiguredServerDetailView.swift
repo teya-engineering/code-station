@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 // A server one or more agents own. Its connection details stay read only, but the
 // status each agent reports, its on or off switch and its sign-in are offered here,

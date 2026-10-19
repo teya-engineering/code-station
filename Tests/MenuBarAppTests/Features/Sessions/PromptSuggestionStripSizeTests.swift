@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 // The strip sits in the stack above the composer, which offers it the whole pane. It is
@@ -25,8 +26,8 @@ struct PromptSuggestionStripSizeTests {
             .environment(TooltipPresenter())
 
             let view = NSHostingView(rootView: pane)
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 600),
-                                  styleMask: [.borderless], backing: .buffered, defer: false)
+            let window = testWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 600),
+                                    styleMask: [.borderless], backing: .buffered, defer: false)
             window.contentView = view
             view.frame = NSRect(x: 0, y: 0, width: 900, height: 600)
             for _ in 0..<4 {

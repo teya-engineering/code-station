@@ -1,4 +1,5 @@
 import Foundation
+import CodeStationCore
 
 // A server owned by an agent's configuration rather than Code Station's config file.
 // Keeping it separate from Server prevents agent-owned servers from entering save,

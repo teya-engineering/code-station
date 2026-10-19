@@ -1,5 +1,6 @@
 import AppKit
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 // The ring round the stop button and the Run button's spinner and sweep are played by
@@ -46,8 +47,8 @@ struct BusyLoopTests {
 
     // A window that has never been shown is not visible, so its loops hold still.
     @Test func loopsHoldStillInAHiddenWindow() {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 200),
-                              styleMask: [.borderless], backing: .buffered, defer: true)
+        let window = testWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 200),
+                                styleMask: [.borderless], backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
         let wires = FlowingWiresView(dash: FlowingWiresView.wireDash,
                                      period: FlowingWiresView.wirePeriod)

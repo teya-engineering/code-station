@@ -1,7 +1,7 @@
 import Darwin
 import Foundation
 import Testing
-@testable import MenuBarApp
+@testable import CodeStationCore
 
 // The real registry goes by the coalition macOS filed each run under. Here a made-up
 // coalition holds one sleep the test starts, so nothing outside the test is reached.

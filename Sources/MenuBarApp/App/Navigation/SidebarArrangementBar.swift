@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 struct SidebarArrangementBar: View {
     @Binding var sort: ProjectSort

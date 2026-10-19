@@ -1,6 +1,7 @@
 import Foundation
 import JavaScriptCore
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 struct MobileAccessTests {
@@ -107,7 +108,7 @@ struct MobileAccessTests {
     @Test func mobileAccessStaysOffUntilItIsEnabled() throws {
         let suite = "mobile-access-tests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { removeScratchDefaults(suite) }
 
         #expect(!Preferences.mobileAccessEnabled(in: defaults))
         defaults.set(true, forKey: "mobileAccessEnabled")

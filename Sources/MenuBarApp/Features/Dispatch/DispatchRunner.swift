@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import CodeStationCore
 
 // Sends the requests and keeps recent answers per environment, so switching between
 // requests does not immediately throw away what came back. Response bodies and the

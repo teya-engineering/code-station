@@ -1,7 +1,7 @@
 import Darwin
 import Foundation
 import Testing
-@testable import MenuBarApp
+@testable import CodeStationCore
 
 // The real sweep runs below the app. Here it runs below a shell the test starts, which
 // stands in for the app: it is never signalled itself, and nothing outside it is reached.

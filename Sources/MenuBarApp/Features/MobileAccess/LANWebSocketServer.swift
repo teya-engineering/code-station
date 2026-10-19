@@ -1,6 +1,7 @@
 import CryptoKit
 import Foundation
 import Network
+import CodeStationCore
 
 struct LANServerFailure: Error, Equatable, Sendable {
     let message: String

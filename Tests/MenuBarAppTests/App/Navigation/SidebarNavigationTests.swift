@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 @MainActor
@@ -274,8 +275,8 @@ private final class SidebarHarness {
             .appOverlays()
         let hosting = NSHostingController(rootView: AnyView(view))
         hosting.sizingOptions = []
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 318, height: 820),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
+        let window = testWindow(contentRect: NSRect(x: 0, y: 0, width: 318, height: 820),
+                                styleMask: [.borderless], backing: .buffered, defer: false)
         window.appearance = NSAppearance(named: .aqua)
         window.contentViewController = hosting
         window.setContentSize(NSSize(width: 318, height: 820))

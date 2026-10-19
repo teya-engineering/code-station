@@ -1,3 +1,5 @@
+import CodeStationCore
+
 enum DiffLayout: CaseIterable {
     case unified
     case sideBySide

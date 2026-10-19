@@ -1,4 +1,5 @@
 import Foundation
+import CodeStationCore
 
 // One word as the speech engine wrote it. The alternatives are only filled in when the
 // engine was unsure of the word, so a word that has them is one worth checking.

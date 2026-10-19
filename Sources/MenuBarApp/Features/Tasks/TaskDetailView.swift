@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import CodeStationCore
 
 // One task: the prompt it runs and every run it has had. A run is an ordinary session
 // in the task's folder, so opening one takes over the pane the same way any session

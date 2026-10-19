@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import SwiftUI
+import CodeStationCore
 
 enum RunState: Equatable {
     case stopped
@@ -34,7 +35,7 @@ final class ProcessManager {
 
     func start(_ server: Server) {
         guard !state(server.id).isActive else { return }
-        guard let executable = Self.resolve(server.command ?? "") else {
+        guard let executable = ExecutableSearch.resolve(server.command ?? "") else {
             states[server.id] = .failed(
                 "Could not find \"\(server.command ?? "")\" on PATH. Install it (go install github.com/grafana/mcp-grafana/cmd/mcp-grafana@latest) or use an absolute path.")
             return
@@ -50,7 +51,7 @@ final class ProcessManager {
             ?? server.args
 
         var env = ProcessInfo.processInfo.environment
-        env["PATH"] = Self.searchPath
+        env["PATH"] = ExecutableSearch.searchPath
         for variable in server.env where !variable.key.isEmpty {
             env[variable.key] = variable.value
         }
@@ -151,65 +152,5 @@ final class ProcessManager {
         var port = 8000
         while used.contains(port) { port += 1 }
         return port
-    }
-
-    // MARK: - Executable resolution
-
-    // A Finder-launched app has a minimal PATH, so search the usual install dirs too.
-    nonisolated private static let searchDirs: [String] = {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        var dirs = (ProcessInfo.processInfo.environment["PATH"] ?? "")
-            .split(separator: ":").map(String.init)
-        dirs += ["/opt/homebrew/bin", "/usr/local/bin", "\(home)/go/bin", "\(home)/.local/bin", "/usr/bin", "/bin"]
-        return dirs
-    }()
-
-    nonisolated static let searchPath: String = searchDirs.joined(separator: ":")
-
-    // Resolving walks every search directory, and callers ask on hot paths - once per git
-    // command, once per plugin row while the Skills sheet redraws. A command that resolved
-    // once keeps its path, since the binary does not move while the app runs. A command
-    // that did not resolve is looked up again, so installing a CLI takes effect without a
-    // restart.
-    nonisolated static func resolve(_ command: String) -> String? {
-        guard !command.isEmpty else { return nil }
-        if let cached = resolved.value(for: command) { return cached }
-        let path = search(command)
-        if let path { resolved.store(path, for: command) }
-        return path
-    }
-
-    nonisolated private static func search(_ command: String) -> String? {
-        if command.contains("/") {
-            return isExecutableFile(command) ? command : nil
-        }
-        for dir in searchDirs {
-            let path = (dir as NSString).appendingPathComponent(command)
-            if isExecutableFile(path) { return path }
-        }
-        return nil
-    }
-
-    nonisolated private static func isExecutableFile(_ path: String) -> Bool {
-        var isDirectory: ObjCBool = false
-        return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
-            && !isDirectory.boolValue
-            && FileManager.default.isExecutableFile(atPath: path)
-    }
-
-    nonisolated private static let resolved = ResolvedCommands()
-}
-
-// Reached from any thread, so it carries its own lock rather than relying on the caller.
-private final class ResolvedCommands: @unchecked Sendable {
-    private let lock = NSLock()
-    private var paths: [String: String] = [:]
-
-    func value(for command: String) -> String? {
-        lock.withLock { paths[command] }
-    }
-
-    func store(_ path: String, for command: String) {
-        lock.withLock { paths[command] = path }
     }
 }

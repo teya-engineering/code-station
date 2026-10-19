@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import MenuBarApp
+@testable import CodeStationCore
 
 // Naming a worktree. The new session sheet shows the branch and folder before either
 // exists, so what it shows has to be exactly what gets created.

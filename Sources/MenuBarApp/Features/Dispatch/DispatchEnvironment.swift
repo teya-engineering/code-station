@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 // Dispatch uses the same environment names as server tagging and troubleshooting. The
 // name is also the value substituted for {{env}}, while the label and danger flag control

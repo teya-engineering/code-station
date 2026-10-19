@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import WebKit
+import CodeStationCore
 
 struct HTMLPreviewReference: Decodable, Equatable, Sendable {
     let path: String

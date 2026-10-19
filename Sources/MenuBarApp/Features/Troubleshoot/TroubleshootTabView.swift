@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 // Framing a problem for the agent this session already has. Everything the sheet asks a
 // new diagnosis for - which projects, which agent, which model - is settled the moment a

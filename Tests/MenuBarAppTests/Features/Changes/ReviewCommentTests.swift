@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 import Testing
 @testable import MenuBarApp
+@testable import CodeStationCore
 
 // Comments left on a session's diff hang from numbered lines, follow the code when the
 // agent moves it, and go back to the agent as one prompt that quotes what they are about.

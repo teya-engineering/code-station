@@ -2,27 +2,12 @@ import AppKit
 import ImageIO
 import SwiftUI
 import UniformTypeIdentifiers
-
-// A file that goes out with a prompt. Claude Code takes files by path, so anything that
-// arrives as raw bytes - a screenshot on the clipboard - has to be written to disk
-// before the turn can start.
-struct Attachment: Identifiable, Equatable {
-    let id = UUID()
-    let url: URL
-
-    var name: String { url.lastPathComponent }
-
-    var isImage: Bool {
-        let type = (try? url.resourceValues(forKeys: [.contentTypeKey]).contentType)
-            ?? UTType(filenameExtension: url.pathExtension)
-        return type?.conforms(to: .image) ?? false
-    }
-}
+import CodeStationCore
 
 enum Attachments {
     // Pasted files only matter for as long as the conversation does, so they stay out of
     // backups and are removed after old conversations have had time to resume.
-    static var folder: URL { AppPaths.directory("attachments", backedUp: false) }
+    static var folder: URL { AttachmentFolder.url }
 
     // What the clipboard holds, if it is worth attaching. Files win over images:
     // copying a file in Finder also puts its name on the clipboard as text and a
@@ -82,21 +67,6 @@ enum Attachments {
             "\(prefix)-\(UUID().uuidString.prefix(8)).png")
         guard (try? png.write(to: url, options: .atomic)) != nil else { return nil }
         return Attachment(url: url)
-    }
-
-    // A pasted file is referenced by path in a conversation that can be resumed later,
-    // so it has to outlive the turn that sent it. A week is long enough for that and
-    // short enough that the folder does not grow forever.
-    static func pruneOldPastes(olderThan days: Int = 7) {
-        let files = FileManager.default
-        let cutoff = Date().addingTimeInterval(-Double(days) * 24 * 60 * 60)
-        let contents = (try? files.contentsOfDirectory(at: folder,
-                                                       includingPropertiesForKeys: [.contentModificationDateKey],
-                                                       options: .skipsHiddenFiles)) ?? []
-        for file in contents {
-            let modified = (try? file.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
-            if let modified, modified < cutoff { try? files.removeItem(at: file) }
-        }
     }
 }
 

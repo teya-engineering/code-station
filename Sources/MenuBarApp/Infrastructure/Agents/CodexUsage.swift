@@ -1,4 +1,5 @@
 import Foundation
+import CodeStationCore
 
 // Codex keeps its account limits behind the local app server. Reading them starts a
 // short-lived server so the settings pane can show a fresh value without starting a

@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 // A session worth naming above the tree, and the few words that say why. The same list
 // feeds the NEEDS YOU card and the running count.
@@ -40,17 +41,7 @@ enum SidebarNotices {
     }
 
     static func reason(_ notice: SessionNotice, question: PermissionRequest?) -> String {
-        switch notice {
-        case .needsInput:
-            guard let question else { return "waiting on an answer" }
-            return question.isQuestion
-                ? "question · \(question.title.lowercased())"
-                : "permission · \(question.toolName.lowercased())"
-        case .running:
-            return "running"
-        case .finished:
-            return "finished while away"
-        }
+        notice.reason(question: question)
     }
 }
 

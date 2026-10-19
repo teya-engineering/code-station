@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 // The way out of a wait that has no end of its own. A held-open turn is correct behaviour
 // and usually short, but nothing bounds it: a dev server or a watcher keeps the turn alive
@@ -8,11 +9,11 @@ struct WaitingNotice: View {
     @Environment(\.textScale) private var textScale
 
     let since: Date
-    let tasks: [BackgroundTask]
+    let tasks: [AgentBackgroundTask]
     let agentTitle: String
     // Looked up rather than passed in already resolved: the answer costs a walk back
     // through the transcript, and the card is only on screen after minutes of waiting.
-    let command: (BackgroundTask) -> String?
+    let command: (AgentBackgroundTask) -> String?
     let onKeepWaiting: () -> Void
     let onEnd: () -> Void
 
@@ -131,7 +132,7 @@ private struct WaitingTaskRow: View {
     @State private var expanded = false
     @State private var hovering = false
     @FocusState private var focused: Bool
-    let task: BackgroundTask
+    let task: AgentBackgroundTask
     let command: String?
 
     var body: some View {

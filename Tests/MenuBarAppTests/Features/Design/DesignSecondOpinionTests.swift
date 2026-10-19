@@ -3,6 +3,7 @@ import Foundation
 import Testing
 import WebKit
 @testable import MenuBarApp
+@testable import CodeStationCore
 
 struct DesignSecondOpinionTests {
     private let codex = SecondOpinion.Reviewer(agent: .codex, model: "gpt-5.6-sol", effort: "high")

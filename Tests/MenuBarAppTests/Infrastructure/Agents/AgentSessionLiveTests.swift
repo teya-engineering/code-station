@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import MenuBarApp
+@testable import CodeStationCore
 
 @MainActor
 @Suite(.serialized)
@@ -10,13 +10,13 @@ struct AgentSessionLiveTests {
     func backgroundTimerCanBeContinuedAndStopped(agent: AgentKind) async throws {
         guard ProcessInfo.processInfo.environment["CODE_STATION_LIVE_AGENT_TESTS"] == "1" else { return }
         if let only = ProcessInfo.processInfo.environment["CODE_STATION_LIVE_AGENT"], only != agent.rawValue { return }
-        let executable = try #require(ProcessManager.resolve(agent.command))
+        let executable = try #require(ExecutableSearch.resolve(agent.command))
         let scratch = ScratchDirectory(prefix: "agent-session-live")
         let store = ProjectStore(preferences: testPreferences.store, storeURL: scratch.path("projects.json"))
         let project = try TestStore.project(in: store)
         let session = try store.insertSession(in: project.id, seed: .init(agent: agent)).get()
         let models = agent == .codex
-            ? await CodexModelReader.read(at: executable, searchPath: ProcessManager.searchPath) : nil
+            ? await CodexModelReader.read(at: executable, searchPath: ExecutableSearch.searchPath) : nil
         if let model = models?.first(where: { $0.isDefault })?.id ?? models?.first?.id {
             var settings = session.settings ?? SessionSettings()
             settings.model = model

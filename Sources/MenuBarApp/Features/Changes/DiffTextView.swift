@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import CodeStationCore
 
 // The diff itself, drawn by AppKit. SwiftUI's selectable Text only covers what is
 // laid out on screen, so Select All in a tall diff would copy the visible lines and

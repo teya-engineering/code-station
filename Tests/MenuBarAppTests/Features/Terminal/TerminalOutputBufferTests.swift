@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 struct TerminalOutputBufferTests {
@@ -65,8 +66,8 @@ struct TerminalOutputBufferTests {
             }
         }
         var received = Data()
-        let deadline = ContinuousClock.now + .seconds(10)
-        while received.count < total, ContinuousClock.now < deadline {
+        let deadline = SuspendingClock.now + .seconds(10)
+        while received.count < total, SuspendingClock.now < deadline {
             let batch = buffer.drain()
             #expect(batch.count <= 128)
             received.append(batch)
