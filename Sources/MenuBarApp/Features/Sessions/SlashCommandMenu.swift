@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 // The keys the command menu answers while it is open. Each one is only ever borrowed:
 // with no menu on screen the answer is false and the key keeps the meaning it has

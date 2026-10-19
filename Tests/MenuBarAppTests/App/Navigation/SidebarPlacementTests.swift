@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 // A drag in the "Last used" rail is saved as a date, so each drop has to produce a date

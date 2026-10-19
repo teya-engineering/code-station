@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import MenuBarApp
+@testable import CodeStationCore
 
 // The slash commands offered under the composer, and the words behind them. What is
 // checked here is that a name only ever comes from somewhere the agent in question would

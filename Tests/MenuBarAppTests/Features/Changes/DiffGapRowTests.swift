@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 // The grey row between two parts of a diff is a control: it says how many unchanged
@@ -103,8 +104,8 @@ private final class Pane {
         })
         host.sizingOptions = []
         host.frame = CGRect(x: 0, y: 0, width: 500, height: 200)
-        window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                          backing: .buffered, defer: false)
+        window = testWindow(contentRect: host.frame, styleMask: [.borderless],
+                            backing: .buffered, defer: false)
         window.contentView = host
         window.setFrameOrigin(CGPoint(x: -10_000, y: -10_000))
         window.orderFront(nil)

@@ -1,5 +1,6 @@
 import AppKit
 import UniformTypeIdentifiers
+import CodeStationCore
 
 // The terminal outside this app, for a shell in a window of its own rather than in the
 // drawer. macOS has no setting for a preferred terminal, so the app takes the one chosen

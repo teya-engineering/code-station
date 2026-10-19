@@ -1,5 +1,5 @@
 import Testing
-@testable import MenuBarApp
+@testable import CodeStationCore
 
 // Telling an agent CLI that is too old for the app apart from one that is fine, both
 // from the version it reports and from the way it refuses an argument it does not know.

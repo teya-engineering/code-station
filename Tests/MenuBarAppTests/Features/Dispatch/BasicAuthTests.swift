@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 // A request that signs in with a username and password keeps the password in the

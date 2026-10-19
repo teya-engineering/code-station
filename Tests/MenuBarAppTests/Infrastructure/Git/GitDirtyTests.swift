@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import MenuBarApp
+@testable import CodeStationCore
 
 // The mark the sidebar puts on a session whose folder holds work git does not have. It
 // decides how a delete is worded, so a wrong answer either hides a real loss or cries

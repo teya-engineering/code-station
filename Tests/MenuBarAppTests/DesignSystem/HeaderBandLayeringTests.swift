@@ -1,5 +1,6 @@
 import SwiftUI
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 // A band closes itself with a rule, and the session band draws the window reading along

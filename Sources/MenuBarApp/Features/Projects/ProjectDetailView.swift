@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import CodeStationCore
 
 // The state of one repository and the sessions running in it: what git thinks of the
 // folder, which worktrees are still checked out, and every conversation that has touched

@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import CodeStationCore
 
 // What a run of this task still needs before it can start: one field per hole in the
 // prompt, filled in with whatever the last run used. The prompt it will send is a

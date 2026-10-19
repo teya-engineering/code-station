@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 // A small HTTP client for the services a session is working on: the saved requests on
 // the left, the one being edited and its answer on the right. Every configured environment

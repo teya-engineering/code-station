@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import MenuBarApp
+@testable import CodeStationCore
 
 // A half-written prompt is work the user cannot get back if it is dropped, and the detail
 // pane is thrown away and rebuilt on every session switch. These pin the drafts to the

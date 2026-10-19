@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import MenuBarApp
+@testable import CodeStationCore
 
 // Winding a conversation back to an earlier prompt, and forking a new session from one.
 // Both rest on the checkpoint a prompt carries: the resume ids as they stood before

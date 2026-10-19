@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 // Requests stay shared while each environment keeps its own values and credentials.
 struct EnvironmentsView: View {

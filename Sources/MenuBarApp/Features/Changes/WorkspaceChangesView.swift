@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 struct WorkspaceChangesView: View {
     let session: ChatSession

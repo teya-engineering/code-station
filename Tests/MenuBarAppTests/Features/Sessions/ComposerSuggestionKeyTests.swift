@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 // Tab, escape and command-return are borrowed by the suggestion above the composer, and
@@ -75,8 +76,8 @@ struct ComposerSuggestionKeyTests {
             let scrollView = TextArea.Coordinator(area).makeField()
             view = scrollView.documentView as! TextArea.EditorView
             scrollView.frame = NSRect(x: 0, y: 0, width: 400, height: 100)
-            window = NSWindow(contentRect: scrollView.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
+            window = testWindow(contentRect: scrollView.frame, styleMask: [.borderless],
+                                backing: .buffered, defer: false)
             window.contentView?.addSubview(scrollView)
             window.makeFirstResponder(view)
         }

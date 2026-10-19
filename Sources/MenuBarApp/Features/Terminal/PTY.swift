@@ -1,6 +1,7 @@
 import Darwin
 import Foundation
 import SwiftTerm
+import CodeStationCore
 
 // A shell running on a pseudo terminal. The child gets a real tty, so programs behave
 // the way they do in Terminal.app: colours stay on, progress lines redraw, and job

@@ -1,5 +1,6 @@
 import Foundation
 import Network
+import CodeStationCore
 
 // A one-shot web server on the loopback interface. The browser finishes the OAuth dance
 // by being redirected here, which is how the authorization code gets back into the app

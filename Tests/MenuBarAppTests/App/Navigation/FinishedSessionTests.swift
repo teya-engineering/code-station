@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 // The marker that says a session stopped working while the user was elsewhere: what

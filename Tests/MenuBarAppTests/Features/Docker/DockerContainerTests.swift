@@ -1,4 +1,5 @@
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 // Reading `docker ps` is a guess at another program's output, so the two places that

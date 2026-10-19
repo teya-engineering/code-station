@@ -1,41 +1,12 @@
 import AppKit
 import SwiftUI
+import CodeStationCore
 
 // MARK: - State
 
-// What a session is doing, as the one word and colour the whole app agrees on. Waiting is
-// its own state rather than a kind of running: the turn is alive and will pick itself up,
-// but nothing is being worked on, and a row that says RUNNING for an hour of that is the
-// row that sends someone looking for a hang.
-//
-// A wait only reads as live while it can still end by itself. Once it has gone stale the
-// task holding the turn open is never going to report, so the row joins the ones asking
-// for someone rather than sitting on a green light for the rest of the day.
-enum SessionTone {
-    case running, waiting, needsYou, idle
-
-    init(busy: Bool, needsInput: Bool = false, finished: Bool = false,
-         waiting: Bool = false, waitIsStale: Bool = false) {
-        if needsInput || finished || (waiting && waitIsStale) {
-            self = .needsYou
-        } else if waiting {
-            self = .waiting
-        } else if busy {
-            self = .running
-        } else {
-            self = .idle
-        }
-    }
-
-    var word: String {
-        switch self {
-        case .running: "RUNNING"
-        case .waiting: "WAITING"
-        case .needsYou: "NEEDS YOU"
-        case .idle: "IDLE"
-        }
-    }
-
+// The colour the GUI draws each session tone in. The tone itself, and its word, live in
+// the core, so every front end agrees on what a session is doing.
+extension SessionTone {
     // Waiting shares the live colour with running and is told apart by its light, which
     // does not breathe. Colour says the session is alive; the pulse says it is moving.
     var colour: Color {

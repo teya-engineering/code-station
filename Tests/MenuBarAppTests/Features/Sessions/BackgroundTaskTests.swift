@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 // A turn that starts a background task is not over when its result arrives: the CLI runs
@@ -80,22 +81,22 @@ struct BackgroundTaskTests {
     }
 
     @Test func namesATaskByItsAgentAndItsWork() {
-        #expect(BackgroundTask(id: "a", kind: "local_agent", description: "read the log",
+        #expect(AgentBackgroundTask(id: "a", kind: "local_agent", description: "read the log",
                                agentName: "general-purpose").label
                 == "general-purpose · read the log")
     }
 
     // An older CLI, or a kind that does not describe itself, still has to read as something.
     @Test func fallsBackToTheKindOfTask() {
-        #expect(BackgroundTask(id: "a", kind: "local_bash", description: nil).label == "a command")
-        #expect(BackgroundTask(id: "a", kind: "local_agent", description: "").label == "an agent")
-        #expect(BackgroundTask(id: "a", kind: nil, description: nil).label == "a background task")
+        #expect(AgentBackgroundTask(id: "a", kind: "local_bash", description: nil).label == "a command")
+        #expect(AgentBackgroundTask(id: "a", kind: "local_agent", description: "").label == "an agent")
+        #expect(AgentBackgroundTask(id: "a", kind: nil, description: nil).label == "a background task")
     }
 
     // MARK: - How a wait reads
 
-    private func task(_ id: String, _ description: String) -> BackgroundTask {
-        BackgroundTask(id: id, kind: "local_bash", description: description)
+    private func task(_ id: String, _ description: String) -> AgentBackgroundTask {
+        AgentBackgroundTask(id: id, kind: "local_bash", description: description)
     }
 
     @Test func namesTheOneTaskItIsWaitingFor() {
@@ -639,8 +640,8 @@ struct BackgroundTaskTests {
         return session
     }
 
-    private func shellTask(id: String? = nil, description: String? = nil) -> BackgroundTask {
-        BackgroundTask(id: "task-1", kind: "local_bash", description: description,
+    private func shellTask(id: String? = nil, description: String? = nil) -> AgentBackgroundTask {
+        AgentBackgroundTask(id: "task-1", kind: "local_bash", description: description,
                        agentName: nil, toolUseID: id)
     }
 

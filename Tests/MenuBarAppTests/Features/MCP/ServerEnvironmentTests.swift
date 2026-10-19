@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 // The tag decides which diagnoses can reach a server, so what it survives matters as much

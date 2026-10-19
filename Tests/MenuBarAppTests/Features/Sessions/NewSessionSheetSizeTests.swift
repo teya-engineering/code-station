@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 // Reports the height a view asks for when it is offered one, which is how a sheet that

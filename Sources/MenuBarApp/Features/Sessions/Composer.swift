@@ -1,6 +1,7 @@
 import AppKit
 import QuartzCore
 import SwiftUI
+import CodeStationCore
 
 // The prompt box under a transcript: what has been dropped or pasted onto it, the field
 // itself, and the button that sends, queues or stops. The Chat and Design panes both

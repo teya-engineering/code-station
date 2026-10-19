@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 // A session the person marked to come back to: what keeps the mark, and what clears it.

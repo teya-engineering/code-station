@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 // Configuring MCP servers is a setup job, not somewhere to sit and work, so it is a
 // sheet over the window rather than a pane in it.

@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 // The middle of the orbit. The inner ring has one arc for every session, in the colour of
 // its state, and the thin outer ring one segment for every project, in its tint. Arcs of

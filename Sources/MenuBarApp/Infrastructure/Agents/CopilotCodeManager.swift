@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import SwiftUI
+import CodeStationCore
 
 // Keeps the app's MCP definitions registered with the Copilot CLI. The CLI owns
 // ~/.copilot/mcp-config.json, so this manager only reads or changes it through
@@ -38,7 +39,7 @@ final class CopilotCodeManager {
     private var refreshID = UUID()
 
     init() {
-        available = ProcessManager.resolve("copilot") != nil
+        available = ExecutableSearch.resolve("copilot") != nil
     }
 
     func isRegistered(_ name: String) -> Bool { entries[name] != nil }
@@ -76,7 +77,7 @@ final class CopilotCodeManager {
         let id = UUID()
         refreshID = id
         isRefreshing = true
-        guard let copilotPath = ProcessManager.resolve("copilot") else {
+        guard let copilotPath = ExecutableSearch.resolve("copilot") else {
             entries = [:]
             isRefreshing = false
             return
@@ -157,7 +158,7 @@ final class CopilotCodeManager {
     // switched on, read from the CLI in the folder the diagnosis will run in so the
     // workspace's own servers are counted too.
     func enabledServers(in directory: String) async throws -> [DisabledMCPServer] {
-        guard let copilotPath = ProcessManager.resolve("copilot") else {
+        guard let copilotPath = ExecutableSearch.resolve("copilot") else {
             throw DiscoveryFailure(message: "Copilot CLI not found on PATH.")
         }
         let result: CommandRunner.Output
@@ -244,7 +245,7 @@ final class CopilotCodeManager {
 
     private func resolvedCommand(_ server: Server) -> String? {
         guard let command = server.command, !command.isEmpty else { return nil }
-        return ProcessManager.resolve(command) ?? command
+        return ExecutableSearch.resolve(command) ?? command
     }
 
     private func appEnv(_ server: Server) -> [String: String] {

@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 // Prose is cut into blocks so tables, headings and lists can be drawn as such
@@ -244,8 +245,8 @@ struct MarkdownBlockTests {
         let host = NSHostingView(rootView: view)
         host.sizingOptions = []
         host.frame = CGRect(x: 0, y: 0, width: 400, height: 100)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
+        let window = testWindow(contentRect: host.frame, styleMask: [.borderless],
+                                backing: .buffered, defer: false)
         window.contentView = host
         window.setFrameOrigin(CGPoint(x: -10_000, y: -10_000))
         window.orderFront(nil)
@@ -605,8 +606,8 @@ struct MarkdownBlockTests {
         let host = NSHostingView(rootView: view)
         host.sizingOptions = []
         host.frame = CGRect(x: 0, y: 0, width: 875, height: 400)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
+        let window = testWindow(contentRect: host.frame, styleMask: [.borderless],
+                                backing: .buffered, defer: false)
         window.contentView = host
         window.setFrameOrigin(CGPoint(x: -10_000, y: -10_000))
         window.orderFront(nil)

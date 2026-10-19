@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 // Sequential tool calls share one spine. Every call keeps a one-line receipt in the
 // transcript, so finishing work never takes history away or moves the prose around it.

@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import MenuBarApp
+@testable import CodeStationCore
 
 // The sweep deletes without being asked, so what it will and will not touch is the whole
 // point of these. Nothing here runs git or removes anything: the git answer is faked, and

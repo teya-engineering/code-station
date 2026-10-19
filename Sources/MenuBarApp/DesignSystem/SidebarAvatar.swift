@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import WebKit
+import CodeStationCore
 
 struct SidebarAvatar: Equatable, Sendable {
     static let artworkCount = 64
@@ -605,5 +606,17 @@ private final class AnimatedAvatarWebView: WKWebView {
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+}
+
+extension ProjectStore {
+    func changeSidebarAvatar(forProject id: UUID) {
+        guard let next = project(id)?.sidebarAvatar.randomArtworkIndex() else { return }
+        setSidebarAvatarIndex(next, forProject: id)
+    }
+
+    func changeSidebarAvatar(forWorkspace id: UUID) {
+        guard let next = workspace(id)?.sidebarAvatar.randomArtworkIndex() else { return }
+        setSidebarAvatarIndex(next, forWorkspace: id)
     }
 }

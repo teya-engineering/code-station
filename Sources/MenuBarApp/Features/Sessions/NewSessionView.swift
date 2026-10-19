@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 // Where a new session will do its work. Every session starts as a conversation; Design
 // and Troubleshoot are tabs inside it, on a session that already has its projects and

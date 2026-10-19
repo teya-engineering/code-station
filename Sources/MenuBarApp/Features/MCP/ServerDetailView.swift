@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 // The detail is ranked around what breaks: the credential first, then where the server
 // is registered, then how it connects. Run controls sit in a fixed header so they stay

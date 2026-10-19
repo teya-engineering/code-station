@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 import SwiftUI
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 // Snooze gives one project an extra day before its old sessions are offered for deletion
@@ -195,8 +196,8 @@ struct OldSessionsSheetTests {
             .environment(runner)
             .environment(DialogPresenter())
             .environment(settings)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 620, height: 760),
-                              styleMask: [.titled], backing: .buffered, defer: false)
+        let window = testWindow(contentRect: NSRect(x: 0, y: 0, width: 620, height: 760),
+                                styleMask: [.titled], backing: .buffered, defer: false)
         window.contentView = NSHostingView(rootView: view)
         window.layoutIfNeeded()
         return window

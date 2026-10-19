@@ -5,6 +5,7 @@ import Darwin
 import Foundation
 import Observation
 import Security
+import CodeStationCore
 
 // The one code that is out. It always reaches every project, so a phone either has the
 // whole app or nothing.
@@ -120,50 +121,6 @@ final class MobileAccessController {
         let designToken = UUID().uuidString
     }
 
-    private struct Marker: Equatable {
-        let transcript: Int
-        let session: String
-        let project: String
-        let agent: String
-        let branch: String
-        let state: String
-        let failure: String
-        let added: Int
-        let removed: Int
-        let context: Double
-        let question: String?
-        let queued: [UUID]
-    }
-
-    // What the status strip says about the working tree: the branch it is on and the
-    // lines it has gained and lost. Read from the same cache the desktop strip reads, so
-    // both surfaces answer "what has this session done" with one number.
-    private struct WorkingTree {
-        let branch: String?
-        let added: Int
-        let removed: Int
-    }
-
-    // What one phone has already drawn. Holding digests rather than a copy of the transcript
-    // keeps the cost of a connected phone flat as the session grows.
-    private struct RemoteView {
-        var marker: Marker
-        var header: RemoteHeader
-        var order: [String]
-        var messages: [String: RemoteMessageDigest]
-        var queued: [RemoteQueuedPrompt]
-        var permissionID: String?
-    }
-
-    private struct RemoteState {
-        let header: RemoteHeader
-        let order: [String]
-        let messages: [RemoteMessage]
-        let digests: [String: RemoteMessageDigest]
-        let queued: [RemoteQueuedPrompt]
-        let permission: RemotePermission?
-    }
-
     private let store: ProjectStore
     private let runner: SessionRunner
     private let gitStats: GitStatsCache
@@ -173,7 +130,7 @@ final class MobileAccessController {
     // Sockets that opened on the current code and have not yet sent its secret.
     private var pendingConnections: Set<UUID> = []
     private var readers: [UUID: Reader] = [:]
-    private var views: [UUID: RemoteView] = [:]
+    private var views: [UUID: RemoteSessionBaseline] = [:]
     private var designs: [UUID: RemoteDesign] = [:]
     private var lastDesignCheck = Date.distantPast
     private var lists: [UUID: RemoteDirectory] = [:]
@@ -450,7 +407,7 @@ final class MobileAccessController {
             let given = command.answers ?? [:]
             answer = request.questions.allSatisfy { given[$0.text]?.isBlank == false }
                 ? .answers(given) : nil
-        case .allowOnce?, .allowAlways?, .deny?, .answers?, nil:
+        case .allowOnce?, .allowAlways?, .deny?, .answers?, .allowAddingDirectory?, nil:
             answer = nil
         }
         guard let answer else {
@@ -566,20 +523,11 @@ final class MobileAccessController {
             defer { creating.remove(connectionID) }
             let created: ChatSession?
             var failure: String?
-            if worktree {
-                switch await SessionLifecycle.createWorktreeSession(
-                    in: project, id: UUID(), base: nil, agent: agent, model: model,
-                    agentAvatarName: avatar, store: store) {
-                case .success(let session): created = session
-                case .failure(let error): created = nil; failure = error.message
-                }
-            } else {
-                switch store.insertSession(
-                    in: project.id,
-                    seed: .init(agent: agent, model: model, agentAvatarName: avatar)) {
-                case .success(let session): created = session
-                case .failure(let error): created = nil; failure = error.message
-                }
+            switch await SessionLifecycle.createProjectSession(
+                in: project, worktree: worktree, agent: agent, model: model,
+                agentAvatarName: avatar, store: store) {
+            case .success(let session): created = session
+            case .failure(let error): created = nil; failure = error.message
             }
             guard let created else {
                 server?.send(Self.error(failure ?? "The session could not be created."),
@@ -649,39 +597,8 @@ final class MobileAccessController {
         }
     }
 
-    private func marker(for sessionID: UUID) -> Marker {
-        let session = store.session(sessionID)
-        let tree = session.map(workingTree) ?? WorkingTree(branch: nil, added: 0, removed: 0)
-        return Marker(transcript: store.transcriptRevision(sessionID),
-                      session: session?.title ?? "",
-                      project: session.flatMap { store.project($0.projectID)?.name } ?? "",
-                      agent: session?.agent.title ?? "",
-                      branch: tree.branch ?? "",
-                      state: conversationTone(sessionID).word,
-                      failure: Self.failure(runner.state(sessionID)) ?? "",
-                      added: tree.added,
-                      removed: tree.removed,
-                      context: session.flatMap { $0.usage?.contextFraction(for: $0.agent) } ?? -1,
-                      question: runner.question(sessionID)?.id,
-                      queued: runner.queued(sessionID).map(\.id))
-    }
-
-    // Mirrors the desktop strip: git's own count of the tree once it has answered, and the
-    // transcript's running total until then, so the phone shows a number from the first
-    // frame rather than growing one a few seconds in.
-    private func workingTree(_ session: ChatSession) -> WorkingTree {
-        let snapshots = store.workingDirectories(for: session).compactMap { gitStats.snapshot(at: $0) }
-        let branch = snapshots.first?.branch
-            ?? session.worktreeBranch
-            ?? session.sessionProjects?.compactMap(\.worktreeBranch).first
-        guard !snapshots.isEmpty else {
-            return WorkingTree(branch: branch,
-                               added: session.summary.added,
-                               removed: session.summary.removed)
-        }
-        return WorkingTree(branch: branch,
-                           added: snapshots.reduce(0) { $0 + $1.totalAdded },
-                           removed: snapshots.reduce(0) { $0 + $1.totalRemoved })
+    private func marker(for sessionID: UUID) -> RemoteSessionMarker {
+        RemoteSessionMarker.make(sessionID, store: store, runner: runner, gitStats: gitStats)
     }
 
     // MARK: - The list
@@ -695,99 +612,21 @@ final class MobileAccessController {
         server?.send(text, to: connectionID)
     }
 
-    // Every project, grouped the way the rail groups it: a project, then the sessions that
-    // have run in it, newest first. A session in a workspace is listed under the project
-    // that leads it and says which workspace it belongs to.
+    // Every project, grouped the way the rail groups it. The core builds the list, so the
+    // phone and the terminal read sessions the same way.
     private func directory() -> RemoteDirectory {
-        var rows: [UUID: [RemoteSessionRow]] = [:]
-        for session in store.sidebarSessions.sorted(by: { $0.lastActivity > $1.lastActivity }) {
-            rows[session.projectID, default: []].append(row(session))
-        }
-
-        let ordered = store.projects.sorted { first, second in
-            let left = rows[first.id]?.first?.lastActivity ?? .distantPast
-            let right = rows[second.id]?.first?.lastActivity ?? .distantPast
-            guard left != right else {
-                return first.name.localizedCaseInsensitiveCompare(second.name) == .orderedAscending
-            }
-            return left > right
-        }
-
-        return RemoteDirectory(
-            projects: ordered.map { project in
-                RemoteProject(id: project.id.uuidString,
-                              name: project.name,
-                              path: project.collapsedPath,
-                              tint: Self.projectTint(project.name),
-                              tintInk: Self.projectTint(project.name, ink: true),
-                              isGit: project.isGitRepository,
-                              isMissing: store.isMissing(project),
-                              sessions: rows[project.id] ?? [])
-            })
-    }
-
-    private func row(_ session: ChatSession) -> RemoteSessionRow {
-        RemoteSessionRow(
-            id: session.id.uuidString,
-            title: session.title,
-            agent: session.agent.title,
-            workspace: session.workspaceID.flatMap(store.workspace)?.name,
-            branch: session.worktreeBranch
-                ?? session.sessionProjects?.compactMap(\.worktreeBranch).first,
-            state: SessionTone(session.id, store: store, runner: runner).word,
-            conversation: LiveConversation.id(of: session.id, store: store, runner: runner) == session.id ? .main : .design,
-            lastActivity: session.lastActivity,
-            added: session.summary.added,
-            removed: session.summary.removed)
+        RemoteDirectoryListing.directory(
+            store: store, runner: runner,
+            title: "All projects", scope: "All projects", canCreate: true,
+            tint: { (Self.projectTint($0), Self.projectTint($0, ink: true)) })
     }
 
     // MARK: - The session
 
-    private func conversationTone(_ sessionID: UUID) -> SessionTone {
-        let state = runner.state(sessionID)
-        return SessionTone(busy: state.isBusy, needsInput: runner.question(sessionID) != nil,
-                           finished: store.isUnread(sessionID), waiting: state == .waiting,
-                           waitIsStale: runner.waitIsStale(sessionID))
-    }
-
-    private func remoteState(_ sessionID: UUID) -> RemoteState? {
-        guard let session = store.session(sessionID),
-              let project = store.project(session.projectID) else { return nil }
-        let allMessages = store.transcript(of: sessionID)
-        let projectPath = store.workingDirectories(for: session).first ?? project.path
-        let visibleMessages = allMessages.suffix(200)
-            .map { RemoteMessage($0, projectPath: projectPath) }
-        let queued = runner.queued(sessionID)
-        let state = runner.state(sessionID)
-        let tone = conversationTone(sessionID)
-        let tree = workingTree(session)
-        return RemoteState(
-            header: RemoteHeader(
-                title: session.title,
-                project: project.name,
-                agent: session.agent.title,
-                branch: tree.branch,
-                state: tone.word,
-                // The phone counts the elapsed time itself so a running session does not
-                // need a fresh header every minute just to age its own label.
-                since: tone == .running
-                    ? (allMessages.last { $0.role == .user }?.date ?? session.lastActivity)
-                    : session.lastActivity,
-                failure: Self.failure(state),
-                isBusy: state.isBusy,
-                added: tree.added,
-                removed: tree.removed,
-                context: session.usage?.contextFraction(for: session.agent),
-                queuedPrompts: queued.count,
-                hasEarlierMessages: allMessages.count > visibleMessages.count),
-            order: visibleMessages.map(\.id),
-            messages: visibleMessages,
-            digests: Dictionary(visibleMessages.map { ($0.id, RemoteTranscriptDiff.digest(of: $0)) },
-                                uniquingKeysWith: { first, _ in first }),
-            queued: queued.map(RemoteQueuedPrompt.init),
-            permission: runner.question(sessionID).map {
-                RemotePermission($0, runsIn: [project.name, tree.branch].compactMap { $0 }.joined(separator: " / "))
-            })
+    // The phone keeps the newest 200 messages, which is plenty to read on a small screen.
+    private func remoteState(_ sessionID: UUID) -> RemoteSessionState? {
+        RemoteSessionState.make(sessionID, store: store, runner: runner, gitStats: gitStats,
+                                messageLimit: 200)
     }
 
     private func sendSnapshot(to connectionID: UUID, sessionID: UUID) {
@@ -811,25 +650,7 @@ final class MobileAccessController {
         }
         guard let state = remoteState(sessionID) else { return }
 
-        var changed: [RemoteChange] = []
-        for message in state.messages {
-            guard let current = state.digests[message.id] else { continue }
-            guard let previous = view.messages[message.id] else {
-                changed.append(.full(message))
-                continue
-            }
-            guard previous != current else { continue }
-            changed.append(RemoteTranscriptDiff.change(from: previous, to: current,
-                                                       message: message))
-        }
-
-        let update = RemoteUpdate(
-            header: view.header == state.header ? nil : state.header,
-            order: view.order == state.order ? nil : state.order,
-            changed: changed.isEmpty ? nil : changed,
-            queued: view.queued == state.queued ? nil : state.queued,
-            permission: view.permissionID == state.permission?.id ? nil : state.permission,
-            permissionCleared: view.permissionID != nil && state.permission == nil ? true : nil)
+        let update = view.update(to: state)
 
         // A revision can bump for something the phone never sees, such as a saved token
         // count. Recording the marker without sending keeps that from being rechecked.
@@ -842,13 +663,8 @@ final class MobileAccessController {
         server?.send(text, to: connectionID)
     }
 
-    private func remember(_ state: RemoteState, for connectionID: UUID, sessionID: UUID) {
-        views[connectionID] = RemoteView(marker: marker(for: sessionID),
-                                         header: state.header,
-                                         order: state.order,
-                                         messages: state.digests,
-                                         queued: state.queued,
-                                         permissionID: state.permission?.id)
+    private func remember(_ state: RemoteSessionState, for connectionID: UUID, sessionID: UUID) {
+        views[connectionID] = RemoteSessionBaseline(state: state, marker: marker(for: sessionID))
     }
 
     private static func encode(_ value: some Encodable) -> String? {
@@ -857,13 +673,6 @@ final class MobileAccessController {
         encoder.outputFormatting = .withoutEscapingSlashes
         guard let data = try? encoder.encode(value) else { return nil }
         return String(data: data, encoding: .utf8)
-    }
-
-    // The state word is the tone the desktop shows, which has no room for why a turn
-    // stopped. A failure travels beside it so the strip can still say what went wrong.
-    private static func failure(_ state: SessionState) -> String? {
-        if case .failed(let message) = state { return message }
-        return nil
     }
 
     private static func makeSecret() throws -> String {

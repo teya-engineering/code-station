@@ -1,3 +1,5 @@
+import CodeStationCore
+
 enum AgentPersonality: String, CaseIterable, Codable, Sendable {
     case standard = "default"
     case sarcastic

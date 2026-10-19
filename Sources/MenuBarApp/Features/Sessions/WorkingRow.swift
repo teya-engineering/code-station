@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 // That the turn is still alive, and how long since it last said anything. A working turn
 // reports something every few seconds, so the silence is the number worth watching: it is
@@ -15,7 +16,7 @@ struct WorkingRow: View {
     // The tasks holding the turn open, if that is why it is still here. Naming one is the
     // whole point of the row in that state: silence is expected, and what decides whether
     // it will ever end is what is running, not how long it has been quiet.
-    var tasks: [BackgroundTask] = []
+    var tasks: [AgentBackgroundTask] = []
     // When the wait began, which is what the row counts while it is waiting.
     var waitingSince: Date?
 

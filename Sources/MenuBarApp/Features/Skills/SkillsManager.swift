@@ -1,6 +1,7 @@
 import CryptoKit
 import Foundation
 import Observation
+import CodeStationCore
 
 struct SkillMarketplace: Decodable, Equatable, Sendable {
     struct Plugin: Decodable, Equatable, Identifiable, Sendable {
@@ -341,7 +342,7 @@ final class SkillsManager {
     }
 
     func isAvailable(_ host: SkillHost) -> Bool {
-        ProcessManager.resolve(host.command) != nil
+        ExecutableSearch.resolve(host.command) != nil
     }
 
     func hostFailure(_ host: SkillHost) -> String? {
@@ -844,7 +845,7 @@ final class SkillsManager {
     private nonisolated static func loadInstallations(for host: SkillHost,
                                                       marketplaces: Set<String>) async
         -> InstallationLoad {
-        guard !marketplaces.isEmpty, ProcessManager.resolve(host.command) != nil else {
+        guard !marketplaces.isEmpty, ExecutableSearch.resolve(host.command) != nil else {
             return InstallationLoad(installations: [:], failure: nil)
         }
         let result = await run(host.command, host.listArguments)
@@ -911,11 +912,11 @@ final class SkillsManager {
 
     private nonisolated static func run(_ command: String, _ arguments: [String]) async
         -> CommandResult {
-        guard let path = ProcessManager.resolve(command) else {
+        guard let path = ExecutableSearch.resolve(command) else {
             return CommandResult(errorText: "\(command) was not found on PATH.")
         }
         var environment = ProcessInfo.processInfo.environment
-        environment["PATH"] = ProcessManager.searchPath
+        environment["PATH"] = ExecutableSearch.searchPath
 
         do {
             let output = try await CommandRunner.run(

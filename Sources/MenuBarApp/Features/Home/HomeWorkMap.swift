@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 struct HomeLive: Identifiable {
     let session: ChatSession

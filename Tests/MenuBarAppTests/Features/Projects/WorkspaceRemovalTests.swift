@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 // What the app says before it deletes a workspace: its sessions and their worktrees go,

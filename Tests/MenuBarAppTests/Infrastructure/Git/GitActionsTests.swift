@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import MenuBarApp
+@testable import CodeStationCore
 
 // The git commands behind the changes screen's header: commit, switch, push and pull.
 // They act on the user's real repository, so each one is checked against a throwaway
@@ -24,7 +24,7 @@ struct GitActionsTests {
         try repo.write("README.md", "changed")
 
         let file = try #require(await GitInspector.snapshot(at: repo.path).files.first)
-        #expect(await GitActions.discard([file], at: repo.path) == nil)
+        #expect(await GitActions.discard([file], at: repo.path, trash: TestTrash().move) == nil)
 
         #expect(repo.read("README.md") == "hello")
         #expect(await GitInspector.snapshot(at: repo.path).files.isEmpty)
@@ -40,7 +40,7 @@ struct GitActionsTests {
 
         let file = try #require(await GitInspector.snapshot(at: repo.path).files.first)
         #expect(file.isStaged && file.isUnstaged)
-        #expect(await GitActions.discard([file], at: repo.path) == nil)
+        #expect(await GitActions.discard([file], at: repo.path, trash: TestTrash().move) == nil)
 
         #expect(repo.read("README.md") == "hello")
         #expect(await GitInspector.snapshot(at: repo.path).files.isEmpty)
@@ -54,7 +54,7 @@ struct GitActionsTests {
 
         let file = try #require(await GitInspector.snapshot(at: repo.path).files.first)
         #expect(file.originalPath == "README.md")
-        #expect(await GitActions.discard([file], at: repo.path) == nil)
+        #expect(await GitActions.discard([file], at: repo.path, trash: TestTrash().move) == nil)
 
         #expect(repo.read("README.md") == "hello")
         #expect(await GitInspector.snapshot(at: repo.path).files.isEmpty)
@@ -65,7 +65,7 @@ struct GitActionsTests {
         try FileManager.default.removeItem(at: repo.url.appendingPathComponent("README.md"))
 
         let file = try #require(await GitInspector.snapshot(at: repo.path).files.first)
-        #expect(await GitActions.discard([file], at: repo.path) == nil)
+        #expect(await GitActions.discard([file], at: repo.path, trash: TestTrash().move) == nil)
 
         #expect(repo.read("README.md") == "hello")
     }
@@ -77,7 +77,9 @@ struct GitActionsTests {
 
         let file = try #require(await GitInspector.snapshot(at: repo.path).files.first)
         #expect(file.isUntracked)
-        #expect(await GitActions.discard([file], at: repo.path) == nil)
+        let trash = TestTrash()
+        #expect(await GitActions.discard([file], at: repo.path, trash: trash.move) == nil)
+        #expect(trash.moved == ["scratch.txt"])
 
         #expect(repo.read("scratch.txt") == nil)
         #expect(await GitInspector.snapshot(at: repo.path).files.isEmpty)
@@ -101,7 +103,7 @@ struct GitActionsTests {
         let before = await GitInspector.snapshot(at: repo.path)
         let chosen = before.files.filter { $0.path != "keep.txt" }
         #expect(chosen.count == 3)
-        #expect(await GitActions.discard(chosen, at: repo.path) == nil)
+        #expect(await GitActions.discard(chosen, at: repo.path, trash: TestTrash().move) == nil)
 
         #expect(repo.read("README.md") == "hello")
         #expect(repo.read("rename.txt") == "rename me")
@@ -122,7 +124,7 @@ struct GitActionsTests {
 
         let chosen = await GitInspector.snapshot(at: repo.path).files.filter { $0.path != "keep.txt" }
         #expect(chosen.count == (includeTracked ? 3 : 2))
-        #expect(await GitActions.discard(chosen, at: repo.path) == nil)
+        #expect(await GitActions.discard(chosen, at: repo.path, trash: TestTrash().move) == nil)
 
         #expect(repo.read("one.txt") == nil)
         #expect(repo.read("two.txt") == nil)
@@ -141,7 +143,7 @@ struct GitActionsTests {
         try repo.write("README.md", "discard this too")
 
         let chosen = await GitInspector.snapshot(at: repo.path).files.filter { $0.path != "a.txt" }
-        #expect(await GitActions.discard(chosen, at: repo.path) == nil)
+        #expect(await GitActions.discard(chosen, at: repo.path, trash: TestTrash().move) == nil)
 
         #expect(repo.read("[ab].txt") == "literal name")
         #expect(repo.read("README.md") == "hello")
@@ -153,7 +155,7 @@ struct GitActionsTests {
         let repo = try GitRepo()
         try repo.write("README.md", "keep this")
 
-        #expect(await GitActions.discard([], at: repo.path) == "No files are selected.")
+        #expect(await GitActions.discard([], at: repo.path, trash: TestTrash().move) == "No files are selected.")
         #expect(repo.read("README.md") == "keep this")
     }
 
@@ -164,7 +166,7 @@ struct GitActionsTests {
         try repo.write("untracked.txt", "keep this")
 
         let chosen = await GitInspector.snapshot(at: repo.path).files
-        let error = await GitActions.discard(chosen, at: repo.path)
+        let error = await GitActions.discard(chosen, at: repo.path, trash: TestTrash().move)
 
         #expect(error?.isEmpty == false)
         #expect(repo.read("staged.txt") == "no committed version")

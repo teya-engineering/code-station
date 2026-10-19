@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import Testing
 @testable import MenuBarApp
+@testable import CodeStationCore
 
 @MainActor
 struct SidebarHeaderLayoutTests {

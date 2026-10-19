@@ -1,5 +1,6 @@
 import SwiftUI
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 // The tokenizer scans line by line, so what matters is that each token lands in the
@@ -234,6 +235,23 @@ struct CodeHighlightTests {
             let highlighted = CodeHighlight.highlight(code, language: language)
             #expect(String(highlighted.characters) == code)
         }
+    }
+
+    @Test func eachKindTakesItsColourAndTheRestStaysPlain() {
+        let highlighted = CodeHighlight.highlight(
+            "let n: Int = 4 // c\n\"s\"", language: .swift)
+        let runs = highlighted.runs.map {
+            (String(highlighted.characters[$0.range]), $0.foregroundColor)
+        }
+        let expected: [(String, Color?)] = [
+            ("let", Color(nsColor: CodeStyle.keyword)), (" n: ", nil),
+            ("Int", Color(nsColor: CodeStyle.type)), (" = ", nil),
+            ("4", Color(nsColor: CodeStyle.number)), (" ", nil),
+            ("// c", Color(nsColor: CodeStyle.comment)), ("\n", nil),
+            ("\"s\"", Color(nsColor: CodeStyle.string))
+        ]
+        #expect(runs.map(\.0) == expected.map(\.0))
+        #expect(runs.map(\.1) == expected.map(\.1))
     }
 
     @Test func hugeInputSkipsColouring() {

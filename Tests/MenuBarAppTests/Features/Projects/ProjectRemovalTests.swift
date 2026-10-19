@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 // What the app says before it takes a project out, and the order it takes it out in. Both
@@ -161,8 +162,8 @@ struct ProjectRemovalTests {
         }
 
         let result = await ProjectRemoval.run(project, in: store, runner: SessionRunner(preferences: testPreferences.store),
-                                              shortcuts: shortcuts,
-                                              worktrees: worktrees)
+                                              worktrees: worktrees,
+                                              removeOwned: { shortcuts.removeAll(ownedBy: $0) })
 
         #expect(throwsNothing(result))
         #expect(await projectWasPresent.value() == true)
@@ -174,8 +175,8 @@ struct ProjectRemovalTests {
         let project = try addProject(named: "checkout")
 
         let result = await ProjectRemoval.run(project, in: store, runner: SessionRunner(preferences: testPreferences.store),
-                                              shortcuts: shortcuts,
-                                              worktrees: removal { .success(()) })
+                                              worktrees: removal { .success(()) },
+                                              removeOwned: { shortcuts.removeAll(ownedBy: $0) })
 
         #expect(throwsNothing(result))
         #expect(store.projects.isEmpty)
@@ -191,8 +192,8 @@ struct ProjectRemovalTests {
         shortcuts.add(name: "Prune", text: "docker system prune")
 
         let result = await ProjectRemoval.run(project, in: store, runner: SessionRunner(preferences: testPreferences.store),
-                                              shortcuts: shortcuts,
-                                              worktrees: removal { .success(()) })
+                                              worktrees: removal { .success(()) },
+                                              removeOwned: { shortcuts.removeAll(ownedBy: $0) })
 
         #expect(throwsNothing(result))
         #expect(shortcuts.shortcuts(for: project.id).isEmpty)
@@ -212,8 +213,8 @@ struct ProjectRemovalTests {
         let worktrees = removal { .failure(GitWorktree.Failure(message: "Worktree is busy")) }
 
         let result = await ProjectRemoval.run(project, in: store, runner: SessionRunner(preferences: testPreferences.store),
-                                              shortcuts: shortcuts,
-                                              worktrees: worktrees)
+                                              worktrees: worktrees,
+                                              removeOwned: { shortcuts.removeAll(ownedBy: $0) })
 
         guard case .failure(let failure) = result else {
             Issue.record("Expected the removal to fail")
@@ -235,8 +236,8 @@ struct ProjectRemovalTests {
         let worktrees = removal { .failure(GitWorktree.Failure(message: "Worktree is busy")) }
 
         let result = await ProjectRemoval.run(project, in: store, runner: SessionRunner(preferences: testPreferences.store),
-                                              shortcuts: shortcuts,
-                                              worktrees: worktrees)
+                                              worktrees: worktrees,
+                                              removeOwned: { shortcuts.removeAll(ownedBy: $0) })
 
         guard case .failure(let failure) = result else {
             Issue.record("Expected the removal to fail")
@@ -259,8 +260,8 @@ struct ProjectRemovalTests {
         let worktrees = removal { .failure(GitWorktree.Failure(message: "Worktree is busy")) }
 
         let result = await ProjectRemoval.run(task, in: store, runner: SessionRunner(preferences: testPreferences.store),
-                                              shortcuts: shortcuts,
-                                              worktrees: worktrees)
+                                              worktrees: worktrees,
+                                              removeOwned: { shortcuts.removeAll(ownedBy: $0) })
 
         guard case .failure(let failure) = result else {
             Issue.record("Expected the removal to fail")

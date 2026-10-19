@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 // The sidebar's filter box: what has been typed, and the three pieces of state that hang
 // off it. They move together, so they are held together. Clearing the text has to decide

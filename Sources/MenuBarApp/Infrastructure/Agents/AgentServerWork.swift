@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import CodeStationCore
 
 // The work Code Station does on a server that an agent owns: signing in, turning it on
 // or off, asking how it is doing. Each server has at most one piece of work at a time,
@@ -56,7 +57,7 @@ final class AgentServerWork {
     // What the command printed, or a failure carrying what it said on the way out.
     nonisolated static func output(_ command: String, _ arguments: [String],
                                    timeout: Duration) async throws -> String {
-        guard let executable = ProcessManager.resolve(command) else {
+        guard let executable = ExecutableSearch.resolve(command) else {
             throw Failure(message: "\(command) not found on PATH.")
         }
         let result = try await CommandRunner.run(executable: executable,
@@ -77,7 +78,7 @@ final class AgentServerWork {
     // output, and those are taken out before the output is shown as an error.
     nonisolated static func terminalOutput(_ command: String, _ arguments: [String],
                                            timeout: Duration) async throws -> String {
-        guard let executable = ProcessManager.resolve(command) else {
+        guard let executable = ExecutableSearch.resolve(command) else {
             throw Failure(message: "\(command) not found on PATH.")
         }
         do {

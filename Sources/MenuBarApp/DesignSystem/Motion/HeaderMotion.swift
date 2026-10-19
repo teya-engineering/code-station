@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 // How the session header moves. Every tab change and every panel shows where it came
 // from: the underline stretches to the new tab before it lets go of the old one, the page

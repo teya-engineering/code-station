@@ -1,0 +1,2457 @@
+import Foundation
+import Observation
+
+public struct PersistenceFailure: LocalizedError, Equatable, Sendable {
+    public let message: String
+    public var errorDescription: String? { message }
+
+    public init(message: String) {
+        self.message = message
+    }
+}
+
+public struct PendingSessionRemoval: Identifiable, Codable, Equatable {
+    public struct Worktree: Codable, Equatable, Sendable {
+        public let path: String
+        public let projectPath: String?
+        public let branch: String?
+
+        public init(path: String, projectPath: String?, branch: String?) {
+            self.path = path
+            self.projectPath = projectPath
+            self.branch = branch
+        }
+    }
+
+    public var id: UUID { session.id }
+    let session: ChatSession
+    public let worktrees: [Worktree]
+}
+
+public enum SessionDestination: Hashable {
+    case conversation
+    // The Design board behind the session's tab, which is where a session whose Design
+    // companion is the live conversation belongs.
+    case design
+    case troubleshoot
+    case changes
+    case change(root: String, path: String)
+    case explorer
+}
+
+public struct SessionOpenRequest: Hashable {
+    public let sessionID: UUID
+    public let destination: SessionDestination
+
+    public init(sessionID: UUID, destination: SessionDestination) {
+        self.sessionID = sessionID
+        self.destination = destination
+    }
+}
+
+public struct SidebarDestination: Equatable {
+    public let containerID: UUID
+    public var sessionID: UUID? = nil
+
+    public init(containerID: UUID, sessionID: UUID? = nil) {
+        self.containerID = containerID
+        self.sessionID = sessionID
+    }
+}
+
+// Something that has left the app for good, named by what it was so whatever else is
+// keyed to it can be matched without guessing which kind of id this is.
+public enum RemovedOwner: Hashable {
+    case project(UUID)
+    case workspace(UUID)
+    case session(UUID)
+}
+
+// Projects and their conversations. What the app knows about a session - its title, what
+// it cost, where it runs - lives in one index file and is always in memory. The
+// conversation itself is a file per session, read when the session is opened and dropped
+// when nothing needs it, so a hundred sessions cost what one of them does.
+//
+// Agent connections and processes are owned by SessionRunner.
+@MainActor
+@Observable
+public final class ProjectStore {
+    public private(set) var projects: [Project] = []
+    public private(set) var workspaces: [ProjectWorkspace] = []
+    // Session records without their transcripts. `messages` on one of these is only the
+    // conversation while something holds it - see `hold(_:for:)`.
+    public private(set) var sessions: [ChatSession] = []
+    @ObservationIgnored private var sidebarSessionCache: [ChatSession] = []
+    // The Design conversation behind a session, keyed by the session it belongs to. A
+    // companion has no row of its own, so this is published beside the cards: it is what
+    // lets a row say what Design is doing and open on the board instead of the chat.
+    public private(set) var designCompanions: [UUID: ChatSession] = [:]
+    // Told when a project, workspace or session leaves the app for good, so whatever else
+    // is keyed to it can go at the same time. A running terminal is the reason this
+    // exists: the store owns none of that and should not have to know it is there.
+    @ObservationIgnored public var onRemoved: ((RemovedOwner) -> Void)?
+    private var sidebarSessionRevision = 0
+    public let navigation: ProjectNavigation
+    public let attention = SessionAttention()
+
+    public var selection: SidebarSelection? {
+        get { navigation.selection }
+        set {
+            let previous = navigation.selection
+            guard newValue != previous else { return }
+            navigation.selection = newValue
+            if case .session(let id) = previous {
+                markSessionSeen(id)
+                release(id, for: .open)
+            }
+            if case .session(let id) = newValue {
+                attention.finished.remove(id)
+                if markedUnread.contains(id) { setMarkedUnread(false, for: id) }
+                hold(id, for: .open)
+            }
+        }
+    }
+
+    public var selectedProjectID: UUID? {
+        get { navigation.selectedProjectID }
+        set { navigation.selectedProjectID = newValue }
+    }
+
+    public var history: NavigationHistory { navigation.history }
+    public var sessionOpenRequest: SessionOpenRequest? { navigation.sessionOpenRequest }
+
+    public func pointSidebarItem(_ id: UUID, _ hovering: Bool) {
+        navigation.pointSidebarItem(id, hovering: hovering)
+    }
+
+    var finished: Set<UUID> { attention.finished }
+    var markedUnread: Set<UUID> { attention.markedUnread }
+
+    let storeURL: URL
+    // One file per conversation, named by session id.
+    public let transcriptsURL: URL
+    // Design output stays beside the conversation store instead of becoming an untracked
+    // file in the repository it is previewing.
+    let designsURL: URL
+    let removalJournalURL: URL
+    private let files: PersistentFileClient
+    private let persistence: ProjectPersistence
+    public private(set) var loadError: String?
+    public private(set) var saveError: String?
+    public private(set) var transcriptLoadErrors: [UUID: String] = [:]
+    public private(set) var pendingSessionRemovals: [PendingSessionRemoval] = []
+    // A checkout exists before its session can be saved. Keeping that short gap visible
+    // prevents an orphan scan from offering the checkout for deletion while it is claimed.
+    private(set) var creatingWorktreePaths: [UUID: Set<String>] = [:]
+    private var indexLoadError: String?
+    private var removalJournalLoadError: String?
+
+    // Why a conversation is in memory. The session on screen is held while it is open,
+    // and a session with a turn in flight is held whether or not anyone is watching it,
+    // since the reply has to land somewhere. A session nobody holds gives its messages
+    // back to disk. Each client of the station holds what it follows under its own
+    // name, so one client letting go never drops a conversation another still reads.
+    public enum TranscriptHold: Hashable { case open, running, remote, client(StationClientID) }
+
+    private var holds: [UUID: Set<TranscriptHold>] = [:]
+    // What each client of the station has on screen (see `show(_:by:)`).
+    @ObservationIgnored private var shownByClients: [StationClientID: UUID] = [:]
+    // Conversations being read in. One read at a time per session, and cancelled if the
+    // hold that asked for it is given back before it lands.
+    private var transcriptLoads: [UUID: Task<Void, Never>] = [:]
+    // Conversations nothing holds any more that still owe a write. They go once the
+    // bytes are on disk.
+    private var evictWhenWritten: Set<UUID> = []
+
+    private struct RemovalJournal: Codable {
+        var removals: [PendingSessionRemoval]
+    }
+
+    public init(preferences: UserDefaults = Preferences.defaults, storeURL: URL? = nil,
+                files: PersistentFileClient = .live) {
+        navigation = ProjectNavigation(preferences: preferences)
+        self.storeURL = storeURL
+            ?? (ProcessInfo.processInfo.environment["CODE_STATION_STORE"]
+                ?? ProcessInfo.processInfo.environment["CONDUCTOR_STORE"])
+                .map { URL(fileURLWithPath: $0) }
+            ?? AppPaths.supportFile("projects.json", movedFrom: AppPaths.legacy("projects.json"))
+        self.files = files
+        persistence = ProjectPersistence(storeURL: self.storeURL, files: files)
+        // Named after the index rather than fixed, so a store pointed somewhere else -
+        // a test, a second copy of the app - takes its conversations with it.
+        transcriptsURL = self.storeURL.deletingLastPathComponent()
+            .appendingPathComponent(self.storeURL.deletingPathExtension().lastPathComponent
+                + "-transcripts", isDirectory: true)
+        designsURL = self.storeURL.deletingLastPathComponent()
+            .appendingPathComponent(self.storeURL.deletingPathExtension().lastPathComponent
+                + "-designs", isDirectory: true)
+        removalJournalURL = self.storeURL.deletingLastPathComponent()
+            .appendingPathComponent(self.storeURL.deletingPathExtension().lastPathComponent
+                + "-removals.json")
+        loadRemovalJournal()
+        load()
+    }
+
+    // MARK: - Lookups
+
+    public func project(_ id: UUID) -> Project? { projects.first { $0.id == id } }
+    public func workspace(_ id: UUID) -> ProjectWorkspace? { workspaces.first { $0.id == id } }
+    public func session(_ id: UUID) -> ChatSession? { sessions.first { $0.id == id } }
+
+    public var protectedWorktreePaths: Set<String> {
+        var paths = Set(pendingSessionRemovals.flatMap(\.worktrees).map(\.path))
+        for reserved in creatingWorktreePaths.values { paths.formUnion(reserved) }
+        for session in sessions {
+            paths.formUnion(checkoutProjects(for: session).compactMap(\.worktreePath))
+        }
+        return Set(paths.map(Self.standardizedPath))
+    }
+
+    public func protectedWorktreePaths(for project: Project) -> Set<String> {
+        var paths = Set(pendingSessionRemovals.flatMap(\.worktrees).map(\.path))
+        paths.formUnion(creatingWorktreePaths[project.id, default: []])
+        for session in sessions {
+            paths.formUnion(checkoutProjects(for: session).compactMap { checkout in
+                checkout.projectID == project.id ? checkout.worktreePath : nil
+            })
+        }
+        return Set(paths.map(Self.standardizedPath))
+    }
+
+    public func protectsWorktree(at path: String) -> Bool {
+        protectedWorktreePaths.contains(Self.standardizedPath(path))
+    }
+
+    public func reserveWorktree(at path: String, for projectID: UUID) {
+        creatingWorktreePaths[projectID, default: []].insert(Self.standardizedPath(path))
+    }
+
+    public func releaseWorktreeReservation(at path: String, for projectID: UUID) {
+        creatingWorktreePaths[projectID]?.remove(Self.standardizedPath(path))
+        if creatingWorktreePaths[projectID]?.isEmpty == true {
+            creatingWorktreePaths[projectID] = nil
+        }
+    }
+
+    private static func standardizedPath(_ path: String) -> String {
+        URL(fileURLWithPath: path).standardizedFileURL.path
+    }
+
+    // Companion Design conversations are reached through their source session rather
+    // than appearing as duplicate sessions everywhere the app lists conversations.
+    public var userSessions: [ChatSession] { sessions.filter { !$0.isDesignSession } }
+
+    public func designSession(for sourceSessionID: UUID) -> ChatSession? {
+        sessions.first { $0.designSourceSessionID == sourceSessionID }
+    }
+
+    public func designConversation(for sessionID: UUID) -> ChatSession? {
+        guard let session = session(sessionID) else { return nil }
+        if session.isActivelyDesigning { return session }
+        return designSession(for: sessionID)
+    }
+
+    public func isDesignMode(_ session: ChatSession) -> Bool {
+        session.sourceDesignSessionID != nil || designOwner(for: session) != nil
+    }
+
+    public func designOwner(for session: ChatSession) -> ChatSession? {
+        if session.ownsDesign { return session }
+        if let source = session.sourceDesignSessionID { return self.session(source) }
+        return designSession(for: session.id)
+    }
+
+    public func implementationSessions(for designSessionID: UUID) -> [ChatSession] {
+        userSessions.filter { $0.sourceDesignSessionID == designSessionID }
+            .sorted { $0.createdAt < $1.createdAt }
+    }
+
+    public func sessionsShareDesignWorkflow(_ firstSessionID: UUID, _ secondSessionID: UUID) -> Bool {
+        guard let first = session(firstSessionID), let second = session(secondSessionID) else {
+            return false
+        }
+        return first.sourceDesignSessionID == second.id
+            || second.sourceDesignSessionID == first.id
+            || first.designSourceSessionID == second.id
+            || second.designSourceSessionID == first.id
+    }
+
+    public func approvedDesignRevision(for session: ChatSession) -> DesignRevision? {
+        guard let owner = designOwner(for: session),
+              let approved = owner.approvedDesignRevisionID else { return nil }
+        return owner.designRevisions.first { $0.id == approved }
+    }
+
+    public func designHasUpdated(for implementation: ChatSession) -> Bool {
+        guard let sourceID = implementation.sourceDesignSessionID,
+              let source = session(sourceID),
+              let approved = source.approvedDesignRevisionID else { return false }
+        return approved != implementation.handedOffDesignRevisionID
+    }
+
+    // Design conversations live behind the session that opened them. Anything that
+    // navigates or asks for attention must point at that visible session, since the
+    // companion itself does not have a row in the app.
+    public func userFacingSessionID(for sessionID: UUID) -> UUID {
+        session(sessionID)?.designSourceSessionID ?? sessionID
+    }
+
+    public var regularProjects: [Project] {
+        projects.filter { $0.kind == .project }
+    }
+
+    // The rail needs session metadata, but observing the main array would also make it
+    // observe every transcript write because ChatSession is a value. This copy is
+    // published only when card metadata changes and never carries message payloads.
+    public var sidebarSessions: [ChatSession] {
+        _ = sidebarSessionRevision
+        return sidebarSessionCache
+    }
+
+    public func sidebarSession(_ id: UUID) -> ChatSession? {
+        sidebarSessions.first { $0.id == id }
+    }
+
+    public func standaloneSessions(for projectID: UUID) -> [ChatSession] {
+        userSessions.filter { $0.projectID == projectID && $0.workspaceID == nil }
+            .sorted(by: SessionSort.pinnedFirstByLastActivity)
+    }
+
+    public func sessions(in workspaceID: UUID) -> [ChatSession] {
+        userSessions.filter { $0.workspaceID == workspaceID }
+            .sorted(by: SessionSort.pinnedFirstByLastActivity)
+    }
+
+    var selectedSession: ChatSession? {
+        guard case .session(let id) = selection else { return nil }
+        return session(id)
+    }
+
+    public var sidebarDestination: SidebarDestination? {
+        switch selection {
+        case .session(let id):
+            guard let session = sidebarSession(id) else { return nil }
+            return SidebarDestination(containerID: session.workspaceID ?? session.projectID,
+                                      sessionID: session.id)
+        case .workspace(let id):
+            return workspace(id).map { SidebarDestination(containerID: $0.id) }
+        case nil:
+            return selectedProjectID.flatMap(project).map { SidebarDestination(containerID: $0.id) }
+        case .home:
+            return nil
+        }
+    }
+
+    public var selectedProject: Project? {
+        switch selection {
+        case .session(let id): return session(id).flatMap { project($0.projectID) }
+        case .home, .workspace: return nil
+        case nil: return selectedProjectID.flatMap(project)
+        }
+    }
+
+    // MARK: - What is on screen
+    //
+    // Navigation is a preference, not project data. Persist it directly so moving around
+    // the app never rewrites the project index.
+
+    // Home sits above project navigation. The last project stays remembered so leaving
+    // Home takes the user back to the same working context instead of changing their place.
+    public func selectHome() {
+        selection = .home
+        navigation.arrived()
+    }
+
+    // Choosing a project is different from opening a conversation. Keeping the two
+    // actions separate leaves the project screen available until a session is chosen.
+    public func selectProject(_ id: UUID, revealingInSidebar: Bool = true) {
+        guard project(id) != nil else { return }
+        selectedProjectID = id
+        selection = nil
+        navigation.revealProject(id, enabled: revealingInSidebar)
+    }
+
+    public func selectSession(_ id: UUID, destination: SessionDestination = .conversation,
+                       revealingInSidebar: Bool = true) {
+        let visibleID = userFacingSessionID(for: id)
+        guard let session = session(visibleID) else { return }
+        // Asking for a Design conversation means asking for the board it draws on. It has
+        // no row of its own, so it is reached through the tab of the session that owns it.
+        let landing: SessionDestination = destination == .conversation && id != visibleID
+            ? .design
+            : destination
+        selectedProjectID = session.projectID
+        selection = .session(visibleID)
+        navigation.revealSession(visibleID, destination: landing, enabled: revealingInSidebar)
+    }
+
+    public func selectWorkspace(_ id: UUID, revealingInSidebar: Bool = true) {
+        guard workspace(id) != nil else { return }
+        selection = .workspace(id)
+        navigation.revealProject(id, enabled: revealingInSidebar)
+    }
+
+    // MARK: - Back and forward
+    //
+    // Cmd+[ and Cmd+] are Back and Forward everywhere else on the Mac, so here they walk
+    // the places already visited rather than the order the sidebar happens to be in.
+
+    // Where the app is pointed right now. A project is chosen without opening anything,
+    // so it is the one place that is read from `selectedProjectID` instead of `selection`.
+    var currentPlace: NavigationPlace? { navigation.currentPlace }
+
+    public var canGoBack: Bool { history.canGoBack }
+    public var canGoForward: Bool { history.canGoForward }
+
+    @discardableResult
+    public func goBack() -> Bool {
+        guard let place = navigation.history.goBack(reachable: stillExists) else { return false }
+        open(place)
+        return true
+    }
+
+    @discardableResult
+    public func goForward() -> Bool {
+        guard let place = navigation.history.goForward(reachable: stillExists) else { return false }
+        open(place)
+        return true
+    }
+
+    public func noteSessionTab(_ destination: SessionDestination, for sessionID: UUID) {
+        navigation.lastSessionTabs[sessionID] = destination
+    }
+
+    private func open(_ place: NavigationPlace) {
+        navigation.walk(place) { place in
+            switch place {
+            case .home: selectHome()
+            case .project(let id): selectProject(id)
+            case .session(let id): selectSession(id, destination: lastTab(of: id))
+            case .workspace(let id): selectWorkspace(id)
+            }
+        }
+    }
+
+    // A board that has since been removed is not worth coming back to: opening the Design
+    // tab without one would start a fresh Design instead.
+    public func lastTab(of sessionID: UUID) -> SessionDestination {
+        let destination = navigation.lastSessionTabs[sessionID] ?? .conversation
+        guard destination == .design, let session = session(sessionID) else { return destination }
+        return designSession(for: sessionID) != nil || session.sourceDesignSessionID != nil
+            ? .design
+            : .conversation
+    }
+
+    private func stillExists(_ place: NavigationPlace) -> Bool {
+        switch place {
+        case .home: true
+        case .project(let id): project(id) != nil
+        case .session(let id): session(id) != nil
+        case .workspace(let id): workspace(id) != nil
+        }
+    }
+
+    // MARK: - Turns worth knowing about
+
+    // A turn that ended. The session on screen needs no marker while the app is active,
+    // since its result is already being read. A selected session can still finish while
+    // another app has the keyboard, so that result stays marked until this app returns.
+    @discardableResult
+    public func noteTurnEnded(for sessionID: UUID) -> Bool {
+        let visibleID = userFacingSessionID(for: sessionID)
+        if shownByClients.values.contains(where: { $0 == sessionID || $0 == visibleID }) { return false }
+        guard sessions.contains(where: { $0.id == visibleID }) else { return false }
+        let isVisible = sessionID != visibleID
+            ? holds[sessionID]?.contains(.open) == true
+            : selection == .session(visibleID)
+        return attention.noteTurnEnded(visibleID, isVisible: isVisible,
+                                       isRemote: holds[sessionID]?.contains(.remote) == true)
+    }
+
+    // Leaving the app is another way to finish reading the selected conversation.
+    public func applicationWillResignActive() {
+        attention.applicationIsActive = false
+        if case .session(let sessionID) = selection { markSessionSeen(sessionID) }
+    }
+
+    public func applicationDidBecomeActive() {
+        attention.applicationIsActive = true
+    }
+
+    // A front end with no window, such as the terminal browsing its list, has nothing on
+    // screen that counts as being read. The selection restored from the GUI's last run is
+    // not something anyone is looking at, so a turn ending there is still unseen. Unlike
+    // resigning active, this leaves the selected session's recap alone.
+    public func detachFromScreen() {
+        attention.applicationIsActive = false
+    }
+
+    // The session a client of the station has on screen, or nil when it shows none. A
+    // turn that ends in a session any client shows has been read, as one on the GUI's
+    // screen has, and showing a session reads what finished there before.
+    func show(_ sessionID: UUID?, by client: StationClientID) {
+        shownByClients[client] = sessionID
+        if let sessionID { attention.finished.remove(userFacingSessionID(for: sessionID)) }
+    }
+
+    public func clearFinished(_ sessionID: UUID) {
+        attention.finished.remove(userFacingSessionID(for: sessionID))
+    }
+
+    // A Build can have a separate Design conversation. Dismissing the visible recap clears
+    // either account so an older hidden one cannot take its place.
+    public func markSessionSeen(_ sessionID: UUID) {
+        let visibleID = userFacingSessionID(for: sessionID)
+        var changed = false
+        for conversationID in resumeConversationIDs(for: visibleID) {
+            guard let i = index(conversationID), sessions[i].recap != nil else { continue }
+            sessions[i].recap = nil
+            changed = true
+        }
+        attention.finished.remove(visibleID)
+        if changed { scheduleIndexSave() }
+    }
+
+    public func recap(for sessionID: UUID) -> SessionRecap? {
+        let visibleID = userFacingSessionID(for: sessionID)
+        return resumeConversationIDs(for: visibleID)
+            .compactMap { session($0)?.recap }
+            .max(by: { $0.generatedAt < $1.generatedAt })
+    }
+
+    public func setRecap(_ recap: SessionRecap, for sessionID: UUID) {
+        guard let i = index(sessionID) else { return }
+        sessions[i].recap = recap
+        scheduleIndexSave()
+    }
+
+    func clearRecap(for sessionID: UUID) {
+        guard let i = index(sessionID), sessions[i].recap != nil else { return }
+        sessions[i].recap = nil
+        scheduleIndexSave()
+    }
+
+    private func resumeConversationIDs(for visibleID: UUID) -> [UUID] {
+        guard let designID = designSession(for: visibleID)?.id,
+              designID != visibleID else { return [visibleID] }
+        return [visibleID, designID]
+    }
+
+    public func hasFinished(_ sessionID: UUID) -> Bool { finished.contains(sessionID) }
+
+    // Whether the session is waiting to be read, either because a turn ended unseen or
+    // because the person marked it to come back to.
+    public func isUnread(_ sessionID: UUID) -> Bool {
+        finished.contains(sessionID) || markedUnread.contains(sessionID)
+    }
+
+    // A collapsed project hides its sessions, so the count is what says how much is
+    // waiting behind it.
+    public func unreadCount(in projectID: UUID) -> Int {
+        sidebarSessions.count {
+            $0.projectID == projectID && $0.workspaceID == nil && isUnread($0.id)
+        }
+    }
+
+    public func unreadCount(inWorkspace workspaceID: UUID) -> Int {
+        sidebarSessions.count { $0.workspaceID == workspaceID && isUnread($0.id) }
+    }
+
+    public func setMarkedUnread(_ isMarked: Bool, for sessionID: UUID) {
+        let visibleID = userFacingSessionID(for: sessionID)
+        guard let i = index(visibleID), sessions[i].isMarkedUnread != isMarked else { return }
+        sessions[i].isMarkedUnread = isMarked
+        if isMarked {
+            attention.markedUnread.insert(visibleID)
+        } else {
+            attention.markedUnread.remove(visibleID)
+        }
+        publishSidebarSessions()
+        scheduleIndexSave()
+    }
+
+    // Marking as read clears both kinds of unread, so the row stops asking for the person
+    // without them having to open it.
+    public func markRead(_ sessionID: UUID) {
+        clearFinished(sessionID)
+        setMarkedUnread(false, for: sessionID)
+    }
+
+    // MARK: - Projects
+
+    // A folder can only be added once: two projects on the same directory would be two
+    // agents writing to the same files.
+    @discardableResult
+    public func addProject(at url: URL) -> Project? {
+        let path = url.standardizedFileURL.path
+        if let existing = projects.first(where: { $0.path == path }) {
+            selectedProjectID = existing.id
+            return nil
+        }
+        let project = Project(url: url.standardizedFileURL)
+        projects.append(project)
+        projects.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        selectedProjectID = project.id
+        saveIndex()
+        return project
+    }
+
+    @discardableResult
+    public func addTask(named name: String, prompt: String,
+                 in root: URL = AppPaths.support
+                    .appendingPathComponent("ad-hoc-tasks", isDirectory: true))
+        -> Result<Project, PersistenceFailure> {
+        let trimmed = name.trimmed
+        guard !trimmed.isEmpty else {
+            return .failure(PersistenceFailure(message: "Enter a name for the task."))
+        }
+
+        let directory = root.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: directory,
+                                                    withIntermediateDirectories: true)
+        } catch {
+            return .failure(PersistenceFailure(
+                message: "The empty task folder could not be created: \(error.localizedDescription)"))
+        }
+
+        let previousProjectID = selectedProjectID
+        let spec = TaskSpec(prompt: prompt.trimmed)
+        let project = Project(name: trimmed, path: directory.standardizedFileURL.path,
+                              kind: .adHoc, task: spec)
+        projects.append(project)
+        projects.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        selectedProjectID = project.id
+        markIndexDirty()
+        return saveOrRollBack(project, failure: "The task could not be saved.") {
+            projects.removeAll { $0.id == project.id }
+            selectedProjectID = previousProjectID
+            navigation.savedProjectID = previousProjectID
+            try? FileManager.default.removeItem(at: directory)
+        }
+    }
+
+    // The prompt can be reworked between runs; the folder and sessions stay.
+    public func setTaskSpec(_ spec: TaskSpec, for projectID: UUID) {
+        guard let i = projects.firstIndex(where: { $0.id == projectID }),
+              projects[i].kind == .adHoc, projects[i].task != spec else { return }
+        projects[i].task = spec
+        saveIndex()
+    }
+
+    public func removeProject(_ id: UUID) {
+        // A workspace groups at least two folders, so losing one can dissolve it, and
+        // its sessions cannot exist outside it any more than the project's own can. Only
+        // a workspace this project belongs to is counted: one that is already short of
+        // two members is not this removal's doing and must not go with it.
+        let dissolved = Set(workspaces.filter { workspace in
+            workspace.projectIDs.contains(id)
+                && workspace.projectIDs.count { $0 != id } < 2
+        }.map(\.id))
+        let affected = Set(sessions.filter { session in
+            session.projectID == id
+                || session.sessionProjects?.contains(where: { $0.projectID == id }) == true
+                || session.workspaceID.map(dissolved.contains) == true
+        }.map(\.id))
+        let removed = project(id)
+        projects.removeAll { $0.id == id }
+        onRemoved?(.project(id))
+        // A task's folder was created by the app inside its own support directory, so
+        // deleting the task takes the folder with it. A user-chosen folder always stays.
+        if let removed, removed.kind == .adHoc {
+            try? FileManager.default.removeItem(at: removed.url)
+        }
+        workspaces = workspaces.compactMap { workspace in
+            guard !dissolved.contains(workspace.id) else { return nil }
+            var updated = workspace
+            updated.projectIDs.removeAll { $0 == id }
+            updated.worktreeProjectIDs.removeAll { $0 == id }
+            if updated.leadProjectID == id, let first = updated.projectIDs.first {
+                updated.leadProjectID = first
+            }
+            return updated
+        }
+        for workspaceID in dissolved { onRemoved?(.workspace(workspaceID)) }
+        if selectedProjectID == id { selectedProjectID = projects.first?.id }
+        if case .session(let sessionID) = selection, affected.contains(sessionID) { selection = nil }
+        if case .workspace(let workspaceID) = selection, dissolved.contains(workspaceID) {
+            selection = nil
+        }
+        saveIndex()
+        removeSessions(affected)
+    }
+
+    public func renameProject(_ id: UUID, to name: String) {
+        guard let i = projects.firstIndex(where: { $0.id == id }) else { return }
+        let trimmed = name.trimmed
+        guard !trimmed.isEmpty else { return }
+        projects[i].name = trimmed
+        scheduleIndexSave()
+    }
+
+    public func setPinned(_ isPinned: Bool, forProject id: UUID) {
+        guard let i = projects.firstIndex(where: { $0.id == id }),
+              projects[i].isPinned != isPinned else { return }
+        projects[i].isPinned = isPinned
+        scheduleIndexSave()
+    }
+
+    // Gives the project another day before its old sessions are offered for deletion or
+    // taken by the sweep. Repeatable: each call adds a day to the deadline it already has.
+    public func snoozeCleanup(forProject id: UUID, now: Date = Date()) {
+        guard let i = projects.firstIndex(where: { $0.id == id }) else { return }
+        projects[i].snoozedUntil = ProjectSnooze.extended(projects[i].snoozedUntil, now: now)
+        scheduleIndexSave()
+    }
+
+    public func wakeCleanup(forProject id: UUID) {
+        guard let i = projects.firstIndex(where: { $0.id == id }),
+              projects[i].snoozedUntil != nil else { return }
+        projects[i].snoozedUntil = nil
+        scheduleIndexSave()
+    }
+
+    // The snooze standing over a session, which is the one on the project it runs in. A
+    // workspace session takes the deadline of the project it leads, the same project its
+    // row is grouped under in the review sheet.
+    public func snoozeDeadline(for session: ChatSession) -> Date? {
+        project(session.projectID)?.snoozedUntil
+    }
+
+    // The artwork itself is the window app's, so it picks the index and the store keeps it.
+    public func setSidebarAvatarIndex(_ index: Int, forProject id: UUID) {
+        guard let i = projects.firstIndex(where: { $0.id == id }) else { return }
+        projects[i].sidebarAvatarIndex = index
+        scheduleIndexSave()
+    }
+
+    // MARK: - Workspaces
+
+    @discardableResult
+    public func addWorkspace(name: String, projectIDs: [UUID], leadProjectID: UUID) -> ProjectWorkspace? {
+        let trimmed = name.trimmed
+        var seen: Set<UUID> = []
+        let members = projectIDs.filter {
+            project($0)?.kind == .project && seen.insert($0).inserted
+        }
+        guard !trimmed.isEmpty, members.count >= 2, members.contains(leadProjectID) else { return nil }
+
+        let ordered = [leadProjectID] + members.filter { $0 != leadProjectID }
+        let worktreeProjectIDs = ordered.filter { id in
+            project(id)?.isGitRepository ?? false
+        }
+        let workspace = ProjectWorkspace(name: trimmed, projectIDs: ordered,
+                                         leadProjectID: leadProjectID,
+                                         worktreeProjectIDs: worktreeProjectIDs)
+        workspaces.append(workspace)
+        workspaces.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        saveIndex()
+        return workspace
+    }
+
+    public func renameWorkspace(_ id: UUID, to name: String) {
+        guard let i = workspaces.firstIndex(where: { $0.id == id }) else { return }
+        let trimmed = name.trimmed
+        guard !trimmed.isEmpty else { return }
+        workspaces[i].name = trimmed
+        workspaces.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        scheduleIndexSave()
+    }
+
+    public func setPinned(_ isPinned: Bool, forWorkspace id: UUID) {
+        guard let i = workspaces.firstIndex(where: { $0.id == id }),
+              workspaces[i].isPinned != isPinned else { return }
+        workspaces[i].isPinned = isPinned
+        scheduleIndexSave()
+    }
+
+    public func setSidebarAvatarIndex(_ index: Int, forWorkspace id: UUID) {
+        guard let i = workspaces.firstIndex(where: { $0.id == id }) else { return }
+        workspaces[i].sidebarAvatarIndex = index
+        scheduleIndexSave()
+    }
+
+    // A workspace is only a grouping of folders the user added elsewhere, so the projects
+    // themselves stay. Its sessions cannot exist outside it and go with it.
+    public func removeWorkspace(_ id: UUID) {
+        let affected = Set(sessions.filter { $0.workspaceID == id }.map(\.id))
+        workspaces.removeAll { $0.id == id }
+        onRemoved?(.workspace(id))
+        if selection == .workspace(id) { selection = nil }
+        saveIndex()
+        removeSessions(affected)
+    }
+
+    // Removes each session and keeps going after one refuses, so a session that cannot
+    // be cleaned up does not strand the rest. It runs after the caller's own write on
+    // purpose: a write that lands clears the error it shows, and the reasons a session
+    // stayed are the ones the reader still needs to see.
+    private func removeSessions(_ ids: Set<UUID>) {
+        let failures = ids.compactMap { id -> String? in
+            guard case .failure(let failure) = removeSession(id) else { return nil }
+            return failure.message
+        }
+        guard !failures.isEmpty else { return }
+        saveError = failures.joined(separator: "\n")
+    }
+
+    public func setLeadProject(_ projectID: UUID, inWorkspace id: UUID) {
+        guard let i = workspaces.firstIndex(where: { $0.id == id }),
+              workspaces[i].projectIDs.contains(projectID) else { return }
+        workspaces[i].leadProjectID = projectID
+        workspaces[i].projectIDs.removeAll { $0 == projectID }
+        workspaces[i].projectIDs.insert(projectID, at: 0)
+        scheduleIndexSave()
+    }
+
+    public func setUsesWorktree(_ usesWorktree: Bool, for projectID: UUID, inWorkspace id: UUID) {
+        guard let i = workspaces.firstIndex(where: { $0.id == id }),
+              workspaces[i].projectIDs.contains(projectID) else { return }
+        workspaces[i].worktreeProjectIDs.removeAll { $0 == projectID }
+        if usesWorktree { workspaces[i].worktreeProjectIDs.append(projectID) }
+        scheduleIndexSave()
+    }
+
+    public func addProject(_ projectID: UUID, toWorkspace id: UUID) {
+        guard let project = project(projectID), project.kind == .project,
+              let i = workspaces.firstIndex(where: { $0.id == id }),
+              !workspaces[i].projectIDs.contains(projectID) else { return }
+        workspaces[i].projectIDs.append(projectID)
+        if project.isGitRepository {
+            workspaces[i].worktreeProjectIDs.append(projectID)
+        }
+        saveIndex()
+    }
+
+    public func removeProject(_ projectID: UUID, fromWorkspace id: UUID) {
+        guard let i = workspaces.firstIndex(where: { $0.id == id }),
+              workspaces[i].projectIDs.contains(projectID),
+              workspaces[i].projectIDs.count > 2 else { return }
+        workspaces[i].projectIDs.removeAll { $0 == projectID }
+        workspaces[i].worktreeProjectIDs.removeAll { $0 == projectID }
+        if workspaces[i].leadProjectID == projectID,
+           let first = workspaces[i].projectIDs.first {
+            workspaces[i].leadProjectID = first
+        }
+        saveIndex()
+    }
+
+    // MARK: - Sessions
+
+    public func designDirectory(for session: ChatSession) -> URL {
+        designsURL.appendingPathComponent(session.id.uuidString, isDirectory: true)
+    }
+
+    public func designArtifactURL(for session: ChatSession) -> URL? {
+        guard session.ownsDesign || session.isDesignSession else { return nil }
+        return designDirectory(for: session).appendingPathComponent("index.html")
+    }
+
+    func designReferenceDirectory(for session: ChatSession) -> URL? {
+        guard session.sourceDesignSessionID != nil else { return nil }
+        return designDirectory(for: session).appendingPathComponent("reference", isDirectory: true)
+    }
+
+    public func implementationDesignDirectory(for session: ChatSession) -> URL? {
+        if session.ownsDesign,
+           let revision = approvedDesignRevision(for: session) {
+            return DesignArtifacts.materialsDirectory(
+                revision, designDirectory: designDirectory(for: session))
+        }
+        return designReferenceDirectory(for: session)
+    }
+
+    func designPreviewURL(for session: ChatSession) -> URL? {
+        if session.ownsDesign,
+           let revision = approvedDesignRevision(for: session) {
+            let url = DesignArtifacts.previewURL(
+                revision, designDirectory: designDirectory(for: session))
+            return FileManager.default.fileExists(atPath: url.path) ? url : nil
+        }
+        guard let reference = designReferenceDirectory(for: session) else { return nil }
+        let url = reference.appendingPathComponent("preview.png")
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
+    public func designFilesURL(for session: ChatSession) -> URL? {
+        if let design = designSession(for: session.id) {
+            return designArtifactURL(for: design)?.deletingLastPathComponent()
+        }
+        if let reference = designReferenceDirectory(for: session) { return reference }
+        guard session.ownsDesign else { return nil }
+        return designArtifactURL(for: session)?.deletingLastPathComponent()
+    }
+
+    public func hasDesignArtifacts(for session: ChatSession) -> Bool {
+        guard let directory = designFilesURL(for: session) else { return false }
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: directory.path,
+                                             isDirectory: &isDirectory) else { return false }
+        guard isDirectory.boolValue else { return true }
+        // An existing directory that cannot be read is not safe to call empty.
+        guard let entries = try? FileManager.default.contentsOfDirectory(
+            atPath: directory.path) else {
+            return true
+        }
+        return !entries.isEmpty
+    }
+
+    // What the session's design files are worth once the session goes. A session that took
+    // the handoff has already turned the approved design into code, so its copy of the
+    // design is a record rather than the work itself.
+    public func designCost(for session: ChatSession) -> DesignCost {
+        guard hasDesignArtifacts(for: session) else { return .absent }
+        return session.isImplementingDesign ? .implemented : .unimplemented
+    }
+
+    public func startDesign(for sourceSessionID: UUID) -> Result<ChatSession, PersistenceFailure> {
+        guard let source = session(sourceSessionID), !source.isDesignSession else {
+            return .failure(PersistenceFailure(message: "The session is no longer available."))
+        }
+        if source.isActivelyDesigning { return .success(source) }
+        if let existing = designSession(for: sourceSessionID) { return .success(existing) }
+        guard source.sourceDesignSessionID == nil else {
+            return .failure(PersistenceFailure(
+                message: "This session already has a Design reference."))
+        }
+
+        var design = ChatSession(projectID: source.projectID, agent: source.agent)
+        design.title = "Design"
+        design.mode = .design
+        design.designPhase = .designing
+        design.designSourceSessionID = source.id
+        design.worktreePath = source.worktreePath
+        design.worktreeBranch = source.worktreeBranch
+        design.workspaceID = source.workspaceID
+        design.sessionProjects = source.sessionProjects
+        design.grantedDirectories = source.grantedDirectories
+        design.settings = source.settings
+        design.agentAvatarName = source.agentAvatarName
+        design.transcriptLoaded = true
+
+        sessions.append(design)
+        publishSidebarSessions()
+        markIndexDirty()
+        return saveOrRollBack(design, failure: "The Design session could not be saved.") {
+            sessions.removeAll { $0.id == design.id }
+            clearSessionMemory(design.id)
+            publishSidebarSessions()
+        }
+    }
+
+    // Everything a new session starts with that does not depend on where it runs. The
+    // place - one project folder, a worktree of it, or a workspace's several checkouts -
+    // is the argument beside this rather than a field in it, because it is the one thing
+    // the two kinds of session do not share.
+    public struct SessionSeed {
+        public var id: UUID = UUID()
+        public var agent: AgentKind = .claudeCode
+        public var model: String?
+        public var agentAvatarName: String?
+        public var mode: SessionMode = .chat
+        public var isTroubleshooting: Bool = false
+
+        public init(id: UUID = UUID(), agent: AgentKind = .claudeCode, model: String? = nil, agentAvatarName: String? = nil, mode: SessionMode = .chat, isTroubleshooting: Bool = false) {
+            self.id = id
+            self.agent = agent
+            self.model = model
+            self.agentAvatarName = agentAvatarName
+            self.mode = mode
+            self.isTroubleshooting = isTroubleshooting
+        }
+    }
+
+    @discardableResult
+    public func newSession(in projectID: UUID, worktreePath: String? = nil,
+                    worktreeBranch: String? = nil,
+                    seed: SessionSeed = SessionSeed()) -> ChatSession {
+        var session = made(from: seed, in: projectID)
+        session.worktreePath = worktreePath
+        session.worktreeBranch = worktreeBranch
+        return adopt(session)
+    }
+
+    @discardableResult
+    public func newSession(in workspaceID: UUID, projects: [SessionProject],
+                    seed: SessionSeed = SessionSeed()) -> ChatSession? {
+        guard let workspace = workspace(workspaceID),
+              projects.count >= 2,
+              Set(projects.map(\.projectID)).count == projects.count,
+              projects.first?.projectID == workspace.leadProjectID,
+              projects.allSatisfy({ project($0.projectID) != nil }) else { return nil }
+
+        var session = made(from: seed, in: workspace.leadProjectID)
+        session.workspaceID = workspaceID
+        session.sessionProjects = projects
+        session.worktreePath = projects.first?.worktreePath
+        session.worktreeBranch = projects.first?.worktreeBranch
+        return adopt(session)
+    }
+
+    private func made(from seed: SessionSeed, in projectID: UUID) -> ChatSession {
+        var session = ChatSession(id: seed.id, projectID: projectID, agent: seed.agent)
+        session.mode = seed.mode
+        session.designPhase = seed.mode == .design ? .designing : nil
+        session.settings = SessionSettings(model: ModelChoice.valid(seed.model, for: seed.agent))
+        session.agentAvatarName = seed.agentAvatarName
+        session.isTroubleshooting = seed.isTroubleshooting
+        // Nothing has been said yet, and there is no file to go looking for.
+        session.transcriptLoaded = true
+        return session
+    }
+
+    // Takes the finished session into the app and opens it, which is the same whichever
+    // kind it is.
+    private func adopt(_ session: ChatSession) -> ChatSession {
+        sessions.append(session)
+        publishSidebarSessions()
+        selectedProjectID = session.projectID
+        selection = .session(session.id)
+        navigation.arrived()
+        saveIndex()
+        return session
+    }
+
+    // The same as newSession, except the session only counts if it reached disk. Anything
+    // that goes on to do work in the session's name - cutting a worktree, starting a turn -
+    // uses this, so it cannot build on a session a later launch would not find.
+    public func insertSession(in projectID: UUID, worktreePath: String? = nil,
+                       worktreeBranch: String? = nil,
+                       seed: SessionSeed = SessionSeed())
+        -> Result<ChatSession, PersistenceFailure> {
+        let previousSelection = selection
+        let previousProjectID = selectedProjectID
+        let session = newSession(in: projectID, worktreePath: worktreePath,
+                                 worktreeBranch: worktreeBranch, seed: seed)
+        return saveOrRollBack(session, failure: "The session could not be saved.") {
+            rollBackSessionInsertion(session.id, selection: previousSelection,
+                                     projectID: previousProjectID)
+        }
+    }
+
+    public func insertSession(in workspaceID: UUID, projects: [SessionProject],
+                       seed: SessionSeed = SessionSeed())
+        -> Result<ChatSession, PersistenceFailure> {
+        let previousSelection = selection
+        let previousProjectID = selectedProjectID
+        guard let session = newSession(in: workspaceID, projects: projects, seed: seed) else {
+            return .failure(PersistenceFailure(
+                message: "The workspace no longer has a valid lead project."))
+        }
+        return saveOrRollBack(session, failure: "The session could not be saved.") {
+            rollBackSessionInsertion(session.id, selection: previousSelection,
+                                     projectID: previousProjectID)
+        }
+    }
+
+    private func rollBackSessionInsertion(_ sessionID: UUID, selection: SidebarSelection?,
+                                          projectID: UUID?) {
+        sessions.removeAll { $0.id == sessionID }
+        publishSidebarSessions()
+        clearSessionMemory(sessionID)
+        self.selection = selection
+        selectedProjectID = projectID
+        navigation.arrived()
+        markIndexDirty()
+    }
+
+    // The folder a session's Claude Code runs in: its own worktree when it has one,
+    // otherwise the project folder itself.
+    public func workingDirectory(for session: ChatSession) -> String? {
+        workingDirectories(for: session).first
+    }
+
+    // All roots visible to the agent, with the lead first.
+    public func workingDirectories(for session: ChatSession) -> [String] {
+        checkoutProjects(for: session).compactMap { $0.worktreePath ?? project($0.projectID)?.path }
+    }
+
+    // Every checkout the session works in, with the lead first. A single-project session
+    // carries no list of its own, so its one checkout is read off the session itself.
+    public func checkoutProjects(for session: ChatSession) -> [SessionProject] {
+        if let checkouts = session.sessionProjects, !checkouts.isEmpty { return checkouts }
+        return [SessionProject(projectID: session.projectID, worktreePath: session.worktreePath,
+                               worktreeBranch: session.worktreeBranch)]
+    }
+
+    // A session with several projects can be in a worktree for some and on the project
+    // folder for others. Only the whole picture says whether it can run beside another
+    // session, so the lead checkout alone is never enough.
+    public func worktreeCoverage(for session: ChatSession) -> WorktreeCoverage {
+        var coverage = WorktreeCoverage()
+        for checkout in checkoutProjects(for: session) {
+            let name = project(checkout.projectID)?.name ?? "Unknown project"
+            if checkout.worktreePath == nil {
+                coverage.shared.append(name)
+            } else {
+                coverage.isolated.append(name)
+            }
+        }
+        return coverage
+    }
+
+    // A Git worktree keeps its writable metadata in the source repository. Codex needs
+    // each of these roots explicitly because they sit outside all checkout directories.
+    public func gitMetadataDirectories(for session: ChatSession) -> [String] {
+        checkoutProjects(for: session).compactMap { checkout in
+            guard checkout.worktreePath != nil, let project = project(checkout.projectID) else {
+                return nil
+            }
+            return project.path + "/.git"
+        }
+    }
+
+    // Remembers a folder the person opened up from a permission card, so every turn after
+    // this one starts with the same view and does not ask again.
+    public func grantDirectory(_ path: String, to sessionID: UUID) {
+        guard let i = index(sessionID), !sessions[i].grantedDirectories.contains(path) else {
+            return
+        }
+        sessions[i].grantedDirectories.append(path)
+        scheduleIndexSave()
+    }
+
+    // What a run of a task was given for the holes in its prompt, kept on the run so the
+    // list can say what each one was about.
+    public func setTaskValues(_ values: [String: String], for sessionID: UUID) {
+        guard let i = index(sessionID), sessions[i].taskValues != values else { return }
+        sessions[i].taskValues = values
+        saveIndex()
+    }
+
+    public func markScheduledRun(_ sessionID: UUID) {
+        guard let i = index(sessionID), !sessions[i].isScheduledRun else { return }
+        sessions[i].isScheduledRun = true
+        saveIndex()
+    }
+
+    // A session becomes a diagnosis the moment a brief is sent from its Troubleshoot tab.
+    // The marker is what the sidebar filter and the header chip read, so it has to outlive
+    // the turn that set it.
+    public func markTroubleshooting(_ sessionID: UUID) {
+        guard let i = index(sessionID), !sessions[i].isTroubleshooting else { return }
+        sessions[i].isTroubleshooting = true
+        publishSidebarSessions()
+        saveIndex()
+    }
+
+    // What the next turn in this session runs with. The agent stays fixed on the session,
+    // while the model and other run controls can change between turns.
+    public func setSettings(_ settings: SessionSettings, for sessionID: UUID) {
+        guard let i = index(sessionID) else { return }
+        guard sessions[i].settings != settings else { return }
+        sessions[i].settings = settings
+        scheduleIndexSave()
+    }
+
+    public func setDesignAmbitionRan(_ ambition: DesignAmbition, for sessionID: UUID) {
+        guard let i = index(sessionID), sessions[i].designAmbitionRan != ambition.rawValue else { return }
+        sessions[i].designAmbitionRan = ambition.rawValue
+        scheduleIndexSave()
+    }
+
+    func saveDesignRevision(_ sessionID: UUID, screenshot: Data?,
+                            sourceRevisions: [String: String], promptID: UUID? = nil)
+        -> Result<DesignRevision, PersistenceFailure> {
+        storeDesignRevision(sessionID, screenshot: screenshot,
+                            sourceRevisions: sourceRevisions, promptID: promptID,
+                            approved: false)
+    }
+
+    public func approveDesign(_ sessionID: UUID, screenshot: Data?,
+                       sourceRevisions: [String: String], promptID: UUID? = nil)
+        -> Result<DesignRevision, PersistenceFailure> {
+        storeDesignRevision(sessionID, screenshot: screenshot,
+                            sourceRevisions: sourceRevisions, promptID: promptID,
+                            approved: true)
+    }
+
+    // Approves a version that is already saved, so handing over what is on the canvas
+    // does not save the same files a second time under a new number.
+    public func approveDesignRevision(_ revisionID: UUID, for sessionID: UUID)
+        -> Result<DesignRevision, PersistenceFailure> {
+        guard let i = index(sessionID), sessions[i].ownsDesign,
+              let revision = sessions[i].designRevisions.first(where: { $0.id == revisionID }) else {
+            return .failure(PersistenceFailure(message: "The Design revision is no longer available."))
+        }
+        let previous = sessions[i].approvedDesignRevisionID
+        sessions[i].approvedDesignRevisionID = revision.id
+        markIndexDirty()
+        return saveOrRollBack(revision, failure: "The approved Design could not be saved.") {
+            sessions[i].approvedDesignRevisionID = previous
+        }
+    }
+
+    private func storeDesignRevision(_ sessionID: UUID, screenshot: Data?,
+                                     sourceRevisions: [String: String], promptID: UUID?,
+                                     approved: Bool)
+        -> Result<DesignRevision, PersistenceFailure> {
+        guard let i = index(sessionID), sessions[i].ownsDesign else {
+            return .failure(PersistenceFailure(message: "The Design session is no longer available."))
+        }
+        let directory = designDirectory(for: sessions[i])
+        let manifest = DesignManifest.read(from: directory)
+        let revision = DesignRevision(
+            id: UUID(),
+            number: (sessions[i].designRevisions.map(\.number).max() ?? 0) + 1,
+            createdAt: Date(),
+            sourceRevisions: sourceRevisions,
+            screens: manifest.screens,
+            promptID: promptID)
+        let fallback = fallbackHandoff(for: sessions[i], revision: revision)
+        do {
+            try DesignArtifacts.saveRevision(revision, from: directory,
+                                             screenshot: screenshot,
+                                             fallbackHandoff: fallback)
+        } catch {
+            return .failure(PersistenceFailure(message: error.localizedDescription))
+        }
+
+        let previousApprovedRevisionID = sessions[i].approvedDesignRevisionID
+        sessions[i].designRevisions.append(revision)
+        if approved { sessions[i].approvedDesignRevisionID = revision.id }
+        publishSidebarSessions()
+        markIndexDirty()
+        return saveOrRollBack(revision, failure: "The approved Design could not be saved.") {
+            try? FileManager.default.removeItem(
+                at: DesignArtifacts.revisionDirectory(revision, designDirectory: directory))
+            sessions[i].designRevisions.removeAll { $0.id == revision.id }
+            sessions[i].approvedDesignRevisionID = previousApprovedRevisionID
+        }
+    }
+
+    public func beginImplementation(_ sessionID: UUID, revisionID: UUID)
+        -> Result<UUID, PersistenceFailure> {
+        guard let i = index(sessionID), sessions[i].ownsDesign,
+              let revision = sessions[i].designRevisions.first(where: { $0.id == revisionID }) else {
+            return .failure(PersistenceFailure(message: "The approved Design is no longer available."))
+        }
+
+        if let sourceID = sessions[i].designSourceSessionID, session(sourceID) != nil {
+            return linkImplementation(sourceID, to: sessionID, revisionID: revisionID)
+                .map { sourceID }
+        }
+
+        // The visible session becomes Build while Design moves behind its tab. Keeping two
+        // conversations preserves each agent's context without creating another sidebar row.
+        loadTranscript(i)
+        let original = sessions[i]
+        var design = original
+        design.id = UUID()
+        design.title = "Design"
+        design.designSourceSessionID = original.id
+        design.sourceDesignSessionID = nil
+        design.handedOffDesignRevisionID = nil
+        design.approvedDesignRevisionID = revisionID
+
+        var implementation = original
+        implementation.mode = .chat
+        implementation.designPhase = .implementing
+        implementation.designRevisions = []
+        implementation.approvedDesignRevisionID = nil
+        implementation.sourceDesignSessionID = design.id
+        implementation.handedOffDesignRevisionID = revisionID
+        implementation.designSourceSessionID = nil
+        implementation.claudeSessionID = nil
+        implementation.codexSessionID = nil
+        implementation.copilotSessionID = nil
+        implementation.usage = nil
+        implementation.summary = SessionSummary()
+        implementation.messages = []
+        implementation.transcriptLoaded = true
+
+        let sourceDirectory = designDirectory(for: original)
+        let designStorageDirectory = designDirectory(for: design)
+        let referenceDirectory = designDirectory(for: implementation)
+            .appendingPathComponent("reference", isDirectory: true)
+        // Putting the files back, needed both when the move itself fails partway and when
+        // the index will not take the split that follows it. The move back only happens if
+        // it actually went, so a failure on the first step cannot delete what it never took.
+        let restoreDesignFiles = {
+            try? FileManager.default.removeItem(at: self.designDirectory(for: implementation))
+            if FileManager.default.fileExists(atPath: designStorageDirectory.path),
+               !FileManager.default.fileExists(atPath: sourceDirectory.path) {
+                try? FileManager.default.moveItem(at: designStorageDirectory, to: sourceDirectory)
+            }
+        }
+        do {
+            try FileManager.default.moveItem(at: sourceDirectory, to: designStorageDirectory)
+            try DesignArtifacts.copyReference(
+                revision, from: designStorageDirectory, to: referenceDirectory)
+        } catch {
+            restoreDesignFiles()
+            return .failure(PersistenceFailure(message: error.localizedDescription))
+        }
+
+        sessions[i] = implementation
+        sessions.append(design)
+        dirtyTranscripts.insert(implementation.id)
+        dirtyTranscripts.insert(design.id)
+        transcriptRevisions[implementation.id, default: 0] &+= 1
+        transcriptRevisions[design.id, default: 0] &+= 1
+        publishSidebarSessions()
+        markIndexDirty()
+        return saveOrRollBack(implementation.id,
+                              failure: "The implementation handoff could not be saved.") {
+            sessions[i] = original
+            sessions.removeAll { $0.id == design.id }
+            dirtyTranscripts.remove(design.id)
+            transcriptRevisions[design.id] = nil
+            dirtyTranscripts.insert(original.id)
+            transcriptRevisions[original.id, default: 0] &+= 1
+            restoreDesignFiles()
+            publishSidebarSessions()
+        }
+    }
+
+    func linkImplementation(_ implementationID: UUID, to designSessionID: UUID,
+                            revisionID: UUID) -> Result<Void, PersistenceFailure> {
+        guard let implementationIndex = index(implementationID),
+              let design = session(designSessionID), design.ownsDesign,
+              let revision = design.designRevisions.first(where: { $0.id == revisionID }) else {
+            return .failure(PersistenceFailure(message: "The approved Design is no longer available."))
+        }
+        let destination = designDirectory(for: sessions[implementationIndex])
+            .appendingPathComponent("reference", isDirectory: true)
+        do {
+            try DesignArtifacts.copyReference(
+                revision,
+                from: designDirectory(for: design),
+                to: destination)
+        } catch {
+            return .failure(PersistenceFailure(message: error.localizedDescription))
+        }
+        sessions[implementationIndex].sourceDesignSessionID = designSessionID
+        sessions[implementationIndex].handedOffDesignRevisionID = revisionID
+        markIndexDirty()
+        return saveOrRollBack((), failure: "The implementation handoff could not be saved.") {
+            sessions[implementationIndex].sourceDesignSessionID = nil
+            sessions[implementationIndex].handedOffDesignRevisionID = nil
+            try? FileManager.default.removeItem(at: destination)
+        }
+    }
+
+    public func syncDesignReference(for implementationID: UUID)
+        -> Result<DesignRevision, PersistenceFailure> {
+        guard let implementationIndex = index(implementationID),
+              let sourceID = sessions[implementationIndex].sourceDesignSessionID,
+              let design = session(sourceID),
+              let revision = approvedDesignRevision(for: design) else {
+            return .failure(PersistenceFailure(message: "There is no newer approved Design."))
+        }
+        let destination = designDirectory(for: sessions[implementationIndex])
+            .appendingPathComponent("reference", isDirectory: true)
+        do {
+            try DesignArtifacts.copyReference(
+                revision,
+                from: designDirectory(for: design),
+                to: destination)
+        } catch {
+            return .failure(PersistenceFailure(message: error.localizedDescription))
+        }
+        let previousRevisionID = sessions[implementationIndex].handedOffDesignRevisionID
+        sessions[implementationIndex].handedOffDesignRevisionID = revision.id
+        markIndexDirty()
+        return saveOrRollBack(revision,
+                              failure: "The updated Design reference could not be saved.") {
+            sessions[implementationIndex].handedOffDesignRevisionID = previousRevisionID
+            if let previousRevisionID,
+               let previous = design.designRevisions.first(where: { $0.id == previousRevisionID }) {
+                try? DesignArtifacts.copyReference(
+                    previous,
+                    from: designDirectory(for: design),
+                    to: destination)
+            }
+        }
+    }
+
+    func restoreDesignRevision(_ revisionID: UUID, for sessionID: UUID)
+        -> Result<Void, PersistenceFailure> {
+        guard let i = index(sessionID), sessions[i].ownsDesign,
+              let revision = sessions[i].designRevisions.first(where: { $0.id == revisionID }) else {
+            return .failure(PersistenceFailure(message: "The Design revision is no longer available."))
+        }
+        do {
+            try DesignArtifacts.restore(revision, in: designDirectory(for: sessions[i]))
+            sessions[i].designPhase = .designing
+            saveIndex()
+            return .success(())
+        } catch {
+            return .failure(PersistenceFailure(message: error.localizedDescription))
+        }
+    }
+
+    public func implementationReferenceAttachments(for session: ChatSession) -> [Attachment] {
+        guard let directory = implementationDesignDirectory(for: session) else { return [] }
+        return ["index.html", "handoff.md", "preview.png"].compactMap { name in
+            let url = directory.appendingPathComponent(name)
+            return FileManager.default.fileExists(atPath: url.path) ? Attachment(url: url) : nil
+        }
+    }
+
+    private func fallbackHandoff(for session: ChatSession,
+                                 revision: DesignRevision) -> String {
+        let request = transcript(of: session.id).last(where: { $0.role == .user })?.text.trimmed
+        let goal = request.flatMap { $0.isEmpty ? nil : $0 } ?? session.title
+        return """
+        # \(revision.title) implementation handoff
+
+        ## Goal
+
+        \(goal)
+
+        ## Reference
+
+        Open `index.html` and `design.json` in this folder. Treat the HTML as a visual and \
+        interaction reference. Reuse the production project's existing components, tokens, \
+        patterns, and architecture.
+
+        Treat this Design as a scoped change to the existing product unless the goal clearly \
+        requires a new or replacement experience. Inspect the current implementation and close \
+        only the gap represented by the goal and Design. Preserve behavior, structure, screens, \
+        and content outside that gap. Anything omitted from the Design remains unchanged.
+
+        ## Acceptance
+
+        - Match the approved visual hierarchy and content.
+        - Implement the interactions represented in the Design.
+        - Cover responsive and accessible behavior appropriate to the product.
+        - Run the project's relevant tests before finishing.
+        """
+    }
+
+    public func renameSession(_ sessionID: UUID, to title: String) {
+        guard let i = index(sessionID) else { return }
+        let trimmed = title.trimmed
+        guard !trimmed.isEmpty else { return }
+        sessions[i].title = trimmed
+        sessions[i].titleRevision = UUID()
+        publishSidebarSessions()
+        scheduleIndexSave()
+    }
+
+    public func setGeneratedTitle(_ title: String, for request: SessionTitleRequest) {
+        guard let session = session(request.sessionID),
+              session.title == request.originalTitle,
+              session.titleRevision == request.revision else { return }
+        renameSession(request.sessionID, to: title)
+    }
+
+    public func setPinned(_ isPinned: Bool, forSession sessionID: UUID) {
+        guard let i = index(sessionID), sessions[i].isPinned != isPinned else { return }
+        sessions[i].isPinned = isPinned
+        publishSidebarSessions()
+        scheduleIndexSave()
+    }
+
+    // Gives a session, project or workspace the date a drag in the sidebar worked out
+    // for it, so the "Last used" order keeps it where it was dropped.
+    public func placeInSidebar(_ id: UUID, at date: Date, now: Date = Date()) {
+        let placement = SidebarPlacement(date: date, placedAt: now)
+        if let i = index(id) {
+            sessions[i].sidebarPlacement = placement
+            publishSidebarSessions()
+        } else if let i = projects.firstIndex(where: { $0.id == id }) {
+            projects[i].sidebarPlacement = placement
+        } else if let i = workspaces.firstIndex(where: { $0.id == id }) {
+            workspaces[i].sidebarPlacement = placement
+        } else {
+            return
+        }
+        scheduleIndexSave()
+    }
+
+    public func setAgentAvatarName(_ name: String?, for sessionID: UUID) {
+        guard let i = index(sessionID), sessions[i].agentAvatarName != name else { return }
+        sessions[i].agentAvatarName = name
+        scheduleIndexSave()
+    }
+
+    public func recordUsage(_ turn: TurnUsage, from agent: AgentKind, for sessionID: UUID) {
+        guard let i = index(sessionID) else { return }
+        var usage = sessions[i].usage ?? SessionUsage()
+        usage.add(turn, from: agent)
+        sessions[i].usage = usage
+        publishSidebarSessions()
+        scheduleIndexSave()
+    }
+
+    public func recordContext(_ tokens: Int, contextWindow: Int?, model: String?,
+                       from agent: AgentKind, for sessionID: UUID) {
+        guard let i = index(sessionID) else { return }
+        var usage = sessions[i].usage ?? SessionUsage()
+        usage.noteContext(tokens, contextWindow: contextWindow, model: model, from: agent)
+        sessions[i].usage = usage
+        publishSidebarSessions()
+        scheduleIndexSave()
+    }
+
+    // Forgets how full the window was, without touching what the session has spent.
+    // Goes with dropping the conversation the next turn would have resumed.
+    public func clearContextUsage(for sessionID: UUID) {
+        guard let i = index(sessionID), var usage = sessions[i].usage else { return }
+        usage.noteCleared()
+        sessions[i].usage = usage
+        publishSidebarSessions()
+        scheduleIndexSave()
+    }
+
+    // The conversation has been summarised, so the last reading no longer describes it
+    // and no new one has arrived yet.
+    public func recordCompaction(for sessionID: UUID) {
+        guard let i = index(sessionID), var usage = sessions[i].usage else { return }
+        usage.noteCompacted()
+        sessions[i].usage = usage
+        publishSidebarSessions()
+        scheduleIndexSave()
+    }
+
+    public func notePullRequest(_ pullRequest: PullRequest, for sessionID: UUID) {
+        guard let i = index(sessionID),
+              !sessions[i].pullRequests.contains(where: { $0.url == pullRequest.url })
+        else { return }
+        sessions[i].pullRequests.append(pullRequest)
+        scheduleIndexSave()
+    }
+
+    // Sessions that opened pull requests before the app watched for them, and sessions
+    // resumed from a transcript the app did not see arrive. Run when a session is opened,
+    // so the card is right whatever the conversation has been through. Reads what is in
+    // memory rather than fetching it: the caller waits for the conversation it opened.
+    // The transcript holds every one that was opened, so it replaces what is on the
+    // record rather than adding to it.
+    public func findPullRequests(in sessionID: UUID) {
+        guard let i = index(sessionID), sessions[i].transcriptLoaded else { return }
+        let found = PullRequestScanner.find(in: sessions[i])
+        guard !found.isEmpty, found != sessions[i].pullRequests else { return }
+        sessions[i].pullRequests = found
+        scheduleIndexSave()
+    }
+
+    @discardableResult
+    public func removeSession(_ id: UUID) -> Result<Void, PersistenceFailure> {
+        if session(id) == nil, !pendingSessionRemovals.contains(where: { $0.id == id }) {
+            return .success(())
+        }
+        if let design = designSession(for: id),
+           case .failure(let failure) = removeSession(design.id) {
+            return .failure(failure)
+        }
+        switch prepareSessionRemoval(id) {
+        case .success:
+            return finishSessionRemoval(id)
+        case .failure(let failure):
+            return .failure(failure)
+        }
+    }
+
+    public func prepareSessionRemoval(_ sessionID: UUID)
+        -> Result<PendingSessionRemoval, PersistenceFailure> {
+        if let pending = pendingSessionRemovals.first(where: { $0.id == sessionID }) {
+            return .success(pending)
+        }
+        guard var session = session(sessionID) else {
+            return .failure(PersistenceFailure(message: "The session is no longer in the app."))
+        }
+        guard save() else {
+            return .failure(persistenceFailure(
+                "The session could not be saved before removal started."))
+        }
+        let worktrees = session.isDesignSession ? [] : checkoutProjects(for: session).compactMap { checkout in
+            checkout.worktreePath.map { path in
+                PendingSessionRemoval.Worktree(
+                    path: path,
+                    projectPath: project(checkout.projectID)?.path,
+                    branch: checkout.worktreeBranch)
+            }
+        }
+        session.messages = []
+        session.transcriptLoaded = false
+        let pending = PendingSessionRemoval(session: session, worktrees: worktrees)
+        let updated = pendingSessionRemovals + [pending]
+        switch persistRemovalJournal(updated) {
+        case .success:
+            pendingSessionRemovals = updated
+            removeSessionFromMemory(sessionID)
+            return .success(pending)
+        case .failure(let failure):
+            return .failure(failure)
+        }
+    }
+
+    public func finishSessionRemoval(_ sessionID: UUID) -> Result<Void, PersistenceFailure> {
+        guard let pending = pendingSessionRemovals.first(where: { $0.id == sessionID }) else {
+            return session(sessionID) == nil
+                ? .success(())
+                : .failure(PersistenceFailure(
+                    message: "The session removal was not prepared before cleanup."))
+        }
+
+        removeSessionFromMemory(sessionID)
+        let transcriptResult = deleteTranscript(sessionID)
+        let designResult = deleteDesignDirectory(pending.session)
+        markIndexDirty()
+        let indexSaved = save()
+
+        var failures: [String] = []
+        if case .failure(let failure) = transcriptResult { failures.append(failure.message) }
+        if case .failure(let failure) = designResult { failures.append(failure.message) }
+        if !indexSaved {
+            failures.append(persistenceFailure("The session index could not be saved.").message)
+        }
+        guard failures.isEmpty else {
+            saveError = failures.joined(separator: "\n")
+            return .failure(PersistenceFailure(message: saveError ?? failures[0]))
+        }
+
+        let updated = pendingSessionRemovals.filter { $0.id != sessionID }
+        switch persistRemovalJournal(updated) {
+        case .success:
+            pendingSessionRemovals = updated
+            saveError = nil
+            return .success(())
+        case .failure(let failure):
+            saveError = failure.message
+            return .failure(failure)
+        }
+    }
+
+    // A session that leaves memory is out of the app for good: a prepared removal is
+    // never called off, only finished. So this is where whatever else was keyed to the
+    // session, such as a running shell, is told to go too.
+    private func removeSessionFromMemory(_ sessionID: UUID) {
+        guard let i = index(sessionID) else { return }
+        ToolPresentationCache.forget(sessions[i].messages.flatMap(\.tools).map(\.id))
+        sessions.remove(at: i)
+        publishSidebarSessions()
+        clearSessionMemory(sessionID)
+        if case .session(sessionID) = selection { selection = nil }
+        onRemoved?(.session(sessionID))
+    }
+
+    private func clearSessionMemory(_ sessionID: UUID) {
+        attention.finished.remove(sessionID)
+        attention.markedUnread.remove(sessionID)
+        holds[sessionID] = nil
+        transcriptLoads[sessionID]?.cancel()
+        transcriptLoads[sessionID] = nil
+        evictWhenWritten.remove(sessionID)
+        dirtyTranscripts.remove(sessionID)
+        transcriptRevisions[sessionID] = nil
+        transcriptLoadErrors[sessionID] = nil
+    }
+
+    private func deleteTranscript(_ sessionID: UUID) -> Result<Void, PersistenceFailure> {
+        let url = transcriptURL(sessionID)
+        // A debounced write may already be queued with an older snapshot. Delete on the
+        // same queue after it, so that snapshot cannot recreate the removed transcript.
+        return persistence.removeTranscript(at: url)
+    }
+
+    private func deleteDesignDirectory(_ session: ChatSession)
+        -> Result<Void, PersistenceFailure> {
+        let url = designDirectory(for: session)
+        guard FileManager.default.fileExists(atPath: url.path) else { return .success(()) }
+        do {
+            try FileManager.default.removeItem(at: url)
+            return .success(())
+        } catch {
+            return .failure(PersistenceFailure(
+                message: "The design at \(url.path) could not be deleted: \(error.localizedDescription)"))
+        }
+    }
+
+    // MARK: - Holding a conversation in memory
+
+    // Says this conversation is needed and reads it in if it is not already there. Every
+    // hold has to be given back, but the same reason twice is one hold: a turn that
+    // starts while the session is already running does not add a second.
+    //
+    // Opening a session is the one hold that can wait a moment for its messages, so it
+    // takes them off the main actor: a long conversation is tens of milliseconds of
+    // decoding, and paying that inside the click is what makes the click feel slow. A
+    // turn and the remote both write into the conversation as soon as they have it, so
+    // they read it in on the spot.
+    public func hold(_ sessionID: UUID, for reason: TranscriptHold) {
+        guard let i = index(sessionID) else { return }
+        if reason == .open || reason == .remote {
+            attention.finished.remove(userFacingSessionID(for: sessionID))
+        }
+        holds[sessionID, default: []].insert(reason)
+        evictWhenWritten.remove(sessionID)
+        if reason == .open {
+            startTranscriptLoad(sessionID)
+        } else {
+            loadTranscript(i)
+        }
+    }
+
+    public func release(_ sessionID: UUID, for reason: TranscriptHold) {
+        holds[sessionID]?.remove(reason)
+        if holds[sessionID]?.isEmpty ?? false { holds[sessionID] = nil }
+        guard holds[sessionID] == nil else { return }
+        // A read that nothing is waiting for any more has nowhere to land.
+        transcriptLoads[sessionID]?.cancel()
+        transcriptLoads[sessionID] = nil
+        guard let i = index(sessionID), sessions[i].transcriptLoaded else { return }
+        // Nothing may be dropped that is not on disk yet, and waiting here for the write
+        // would put encoding a whole conversation inside the click that closed it. The
+        // messages stay until the write that is already owed lands.
+        if dirtyTranscripts.contains(sessionID) {
+            evictWhenWritten.insert(sessionID)
+            save(waiting: false)
+            return
+        }
+        evict(sessionID, at: i)
+    }
+
+    // Drops the messages of a session nothing is holding. Their presentations are left in
+    // the cache: they are keyed by call id and a call never changes, so the same session
+    // opened again reads them back instead of building every diff a second time.
+    private func evict(_ sessionID: UUID, at i: Int) {
+        evictWhenWritten.remove(sessionID)
+        sessions[i].messages = []
+        sessions[i].transcriptLoaded = false
+    }
+
+    // Whether this session's conversation is in memory. Only worth asking in tests and
+    // when deciding what to drop - everything else goes through a hold.
+    func isTranscriptLoaded(_ sessionID: UUID) -> Bool {
+        index(sessionID).map { sessions[$0].transcriptLoaded } ?? false
+    }
+
+    // Whether the conversation is on its way in. What is on screen reads this to tell an
+    // empty conversation apart from one that has not arrived yet.
+    public func isTranscriptLoading(_ sessionID: UUID) -> Bool {
+        transcriptLoads[sessionID] != nil
+    }
+
+    // Waits for a conversation being read in, and returns at once if there is none.
+    public func transcriptReady(_ sessionID: UUID) async {
+        await transcriptLoads[sessionID]?.value
+    }
+
+    // Reads the conversation on the writer queue, which keeps it behind any write of the
+    // same file, and hands the messages back on the main actor.
+    private func startTranscriptLoad(_ sessionID: UUID) {
+        guard let i = index(sessionID), !sessions[i].transcriptLoaded,
+              transcriptLoads[sessionID] == nil else { return }
+        let url = transcriptURL(sessionID)
+        let persistence = persistence
+        transcriptLoads[sessionID] = Task { [weak self] in
+            let outcome = await persistence.readTranscript(at: url)
+            guard !Task.isCancelled else { return }
+            self?.finishTranscriptLoad(sessionID, outcome: outcome)
+        }
+    }
+
+    private func finishTranscriptLoad(_ sessionID: UUID, outcome: ProjectPersistence.TranscriptRead) {
+        transcriptLoads[sessionID] = nil
+        // Something needing the messages sooner will have read them in on the spot, and
+        // whatever it found is the answer rather than this one.
+        guard holds[sessionID] != nil, let i = index(sessionID),
+              !sessions[i].transcriptLoaded else { return }
+        transcriptLoadErrors[sessionID] = outcome.error
+        sessions[i].messages = outcome.messages
+        sessions[i].transcriptLoaded = true
+    }
+
+    // A transcript nobody asked for still has to be read before it can be changed, so
+    // every mutation below goes through here first. A missing file is an empty
+    // conversation. A file that cannot be read stays protected from later writes.
+    private func loadTranscript(_ i: Int) {
+        guard !sessions[i].transcriptLoaded else { return }
+        let sessionID = sessions[i].id
+        transcriptLoads[sessionID]?.cancel()
+        transcriptLoads[sessionID] = nil
+        let outcome = persistence.readTranscriptAndWait(at: transcriptURL(sessionID))
+        transcriptLoadErrors[sessionID] = outcome.error
+        sessions[i].messages = outcome.messages
+        sessions[i].transcriptLoaded = true
+    }
+
+    private func transcriptURL(_ sessionID: UUID) -> URL {
+        transcriptsURL.appendingPathComponent("\(sessionID.uuidString).json")
+    }
+
+    // MARK: - Mutating a conversation
+    //
+    // SessionRunner calls these as events stream in. Writes are frequent, so they are
+    // debounced rather than run on every token.
+
+    public func append(_ message: ChatMessage, to sessionID: UUID) {
+        guard let i = index(sessionID) else { return }
+        loadTranscript(i)
+        sessions[i].messages.append(message)
+        if let checkpoint = message.checkpoint {
+            for (agent, id) in [(AgentKind.claudeCode, checkpoint.claudeSessionID), (.codex, checkpoint.codexSessionID), (.copilot, checkpoint.copilotSessionID)] {
+                if let id { sessions[i].knownAgentSessionIDs?.insert(ImportedSessionOrigin.key(agent: agent, sessionID: id)) }
+            }
+        }
+        sessions[i].summary.lastMessageAt = message.date
+        if message.role == .user {
+            sessions[i].retitleIfNeeded(from: message)
+            // A Design companion is named "Design" and has no row. The first thing asked
+            // of it is what names the session it sits behind, which is the row the user
+            // reads.
+            if let sourceID = sessions[i].designSourceSessionID, let source = index(sourceID) {
+                sessions[source].retitleIfNeeded(from: message)
+            }
+        }
+        // The sidebar has its own lightweight copy, so activity must be published here
+        // rather than waiting for the deferred transcript summary write.
+        publishSidebarSessions()
+        transcriptChanged(i)
+    }
+
+    public func updateMessage(_ messageID: UUID, in sessionID: UUID, _ change: (inout ChatMessage) -> Void) {
+        guard let i = index(sessionID) else { return }
+        loadTranscript(i)
+        guard let m = sessions[i].messages.firstIndex(where: { $0.id == messageID }) else { return }
+        change(&sessions[i].messages[m])
+        transcriptChanged(i)
+    }
+
+    // An answer given in the middle of a turn, written into the conversation between the
+    // reply so far and the rest of it. A turn puts everything it says into the one
+    // message it started with, so without splitting that in two the answer sits below
+    // work that only happened because of it. Hands back the message the turn carries on
+    // in, or nil if the session is gone.
+    public func recordAnswer(_ text: String, in sessionID: UUID, continuing messageID: UUID) -> UUID? {
+        guard let i = index(sessionID) else { return nil }
+        loadTranscript(i)
+        // The question can come before the turn has said anything at all, and an empty
+        // half of a reply is not worth keeping either side of the answer.
+        if sessions[i].messages.first(where: { $0.id == messageID })?.isEmpty ?? false {
+            sessions[i].messages.removeAll { $0.id == messageID }
+        }
+        sessions[i].messages.append(ChatMessage(role: .user, text: text))
+        let carriesOn = ChatMessage(role: .assistant)
+        sessions[i].messages.append(carriesOn)
+        transcriptChanged(i)
+        return carriesOn.id
+    }
+
+    // The conversation this session is having, read in if it is not in memory. Anything
+    // that needs the messages themselves rather than what the sidebar says about them
+    // comes through here.
+    public func transcript(of sessionID: UUID) -> [ChatMessage] {
+        guard let i = index(sessionID) else { return [] }
+        loadTranscript(i)
+        return sessions[i].messages
+    }
+
+    // The conversation as it already stands in memory, or nil when it is not held there.
+    // Unlike `transcript(of:)` this never pulls the file in, so a caller that only wants
+    // to read what is already there is not the reason a hundred of them are held.
+    public func loadedTranscript(of sessionID: UUID) -> [ChatMessage]? {
+        guard let i = index(sessionID), sessions[i].transcriptLoaded else { return nil }
+        return sessions[i].messages
+    }
+
+    // Mobile access compares this cheap number before building a full snapshot. A live
+    // answer can change many times a second, so rebuilding the whole transcript merely to
+    // discover that it stayed still would make the remote view cost more than the app view.
+    public func transcriptRevision(_ sessionID: UUID) -> Int {
+        transcriptRevisions[sessionID] ?? 0
+    }
+
+    // The summary the sidebar reads is rebuilt when the write lands rather than here:
+    // a streaming reply changes the transcript many times a second, and deriving the
+    // summary walks every call in the conversation.
+    private func transcriptChanged(_ i: Int) {
+        let sessionID = sessions[i].id
+        dirtyTranscripts.insert(sessionID)
+        transcriptRevisions[sessionID, default: 0] &+= 1
+        markIndexDirty()
+        scheduleSave()
+    }
+
+    public func setAgentSessionID(_ agentID: String, agent: AgentKind, for sessionID: UUID) {
+        guard let i = index(sessionID), sessions[i].agent == agent else { return }
+        guard sessions[i].agentSessionID(for: agent) != agentID else { return }
+        if let previous = sessions[i].agentSessionID(for: agent) {
+            sessions[i].knownAgentSessionIDs?.insert(ImportedSessionOrigin.key(agent: agent, sessionID: previous))
+        }
+        sessions[i].knownAgentSessionIDs?.insert(ImportedSessionOrigin.key(agent: agent, sessionID: agentID))
+        switch agent {
+        case .claudeCode: sessions[i].claudeSessionID = agentID
+        case .codex: sessions[i].codexSessionID = agentID
+        case .copilot: sessions[i].copilotSessionID = agentID
+        }
+        scheduleIndexSave()
+    }
+
+    // An agent keeps its own conversation history, and it can be pruned or removed
+    // behind our back. Once that happens every resume fails, so the id has to be
+    // droppable to let the next turn start a fresh conversation instead.
+    public func clearAgentSessionID(agent: AgentKind, for sessionID: UUID) {
+        guard let i = index(sessionID) else { return }
+        switch agent {
+        case .claudeCode: sessions[i].claudeSessionID = nil
+        case .codex: sessions[i].codexSessionID = nil
+        case .copilot: sessions[i].copilotSessionID = nil
+        }
+        scheduleIndexSave()
+    }
+
+    // Which prompts the conversation can be wound back to. A checkpoint freezes Claude
+    // Code's conversation but not the one shared conversation Codex and Copilot keep, so
+    // a turn on either of those seals itself and everything before it.
+    public func rewindableMessageIDs(in sessionID: UUID) -> Set<UUID> {
+        var ids: Set<UUID> = []
+        for message in transcript(of: sessionID).reversed() {
+            guard message.role == .user, let checkpoint = message.checkpoint else { continue }
+            guard !checkpoint.agent.reusesConversationID else { break }
+            ids.insert(message.id)
+        }
+        return ids
+    }
+
+    // Cuts the conversation off from this message onward. What the removed turns spent
+    // stays spent; only the words go.
+    public func truncateTranscript(from messageID: UUID, in sessionID: UUID) {
+        guard let i = index(sessionID) else { return }
+        loadTranscript(i)
+        guard let m = sessions[i].messages.firstIndex(where: { $0.id == messageID }) else { return }
+        ToolPresentationCache.forget(sessions[i].messages[m...].flatMap(\.tools).map(\.id))
+        sessions[i].messages.removeSubrange(m...)
+        sessions[i].summary.lastMessageAt = sessions[i].messages.last?.date
+        publishSidebarSessions()
+        transcriptChanged(i)
+    }
+
+    // Puts every resume id back the way a checkpoint recorded them. Unlike
+    // setAgentSessionID this can also clear one, and it does not care which agent the
+    // session is on now: the checkpoint speaks for all of them.
+    public func restoreAgentSessionIDs(claudeSessionID: String?, codexSessionID: String?,
+                                copilotSessionID: String? = nil,
+                                for sessionID: UUID) {
+        guard let i = index(sessionID) else { return }
+        sessions[i].claudeSessionID = claudeSessionID
+        sessions[i].codexSessionID = codexSessionID
+        sessions[i].copilotSessionID = copilotSessionID
+        scheduleIndexSave()
+    }
+
+    // MARK: - Forking a session
+
+    // Whether a new session could pick this conversation up from just before this
+    // prompt. Only Claude Code can share a conversation between sessions - resuming
+    // forks a fresh id, so the two never write over each other - while Codex and Copilot
+    // keep one shared conversation. A worktree or workspace session is tied to a checkout
+    // of its own that a fork would not have, so those stay whole.
+    public func canForkSession(_ sessionID: UUID, before messageID: UUID) -> Bool {
+        guard let source = session(sessionID),
+              source.worktreePath == nil, source.workspaceID == nil else { return false }
+        guard let message = transcript(of: sessionID).first(where: { $0.id == messageID }),
+              message.role == .user, let checkpoint = message.checkpoint else { return false }
+        return checkpoint.codexSessionID == nil && checkpoint.copilotSessionID == nil
+    }
+
+    // A new session in the same project holding the conversation up to just before this
+    // prompt. The original keeps everything and carries on; the fork goes its own way
+    // from here.
+    // Every prompt a new session could be forked from, in transcript order: the cheap
+    // version of asking `canForkSession` of each one.
+    public func forkableMessageIDs(in sessionID: UUID, messages: [ChatMessage]? = nil) -> [UUID] {
+        guard let source = session(sessionID),
+              source.worktreePath == nil, source.workspaceID == nil else { return [] }
+        return (messages ?? transcript(of: sessionID)).compactMap { message in
+            guard message.role == .user, let checkpoint = message.checkpoint,
+                  checkpoint.codexSessionID == nil, checkpoint.copilotSessionID == nil else { return nil }
+            return message.id
+        }
+    }
+
+    // `selecting` moves this store's selection to the fork, as the GUI does when it forks;
+    // a client of the station opens the fork on its own screen instead.
+    @discardableResult
+    public func forkSession(_ sessionID: UUID, before messageID: UUID, selecting: Bool = true) -> ChatSession? {
+        guard canForkSession(sessionID, before: messageID),
+              let source = session(sessionID) else { return nil }
+        let messages = transcript(of: sessionID)
+        guard let m = messages.firstIndex(where: { $0.id == messageID }),
+              let checkpoint = messages[m].checkpoint else { return nil }
+
+        var fork = ChatSession(projectID: source.projectID, agent: source.agent)
+        fork.title = source.title == "New session" ? source.title : "\(source.title) · fork"
+        fork.settings = source.settings
+        fork.agentAvatarName = source.agentAvatarName
+        fork.importedOrigin = source.importedOrigin
+        fork.knownAgentSessionIDs = source.knownAgentSessionIDs
+        fork.claudeSessionID = checkpoint.claudeSessionID
+        fork.messages = Array(messages[..<m])
+        fork.messages.append(ChatMessage(
+            role: .system, text: "Forked from \"\(source.title)\" at this point."))
+        fork.transcriptLoaded = true
+        fork.summary.lastMessageAt = fork.messages.last?.date
+        sessions.append(fork)
+        dirtyTranscripts.insert(fork.id)
+        transcriptRevisions[fork.id, default: 0] &+= 1
+        publishSidebarSessions()
+        if selecting {
+            selectedProjectID = fork.projectID
+            selection = .session(fork.id)
+            navigation.arrived()
+        }
+        saveIndex()
+        return fork
+    }
+
+    // MARK: - Importing sessions
+
+    public struct SessionImport: Sendable {
+        public let candidate: ExternalSessionCandidate
+        public let messages: [ChatMessage]
+        public var resumeID: String? = nil
+
+        public init(candidate: ExternalSessionCandidate, messages: [ChatMessage], resumeID: String? = nil) {
+            self.candidate = candidate
+            self.messages = messages
+            self.resumeID = resumeID
+        }
+    }
+
+    private var importsInFlight: Set<String> = []
+    private var historyIndexReads: [UUID: Task<Set<String>?, Never>] = [:]
+
+    // Older indexes need one background pass over their checkpoints. The decoded
+    // messages never enter the store, and later checks use only these saved IDs.
+    public func knownAgentSessionIDs(inProject projectID: UUID) async -> Set<String> {
+        let missing = sessions.filter { $0.projectID == projectID && $0.knownAgentSessionIDs == nil }.map(\.id)
+        for id in missing {
+            guard !Task.isCancelled else { break }
+            guard session(id)?.knownAgentSessionIDs == nil else { continue }
+            let persistence = persistence
+            let url = transcriptURL(id)
+            let read = historyIndexReads[id] ?? Task { await persistence.conversationIDs(at: url) }
+            historyIndexReads[id] = read
+            let ids = await read.value
+            historyIndexReads[id] = nil
+            guard let ids,
+                  let i = index(id) else { continue }
+            sessions[i].knownAgentSessionIDs = (sessions[i].knownAgentSessionIDs ?? []).union(ids)
+            scheduleIndexSave()
+        }
+        var known: Set<String> = []
+        for session in sessions {
+            known.formUnion(session.knownAgentSessionIDs ?? [])
+            for agent in AgentKind.allCases {
+                if let id = session.agentSessionID(for: agent) {
+                    known.insert(ImportedSessionOrigin.key(agent: agent, sessionID: id))
+                }
+            }
+            if let origin = session.importedOrigin {
+                known.insert(ImportedSessionOrigin.key(agent: origin.agent, sessionID: origin.sessionID))
+            }
+        }
+        return known
+    }
+
+    public func importSession(_ item: SessionImport, into projectID: UUID) async
+        -> Result<ChatSession, PersistenceFailure> {
+        guard let project = project(projectID), loadError == nil else {
+            return .failure(PersistenceFailure(message: loadError ?? "The project is no longer in the app."))
+        }
+        if let existing = sessions.first(where: {
+            $0.importedOrigin?.sessionID == item.candidate.sessionID
+                && $0.importedOrigin?.agent == item.candidate.agent
+        }) { return .success(existing) }
+        guard !item.messages.isEmpty else {
+            return .failure(PersistenceFailure(message: "The session has no readable conversation."))
+        }
+        guard importsInFlight.insert(item.candidate.id).inserted else {
+            return .failure(PersistenceFailure(message: "This session is already being imported."))
+        }
+        defer { importsInFlight.remove(item.candidate.id) }
+        var session = ChatSession(projectID: projectID, agent: item.candidate.agent)
+        session.settings = SessionSettings(model: ModelChoice.valid(nil, for: session.agent))
+        let resumeID = item.resumeID ?? item.candidate.sessionID
+        switch session.agent {
+        case .claudeCode: session.claudeSessionID = resumeID
+        case .codex: session.codexSessionID = resumeID
+        case .copilot: session.copilotSessionID = resumeID
+        }
+        session.importedOrigin = item.candidate.origin
+        session.knownAgentSessionIDs = [item.candidate.id,
+            ImportedSessionOrigin.key(agent: session.agent, sessionID: resumeID)]
+        session.createdAt = item.candidate.startedAt ?? item.messages.first?.date ?? Date()
+        if let title = item.candidate.title, !title.isBlank {
+            session.title = title
+        } else if let first = item.messages.first(where: { $0.role == .user }) {
+            session.retitleIfNeeded(from: first)
+        }
+        let written = await persistence.importTranscript(.init(
+            sessionID: session.id, revision: 0, messages: item.messages,
+            projectPath: project.path, url: transcriptURL(session.id)))
+        switch written {
+        case .failure(let error): return .failure(error)
+        case .success(let summary): session.summary = summary
+        }
+        guard self.project(projectID) != nil else {
+            _ = await persistence.removeTranscriptInBackground(at: transcriptURL(session.id))
+            return .failure(PersistenceFailure(message: "The project is no longer in the app."))
+        }
+        if session.summary.lastMessageAt == nil { session.summary.lastMessageAt = item.candidate.lastActivity }
+        sessions.append(session)
+        publishSidebarSessions()
+        markIndexDirty()
+        guard await saveInBackground() else {
+            let failure = persistenceFailure("The imported session could not be saved.")
+            sessions.removeAll { $0.id == session.id }
+            publishSidebarSessions()
+            markIndexDirty()
+            _ = await persistence.removeTranscriptInBackground(at: transcriptURL(session.id))
+            return .failure(failure)
+        }
+        return .success(session)
+    }
+
+    // A turn that fails before Claude Code produces anything leaves an empty assistant
+    // message behind; without this it would sit in the transcript forever.
+    public func removeMessage(_ messageID: UUID, from sessionID: UUID) {
+        guard let i = index(sessionID) else { return }
+        loadTranscript(i)
+        sessions[i].messages.removeAll { $0.id == messageID }
+        transcriptChanged(i)
+    }
+
+    private func index(_ sessionID: UUID) -> Int? {
+        sessions.firstIndex { $0.id == sessionID }
+    }
+
+    // MARK: - Persistence
+
+    private var saveTask: Task<Void, Never>?
+    // What has changed since the last write. A streamed reply touches one conversation
+    // and the numbers the sidebar shows for it, so those are the only two files that
+    // ever need rewriting, however many sessions the app is holding.
+    private var dirtyTranscripts: Set<UUID> = []
+    private var transcriptRevisions: [UUID: Int] = [:]
+    private var indexDirty = false
+    private var indexRevision = 0
+    private var saveGeneration = 0
+    private var lastCompletedGeneration = 0
+    private var asynchronousWriteInFlight = false
+    private var saveAfterCurrentWrite = false
+    private var saveWaiters: [CheckedContinuation<Bool, Never>] = []
+
+    // The index carries what the sidebar reads, so anything that changes a title, a
+    // number or where a session runs goes through one of these.
+    private func saveIndex() {
+        markIndexDirty()
+        save()
+    }
+
+    private func scheduleIndexSave() {
+        markIndexDirty()
+        scheduleSave()
+    }
+
+    private func markIndexDirty() {
+        indexDirty = true
+        indexRevision &+= 1
+    }
+
+    // Coalesce the burst of writes that a streaming reply produces into one file write.
+    private func scheduleSave() {
+        saveTask?.cancel()
+        saveTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(1))
+            guard !Task.isCancelled else { return }
+            self?.save(waiting: false)
+        }
+    }
+
+    // Returns with everything on disk. This is what dropping a transcript from memory
+    // relies on, debounce or no debounce.
+    @discardableResult
+    public func save() -> Bool { save(waiting: true) }
+
+    @discardableResult
+    private func saveInBackground() async -> Bool {
+        await withCheckedContinuation { continuation in
+            guard save(waiting: false), asynchronousWriteInFlight else {
+                continuation.resume(returning: loadError == nil && !indexDirty && dirtyTranscripts.isEmpty)
+                return
+            }
+            saveWaiters.append(continuation)
+        }
+    }
+
+    private func save(waiting: Bool) -> Bool {
+        saveTask?.cancel()
+        saveTask = nil
+        guard loadError == nil else {
+            saveError = "Changes were not saved because the existing project index could not be loaded."
+            return false
+        }
+        if !waiting, asynchronousWriteInFlight {
+            saveAfterCurrentWrite = true
+            return true
+        }
+
+        var transcripts: [ProjectPersistence.PendingTranscript] = []
+        var blockedFailures: [String] = []
+        for sessionID in dirtyTranscripts {
+            if let error = transcriptLoadErrors[sessionID] {
+                blockedFailures.append(error)
+                continue
+            }
+            // A session removed before its last write landed has nothing to write to.
+            guard let i = index(sessionID), sessions[i].transcriptLoaded else {
+                blockedFailures.append("The transcript for session \(sessionID) is not loaded and could not be saved.")
+                continue
+            }
+            let root = workingDirectory(for: sessions[i]) ?? ""
+            transcripts.append(ProjectPersistence.PendingTranscript(
+                sessionID: sessionID, revision: transcriptRevisions[sessionID] ?? 0,
+                messages: sessions[i].messages, projectPath: root, url: transcriptURL(sessionID)))
+        }
+
+        var persisted: ProjectPersistence.PendingIndex?
+        if indexDirty, blockedFailures.isEmpty {
+            navigation.persistSelection()
+            persisted = ProjectPersistence.PendingIndex(
+                revision: indexRevision,
+                value: ProjectPersistence.Index(projects: projects, sessions: sessions, workspaces: workspaces))
+        }
+        guard !transcripts.isEmpty || persisted != nil else {
+            saveError = blockedFailures.isEmpty ? nil : blockedFailures.joined(separator: "\n")
+            return blockedFailures.isEmpty && dirtyTranscripts.isEmpty && !indexDirty
+        }
+
+        saveGeneration &+= 1
+        let batch = ProjectPersistence.Batch(generation: saveGeneration, transcripts: transcripts,
+                                             index: persisted, blockedFailures: blockedFailures)
+        if waiting {
+            finishWrite(persistence.writeAndWait(batch), asynchronous: false)
+            return dirtyTranscripts.isEmpty && !indexDirty
+        }
+        asynchronousWriteInFlight = true
+        persistence.write(batch) { [weak self] completion in
+            Task { @MainActor in self?.finishWrite(completion, asynchronous: true) }
+        }
+        return blockedFailures.isEmpty
+    }
+
+    private func finishWrite(_ completion: ProjectPersistence.WriteCompletion, asynchronous: Bool) {
+        defer {
+            if !asynchronousWriteInFlight {
+                let waiting = saveWaiters
+                saveWaiters.removeAll()
+                for waiter in waiting {
+                    waiter.resume(returning: loadError == nil && !indexDirty && dirtyTranscripts.isEmpty)
+                }
+            }
+        }
+        var summaryChanged = false
+        for (sessionID, summary) in completion.summaries
+        where transcriptRevisions[sessionID] == summary.revision {
+            guard let i = index(sessionID) else { continue }
+            summaryChanged = summaryChanged || sessions[i].summary != summary.value
+            sessions[i].summary = summary.value
+        }
+        if summaryChanged { publishSidebarSessions() }
+        for (sessionID, revision) in completion.transcriptSuccesses
+        where transcriptRevisions[sessionID] == revision {
+            dirtyTranscripts.remove(sessionID)
+        }
+        if completion.indexSucceeded, completion.indexRevision == indexRevision {
+            indexDirty = false
+        }
+        // A closed conversation whose write has landed. One that failed to write stays in
+        // memory, where it is the only copy there is.
+        for sessionID in evictWhenWritten where !dirtyTranscripts.contains(sessionID) {
+            guard let i = index(sessionID), sessions[i].transcriptLoaded else {
+                evictWhenWritten.remove(sessionID)
+                continue
+            }
+            evict(sessionID, at: i)
+        }
+        if asynchronous {
+            asynchronousWriteInFlight = false
+            if saveAfterCurrentWrite {
+                saveAfterCurrentWrite = false
+                if !dirtyTranscripts.isEmpty || indexDirty {
+                    // Messages waiting on a write are held in memory until it lands, so
+                    // the one they wait for is not left sitting behind the debounce.
+                    if evictWhenWritten.isEmpty && saveWaiters.isEmpty { scheduleSave() } else { save(waiting: false) }
+                }
+            }
+        }
+        guard completion.generation >= lastCompletedGeneration else { return }
+        lastCompletedGeneration = completion.generation
+        let failures = completion.failures
+        saveError = failures.isEmpty ? nil : failures.joined(separator: "\n")
+    }
+
+    private func persistRemovalJournal(_ removals: [PendingSessionRemoval])
+        -> Result<Void, PersistenceFailure> {
+        guard removalJournalLoadError == nil else {
+            return .failure(PersistenceFailure(
+                message: "The pending removal journal could not be loaded and was not overwritten."))
+        }
+        do {
+            let data = try PersistentFile.makeEncoder().encode(RemovalJournal(removals: removals))
+            try persistence.writeRemovalJournal(data, to: removalJournalURL)
+            return .success(())
+        } catch {
+            let failure = PersistenceFailure(
+                message: PersistentFile.saveMessage(for: removalJournalURL, error: error))
+            saveError = failure.message
+            return .failure(failure)
+        }
+    }
+
+    private func loadRemovalJournal() {
+        let data: Data?
+        do {
+            data = try files.readIfPresent(removalJournalURL)
+        } catch {
+            removalJournalLoadError = PersistentFile.loadMessage(
+                for: removalJournalURL, error: error)
+            refreshLoadError()
+            return
+        }
+        guard let data else {
+            removalJournalLoadError = nil
+            pendingSessionRemovals = []
+            refreshLoadError()
+            return
+        }
+
+        do {
+            pendingSessionRemovals = try PersistentFile.makeDecoder()
+                .decode(RemovalJournal.self, from: data).removals
+            removalJournalLoadError = nil
+        } catch {
+            removalJournalLoadError = PersistentFile.decodeMessage(
+                for: removalJournalURL, error: error)
+        }
+        refreshLoadError()
+    }
+
+    private func refreshLoadError() {
+        loadError = removalJournalLoadError ?? indexLoadError
+    }
+
+    private func persistenceFailure(_ fallback: String) -> PersistenceFailure {
+        PersistenceFailure(message: saveError ?? fallback)
+    }
+
+    // Writes a change that has already been made in memory, and puts it back if the write
+    // does not land. Everything the app must not appear to have done unless it reached disk
+    // goes through here: the undo is the part that is easy to forget, and a change that
+    // survived a failed write is one the reader would go on seeing until the next launch
+    // quietly dropped it. The index is marked again afterwards because the undo is itself a
+    // change that still owes a write.
+    private func saveOrRollBack<Value>(_ value: Value, failure message: String,
+                                       undo: () -> Void) -> Result<Value, PersistenceFailure> {
+        guard save() else {
+            undo()
+            markIndexDirty()
+            return .failure(persistenceFailure(message))
+        }
+        return .success(value)
+    }
+
+    func load() {
+        defer { publishSidebarSessions() }
+        let data: Data?
+        do {
+            data = try files.readIfPresent(storeURL)
+        } catch {
+            indexLoadError = PersistentFile.loadMessage(for: storeURL, error: error)
+            refreshLoadError()
+            return
+        }
+        guard let data else {
+            indexLoadError = nil
+            refreshLoadError()
+            return
+        }
+        let saved: ProjectPersistence.Index
+        do {
+            saved = try PersistentFile.makeDecoder().decode(ProjectPersistence.Index.self, from: data)
+        } catch {
+            indexLoadError = PersistentFile.decodeMessage(for: storeURL, error: error)
+            refreshLoadError()
+            return
+        }
+        indexLoadError = nil
+        refreshLoadError()
+        projects = saved.projects
+        workspaces = saved.workspaces ?? []
+        let pendingIDs = Set(pendingSessionRemovals.map(\.id))
+        sessions = saved.sessions.filter { !pendingIDs.contains($0.id) }
+        moveTranscriptsOutOfTheIndex()
+        selectedProjectID = navigation.savedProjectID ?? saved.selectedProjectID ?? projects.first?.id
+        if let id = navigation.savedSessionID ?? saved.selectedSessionID,
+           sessions.contains(where: { $0.id == id }) {
+            selection = .session(id)
+        } else if let id = navigation.savedWorkspaceID, workspace(id) != nil {
+            selection = .workspace(id)
+        }
+        // Filled in after the selection is restored, so the session that was open when it
+        // was marked does not count as opened again and lose its mark at launch.
+        attention.markedUnread = Set(sessions.filter(\.isMarkedUnread).map(\.id))
+        navigation.recordVisit()
+    }
+
+    private func publishSidebarSessions() {
+        var cards: [ChatSession] = []
+        var companions: [UUID: ChatSession] = [:]
+        for session in sessions {
+            var card = session
+            card.messages = []
+            card.transcriptLoaded = false
+            if let sourceID = session.designSourceSessionID {
+                companions[sourceID] = card
+            } else {
+                cards.append(card)
+            }
+        }
+        // A companion's turns are the session's own work. The card takes the newer of the
+        // two, so a row does not read as untouched while Design is the side running.
+        for i in cards.indices {
+            guard let companion = companions[cards[i].id],
+                  let spoke = companion.summary.lastMessageAt,
+                  spoke > cards[i].summary.lastMessageAt ?? .distantPast else { continue }
+            cards[i].summary.lastMessageAt = spoke
+            cards[i].summary.lastTool = companion.summary.lastTool
+        }
+        sidebarSessionCache = cards
+        if companions != designCompanions { designCompanions = companions }
+        sidebarSessionRevision &+= 1
+    }
+
+    // An index written before conversations had files of their own carries them inline,
+    // and decoding one is the only time a session arrives already loaded. Each is written
+    // out once and dropped, which is also what fills in the summaries that version never
+    // had. Runs once: from here on the index holds no messages to find.
+    private func moveTranscriptsOutOfTheIndex() {
+        let inline = sessions.indices.filter { sessions[$0].transcriptLoaded }
+        guard !inline.isEmpty else { return }
+        for i in inline {
+            let sessionID = sessions[i].id
+            dirtyTranscripts.insert(sessionID)
+            transcriptRevisions[sessionID, default: 0] &+= 1
+        }
+        markIndexDirty()
+        save()
+        for i in inline where !dirtyTranscripts.contains(sessions[i].id) {
+            ToolPresentationCache.forget(sessions[i].messages.flatMap(\.tools).map(\.id))
+            sessions[i].messages = []
+            sessions[i].transcriptLoaded = false
+        }
+    }
+
+    // Projects whose folder has since been moved or deleted; sessions there cannot run.
+    public func isMissing(_ project: Project) -> Bool {
+        var isDirectory: ObjCBool = false
+        let exists = FileManager.default.fileExists(atPath: project.path, isDirectory: &isDirectory)
+        return !(exists && isDirectory.boolValue)
+    }
+}

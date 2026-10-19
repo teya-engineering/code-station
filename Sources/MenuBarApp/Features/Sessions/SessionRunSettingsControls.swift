@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 // The settings for the next turn are shared by Chat and Design. Both surfaces use this
 // view so a choice has the same meaning and follows the same app default in either mode.

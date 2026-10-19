@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import WebKit
+import CodeStationCore
 
 struct DesignViewport: Equatable {
     private(set) var size = CGSize.zero

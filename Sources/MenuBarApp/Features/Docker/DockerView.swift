@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 struct DockerView: View {
     @Environment(DockerService.self) private var docker

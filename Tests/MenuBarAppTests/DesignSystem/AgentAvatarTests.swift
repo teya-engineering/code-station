@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 import ImageIO
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 struct AgentAvatarTests {
@@ -155,7 +156,7 @@ struct AgentAvatarTests {
     @Test @MainActor func usesTheBuiltInDefaultUntilAnotherBotIsChosen() throws {
         let suite = "agent-avatar-default-tests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { removeScratchDefaults(suite) }
         let sources = try (1...2).map { index in
             let url = root.appendingPathComponent("source-\(index).png")
             try pngData(width: index * 10, height: index * 10).write(to: url)
@@ -186,7 +187,7 @@ struct AgentAvatarTests {
     @Test @MainActor func removingTheChosenDefaultUsesTheBuiltInBot() throws {
         let suite = "agent-avatar-removal-tests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { removeScratchDefaults(suite) }
         let sources = try (1...2).map { index in
             let url = root.appendingPathComponent("source-\(index).png")
             try pngData(width: index * 10, height: index * 10).write(to: url)

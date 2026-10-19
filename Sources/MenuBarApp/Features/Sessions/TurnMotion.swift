@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 // The two moments of a turn: the click that starts it and the moment it ends. People
 // start a turn and look elsewhere, so the end is told in two places. The sidebar rail
@@ -630,32 +631,6 @@ extension ChatMessage {
     func isArriving(sentAt: Date?, now: Date = Date()) -> Bool {
         guard role == .user, let sentAt else { return false }
         return date >= sentAt.addingTimeInterval(-0.5) && now.timeIntervalSince(sentAt) < 1.5
-    }
-}
-
-// How the last turn ended. Kept by the runner, since a turn's start is not written down
-// anywhere else.
-struct TurnEnding: Equatable, Sendable {
-    enum Outcome: Equatable, Sendable {
-        case finished
-        // The user asked it to stop.
-        case stopped
-        case failed
-    }
-
-    let started: Date
-    let ended: Date
-    let outcome: Outcome
-    // The commit each working directory had checked out when the turn began, so the
-    // turn's own commits can be told apart from the ones before it.
-    var startHeads: [String: String] = [:]
-
-    var duration: TimeInterval { max(0, ended.timeIntervalSince(started)) }
-
-    // A seal meeting an ending this recent is seeing it happen, so it stamps itself in.
-    // Anything older is being read back and is simply there.
-    func isFresh(now: Date = Date()) -> Bool {
-        (0..<2).contains(now.timeIntervalSince(ended))
     }
 }
 

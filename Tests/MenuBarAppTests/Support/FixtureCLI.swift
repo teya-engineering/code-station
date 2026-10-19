@@ -1,4 +1,5 @@
 import Foundation
+@testable import CodeStationCore
 
 // The fake CLIs that the runner tests spawn are shell scripts, and most of them have to sit
 // and wait for the test to let them through. Nothing outside the test stops them, so a run

@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import MenuBarApp
+@testable import CodeStationCore
 
 // A question asked on the Changes screen is answered there by a side copy of the session
 // and never reaches the main chat. Only a change made from its answer goes to the agent,

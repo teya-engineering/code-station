@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 // The parts a diagnosis is written on, shared by the sheet that starts one from scratch
 // and by the tab inside a session. Both ask the same four things - the problem, the

@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 @Suite("Session working set")
@@ -209,9 +210,9 @@ struct SessionWorkingSetTests {
     @Test func includesForegroundAgentsAndBackgroundWork() {
         let foreground = ToolUse(id: "reviewer", name: "Task",
                                  input: #"{"subagent_type":"reviewer","description":"review the diff"}"#)
-        let backgroundAgent = BackgroundTask(id: "agent", kind: "local_agent",
+        let backgroundAgent = AgentBackgroundTask(id: "agent", kind: "local_agent",
                                              description: "run tests", agentName: "tester")
-        let backgroundCommand = BackgroundTask(id: "server", kind: "local_bash",
+        let backgroundCommand = AgentBackgroundTask(id: "server", kind: "local_bash",
                                                description: "npm run dev")
         let ordinaryTool = ToolUse(id: "read", name: "Read", input: "README.md")
         let message = ChatMessage(role: .assistant, tools: [foreground, ordinaryTool])
@@ -306,7 +307,7 @@ struct SessionWorkingSetTests {
         let receipt = "launched. agentId: af1aa370 (internal)"
         let agent = ToolUse(id: "launch", name: "Agent", input: "reviewer", result: receipt)
         let message = ChatMessage(role: .assistant, tools: [agent])
-        let task = BackgroundTask(id: "af1aa370", kind: "local_agent",
+        let task = AgentBackgroundTask(id: "af1aa370", kind: "local_agent",
                                   description: "review", agentName: "reviewer")
 
         let activities = WorkingSetSummary.activities(
@@ -321,7 +322,7 @@ struct SessionWorkingSetTests {
     @Test func visibilityIsRememberedIndependentlyForEachSession() throws {
         let suite = "SessionWorkingSetTests-\(UUID())"
         let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { removeScratchDefaults(suite) }
         let first = UUID()
         let second = UUID()
 
@@ -359,7 +360,7 @@ struct SessionWorkingSetTests {
     @Test func tasksTheCLIReportedOnItsOwnLandAtTheEnd() {
         let call = ToolUse(id: "read", name: "Read",
                            input: #"{"file_path":"/project/README.md"}"#, result: "done")
-        let task = BackgroundTask(id: "server", kind: "local_bash",
+        let task = AgentBackgroundTask(id: "server", kind: "local_bash",
                                   description: "npm run dev")
 
         let entries = timeline(in: [ChatMessage(role: .assistant, tools: [call])],
@@ -376,7 +377,7 @@ struct SessionWorkingSetTests {
                              parentID: agent.id)
         let command = ToolUse(id: "build", name: "Bash",
                               input: #"{"command":"swift build"}"#)
-        let task = BackgroundTask(id: "recap", kind: "local_bash",
+        let task = AgentBackgroundTask(id: "recap", kind: "local_bash",
                                   description: "session recap")
         let message = ChatMessage(role: .assistant, tools: [agent, action, command])
 
@@ -446,7 +447,7 @@ struct SessionWorkingSetTests {
                     input: #"{"file_path":"/project/README.md"}"#, result: "done"),
         ])
         let prompt = ChatMessage(role: .user, text: "Start the server")
-        let task = BackgroundTask(id: "server", kind: "local_bash",
+        let task = AgentBackgroundTask(id: "server", kind: "local_bash",
                                   description: "npm run dev")
         let messages = [imported, prompt]
 
@@ -530,7 +531,7 @@ struct SessionWorkingSetTests {
     }
 
     private func timeline(in messages: [ChatMessage], activeTools: [ToolUse] = [],
-                          backgroundTasks: [BackgroundTask] = [])
+                          backgroundTasks: [AgentBackgroundTask] = [])
         -> [WorkingSetTimelineEntry] {
         WorkingSetSummary.timeline(in: messages, activeTools: activeTools,
                                    backgroundTasks: backgroundTasks,

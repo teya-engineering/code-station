@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 // How large the text a session is read through is drawn: the transcript, the tool output
 // under it, inline diffs and the terminal. The chrome around all of that keeps its own

@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 // The desktop side of mobile access: the button that hands out the code and the dialog
 // that shows it.

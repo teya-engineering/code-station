@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import MenuBarApp
+@testable import CodeStationCore
 
 // Which conversation a session is left pointing at after a resumed turn ends. Claude Code
 // answers a resume by forking a new conversation and copying the old one into it, and it

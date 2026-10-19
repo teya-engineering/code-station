@@ -2,6 +2,7 @@ import AppKit
 import CoreAudio
 import Observation
 import SwiftUI
+import CodeStationCore
 
 // What the composer hands over when the mic is clicked: whose draft the words go into,
 // where the caret is, and what the project has in it to recognise.

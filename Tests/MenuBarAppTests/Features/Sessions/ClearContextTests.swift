@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import MenuBarApp
+@testable import CodeStationCore
 
 // Emptying a session's window without giving up the folder it works in. The agent only
 // remembers anything because it is handed a resume id, so what is checked here is that

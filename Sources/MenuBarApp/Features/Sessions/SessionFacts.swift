@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import CodeStationCore
 
 // What a session is besides its name: the branch it is on, what it has changed, the pull
 // requests it opened, what it runs on and how full its window is. The branch is the fact

@@ -1,5 +1,6 @@
 import AppKit
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 // Which keys reach the shell. A terminal is only usable if the window stops answering

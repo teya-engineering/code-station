@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 // The environment a server is tagged with, offered wherever one is picked. The empty tag
 // is a real choice rather than a missing answer: a filesystem or docs server is not tied

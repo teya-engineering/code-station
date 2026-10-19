@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 struct TroubleshootTests {
@@ -99,7 +100,7 @@ struct TroubleshootTests {
     @Test func chosenSkillsSurviveTheAppBeingClosed() {
         let suite = "troubleshoot-skills-\(UUID().uuidString)"
         let store = UserDefaults(suiteName: suite)!
-        defer { store.removePersistentDomain(forName: suite) }
+        defer { removeScratchDefaults(suite) }
 
         Preferences.setTroubleshootSkills(["grafana-specialist", "java-specialist"], in: store)
         #expect(Preferences.troubleshootSkills(in: store) == [

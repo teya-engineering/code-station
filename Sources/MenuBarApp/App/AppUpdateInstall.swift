@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import CodeStationCore
 
 // Replaces the running app with the one inside a published DMG, so taking an update is a
 // click rather than a download, a drag, and a Gatekeeper prompt.

@@ -1,4 +1,5 @@
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 struct SettingsSearchTests {

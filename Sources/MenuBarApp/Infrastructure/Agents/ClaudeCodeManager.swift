@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import SwiftUI
+import CodeStationCore
 
 // Registers servers with the Claude Code CLI so it actually connects to them.
 // Detection reads ~/.claude.json directly (fast, no health checks); changes go
@@ -35,7 +36,7 @@ final class ClaudeCodeManager {
 
     init() {
         configURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude.json")
-        available = ProcessManager.resolve("claude") != nil
+        available = ExecutableSearch.resolve("claude") != nil
         refresh()
     }
 
@@ -212,7 +213,7 @@ final class ClaudeCodeManager {
     // back to the bare command so servers already on PATH still register.
     private func resolvedCommand(_ server: Server) -> String? {
         guard let command = server.command, !command.isEmpty else { return nil }
-        return ProcessManager.resolve(command) ?? command
+        return ExecutableSearch.resolve(command) ?? command
     }
 
     private func addArgs(for server: Server) -> [String]? {

@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 // A switch trails its label, the way a row of settings expects.
 //

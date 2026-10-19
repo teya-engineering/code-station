@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 // What counts as an old session, and what clearing one would cost. Nothing here deletes

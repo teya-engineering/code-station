@@ -1,5 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import CodeStationCore
 
 struct SidebarDropSlot: Equatable {
     let targetID: UUID

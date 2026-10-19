@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 // The word shown while a turn is running. It changes every few seconds, which is the
 // cheapest way of saying the app is still reading the process: a label that never moves

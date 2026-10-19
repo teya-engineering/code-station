@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import MenuBarApp
+@testable import CodeStationCore
 
 // What a session runs with, and what it reads back off the CLI about the cost. The
 // payloads here are real ones taken off the wire.

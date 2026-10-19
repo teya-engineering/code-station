@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 struct AddJSONServerView: View {
     @Environment(ConfigStore.self) private var store

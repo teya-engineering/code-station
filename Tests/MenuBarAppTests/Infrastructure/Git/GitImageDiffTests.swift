@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import MenuBarApp
+@testable import CodeStationCore
 
 // A changed picture is shown, not described. The pane needs the bytes of each version
 // that exists, and must fall back to the binary note only when there is nothing to draw.

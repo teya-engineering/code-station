@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import Observation
+import CodeStationCore
 
 // What the app itself does, as opposed to what a session runs with. It is observed
 // rather than read from UserDefaults where it is needed, so the sidebar's offer to clear

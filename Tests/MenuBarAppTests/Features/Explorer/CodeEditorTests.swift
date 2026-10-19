@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 // The pane draws itself with AppKit, so what it puts on screen is only readable back off
@@ -30,8 +31,8 @@ struct CodeEditorTests {
             view = coordinator.makePane()
             scrollView = view.scrollView
             view.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
-            window = NSWindow(contentRect: view.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
+            window = testWindow(contentRect: view.frame, styleMask: [.borderless],
+                                backing: .buffered, defer: false)
             window.contentView?.addSubview(view)
             view.layoutSubtreeIfNeeded()
             apply(text: text, language: language, matches: matches, currentMatch: currentMatch,

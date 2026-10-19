@@ -2,6 +2,7 @@ import AppKit
 import ImageIO
 import Observation
 import UniformTypeIdentifiers
+import CodeStationCore
 
 enum BotPhoto {
     static let maxBytes = 10 * 1024 * 1024

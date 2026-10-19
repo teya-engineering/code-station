@@ -1,4 +1,5 @@
 import Foundation
+import CodeStationCore
 
 // SwiftPM's own `Bundle.module` looks for the resource bundle beside the executable and
 // then at the path it was built at. Neither is where an app bundle keeps it: `build-app.sh`

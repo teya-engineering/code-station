@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import CodeStationCore
 
 // The sidebar that says what a session is doing and what it has done. The header carries
 // the state and the one thing running now; below it, the work is grouped under the prompt

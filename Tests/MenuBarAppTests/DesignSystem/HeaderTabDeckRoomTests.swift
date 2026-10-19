@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 // The destination deck fits itself to what the deck and the rail together ask for, so the
@@ -70,8 +71,8 @@ struct HeaderTabDeckRoomTests {
     }
 
     private func draw(_ view: NSView) {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 40),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
+        let window = testWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 40),
+                                styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = view
         view.frame = NSRect(x: 0, y: 0, width: 900, height: 40)
         for _ in 0..<4 {
@@ -84,8 +85,8 @@ struct HeaderTabDeckRoomTests {
         let hosting = NSHostingController(rootView: HeaderTabDeck(
             tabs: tabs(selecting: "Explorer"), scrollable: true))
         hosting.sizingOptions = []
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 40),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
+        let window = testWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 40),
+                                styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentViewController = hosting
 
         for width: CGFloat in [400, 250, 450] {

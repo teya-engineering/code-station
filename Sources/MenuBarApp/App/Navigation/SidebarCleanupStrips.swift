@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 // The two strips above the sidebar's buttons both say the same kind of thing: what has
 // piled up, what clearing it would cost, and how long is left before the app clears it

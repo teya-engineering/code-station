@@ -1,4 +1,5 @@
 import Foundation
+import CodeStationCore
 
 // What the text in the sidebar filter box matches. A row answers to its own name, and a
 // session to what is written on its card: its title and the label in front of it. An

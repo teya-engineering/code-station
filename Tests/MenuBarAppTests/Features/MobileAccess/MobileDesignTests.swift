@@ -1,6 +1,7 @@
 import Foundation
 import JavaScriptCore
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 struct MobileDesignTests {

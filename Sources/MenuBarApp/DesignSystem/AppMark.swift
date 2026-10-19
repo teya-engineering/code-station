@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 // Drawn rather than loaded from AppIcon.png. The file holds a single 800px representation,
 // so at the sizes used on screen AppKit rescales it live and the mark comes out soft on a

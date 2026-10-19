@@ -1,5 +1,6 @@
 import Foundation
 import Security
+import CodeStationCore
 
 // Client secrets, access tokens and request passwords, kept where macOS keeps secrets.
 // Everything sits in one keychain item as a JSON dictionary: each item carries its own

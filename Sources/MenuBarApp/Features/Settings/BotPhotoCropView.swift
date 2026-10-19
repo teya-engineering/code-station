@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 struct BotPhotoCropView: View {
     @Environment(DialogPresenter.self) private var dialogs

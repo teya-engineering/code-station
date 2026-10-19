@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import SwiftUI
+import CodeStationCore
 
 // The project's commands, behind one Run button at the end of the composer's own row.
 // They belong there because running the tests for what was just written is the next

@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 // The gutter numbers a line and the highlighter reads one, and both start from here, so

@@ -1,6 +1,7 @@
 import AppKit
 import QuartzCore
 import SwiftUI
+import CodeStationCore
 
 struct SidebarBrandMark: NSViewRepresentable {
     var input: AppMarkMotion.Input

@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import MenuBarApp
+@testable import CodeStationCore
 
 struct SecondOpinionLaunchTests {
     @Test func codexListsServersInTheReviewDirectoryAndDisablesThemBeforeRunning() async throws {

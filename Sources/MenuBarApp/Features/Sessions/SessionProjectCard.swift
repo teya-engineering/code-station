@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 struct SessionProjectCard: View {
     let project: Project

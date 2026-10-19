@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
+import CodeStationCore
 
 // Long conversations stay fully available to the runner and persistence layer, but the
 // view only builds a bounded tail. Earlier pages are added on demand without changing

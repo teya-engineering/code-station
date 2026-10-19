@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import CodeStationCore
 
 // One multi-project conversation. The structure carries the meaning: the lead project is
 // the working directory and the others are indented under it, so nothing has to say in

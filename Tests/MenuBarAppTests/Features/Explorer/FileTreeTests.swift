@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 // The pane a file lands in can be typed into and saved back, so what comes out of the
@@ -247,9 +248,12 @@ struct FileTreeTests {
         let file = root.appendingPathComponent("scratch.txt")
         try Data("bye".utf8).write(to: file)
 
-        #expect(await FileTree.trash(file) == nil)
+        let trash = TestTrash()
+
+        #expect(await FileTree.trash(file, using: trash.move) == nil)
         #expect(!FileManager.default.fileExists(atPath: file.path))
-        #expect(await FileTree.trash(file) != nil)
+        #expect(trash.moved == [file.lastPathComponent])
+        #expect(await FileTree.trash(file, using: trash.move) != nil)
     }
 
     @Test func renamesAnItemInItsFolder() async throws {

@@ -1,4 +1,5 @@
 import Foundation
+import CodeStationCore
 
 enum JSONFormat {
     // Re-indents the text rather than parsing and writing it back out, so the keys stay in

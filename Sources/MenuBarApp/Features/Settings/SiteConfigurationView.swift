@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
+import CodeStationCore
 
 // The editors address rows by index through one writable path per list. The lists that
 // sit inside an optional group get a path of their own, since a key path cannot write

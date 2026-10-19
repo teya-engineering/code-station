@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import CodeStationCore
 
 // The uncommitted changes in a session's folder: the project directory itself, or the
 // session's worktree. Sessions edit the real files there, so this screen is how you

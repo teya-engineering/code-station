@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import CodeStationCore
 
 // A Design session's canvas and its tools, with the conversation floating over them.
 struct DesignView: View {
@@ -675,7 +676,6 @@ extension View {
 }
 
 enum DesignSplitLayout {
-    static let minimumCanvasWidth: CGFloat = 320
     static let barHeight: CGFloat = 42
 }
 

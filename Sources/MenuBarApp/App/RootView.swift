@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import CodeStationCore
 
 // The whole window: one sidebar listing projects and their sessions. The detail pane
 // belongs to the session being worked on; MCP servers are configured in a sheet on
@@ -13,7 +14,7 @@ struct RootView: View {
     @Environment(ShortcutStore.self) private var shortcuts
     @Environment(SessionRunner.self) private var runner
     @Environment(MobileAccessController.self) private var mobileAccess
-    @Environment(OrphanedWorktreeMonitor.self) private var orphanedWorktrees
+    @Environment(StationUpkeep.self) private var upkeep
     @Environment(AppUpdateChecker.self) private var appUpdates
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var skills = SkillsManager()
@@ -21,9 +22,6 @@ struct RootView: View {
     // Only ever one at a time, and a second one asked for while the first is up would
     // replace it rather than stack, so which one is showing is a single choice.
     @State private var sheet: Sheet?
-    @State private var sessionCleanupError: String?
-    @State private var orphanCleanupError: String?
-    @State private var oldSessionDeletion: OldSessionSweep.Deletion?
     @State private var dismissedAttention: Attention?
     // An update being taken is news of its own, so putting the offer away does not also
     // hide the download it started. Each stage can be dismissed once.
@@ -50,14 +48,15 @@ struct RootView: View {
             HStack(spacing: 0) {
                 AppSidebar(skills: skills,
                            tools: tools,
-                           oldSessionDeletion: oldSessionDeletion,
+                           oldSessionDeletion: upkeep.oldSessionDeletion,
                            onReviewOldSessions: { sheet = .oldSessions },
                            paneOwnsFindShortcut: paneOwnsFindShortcut)
                 Divider().overlay(Theme.hairline)
                 detail
             }
             .onPreferenceChange(PaneFindShortcutKey.self) { paneOwnsFindShortcut = $0 }
-            ScheduledTaskConfirmation()
+            ScheduledRunPrompts()
+            StationHandoverPrompts()
             AppUpdateRestartPrompt()
             VStack(spacing: 8) {
                 if let attention, attention != dismissedAttention {
@@ -133,11 +132,8 @@ struct RootView: View {
                 for: NSApplication.didBecomeActiveNotification)) { _ in
                 store.applicationDidBecomeActive()
             }
-            .task { await resumePendingSessionRemovals() }
             .task { await appUpdates.keepChecking() }
             .task(id: skillsRefreshRule) { await refreshSkillsAutomatically() }
-            .task(id: sweepRule) { await deleteOldSessionsAutomatically() }
-            .task(id: settings.autoPruneOrphanedWorktrees) { await monitorOrphanedWorktrees() }
     }
 
     // Keys the window answers wherever the focus is. They are drawn as buttons because a
@@ -260,10 +256,10 @@ struct RootView: View {
             return Attention(title: "Site configuration needs attention",
                              message: siteDefaultsFailure)
         }
-        if let sessionCleanupError {
+        if let sessionCleanupError = upkeep.sessionCleanupError {
             return Attention(title: "Session cleanup needs attention", message: sessionCleanupError)
         }
-        if let orphanCleanupError {
+        if let orphanCleanupError = upkeep.orphanCleanupError {
             return Attention(title: "Worktree cleanup needs attention", message: orphanCleanupError)
         }
         return nil
@@ -287,18 +283,6 @@ struct RootView: View {
         }
     }
 
-    private func resumePendingSessionRemovals() async {
-        let failures = await SessionLifecycle.resumePendingRemovals(in: store)
-        sessionCleanupError = failures.isEmpty
-            ? nil
-            : failures.map(\.message).joined(separator: "\n")
-    }
-
-    private struct SweepRule: Equatable {
-        let policy: OldSessionCleanupPolicy
-        let days: Int
-    }
-
     private struct SkillsRefreshRule: Equatable {
         let interval: SkillsRefreshInterval
         let onboardingComplete: Bool
@@ -307,76 +291,6 @@ struct RootView: View {
     private var skillsRefreshRule: SkillsRefreshRule {
         SkillsRefreshRule(interval: settings.skillsRefreshInterval,
                           onboardingComplete: settings.hasCompletedOnboarding)
-    }
-
-    private var sweepRule: SweepRule {
-        SweepRule(policy: settings.oldSessionCleanupPolicy, days: settings.oldSessionDays)
-    }
-
-    // Age is the only thing that makes a session sweepable, and age only moves with the
-    // clock, so this runs on a timer rather than off a change in the store.
-    private func deleteOldSessionsAutomatically() async {
-        let rule = sweepRule
-        oldSessionDeletion = nil
-        guard rule.policy.deletesAutomatically else { return }
-        var buffer = OldSessionSweep.EligibilityBuffer()
-
-        while !Task.isCancelled {
-            let now = Date()
-            await OldSessionSweep.run(days: rule.days, policy: rule.policy, store: store,
-                                      runner: runner, buffer: &buffer, now: now)
-            guard !Task.isCancelled else { return }
-            if oldSessionDeletion != buffer.deletion {
-                oldSessionDeletion = buffer.deletion
-            }
-            do {
-                try await Task.sleep(for: OldSessionSweep.monitorInterval)
-            } catch {
-                return
-            }
-        }
-    }
-
-    private func monitorOrphanedWorktrees() async {
-        let automaticallyPrunes = settings.autoPruneOrphanedWorktrees
-        orphanedWorktrees.setAutomaticPruningEnabled(automaticallyPrunes)
-        var nextDiscoveryAt = Date.distantPast
-
-        while !Task.isCancelled {
-            let now = Date()
-            if now >= nextDiscoveryAt {
-                _ = await orphanedWorktrees.refresh(in: store, now: now)
-                guard !Task.isCancelled else { return }
-                nextDiscoveryAt = Date().addingTimeInterval(
-                    OrphanedWorktreeSweep.discoveryInterval)
-            }
-
-            if automaticallyPrunes {
-                let due = orphanedWorktrees.automaticPruningCandidates(now: now)
-                if !due.isEmpty {
-                    let result = await orphanedWorktrees.prune(due, in: store, now: now)
-                    orphanCleanupError = result.failures.isEmpty
-                        ? nil
-                        : result.failures.map(\.message).joined(separator: "\n")
-                    if !result.removed.isEmpty {
-                        SessionLog.note(
-                            "orphan worktree sweep pruned count=\(result.removed.count)")
-                    }
-                    if !result.failures.isEmpty {
-                        SessionLog.note(
-                            "orphan worktree sweep failed count=\(result.failures.count)")
-                    }
-                }
-            } else {
-                orphanCleanupError = nil
-            }
-
-            do {
-                try await Task.sleep(for: OrphanedWorktreeSweep.monitorInterval)
-            } catch {
-                return
-            }
-        }
     }
 
     private func refreshSkillsAutomatically() async {

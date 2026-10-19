@@ -21,6 +21,9 @@ APP="build/$APP_NAME.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/MenuBarApp"
+# The terminal front end and background service ship beside the app, which starts the
+# service when it quits with terminals attached (ADR-0003).
+cp "$(dirname "$BIN")/code-station" "$APP/Contents/MacOS/code-station"
 
 # SwiftPM keeps target resources in their own bundle next to the binary; Bundle.module
 # finds it again once it sits in the app's Resources folder.

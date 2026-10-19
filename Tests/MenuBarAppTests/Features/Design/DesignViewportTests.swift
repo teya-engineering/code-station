@@ -1,6 +1,7 @@
 import AppKit
 import Testing
 import WebKit
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 struct DesignViewportTests {
@@ -85,8 +86,8 @@ struct DesignWebViewportTests {
                                                  width: 1440, height: 900)) {
             view = DesignWebContent.makeViewport(coordinator: coordinator)
             view.frame = CGRect(x: 0, y: 0, width: 720, height: 600)
-            window = NSWindow(contentRect: view.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
+            window = testWindow(contentRect: view.frame, styleMask: [.borderless],
+                                backing: .buffered, defer: false)
             window.contentView = view
             view.configure(screen: screen, reset: true)
             view.layoutSubtreeIfNeeded()
@@ -106,8 +107,8 @@ struct DesignWebViewportTests {
             } else {
                 webView.loadHTMLString(html, baseURL: nil)
             }
-            let deadline = ContinuousClock.now + .seconds(15)
-            while ContinuousClock.now < deadline {
+            let deadline = SuspendingClock.now + .seconds(15)
+            while SuspendingClock.now < deadline {
                 if !webView.isLoading,
                    (try? await webView.evaluateJavaScript(
                     "typeof window.__codeStationSetSelection === 'function'")) as? Bool == true {

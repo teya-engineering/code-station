@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 @Suite(.serialized)
@@ -27,7 +28,7 @@ struct AppUpdateCheckerTests {
     @MainActor
     @Test func findsAndCachesANewerPublishedRelease() async throws {
         let (preferences, suite) = try preferences()
-        defer { preferences.removePersistentDomain(forName: suite) }
+        defer { removeScratchDefaults(suite) }
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         AppUpdateURLProtocol.prepare(status: 200, body: release(version: "v1.3.0"))
         let checker = AppUpdateChecker(installedVersion: "1.2.4",
@@ -56,7 +57,7 @@ struct AppUpdateCheckerTests {
     @MainActor
     @Test func aFailedAttemptIsTriedAgainWithoutWaitingADay() async throws {
         let (preferences, suite) = try preferences()
-        defer { preferences.removePersistentDomain(forName: suite) }
+        defer { removeScratchDefaults(suite) }
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         AppUpdateURLProtocol.prepare(status: 503, body: Data())
         let checker = AppUpdateChecker(installedVersion: "1.0.0",
@@ -81,7 +82,7 @@ struct AppUpdateCheckerTests {
     @MainActor
     @Test func anAnswerWithNoUsableReleaseStillWaitsADay() async throws {
         let (preferences, suite) = try preferences()
-        defer { preferences.removePersistentDomain(forName: suite) }
+        defer { removeScratchDefaults(suite) }
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         AppUpdateURLProtocol.prepare(status: 200, body: Data("{}".utf8))
         let checker = AppUpdateChecker(installedVersion: "1.0.0",
@@ -101,7 +102,7 @@ struct AppUpdateCheckerTests {
     @MainActor
     @Test func dismissalSurvivesRelaunchButTheUpdateRemainsAvailable() async throws {
         let (preferences, suite) = try preferences()
-        defer { preferences.removePersistentDomain(forName: suite) }
+        defer { removeScratchDefaults(suite) }
         let update = AppUpdateRelease(
             version: "2.0.0",
             pageURL: URL(string: "https://github.com/teya-engineering/code-station/releases/tag/v2.0.0")!)
@@ -119,7 +120,7 @@ struct AppUpdateCheckerTests {
     @MainActor
     @Test func ignoresCurrentOlderAndInvalidReleases() async throws {
         let (preferences, suite) = try preferences()
-        defer { preferences.removePersistentDomain(forName: suite) }
+        defer { removeScratchDefaults(suite) }
         Preferences.setCachedAppUpdateRelease(
             AppUpdateRelease(
                 version: "1.2.0",
@@ -178,7 +179,7 @@ struct AppUpdateCheckerTests {
     @MainActor
     @Test func offersToInstallOnlyWhenTheAppCanReplaceItself() throws {
         let (preferences, suite) = try preferences()
-        defer { preferences.removePersistentDomain(forName: suite) }
+        defer { removeScratchDefaults(suite) }
         let installable = AppUpdateRelease(
             version: "2.0.0",
             pageURL: URL(string: "https://github.com/t/c/releases/tag/v2.0.0")!,

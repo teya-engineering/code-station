@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import CodeStationCore
 
 // The two grants worth having here: the browser dance for calling an API as yourself,
 // and the straight token call for service-to-service credentials.

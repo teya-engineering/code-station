@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import CodeStationCore
 
 // Catches one chord anywhere in a window, for a control that has no text field of its own
 // to type it into. A local monitor sees every key press in the app, so each one is tied to

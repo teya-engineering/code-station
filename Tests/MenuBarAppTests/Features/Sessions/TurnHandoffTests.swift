@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 @MainActor
@@ -87,8 +88,8 @@ struct TurnHandoffLayoutTests {
                 })
             Spacer(minLength: 0)
         })
-        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: width, height: 240),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
+        let window = testWindow(contentRect: CGRect(x: 0, y: 0, width: width, height: 240),
+                                styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = view
         window.center()
         view.frame = CGRect(x: 0, y: 0, width: width, height: 240)

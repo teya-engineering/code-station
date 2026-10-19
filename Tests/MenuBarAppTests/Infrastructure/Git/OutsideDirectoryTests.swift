@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import MenuBarApp
+@testable import CodeStationCore
 
 // Auto mode asks about a call that reaches outside the session's folders, so the folder is
 // what the answer is really about. Reading the wrong one out of a command is worse than

@@ -1,5 +1,6 @@
 import AppKit
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 struct SidebarSelectionContrastTests {

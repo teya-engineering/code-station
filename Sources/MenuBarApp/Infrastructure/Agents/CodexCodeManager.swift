@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import SwiftUI
+import CodeStationCore
 
 // Keeps the app's MCP definitions registered with the Codex CLI. The CLI remains the
 // owner of ~/.codex/config.toml, so this manager only reads or changes it through
@@ -67,7 +68,7 @@ final class CodexCodeManager {
     private var refreshID = UUID()
 
     init() {
-        available = ProcessManager.resolve("codex") != nil
+        available = ExecutableSearch.resolve("codex") != nil
     }
 
     func isRegistered(_ name: String) -> Bool { entries[name] != nil }
@@ -103,7 +104,7 @@ final class CodexCodeManager {
         let id = UUID()
         refreshID = id
         isRefreshing = true
-        guard let codexPath = ProcessManager.resolve("codex") else {
+        guard let codexPath = ExecutableSearch.resolve("codex") else {
             entries = [:]
             isRefreshing = false
             return
@@ -272,7 +273,7 @@ final class CodexCodeManager {
     // that turns MCP off snapshots the enabled servers and their transport kinds, using
     // the CLI as the source of truth instead of parsing its TOML file.
     func enabledServers(in directory: String) async throws -> [DisabledMCPServer] {
-        guard let codexPath = ProcessManager.resolve("codex") else {
+        guard let codexPath = ExecutableSearch.resolve("codex") else {
             throw DiscoveryFailure(message: "Codex CLI not found on PATH.")
         }
         let result: CommandRunner.Output
@@ -332,13 +333,7 @@ final class CodexCodeManager {
     }
 
     nonisolated static func enabledServers(in data: Data) -> [DisabledMCPServer]? {
-        guard let servers = try? JSONDecoder().decode([ListedServer].self, from: data) else {
-            return nil
-        }
-        let enabled = servers.filter(\.enabled)
-        let snapshots = enabled.compactMap(\.disabledSnapshot)
-        guard snapshots.count == enabled.count else { return nil }
-        return snapshots.sorted { $0.name < $1.name }
+        CodexMCPListing.enabledServers(in: data)
     }
 
     // What one `codex mcp` read printed, or nil when the CLI could not be run or said no.
@@ -353,7 +348,7 @@ final class CodexCodeManager {
 
     private func resolvedCommand(_ server: Server) -> String? {
         guard let command = server.command, !command.isEmpty else { return nil }
-        return ProcessManager.resolve(command) ?? command
+        return ExecutableSearch.resolve(command) ?? command
     }
 
     private func appEnv(_ server: Server) -> [String: String] {

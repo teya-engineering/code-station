@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import MenuBarApp
+@testable import CodeStationCore
 
 @MainActor
 struct AgentSessionRunnerTests {
@@ -43,7 +43,7 @@ struct AgentSessionRunnerTests {
     }
 
     private func fixture(_ agent: AgentKind) throws -> RunnerHarness {
-        let python = try #require(ProcessManager.resolve("python3"))
+        let python = try #require(ExecutableSearch.resolve("python3"))
         let fixture = try RunnerHarness(agent: agent, script: "exec '\(python)' -u \"$folder/server.py\" \"$folder\" \(agent == .codex ? "codex" : "copilot")",
                                         persistentAgentSessions: true)
         try Data(Self.server.utf8).write(to: fixture.scratch.path("server.py"))

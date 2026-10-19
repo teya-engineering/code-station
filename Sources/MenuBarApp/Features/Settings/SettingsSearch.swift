@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 enum SettingsSearchTarget: String, Hashable {
     case generalSidebar

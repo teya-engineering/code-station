@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import CodeStationCore
 
 enum HTTPMethod: String, CaseIterable, Identifiable, Codable {
     case get = "GET", post = "POST", put = "PUT", patch = "PATCH", delete = "DELETE", head = "HEAD"

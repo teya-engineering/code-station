@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 // Finding the terminals installed on a Mac comes down to one question: of all the apps

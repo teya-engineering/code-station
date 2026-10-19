@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import CodeStationCore
 
 // Sharing the pane's canvas keeps the detached window current as the agent edits it.
 @MainActor

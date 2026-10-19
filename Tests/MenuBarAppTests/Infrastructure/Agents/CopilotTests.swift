@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 // Running a session on Copilot: the arguments its CLI takes, its JSONL session log

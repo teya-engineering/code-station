@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import MenuBarApp
+@testable import CodeStationCore
 
 struct TaskScheduleTests {
     private var calendar: Calendar {

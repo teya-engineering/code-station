@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 // The session log, in the app rather than in Finder. A turn that stops moving leaves
 // nothing on screen to look at, and the answer is almost always in the last few lines

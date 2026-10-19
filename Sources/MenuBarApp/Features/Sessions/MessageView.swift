@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import CodeStationCore
 
 // One turn of the conversation. The user gets a bubble, Claude does not: long
 // answers read better as plain page text than as a giant tinted block.

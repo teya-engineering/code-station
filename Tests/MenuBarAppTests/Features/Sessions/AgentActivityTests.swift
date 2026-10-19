@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import MenuBarApp
+@testable import CodeStationCore
 
 // A fan-out arrives in the same flat stream as everything else: the only thing saying a
 // call was made by an agent rather than by the main loop is the call that started it.

@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 // Who a block on the ribbon belongs to, named and coloured exactly the way the sidebar
 // names and colours it, so the same colour means the same thing on every screen.

@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import CodeStationCore
 
 private let menuMinimumWidth: CGFloat = 170
 // A row takes the width its own text asks for, so a subtitle carrying something long -

@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import MenuBarApp
+@testable import CodeStationCore
 
 // The sound is read back from a raw string that a user or an older build can have left
 // in any shape, so what an unknown or missing value falls back to is pinned down.
@@ -8,7 +8,7 @@ struct SessionSoundTests {
     private func freshStore() -> UserDefaults {
         let name = "sound-test-\(UUID().uuidString)"
         let store = UserDefaults(suiteName: name)!
-        store.removePersistentDomain(forName: name)
+        removeScratchDefaults(name)
         return store
     }
 

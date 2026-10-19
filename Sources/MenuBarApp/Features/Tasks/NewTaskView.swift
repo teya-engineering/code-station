@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 // Everything a new task needs before it exists: what to call it, what it runs, which
 // agent runs it, and whether it runs on its own. Nil choices follow the app defaults.

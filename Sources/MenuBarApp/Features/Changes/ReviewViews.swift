@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 // The pieces a review is drawn with, shared by both diff layouts, the review list, the
 // send dialog and the cards in Chat, so a comment looks the same wherever it turns up.
@@ -703,11 +704,7 @@ struct QuestionThreadView: View {
 // long while it works, and what it came to once it stops. A running lane names the model it runs on; a finished one drops
 // that to save room and keeps it in the tooltip.
 struct ReviewLane: View {
-    enum State: Equatable {
-        case running
-        case finished(String)
-        case failed(String)
-    }
+    typealias State = ReviewLaneState
 
     let reviewer: SecondOpinion.Reviewer
     let started: Date

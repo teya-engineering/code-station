@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import CodeStationCore
 
 // The colour behind what a person sends in a session. The bubble's shape is fixed; only
 // its colours are a choice.

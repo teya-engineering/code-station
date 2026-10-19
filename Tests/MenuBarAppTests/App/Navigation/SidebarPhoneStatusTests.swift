@@ -1,5 +1,6 @@
 import Testing
 @testable import MenuBarApp
+@testable import CodeStationCore
 
 // The phone line is the only place outside the pairing dialog that says a phone can reach
 // the app, so it has to tell a joined phone apart from a code nobody has used yet.

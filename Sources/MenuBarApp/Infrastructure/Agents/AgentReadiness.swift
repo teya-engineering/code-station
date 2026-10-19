@@ -1,4 +1,5 @@
 import Foundation
+import CodeStationCore
 
 enum AgentReadiness: Equatable {
     case notInstalled

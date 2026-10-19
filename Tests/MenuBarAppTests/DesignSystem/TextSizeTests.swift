@@ -1,4 +1,5 @@
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 // The reading size the transcript, tool output, diffs and the terminal are drawn at.

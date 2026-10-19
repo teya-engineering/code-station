@@ -1,6 +1,7 @@
 import CryptoKit
 import Foundation
 import Synchronization
+import CodeStationCore
 
 // The parts of the app that belong to one organisation rather than to the app itself:
 // the identity provider its APIs sign in against, the calls worth starting from, the
@@ -458,7 +459,8 @@ extension SiteDefaults {
     // from what a shortcut is: the same entry keeps the same identity across launches,
     // which is what keeps a running command attached to its row.
     var startingShortcuts: [Shortcut] {
-        (shortcuts ?? []).map {
+        ShortcutIcon.installSymbolCheck()
+        return (shortcuts ?? []).map {
             Shortcut(id: Self.identity(of: "\($0.name)\n\($0.command)"),
                      name: $0.name,
                      text: $0.command,

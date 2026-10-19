@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 // A header name that is not a token reaches an HTTP/2 server as a frame it cannot read,

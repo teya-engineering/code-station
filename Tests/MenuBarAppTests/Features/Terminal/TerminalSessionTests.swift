@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 // TerminalSession is the layer the tab strip reads: it owns the pty and turns its

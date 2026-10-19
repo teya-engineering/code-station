@@ -1,5 +1,7 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
+import CodeStationCore
 
 // Only what changed is read, so the transcript is not searched on every redraw.
 struct LinkedApp: Equatable {
@@ -729,7 +731,7 @@ struct SessionView: View {
 
     // Says where the folder goes rather than showing a glyph that only ever meant Finder.
     // The chevron picks another app, and the pick is kept for next time.
-    private func openInButton(path: String, app: WorktreeApp, showsWord: Bool) -> some View {
+    private func openInButton(path: String, app: OpenInApp, showsWord: Bool) -> some View {
         HeaderSplitButton(
             image: WorktreeOpener.icon(for: app),
             word: "Open in \(app.name)",
@@ -743,11 +745,11 @@ struct SessionView: View {
             entries: { openInEntries(path: path, current: app) })
     }
 
-    private func openInEntries(path: String, current: WorktreeApp) -> [MenuEntry] {
+    private func openInEntries(path: String, current: OpenInApp) -> [MenuEntry] {
         WorktreeOpener.apps.map { app in
             .item(app.name, image: WorktreeOpener.icon(for: app), imageShape: .tile,
                   checked: app == current) {
-                WorktreeOpener.choose(app)
+                OpenIn.choose(app)
                 openWorktree(path, in: app)
             }
         } + [
@@ -759,7 +761,7 @@ struct SessionView: View {
         ]
     }
 
-    private func openWorktree(_ path: String, in app: WorktreeApp) {
+    private func openWorktree(_ path: String, in app: OpenInApp) {
         WorktreeOpener.open(path, in: app)
         showRailNote("Opened the worktree in \(app.name)")
     }
@@ -783,8 +785,8 @@ struct SessionView: View {
         if let worktreePath = session.worktreePath, let current = WorktreeOpener.current {
             // Finder stays one click away whichever app was picked.
             var apps = [current]
-            if current.bundleID != WorktreeOpener.finderID,
-               let finder = WorktreeOpener.apps.first(where: { $0.bundleID == WorktreeOpener.finderID }) {
+            if current.bundleID != OpenIn.finderID,
+               let finder = WorktreeOpener.apps.first(where: { $0.bundleID == OpenIn.finderID }) {
                 apps.append(finder)
             }
             for app in apps {

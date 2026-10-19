@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 struct RemoteCommitList: View {
     let commits: [GitRemoteCommit]

@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import MenuBarApp
+@testable import CodeStationCore
 
 struct SessionImportCatalogPerformanceTests {
     @Test func concurrentChecksShareOneAgentListingAndReuseIt() async throws {

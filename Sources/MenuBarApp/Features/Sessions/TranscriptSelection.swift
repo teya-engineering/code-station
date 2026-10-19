@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import CodeStationCore
 
 // What a piece of the transcript is, as far as copying it is concerned. Most of it is
 // simply a run of text. A table cell also knows which table and row it belongs to, so a

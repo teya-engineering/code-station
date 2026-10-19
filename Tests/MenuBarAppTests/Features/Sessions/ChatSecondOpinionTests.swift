@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import MenuBarApp
+@testable import CodeStationCore
 
 struct ChatSecondOpinionTests {
     private let plan = ChatSecondOpinion.Subject(kind: .plan, id: "plan:1",

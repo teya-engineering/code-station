@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import CodeStationCore
 
 // The glyph a saved command can carry, so a row of chips can be read at a glance rather
 // than only by name. A shortcut with no icon is the normal case, and nothing is drawn

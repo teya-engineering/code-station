@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import CodeStationCore
 
 // The left navigation for the whole window: every project with its sessions, plus a
 // pinned button that opens the app's tools and settings.
@@ -927,40 +928,10 @@ struct AppSidebar: View {
     // included. The worktrees get their own row: they are the part of this that touches
     // disk, and the part that can take uncommitted work with it.
     private func confirmClearSessions(in project: Project) {
-        let idle = idleSessions(in: project)
-        guard !idle.isEmpty else { return }
-        let worktrees = idle.flatMap { store.checkoutProjects(for: $0).compactMap(\.worktreePath) }
-        let dirty = worktrees.count(where: workingTrees.isDirty)
-        let designs = idle.count { store.hasDesignArtifacts(for: $0) }
-        let kept = store.standaloneSessions(for: project.id).count - idle.count
-
-        var rows = [Dialog.Impact.Row(title: counted(idle.count, "session"),
-                                      detail: "Conversation history is removed from Code Station.")]
-        if !worktrees.isEmpty {
-            rows.append(.init(
-                title: counted(worktrees.count, "worktree"),
-                detail: "Removed from disk."
-                    + (dirty > 0
-                       ? " \(dirty) \(dirty == 1 ? "has" : "have") uncommitted changes that will be lost."
-                       : " Branches are kept if they have unmerged commits.")))
-        }
-        if designs > 0 {
-            rows.append(.init(title: "Generated Design files",
-                              detail: "Permanently removed from \(counted(designs, "session"))."))
-        }
-        if kept > 0 {
-            rows.append(.init(title: "\(counted(kept, "running session")) \(kept == 1 ? "stays" : "stay")",
-                              detail: "Sessions that are still working are left alone.", kept: true))
-        }
-        rows.append(.init(title: "Original project folder stays", detail: project.collapsedPath, kept: true))
-
-        dialogs.show(.impact("Clear \(counted(idle.count, "session")) from \(project.name)?",
-                             message: "Sessions that are not running will leave Code Station.",
-                             subject: .init(name: project.name), rows: rows,
-                             warning: dirty > 0
-                                 ? "Uncommitted changes and conversation history cannot be restored."
-                                 : "Conversation history cannot be restored.",
-                             action: "Clear sessions") {
+        let idle = ProjectRemoval.idleSessions(in: project, store: store, runner: runner)
+        guard let impact = ProjectRemoval.clearingImpact(of: project, in: store, runner: runner,
+                                                         isDirty: workingTrees.isDirty) else { return }
+        dialogs.show(.impact(impact) {
             Task {
                 if case .failure(let failure) = await SessionRemoval.run(
                     idle, in: store, runner: runner) {
@@ -968,10 +939,6 @@ struct AppSidebar: View {
                 }
             }
         })
-    }
-
-    private func idleSessions(in project: Project) -> [ChatSession] {
-        store.standaloneSessions(for: project.id).filter { !runner.isBusy($0.id, store: store) }
     }
 
     private func confirmRemoveProject(_ project: Project) {

@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import CodeStationCore
 
 // The second opinion lives in three dialogs opened from one control in the review bar:
 // asking, watching the reviewers work, and going through what they found. The bar itself

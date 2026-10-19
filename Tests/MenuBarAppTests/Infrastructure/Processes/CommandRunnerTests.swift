@@ -1,6 +1,7 @@
 import Darwin
 import Foundation
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 struct CommandRunnerTests {
@@ -18,6 +19,48 @@ struct CommandRunnerTests {
         #expect(output.errorOutput == "problem")
         #expect(output.status == 7)
         #expect(!output.succeeded)
+    }
+
+    // AppKit parks a global-queue worker for each overlay scroller it is animating, and
+    // libdispatch stops adding workers to those queues at 64. A command whose own work
+    // waited for one of them would then wait for good, so it must not need any.
+    @Test func finishesWhileEveryGlobalQueueWorkerIsBusy() async throws {
+        let release = DispatchSemaphore(value: 0)
+        let blockers = 96
+        for _ in 0..<blockers {
+            DispatchQueue.global(qos: .userInitiated).async { _ = release.wait(timeout: .now() + 10) }
+        }
+        defer { for _ in 0..<blockers { release.signal() } }
+        // Nothing else on those queues gets a worker now, so the test is about something.
+        let probe = OutputBox()
+        DispatchQueue.global(qos: .userInitiated).async { probe.set(nil) }
+        try #require(!(await waitUntil(timeout: .milliseconds(500)) { probe.isSet }))
+
+        let blocking = OutputBox()
+        Thread {
+            blocking.set(try? CommandRunner.runBlocking(executable: "/bin/echo",
+                                                        arguments: ["blocking"],
+                                                        timeout: .seconds(2)))
+        }.start()
+        let asynchronous = OutputBox()
+        Task {
+            asynchronous.set(try? await CommandRunner.run(executable: "/bin/echo",
+                                                          arguments: ["async"],
+                                                          timeout: .seconds(2)))
+        }
+
+        #expect(await waitUntil(timeout: .seconds(5)) { blocking.isSet && asynchronous.isSet })
+        #expect(blocking.output?.output == "blocking\n")
+        #expect(asynchronous.output?.output == "async\n")
+    }
+
+    private final class OutputBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var stored: CommandRunner.Output??
+
+        var isSet: Bool { lock.withLock { stored != nil } }
+        var output: CommandRunner.Output? { lock.withLock { stored ?? nil } }
+        func set(_ output: CommandRunner.Output?) { lock.withLock { stored = .some(output) } }
     }
 
     @Test func drainsOutputPastTheCaptureLimit() async throws {

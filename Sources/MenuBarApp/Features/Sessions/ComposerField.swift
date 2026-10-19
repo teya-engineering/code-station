@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import CodeStationCore
 
 // The prompt box. SwiftUI's vertical-axis TextField settles on a wrapping width early and
 // never revisits it, so lines break far short of the box they are drawn in and the top of

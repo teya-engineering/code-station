@@ -1,4 +1,5 @@
 import SwiftUI
+import CodeStationCore
 
 enum RepertoireFilter: CaseIterable, Identifiable {
     case all

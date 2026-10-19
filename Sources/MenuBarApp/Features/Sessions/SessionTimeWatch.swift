@@ -1,4 +1,5 @@
 import Foundation
+import CodeStationCore
 
 // How much of each session's time landed where, so Home can say where the day went
 // without opening every conversation. A transcript is a file of its own and a long one

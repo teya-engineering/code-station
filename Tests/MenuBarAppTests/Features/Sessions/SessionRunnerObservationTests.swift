@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 // A turn starts and ends tools many times, and the sidebar has a row for every session.

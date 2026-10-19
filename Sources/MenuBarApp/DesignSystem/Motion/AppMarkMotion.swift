@@ -1,4 +1,5 @@
 import Foundation
+import CodeStationCore
 
 enum AppMarkGesture: CaseIterable {
     case ripple, magnetic, orbit, bloom

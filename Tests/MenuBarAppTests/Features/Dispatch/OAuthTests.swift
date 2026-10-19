@@ -1,6 +1,7 @@
 import Foundation
 import Network
 import Testing
+@testable import CodeStationCore
 @testable import MenuBarApp
 
 // The parts of the OAuth flow that fail silently when they are wrong: the PKCE proof the
