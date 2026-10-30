@@ -21,6 +21,9 @@ struct ThreadNodeTests {
                        restingFill: .purple.opacity(0.72))
                 .frame(width: 40, height: 40)
                 .background(Color.white)
+                // Pinned so the result does not depend on the Reduce Motion setting of
+                // the Mac running the tests.
+                .environment(\._accessibilityReduceMotion, false)
         }
     }
 
