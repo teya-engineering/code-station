@@ -73,6 +73,8 @@ struct SessionView: View {
     @State private var focusHandoffReview = false
     @State private var agentFocus: AgentTranscriptFocus?
     @State private var recapOpen = false
+    // The title being typed while the header's title is open for renaming.
+    @State private var titleDraft: String?
     @State private var recapNeedsAttention = false
     // Whether the person asked for the recap that is on its way. One they asked for lifts
     // into place; one written on its own appears where it hangs without moving, since
@@ -504,16 +506,10 @@ struct SessionView: View {
                 if session.isTroubleshooting {
                     MonoChip(text: "TROUBLESHOOT", size: 9, tint: Theme.secret)
                 }
-                // A prompt cut to a line is a label rather than a heading, so it is drawn
-                // as one: the same family, a step down in size, and a step back in
-                // contrast from the name it qualifies.
-                Text(session.title)
-                    .font(.system(size: 12.5))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(idealWidth: Self.titleRoom, alignment: .leading)
-                    .changingName(session.title)
+                SessionHeaderTitle(title: session.title, idealWidth: Self.titleRoom,
+                                   draft: $titleDraft) { name in
+                    store.renameSession(session.id, to: name)
+                }
             }
 
             Spacer(minLength: 12)
