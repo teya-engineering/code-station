@@ -16,6 +16,7 @@ enum AuroraEntrance {
         let fadeDuration = duration - release - spread
         let standard = CursorEffectsSettings().intensity
         let extent = (0.55 + intensity * 0.82) / (0.55 + standard * 0.82)
+        let burstScale = 0.85
         let brightness = (0.4 + intensity * 0.8) / (0.4 + standard * 0.8)
         let light = colour(0).brightnessComponent < 0.9
         let times = progress.map { [$0 * duration] } ?? (0...60).map { Double($0) / 60 * duration }
@@ -173,7 +174,7 @@ enum AuroraEntrance {
         }
         glow("entrance-burst-core", colours: coreColours, stops: [0, 0.12, 0.36, 0.7, 1], additiveBlend: true) { time in
             let frame = burst(time)
-            return (58 + frame.travel * 62, frame.flash * 0.95 + frame.fade * 0.12)
+            return ((58 + frame.travel * 62) * burstScale, frame.flash * 0.95 + frame.fade * 0.12)
         }
         for index in 0..<streakCount {
             let angle = Double(index) * 2.399963 + noise(index + 30) * 0.13
@@ -186,7 +187,7 @@ enum AuroraEntrance {
                 let bend = (noise(index + 64) - 0.5) * 0.17
                 let points = (0...14).map { step in
                     let t = Double(step) / 14
-                    return position(angle + bend * t, tail + (reach - tail) * t, flat: 0.86)
+                    return position(angle + bend * t, (tail + (reach - tail) * t) * burstScale, flat: 0.86)
                 }
                 return (points, frame.fade * frame.ignition * (0.35 + noise(index + 74) * 0.65))
             }
@@ -201,7 +202,7 @@ enum AuroraEntrance {
             let frames = times.map(burst)
             let positions = frames.map { frame in
                 NSValue(point: position(Double(index) * 2.399963 + 0.64,
-                    (50 + noise(index + 8) * 105) * frame.travel + frame.drift * 25, flat: 0.84))
+                    ((50 + noise(index + 8) * 105) * frame.travel + frame.drift * 25) * burstScale, flat: 0.84))
             }
             point.position = positions.last!.pointValue
             animate(point, "position", values: positions)
@@ -218,8 +219,8 @@ enum AuroraEntrance {
         var tilt = CGAffineTransform(rotationAngle: -0.15).concatenating(CGAffineTransform(translationX: center.x, y: center.y))
         let paths = times.map { time in
             let travel = burst(time).travel
-            let rx = (16 + travel * 104) * extent
-            let ry = (12 + travel * 77) * extent
+            let rx = (16 + travel * 104) * extent * burstScale
+            let ry = (12 + travel * 77) * extent * burstScale
             return CGPath(ellipseIn: CGRect(x: -rx, y: -ry, width: rx * 2, height: ry * 2), transform: &tilt)
         }
         wave.path = paths.last!
@@ -232,8 +233,9 @@ enum AuroraEntrance {
                tint(0.8, alpha: 0.25), tint(0.8, alpha: 0)], stops: [0, 0.4, 0.5, 0.6, 1], bands: [(0.9, 1)],
                additiveBlend: true) { time in
             let frame = burst(time)
-            return ([CGPoint(x: -112 * frame.travel * extent, y: center.y),
-                     CGPoint(x: 126 * frame.travel * extent, y: center.y)],
+            let reach = 119 * frame.travel * extent * burstScale
+            return ([CGPoint(x: center.x - reach, y: center.y),
+                     CGPoint(x: center.x + reach, y: center.y)],
                     time < release + spread ? frame.flash : 0)
         }
         return root
