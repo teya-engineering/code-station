@@ -27,9 +27,11 @@ final class SunlightTracker {
         timer?.cancel()
     }
 
+    // The zone may have changed while the tracker was stopped, with nobody listening, so
+    // the place is looked up again on every start.
     func start() {
         guard timer == nil else { return }
-        refresh()
+        relocate()
         let timer = DispatchSource.makeTimerSource(queue: .main)
         timer.schedule(deadline: .now() + 60, repeating: .seconds(60), leeway: .seconds(5))
         timer.setEventHandler { [weak self] in
@@ -66,7 +68,9 @@ final class SunlightTracker {
     }
 
     // The zone may have changed with the clock, so the place is looked up again first.
+    // Foundation keeps the zone it read last until it is told to drop it.
     func relocate() {
+        NSTimeZone.resetSystemTimeZone()
         place = ZoneLocation.bestGuess()
         refresh()
     }

@@ -20,7 +20,9 @@ struct AppSlider: View {
     private static let trackHeight: CGFloat = 6
 
     @State private var hovering = false
-    @State private var dragging = false
+    // A gesture state falls back to false by itself when a drag is cancelled, which
+    // onEnded never hears about, so a preview can never be left running.
+    @GestureState private var dragging = false
     @FocusState private var focused: Bool
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -53,20 +55,15 @@ struct AppSlider: View {
             .frame(maxHeight: .infinity)
             .contentShape(Rectangle())
             .gesture(DragGesture(minimumDistance: 0)
+                .updating($dragging) { _, dragging, _ in dragging = true }
                 .onChanged { drag in
-                    if !dragging {
-                        dragging = true
-                        onEditingChanged(true)
-                    }
                     let fraction = min(1, max(0, (drag.location.x - Self.thumb / 2) / max(1, travel)))
                     set(range.lowerBound + fraction * (range.upperBound - range.lowerBound))
-                }
-                .onEnded { _ in
-                    dragging = false
-                    onEditingChanged(false)
                 })
         }
         .frame(height: 24)
+        .onChange(of: dragging) { _, dragging in onEditingChanged(dragging) }
+        .onDisappear { onEditingChanged(false) }
         .onPointerHover { hovering = $0 }
         .motion(Motion.hover, value: grown)
         .motion(Motion.control, value: focused)

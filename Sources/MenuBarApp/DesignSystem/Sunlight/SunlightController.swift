@@ -25,31 +25,46 @@ final class SunlightController {
     func start() {
         guard observers.isEmpty else { return }
         // A sheet or a panel is a window of its own and arrives at any time, so each one
-        // is dressed as it comes to the front.
-        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didBecomeMainNotification] {
+        // is dressed as it comes on screen. Not every window takes focus when it shows,
+        // so a change in what is visible counts as well as a change of key window.
+        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didBecomeMainNotification,
+                     NSWindow.didChangeOcclusionStateNotification] {
             observers.append(NotificationCenter.default.addObserver(
                 forName: name, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.apply(duration: 0) }
             })
         }
-        observe()
+        observeSettings()
+        observeSun()
         apply(duration: 0)
     }
 
-    private func observe() {
+    // A switch or a slider is answered at a control's pace.
+    private func observeSettings() {
         withObservationTracking {
             _ = settings.sunlightEnabled
             _ = settings.sunlightMode
             _ = settings.sunlightNightKelvin
             _ = settings.sunlightPreviewing
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                apply(duration: Motion.controlDuration)
+                observeSettings()
+            }
+        }
+    }
+
+    // A step the sun takes is a change nobody asked for, so it lands without motion. A
+    // minute's step is far too small to see.
+    private func observeSun() {
+        withObservationTracking {
             _ = tracker.reading
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                // A step the sun takes is a change nobody asked for, so it is a fade too
-                // slight to see move; a switch or a slider is answered at a control's pace.
-                apply(duration: Motion.controlDuration)
-                observe()
+                apply(duration: 0)
+                observeSun()
             }
         }
     }
@@ -77,7 +92,7 @@ final class SunlightController {
         filters.removeAll { $0.window == nil }
         if !tint.isNeutral {
             for window in NSApplication.shared.windows
-            where !filters.contains(where: { $0.window === window }) {
+            where Self.wearsSunlight(window) && !filters.contains(where: { $0.window === window }) {
                 guard let filter = SunlightFilter(window: window) else { continue }
                 filters.append(Filter(window: window, filter: filter))
             }
@@ -92,5 +107,13 @@ final class SunlightController {
                 for entry in fading { entry.filter.remove() }
             }
         }
+    }
+
+    // Only the app's own windows and their sheets. A borderless window, such as the one
+    // that takes pictures of a design, has no backdrop for the sheet to blend into, and
+    // the file chooser belongs to the system.
+    private static func wearsSunlight(_ window: NSWindow) -> Bool {
+        guard window.isVisible, !(window is NSSavePanel) else { return false }
+        return window.styleMask.contains(.titled) || window.sheetParent != nil
     }
 }

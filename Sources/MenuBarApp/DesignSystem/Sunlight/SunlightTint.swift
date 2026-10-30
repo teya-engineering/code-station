@@ -3,8 +3,7 @@ import AppKit
 // The colour of light at a temperature, as a gain on each channel. White under neutral
 // daylight stays white; under a 3400K lamp it keeps all its red, loses a quarter of its
 // green and nearly half its blue. Multiplying a screen's channels by these is what f.lux
-// does to the whole display, and it is what both ways of drawing the Sunlight theme do
-// to the window.
+// does to the whole display, and it is what SunlightFilter does to the window.
 struct SunlightTint: Equatable, Sendable {
     var red: Double
     var green: Double
@@ -29,14 +28,6 @@ struct SunlightTint: Equatable, Sendable {
     }
 
     var isNeutral: Bool { self == .neutral }
-
-    func apply(to colour: NSColor) -> NSColor {
-        guard !isNeutral, let srgb = colour.usingColorSpace(.sRGB) else { return colour }
-        return NSColor(srgbRed: srgb.redComponent * red,
-                       green: srgb.greenComponent * green,
-                       blue: srgb.blueComponent * blue,
-                       alpha: srgb.alphaComponent)
-    }
 
     // Tanner Helland's fit of the black-body curve, in sRGB on 0 to 1. Good to a few
     // percent between 1000K and 40000K, which is far more range than a day needs.

@@ -77,13 +77,6 @@ enum Sunlight {
         return 1_000_000 / mired
     }
 
-    // How far from neutral daylight a temperature is, 0 at daylight and 1 at the night
-    // colour given.
-    static func warmth(of kelvin: Double, night: Double = nightKelvin) -> Double {
-        let nightMired = 1_000_000 / night, day = 1_000_000 / dayKelvin
-        return min(1, max(0, (1_000_000 / kelvin - day) / (nightMired - day)))
-    }
-
     // What f.lux calls a temperature, for the slider's readout.
     static func name(for kelvin: Double) -> String {
         switch kelvin {

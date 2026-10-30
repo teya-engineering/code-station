@@ -21,15 +21,16 @@ final class SunlightFilter {
         frame.addSubview(sheet, positioned: .above, relativeTo: nil)
     }
 
-    // Moves the window to a new tint. Animated, the change is a cross-fade the eye cannot
-    // see move; otherwise it lands at once, which is what Reduce Motion asks for.
+    // Moves the window to a new tint, fading when given a duration and landing at once
+    // otherwise. A fade starts from the colour on screen, so a change that comes while
+    // the last one is still fading carries on from there instead of jumping back.
     func set(_ tint: SunlightTint, duration: TimeInterval) {
         guard tint != self.tint, let layer = sheet.layer else { return }
-        let from = self.tint
+        let from = layer.presentation()?.backgroundColor ?? Self.colour(self.tint)
         self.tint = tint
         if duration > 0 {
             let animation = CABasicAnimation(keyPath: "backgroundColor")
-            animation.fromValue = Self.colour(from)
+            animation.fromValue = from
             animation.toValue = Self.colour(tint)
             animation.duration = duration
             animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
@@ -56,16 +57,12 @@ final class SunlightFilter {
             layerUsesCoreImageFilters = true
             wantsLayer = true
             layer?.compositingFilter = CIFilter(name: "CIMultiplyBlendMode")
-            layer?.backgroundColor = colour(.neutral)
+            layer?.backgroundColor = SunlightFilter.colour(.neutral)
         }
 
         required init?(coder: NSCoder) { nil }
 
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
         override var acceptsFirstResponder: Bool { false }
-
-        private func colour(_ tint: SunlightTint) -> CGColor {
-            CGColor(srgbRed: tint.red, green: tint.green, blue: tint.blue, alpha: 1)
-        }
     }
 }

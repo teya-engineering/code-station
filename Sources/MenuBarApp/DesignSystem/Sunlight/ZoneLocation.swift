@@ -19,11 +19,13 @@ enum ZoneLocation {
 
     // Coordinates for the zone, falling back on the longitude its clock implies and the
     // equator when the table does not know it. A zone named for an offset alone, such as
-    // GMT+3, has no city to look up.
-    static func bestGuess(for zone: TimeZone = .current) -> Coordinates {
-        coordinates(for: zone) ?? Coordinates(
-            latitude: 0,
-            longitude: Double(zone.secondsFromGMT()) / 3_600 * 15)
+    // GMT+3, has no city to look up. The longitude comes from the zone's standard time,
+    // since summer time moves the clock an hour without moving the sun.
+    static func bestGuess(for zone: TimeZone = .current, table: String? = nil,
+                          at moment: Date = Date()) -> Coordinates {
+        if let place = coordinates(for: zone, table: table) { return place }
+        let standard = Double(zone.secondsFromGMT(for: moment)) - zone.daylightSavingTimeOffset(for: moment)
+        return Coordinates(latitude: 0, longitude: standard / 3_600 * 15)
     }
 
     // ISO 6709 as the table writes it: ±DDMM±DDDMM or ±DDMMSS±DDDMMSS.

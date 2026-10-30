@@ -152,9 +152,6 @@ struct SunlightTests {
         #expect(Sunlight.kelvin(for: 1) == 6500)
         let half = Sunlight.kelvin(for: 0.5)
         #expect(half > 3400 && half < 6500)
-        #expect(abs(Sunlight.warmth(of: half) - 0.5) < 0.001)
-        #expect(Sunlight.warmth(of: 6500) == 0)
-        #expect(Sunlight.warmth(of: 3400) == 1)
     }
 }
 
@@ -196,5 +193,15 @@ struct ZoneLocationTests {
         let place = ZoneLocation.bestGuess(for: zone)
         #expect(place.latitude == 0)
         #expect(abs(place.longitude - 45) < 0.001)
+    }
+
+    // Summer time moves the clock an hour, not the sun, so the guess stays on the
+    // zone's standard meridian all year.
+    @Test func summerTimeDoesNotMoveTheGuess() throws {
+        let newYork = try #require(TimeZone(identifier: "America/New_York"))
+        let july = Date(timeIntervalSince1970: 1_784_000_000)
+        #expect(newYork.isDaylightSavingTime(for: july))
+        let place = ZoneLocation.bestGuess(for: newYork, table: "", at: july)
+        #expect(abs(place.longitude - -75) < 0.001)
     }
 }
