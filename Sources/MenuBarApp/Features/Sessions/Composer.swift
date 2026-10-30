@@ -28,6 +28,9 @@ struct Composer<Above: View, Accessory: View>: View {
     // The side margin, which the narrow Design pane keeps smaller.
     var inset: CGFloat = 20
     var minimumLines: Int = 1
+    // Where the send button sits against a field taller than one line. The tall Design
+    // field centres it, level with the microphone and avatar inside the field.
+    var buttonAlignment: VerticalAlignment = .bottom
     let onOversizedPaste: (String) -> Void
     var onRecallUp: (() -> Bool)? = nil
     var onRecallDown: (() -> Bool)? = nil
@@ -101,7 +104,7 @@ struct Composer<Above: View, Accessory: View>: View {
                     .transition(.fadeIn)
             }
 
-            HStack(alignment: .bottom, spacing: 10) {
+            HStack(alignment: buttonAlignment, spacing: 10) {
                 // Typing during a turn is allowed. An agent that can take a prompt
                 // mid-turn gets it at its next step when settings say to steer; otherwise
                 // what is written goes to the back of the queue. A turn parked on a

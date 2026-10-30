@@ -542,6 +542,7 @@ struct DesignConversation: View {
                         placeholder: placeholder,
                         inset: 14,
                         minimumLines: 3,
+                        buttonAlignment: .center,
                         onOversizedPaste: attachPastedText,
                         onRecallUp: { runner.recallEarlier(sessionID, store: store) },
                         onRecallDown: { runner.recallLater(sessionID, store: store) },
